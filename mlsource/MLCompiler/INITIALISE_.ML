@@ -198,9 +198,12 @@ struct
             open TYPETREE;
         in
             (* Make some type variables *)
-            fun makeEqTV  () = mkTypeVar (generalisable, true,  false);
-            fun makeTV    () = mkTypeVar (generalisable, false, false);
-            fun makeTypeVariable() = makeTv (emptyType, generalisable, false, false)
+            fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
+            fun makeTV    () = mkTypeVar (generalisable, false, false, false)
+            fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
+            fun makeTypeVariable() =
+                makeTv {value=emptyType, level=generalisable, equality=false,
+                        nonunifiable=false, printable=false}
             
             (* Make some functions *)
             infixr 5 ->>
@@ -908,21 +911,21 @@ struct
 (*              Funny polymorphic functions (in structure PolyML)            *)
 (*****************************************************************************)
         local
-            val printType = let val a = makeTV () in a ->> a end;
+            val printType = let val a = makePrintTV () in a ->> a end;
             val printVal  = mkSpecialFun("print", printType, Print);
         in
             val () = enterPolyMLVal ("print", printVal);
         end;
 
         local
-            val makeStringType = let val a = makeTV () in a ->> String end;
+            val makeStringType = let val a = makePrintTV () in a ->> String end;
             val makeStringVal  = mkSpecialFun("makestring", makeStringType, MakeString);
         in
             val () = enterPolyMLVal ("makestring", makeStringVal);
         end;
 
         local
-            val prettyType = let val a = makeTV () in a ** Int ->> PrettyType end;
+            val prettyType = let val a = makePrintTV () in a ** Int ->> PrettyType end;
             val prettyVal  = mkSpecialFun("prettyRepresentation", prettyType, GetPretty);
         in
             val () = enterPolyMLVal ("prettyRepresentation", prettyVal);
@@ -930,8 +933,8 @@ struct
  
         local
             (* addPrettyPrinter is the new function to install a pretty printer. *)
-            val a = makeTV ();
-            val b = makeTV ();
+            val a = makeTV ()
+            val b = makeTV ()
         
             val addPrettyType = (Int ->> b ->> a ->> PrettyType) ->> Unit;
             val addPrettyVal  = mkSpecialFun("addPrettyPrinter", addPrettyType, AddPretty);
@@ -941,8 +944,8 @@ struct
 
         local
             (* Old install_pp function to install a pretty-printer. *)
-            val a = makeTV ();
-            val b = makeTV ();
+            val a = makeTV ()
+            val b = makeTV ()
         
             val printTupleType =
                 TYPETREE.mkProductType

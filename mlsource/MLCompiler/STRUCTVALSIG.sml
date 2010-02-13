@@ -4,18 +4,18 @@
 
     Modified David C. J. Matthews 2009.
 
-    This library is free software; you can redistribute it and/or
+    This library is free software you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
+    License as published by the Free Software Foundation either
     version 2.1 of the License, or (at your option) any later version.
     
     This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    but WITHOUT ANY WARRANTY without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
     Lesser General Public License for more details.
     
     You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
+    License along with this library if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
@@ -29,7 +29,7 @@ sig
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     val inBasis: location
 
-    type codetree;
+    type codetree
     type univTable
 
     (* Types *)
@@ -40,7 +40,7 @@ sig
   
     (* Standard type constructors. *)
   
-    type typeVarForm;
+    type typeVarForm
     type uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
@@ -172,135 +172,136 @@ sig
     |   StructureAt of location
 
     (* type identifiers. *)
-    val isFreeId:     typeId -> bool;
-    val isBoundId:    typeId -> bool;
-    val isTypeFunction: typeId -> bool;
-    val isEquality:   typeId -> bool;
-    val offsetId:     typeId -> int;
-    val idAccess:     typeId -> valAccess;
-    val sameTypeId:   typeId * typeId -> bool;
+    val isFreeId:     typeId -> bool
+    val isBoundId:    typeId -> bool
+    val isTypeFunction: typeId -> bool
+    val isEquality:   typeId -> bool
+    val offsetId:     typeId -> int
+    val idAccess:     typeId -> valAccess
+    val sameTypeId:   typeId * typeId -> bool
     val setEquality:  typeId * bool -> unit
 
     val basisDescription: string -> typeIdDescription
-    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId;
-    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId;
-    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId;
-    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId;
-    val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId;
+    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId
+    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId
+    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId
+    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId
+    val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId
     
     (* Types *)
-    val badType:   types;
-    val emptyType: types;
+    val badType:   types
+    val emptyType: types
 
-    val isBad:     types -> bool;
-    val isEmpty:   types -> bool;
+    val isBad:     types -> bool
+    val isEmpty:   types -> bool
 
-    val tcName:            typeConstrs -> string;
-    val tcArity:           typeConstrs -> int;
-    val tcTypeVars:        typeConstrs -> typeVarForm list;
-    val tcEquivalent:      typeConstrs -> types;
-    val tcEquality:        typeConstrs -> bool;
-    val tcSetEquality:     typeConstrs * bool -> unit;
-    val tcIdentifier:      typeConstrs -> typeId;
-    val tcLetDepth:        typeConstrs -> int;
+    val tcName:            typeConstrs -> string
+    val tcArity:           typeConstrs -> int
+    val tcTypeVars:        typeConstrs -> typeVarForm list
+    val tcEquivalent:      typeConstrs -> types
+    val tcEquality:        typeConstrs -> bool
+    val tcSetEquality:     typeConstrs * bool -> unit
+    val tcIdentifier:      typeConstrs -> typeId
+    val tcLetDepth:        typeConstrs -> int
     val tcLocations:       typeConstrs -> locationProp list
     val tcIsAbbreviation:  typeConstrs -> bool
 
     val makeTypeConstructor:
-        string * typeVarForm list * typeId * int * locationProp list -> typeConstrs;
+        string * typeVarForm list * typeId * int * locationProp list -> typeConstrs
 
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
+
     val tsConstr: typeConstrSet -> typeConstrs
     val tsConstructors: typeConstrSet -> values list
 
-    val tvLevel:        typeVarForm -> int;
-    val tvEquality:     typeVarForm -> bool;
-    val tvNonUnifiable: typeVarForm -> bool;
-    val tvValue:        typeVarForm -> types;
-    val tvSetValue:     typeVarForm * types -> unit;
+    val tvLevel:        typeVarForm -> int
+    val tvEquality:     typeVarForm -> bool
+    val tvPrintity:     typeVarForm -> bool
+    val tvNonUnifiable: typeVarForm -> bool
+    val tvValue:        typeVarForm -> types
+    val tvSetValue:     typeVarForm * types -> unit
 
-    val sameTv: typeVarForm * typeVarForm -> bool;
+    val sameTv: typeVarForm * typeVarForm -> bool
 
-    val makeTv: types * int * bool * bool -> typeVarForm;
+    val makeTv:
+        {value: types, level: int, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
 
-    val generalisable: int;
+    val generalisable: int
 
     (* Access to values, structures etc. *)
 
-    val isGlobal:   valAccess -> bool;
-    val isLocal:    valAccess -> bool;
-    val isSelected: valAccess -> bool;
-    val isFormal:   valAccess -> bool;
+    val isGlobal:   valAccess -> bool
+    val isLocal:    valAccess -> bool
+    val isSelected: valAccess -> bool
+    val isFormal:   valAccess -> bool
 
-    val makeGlobal:   codetree -> valAccess;
-    val makeLocal:    unit -> valAccess;
-    val makeSelected: int * structVals -> valAccess;
-    val makeFormal:   int -> valAccess;
+    val makeGlobal:   codetree -> valAccess
+    val makeLocal:    unit -> valAccess
+    val makeSelected: int * structVals -> valAccess
+    val makeFormal:   int -> valAccess
 
-    val vaGlobal:   valAccess -> codetree;
-    val vaFormal:   valAccess -> int;
-    val vaLocal:    valAccess -> { addr: int ref, level: int ref };
-    val vaSelected: valAccess -> { addr: int,     base:  structVals };
+    val vaGlobal:   valAccess -> codetree
+    val vaFormal:   valAccess -> int
+    val vaLocal:    valAccess -> { addr: int ref, level: int ref }
+    val vaSelected: valAccess -> { addr: int,     base:  structVals }
 
-    val undefinedStruct:   structVals;
-    val isUndefinedStruct: structVals -> bool;
-    val structSignat:      structVals -> signatures;
-    val structName:        structVals -> string;
-    val structAccess:      structVals -> valAccess;
-    val structLocations:   structVals -> locationProp list;
+    val undefinedStruct:   structVals
+    val isUndefinedStruct: structVals -> bool
+    val structSignat:      structVals -> signatures
+    val structName:        structVals -> string
+    val structAccess:      structVals -> valAccess
+    val structLocations:   structVals -> locationProp list
 
-    val makeEmptyGlobal:   string -> structVals;
-    val makeGlobalStruct:  string * signatures * codetree * location -> structVals;
-    val makeLocalStruct:   string * signatures * locationProp list -> structVals;
-    val makeFormalStruct:  string * signatures * int * locationProp list -> structVals;
+    val makeEmptyGlobal:   string -> structVals
+    val makeGlobalStruct:  string * signatures * codetree * location -> structVals
+    val makeLocalStruct:   string * signatures * locationProp list -> structVals
+    val makeFormalStruct:  string * signatures * int * locationProp list -> structVals
 
-    val makeSelectedStruct: structVals * structVals * locationProp list -> structVals;
+    val makeSelectedStruct: structVals * structVals * locationProp list -> structVals
 
-      (* Functors *)
-  
-      type functors;
+    (* Functors *)
 
-      val undefinedFunctor:   functors;
-      val isUndefinedFunctor: functors -> bool;
-      val functorName:        functors -> string;
-      val functorArg:         functors -> structVals;
-      val functorResult:      functors -> signatures;
-      val functorAccess:      functors -> valAccess;
-      val functorDeclaredAt:  functors -> location
-  
-      val makeFunctor: string * structVals * signatures * valAccess * location -> functors;
+    type functors
 
-      (* Signatures *)
+    val undefinedFunctor:   functors
+    val isUndefinedFunctor: functors -> bool
+    val functorName:        functors -> string
+    val functorArg:         functors -> structVals
+    val functorResult:      functors -> signatures
+    val functorAccess:      functors -> valAccess
+    val functorDeclaredAt:  functors -> location
 
-    val sigName:       signatures -> string;
-    val sigTab:        signatures -> univTable;
-    val sigMinTypes:   signatures -> int;
-    val sigMaxTypes:   signatures -> int;
-    val sigDeclaredAt: signatures -> location;
-    val sigTypeIdMap:  signatures -> (int -> typeId);
+    val makeFunctor: string * structVals * signatures * valAccess * location -> functors
+
+    (* Signatures *)
+    val sigName:       signatures -> string
+    val sigTab:        signatures -> univTable
+    val sigMinTypes:   signatures -> int
+    val sigMaxTypes:   signatures -> int
+    val sigDeclaredAt: signatures -> location
+    val sigTypeIdMap:  signatures -> (int -> typeId)
     val sigBoundIds:   signatures -> typeId list
 
-    val makeSignatureTable: unit -> univTable;
-    val makeSignature: string * univTable * int * int * location * (int -> typeId) * typeId list -> signatures;
+    val makeSignatureTable: unit -> univTable
+    val makeSignature: string * univTable * int * int * location * (int -> typeId) * typeId list -> signatures
 
-      (* Values. *)
-      val valName: values -> string
-      val valTypeOf: values -> types
-      val undefinedValue: values;
-      val isUndefinedValue: values -> bool;
-      val isConstructor: values -> bool;
-      val isValueConstructor: values -> bool
+    (* Values. *)
+    val valName: values -> string
+    val valTypeOf: values -> types
+    val undefinedValue: values
+    val isUndefinedValue: values -> bool
+    val isConstructor: values -> bool
+    val isValueConstructor: values -> bool
 
-      val makeOverloaded: string * types * typeDependent -> values;
-      val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values;
+    val makeOverloaded: string * types * typeDependent -> values
+    val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values
 
     (* Infix status *)
-
     datatype fixStatus = 
         Infix of int
     |   InfixR of int
-    |   Nonfix;
+    |   Nonfix
 
     datatype env =
         Env of
@@ -317,16 +318,16 @@ sig
             enterStruct:  string * structVals  -> unit,
             enterSig:     string * signatures  -> unit,
             enterFunct:   string * functors    -> unit
-        };
+        }
 
-    val makeEnv: univTable -> env;
+    val makeEnv: univTable -> env
 
-    val valueVar:      values      Universal.tag;
-    val typeConstrVar: typeConstrSet Universal.tag;
-    val fixVar:        fixStatus   Universal.tag;
-    val structVar:     structVals  Universal.tag;
-    val signatureVar:  signatures  Universal.tag;
-    val functorVar:    functors    Universal.tag;
+    val valueVar:      values      Universal.tag
+    val typeConstrVar: typeConstrSet Universal.tag
+    val fixVar:        fixStatus   Universal.tag
+    val structVar:     structVals  Universal.tag
+    val signatureVar:  signatures  Universal.tag
+    val functorVar:    functors    Universal.tag
 
     (* Types that can be shared. *)
     structure Sharing:

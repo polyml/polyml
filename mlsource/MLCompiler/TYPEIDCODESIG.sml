@@ -40,7 +40,8 @@ sig
     (* Generate a function of the form (t,t) -> bool. *)
     val equalityForType: types * int * typeVarMap -> codetree
 
-    val applyToInstance: types list * int * typeVarMap * (int -> codetree) -> codetree
+    val applyToInstance:
+        { value: types, equality: bool, printity: bool} list * int * typeVarMap * (int -> codetree) -> codetree
     
     structure TypeVarMap:
     sig

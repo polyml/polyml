@@ -373,15 +373,17 @@ struct
     fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
     let
         fun printCode(typ, level) =
-            case findCachedTypeCode(argTypes, typ) of
-                SOME (code, _) => TypeValue.extractPrinter(code level)
-            |   NONE =>
-                (
+            (
                 case typ of
                     typ as TypeVar tyVar =>
                     (
                         case tvValue tyVar of
-                            EmptyType => raise InternalError "printerForType: should have been handled"
+                            EmptyType =>
+                            (
+                                case findCachedTypeCode(argTypes, typ) of
+                                    SOME (code, _) => TypeValue.extractPrinter(code level)
+                                |   NONE => raise InternalError "printerForType: should already have been handled"
+                            )
 
                         |   OverloadSet _ =>
                             let
@@ -487,8 +489,8 @@ struct
                             1, "print-labelled")
                     end
 
-                |   FunctionType _ => raise InternalError "printerForType: should have been handled"
- 
+                |   FunctionType _ => mkProc(codePrettyString "fn", 1, "print-function")
+
                 |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty")
             )
     in
@@ -496,9 +498,6 @@ struct
     end
 
     and makeEq(ty, level, getEqFnForID, typeVarMap): codetree =
-        case findCachedTypeCode(typeVarMap, ty) of
-            SOME (code, _) => TypeValue.extractEquality(code level)
-        |   NONE =>
             let
                 fun equalityForConstruction(constr, args): codetree =
                 (* Generate an equality function for a datatype construction. *)
@@ -548,7 +547,12 @@ struct
                                  (* This seems to occur if there are what amount to indirect references to literals. *)
                                 equalityForConstruction(typeConstrFromOverload(ty, false), [])
 
-                        |   EmptyType => raise InternalError "makeEq: should already have been handled"
+                        |   EmptyType =>
+                            (
+                                case findCachedTypeCode(typeVarMap, ty) of
+                                    SOME (code, _) => TypeValue.extractEquality(code level)
+                                |   NONE => raise InternalError "makeEq: should already have been handled"
+                            )
 
                         |   tyVal => makeEq(tyVal, level, getEqFnForID, typeVarMap)
                     )
@@ -1116,14 +1120,48 @@ struct
             boxedCode = boxedEither, sizeCode = singleWord }
     end
 
+    (* Use constants here rather than code-generating new functions each time.
+       The equality function is actually wrong: it expects only a
+       single argument when if it is ever called (it shouldn't be) it will
+       be given a pair. *)
+    val noEquality = mkConst (toMachineWord (fn _ => raise Fail "Not equality"))
+    (* Since we don't have a way of writing a "printity" type variable there are cases
+       when the printer will have to fall back to this. e.g. if we have a polymorphic
+       printing function as a functor argument. *)
+    val noPrinter = mkConst (toMachineWord (fn _ => PRETTY.PrettyString "?"))
+
     (* If this is a polymorphic value apply it to the type instance. *)
     fun applyToInstance([], level, _, code) = code level (* Monomorphic. *)
 
     |   applyToInstance(sourceTypes, level, polyVarMap, code) =
     let
-        (* See if we have this on the list and if so use it.  Otherwise create a new pair of
-           equality and print functions. *)
-        fun makePolyParameter t =
+        (* If we need either the equality or print function we generate a new
+           entry and ignore anything in the cache. *)
+        fun makePolyParameter {value=t, equality, printity} =
+            if equality orelse printity
+            then
+                let
+                    open TypeValue
+                    val eqCode =
+                        if equality
+                        then
+                        let
+                            fun getEqFnForID(typeId, _, l) =
+                                (extractEquality(codeId(typeId, l)), NONE)
+                        in
+                            makeEq(t, level, getEqFnForID, polyVarMap)
+                        end
+                        else noEquality
+                    val boxedCode =
+                        boxednessForType(t, level, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
+                    val printCode =
+                        if printity then printerForType(t, level, polyVarMap) else noPrinter
+                in
+                    createTypeValue{
+                        eqCode=eqCode, printCode=printCode,
+                        boxedCode=boxedCode, sizeCode=singleWord}
+                end
+            else (* If we don't require the equality or print function we can use the cache. *)
             case findCachedTypeCode(polyVarMap, t) of
                 SOME (code, _) => code level
             |   NONE =>
@@ -1133,37 +1171,12 @@ struct
                     val { cache, mkAddr, level=decLevel, ...} = cacheEntry
                     local
                         open TypeValue
-                        val eqCode =
-                            if typePermitsEquality t
-                            then
-                            let
-                                fun getEqFnForID(typeId, _, l) =
-                                    (extractEquality(codeId(typeId, l)), NONE)
-                            in
-                                (*makeEq(t, decLevel, getEqFnForID, polyVarMap)*)
-                                (* As a temporary measure, wrap this in a function.  We'd like
-                                   to be able to optimise away type identifiers that aren't actually
-                                   used but if creating this equality function involved applying a
-                                   polymorphic equality function to the equality functions of the base
-                                   type and the polymorphic equality isn't inline then the optimiser
-                                   sees this as the application of a function that could have side-effects
-                                   and doesn't remove it.  Wrapping it in a function avoids it.  There
-                                   isn't the same problem with the print function because it always
-                                   generates a function around the application of the polymorphic
-                                   printer.
-                                   The right solution is to pass more information that the application
-                                   is side-effect free.  Maybe use the "early" flag?  *)
-                                mkInlproc(
-                                    mkEval(makeEq(t, decLevel+1, getEqFnForID, polyVarMap), [arg2, arg1], true),
-                                    2, "extra-equality")
-                            end
-                            else mkProc(CodeZero, 2, "errorCode")
                         val boxedCode =
                             boxednessForType(t, decLevel, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
                     in
                         val typeValue =
                             createTypeValue{
-                                eqCode=eqCode, printCode=printerForType(t, decLevel, polyVarMap),
+                                eqCode=noEquality, printCode=noPrinter,
                                 boxedCode=boxedCode, sizeCode=singleWord}
                     end
                     (* Make a new entry and put it in the cache. *)

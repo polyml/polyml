@@ -95,9 +95,12 @@ sig
 
     val codeStruct:     structVals * int -> codetree
     val codeAccess:     valAccess  * int -> codetree
-    val codeVal:        values * int * typeVarMap * types list * lexan * location -> codetree
+    val codeVal:
+        values * int * typeVarMap * {value: types, equality: bool, printity: bool} list * lexan * location -> codetree
     val codeExFunction: values * int * typeVarMap * types list * lexan * location -> codetree
-    val applyFunction:  values * codetree * int * typeVarMap * types list * lexan * location -> codetree
+    val applyFunction:
+        values * codetree * int * typeVarMap * {value: types, equality: bool, printity: bool} list *
+            lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
     val makeGuard:      values * types list * codetree * int * typeVarMap -> codetree 
@@ -118,7 +121,7 @@ sig
 
     val codeLocation: location -> codetree
 
-    val getPolymorphism: values * types * typeVarMap -> types list
+    val getPolymorphism: values * types * typeVarMap -> {value: types, equality: bool, printity: bool} list
 
     (* Types that can be shared. *)
     structure Sharing:

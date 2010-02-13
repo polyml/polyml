@@ -2536,7 +2536,7 @@ struct
                            N.B. We may have the same number of polymorphic variables
                            but still have to apply it if we have, for example,
                            fun f x => x   matching  val f: 'a list -> 'a list. *)
-                        fun equalEntry(source, destTv) =
+                        fun equalEntry({value=source, ...}, destTv) =
                             case eventual source of
                                 TypeVar sourceTv => sameTv(sourceTv, destTv)
                             |   _ => false

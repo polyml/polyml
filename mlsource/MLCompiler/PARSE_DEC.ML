@@ -377,7 +377,12 @@ struct
         fun getTypeVar (): typeVarForm * location =
         (* Read a type variable and return it. *)
         if (sy lex) neq SYMBOLS.typeIdent
-        then (badsyms (SYMBOLS.typeIdent, lex); (makeTv (emptyType, generalisable, true, true), location lex))
+        then
+        (
+            badsyms (SYMBOLS.typeIdent, lex);
+            (makeTv {value=emptyType, level=generalisable, equality=true, nonunifiable=true, printable=false},
+             location lex)
+        )
         else
         let
             val iden = id lex;
@@ -399,7 +404,8 @@ struct
             (* DCJM 11/2/00.  isDatatype is now true for tyvarseqs in fun and val.
                I don't think it matters what it is set to in datatypes. *)
             val isEqtype = isDatatype andalso isEqtype iden;
-            val tyVar = makeTv (emptyType, generalisable, isEqtype, true)
+            val tyVar =
+                makeTv {value=emptyType, level=generalisable, equality=isEqtype, nonunifiable=true, printable=false}
         in
             enter (iden, tyVar);
             insymbol lex;
@@ -492,7 +498,8 @@ struct
                  (
                    errorMessage (lex, location lex, 
                         name ^  " has not been declared in type declaration");
-                   makeTv (emptyType, generalisable, false, true)
+                   makeTv {value=emptyType, level=generalisable, equality=false,
+                           nonunifiable=true, printable=false}
                  )
              )
    } (* genTypeVarEnv *);
@@ -666,7 +673,8 @@ struct
        let
          (* These type variables are not unifiable until they are generalised. *)
          val newTypeVar =
-           makeTv (emptyType, generalisable, isEqtype name, true);
+            makeTv {value=emptyType, level=generalisable, equality=isEqtype name,
+                    nonunifiable=true, printable=false}
            
          val () = enter (name, newTypeVar);
        in
@@ -2282,7 +2290,7 @@ struct
           val () =
             errorMessage (lex, location lex, "Free type variables not allowed");
         in
-          makeTv (emptyType, generalisable, false, true)
+          makeTv {value=emptyType, level=generalisable, equality=false, nonunifiable=true, printable=false}
         end}
 
     (* May be structure/functor dec, signature dec or top-level dec. Treat

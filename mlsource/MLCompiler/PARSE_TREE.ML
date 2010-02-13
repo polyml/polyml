@@ -409,7 +409,7 @@ struct
     val emptyTree = EmptyTree;
 
     (* A general type variable for an expression.  This is used to record the type. *)
-    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false)
+    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false, false)
   
     fun mkIdent (name, loc) : parsetree = 
       Ident
@@ -1985,8 +1985,8 @@ struct
                 )
             |   ef => (* Type variables etc. - Use general case. *)
                 let  (* Make arg->'a, and unify with the function. *)
-                    val resType  = mkTypeVar (generalisable, false, false);
-                    val fType    = mkFunctionType (arg, resType);
+                    val resType  = mkTypeVar (generalisable, false, false, false)
+                    val fType    = mkFunctionType (arg, resType)
       
                     (* This may involve more than just assigning the type to "ef". *)
                     val () = unify (ef, fType, lex, location, moreInfo, typeEnv);
@@ -2068,7 +2068,7 @@ struct
            types. Returns a type variable if the list is empty.
            This is used for lists, function values (fn .. => ...),
            handlers and case expressions. *)
-        fun assignList _ _ [] = mkTypeVar (generalisable, false, false)
+        fun assignList _ _ [] = mkTypeVar (generalisable, false, false, false)
         |   assignList (processValue: 'a->types, _, _) _ [single] = processValue single
 
         |   assignList (processValue: 'a->types, displayValue, typeMsg)
@@ -2209,7 +2209,7 @@ struct
                         else
                         let
                             val var = 
-                                mkVar(name, mkTypeVar (level, false, false), [DeclaredAt location]);
+                                mkVar(name, mkTypeVar (level, false, false, false), [DeclaredAt location]);
                         in
                             checkForDots (name, lex, location); (* Must not be qualified *)
                             (* Must not be "true", "false" etc. *)
@@ -2372,7 +2372,7 @@ struct
 
             |   Unit _ => unitType
 
-            |   WildCard _ => mkTypeVar (generalisable, false, false)
+            |   WildCard _ => mkTypeVar (generalisable, false, false, false)
 
             |   Parenthesised(p, _) =>
                     processPattern(p, enterResult, level, notConst, mkVar, isRec)
@@ -2436,16 +2436,16 @@ struct
                 val () =
                     if nonExpansive v
                     then ()
-                    else (unifyTypes (funType, mkTypeVar(level, false, false)); ())
+                    else (unifyTypes (funType, mkTypeVar(level, false, false, false)); ())
                 (* Test to see if we have a function. *)
                 val fType =
                     case eventual funType of
                         FunctionType {arg, result} => SOME(arg, result)
                     |   _ => (* May be a simple type variable. *)
                         let
-                            val funResType = mkTypeVar (generalisable, false, false);
-                            val funArgType = mkTypeVar (generalisable, false, false);
-                            val fType    = mkFunctionType (funArgType, funResType);
+                            val funResType = mkTypeVar (generalisable, false, false, false)
+                            val funArgType = mkTypeVar (generalisable, false, false, false)
+                            val fType    = mkFunctionType (funArgType, funResType)
                         in
                             case unifyTypes (fType, funType) of
                                 NONE => SOME(funArgType, funResType)
@@ -2933,7 +2933,7 @@ struct
                             valTypeMessage (lex, typeEnv) ("Raise:", pt, exType),
                             unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v);
                 (* Matches anything *)
-                mkTypeVar (generalisable, false, false)
+                mkTypeVar (generalisable, false, false, false)
             end
   
         | (aHandler as HandleTree {exp, hrules, location, ...}) =>
@@ -3279,7 +3279,7 @@ struct
                     val { ident = { name, location, ... }, ... } = dec;
                     (* Declare a new identifier with this name. *)
                     val funVar =
-                        mkValVar (name, mkTypeVar (funLevel, false, false), [DeclaredAt location])
+                        mkValVar (name, mkTypeVar (funLevel, false, false, false), [DeclaredAt location])
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -3318,7 +3318,7 @@ struct
                        errors we can report them in the most appropriate place.
                        Build a type to be used for the function.  This will later be unified
                        with the type that we've already created for the function variable. *)
-                    val funType = mkTypeVar(generalisable, false, false)
+                    val funType = mkTypeVar(generalisable, false, false, false)
 
                     fun processClause (clause as FValClause {dec, exp, line}) =
                     let
@@ -3714,6 +3714,15 @@ struct
        unnecessary polymorphism.  The type-checking computes a most general
        type for a value, typically a function, but it is frequently used in
        situations where a less general type would suffice. *)
+    (* TODO: There's a problem with this code.  If we declare a polymorphic
+       value/function followed by a local datatype and use the polymorphic
+       value only on that datatype the least general type we find for the
+       polymorphic value will be that datatype.  When we come to code-generate,
+       though, we will try to construct a monomorphic value using the datatype
+       before the type ID values have been created.  Possible solutions are
+       to leave the polymorphic value as polymorphic or move the creation of
+       the polymorphic value until after the datatype, something that's safe
+       because polymorphic values are non-expansive. *)
     fun setLeastGeneralTypes(p: parsetree, _: lexan) =
     let
         (* Because of mutual recursion we need to process the set of variables
@@ -3741,7 +3750,7 @@ struct
                     end
                     (* This returns a list, one entry for each instance, of a list of the
                        type variables for that instance. *)
-                    val instanceVarLists: types list list = List.map getPolyVars instances
+                    val instanceVarLists = List.map getPolyVars instances
                     (* Transpose that list so we get a list, one entry for each type variable,
                        of all the instance types that are possible. *)
                     fun transpose ([]::_) = []
@@ -3770,7 +3779,7 @@ struct
                 fun reduceTypes(tv, ref types) =
                     (* Although tv is a type variable it could occur as the least general type.
                        Unify takes care of that. *)
-                    if isSome(unifyTypes(TypeVar tv, leastGeneral types))
+                    if isSome(unifyTypes(TypeVar tv, leastGeneral(List.map #value types)))
                     then raise InternalError "reduceTypes: Unable to set type vars"
                     else ()
             in
@@ -4486,7 +4495,8 @@ struct
         case vars of 
           Ident {value=ref ident, expType=ref expType, ... } =>
             let
-                val polyVars = getPolymorphism (ident, expType, typeVarMap)
+                val polyVars =
+                    List.map #value (getPolymorphism (ident, expType, typeVarMap))
             in
                 case ident of
                     Value{class=Constructor {ofConstrs, ...}, ...} =>
@@ -4571,7 +4581,7 @@ struct
 
         | Applic{f = Ident{value = ref applVal, expType = ref expType, ...}, arg, location, ...} =>
             let
-                val polyVars = getPolymorphism (applVal, expType, typeVarMap)
+                val polyVars = List.map #value (getPolymorphism (applVal, expType, typeVarMap))
             in
                 case applVal of
                      Value{class=Constructor{ofConstrs, ...}, ...} =>
@@ -4596,7 +4606,7 @@ struct
             let (* Generate suitable combinations of cons and nil.
                 e.g [1,2,3] becomes ::(1, ::(2, ::(3, nil))). *)
                 (* Get the base type. *)
-                val elementType = mkTypeVar (generalisable, false, false)
+                val elementType = mkTypeVar (generalisable, false, false, false)
                 val listType = mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
                 val _ = unifyTypes(listType, expType)
                 val polyVars = [elementType]
@@ -6312,8 +6322,8 @@ struct
  
                 fun mkFValBind(var as Value{typeOf, ...}) =
                 let
-                    val argType = mkTypeVar(generalisable, false, false)
-                    and resultType = mkTypeVar(generalisable, false, false)
+                    val argType = mkTypeVar(generalisable, false, false, false)
+                    and resultType = mkTypeVar(generalisable, false, false, false)
                     val () =
                         if isSome(unifyTypes(typeOf, mkFunctionType(argType, resultType)))
                         then raise InternalError "mkFValBind"

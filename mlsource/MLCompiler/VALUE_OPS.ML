@@ -475,7 +475,9 @@ struct
         in
             val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, 0)
         end
-        val dummyTypes = List.map(fn _ => TYPESTRUCT.unitType) (getPolyTypeVars(types, fn _ => NONE))
+        val dummyTypes =
+            List.map(fn _ => {value=TYPESTRUCT.unitType, equality=false, printity=false})
+                (getPolyTypeVars(types, fn _ => NONE))
         val polyCode = applyToInstance(dummyTypes, 0, typeVarMap, fn _ => mkConst value)
         val printerCode =
             mkEval(
@@ -868,6 +870,8 @@ struct
 
     val arg1     = mkLoad (~1, 0); (* saves a lot of garbage *)
 
+    fun addStatus typ = {value=typ, equality=false, printity=false}
+
  (* Code-generate an identifier matched to a value.  N.B. If the value is a
     constructor it returns the pair or triple representing the functions on the
     constructor. *)
@@ -920,7 +924,7 @@ struct
                 1, "print(P)")
         end
 
-  |  codeVal (Value{access = Overloaded Print, ...}, level, typeVarMap, [argType], lex, _) =
+  |  codeVal (Value{access = Overloaded Print, ...}, level, typeVarMap, [{value=argType, ...}], lex, _) =
         let 
             (* We should have a single entry for the type. *)
             open DEBUG
@@ -960,7 +964,7 @@ struct
                 mkProc(mkConst(toMachineWord "?"), 1, "makestring()"),
                 1, "makestring(P)")
 
-  |  codeVal (Value{access = Overloaded MakeString, ...}, level, typeVarMap, [argType], _, _) =
+  |  codeVal (Value{access = Overloaded MakeString, ...}, level, typeVarMap, [{value=argType, ...}], _, _) =
         (* Construct a function that gets the print code and prints it out using "uglyPrint". *)
         mkProc(
             mkEval(
@@ -983,7 +987,7 @@ struct
         (* If this appears in a structure return a default function. *)
         mkProc(printerForType(badType, level+1, typeVarMap), 1, "getPretty")
 
-  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [argType], _, _) =
+  |  codeVal (Value{access = Overloaded GetPretty, ...}, level, typeVarMap, [{value=argType, ...}], _, _) =
        (* Get the pretty code for the specified argument. *)
             printerForType(argType, level, typeVarMap)
 
@@ -997,7 +1001,7 @@ struct
                         (fn _ => raise Fail "addPrettyPrint: The argument type was not a simple type construction")),
             1, "AddPretty(P)")
 
-  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, [installType, argPrints], lex, loc) =
+  |  codeVal (Value{access = Overloaded AddPretty, ...}, level, _, [{value=installType, ...}, {value=argPrints, ...}], lex, loc) =
         let 
          (* "instance" should be (int-> 'a -> 'b -> pretty) -> unit.
              We need to get the 'a and 'b.  This function installs a
@@ -1012,7 +1016,7 @@ struct
              When the installed function is called it will be passed the
              appropriate argument functions which it can call to print the
              argument types.  *)
-            val pretty = mkTypeVar (generalisable, false, false); (* Temporary hack. *)
+            val pretty = mkTypeVar (generalisable, false, false, false); (* Temporary hack. *)
 
             (* Find the last type constructor in the chain. We have to install
                  this against the last in the chain because type constructors in
@@ -1043,11 +1047,11 @@ struct
                         (* Each entry should be a function of type 'a * int -> pretty *)
                         fun mkFn arg = mkFunctionType(mkProductType[arg, TYPESTRUCT.intType], pretty)
                         (* Create non-unifiable type vars to ensure this is properly polymorphic. *)
-                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true))
+                        val typeVars = List.tabulate(arity, fn _ => mkTypeVar (0, false, true, false))
                         val tupleType =
                             case typeVars of
                                 [] => (* No arg so we can have anything here. *)
-                                    mkTypeVar (generalisable, false, false)
+                                    mkTypeVar (generalisable, false, false, false)
                             |   [arg] => mkFn arg (* Just a single function. *)
                             |   args => mkProductType(List.map mkFn args)
                         val addPPType = mkFunctionType(argPrints, mkFunctionType(installType, pretty))
@@ -1136,7 +1140,7 @@ struct
             1, "InstallPP(P)")
 
   |  codeVal (Value{access = Overloaded InstallPP, typeOf, name, class, locations, references, instanceTypes, ...},
-              level, typeVarMap, [installType, argPrints], lex, loc) =
+              level, typeVarMap, [{value=installType, ...}, {value=argPrints, ...}], lex, loc) =
         let
          (* This is the old function to install a pretty printer.  It has
             been retained for backwards compatibility.
@@ -1259,7 +1263,8 @@ struct
                 mkEval (
                     codeVal(Value{access = Overloaded AddPretty, typeOf=typeOf, name=name, class=class,
                                   locations=locations, references=references, instanceTypes=instanceTypes},
-                            level+1, typeVarMap, [installType, argPrints], lex, loc),
+                            level+1, typeVarMap,
+                            [addStatus installType, addStatus argPrints], lex, loc),
                     [mkEval(mkConst(toMachineWord createPretty), [arg1], false)], false),
                 1, "installPP")
         end
@@ -1317,7 +1322,7 @@ struct
                 (* We should have a single entry for the type. *)
                 val argType =
                     case instance of
-                        [t] => t
+                        [{value, ...}] => value
                     |   _ => raise InternalError "Overload Equal"
                 (* The instance type is a function so we have to get the first argument. *)
                 val code = equalityForType(argType, level, typeVarMap)
@@ -1330,7 +1335,7 @@ struct
                 (* We should have a single entry for the type. *)
                 val argType =
                     case instance of
-                        [t] => t
+                        [{value, ...}] => value
                     |   _ => raise InternalError "Overload NotEqual"
                 (* Use the "=" function to provide inequality as well as equality. *)
                 val code = equalityForType(argType, level, typeVarMap)
@@ -1344,7 +1349,7 @@ struct
            let
                 val argType =
                     case instance of
-                        [t] => t
+                        [{value, ...}] => value
                     |   _ => raise InternalError "Overload TypeDep"
              val (code, _) = getOverloadInstance(valName, argType, false)
            in
@@ -1363,7 +1368,7 @@ struct
                may be a pair, but in the case of conversion functions we want the 'b. *)
             val (resultType, argType) =
                 case instance of
-                    [alpha, beta] => (rmvars alpha, rmvars beta)
+                    [{value=alpha, ...}, {value=beta, ...}] => (rmvars alpha, rmvars beta)
                 |   _ => (badType, badType)
 
             fun followTypes(TypeConstruction{constr, args, ...}):typeConstrs =
@@ -1429,10 +1434,10 @@ struct
      an exception packet. *)
     fun codeExFunction (value, level, typeVarMap, instance, lex, lineno) =
     case getFnArgType(valTypeOf value) of (* N.B. Not "instance" *)
-        NONE => applyFunction (value, CodeZero, level, typeVarMap, instance, lex, lineno)
+        NONE => applyFunction (value, CodeZero, level, typeVarMap, List.map addStatus instance, lex, lineno)
     |   SOME _ =>
             mkProc 
-              (applyFunction (value, arg1, level + 1, typeVarMap, instance, lex, lineno),
+              (applyFunction (value, arg1, level + 1, typeVarMap, List.map addStatus instance, lex, lineno),
                 1, ""); (* shouldn't this function be in-lined??? SPF 20/10/94 *)
 
     (* Operations to compile code from the representation of a constructor. *)
@@ -1448,7 +1453,7 @@ struct
         let
             fun tester level =
                 ValueConstructor.extractTest(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
-            val testCode = applyToInstance(argVars, level, typeVarMap, tester)
+            val testCode = applyToInstance(List.map addStatus argVars, level, typeVarMap, tester)
         in
             mkEval(testCode, [testing], true)
         end
@@ -1469,7 +1474,7 @@ struct
         let
             fun getInverse level =
                 ValueConstructor.extractProjection(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
-            val loadCode = applyToInstance(argVars, level, typeVarMap, getInverse)
+            val loadCode = applyToInstance(List.map addStatus argVars, level, typeVarMap, getInverse)
         in
             mkEval(loadCode, [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
         end
@@ -1510,7 +1515,12 @@ struct
         val (t, polyVars) =
             case access of
                 Overloaded TypeDep =>
-                    generaliseOverload(typeOf, List.map #1 (getOverloads name), false)
+                let
+                    val (t, polyVars) =
+                        generaliseOverload(typeOf, List.map #1 (getOverloads name), false)
+                in
+                    (t, List.map (fn t => {value=t, equality=false, printity=false}) polyVars)
+                end
             | _ => generaliseWithMap(typeOf, TypeVarMap.mapTypeVars typeVarMap)
         val () = 
             case unifyTypes(t, expType) of

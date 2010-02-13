@@ -540,7 +540,9 @@ struct
     in
         val listConstr =
             buildBasisDatatype("list", "list",
-                [makeTv (EmptyType, generalisable, false, false)], true, makeConsAndNil)
+                [makeTv {value=EmptyType, level=generalisable, nonunifiable=false,
+                         equality=false, printable=false}],
+                  true, makeConsAndNil)
         val (nilConstructor, consConstructor) =
             case listConstr of
                 TypeConstrSet(_, [consC as Value{name="::", ...}, nilC as Value{name="nil", ...}]) =>
@@ -569,7 +571,8 @@ struct
     in
         val optionConstr=
             buildBasisDatatype("option", "option",
-                [makeTv (EmptyType, generalisable, false, false)], true, makeNoneAndSome)
+                [makeTv {value=EmptyType, level=generalisable, nonunifiable=false,
+                         equality=false, printable=false}], true, makeNoneAndSome)
         val (noneConstructor, someConstructor) =
             case optionConstr of
                 TypeConstrSet(_, [noneC as Value{name="NONE", ...}, someC as Value{name="SOME", ...}]) => (noneC, someC)
@@ -678,11 +681,11 @@ struct
             (* Get the constructor tuple, select the constructor operation, apply it to the type. *)
             val makeSome =
                 applyToInstance(
-                    [exnPrinter], level, tvMap,
+                    [{value=exnPrinter, equality=false, printity=false}], level, tvMap,
                         fn _ => mkInd(1, case someConstructor of Value { access, ...} => vaGlobal access))
             val makeNone =
                 applyToInstance(
-                    [exnPrinter], level, tvMap,
+                    [{value=exnPrinter, equality=false, printity=false}], level, tvMap,
                         fn _ => mkInd(1, case noneConstructor of Value { access, ...} => vaGlobal access))
             val printerCode =
                 case ty of

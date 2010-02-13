@@ -391,8 +391,8 @@ struct
      is already an equality variable). 
      ``weak'' is true if this is an imperative type variable e.g. '_a *)
 
-  fun sameTv (a : typeVarForm, b : typeVarForm) : bool = 
-    #value a = #value b; (* If the same ref it must be the same *)
+    fun sameTv (a : typeVarForm, b : typeVarForm) : bool = 
+        #value a = #value b; (* If the same ref it must be the same *)
         
     local
         open Word
@@ -400,18 +400,20 @@ struct
         infix 7 andb
         infix 6 orb
     in
-        fun makeTv (t : types, lev, equality, nonunifiable) : typeVarForm =
-            { value    = ref t, (* REF HOTSPOT - 400 *)
-              encoding = (fromInt lev << 0w3)
+        fun makeTv {value : types, level, equality, nonunifiable, printable} : typeVarForm =
+            { value    = ref value, (* REF HOTSPOT - 400 *)
+              encoding = (fromInt level << 0w3)
                            orb (if equality     then 0w4 else 0w0)
-                           orb (if nonunifiable then 0w2 else 0w0) };
+                           orb (if nonunifiable then 0w2 else 0w0)
+                           orb (if printable    then 0w1 else 0w0)}
         
-        fun tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t;
-        fun tvValue ({value = ref v, ...} : typeVarForm) : types = v;
-        fun tvLevel ({encoding, ...} : typeVarForm) : int  = Word.toInt(encoding >> 0w3);
-        fun tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0;
-        fun tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0;
-    end;
+        fun tvSetValue ({ value, ...} : typeVarForm, t : types) = value := t
+        fun tvValue ({value = ref v, ...} : typeVarForm) : types = v
+        fun tvLevel ({encoding, ...} : typeVarForm) : int  = Word.toInt(encoding >> 0w3)
+        fun tvEquality ({encoding, ...} : typeVarForm)     = encoding andb 0w4 <> 0w0
+        fun tvNonUnifiable ({encoding, ...} : typeVarForm) = encoding andb 0w2 <> 0w0
+        fun tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
+    end
 
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 

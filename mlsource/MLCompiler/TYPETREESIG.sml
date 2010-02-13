@@ -50,7 +50,7 @@ sig
           lookupStruct: string -> (structVals * (int->typeId) option) option}
     val emptyTypeEnv: printTypeEnv
 
-    val mkTypeVar:          int * bool * bool -> types;
+    val mkTypeVar:          int * bool * bool * bool -> types
     val mkTypeConstruction: string * typeConstrs * types list * locationProp list -> types;
     val mkProductType:      types list -> types;
     val mkFunctionType:     types * types -> types;
@@ -119,12 +119,14 @@ sig
     (* Generate new copies of all unbound type variables - this is used on all
        non-local values or constructors so that, for example, each occurence of
        "hd", which has type 'a list -> 'a, can be separately bound to types. *)
-    val generalise: types -> types * types list;
+    val generalise: types -> types * {value: types, equality: bool, printity: bool} list
     (* Create an instance of an overloaded type. *)
     val generaliseOverload: types * typeConstrs list * bool -> types * types list;
 
     (* The same as generalise but with a function that looks up types. *)
-    val generaliseWithMap: types * (typeVarForm -> types option) -> types * types list;
+    val generaliseWithMap:
+        types * (typeVarForm -> types option) ->
+            types * {value: types, equality: bool, printity: bool} list
 
     (* Return the type variables that would be generalised at this point. *)
     val getPolyTypeVars: types * (typeVarForm -> types option) -> typeVarForm list
