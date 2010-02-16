@@ -1313,8 +1313,9 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_process_env, PolyWord::FromCodePtr(codeAddr));
     
     add_function_to_io_area(POLY_SYS_set_string_length, &set_string_length_a); /* DCJM 28/2/01 */
-    add_function_to_io_area(POLY_SYS_get_first_long_word, &get_first_long_word_a); /* DCJM 28/2/01 */
-    
+
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_get_first_long_word, codeAddr);
+    add_word_to_io_area(POLY_SYS_get_first_long_word, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_shrink_stack, codeAddr);
     add_word_to_io_area(POLY_SYS_shrink_stack, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_code_flags, codeAddr);

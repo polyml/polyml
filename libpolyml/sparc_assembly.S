@@ -345,29 +345,8 @@ INLINE_ROUTINE(int_to_word)
     jmp %o7+6       /* If it's short we just return it. */
     nop
 
-INLINE_ROUTINE(get_first_long_word_a)
-! We have to get the word from the vector of bytes, but it is
-! in little-endian order.
-itw0:   ldub    [%o0],%i5
-    sll %i5,TAGSHIFT,%o1    ! Put tag shifted value into o1
-    ldub    [%o0+1],%i5
-    sll %i5,(TAGSHIFT+8),%i5
-    or  %i5,%o1,%o1
-    ldub    [%o0+2],%i5
-    sll %i5,(TAGSHIFT+16),%i5
-    or  %i5,%o1,%o1
-    ldub    [%o0+3],%i5
-    sll %i5,(TAGSHIFT+24),%i5
-    or  %i5,%o1,%o1
-    ldub    [%o0-4],%i5     ! See if the "negative" bit is set
-    andcc   %i5,0x10,%g0
-    bne,a   itw1
-    sub %g0,%o1,%o1     ! Delay slot - annulled if not negative
-itw1:
-    jmp %o7+6
-    or  %o1,1,%o0       ! Put result into o0 ensuring tag is set.
+    CALL_IO(get_first_long_word_, POLY_SYS_get_first_long_word)
     RegMask(get_first_long_word,Mask_all)
-    RegMask(int_to_word,Mask_all)
 
 
 INLINE_ROUTINE(not_bool)

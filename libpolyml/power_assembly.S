@@ -1408,23 +1408,7 @@ INLINE_ROUTINE(int_to_word)
     bnelr           /* Return it if it's short. */
     /* Else drop through. */
 
-/* This is now used in conjunction with isShort in Word.fromint */
-INLINE_ROUTINE(get_first_long_word_a)
-/* If it's long we can take the first word of the long
-   precision representation.  It is in little-endian form
-   and the sign bit is in the header. */
-    lbz rtemp3,-4(r3)   /* Flag byte */
-    andi.   r0,rtemp3,16    /* 16 is negative bit. */
-    li  rtemp3,0 
-    lwbrx   r3,r3,rtemp3
-    beq i2w1
-    subf    r3,r3,rtemp3    /* Negate. */
-i2w1:   
-    slwi    r3,r3,TAGSHIFT  /* Tag the result. */
-    addi    r3,r3,1
-    blr
-    RegMask (int_to_word,M_R3|M_R23)
-    RegMask (get_first_long_word,M_R3|M_R23)
+	CALL_IO_LOCAL(get_first_long_word_a, POLY_SYS_get_first_long_word)    
     
 INLINE_ROUTINE(atomic_incr)
 ati1:
