@@ -468,7 +468,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     memcpy(v, DEREFBYTEHANDLE(long_x), lx);
 #ifndef HAVE_GMP_H
     // Make sure the last word is zero.  We may have unused bytes there.
-    memset(v+lx, 0, WORDS(x)*sizeof(PolyWord)-lx);
+    memset(v+lx, 0, WORDS(lx)*sizeof(PolyWord)-lx);
 #endif
 
     /* Return the value with the sign changed. */

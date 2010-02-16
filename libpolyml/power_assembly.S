@@ -1623,7 +1623,7 @@ globldec(registerMaskVector)
     dd  Mask_all                 /* stdout= 149 */
     dd  Mask_all   /* 150 */
     dd  Mask_set_string_length   /* 151 */
-    dd  Mask_get_first_long_word /* 152 */
+    dd  Mask_all                 /* 152 */
     dd  Mask_all                 /* 153 is unused */
     dd  Mask_all                 /* 154 is unused */
     dd  Mask_all                 /* 155 is unused */
@@ -1668,7 +1668,7 @@ globldec(registerMaskVector)
     dd  Mask_all   /* 194 */
     dd  Mask_move_words          /* 195 */
     dd  Mask_shift_right_arith_word  /* 196 */
-    dd  Mask_int_to_word         /* 197 */
+    dd  Mask_all                 /* 197 */
     dd  Mask_move_bytes          /* 198 */
     dd  Mask_all                 /* 199 now unused */
     dd  Mask_all          /* 200 */
