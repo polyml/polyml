@@ -137,7 +137,7 @@ sig
                              lexan * location * (unit -> pretty) * printTypeEnv -> unit
 
     (* Check for a local datatype "escaping".  Added for ML97. *)
-    val checkForLocalDatatypes: types * int * (string -> unit) -> unit;
+    val checkForEscapingDatatypes: types * (string -> unit) -> unit
 
     (* Check for free type variables.  Added for ML97. *)
     val checkForFreeTypeVariables: string * types * lexan * (unit->codetree) -> unit;

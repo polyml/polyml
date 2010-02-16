@@ -245,7 +245,7 @@ struct
        fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
             makeTypeConstructor(
                 name, typeVars, makeTypeFunction(basisDescription name, (typeVars, typeResult)),
-                0, locations)
+                locations)
   
         (* List of something *)
         fun List (base : types) : types =
@@ -710,7 +710,7 @@ struct
         in
             val vectorType =
                 makeTypeConstructor("vector", [makeTypeVariable()],
-                    makeFreeId(idCode, true, basisDescription "vector"), 0, declInBasis);
+                    makeFreeId(idCode, true, basisDescription "vector"), declInBasis);
             val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []));
         end
 
@@ -750,7 +750,7 @@ struct
         in
             val byteVectorType =
                 makeTypeConstructor("byteVector", [],
-                    makeFreeId(idCode, true, basisDescription "byteVector"), 0, declInBasis);
+                    makeFreeId(idCode, true, basisDescription "byteVector"), declInBasis);
             val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []));
         end
 
@@ -817,7 +817,7 @@ struct
                 val typeconstr =
                     makeTypeConstructor(typeName, [],
                         makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)),
-                        0, declInBasis);
+                        declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, TypeConstrSet(typeconstr, []));
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
@@ -1011,14 +1011,14 @@ struct
                 (* type 'a tag *)
                 val tagConstr =
                     makeTypeConstructor("tag", [makeTypeVariable()],
-                        makeFreeId(idCode, false, basisDescription "tag"), 0, declInBasis);
+                        makeFreeId(idCode, false, basisDescription "tag"), declInBasis);
                 val () = #enterType uniStructEnv ("tag", TypeConstrSet(tagConstr, []))
             end
 
             (* type universal *)
             val univConstr =
                 makeTypeConstructor("universal", [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal"), 0, declInBasis);
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal"), declInBasis);
             val () = #enterType uniStructEnv ("universal",  TypeConstrSet(univConstr, []));
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -1046,7 +1046,7 @@ struct
             (* Parsetree properties datatype. *)
             val propConstr =
                 makeTypeConstructor("ptProperties", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), 0, declInBasis);
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), declInBasis);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
@@ -1058,7 +1058,7 @@ struct
             (* Representation of the type of a value. *)
             val typesConstr =
                 makeTypeConstructor("typeExpression", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression"), 0, declInBasis);    
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression"), declInBasis);    
             val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("typeExpression", TypeConstrSet(typesConstr, []));
 

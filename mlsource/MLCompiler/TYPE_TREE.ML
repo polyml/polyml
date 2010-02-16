@@ -271,7 +271,7 @@ struct
         fun makeConstr(name, eqFun, boxed) =
             makeTypeConstructor (name, [],
                 makeFreeId(eqAndPrintCode(eqFun, 0, boxed), true, basisDescription name),
-                0, [DeclaredAt inBasis])
+                [DeclaredAt inBasis])
         (* wordEq is used both for tagged words and for pointer equality *)
         val wordEq = CODETREE.rtsFunction POLY_SYS_word_eq
 
@@ -325,29 +325,29 @@ struct
                 ("ref",
                 [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
                 makeFreeId(eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "ref"),
-                0, [DeclaredAt inBasis]);
+                [DeclaredAt inBasis]);
         val arrayConstr =
             makeTypeConstructor 
                 ("array",
                 [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
                 makeFreeId(eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array.array"),
-                0, [DeclaredAt inBasis]);
+                [DeclaredAt inBasis]);
         val array2Constr =
             makeTypeConstructor 
                 ("array",
                 [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
                 makeFreeId(eqAndPrintCode(wordEq, 1, boxedAlways), true, basisDescription "Array2.array"),
-                0, [DeclaredAt inBasis]);
+                [DeclaredAt inBasis]);
         val byteArrayConstr =
             makeTypeConstructor 
                 ("byteArray", [],
                 makeFreeId(eqAndPrintCode(wordEq, 0, boxedAlways), true, basisDescription "byteArray"),
-                0, [DeclaredAt inBasis]);
+                [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
                 ("bool", [], makeFreeId(eqAndPrintCode(wordEq, 0, boxedNever), true, basisDescription "bool"),
-                0, [DeclaredAt inBasis]);
+                [DeclaredAt inBasis]);
     end
 
     (* These polytypes allow equality even if the type argument is not an equality type. *)
@@ -374,7 +374,7 @@ struct
         in
             makeTypeConstructor (
                 name, [], makeFreeId(Global (genCode(code, []) ()), false, descr),
-                0, [DeclaredAt inBasis])
+                [DeclaredAt inBasis])
         end
     in
         val realConstr   = makeType("real", basisDescription "real", boxedAlways(* Currently*)); (* Not an eqtype in ML97. *)
@@ -390,7 +390,7 @@ struct
         makeTypeConstructor ("unit", [],
             makeTypeFunction({ location = inBasis, description = "unit", name = "unit" },
             ([], LabelledType {recList = [], frozen = true, genericInstance = []})),
-           0, [DeclaredAt inBasis]);
+            [DeclaredAt inBasis]);
 
 
   (* Type identifiers bound to standard type constructors. *)
@@ -782,7 +782,7 @@ struct
                             in
                                 (*print(concat[tcName tcon, " not cached\n"]);*)
                                 makeTypeConstructor(newName,
-                                    tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon)
+                                    tcTypeVars tcon, newId, tcLocations tcon)
                             end
                     end
             )
@@ -800,8 +800,7 @@ struct
                     makeTypeConstructor (mungeName(tcName tcon), args,
                         TypeId {
                             access = access, description = description, idKind = idKind,
-                            typeFn=(args, copiedEquiv)},
-                        0, tcLocations tcon)
+                            typeFn=(args, copiedEquiv)}, tcLocations tcon)
 
             end
 
@@ -1637,7 +1636,7 @@ struct
             end
 
     (* Look for the occurrence of locally declared datatypes in the type of a value. *)
-    fun checkForLocalDatatypes(ty: types, depth: int, errorFn: string->unit) : unit =
+    fun checkForEscapingDatatypes(ty: types, errorFn: string->unit) : unit =
     let
         fun checkTypes (typ: types) (ok: bool) : bool =
         case typ of
@@ -1645,14 +1644,23 @@ struct
                 if tcIsAbbreviation constr
                 then (* May be an alias for a type that contains a local datatype. *)
                     foldType checkTypes (makeEquivalent (constr, args)) ok
-                else if ok andalso tcLetDepth constr > depth
+                else if ok
                 then
-                    (
-                    errorFn("Type contains local datatype (" ^ tcName constr ^")");
-                    false
-                    )
-                else true
-        |   _ => true
+                (
+                    case tcIdentifier constr of
+                        TypeId{access=Local{addr, ...}, ...} =>
+                            if !addr = 0
+                            then 
+                            (
+                                errorFn("Type of expression contains local datatype (" ^ tcName constr
+                                        ^") outside its definition.");
+                                false
+                            )
+                            else true
+                    |   _ => true (* Could we have a "selected" entry with a local datatype? *)
+                )
+                else false
+        |   _ => ok
     in
         foldType checkTypes ty true;
         ()
@@ -2846,7 +2854,7 @@ struct
                 val tCons =
                     makeTypeConstructor (name, [],
                         makeFreeId(Global(printAndEqCode()), tvEquality tvar, declDescription),
-                        0, [DeclaredAt declLoc]);
+                        [DeclaredAt declLoc]);
                 val newVal = mkTypeConstruction(name, tCons, [], [])
             in
                 warningMessage(lex, location lex, 
@@ -2966,7 +2974,8 @@ struct
        to a records which are monomorphic. *)
     fun leastGeneral [] = EmptyType (* Never used? *)
 
-    (* Don't use this at the moment - see the comment on TypeVar below. *)
+    (* Don't use this at the moment - see the comment on TypeVar below.
+       Also the comment on TypeConstruction for local datatypes. *)
 (*    |   leastGeneral [oneType] = oneType *)(* Just one - this is it. *)
 
     |   leastGeneral(firstType::otherTypes): types =
@@ -3015,23 +3024,33 @@ struct
             end
     
         |   TypeConstruction{ constr, args, name, locations, ...}  =>
-            let
-                val argLength = List.length args
-                val thisConstrId = tcIdentifier constr
-                (* This matches if it is an application of the same type constructor. *)
-                fun getTypeConstrs(TypeConstruction{constr, args, ...}) =
-                        if sameTypeId(thisConstrId, tcIdentifier constr) andalso
-                                List.length args = argLength
-                        then SOME args else NONE
-                |   getTypeConstrs _ = NONE
-                val allArgs = List.mapPartial (getTypeConstrs o canonical) otherTypes
-            in
-                if List.length allArgs = List.length otherTypes
-                then TypeConstruction{constr=constr, name=name, locations=locations,
-                                     args = leastArgs(args :: allArgs)}
-                else (* At least one of these wasn't the same type constructor. *)
-                    mkTypeVar(generalisable, false, false, false)
-            end
+            (
+                (* There is a potential problem if the datatype is local including if it was
+                   constructed in a functor.  Almost always it will have been declared after
+                   the polymorphic function but if it happens not to have been we could set
+                   a polymorphic function to a type that doesn't exist yet.  To avoid this
+                   we don't allow a local datatype here and instead fall back to the
+                   polymorphic case. *)
+                case tcIdentifier constr of
+                    thisConstrId as TypeId{access=Global _, ...} =>
+                    let
+                        val argLength = List.length args
+                        (* This matches if it is an application of the same type constructor. *)
+                        fun getTypeConstrs(TypeConstruction{constr, args, ...}) =
+                                if sameTypeId(thisConstrId, tcIdentifier constr) andalso
+                                        List.length args = argLength
+                                then SOME args else NONE
+                        |   getTypeConstrs _ = NONE
+                        val allArgs = List.mapPartial (getTypeConstrs o canonical) otherTypes
+                    in
+                        if List.length allArgs = List.length otherTypes
+                        then TypeConstruction{constr=constr, name=name, locations=locations,
+                                             args = leastArgs(args :: allArgs)}
+                        else (* At least one of these wasn't the same type constructor. *)
+                            mkTypeVar(generalisable, false, false, false)
+                    end
+                |   _ => mkTypeVar(generalisable, false, false, false)
+            )
 
         |   FunctionType{ arg, result } =>
             let

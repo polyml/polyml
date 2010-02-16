@@ -113,7 +113,7 @@ struct
                         |   SOME newId =>
                             makeTypeConstructor
                                 (makeName(tcName tcon),
-                                    tcTypeVars tcon, newId, 0 (* Always global. *), tcLocations tcon) :: rest
+                                    tcTypeVars tcon, newId, tcLocations tcon) :: rest
                     )
                  |  TypeId{typeFn=(args, equiv), access, description, idKind, ...} =>
                     if buildDatatypes then rest (* Not on this pass. *)
@@ -126,7 +126,7 @@ struct
                         val copiedId =
                             TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
                     in
-                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, 0, tcLocations tcon) :: rest
+                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, tcLocations tcon) :: rest
                     end
             end
             else rest

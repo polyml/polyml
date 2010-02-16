@@ -1594,7 +1594,7 @@ struct
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         val newConstructor =
                             makeTypeConstructor(
-                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, 0, tcLocations typConstr)
+                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
                     in
                         #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch

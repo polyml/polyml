@@ -2,12 +2,17 @@
 
 fun runTests parentDir =
 let
+    val defaultInlineSize = ! PolyML.Compiler.maxInlineSize
+
     fun runTests (dirName, expect) =
     let
         (* Run a file.  Returns true if it succeeds, false if it fails. *)
         fun runTest fileName =
         let
             open PolyML.Compiler
+            (* Max inline size is not available as a CP parameter and some tests
+               adjust it.  Set it to the default before each test. *)
+            val () = maxInlineSize := defaultInlineSize (* Set it to the default *)
             (* First in list is the name with no suffix. *)
             val inStream = TextIO.getInstream(TextIO.openIn fileName)
             val stream = ref inStream

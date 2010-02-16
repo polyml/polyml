@@ -199,8 +199,7 @@ struct
         (* Create a new constructor with the same unique ID. *)
         val typeID = tcIdentifier tcons;
         val newTypeCons =
-            makeTypeConstructor(newName, tcTypeVars tcons, typeID,
-                            tcLetDepth tcons, locations);
+            makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
         
         (* Copy the value constructors. *)
         fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =

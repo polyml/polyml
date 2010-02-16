@@ -470,7 +470,7 @@ struct
         val id =
             makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*),
                 isEqType, true, description)
-        val dtype = makeTypeConstructor (tcName, tyVars, id, 0, [DeclaredAt inBasis]);
+        val dtype = makeTypeConstructor (tcName, tyVars, id, [DeclaredAt inBasis]);
         (* Build the constructors. *)
         val (valConstrsAndDecs, boxedCode, sizeCode) = mkValConstrs dtype
         (* The constructors have to be ordered as in genValueConstrs in PARSE_TREE. *)
@@ -603,7 +603,7 @@ struct
                 makeTypeConstructor(
                     "location", [],
                     makeTypeFunction(basisDescription "location", ([], mkLabelled(sortLabels fields, true))),
-                    0, [DeclaredAt inBasis])
+                    [DeclaredAt inBasis])
             val locationConstr = TypeConstrSet(locationCons, [])
         end
 

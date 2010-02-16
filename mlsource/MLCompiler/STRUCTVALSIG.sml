@@ -99,7 +99,6 @@ sig
             arity:      int,
             typeVars:   typeVarForm list,
             identifier: typeId,
-            letDepth:   int, (* Needed to check for local datatypes. *)
             locations:  locationProp list (* Location of declaration *)
         }
 
@@ -202,12 +201,11 @@ sig
     val tcEquality:        typeConstrs -> bool
     val tcSetEquality:     typeConstrs * bool -> unit
     val tcIdentifier:      typeConstrs -> typeId
-    val tcLetDepth:        typeConstrs -> int
     val tcLocations:       typeConstrs -> locationProp list
     val tcIsAbbreviation:  typeConstrs -> bool
 
     val makeTypeConstructor:
-        string * typeVarForm list * typeId * int * locationProp list -> typeConstrs
+        string * typeVarForm list * typeId * locationProp list -> typeConstrs
 
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list

@@ -2598,7 +2598,7 @@ struct
                                                been redefined. *)
                                             val newTy =
                                                 makeTypeConstructor(tcName ty, tcTypeVars ty,
-                                                    tcIdentifier ty, 0, tcLocations ty)
+                                                    tcIdentifier ty, tcLocations ty)
                                         in
                                             TypeConstrSet(newTy,
                                                 List.map (fn c => mkSelectedVar (c, str, openLocs)) cons)
@@ -2667,17 +2667,17 @@ struct
                             val description = { location = nameLoc, name = name, description = "" }
                         in
                             makeTypeConstructor (name, typeVars,
-                                makeTypeId(isEqtype, false, ([], EmptyType), description), 0, [DeclaredAt nameLoc])
+                                makeTypeId(isEqtype, false, ([], EmptyType), description), [DeclaredAt nameLoc])
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeTypeConstructor (name, typeVars, typeId, 0, [DeclaredAt nameLoc])
+                                makeTypeConstructor (name, typeVars, typeId, [DeclaredAt nameLoc])
                         |   NONE =>
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
                                 makeTypeConstructor (name, typeVars,
-                                    makeTypeId(isEqtype, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
+                                    makeTypeId(isEqtype, false, (typeVars, decType), description), [DeclaredAt nameLoc])
                             end
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
@@ -2774,7 +2774,7 @@ struct
           | Unit _ =>
               unitType
 
-          | Localdec {decs, body, isLocal, varsInBody, location} =>
+          | Localdec {decs, body, isLocal, varsInBody, ...} =>
             let (* Local declarations or expressions. *)
               val newValEnv  = searchList();
               val newTypeEnv = searchList();
@@ -2840,11 +2840,6 @@ struct
               (* Now the body, returning its result if it is an expression. *)
                 val resType = assignSeq bodyEnv newLetDepth body
             in
-                (* If this is a let expression we have to check that there
-                   are no datatypes escaping. *)
-                if isLocal then ()
-                else checkForLocalDatatypes(resType, letDepth,
-                        giveError (v, lex, location));
                 resType
             end (* LocalDec *)
 
@@ -3038,7 +3033,7 @@ struct
                 
             (* end of assValues *)
 
-          and assMatchTree _ (MatchTree {vars, exp, location, resType, argType}) =
+          and assMatchTree _ (MatchTree {vars, exp, resType, argType, ...}) =
             let 
               (* A match is a function from the pattern to the expression *)
               
@@ -3077,11 +3072,6 @@ struct
             in
               resType := expType;
               argType := decs;
-              (* Check the type of parameters to the function to make
-                 sure they have not been unified with local datatypes.
-                 We don't need to check the result type because the check
-                 in "Localdec" will do that. *)
-              checkForLocalDatatypes(decs, letDepth, giveError (v, lex, location));
               (* Result is a function from the type of the pattern to the type
                  of the body. This previously generalised the resulting type. Why? *)
               mkFunctionType (decs, expType)
@@ -3216,13 +3206,7 @@ struct
             fun allowGen (d, (ValBind {exp, line, ...})) =
                 (
                     allowGeneralisation 
-                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv);
-                    (* Check the type to make sure that a local datatype is
-                       not escaping.  Checking here is really only needed in the
-                       recursive case (where a recursive call inside the body
-                       sets the type of the function) because the result will be
-                       checked elsewhere. *)
-                    checkForLocalDatatypes(d, letDepth, giveError (v, lex, line))
+                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv)
                 ) (* allowGen *)
         in
             ListPair.appEq allowGen (decs, valdecs);
@@ -3472,10 +3456,6 @@ struct
                     (* Generalise the types.  allowGeneralisation side-effects the type variables,
                        replaces any that can be generalised by general variables. *)
                     allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
-                    (* Check the type to make sure that a local datatype is
-                       not escaping as a result of a recursive application of
-                       the function to a local datatype. *)
-                    checkForLocalDatatypes(typeOf, letDepth, giveError (v, lex, declaredAt locations));
                     (* Remove any recursive references.  This really isn't right. *)
                     valOf instanceTypes := [];
                     #enterVal env (name, var);
@@ -3513,7 +3493,7 @@ struct
                     if letDepth = 0
                     then makeTypeId(false, true, ([], EmptyType), description)
                     else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
-                val tc = makeTypeConstructor(name, typeVars, newId, letDepth, [DeclaredAt nameLoc])
+                val tc = makeTypeConstructor(name, typeVars, newId, [DeclaredAt nameLoc])
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -3549,7 +3529,7 @@ struct
                    right-hand side of the declaration. *)
                 val tcon =
                     makeTypeConstructor (name, typeVars,
-                        makeTypeId(false, false, (typeVars, decType), description), 0, [DeclaredAt nameLoc])
+                        makeTypeId(false, false, (typeVars, decType), description), [DeclaredAt nameLoc])
                 val tset = TypeConstrSet(tcon, [])
             in
                 enterType(tset, name); (* Checks for duplicates. *)
@@ -3714,15 +3694,9 @@ struct
        unnecessary polymorphism.  The type-checking computes a most general
        type for a value, typically a function, but it is frequently used in
        situations where a less general type would suffice. *)
-    (* TODO: There's a problem with this code.  If we declare a polymorphic
-       value/function followed by a local datatype and use the polymorphic
-       value only on that datatype the least general type we find for the
-       polymorphic value will be that datatype.  When we come to code-generate,
-       though, we will try to construct a monomorphic value using the datatype
-       before the type ID values have been created.  Possible solutions are
-       to leave the polymorphic value as polymorphic or move the creation of
-       the polymorphic value until after the datatype, something that's safe
-       because polymorphic values are non-expansive. *)
+    (* Note: if the less general type involves a local datatype this isn't
+       done to avoid a possible bug with datatypes defined after the
+       function. *)
     fun setLeastGeneralTypes(p: parsetree, _: lexan) =
     let
         (* Because of mutual recursion we need to process the set of variables
@@ -5724,8 +5698,16 @@ struct
             codeSequence (pTail, leading @ firstDec, codeSeqContext |> repDebugEnv firstEnv, processBody)
         end
 
-    |   codeSequence ((firstEntry as ValDeclaration {dec, ...}) :: pTail, leading, codeSeqContext, processBody) =
+    |   codeSequence ((firstEntry as ValDeclaration {dec, ...}) :: pTail, leading, codeSeqContext as {lex, ...}, processBody) =
         let
+            (* Check the types for escaped datatypes. *)
+            local
+                fun checkVars(ValBind{variables=ref vars, line, ...}) =
+                    List.app(fn var => checkForEscapingDatatypes(valTypeOf var,
+                        fn message => errorNear (lex, true, firstEntry, line, message))) vars
+            in
+                val () = List.app checkVars dec
+            end
             (* Split the bindings into recursive and non-recursive.  These have to
                be processed differently. *)
             val (recBindings, nonrecBindings) =
@@ -5918,6 +5900,14 @@ struct
     and codeFunBindings(tlist: fvalbind list, near,
                         context as {decName, mkAddr, level, typeVarMap, debugEnv, lex, ...}) =
         let
+            (* Check the types for escaped datatypes. *)
+            local
+                fun checkVars(FValBind{functVar=ref var, location, ...}) =
+                    checkForEscapingDatatypes(valTypeOf var,
+                        fn message => errorNear (lex, true, near, location, message))
+            in
+                val () = List.app checkVars tlist
+            end
             (* Each function may result in either one or two functions
                actually being generated. If a function is not curried
                it will generate a single function of one argument, but

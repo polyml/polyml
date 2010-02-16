@@ -155,7 +155,6 @@ struct
             arity:      int,
             typeVars:   typeVarForm list,
             identifier: typeId,
-            letDepth:   int, (* Needed to check for local datatypes. *)
             locations:  locationProp list (* Location of declaration *)
         }
 
@@ -442,18 +441,15 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
-  
-    fun tcLetDepth  (TypeConstrs {letDepth,...} : typeConstrs) = letDepth;
 
     (* Construct a type constructor. *)
-    fun makeTypeConstructor (name, typeVars, uid, depth, locations) =
+    fun makeTypeConstructor (name, typeVars, uid, locations) =
         TypeConstrs
         {
             name       = name,
             arity      = length typeVars,
             typeVars   = typeVars,
             identifier = uid,
-            letDepth   = depth,
             locations = locations
         }
 
