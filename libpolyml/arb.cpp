@@ -60,6 +60,10 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include <stdlib.h>
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
