@@ -326,6 +326,7 @@ gbla(name): \
     CALL_IO(callcode_tupled, POLY_SYS_callcode_tupled)
     CALL_IO(io_operation, POLY_SYS_io_operation)
     CALL_IO(exception_trace, POLY_SYS_exception_trace)
+    CALL_IO(bytevec_eq_, POLY_SYS_bytevec_eq)
     
 ! alloc(size, flags, initial).  Allocates a segment of a given size and
 ! initialises it.
@@ -344,7 +345,7 @@ INLINE_ROUTINE(int_to_word)
     nop
     jmp %o7+6       /* If it's short we just return it. */
     nop
-
+itw0:
     CALL_IO(get_first_long_word_, POLY_SYS_get_first_long_word)
     RegMask(get_first_long_word,Mask_all)
 
@@ -1433,7 +1434,7 @@ globldec(registerMaskVector)
     .long   Mask_set_code_constant   /* 194 */
     .long   Mask_move_words          /* 195 */
     .long   Mask_shift_right_arith_word  /* 196 */
-    .long   Mask_int_to_word         /* 197 */
+    .long   Mask_all                 /* 197 */
     .long   Mask_move_bytes          /* 198 */
     .long   Mask_all                 /* 199 now unused */
     .long   Mask_set_flags_          /* 200 */
