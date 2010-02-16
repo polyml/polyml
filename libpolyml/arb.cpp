@@ -73,6 +73,9 @@ Thanks are due to D. Knuth for the long division algorithm.
 
 #ifdef HAVE_GMP_H
 #include <gmp.h>
+#if (__GNU_MP_VERSION >= 4)
+#define USE_GMP 1
+#endif
 #endif
 
 #include "globals.h"
@@ -84,14 +87,14 @@ Thanks are due to D. Knuth for the long division algorithm.
 
 #define BITS_PER_POLYWORD (SIZEOF_LONG*8)
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
 #if (BITS_PER_POLYWORD > GMP_LIMB_BITS)
 // We're assuming that every GMP limb occupies at least one word
 #error "Size of GMP limb is less than a Poly word"
 #endif
 #endif
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
 #define DEREFLIMBHANDLE(_x)      ((mp_limb_t *)DEREFHANDLE(_x))
 
 // Returns the length of the argument with trailing zeros removed.
@@ -131,7 +134,7 @@ POLYUNSIGNED get_C_ulong(TaskData *taskData, PolyWord number)
     else
     {
         if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size );
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
         unsigned length = numLimbs(number);
         if (length > 1) raise_exception0(taskData, EXC_size);
         mp_limb_t first = *(mp_limb_t*)number.AsCodePtr();
@@ -161,7 +164,7 @@ POLYSIGNED get_C_long(TaskData *taskData, PolyWord number)
     else
     {
         int sign   = OBJ_IS_NEGATIVE(GetLengthWord(number)) ? -1 : 0;
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
         unsigned length = numLimbs(number);
         if (length > 1) raise_exception0(taskData, EXC_size);
         mp_limb_t c = *(mp_limb_t*)number.AsCodePtr();
@@ -256,7 +259,7 @@ static Handle get_long(Handle x, Handle extend, int *sign)
             *sign = -1;
             x_v   = -x_v;
         }
- #ifdef HAVE_GMP_H
+ #ifdef USE_GMP
         mp_limb_t *u = DEREFLIMBHANDLE(extend);
         *u = x_v;
 #else
@@ -278,7 +281,7 @@ static Handle get_long(Handle x, Handle extend, int *sign)
     }
 }
 
-#ifndef HAVE_GMP_H
+#ifndef USE_GMP
 static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
 {
     Handle y = alloc_and_save(taskData, WORDS(lx), F_BYTE_OBJ|F_MUTABLE_BIT);
@@ -295,7 +298,7 @@ static Handle copy_long(TaskData *taskData, Handle x, POLYUNSIGNED lx)
    from long to short integer */
 static Handle make_canonical(TaskData *taskData, Handle x, int sign)
 {
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     unsigned size = numLimbs(DEREFWORD(x));
     if (size == 1)
     {
@@ -355,7 +358,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED val)
         return taskData->saveVec.push(TAGGED(val));
 
     POLYUNSIGNED uval = val < 0 ? -val : val;
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     Handle y = alloc_and_save(taskData, WORDS(sizeof(mp_limb_t)), ((val < 0) ? F_NEGATIVE_BIT : 0)| F_BYTE_OBJ);
     mp_limb_t *v = DEREFLIMBHANDLE(y);
     *v = uval;
@@ -376,7 +379,7 @@ Handle Make_unsigned(TaskData *taskData, POLYUNSIGNED uval)
    precision integer from an unsigned value. */
 {
     if (uval <= MAXTAGGED) return taskData->saveVec.push(TAGGED(uval));
- #ifdef HAVE_GMP_H
+ #ifdef USE_GMP
     Handle y = alloc_and_save(taskData, WORDS(sizeof(mp_limb_t)), F_BYTE_OBJ);
     mp_limb_t *v = DEREFLIMBHANDLE(y);
     *v = uval;
@@ -446,7 +449,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     }
 
     // Either overflow or long argument - convert to long form.
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
     PolyWord    x_extend[2];
@@ -457,7 +460,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     int sign_x;
     Handle long_x = get_long(x, x_ehandle, &sign_x);
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     POLYUNSIGNED lx = numLimbs(DEREFWORD(long_x))*sizeof(mp_limb_t);
 #else
     /* Get length of arg. */
@@ -466,7 +469,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     Handle long_y = alloc_and_save(taskData, WORDS(lx), F_MUTABLE_BIT|F_BYTE_OBJ);
     byte *v = DEREFBYTEHANDLE(long_y);
     memcpy(v, DEREFBYTEHANDLE(long_x), lx);
-#ifndef HAVE_GMP_H
+#ifndef USE_GMP
     // Make sure the last word is zero.  We may have unused bytes there.
     memset(v+lx, 0, WORDS(lx)*sizeof(PolyWord)-lx);
 #endif
@@ -475,7 +478,7 @@ Handle neg_longc(TaskData *taskData, Handle x)
     return make_canonical(taskData, long_y, sign_x ^ -1);
 } /* neg_longc */
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
 static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
     /* find the longer number */
@@ -583,7 +586,7 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 } /* add_unsigned_long */
 #endif
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
 static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign)
 {
     mp_limb_t *u; /* limb-pointer alias for larger number  */
@@ -730,7 +733,7 @@ Handle add_longc(TaskData *taskData, Handle y, Handle x)
         }
     }
 
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
     PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
@@ -767,7 +770,7 @@ Handle sub_longc(TaskData *taskData, Handle y, Handle x)
             return taskData->saveVec.push(TAGGED(t));
     }
 
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
     PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
@@ -798,7 +801,7 @@ Handle sub_longc(TaskData *taskData, Handle y, Handle x)
 Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 {
 
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
     PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
@@ -814,7 +817,7 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
     Handle long_x = get_long(x, x_ehandle, &sign_x); /* Convert to long form */
     Handle long_y = get_long(y, y_ehandle, &sign_y);
 
-#if HAVE_GMP_H
+#if USE_GMP
     mp_size_t lx = numLimbs(DEREFWORD(long_x));
     mp_size_t ly = numLimbs(DEREFWORD(long_y));
 
@@ -868,7 +871,7 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 #endif
 } /* mult_long */
 
-#ifndef HAVE_GMP_H
+#ifndef USE_GMP
 static void div_unsigned_long(byte *u, byte *v, byte *res, POLYUNSIGNED lu, POLYUNSIGNED lv)
 /* Unsigned division. This is the main divide and remainder routine. The
 result is packed into ``res'' and is separated out by div and rem */
@@ -980,7 +983,7 @@ Handle div_longc(TaskData *taskData, Handle y, Handle x)
             return taskData->saveVec.push(TAGGED(xs / ys));
     }
 
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
     PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
@@ -995,7 +998,7 @@ Handle div_longc(TaskData *taskData, Handle y, Handle x)
     Handle long_x = get_long(x, x_ehandle, &sign_x);
     Handle long_y = get_long(y, y_ehandle, &sign_y);
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     /* Get lengths of args. */
     mp_size_t lx = numLimbs(DEREFWORD(long_x));
     mp_size_t ly = numLimbs(DEREFWORD(long_y));
@@ -1075,7 +1078,7 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
             return taskData->saveVec.push(TAGGED(xs % ys));
     }
 
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
     PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
@@ -1090,7 +1093,7 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
     Handle long_x = get_long(x, x_ehandle, &sign_x);
     Handle long_y = get_long(y, y_ehandle, &sign_y);
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     /* Get lengths of args. */
     mp_size_t lx = numLimbs(DEREFWORD(long_x));
     mp_size_t ly = numLimbs(DEREFWORD(long_y));
@@ -1159,7 +1162,7 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
 /* compare_unsigned is passed LONG integers only */
 static int compare_unsigned(Handle x, Handle y)
 {
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     mp_size_t lx = numLimbs(DEREFWORD(x));
     mp_size_t ly = numLimbs(DEREFWORD(y));
 
@@ -1253,7 +1256,7 @@ static Handle logical_long(TaskData *taskData, Handle x, Handle y, int signX, in
     POLYUNSIGNED lv;   /* length of v in bytes */
 
     { /* find the longer number */
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
         POLYUNSIGNED lx = numLimbs(DEREFWORD(x)) * sizeof(mp_limb_t);
         POLYUNSIGNED ly = numLimbs(DEREFWORD(y)) * sizeof(mp_limb_t);
 #else
@@ -1370,7 +1373,7 @@ Handle and_longc(TaskData *taskData, Handle y, Handle x)
         return taskData->saveVec.push(TAGGED(t));
     }
 
-#if HAVE_GMP_H
+#if USE_GMP
     PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
     PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
 #else
@@ -1506,7 +1509,7 @@ Handle int_to_word_c(TaskData *taskData, Handle x)
     if (IS_INT(DEREFWORD(x)))
         return x;
 
-#ifdef HAVE_GMP_H
+#ifdef USE_GMP
     // It may be big- or little-endian.
     POLYUNSIGNED r = (POLYUNSIGNED)*DEREFLIMBHANDLE(x);
 #else
