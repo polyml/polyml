@@ -116,6 +116,9 @@
 /* Define to 1 if you have the `gettimeofday' function. */
 #undef HAVE_GETTIMEOFDAY
 
+/* Define to 1 if you have the <gmp.h> header file. */
+#undef HAVE_GMP_H
+
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
 
@@ -142,6 +145,9 @@
 
 /* Define to 1 if you have the `gdi32' library (-lgdi32). */
 #undef HAVE_LIBGDI32
+
+/* Define to 1 if you have the `gmp' library (-lgmp). */
+#undef HAVE_LIBGMP
 
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
@@ -198,13 +204,13 @@
 /* Define to 1 if you have the <math.h> header file. */
 #undef HAVE_MATH_H
 
-/* Define to 1 if `mcontext_t' is a member of `gregs'. */
+/* Define to 1 if `gregs' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_GREGS
 
-/* Define to 1 if `mcontext_t' is a member of `mc_esp'. */
+/* Define to 1 if `mc_esp' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_MC_ESP
 
-/* Define to 1 if `mcontext_t' is a member of `regs'. */
+/* Define to 1 if `regs' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_REGS
 
 /* Define to 1 if you have the `memmove' function. */
@@ -353,31 +359,31 @@
 /* Define to 1 if you have the `strtod' function. */
 #undef HAVE_STRTOD
 
-/* Define to 1 if `struct mcontext' is a member of `ss'. */
+/* Define to 1 if `ss' is a member of `struct mcontext'. */
 #undef HAVE_STRUCT_MCONTEXT_SS
 
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
 
-/* Define to 1 if `struct sockaddr_un' is a member of `sun_len'. */
+/* Define to 1 if `sun_len' is a member of `struct sockaddr_un'. */
 #undef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
 
-/* Define to 1 if `struct __darwin_mcontext32' is a member of `ss'. */
+/* Define to 1 if `ss' is a member of `struct __darwin_mcontext32'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32_SS
 
-/* Define to 1 if `struct __darwin_mcontext32' is a member of `__ss'. */
+/* Define to 1 if `__ss' is a member of `struct __darwin_mcontext32'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32___SS
 
-/* Define to 1 if `struct __darwin_mcontext64' is a member of `ss'. */
+/* Define to 1 if `ss' is a member of `struct __darwin_mcontext64'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT64_SS
 
-/* Define to 1 if `struct __darwin_mcontext64' is a member of `__ss'. */
+/* Define to 1 if `__ss' is a member of `struct __darwin_mcontext64'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT64___SS
 
-/* Define to 1 if `struct __darwin_mcontext' is a member of `ss'. */
+/* Define to 1 if `ss' is a member of `struct __darwin_mcontext'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT_SS
 
-/* Define to 1 if `struct __darwin_mcontext' is a member of `__ss'. */
+/* Define to 1 if `__ss' is a member of `struct __darwin_mcontext'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT___SS
 
 /* Define to 1 if you have the `sysctl' function. */

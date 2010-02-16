@@ -98,6 +98,8 @@ AC_CHECK_LIB(pthread, pthread_create)
 # The next two are only used with mingw
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
+# Check for GMP
+AC_CHECK_LIB(gmp, main)
 # Solaris needs -lsocket, -lnsl and -lrt
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
@@ -162,6 +164,7 @@ AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h s
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h])
 AC_CHECK_HEADERS([windows.h tchar.h pthread.h semaphore.h])
+AC_CHECK_HEADERS([gmp.h])
 
 # Only check for the X headers if the user said --with-x.
 if test "${with_x+set}" = set; then
