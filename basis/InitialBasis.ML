@@ -289,24 +289,9 @@ local
                 )
             )
         end
-
-    (* If we have an expression as the argument we parenthesise it unless it is
-       a simple string, a tuple, a record or a list. *)
-    fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
-    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("(")::_ ))) = s
-    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
-    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
-    |   parenthesise(s as PrettyBlock _) =
-            PrettyBlock(3, true, [], [ PrettyString "(", s, PrettyString ")" ])
-    |   parenthesise s = s (* String or Break *)
-
-    fun print_ref depth doArg (ref x) =
-        PrettyBlock(3, false, [], [ PrettyString "ref", PrettyBreak(1, 0), parenthesise(doArg(x, depth)) ])
-
 in
-    val () = addPrettyPrinter print_bool;
-    val () = addPrettyPrinter print_string;
-    val () = addPrettyPrinter print_char;
+    val () = addPrettyPrinter print_bool
+    val () = addPrettyPrinter print_string
+    val () = addPrettyPrinter print_char
     val () = addPrettyPrinter print_list
-    val () = addPrettyPrinter print_ref
 end;

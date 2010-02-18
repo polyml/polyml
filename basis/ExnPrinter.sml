@@ -70,4 +70,55 @@ local
     end
 in
     val () = addPrettyPrinter exnPrint
-end
+end;
+
+(* Print a ref.  Because refs can form circular structures we include a check for a loop here. *)
+local
+    open PolyML
+    (* If we have an expression as the argument we parenthesise it unless it is
+       a simple string, a tuple, a record or a list. *)
+    fun parenthesise(s as PrettyBlock(_, _, _, [ _ ])) = s
+    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("(")::_ ))) = s
+    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("{")::_ ))) = s
+    |   parenthesise(s as PrettyBlock(_, _, _, (PrettyString("[")::_ ))) = s
+    |   parenthesise(s as PrettyBlock _) =
+            PrettyBlock(3, true, [], [ PrettyString "(", s, PrettyString ")" ])
+    |   parenthesise s = s (* String or Break *)
+
+    val printLimit: word ref list Universal.tag = Universal.tag()
+
+    fun print_ref depth doArg (r as ref x) =
+        if depth <= 0
+        then PrettyString "..."
+        else
+        let
+            (* We keep a list in thread-local storage of refs we're currently printing.
+               This is thread-local to avoid interference between different threads. *)
+            val currentRefs =
+                case Thread.Thread.getLocal printLimit of
+                    NONE => []
+                |   SOME limit => limit
+            val thisRef: word ref = RunCall.unsafeCast r
+        in
+            if List.exists(fn x => x = thisRef) currentRefs
+            then PrettyString "..." (* We've already seen this ref. *)
+            else
+            (
+                (* Add this to the list. *)
+                Thread.Thread.setLocal (printLimit, thisRef :: currentRefs);
+                (* Print it and reset the list*)
+                (PrettyBlock(3, false, [],
+                    [ PrettyString "ref", PrettyBreak(1, 0), parenthesise(doArg(x, depth-1)) ]))
+                    before (Thread.Thread.setLocal (printLimit, currentRefs))
+            ) handle exn =>
+                (
+                    (* Reset the list if there's been an exception. *)
+                    Thread.Thread.setLocal (printLimit, currentRefs);
+                    raise exn
+                )
+        end
+
+in
+    val () = addPrettyPrinter print_ref
+end;
+
