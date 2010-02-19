@@ -2649,7 +2649,7 @@ struct
                         mergeLab (lab1, table, newResult, mark)
                 in
                     (mergeResult, otherMerge @
-                        forwardJumpLabel(labs lab) @ newCode @ lab1Code @ mergeCode)
+                        newCode @ forwardJumpLabel(labs lab) @ lab1Code @ mergeCode)
                 end
                 else (mergeRes, forwardJumpLabel(labs lab) @ mergeCode)
             end
