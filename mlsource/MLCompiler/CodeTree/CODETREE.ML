@@ -81,7 +81,8 @@ struct
   open BASECODETREE;
   open PRETTY;
   
-  val InternalError = Misc.InternalError
+  exception InternalError = Misc.InternalError
+  and Interrupt = Thread.Thread.Interrupt
   
   infix 9 sub;
 
@@ -677,8 +678,9 @@ struct
         fun evaluateDefault(resultCode, codegen) =
             (* Compile the expression, evaluate it, and catch any exceptions. *)
             mkConst (codegen resultCode ())
-                handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
-                | _         => resultCode
+                handle Interrupt => raise Interrupt (* Must not handle this *)
+                | exn as InternalError _ => raise exn
+                | exn => Raise (Constnt(toMachineWord exn))
     in
         fun evaluate (resultCode as Constnt _) _ =
             (* May already have been reduced to a constant. *)
@@ -705,16 +707,18 @@ struct
                                     else toAddress addr
                             |   _ => raise InternalError "Code address is not a constant";
        
-                        (* Finished loading the args; call the function. This may raise an exception,
-                           in which case we just return the original code rather than trying to sort
-                           out the exception packet. We would have a problem if the code we were
-                           executing could raise Interrupt ("is it the user, or is it the code?") but
-                           this isn't a problem because we never execute an explicit "raise" expression
-                           and none of the built-in functions can raise Interrupt. *)
+                        (* Finished loading the args; call the function.  If it raises an
+                           exception pass back the exception packet.  We've got a problem
+                           here if the code happens to raise Interrupt.  We assume that
+                           Interrupt can only occur through user intervention during
+                           compilation rather than as a result of executing the code.
+                           It would be better to use the Thread.Thread functions to
+                           mask off interrupts. *)
                         fun callFunction (argTuple:machineWord) = 
                             mkConst (call (funcAddress, argTuple))
-                                handle SML90.Interrupt => raise SML90.Interrupt (* Must not handle this *)
-                                | _         => resultCode
+                                handle Interrupt => raise Interrupt (* Must not handle this *)
+                                | exn as InternalError _ => raise exn
+                                | exn => Raise (Constnt(toMachineWord exn))
 
                         fun loadArgs (argVec : address, [],  _) =
                             ( lock argVec; callFunction (toMachineWord argVec) )
