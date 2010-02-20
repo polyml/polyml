@@ -1574,8 +1574,11 @@ struct
        overwriting entries in the argument area, but we may have had to push
        some of the registers while doing the load, so those entries will have
        to be saved. *)
-    fun storeInStack (table as Ttab{maxstack, realstackptr, ...}, entry, locn) =
+    fun storeInStack (table as Ttab{maxstack, realstackptr, markReal as ref initMark, ...}, entry, locn) =
     let
+        (* Make sure we don't reset the stack below this point. *)
+        val () = markReal := Int.max(locn, initMark)
+
         (* Move it to the stack, using a move-immediate if possible. *)
         fun inc x = (x := !x + 1);
 
@@ -1675,6 +1678,7 @@ struct
         if ! realstackptr > ! maxstack
         then maxstack := ! realstackptr
         else ();
+        markReal := initMark;
         (stackEntry, code)
     end (* storeInStack *);
 
@@ -1909,7 +1913,7 @@ struct
        Most of the complicating factors have now been removed. *) 
     fun setState (save : savedState,
                   table as
-                    Ttab{pstack, pstackTrace, printStream, pstackptr, realstackptr, regset, ...},
+                    Ttab{pstack, pstackTrace, printStream, pstackptr, realstackptr, regset, markReal, ...},
                   carry, mark, isMerge): mergeResult * operation list =
     let 
         val () = if pstackTrace then printState printStream save "setState" else ()
@@ -1964,8 +1968,8 @@ struct
         val () = realstackptr := realStackPtr save;
     
         local
-            val oldPstackptr = ! pstackptr;
-            val () = pstackptr := pStackPtr save;
+            val oldPstackptr = ! pstackptr
+            val () = pstackptr := pStackPtr save
 
             (* Go up the entries putting them onto the table from the saved
              state, then come back setting the use-counts where appropriate.
@@ -2016,7 +2020,7 @@ struct
                                 |   (tabDestStack, NONE) =>
                                         StretchArray.update (pstack, s,
                                             StackEntry {ent=ent, cache=cache, uses=uses,
-                                                        destStack=tabDestStack, lifeTime=lifeTime});
+                                                        destStack=tabDestStack, lifeTime=lifeTime})
                             val otherEntries = putOnEntries (s + 1)
               
                             (* Can now set the use counts. The use-counts may have changed
@@ -2053,11 +2057,35 @@ struct
                             otherEntries @ cacheRegs @ loadReg
                         end
                 end
+            (* If the state we're setting into has a destination location for an entry we don't
+               override it with an entry for the saved state but instead merge in.  However we
+               could have pushed something else on route to the saved state and even though the
+               entry is no longer on the pstack we could now find that the real stack pointer is
+               above the current destination location.  We need to reset the stack if that happens
+               so that we can push the entry if we need to.  *)
+            fun checkUnPushed s min =
+                case pstackEntry(table, s) of
+                    StackEntry{ent=StackW _, ...} => min
+                |   StackEntry{destStack=SOME dest, ...} => Int.min(dest, min)
+                |   _ => min
         in
             val addRegs = putOnEntries first
+            val minUnpushed = revfoldIndDownTo(checkUnPushed, ! realstackptr, ! pstackptr - 1, first)
+            val andReset =
+                if minUnpushed < ! realstackptr
+                then if minUnpushed < !markReal
+                then raise InternalError "Unpushed entry below stack mark"
+                else
+                let
+                    val current = !realstackptr;
+                in
+                    realstackptr := minUnpushed;
+                    resetStack(current-minUnpushed)
+                end
+                else []
         end
 
-        val regLoadFree = addRegs @ freeTable @ freeTop
+        val regLoadFree = andReset @ addRegs @ freeTable @ freeTop
         val result =
             case carry of
                 MergeIndex _ =>(* Put the result register onto the stack. *)
