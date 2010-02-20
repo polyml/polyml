@@ -129,6 +129,10 @@ struct
             codeFail,
             codeOk)
 
+    (* Subtract one from the current depth to produce the depth for sub-elements. *)
+    and decDepth depthCode =
+        mkEval(rtsFunction POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)], true)
+
     structure TypeVarMap =
     struct
         (* Entries are either type var maps or "stoppers". *)
@@ -453,7 +457,7 @@ struct
                                     then (* optimised unary records *)
                                         mkEval(printCode(typeof, localLevel), [arg1], false)
                                     else mkEval(printCode(typeof, localLevel),
-                                                [mkTuple[mkInd(offset, valToPrint), depthCode]], false)
+                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]], false)
                                 val (start, terminator) =
                                     if isTuple then ([], ")")
                                     else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], "}")
@@ -473,7 +477,7 @@ struct
                                         [
                                             mkEval(
                                                 printCode(typeof, localLevel),
-                                                [mkTuple[mkInd(offset, valToPrint), depthCode]],
+                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]],
                                                 false),
                                             codePrettyString ",",
                                             codePrettyBreak (1, 0)
@@ -814,7 +818,7 @@ struct
                                         [
                                             mkEval(
                                                 printerForType(typeOfArg, innerLevel, newTypeVarMap),
-                                                [mkTuple[getValue, depthCode]],
+                                                [mkTuple[getValue, decDepth depthCode]],
                                                 false
                                             )],
                                         false)
