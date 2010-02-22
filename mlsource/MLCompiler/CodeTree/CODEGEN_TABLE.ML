@@ -2656,7 +2656,7 @@ struct
             in
                 branched := false;
                 exited := false;
-                (newResult, forwardJumpLabel(labs lab) @ newCode)
+                (newResult, newCode @ forwardJumpLabel(labs lab))
             end
             else
             let
@@ -2972,7 +2972,7 @@ struct
     in
         exited := false;
         branched := false;
-        (destLabel, jumpCode @ code)
+        (destLabel, code @ jumpCode)
     end
 
     datatype argdest = ArgToRegister of reg | ArgToStack of int
