@@ -61,7 +61,7 @@ struct
         and PTparent(entry: unit -> exportTree): ptProperties = toAddress(0w4, entry)
         and PTpreviousSibling(entry: unit -> exportTree): ptProperties = toAddress(0w5, entry)
         and PTprint(pr: int -> pretty): ptProperties = toAddress(0w6, pr)
-        and PTreferences(loc: bool * location list): ptProperties = toAddress(0w7, loc)
+        and PTreferences(exp: bool, locs: location list): ptProperties = toAddress(0w7, exp, locs)
         and PTstructureAt(loc: location): ptProperties = toAddress(0w8, loc)
         and PTtype(typ: types): ptProperties = toAddress(0w9, typ)
     end
