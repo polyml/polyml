@@ -25,18 +25,19 @@ sig
     type locationProp
 
     (* Export tree. *)
-    datatype ptProperties =
-        PTprint of int -> pretty (* Print the tree *)
-    |   PTtype of types (* Type of an expression *)
-    |   PTdeclaredAt of location (* Declaration location for id. *)
-    |   PTopenedAt of location (* When an identifier comes from an "open" the location of the open. *)
-    |   PTstructureAt of location (* When an identifier comes from open S or S.a the declaration of S. *)
-    |   PTreferences of bool * location list (* The references to the ID.  The first is true if this is exported. *)
-    |   PTparent of unit -> exportTree
-    |   PTpreviousSibling of unit -> exportTree
-    |   PTnextSibling of unit -> exportTree
-    |   PTfirstChild of unit -> exportTree
-    withtype exportTree = location * ptProperties list
+    type ptProperties
+    type exportTree = location * ptProperties list
+
+    val PTprint: (int -> pretty) -> ptProperties (* Print the tree *)
+    val PTtype: types -> ptProperties (* Type of an expression *)
+    val PTdeclaredAt: location -> ptProperties (* Declaration location for id. *)
+    val PTopenedAt: location -> ptProperties (* When an identifier comes from an "open" the location of the open. *)
+    val PTstructureAt: location -> ptProperties (* When an identifier comes from open S or S.a the declaration of S. *)
+    val PTreferences: (bool * location list) -> ptProperties  (* The references to the ID.  The first is true if this is exported. *)
+    val PTparent: (unit -> exportTree) -> ptProperties 
+    val PTpreviousSibling: (unit -> exportTree) -> ptProperties 
+    val PTnextSibling: (unit -> exportTree) -> ptProperties 
+    val PTfirstChild: (unit -> exportTree) -> ptProperties 
     
     type navigation =
         {parent: (unit -> exportTree) option,

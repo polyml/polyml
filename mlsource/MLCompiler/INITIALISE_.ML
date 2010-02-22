@@ -1074,8 +1074,7 @@ struct
                  ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];
-            (* We rely on chooseConstrRepr giving us the same representation for the
-               constructors as when context was compiled by the previous compiler. *)
+            (* This representation must match the representation defined in ExportTree.sml. *)
             val numConstrs = List.length constrs
             val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
             val constructors =

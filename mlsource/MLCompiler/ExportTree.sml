@@ -35,6 +35,7 @@ structure PRETTY: PRETTYSIG
 struct
     open PRETTY STRUCTVALS
 
+(*
     datatype ptProperties =
         PTprint of int -> pretty (* Print the tree *)
     |   PTtype of types (* Type of an expression *)
@@ -46,7 +47,26 @@ struct
     |   PTpreviousSibling of unit -> exportTree
     |   PTnextSibling of unit -> exportTree
     |   PTfirstChild of unit -> exportTree
-    withtype exportTree = location * ptProperties list
+    withtype exportTree = location * ptProperties list *)
+    local
+        open Address
+    in
+        type ptProperties = address
+        type exportTree = location * ptProperties list
+
+        fun PTdeclaredAt(loc: location): ptProperties = toAddress(0w0, loc)
+        and PTfirstChild(entry: unit -> exportTree): ptProperties = toAddress(0w1, entry)
+        and PTnextSibling(entry: unit -> exportTree): ptProperties = toAddress(0w2, entry)
+        and PTopenedAt(loc: location): ptProperties = toAddress(0w3, loc)
+        and PTparent(entry: unit -> exportTree): ptProperties = toAddress(0w4, entry)
+        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = toAddress(0w5, entry)
+        and PTprint(pr: int -> pretty): ptProperties = toAddress(0w6, pr)
+        and PTreferences(loc: bool * location list): ptProperties = toAddress(0w7, loc)
+        and PTstructureAt(loc: location): ptProperties = toAddress(0w8, loc)
+        and PTtype(typ: types): ptProperties = toAddress(0w9, typ)
+    end
+
+    (* This representation is exported so we have to use a *)
 
     type navigation =
         {parent: (unit -> exportTree) option,

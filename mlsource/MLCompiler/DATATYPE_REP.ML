@@ -660,6 +660,8 @@ struct
         end
     end
 
+    (* The representation of ptProperties is given in ExportTree.sml and must also match. *)
+
     (* Construct an exception identifier - This is a ref (so we can uniquely
        identify it) containing a print function for the type. *)
     local
