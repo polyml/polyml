@@ -675,18 +675,18 @@ struct
        "resultCode" is a copied code expression. The result is either
        a constant or an exception. *)
     local
-        fun evaluateDefault(resultCode, codegen) =
+        fun evaluateDefault(resultCode, codegen, localCount) =
             (* Compile the expression, evaluate it, and catch any exceptions. *)
-            mkConst (codegen resultCode ())
+            mkConst (codegen(resultCode, localCount) ())
                 handle Interrupt => raise Interrupt (* Must not handle this *)
                 | exn as InternalError _ => raise exn
                 | exn => Raise (Constnt(toMachineWord exn))
     in
-        fun evaluate (resultCode as Constnt _) _ =
+        fun evaluate (resultCode as Constnt _, _, _) =
             (* May already have been reduced to a constant. *)
             resultCode
 
-        |   evaluate (resultCode as Eval { function=evalFunction, argList, resultType, ...}) codegen =
+        |   evaluate (resultCode as Eval { function=evalFunction, argList, resultType, ...}, codegen, localCount) =
             (* It's a function call - generate a call. This should only be
               as a result of "early" evaluation when all the arguments are
               constants or inline procedures. *)
@@ -694,7 +694,7 @@ struct
                 (case resultType of GeneralType => true | _ => false)
             then
             (
-                case evaluate evalFunction codegen of
+                case evaluate(evalFunction, codegen, localCount) of
                     function as Raise _ => function (* Could be an exception. *)
 
                 |   function =>
@@ -724,7 +724,7 @@ struct
                             ( lock argVec; callFunction (toMachineWord argVec) )
                
                         |   loadArgs (argVec : address, (h, _) :: t, locn) =
-                            case evaluate h codegen of
+                            case evaluate(h, codegen, localCount) of
                                 arg as Raise _ => arg
                                 (* if argument is a "raise" expression, so is final result *)
                             |   Constnt cv =>
@@ -746,8 +746,8 @@ struct
                             end
                     end
                 )
-                else evaluateDefault(resultCode, codegen)
-        |   evaluate resultCode codegen = evaluateDefault(resultCode, codegen)
+                else evaluateDefault(resultCode, codegen, localCount)
+        |   evaluate(resultCode, codegen, localCount) = evaluateDefault(resultCode, codegen, localCount)
     end
    
 (************************************************************************)
@@ -1452,13 +1452,13 @@ DCJM 2000.
             )
 
             fun makeDecl(Declar{addr, ...}) =
-            let
+            (let
                 val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
                 val () = Array.update (closuresForLocals, addr, false)
                 val () = Array.update (newLocalAddresses, addr, newAddr)
             in
                 newAddr
-            end
+            end handle Subscript => raise InternalError("makeDecl " ^ Int.toString addr ^ " of " ^ Int.toString localCount))
             |   makeDecl _ = raise InternalError "makeDecl: not Declar"
             
           (* locaddr *)
@@ -1513,7 +1513,7 @@ DCJM 2000.
                     pt (* Constants can be returned untouched. *)
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
-                let
+                (let
                     (* Make entries in the tables for the arguments. *)
                     val newAddrs = List.map (fn (d, _) => makeDecl d) argList
 
@@ -1530,7 +1530,7 @@ DCJM 2000.
                 in
                     (* Add the kill entries on after the loop. *)
                     BeginLoop{loop=insBody, arguments=newargs}
-                end
+                end handle InternalError exn => raise InternalError(exn^"/BeginLoop"))
     
             |   insert(Loop argList) = (* Jump back to start of tail-recursive function. *)
                         Loop(List.map(fn (c, t) => (insert c, t)) argList)
@@ -1544,7 +1544,7 @@ DCJM 2000.
                         reconvertCase(copyCond (condTest, condThen, condElse))
 
             |   insert(Newenv ptElist) =
-                let
+                (let
                     (* Process the body. Recurses down the list of declarations
                        and expressions processing each, and then reconstructs the
                        list on the way back. *)
@@ -1714,7 +1714,7 @@ DCJM 2000.
                        a declaration to discard the result of a function call and 
                        only do its side-effects). *)
                     wrapEnv insElist
-                end (* isNewEnv *)
+                end (* isNewEnv *) handle InternalError exn => raise InternalError(exn^"/NewEnv"))
                 
             |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
                 let
@@ -2053,7 +2053,7 @@ DCJM 2000.
                     }
               in
                (* Code generate it now so we get a constant. *)
-                evaluate copiedProc codegen
+                evaluate(copiedProc, codegen, 1)
               end
       
               else
@@ -2120,7 +2120,7 @@ DCJM 2000.
        compute the lifetimes of declarations. *)
     fun preCode (codegen, pt, localAddressCount) =
     let
-        fun pass1Cg pt = codegen(lifeTimes(pt, localAddressCount))
+        fun pass1Cg(pt, localCount) = codegen(lifeTimes(pt, localCount), localCount)
         val pass1 = staticLinkAndCases(pass1Cg, pt, localAddressCount)
     in
         lifeTimes(pass1, localAddressCount)
@@ -2462,7 +2462,7 @@ DCJM 2000.
      nestingOfThisProcedure : int,
      spval : int ref,
      earlyInline : bool,
-     evaluate : codetree -> codetree,
+     evaluate : codetree * int -> codetree,
      tailCallEntry: bool ref option,
      recursiveExpansions:
         (((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref) list,
@@ -2671,7 +2671,7 @@ DCJM 2000.
             
             val evCopiedCode = 
               if evalEarly
-              then evaluate (Eval {function = gen, argList = copiedArgs, earlyEval = early, resultType=resultType})
+              then evaluate (Eval {function = gen, argList = copiedArgs, earlyEval = early, resultType=resultType}, !spval+1)
               else case recCall of
                 (* This is a recursive call to a function we're expanding.
                    Is it tail recursive?  We may have several levels of
@@ -3388,7 +3388,7 @@ DCJM 2000.
                  val general = 
                    (* If this has no free variables we can code-generate it now. *)
                    if null (!nonLocals)
-                   then evaluate copiedLambda
+                   then evaluate(copiedLambda, !spval+1)
                    else copiedLambda
               in
                   optVal 
@@ -3895,7 +3895,7 @@ DCJM 2000.
                                 decs
                         val code = mkEnv[mkMutualDecs decs, mkTuple extracts]
                         (* Code generate it. *)
-                        val results = evaluate code
+                        val results = evaluate(code, !spval+1)
 
                         fun reprocessDec(Declar{addr=decAddr, ...}, decSpval, (offset, others)) =
                         let
@@ -3937,6 +3937,7 @@ DCJM 2000.
                     [] => []
                 |   [singleton] => [singleton]
                 |   multiple => [mkMutualDecs multiple]
+                val _ = List.app(fn Declar{addr, ...} => if addr < !spval then () else raise InternalError "bad"  | _ => raise InternalError "not a decl") decs
             in
               (* and put these declarations onto the list. *)
               optVal
@@ -4261,21 +4262,21 @@ DCJM 2000.
     and maxInlineSize      = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
     and compilerOut        = PRETTY.getCompilerOutput debugSwitches
 
-    val localAddressAllocator = ref 1
-
     (* This ensures that everything is printed just before
        it is code-generated. *)
-    fun codeGenAndPrint code =
+    fun codeGenAndPrint(code, localCount) =
     (
         if printCodeTreeAfter then compilerOut(pretty code) else ();
-        GCODE.gencode(code, debugSwitches, !localAddressAllocator+1)
+        GCODE.gencode(code, debugSwitches, localCount)
     )
     
-    fun preCodeAndPrint code =
+    fun preCodeAndPrint(code, localCount) =
     (
         if printCodeTree then compilerOut(pretty code) else ();
-        preCode (codeGenAndPrint, code, !localAddressAllocator+1)
+        preCode (codeGenAndPrint, code, localCount)
     )
+
+    val localAddressAllocator = ref 1
 
     (* Optimise it. *)
     val oldAddrTab = stretchArray (initTrans, NONE);
@@ -4330,7 +4331,7 @@ DCJM 2000.
         update (oldAddrTab, addr, SOME tab)
         );
       
-      fun eval pt = evaluate (preCodeAndPrint pt) codeGenAndPrint;
+      fun eval(pt, localCount) = evaluate (preCodeAndPrint(pt, localCount), codeGenAndPrint, localCount)
 
       val resultCode =
           optimiseProc
@@ -4381,13 +4382,15 @@ DCJM 2000.
       val optCode = wrapEnv(decs @ [gen])
        ;
     in
-      if isConstnt optCode (* Save code-generating it. *)
-      then (fn () => optCode)
-      else let
-        val code = codeGenAndPrint (preCodeAndPrint optCode);
-      in (* Return procedure to execute it *)
-        (fn () => Global (simpleOptVal (mkConst (code ()))))
-      end
+        if isConstnt optCode (* Save code-generating it. *)
+        then (fn () => optCode)
+        else
+        let
+            val localCount = !localAddressAllocator+1
+            val code = codeGenAndPrint (preCodeAndPrint(optCode, localCount), localCount)
+        in (* Return procedure to execute it *)
+            fn () => Global (simpleOptVal (mkConst (code ())))
+        end
     end
         
     else (* There is something in "special". *)
@@ -4464,7 +4467,8 @@ DCJM 2000.
         
         val ext     = gen :: getValues (expandMutual decs) 1;
         val newDecs = mkEnv (decs @ [mkTuple ext]);
-        val code    = codeGenAndPrint (preCodeAndPrint(newDecs));
+        val localCount = !localAddressAllocator+1
+        val code    = codeGenAndPrint (preCodeAndPrint(newDecs, localCount), localCount)
       in (* We now have the values of the declarations. *)
         fn () =>
           let
