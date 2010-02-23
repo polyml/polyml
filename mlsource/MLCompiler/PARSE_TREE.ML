@@ -903,15 +903,17 @@ struct
           PrettyString name
           
       | Literal{literal, converter, ...} =>
-            let
-               val convName = valName converter
-             val lit =
-                 if convName = "convString"
+        let
+            val convName = valName converter
+            val lit =
+                if convName = "convString"
                 then concat["\"" , literal, "\""]
+                else if convName = "convChar"
+                then concat["#\"" , literal, "\""]
                 else literal 
-          in
-             PrettyString lit
-          end
+        in
+            PrettyString lit
+        end
 
       | Applic { f, arg = TupleTree{fields=[left, right], ...}, isInfix = true, ...} =>
             (* Infixed application. *)
@@ -5867,11 +5869,21 @@ struct
                we must create them after this. *)
             val newTypeVarMap =
                 markTypeConstructors(List.map tsConstr typeCons, mkAddr, level, typeVarMap)
-            (* Process the with..end part. *)
+
+            (* Process the with..end part. We have to restore the equality attribute for abstypes
+               here in case getPolymorphism requires it. *)
+            val () =
+                if isAbsType
+                then ListPair.appEq(fn(TypeConstrSet(tc, _), eqt) => tcSetEquality (tc, eqt)) (typeCons, absEq)
+                else ()
             val (localDecs, newDebug) =
                 codeSequence (declist, [],
                               codeSeqContext |> repDebugEnv typeDebugEnv |> repTypeVarMap newTypeVarMap,
-                              fn (code, {debugEnv, ...}) => (code, debugEnv));
+                              fn (code, {debugEnv, ...}) => (code, debugEnv))
+            val () =
+                if isAbsType
+                then List.app(fn TypeConstrSet(tc, _) => tcSetEquality (tc, false)) typeCons else ()
+
             (* Then the subsequent declarations. *)
             val (tailDecs, finalEnv) =
                 codeSequence (pTail, [], codeSeqContext |> repDebugEnv newDebug |> repTypeVarMap newTypeVarMap, processBody)

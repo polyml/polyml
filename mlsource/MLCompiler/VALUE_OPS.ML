@@ -1509,6 +1509,9 @@ struct
        may introduce extra polymorphism we can only do this once we've
        frozen them.  e.g. fun f x = #1 x + #2 x may be monomorphic or
        polymorphic depending on what it's subsequently applied to. *)
+    (* Using unification here isn't ideal.  We have to put the equality attribute
+       back on to abstypes in case the unification requires it.  There may be other
+       situations where things don't work properly. *)
     fun getPolymorphism (Value{ typeOf, access, name, ...}, expType, typeVarMap) =
     let
         val (t, polyVars) =
