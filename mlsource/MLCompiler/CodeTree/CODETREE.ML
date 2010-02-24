@@ -1110,7 +1110,7 @@ DCJM 2000.
                 end
     
             |   insert(Loop argList) = (* Jump back to start of tail-recursive function. *)
-                        Loop(List.map(fn (c, t) => (insert c, t)) argList)
+                        Loop(mapright(fn (c, t) => (insert c, t)) argList)
 
             |   insert(Raise x) = Raise (insert x)
 
