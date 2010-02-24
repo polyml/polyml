@@ -19634,6 +19634,13 @@ $as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
 
             ac_cv_with_portable=yes
             ;;
+      ia64*)
+
+$as_echo "#define HOSTARCHITECTURE_IA64 1" >>confdefs.h
+
+            ac_cv_with_portable=yes
+
+	    ;;
       *) as_fn_error "Poly/ML is not supported for this architecture" "$LINENO" 5 ;;
 esac
 

@@ -290,6 +290,11 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
             ac_cv_with_portable=yes
             ;;
+      ia64*)
+	    AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
+            ac_cv_with_portable=yes
+
+	    ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
