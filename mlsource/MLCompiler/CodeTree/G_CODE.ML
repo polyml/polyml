@@ -326,7 +326,7 @@ sharing type
 sig
   type codetree
   type machineWord
-  val gencode: codetree * Universal.universal list -> unit -> machineWord;
+  val gencode: codetree * Universal.universal list * int -> unit -> machineWord;
 end =
 
 (*****************************************************************************)
@@ -574,7 +574,7 @@ struct
        N.B. In the case of non-local variables lastRef is true only for
        the last non-local variable, not the last use of this particular
        variable. *)
-    fun locaddr ({ addr, fpRel, lastRef, ...}: loadForm): stackIndex =
+    fun locaddr ({ addr, fpRel, lastRef, ...}): stackIndex =
       if fpRel 
       then 
         if addr < 0 (* Args. *)
@@ -672,7 +672,7 @@ struct
             let
               val () = loads function;
             in
-              List.app loads argList
+              List.app (loads o #1) argList
             end
             
           | Declar {addr, value, ...} =>
@@ -689,9 +689,9 @@ struct
             
           | Recconstr vl => List.app loads vl
 
-          | BeginLoop(body, args) => (List.app loads args; loads body)
+          | BeginLoop{loop, arguments} => (List.app (loads o #1) arguments; loads loop)
 
-          | Loop argList => List.app loads argList
+          | Loop argList => List.app (loads o #1) argList
 
           | Handle{exp, taglist, handler} =>
                 (List.app loads taglist; loads exp; loads handler)
@@ -792,7 +792,7 @@ struct
           end
             
         | Eval {function, argList, ...} =>
-            genEval (function, argList, primBoolOps, whereto, tailKind, matchFailFn)
+            genEval (function, List.map #1 argList, primBoolOps, whereto, tailKind, matchFailFn)
           
         | Declar {addr, value, references} =>
           let
@@ -880,8 +880,9 @@ struct
             codeList vl whereto
           end
 
-        | BeginLoop(body, args) =>
+        | BeginLoop{loop=body, arguments} =>
           let
+            val args = List.map #1 arguments
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
                will drop through. *)
@@ -939,8 +940,9 @@ struct
                 SOME(startLoop, startSp, argDestList))
           end
 
-        | Loop argList =>
+        | Loop args =>
             let
+                val argList = List.map #1 args
                 val (startLoop, startSp, argDestList) =
                     case loopAddr of
                         SOME l => l
@@ -1155,7 +1157,7 @@ struct
             MergeIndex(pushReg (transtable, regResult))
           )
 
-        | Case {cases, test, default, min, max} =>
+        | Case {cases, test, default, caseType} =>
           let
             (* Cases are constructed by the optimiser out of if-then-else
                expressions.
@@ -1169,6 +1171,18 @@ struct
                default case.  *)
             val noDefault  = case default of CodeNil => true | _ => false;
             val mergeResult = needsResult andalso not (isEndOfProc tailKind);
+
+            val (isExhaustive, min:int, max:int) =
+                case caseType of
+                    CaseTag max => (true, 0, Word.toInt max)
+                |   _ =>
+                    let
+                        val (_, aLabel) = hd cases
+                        fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                        val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                    in
+                        (false, Word.toInt min, Word.toInt max)
+                    end
             
             (* Don't bother if the default is a constant and we don't
                actually want a result.  This occurs as a result of ifs
@@ -1191,11 +1205,6 @@ struct
             (* SPF 27/11/96 - merged values don't necessarily go into regResult *)
             val whereto : whereTo = chooseMergeRegister (transtable, whereto, tailKind);
 
-            (* Count the total number of cases. *)
-            fun countCases [] = 0
-              | countCases ((_ : codetree, caseLabels : int list) :: cps) =
-                List.length caseLabels + countCases cps;
-
         (* This procedure decides whether to use a case instruction
            or a comparison depending on whether the cases are sparse.
            A more efficient algorithm, possibly using a binary chop,
@@ -1206,7 +1215,7 @@ struct
            then genToRegister (default, whereto, tailKind, matchFailFn, loopAddr)
            else NoMerge (* Assume that we don't have a result. *)
            
-         | caseCode (min:int) (max:int) (numberOfCases:int) (cp::cps) =
+         | caseCode (min:int) (max:int) (numberOfCases:int) ((cp: codetree * word)::cps) =
            if useIndexedCase (min, max, numberOfCases, noDefault)
            then let
          val mark = markStack (transtable, cvec, mergeResult);
@@ -1266,16 +1275,14 @@ struct
             if we have any duplicates, which could arise if the
             higher level has turned an if-then-else into a case.
             e.g. if x = 1 then a else if x = 1 then b else c. *)
-         fun genCases ((caseExp, caseLabels) :: cps) ccl =
+         fun genCases ((caseExp, caseLabel: word) :: cps) ccl =
          let
            val caseAddr = startCase (transtable, cvec, startOfCase);
            val mark = markStack (transtable, cvec, mergeResult);
            
            (* For each case label make an entry in the list.  Add
               new entries at the beginning. *)
-           val newCaseList =
-              map (fn i => constrCases (i, caseAddr)) caseLabels
-              @ ccl;
+           val newCaseList = constrCases(Word.toInt caseLabel, caseAddr) :: ccl
               
            (* Generate this case and exit if tail-recursive. *)
            val expResult =
@@ -1331,48 +1338,17 @@ struct
           if not lastTest
           then incrUseCount (transtable, testValue, 1)
           else ()
-
-        (* Compare the value with each of the case labels for this
-           case. Returns the label jumped to if none of the cases
-           match. *)
-        fun putInCases [] =
-              raise InternalError "putInCases has no cases"
-        
-          | putInCases [x] =
-              (* last one - skip if value does not match. *)
-             let
-               val locn = pushConst (transtable, toMachineWord x);
-             in
-               (* should do arbitrary precision test here? Yes. *)
-               compareAndBranch (testValue, locn,
-             testNeqA, testNeqA, transtable, cvec)
-             end 
-                     
-         | putInCases (x :: xs) =
-           let
-             (* More than one. If this one matches skip the
-            other tests. *)
-             val mark = markStack (transtable, cvec, mergeResult);
-             
-             (* Increment the use count so it doesn't get
-            thrown away. *)
-             val ()    = incrUseCount (transtable, testValue, 1);
-             val locn = pushConst (transtable, toMachineWord x);
-             val lab  = 
-               (* should do arbitrary precision test here???? SPF *)
-               compareAndBranch (testValue, locn,
-             testEqA, testEqA, transtable, cvec);
-      
-             (* Drop through to other tests if it does not match. *)
-             val rLab = putInCases xs;
-           in
-             merge (lab, transtable, cvec, NoMerge, mark);
-             rLab
-           end; (* putInCases *)
            
-        val (caseExp : codetree, caseLabels : int list) = cp;
+        val (caseExp : codetree, caseLabel) = cp;
         
-        val lab = putInCases caseLabels;
+        val lab =
+         let
+           val locn = pushConst (transtable, toMachineWord caseLabel);
+         in
+           (* should do arbitrary precision test here? Yes. *)
+           compareAndBranch (testValue, locn,
+         testNeqA, testNeqA, transtable, cvec)
+         end 
 
         (* If we have incremented the use count on the
            test value we need to decrement it here.  That's
@@ -1407,13 +1383,13 @@ struct
         val caseResult =
             if lastCase
             then thisCaseRes
-            else caseCode min max (numberOfCases - List.length caseLabels) cps
+            else caseCode min max (numberOfCases - 1) cps
           in
         (* Merge all the results together. *)
         merge (lab1, transtable, cvec, caseResult, mark)
           end (* caseCode *);
 
-            val result = caseCode min max (countCases cases) cases;
+            val result = caseCode min max (List.length cases) cases;
 
             (* v2.08 code-generator no longer clears the cache here *)
             (* val () = clearCache transtable; *)
@@ -1600,6 +1576,41 @@ struct
                 MergeIndex tup (* Result is the tuple. *)
             end
 
+        |   TagTest { test, tag, ... } =>
+            let
+                (* Convert this into a simple equality function. *)
+                val code =
+                    Eval {
+                        function = Constnt(ioOp POLY_SYS_word_eq),
+                        argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
+                        earlyEval = false, resultType=GeneralType }
+            in
+                gencde (code, true(* Try to put in-line *), whereto, tailKind, matchFailFn, loopAddr)
+            end
+
+        |   KillItems { expression, killSet, killBefore } =>
+            let 
+                (* This is inserted by the higher level code to get the use-counts
+                   correct.  Kill entries are Extract entries with lastRef true. *)
+                fun cgKill toKill =
+                    (gencde(toKill, true, NoResult, NotEnd, matchFailFn, loopAddr); ())
+            in
+                if killBefore
+                then (* Process the kill set before the expression. *)
+                (
+                    List.app cgKill killSet;
+                    gencde (expression, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                )
+                else (* Process the expression first, then kill the items *)
+                let
+                    val result =
+                        gencde (expression, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                in
+                    List.app cgKill killSet;
+                    result
+                end
+            end
+
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
 
@@ -1684,10 +1695,10 @@ struct
        not procedure address has been pushed but before the code is generated. 
        `lastDec' is true if there are no more mutually recursive declarations.
     *)
-    and genProc ({ closure=closureList, makeClosure, name=lambdaName,
-                   body=lambdaBody, numArgs, ... }: lambdaForm,
+    and genProc ({ closure=closureList, makeClosure, name=lambdaName, body=lambdaBody, argLifetimes, ... },
                  mutualRecursive, lastDec, whereto, matchFailFn) =
     let
+        val numArgs = List.length argLifetimes
       fun allConstnt [] = true
         | allConstnt (Constnt _ :: t) = allConstnt t
         | allConstnt _ = false;
@@ -2262,12 +2273,12 @@ struct
            but this particular case is exceptionally important for
            handling inlined selector functions. SPF 24/2/1998
         *)
-      | Case {cases = [(result, [tag])], test, default, ...} =>
+      | Case {cases = [(result, tag)], test, default, ...} =>
         let
           val equalFun  : codetree = Constnt (ioOp POLY_SYS_equala);
-          val arguments : codetree list = [test, Constnt (toMachineWord tag)];
+          val arguments = [(test, GeneralType), (Constnt (toMachineWord tag), GeneralType)];
           val eqTest    : codetree = 
-             Eval {function = equalFun, argList = arguments, earlyEval = true};
+             Eval {function = equalFun, argList = arguments, earlyEval = true, resultType=GeneralType};
         in
           genTest (Cond (eqTest, result, default), jumpOn, matchFailFn) 
         end
@@ -2297,9 +2308,22 @@ struct
         codeBlock vl 
       end
 
-      | Eval {function = Constnt oper, argList = args, ...} =>
+        |   TagTest { test, tag, ... } =>
+            let
+                (* Convert this into a simple equality function. *)
+                val code =
+                    Eval {
+                        function = Constnt(ioOp POLY_SYS_word_eq),
+                        argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
+                        earlyEval = false, resultType=GeneralType }
+            in
+                genTest(code, jumpOn, matchFailFn)
+            end
+
+      | Eval {function = Constnt oper, argList=evalArgList, ...} =>
       (* May be an interface operation which can be put in line. *)
       let
+        val args = List.map #1 evalArgList
         (* Generate a compare instruction. *)
         fun genCompare (arg1, arg2, t, f, ti, fi) =
         let
@@ -3123,7 +3147,8 @@ struct
          wordEq (oper,ioOp POLY_SYS_word_lss))
         then
           genCond
-            (Eval {function = evalFun, argList = argList, earlyEval = false},
+            (Eval {function = evalFun, argList = List.map(fn a => (a, GeneralType)) argList,
+                   earlyEval = false, resultType=GeneralType},
              constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
           else (* unoptimised I/O call *)
         callClosure (SOME evalFun)
@@ -3287,8 +3312,9 @@ struct
     copyCode (cvec, maxstack transtable, getModifedRegSet transtable)
   end (* codegen *);
 
-  fun gencode (Lambda { name, body, numArgs, ...}, debugSwitches) =
+  fun gencode (Lambda { name, body, argTypes, ...}, debugSwitches, _) =
     let (* We are compiling a procedure. *)
+        val numArgs = List.length argTypes
       (* It is not essential to treat this specially, but it saves generating
          a piece of code whose only function is to return the address of the
          procedure. *)
@@ -3322,7 +3348,7 @@ struct
       (fn () => res)
     end
  
-  | gencode (pt, debugSwitches) =
+  | gencode (pt, debugSwitches, _) =
     let (* Compile a top-level expression. *)
       val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
 

@@ -48,7 +48,7 @@ structure PRETTY: PRETTYSIG (* for compilerOutTag *)
 ) : X86CODESIG =
 
 struct
-    open CodeSeg;
+    open CODE_ARRAY
     open DEBUG;
     open Address;
     open Misc;
@@ -1861,7 +1861,7 @@ Calling conventions:
 
     (* Allocate store and put the resulting pointer in the result register. *)
     local
-        fun allocStoreCommonCode (resultReg, cvec as Code{ic, ...}) =
+        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}) =
         (
             (* Common code.  resultReg contains the possible new address. *)
             genop (Arith (CMP, 0w3 (* r/m to reg *)), cvec);
@@ -1870,10 +1870,10 @@ Calling conventions:
 
             let
                 (* Normally we won't have run out of store so we want the default
-                   branch prediction to skip the test here.  The default is not to
-                   take conditional branches so we have to add an extra unconditional
-                   branch. *)
-                val lab =
+                   branch prediction to skip the test here. However doing that
+                   involves adding an extra branch which lengthens the code so
+                   it's probably not worth while. *)
+                (*val lab =
                     let
                         val () = genop(CondJump JB, cvec);
                         val () = gen8u (0w0, cvec);
@@ -1884,8 +1884,8 @@ Calling conventions:
                     in
                         fixup(lab2, cvec);
                         lab
-                    end
-                  (*val lab = [putConditional(JNB, cvec)]*)
+                    end*)
+                  val lab = [putConditional(JNB, cvec)]
             in
                 (* If we don't have enough store for this allocation we call this
                    function. *)
