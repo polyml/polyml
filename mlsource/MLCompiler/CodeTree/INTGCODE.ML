@@ -152,7 +152,7 @@ structure BASECODETREE: BaseCodeTreeSig
 sig
    type codetree
   type machineWord
-  val gencode: codetree * Universal.universal list -> unit -> machineWord;
+  val gencode: codetree * Universal.universal list * int -> unit -> machineWord;
 end =
 
 let
@@ -196,23 +196,13 @@ struct
   
   val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
 
-(* copied from CTREE.ML for efficiency (local calls can be inlined) *)  
-
-  type evalForm = 
-     { (* Evaluate a function with an argument list. *)
-       function:  codetree,
-       argList:   codetree list,
-       earlyEval: bool
-     }
-
   type caseForm =
-     { (* Case expressions *)
-       cases   : (codetree * int list) list,
-       test    : codetree,
-       default : codetree,
-       min     : int,
-       max     : int
-      }
+        {
+            cases   : (codetree * word) list,
+            test    : codetree,
+            caseType: caseType,
+            default : codetree
+        }
    
    (* Where the result, if any, should go *)
   datatype whereto =
@@ -277,7 +267,7 @@ struct
 
     (* Loads a local, argument or closure value; translating local
        stack addresses to real stack offsets. *)
-   fun locaddr (ext : loadForm) : unit =
+   fun locaddr ext =
    let
      val locn = #addr ext;
    in
@@ -458,11 +448,12 @@ struct
             codeList vl
           end
           
-         | BeginLoop (body, args) =>
+         | BeginLoop {loop=body, arguments} =>
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
                will drop through. *)
             let
+                val args = List.map #1 arguments
                 (* Evaluate each of the arguments, pushing the result onto the stack. *)
                 fun genLoopArg (Declar {addr, value, ...}) =
                     (
@@ -503,7 +494,7 @@ struct
                     end
                   | loadArgs _ = raise InternalError "loadArgs: Mismatched arguments";
 
-                val _: int = loadArgs(argList, argIndexList)
+                val _: int = loadArgs(List.map #1 argList, argIndexList)
             in
                 if !realstackptr <> startSp
                 then resetStack (!realstackptr - startSp, false, cvec) (* Remove any local variables. *)
@@ -594,9 +585,20 @@ struct
            incsp ()
          end
   
-       | Case (cas as {cases, min, max, ...}) =>
+       | Case (cas as {cases, caseType, ...}) =>
          let
            val numberOfCases = List.length cases;
+            val (isExhaustive, min:int, max:int) =
+                case caseType of
+                    CaseTag max => (true, 0, Word.toInt max)
+                |   _ =>
+                    let
+                        val (_, aLabel) = hd cases
+                        fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                        val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+                    in
+                        (false, Word.toInt min, Word.toInt max)
+                    end
          in
            if 3 * numberOfCases < max - min + 5
            then genSparseCase(cas, whereto, tailKind, matchFailFn, loopAddr)
@@ -679,6 +681,23 @@ struct
                    an immutable object. *)
                 gencde(container, ToStack, NotEnd, matchFailFn, loopAddr)
             )
+
+        |   TagTest { test, tag, ... } =>
+            let
+                (* Convert this into a simple equality function. *)
+                val code =
+                    Eval {
+                        function = Constnt(ioOp POLY_SYS_word_eq),
+                        argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
+                        earlyEval = false, resultType=GeneralType }
+            in
+                gencde (code, whereto, tailKind, matchFailFn, loopAddr)
+            end
+
+        |   KillItems { expression, ... } =>
+                (* This is inserted by the higher level code to get the use-counts
+                   correct.  Kill entries are Extract entries with lastRef true. *)
+                    gencde (expression, whereto, tailKind, matchFailFn, loopAddr)
    
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
@@ -744,7 +763,7 @@ struct
    (* doNext is only used for mutually recursive procedures where a
      procedure may not be able to fill in its closure if it does not have
      all the remaining declarations. *)
-   and genProc (lam : lambdaForm,
+   and genProc (lam,
                mutualDecs: bool,
                doNext: unit -> unit,
                matchFailFn : unit -> unit) : unit =
@@ -761,7 +780,7 @@ struct
         
         (* Code-gen procedure. No non-local references. *)
          val res : address =
-           codegen (#body lam, newCode, loadRecLink, #numArgs lam, parameters);
+           codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
 
         val () = pushConst(toMachineWord res, cvec);
         val () = incsp();
@@ -785,7 +804,7 @@ struct
 
         (* Code-gen procedure. *)
         val res : address =
-          codegen (#body lam, newCode, loadSl, #numArgs lam, parameters);
+          codegen (#body lam, newCode, loadSl, List.length (#argLifetimes lam), parameters);
 
         val sizeOfClosure = List.length (#closure lam) + 1;
       in
@@ -842,7 +861,7 @@ struct
       end
 
    (* Generate a procedure to be called with a static link. *)
-   and genSlProc (lam: lambdaForm, newCode: code) : unit =
+   and genSlProc (lam, newCode: code) : unit =
    let
      (* If a procedure can be called by static link references then
         non-locals can be loaded by following the static chain. The offset
@@ -852,7 +871,7 @@ struct
      val closureList = #closure lam;
 
      (* Finds the nth. item in the closure and returns the entry *)
-     fun findClosure ((Extract ext) :: _, 1) : loadForm = ext
+     fun findClosure ((Extract ext) :: _, 1) = ext
        | findClosure (_ :: t, n) = findClosure (t, n - 1)
        | findClosure (_, _) = raise InternalError "findClosure: bad Closure";
 
@@ -880,7 +899,7 @@ struct
      (* Now code-generate the procedure. We can throw away the result because
         it will be assigned into the value we have just returned. *)
      val _ : address =
-       codegen (#body lam, newCode, loadSl, #numArgs lam, parameters)
+       codegen (#body lam, newCode, loadSl, List.length (#argLifetimes lam), parameters)
    in
      ()
    end (* genSlProc*)
@@ -937,9 +956,9 @@ struct
        end
    end (* genCond *)
 
-   and genEval (eval : evalForm, tailKind : tail, matchFailFn : unit -> unit) : unit =
+   and genEval (eval, tailKind : tail, matchFailFn : unit -> unit) : unit =
    let
-     val argList : codetree list = #argList eval;
+     val argList : codetree list = List.map #1 (#argList eval)
      val argsToPass : int = List.length argList;
 
      (* Load arguments *)
@@ -1081,7 +1100,7 @@ struct
    (* This is used for cases which are not sparse i.e. the values occupy
       a narrow enough range to make indexing efficient. *)
    and genDenseCase 
-        (pt: caseForm,
+        (pt as { cases, ...}: caseForm,
          whereto: whereto,
          tailKind: tail,
          matchFailFn : unit -> unit,
@@ -1096,12 +1115,25 @@ struct
 
      (* The exit jumps are chained together. *)
      val lastEndJump : labels ref = ref noJump;
-     val limit : int = #max pt - #min pt;
+
+    val (isExhaustive, min:int, max:int) =
+        case #caseType pt of
+            CaseTag max => (true, 0, Word.toInt max)
+        |   _ =>
+            let
+                val (_, aLabel) = hd cases
+                fun foldCases((_, w), (min, max)) = (Word.min(w, min), Word.max(w, max))
+                val (min, max) = List.foldl foldCases (aLabel, aLabel) cases
+            in
+                (false, Word.toInt min, Word.toInt max)
+            end
+
+     val limit : int = max - min
 
      val () =
-       if #min pt = 0 then ()
+       if min = 0 then ()
        else let (* Subtract lower limit. *)
-         val () = pushConst(toMachineWord (#min pt), cvec);
+         val () = pushConst(toMachineWord min, cvec);
          val () = pushConst(ioOp POLY_SYS_aminus, cvec);
          val () = genCallClosure cvec;
        in
@@ -1130,8 +1162,8 @@ struct
      val () = exited := false;
 
      (* Now generate the code for each of the cases. *)
-     fun genEachCase ([] : (codetree * int list) list) : unit = ()
-       | genEachCase ((body : codetree, matches : int list) :: otherCases) : unit =
+     fun genEachCase ([] : (codetree * word) list) : unit = ()
+       | genEachCase ((body : codetree, matches : word) :: otherCases) : unit =
        let
      (* First exit from the previous case or the default if
         this is the first. *)
@@ -1149,16 +1181,14 @@ struct
         an entry has not already been set. If it has the new
         entry should be ignored. It is NOT an error (just
         redundant). *)
-     fun genEachMatch (i: int) =
-     let
-       val entryAddr : addrs = addrPlus(startVec, (i - #min pt) * 2);
+     local
+       val entryAddr : addrs = addrPlus(startVec, (Word.toInt matches - min) * 2)
      in
+        val () =
        if getBytes(2, entryAddr, cvec) = defaultAddr
        then putBytes(addrMinus(ic cvec, startVec), 2, entryAddr, cvec)
        else ()
      end
-        
-     val () = apply genEachMatch matches;
 
      (* Generate code for this case *)
      val () = exited := false;
@@ -1193,45 +1223,25 @@ struct
       val lastEndJump = ref noJump;
 
       fun caseCode ([], othersExited : bool) : bool = othersExited
-        | caseCode ((body : codetree, matches : int list) :: otherCases, othersExited : bool) : bool =
+        | caseCode ((body : codetree, matches : word) :: otherCases, othersExited : bool) : bool =
       let
-        fun putInCases ([]: int list) : labels = 
-              raise InternalError "putInCases: no labels"
-          | putInCases (c :: cs) : labels =
-        let
-          val lastOne : bool = case cs of [] => true | _ => false;
-          
+        local
           (* Is this really safe? What about multiple side-effects? SPF *)
           val () = gencde (#test pt, ToStack, NotEnd, matchFailFn, loopAddr);
             
           (* Push the value to be compared. *)
-          val () = pushConst(toMachineWord c, cvec);
+          val () = pushConst(toMachineWord matches, cvec);
             
-          (* Compare them. If this is the last one compare for equality and
-             so skip to the next case if it is not equal, if there are more
-             compare for inequality and skip the other tests if it matches. *)
+          (* Compare them. *)
           val () =
-            pushConst (ioOp (if lastOne then POLY_SYS_int_eq else POLY_SYS_int_neq), cvec);
+            pushConst (ioOp (POLY_SYS_word_eq), cvec);
                
           val () = genCallClosure cvec;
           val () = genEnterIntCall(cvec, 2); (* added SPF 28/6/95 *)
-          
+        in
           val lab : labels = putBranchInstruction (jumpFalse, cvec);
           val ()     = decsp (); (* Remove result of test. *)
-        in (* body of putInCases *)
-      if lastOne
-      then lab (* last one - skip if value does not match. *)
-      else let
-        (* More than one. If this one matches skip the other tests. *)
-        (* Drop through to other tests if it does not match. *)
-        val rLab : labels = putInCases cs;
-        val () = fixup (lab, cvec);
-      in
-        rLab
-      end
-        end; (* putInCases *)
-            
-        val lab : labels = putInCases matches;
+        end
         
         (* Now the expression. *)
         val () = gencde(body, whereto, tailKind, matchFailFn, loopAddr);
@@ -1338,7 +1348,7 @@ struct
  end (* codegen *);
 
 
-  fun gencode (pt: codetree, parameters) : unit -> machineWord =
+  fun gencode (pt: codetree, parameters, _) : unit -> machineWord =
     case pt of
       Lambda lam => (* We are compiling a procedure. *)
       let
@@ -1354,7 +1364,7 @@ struct
 
         (* This procedure must have no non-local references. *)
         val closureAddr : address =
-          codegen (#body lam, newCode, loadRecLink, #numArgs lam, parameters);
+          codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
             
         val res : machineWord = toMachineWord closureAddr;
       in

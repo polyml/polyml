@@ -640,6 +640,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     case POLY_SYS_bytes_per_word:
                         *(--sp) = TAGGED(sizeof(PolyWord)); break;
  
+                    case POLY_SYS_raisex:
+                        goto RAISE_EXCEPTION;
+ 
                     default:
                         // For all the calls that aren't built in ...
                         /* Save the state so that the instruction can be retried if necessary. */
@@ -693,6 +696,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
 
         case INSTR_raise_ex:
             {
+            RAISE_EXCEPTION:
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
                 taskData->stack->p_reg[0] = exn; /* Get exception data */
                 PolyWord exId = exn->ex_id; /* Get exception identifier. */
@@ -1221,6 +1225,7 @@ void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
+    add_word_to_io_area(POLY_SYS_raisex, TAGGED(POLY_SYS_raisex));
     add_word_to_io_area(POLY_SYS_chdir, TAGGED(POLY_SYS_chdir));
     add_word_to_io_area(POLY_SYS_get_length, TAGGED(POLY_SYS_get_length));
     add_word_to_io_area(POLY_SYS_get_flags, TAGGED(POLY_SYS_get_flags));
