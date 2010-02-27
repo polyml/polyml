@@ -3854,57 +3854,12 @@ Calling conventions:
         else set32s (diff, addrH, codeVec)
     end
 
-(***************************************************************************)
-(*                              copyCode                                   *)
-(***************************************************************************)
-  (* The stack limit register is set at least twice this far from the
-     end of the stack so we can simply compare the stack pointer with
-     the stack limit register if we need less than this much. Setting
-     it at twice this value means that procedures which use up to this
-     much stack and do not call any other procedures do not need to
-     check the stack at all. *)
-  val minStackCheck = 20; 
-  
     (* Adds the constants onto the code, and copies the code into a new segment *)
-    fun copyCode (cvec, operations, stackRequired, registerSet, callsAProc) : address =
+    fun createCodeSegment (operations, registerSet, cvec) : address =
     let
-        (* Prelude consists of stack checking code.  N.B.  This is added on
-           after the main list is reversed so the code is not reversed. *)
-        val preludeCode =
-        let
-            fun testRegAndTrap(reg, entryPt) =
-            let
-                val skipCheck = Labels(ref [], ref 0)
-            in
-                [
-                    ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp },
-                    (* Normally we won't have a stack overflow so we will skip the check. *)
-                    ConditionalBranch{ test=JNB, label=skipCheck, predict=PredictTaken },
-                    CallRTS entryPt,
-                    ForwardJumpLabel skipCheck
-                ]
-            end
-        in
-            if stackRequired >= minStackCheck
-            then
-            let
-                (* Compute the necessary amount in edi and compare that. *)
-                val stackByteAdjust = ~wordSize * stackRequired
-                val testEdiCode =
-                    testRegAndTrap (edi, memRegStackOverflowCallEx)
-            in
-                 [LoadAddress{output=edi, base=SOME esp, index=NoIndex, offset=stackByteAdjust}] @ testEdiCode
-            end
-         
-            else if callsAProc (* check for interrupt *)
-            then testRegAndTrap (esp, memRegStackOverflowCall)
-               
-            else [] (* no stack check required *)
-        end
+        val () = codeGenerate(operations, cvec)
 
-        (* The code is in reverse order.  Reverse it and put the prelude first. *)
-        val () = codeGenerate(preludeCode @ List.rev operations, cvec)
-
+        (* After code generation get the final values of some refs. *)
         val Code{codeVec, noClosure, selfCalls = ref selfCalls, selfJumps = ref selfJumps,
                  numOfConsts, ic, constVec = ref constVec,
                  resultSeg, procName, printAssemblyCode, printStream, ...} = cvec

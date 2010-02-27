@@ -520,6 +520,13 @@ struct
         | Newenv vl =>
             let (* Processes a list of entries. *)
                 val startMark = markStack transtable
+                (* We may have the situation where we want the result in a specific register
+                   but we actually have a Decl entry followed by an Extract. *)
+                val destAddr =
+                    if null vl then 0
+                    else case List.last vl of
+                        Extract{addr, level=0, fpRel=true, ...} => addr
+                    |   _ => 0
 
                 fun codeList ([], _) =
                 (* Either the list is empty or the previous entry was a 
@@ -529,12 +536,32 @@ struct
                     then MergeIndex(pushConst (transtable, DummyValue))
                     else NoMerge (* Ignored *)
                 
-                | codeList ((valu as Declar _) :: valus, whereto) =
+                | codeList (Declar{addr, value, references} :: valus, whereto) =
                   (* Declaration. *)
-                    (
-                        gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
+                    let
+                        val dest = if addr = destAddr then whereto else NoHint
+                    in
+                        case value of
+                            Lambda lam =>
+                            let
+                                fun nextMutual(dec, slRelease) =
+                                    codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
+                                val _ = genProc (lam, nextMutual, true, dest, matchFailFn)
+                            in
+                                ()
+                            end
+                        |   _ =>
+                            let
+                                val res = gencde (value, true, dest, NotEnd, matchFailFn, NONE)
+                                val decl =
+                                    case res of
+                                        MergeIndex index => index
+                                    |   NoMerge => raise InternalError "genToStack: no result"
+                            in
+                                codeGenerate(localDeclaration (decl, addr, references, NONE), cvec)
+                            end;
                         codeList(valus, whereto)
-                    )
+                    end
 
                 |   codeList ([valu], whereto) =
                         (* Last entry is an expression. *)

@@ -144,8 +144,6 @@ struct
      DCJM 26/11/00. *)
      
     type rset = {vec: int array, modSet: regSet ref, freeRegs: regSet ref};
-
-    fun Vec   ({vec  ,...}:rset) = vec;
     
     val vecSize = regs;
   
@@ -170,11 +168,11 @@ struct
     end
 
     (* Print the allocated registers. *)
-    fun printRegs printStream regs =
+    fun printRegs printStream ({vec, ...}) =
     let
         fun printReg i =
         let
-            val useCount = Array.sub (Vec regs, i)
+            val useCount = Array.sub (vec, i)
         in
             if useCount > 0
             then
@@ -188,17 +186,16 @@ struct
         forLoop printReg 0 (vecSize - 1)
     end
 
-    fun free (regs as {freeRegs, ...}) reg =
+    fun free ({freeRegs, vec, ...}) reg =
     let
         val r = nReg reg
-        val v = Vec regs;
-        val useCount = Array.sub (v, r)
+        val useCount = Array.sub (vec, r)
     in
         if useCount = 0
         then raise InternalError ("free: register already free:" ^ regRepr(regN r))
         else
         (
-            Array.update (v, r, useCount - 1);
+            Array.update (vec, r, useCount - 1);
             if useCount = 1
             then
             (
@@ -213,13 +210,12 @@ struct
         List.foldl (fn (r, l) => free regs r @ l) [] (setToList regSet)
   
     (* Increment use count. *)
-    fun incr (regs as {freeRegs, ...}) reg =
+    fun incr ({freeRegs, vec, ...}) reg =
     let
         val r = nReg reg
-        val v = Vec regs
-        val useCount = Array.sub (v, r)
+        val useCount = Array.sub (vec, r)
     in
-        Array.update (v, r, useCount + 1);
+        Array.update (vec, r, useCount + 1);
         if useCount = 0
         then
         (
@@ -228,6 +224,8 @@ struct
         )
         else []
     end
+
+    fun lastRegRef({vec, ...}, reg) = Array.sub (vec, nReg reg) = 1
 
     fun rsetMake () : rset = {vec = Array.array (vecSize, 0), modSet = ref noRegisters, freeRegs = ref allRegisters}
   
@@ -1392,7 +1390,7 @@ struct
 
     (* Pushes a new pstack entry; loads value into register;
        decrements the use count of old pstack entry. *)
-    fun loadEntryToSet (table as Ttab{pstack, ...}, entry, rSet, willTrample) =
+    fun loadEntryToSet (table as Ttab{pstack, regset, ...}, entry, rSet, willTrample) =
     let
         val realLoc = entry
         val {ent = stackEntry, cache = cacheReg, uses, destStack, lifeTime} =
@@ -1461,7 +1459,19 @@ struct
                  instruction will simply copy the new cache value. It is possible
                  that a value might be cached in a data register when it is needed
                  in an address register or vice-versa. *)
-                val (resultReg, regCode) = getRegisterInSet(table, rSet) (* N.B. May side-effect table. *)
+                val (resultReg, regCode) =
+                    (* If we have a Direct entry which currently uses the register we want to load into
+                       as the base register the default code will load this into a different register
+                       in order to free the base register and then move this into the destination.
+                       We can avoid that if this is the last reference to the base register and the
+                       Direct entry.  This is a very common case. *)
+                    case stackEntry of
+                        Direct{base, ...} =>
+                            if cacheReg = noRegisters andalso inSet(base, rSet) andalso lastRef andalso
+                                    lastRegRef(regset, base)
+                            then (base, incr regset base)
+                            else getRegisterInSet(table, rSet)
+                        |   _ => getRegisterInSet(table, rSet)(* N.B. May side-effect table. *)
             in
                 (* Get the entry again - getAnyRegister could have forced the
                    entry onto the stack if it had run out of registers. *)
@@ -1477,7 +1487,7 @@ struct
                         val cacheIt =
                             not willTrample andalso
                                case ent of
-                                  Direct   _   => true
+                                  Direct{base, ...} => base <> resultReg
                                (* Cannot cache it if we are about to pop it. *)
                                | StackW index  => (0 >= index orelse not lastRef)
                                | _             => false

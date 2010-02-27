@@ -167,7 +167,8 @@ sig
 
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
-    val copyCode: code * operations * int * RegSet.regSet * bool -> address
+    val createCodeSegment: operations * RegSet.regSet * code -> address
+
     val codeAddress: code -> address option
     val procName:   code -> string      (* Name of the procedure. *)
 
@@ -175,6 +176,9 @@ sig
     and memRegRaiseDiv: int
     and memRegArbEmulation: int
     and memRegThreadSelf: int
+    and memRegStackLimit: int
+    and memRegStackOverflowCall: int
+    and memRegStackOverflowCallEx: int
 
     structure Sharing:
     sig

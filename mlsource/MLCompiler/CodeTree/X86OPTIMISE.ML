@@ -1,7 +1,5 @@
 (*
-    Copyright (c) 2000-10
-        David C.J. Matthews and
-        Cambridge University Technical Services Limited
+    Copyright David C. J. Matthews 2010
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,21 +16,38 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure X86OutputCode =
-    X86OUTPUTCODE(
-        structure DEBUG   = Debug
-        structure PRETTY  = Pretty
-    );
+functor X86OPTIMISE(
 
-structure X86Optimise =
-    X86OPTIMISE(
-        structure DEBUG   = Debug
-        structure PRETTY  = Pretty
-        structure X86CODE = X86OutputCode
-    );
+structure DEBUG :
+sig
+    val assemblyCodeTag : bool Universal.tag
+    val getParameter :
+       'a Universal.tag -> Universal.universal list -> 'a
+end;
 
-structure CodeCons =
-    X86LOWLEVEL(
-        structure X86CODE = X86OutputCode
-        structure X86OPTIMISE = X86Optimise
-    );
+structure PRETTY: PRETTYSIG (* for compilerOutTag *)
+
+structure X86CODE: X86CODESIG
+
+) :
+sig
+    type operation
+    type operations = operation list
+
+    val optimise: operations -> operations
+
+    structure Sharing:
+    sig
+        type operation = operation
+    end
+end =
+struct
+    open X86CODE
+
+    fun optimise ops = ops
+
+    structure Sharing =
+    struct
+        type operation = operation
+    end
+end;
