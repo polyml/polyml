@@ -1513,7 +1513,7 @@ DCJM 2000.
                     pt (* Constants can be returned untouched. *)
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
-                (let
+                let
                     (* Make entries in the tables for the arguments. *)
                     val newAddrs = List.map (fn (d, _) => makeDecl d) argList
 
@@ -1530,7 +1530,7 @@ DCJM 2000.
                 in
                     (* Add the kill entries on after the loop. *)
                     BeginLoop{loop=insBody, arguments=newargs}
-                end handle InternalError exn => raise InternalError(exn^"/BeginLoop"))
+                end
     
             |   insert(Loop argList) = (* Jump back to start of tail-recursive function. *)
                         Loop(List.map(fn (c, t) => (insert c, t)) argList)
@@ -1544,7 +1544,7 @@ DCJM 2000.
                         reconvertCase(copyCond (condTest, condThen, condElse))
 
             |   insert(Newenv ptElist) =
-                (let
+                let
                     (* Process the body. Recurses down the list of declarations
                        and expressions processing each, and then reconstructs the
                        list on the way back. *)
@@ -1714,14 +1714,14 @@ DCJM 2000.
                        a declaration to discard the result of a function call and 
                        only do its side-effects). *)
                     wrapEnv insElist
-                end (* isNewEnv *) handle InternalError exn => raise InternalError(exn^"/NewEnv"))
+                end (* isNewEnv *)
                 
             |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
                 let
                     val processedFields = mapright insert recs
-                    fun allConsts []       = true
+(*                    fun allConsts []       = true
                       | allConsts (Constnt _ :: t) = allConsts t
-                      | allConsts _ = false
+                      | allConsts _ = false*)
                     (* This does occasionally happen. *)
                 in
                     mkTuple processedFields
