@@ -2055,11 +2055,21 @@ struct
 
         (* An application is non-expansive only if it is a, possibly
            constrained, constructor which is not ref. *)
-        and isNonRefConstructor (Ident {value=ref v, name, ...}) =
-            (* Rather than looking at the name it might be better to look
-               at the operation.  This is probably ok since we're not allowed
-               to rebind "ref". *)
-                isConstructor v andalso name <> "ref"
+        and isNonRefConstructor (Ident {value=ref v, ...}) =
+            (* It is possible to rebind ref by way of datatype replication so we have
+               to check the type here. *)
+            let
+                fun isRefConstructor t =
+                    case eventual t of
+                        FunctionType{result, ...} =>
+                            (case eventual result of
+                                TypeConstruction{constr, ...} =>
+                                    sameTypeId (tcIdentifier constr, tcIdentifier refConstr)
+                            |   _ => false)
+                    |   _ => false
+            in
+                isConstructor v andalso not (isRefConstructor(valTypeOf v))
+            end
         | isNonRefConstructor (Constraint {value, ...}) =
                 isNonRefConstructor value
         | isNonRefConstructor (Parenthesised(p, _)) =
