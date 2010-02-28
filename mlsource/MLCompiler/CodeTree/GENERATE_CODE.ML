@@ -521,11 +521,12 @@ struct
             let (* Processes a list of entries. *)
                 val startMark = markStack transtable
                 (* We may have the situation where we want the result in a specific register
-                   but we actually have a Decl entry followed by an Extract. *)
+                   but we actually have a Decl entry followed by an Extract.
+                   Don't do this unless we've asked for a specific register. *)
                 val destAddr =
-                    if null vl then 0
-                    else case List.last vl of
-                        Extract{addr, level=0, fpRel=true, ...} => addr
+                    if null vl then 0 (* 0 can't occur as a valid address *)
+                    else case (List.last vl, whereto) of
+                        (Extract{addr, level=0, fpRel=true, ...}, UseReg _) => addr
                     |   _ => 0
 
                 fun codeList ([], _) =
