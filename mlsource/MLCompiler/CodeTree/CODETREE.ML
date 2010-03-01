@@ -3049,6 +3049,10 @@ DCJM 2000.
                     (* Called initially or while we only have tail recursive
                        calls.  We can inline the function. *)
                     let
+                        (* There's still something strange going on where we end up with
+                           a BeginLoop that doesn't contain any Loop.  See regression
+                           test Succeed/Test108.ML. *)
+                        val _ = needsBeginLoop := false;
                         fun prev ({ addr=index, ...}, depth, 0) : optVal =
                          let (* On this level. *)
                            val optVal =
@@ -3148,6 +3152,12 @@ DCJM 2000.
                         end
                     else if ! needsBeginLoop
                     then simpleOptVal(BeginLoop{loop=getGeneral procBody, arguments=mkDecs false})
+                    else if Array.exists(fn x => x) argModificationVec
+                    then (* We could have reset needsBeginLoop to false and ended up not needing a loop.
+                            Ifwe have declarations that we made earlier we have to include them. *)
+                        optVal{general = optGeneral procBody, special = optSpecial procBody,
+                               environ = optEnviron procBody, recCall = optRec procBody,
+                               decs = List.map #1 (mkDecs false) @ optDecs procBody}
                     else procBody
                 end           
           in
