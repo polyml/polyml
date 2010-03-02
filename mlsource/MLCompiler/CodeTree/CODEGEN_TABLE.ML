@@ -1557,7 +1557,9 @@ struct
                                    If we have to push it we have to use a new location.
                                    I don't like this but it's safe because this only occurs
                                    for a tail-recursive value or for a temporary value
-                                   in an exception handler. *)
+                                   in an exception handler.
+                                   It does have implications when setting the state which is
+                                   why we no longer check that destinations match in "setState". *)
                                 StackEntry {ent = Register reg, cache=noRegisters, uses=uses,
                                             destStack=NONE, lifeTime=lifeTime}
                         in
@@ -2017,20 +2019,25 @@ struct
                                 |   _ => []
                             val cacheRegs = List.foldl(fn (r, l) => incr regset r @ l) [] (setToList cache)
 
-                            (* Propagate the destination stack offset information.  If the
-                               saved offset is non-negative it must agree with the current
-                               information.  *)
+                            (* Propagate the destination stack offset information.  Normally, if
+                               the destination stack is set in the "current" table (tabDestStack)
+                               and also in the saved state the destinations should be the same.
+                               It is possible for them to differ at least in one situation.
+                               When encountering a Loop instruction while processing a BeginLoop
+                               we need to reset the stack to put the arguments into their original
+                               locations and loadEntryBeforeOverwriting clears the destination stack
+                               entry.  That can result in an entry getting a different destination.
+                               This may be cleared up as a result of reprocessing the loop.
+                               This case occurs in Tests/Succeed/Test109.ML. *)
                             val () =
                                 case (tabDestStack, destStack) of
-                                    (NONE, _) => ()
-                                |   (SOME tabDestStack, SOME destStack) =>
-                                        if destStack <> tabDestStack
-                                        then raise InternalError "Different stack destinations"
-                                        else ()
-                                |   (tabDestStack, NONE) =>
+                                    (tabDestStack as SOME _, NONE) =>
+                                        (* Set the destination if it's set in the current state
+                                           but not in the state we're setting. *)
                                         StretchArray.update (pstack, s,
                                             StackEntry {ent=ent, cache=cache, uses=uses,
                                                         destStack=tabDestStack, lifeTime=lifeTime})
+                                |   _ => ()
                             val otherEntries = putOnEntries (s + 1)
               
                             (* Can now set the use counts. The use-counts may have changed
