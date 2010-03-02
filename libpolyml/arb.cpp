@@ -300,7 +300,7 @@ static Handle make_canonical(TaskData *taskData, Handle x, int sign)
 {
 #ifdef USE_GMP
     unsigned size = numLimbs(DEREFWORD(x));
-    if (size == 1)
+    if (size <= 1) // May be zero if the result is zero.
     {
         mp_limb_t r = *DEREFLIMBHANDLE(x);
         if (r <= MAXTAGGED || (r == MAXTAGGED+1 && sign < 0))
