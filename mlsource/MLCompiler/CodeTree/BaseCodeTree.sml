@@ -712,16 +712,16 @@ struct
             |   Declar {value, ...}             => size value
             |   Newenv cl                       => sizeList cl
             |   Constnt w                       => if isShort w then 0 else 1
-            |   Extract {level=0, fpRel=true, ...} => 0 (* Probably in a register*)
+(*            |   Extract {level=0, fpRel=true, ...} => 0 (* Probably in a register*)*)
             |   Extract _                       => 1
             |   Indirect {base,...}             => size base + 1
             |   Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
-            |   Eval {function=Constnt w ,argList,...}     =>
+(*            |   Eval {function=Constnt w ,argList,...}     =>
                     (* If this is an RTS call it's probably really an instruction that
                        the code-generator will inline and if it isn't we're not going
                        to greatly wrong.  *)
                     if isIoAddress(toAddress w) then 1 + sizeList(List.map #1 argList)
-                    else sizeList(List.map #1 argList) + 2
+                    else sizeList(List.map #1 argList) + 2*)
             |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2
             |   KillItems{expression, ...}     => size expression
             |   MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
