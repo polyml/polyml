@@ -423,7 +423,7 @@ struct
     struct
         (* Implement a register set as a bit mask. *)
         datatype regSet = RegSet of word
-        fun singleton r = RegSet(Word.<<(0w1, Word.fromInt(nReg r)))
+        fun singleton r = RegSet(0w1 << Word.fromInt(nReg r))
         fun regSetUnion(RegSet r1, RegSet r2) = RegSet(Word.orb(r1, r2))
         fun regSetIntersect(RegSet r1, RegSet r2) = RegSet(Word.andb(r1, r2))
 
@@ -450,16 +450,16 @@ struct
 
         fun isAllRegs rs = rs = allRegisters
 
-        fun setToList regSet =
+        fun setToList (RegSet regSet)=
         let
-            fun testBit (n, res) =
+            fun testBit (n, bit, res) =
                 if n = regs
                 then res
-                else if inSet(regN n, regSet)
-                then testBit(n+1, regN n :: res)
-                else testBit(n+1, res)
+                else testBit(n+1, bit << 0w1, 
+                        if (regSet andb bit) <> 0w0
+                        then regN n :: res else res)
         in
-            testBit(0, [])
+            testBit(0, 0w1, [])
         end
 
         val cardinality = List.length o setToList
