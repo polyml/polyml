@@ -107,14 +107,30 @@ Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
 class ScanAddress;
 
+// Indicate what the main thread is doing if the profile
+// timer goes off.
+extern enum _mainThreadPhase {
+    MTP_USER_CODE=0,
+    MTP_GCPHASEMARK,
+    MTP_GCPHASECOMPACT,
+    MTP_GCPHASEUPDATE,
+    MTP_SHARING,
+    MTP_EXPORTING,
+    MTP_SAVESTATE,
+    MTP_LOADSTATE,
+    MTP_PROFILING,
+    MTP_MAXENTRY
+} mainThreadPhase;
+
 // Data structure used for requests from a thread to the root
 // thread.  These are GCs or similar.
 class MainThreadRequest
 {
 public:
-    MainThreadRequest (): completed(false) {}
+    MainThreadRequest (enum _mainThreadPhase phase): mtp(phase), completed(false) {}
     virtual ~MainThreadRequest () {} // Suppress silly GCC warning
     bool completed;
+    const enum _mainThreadPhase mtp;
     virtual void Perform() = 0;
 };
 

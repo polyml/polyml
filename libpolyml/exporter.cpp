@@ -315,7 +315,8 @@ static void FixForwarding(PolyWord *pt, POLYUNSIGNED space)
 class ExportRequest: public MainThreadRequest
 {
 public:
-    ExportRequest(Handle root, Exporter *exp): exportRoot(root), exporter(exp) {}
+    ExportRequest(Handle root, Exporter *exp): MainThreadRequest(MTP_EXPORTING),
+        exportRoot(root), exporter(exp) {}
 
     virtual void Perform() { exporter->RunExport(exportRoot->WordP()); }
     Handle exportRoot;

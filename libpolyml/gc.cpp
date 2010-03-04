@@ -71,8 +71,6 @@ static unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 
 static POLYUNSIGNED GetPhysicalMemorySize(void);
 
-unsigned gc_phase = 0; // Tells the profiler whether we're in the gc 
-
 // If the GC converts a weak ref from SOME to NONE it sets this ref.  It can be
 // cleared by the signal handler thread.  There's no need for a lock since it
 // is only set during GC and only cleared when not GCing.
@@ -1266,9 +1264,7 @@ static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
     static unsigned this_generation = 0;
     
     record_gc_time(false);
-    
-    ASSERT (gc_phase == 0);
-    
+
 GC_AGAIN:
     /* Invariant: the bitmaps are completely clean. */
     
@@ -1311,7 +1307,7 @@ GC_AGAIN:
     }
     
     /* Mark phase */
-    gc_phase = 1; /* SPF 7/6/96 */
+    mainThreadPhase = MTP_GCPHASEMARK;
     
     gcflags |= GC_NEWLINE;
     
@@ -1355,7 +1351,7 @@ GC_AGAIN:
     }
     
     /* Compact phase */
-    gc_phase = 2; /* SPF 7/6/96 */
+    mainThreadPhase = MTP_GCPHASECOMPACT;
     
     /* Detect unreferenced streams, windows etc. */
     CheckWeakRef checkRef;
@@ -1571,7 +1567,7 @@ GC_AGAIN:
     }    
     
     /* Update phase */
-    gc_phase = 3; /* SPF 7/6/96 */
+    mainThreadPhase = MTP_GCPHASEUPDATE;
     
     /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
     for(j = 0; j < gMem.nlSpaces; j++)
@@ -1646,7 +1642,6 @@ GC_AGAIN:
                 BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, false))
             {
                 // No we don't even have that - interrupt console processes and end GC here.
-                gc_phase = 0;
                 record_gc_time(true);
                 return false;
             }
@@ -1741,7 +1736,6 @@ GC_AGAIN:
     }
 
     /* End of garbage collection */
-    gc_phase = 0; 
     record_gc_time(true);
     
     /* Invariant: the bitmaps are completely clean */
@@ -1949,13 +1943,14 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize)
 class FullGCRequest: public MainThreadRequest
 {
 public:
+    FullGCRequest(): MainThreadRequest(MTP_GCPHASEMARK) {}
     virtual void Perform() { doGC (true,0); }
 };
 
 class QuickGCRequest: public MainThreadRequest
 {
 public:
-    QuickGCRequest(POLYUNSIGNED words): wordsRequired(words) {}
+    QuickGCRequest(POLYUNSIGNED words): MainThreadRequest(MTP_GCPHASEMARK), wordsRequired(words) {}
 
     virtual void Perform() { result = doGC (false, wordsRequired); }
     bool result;

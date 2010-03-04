@@ -581,7 +581,7 @@ bool RunShareData(PolyObject *root)
 class ShareRequest: public MainThreadRequest
 {
 public:
-    ShareRequest(Handle root): shareRoot(root), result(false) {}
+    ShareRequest(Handle root): MainThreadRequest(MTP_SHARING), shareRoot(root), result(false) {}
 
     virtual void Perform() { result = RunShareData(shareRoot->WordP()); }
     Handle shareRoot;

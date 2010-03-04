@@ -36,7 +36,6 @@ extern void FullGC(TaskData *taskData);
 extern bool QuickGC(TaskData *taskData, POLYUNSIGNED words_needed);
 extern void CreateHeap(unsigned hsize, unsigned isize, unsigned msize);
 
-extern unsigned gc_phase;
 extern bool convertedWeak;
 
 #endif

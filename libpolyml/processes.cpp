@@ -331,6 +331,8 @@ Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0), i
 #endif
 }
 
+enum _mainThreadPhase mainThreadPhase = MTP_USER_CODE;
+
 // Get the attribute flags.
 static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 {
@@ -838,7 +840,11 @@ void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
 void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
 {
     if (singleThreaded)
+    {
+        mainThreadPhase = request->mtp;
         request->Perform();
+        mainThreadPhase = MTP_USER_CODE;
+    }
     else
     {
         PLocker locker(&schedLock);
@@ -1247,7 +1253,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 
         if (allStopped && threadRequest != 0)
         {
+            mainThreadPhase = threadRequest->mtp;
             threadRequest->Perform();
+            mainThreadPhase = MTP_USER_CODE;
             threadRequest->completed = true;
             threadRequest = 0; // Allow a new request.
             mlThreadWait.Signal();

@@ -94,7 +94,6 @@
 #include "profiling.h"
 #include "save_vec.h"
 #include "rts_module.h"
-#include "gc.h" // For gc_phase
 #include "memmgr.h"
 #include "scanaddrs.h"
 #include "locking.h"
@@ -104,11 +103,28 @@
 /*      PROFILING SHARED DATA                                                 */
 /*                                                                            */
 /******************************************************************************/
-static POLYUNSIGNED gc_count1 = 0;
-static POLYUNSIGNED gc_count2 = 0;
-static POLYUNSIGNED gc_count3 = 0;
+static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
+static const char* mainThreadText[MTP_MAXENTRY] =
+{
+    "UNKNOWN",
+    "GARBAGE COLLECTION (mark phase)",
+    "GARBAGE COLLECTION (copy phase)",
+    "GARBAGE COLLECTION (update phase)",
+    "Common data sharing",
+    "Exporting",
+    "Saving state",
+    "Loading saved state",
+    "Profiling"
+};
+
 static POLYUNSIGNED total_count = 0;
-static POLYUNSIGNED unknown_count  = 0;
+
+/* This type is coercible to PolyString *. We can use static "pstrings"
+   since we are not going to garbage collect while we are printing out
+   the profiling information. */
+static struct {
+    POLYUNSIGNED length; char chars[40];
+} psStrings[MTP_MAXENTRY], psGCTotal;
 
 ProfileMode profileMode;
 
@@ -194,7 +210,7 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
         else /* Reached bottom of stack without finding valid code pointer */
         {
             PLocker locker(&countLock);
-            unknown_count += incr;
+            mainThreadCounts[MTP_USER_CODE] += incr;
             total_count += incr;
             return;
         }
@@ -328,13 +344,6 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
     } /* while */
 }
 
-/* This type is coercible to PolyString *. We can use static "pstrings"
-   since we are not going to garbage collect while we are printing out
-   the profiling information. */
-static struct {
-    POLYUNSIGNED length; char chars[40];
-} psMarkPhase, psCopyPhase, psUpdatePhase, psGCTotal, psUnknown;
-
 static void printprofile(void)
 /* Print profiling information and reset profile counts.    */
 /* Profile counts are also reset by commit so that objects  */
@@ -363,52 +372,33 @@ static void printprofile(void)
             PrintProfileCounts(space->pointer, space->top);
         }
     } // else if we haven't actually had an interrupt avoid expensive scan of memory.
-    
-    if (gc_count1 || gc_count2 || gc_count3)
+
     {
-        int gc_count = gc_count1 + gc_count2 + gc_count3;
-        P.total     += gc_count;
-        total_count += gc_count;
-        
-        pEnt = newProfileEntry();
-        strcpy(psMarkPhase.chars, "GARBAGE COLLECTION (mark phase)");
-        psMarkPhase.length = strlen(psMarkPhase.chars);
-        pEnt->count = gc_count1;
-        pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psMarkPhase);
-        
-        pEnt = newProfileEntry();
-        strcpy(psCopyPhase.chars, "GARBAGE COLLECTION (copy phase)");
-        psCopyPhase.length = strlen(psCopyPhase.chars);
-        pEnt->count = gc_count2;
-        pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psCopyPhase);
-        
-        pEnt = newProfileEntry();
-        strcpy(psUpdatePhase.chars, "GARBAGE COLLECTION (update phase)");
-        psUpdatePhase.length = strlen(psUpdatePhase.chars);
-        pEnt->count = gc_count3;
-        pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psUpdatePhase);
-        
+        POLYUNSIGNED gc_count =
+            mainThreadCounts[MTP_GCPHASEMARK]+
+            mainThreadCounts[MTP_GCPHASECOMPACT] +
+            mainThreadCounts[MTP_GCPHASEUPDATE];
         pEnt = newProfileEntry();
         strcpy(psGCTotal.chars, "GARBAGE COLLECTION (total)");
         psGCTotal.length = strlen(psGCTotal.chars);
         pEnt->count = gc_count;
         pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psGCTotal);
-        
-        gc_count1 = 0;
-        gc_count2 = 0;
-        gc_count3 = 0;
     }
-    
-    if (unknown_count)
+        
+ 
+    for (unsigned k = 0; k < MTP_MAXENTRY; k++)
     {
-        total_count += unknown_count;
-        P.total += unknown_count;
-        pEnt = newProfileEntry();
-        strcpy(psUnknown.chars, "UNKNOWN");
-        psUnknown.length = strlen(psUnknown.chars);
-        pEnt->count = unknown_count;
-        pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psUnknown);
-        unknown_count = 0;
+        if (mainThreadCounts[k])
+        {
+            P.total     += mainThreadCounts[k];
+            total_count += mainThreadCounts[k];
+            pEnt = newProfileEntry();
+            strcpy(psStrings[k].chars, mainThreadText[k]);
+            psStrings[k].length = strlen(psStrings[k].chars);
+            pEnt->count = mainThreadCounts[k];
+            pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psStrings[k]);
+            mainThreadCounts[k] = 0;
+        }
     }
     
     writeProfileResults();
@@ -431,46 +421,27 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 {
     /* If we are in the garbage-collector add the count to "gc_count"
         otherwise try to find out where we are. */
-    switch (gc_phase)
+    if (mainThreadPhase == MTP_USER_CODE)
     {
-    case 0 : 
+        if (taskData)
         {
-            if (taskData)
-            {
-                PolyWord *sp;
-                POLYCODEPTR pc;
-                if (machineDependent->GetPCandSPFromContext(taskData, context, sp, pc))
-                    add_count(taskData, pc, sp, 1);
-                else unknown_count++;
-            }
-            else unknown_count++;
-            // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
-            // so all the counts will be "unknown".
+            PolyWord *sp;
+            POLYCODEPTR pc;
+            if (machineDependent->GetPCandSPFromContext(taskData, context, sp, pc))
+                add_count(taskData, pc, sp, 1);
+            else mainThreadCounts[MTP_USER_CODE]++;
         }
-        break;
-        
-    case 1 :
-        gc_count1++;
-        break;
-        
-    case 2 :
-        gc_count2++;
-        break;
-        
-    case 3 :
-        gc_count3++;
-        break;
-        
-    default :
-        unknown_count++;
-        break;
+        else mainThreadCounts[MTP_USER_CODE]++;
+        // On Mac OS X all virtual timer interrupts seem to be directed to the root thread
+        // so all the counts will be "unknown".
     }
+    else mainThreadCounts[mainThreadPhase]++;
 }
 
 class ProfileRequest: public MainThreadRequest
 {
 public:
-    ProfileRequest(unsigned prof): mode(prof) {}
+    ProfileRequest(unsigned prof): MainThreadRequest(MTP_PROFILING), mode(prof) {}
 
     virtual void Perform();
     unsigned mode;
@@ -558,9 +529,6 @@ void Profiling::Init(void)
 {
     // Reset profiling counts.
     profileMode = kProfileOff;
-    gc_count1 = 0;
-    gc_count2 = 0;
-    gc_count3 = 0;
+    for (unsigned k = 0; k < MTP_MAXENTRY; k++) mainThreadCounts[k] = 0;
     total_count = 0;
-    unknown_count  = 0;
 }

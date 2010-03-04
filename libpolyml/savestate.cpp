@@ -321,7 +321,8 @@ void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
 class SaveRequest: public MainThreadRequest
 {
 public:
-    SaveRequest(const char *name, unsigned h): fileName(name), newHierarchy(h),
+    SaveRequest(const char *name, unsigned h): MainThreadRequest(MTP_SAVESTATE),
+        fileName(name), newHierarchy(h),
         errorMessage(0), errCode(0) {}
 
     virtual void Perform();
@@ -642,7 +643,8 @@ Handle SaveState(TaskData *taskData, Handle args)
 class StateLoader: public MainThreadRequest
 {
 public:
-    StateLoader(const char *file): errorResult(0), errNumber(0) { strcpy(fileName, file); }
+    StateLoader(const char *file): MainThreadRequest(MTP_LOADSTATE),
+        errorResult(0), errNumber(0) { strcpy(fileName, file); }
 
     virtual void Perform(void);
     bool LoadFile(bool isInitial, UNSIGNEDADDR requiredStamp);
