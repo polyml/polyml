@@ -909,6 +909,7 @@ with_gnu_ld
 enable_libtool_lock
 enable_maintainer_mode
 with_x
+with_gmp
 with_portable
 '
       ac_precious_vars='build_alias
@@ -1568,7 +1569,10 @@ Optional Packages:
                           both]
   --with-gnu-ld           assume the C compiler uses GNU ld [default=no]
   --with-x                use the X Window System
-  --with-portable         Build the portable interpreter version of Poly/ML instead of native
+  --with-gmp              use the GMP library for arbitrary precision
+                          arithmetic [default=check]
+  --with-portable         Build the portable interpreter version of Poly/ML
+                          instead of native [default=no]
 
 Some influential environment variables:
   CC          C compiler command
@@ -3294,7 +3298,7 @@ fi
 
 
 if test "$ac_debug_mode" != "yes"; then
-	# Default to maximum optimisation. -O2 is not good enough.
+    # Default to maximum optimisation. -O2 is not good enough.
         # Set CCASFLAGS to empty so that it doesn't get set to CFLAGS.
         #   The -g option on assembler causes problems on Sparc/Solaris 10.
         # test X || Y  is equivalent to  if !X then Y
@@ -5310,13 +5314,13 @@ if test "${lt_cv_nm_interface+set}" = set; then :
 else
   lt_cv_nm_interface="BSD nm"
   echo "int some_variable = 0;" > conftest.$ac_ext
-  (eval echo "\"\$as_me:5313: $ac_compile\"" >&5)
+  (eval echo "\"\$as_me:5317: $ac_compile\"" >&5)
   (eval "$ac_compile" 2>conftest.err)
   cat conftest.err >&5
-  (eval echo "\"\$as_me:5316: $NM \\\"conftest.$ac_objext\\\"\"" >&5)
+  (eval echo "\"\$as_me:5320: $NM \\\"conftest.$ac_objext\\\"\"" >&5)
   (eval "$NM \"conftest.$ac_objext\"" 2>conftest.err > conftest.out)
   cat conftest.err >&5
-  (eval echo "\"\$as_me:5319: output\"" >&5)
+  (eval echo "\"\$as_me:5323: output\"" >&5)
   cat conftest.out >&5
   if $GREP 'External.*some_variable' conftest.out > /dev/null; then
     lt_cv_nm_interface="MS dumpbin"
@@ -6519,7 +6523,7 @@ ia64-*-hpux*)
   ;;
 *-*-irix6*)
   # Find out which ABI we are using.
-  echo '#line 6522 "configure"' > conftest.$ac_ext
+  echo '#line 6526 "configure"' > conftest.$ac_ext
   if { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_compile\""; } >&5
   (eval $ac_compile) 2>&5
   ac_status=$?
@@ -8047,11 +8051,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:8050: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:8054: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:8054: \$? = $ac_status" >&5
+   echo "$as_me:8058: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -8386,11 +8390,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:8389: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:8393: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:8393: \$? = $ac_status" >&5
+   echo "$as_me:8397: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -8491,11 +8495,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:8494: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:8498: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:8498: \$? = $ac_status" >&5
+   echo "$as_me:8502: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -8546,11 +8550,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:8549: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:8553: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:8553: \$? = $ac_status" >&5
+   echo "$as_me:8557: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -10929,7 +10933,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 10932 "configure"
+#line 10936 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -11025,7 +11029,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 11028 "configure"
+#line 11032 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -13944,11 +13948,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:13947: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:13951: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>conftest.err)
    ac_status=$?
    cat conftest.err >&5
-   echo "$as_me:13951: \$? = $ac_status" >&5
+   echo "$as_me:13955: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s "$ac_outfile"; then
      # The compiler can only warn and ignore the option if not recognized
      # So say no if there are warnings other than the usual output.
@@ -14043,11 +14047,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:14046: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:14050: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:14050: \$? = $ac_status" >&5
+   echo "$as_me:14054: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -14095,11 +14099,11 @@ else
    -e 's:.*FLAGS}\{0,1\} :&$lt_compiler_flag :; t' \
    -e 's: [^ ]*conftest\.: $lt_compiler_flag&:; t' \
    -e 's:$: $lt_compiler_flag:'`
-   (eval echo "\"\$as_me:14098: $lt_compile\"" >&5)
+   (eval echo "\"\$as_me:14102: $lt_compile\"" >&5)
    (eval "$lt_compile" 2>out/conftest.err)
    ac_status=$?
    cat out/conftest.err >&5
-   echo "$as_me:14102: \$? = $ac_status" >&5
+   echo "$as_me:14106: \$? = $ac_status" >&5
    if (exit $ac_status) && test -s out/conftest2.$ac_objext
    then
      # The compiler can only warn and ignore the option if not recognized
@@ -16386,45 +16390,6 @@ _ACEOF
 
 fi
 
-# Check for GMP
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lgmp" >&5
-$as_echo_n "checking for main in -lgmp... " >&6; }
-if test "${ac_cv_lib_gmp_main+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lgmp  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-
-int
-main ()
-{
-return main ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_gmp_main=yes
-else
-  ac_cv_lib_gmp_main=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gmp_main" >&5
-$as_echo "$ac_cv_lib_gmp_main" >&6; }
-if test "x$ac_cv_lib_gmp_main" = x""yes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBGMP 1
-_ACEOF
-
-  LIBS="-lgmp $LIBS"
-
-fi
 
 # Solaris needs -lsocket, -lnsl and -lrt
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
@@ -16784,19 +16749,19 @@ if test "x${with_x}" = "xyes"; then
 $as_echo "#define WITH_XWINDOWS 1" >>confdefs.h
 
 
-	if test "$x_includes" != "" ; then
-	if test  "$x_includes" != "NONE" ; then
-		CFLAGS="$CFLAGS -I$x_includes"
-		CXXFLAGS="$CXXFLAGS -I$x_includes"
-		CPPFLAGS="$CPPFLAGS -I$x_includes"
-	fi
-	fi
-	if test "$x_libraries" != "" ; then
-	if test "$x_libraries" != "NONE" ; then
-		LIBS="-L$x_libraries $LIBS"
-	fi
-	fi
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for XCreateGC in -lX11" >&5
+    if test "$x_includes" != "" ; then
+    if test  "$x_includes" != "NONE" ; then
+        CFLAGS="$CFLAGS -I$x_includes"
+        CXXFLAGS="$CXXFLAGS -I$x_includes"
+        CPPFLAGS="$CPPFLAGS -I$x_includes"
+    fi
+    fi
+    if test "$x_libraries" != "" ; then
+    if test "$x_libraries" != "NONE" ; then
+        LIBS="-L$x_libraries $LIBS"
+    fi
+    fi
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XCreateGC in -lX11" >&5
 $as_echo_n "checking for XCreateGC in -lX11... " >&6; }
 if test "${ac_cv_lib_X11_XCreateGC+set}" = set; then :
   $as_echo_n "(cached) " >&6
@@ -16841,7 +16806,7 @@ _ACEOF
 
 fi
 
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for XtMalloc in -lXt" >&5
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XtMalloc in -lXt" >&5
 $as_echo_n "checking for XtMalloc in -lXt... " >&6; }
 if test "${ac_cv_lib_Xt_XtMalloc+set}" = set; then :
   $as_echo_n "(cached) " >&6
@@ -16886,7 +16851,7 @@ _ACEOF
 
 fi
 
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for XextAddDisplay in -lXext" >&5
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XextAddDisplay in -lXext" >&5
 $as_echo_n "checking for XextAddDisplay in -lXext... " >&6; }
 if test "${ac_cv_lib_Xext_XextAddDisplay+set}" = set; then :
   $as_echo_n "(cached) " >&6
@@ -16932,19 +16897,19 @@ _ACEOF
 fi
 
 
-	if test "$xm_includes" != "" ; then
-	if test "$xm_includes" != "NONE" ; then
-		CFLAGS="$CFLAGS -I$xm_includes"
-		CXXFLAGS="$CXXFLAGS -I$xm_includes"
-		CPPFLAGS="$CPPFLAGS -I$xm_includes"
-	fi
-	fi
-	if test "$xm_libraries" != "" ; then
-	if test "$xm_libraries" != "NONE" ; then
-		LIBS="-L$xm_libraries $LIBS"
-	fi
-	fi
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for XmGetDestination in -lXm" >&5
+    if test "$xm_includes" != "" ; then
+    if test "$xm_includes" != "NONE" ; then
+        CFLAGS="$CFLAGS -I$xm_includes"
+        CXXFLAGS="$CXXFLAGS -I$xm_includes"
+        CPPFLAGS="$CPPFLAGS -I$xm_includes"
+    fi
+    fi
+    if test "$xm_libraries" != "" ; then
+    if test "$xm_libraries" != "NONE" ; then
+        LIBS="-L$xm_libraries $LIBS"
+    fi
+    fi
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for XmGetDestination in -lXm" >&5
 $as_echo_n "checking for XmGetDestination in -lXm... " >&6; }
 if test "${ac_cv_lib_Xm_XmGetDestination+set}" = set; then :
   $as_echo_n "(cached) " >&6
@@ -17638,18 +17603,6 @@ fi
 
 done
 
-for ac_header in gmp.h
-do :
-  ac_fn_c_check_header_mongrel "$LINENO" "gmp.h" "ac_cv_header_gmp_h" "$ac_includes_default"
-if test "x$ac_cv_header_gmp_h" = x""yes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_GMP_H 1
-_ACEOF
-
-fi
-
-done
-
 
 # Only check for the X headers if the user said --with-x.
 if test "${with_x+set}" = set; then
@@ -17669,6 +17622,88 @@ done
 
 fi
 
+# Check for GMP
+
+# Check whether --with-gmp was given.
+if test "${with_gmp+set}" = set; then :
+  withval=$with_gmp;
+else
+  with_gmp=check
+fi
+
+
+# If we want GMP check that the library and headers are installed.
+if test "x$with_gmp" != "xno"; then
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for __gmpn_tdiv_qr in -lgmp" >&5
+$as_echo_n "checking for __gmpn_tdiv_qr in -lgmp... " >&6; }
+if test "${ac_cv_lib_gmp___gmpn_tdiv_qr+set}" = set; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lgmp  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char __gmpn_tdiv_qr ();
+int
+main ()
+{
+return __gmpn_tdiv_qr ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_gmp___gmpn_tdiv_qr=yes
+else
+  ac_cv_lib_gmp___gmpn_tdiv_qr=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gmp___gmpn_tdiv_qr" >&5
+$as_echo "$ac_cv_lib_gmp___gmpn_tdiv_qr" >&6; }
+if test "x$ac_cv_lib_gmp___gmpn_tdiv_qr" = x""yes; then :
+
+$as_echo "#define HAVE_LIBGMP 1" >>confdefs.h
+
+         LIBS="-lgmp $LIBS"
+
+         ac_fn_c_check_header_mongrel "$LINENO" "gmp.h" "ac_cv_header_gmp_h" "$ac_includes_default"
+if test "x$ac_cv_header_gmp_h" = x""yes; then :
+
+$as_echo "#define HAVE_GMP_H 1" >>confdefs.h
+
+else
+  if test "x$with_gmp" != "xcheck"; then
+                  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error "--with-gmp was given, but gmp.h header file is not installed
+See \`config.log' for more details." "$LINENO" 5; }
+              fi
+
+fi
+
+
+
+else
+  if test "x$with_gmp" != "xcheck"; then
+            { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error "--with-gmp was given, but gmp library (version 4 or later) is not installed
+See \`config.log' for more details." "$LINENO" 5; }
+         fi
+
+fi
+
+fi
 
 # Find out which type of object code exporter to use.
 # If we have winnt use PECOFF.  This really only applies to cygwin here.
@@ -17694,7 +17729,7 @@ if test "x$ac_cv_header_elf_h" = x""yes; then :
 
 $as_echo "#define HAVE_ELF_H /**/" >>confdefs.h
 
-			polyexport=elf
+            polyexport=elf
 else
   ac_fn_c_check_header_mongrel "$LINENO" "mach-o/reloc.h" "ac_cv_header_mach_o_reloc_h" "$ac_includes_default"
 if test "x$ac_cv_header_mach_o_reloc_h" = x""yes; then :
@@ -19639,8 +19674,7 @@ $as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
 $as_echo "#define HOSTARCHITECTURE_IA64 1" >>confdefs.h
 
             ac_cv_with_portable=yes
-
-	    ;;
+        ;;
       *) as_fn_error "Poly/ML is not supported for this architecture" "$LINENO" 5 ;;
 esac
 

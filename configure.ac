@@ -14,7 +14,7 @@ AC_ARG_ENABLE([debug],
    [ac_debug_mode="yes"])
 
 if test "$ac_debug_mode" != "yes"; then
-	# Default to maximum optimisation. -O2 is not good enough.
+    # Default to maximum optimisation. -O2 is not good enough.
         # Set CCASFLAGS to empty so that it doesn't get set to CFLAGS.
         #   The -g option on assembler causes problems on Sparc/Solaris 10.
         # test X || Y  is equivalent to  if !X then Y
@@ -98,8 +98,7 @@ AC_CHECK_LIB(pthread, pthread_create)
 # The next two are only used with mingw
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
-# Check for GMP
-AC_CHECK_LIB(gmp, main)
+
 # Solaris needs -lsocket, -lnsl and -lrt
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
@@ -112,37 +111,37 @@ AC_PATH_X
 
 if test "x${with_x}" = "xyes"; then
 
-	AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
-	
-	if test "$x_includes" != "" ; then
-	if test  "$x_includes" != "NONE" ; then
-		CFLAGS="$CFLAGS -I$x_includes"
-		CXXFLAGS="$CXXFLAGS -I$x_includes"
-		CPPFLAGS="$CPPFLAGS -I$x_includes"
-	fi
-	fi
-	if test "$x_libraries" != "" ; then
-	if test "$x_libraries" != "NONE" ; then
-		LIBS="-L$x_libraries $LIBS"
-	fi
-	fi
-	AC_CHECK_LIB(X11, XCreateGC)
-	AC_CHECK_LIB(Xt, XtMalloc)
-	AC_CHECK_LIB(Xext, XextAddDisplay)
-	
-	if test "$xm_includes" != "" ; then
-	if test "$xm_includes" != "NONE" ; then
-		CFLAGS="$CFLAGS -I$xm_includes"
-		CXXFLAGS="$CXXFLAGS -I$xm_includes"
-		CPPFLAGS="$CPPFLAGS -I$xm_includes"
-	fi
-	fi
-	if test "$xm_libraries" != "" ; then
-	if test "$xm_libraries" != "NONE" ; then
-		LIBS="-L$xm_libraries $LIBS"
-	fi
-	fi
-	AC_CHECK_LIB(Xm, XmGetDestination)
+    AC_DEFINE([WITH_XWINDOWS], [1], [Define if the X-Windows interface should be built])
+    
+    if test "$x_includes" != "" ; then
+    if test  "$x_includes" != "NONE" ; then
+        CFLAGS="$CFLAGS -I$x_includes"
+        CXXFLAGS="$CXXFLAGS -I$x_includes"
+        CPPFLAGS="$CPPFLAGS -I$x_includes"
+    fi
+    fi
+    if test "$x_libraries" != "" ; then
+    if test "$x_libraries" != "NONE" ; then
+        LIBS="-L$x_libraries $LIBS"
+    fi
+    fi
+    AC_CHECK_LIB(X11, XCreateGC)
+    AC_CHECK_LIB(Xt, XtMalloc)
+    AC_CHECK_LIB(Xext, XextAddDisplay)
+    
+    if test "$xm_includes" != "" ; then
+    if test "$xm_includes" != "NONE" ; then
+        CFLAGS="$CFLAGS -I$xm_includes"
+        CXXFLAGS="$CXXFLAGS -I$xm_includes"
+        CPPFLAGS="$CPPFLAGS -I$xm_includes"
+    fi
+    fi
+    if test "$xm_libraries" != "" ; then
+    if test "$xm_libraries" != "NONE" ; then
+        LIBS="-L$xm_libraries $LIBS"
+    fi
+    fi
+    AC_CHECK_LIB(Xm, XmGetDestination)
 
 fi
 
@@ -164,13 +163,41 @@ AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h s
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h])
 AC_CHECK_HEADERS([windows.h tchar.h pthread.h semaphore.h])
-AC_CHECK_HEADERS([gmp.h])
 
 # Only check for the X headers if the user said --with-x.
 if test "${with_x+set}" = set; then
     AC_CHECK_HEADERS([X11/Xlib.h Xm/Xm.h])
 fi
 
+# Check for GMP
+AC_ARG_WITH([gmp],
+            [AS_HELP_STRING([--with-gmp],
+              [use the GMP library for arbitrary precision arithmetic @<:@default=check@:>@])],
+            [],
+            [with_gmp=check])
+
+# If we want GMP check that the library and headers are installed.
+if test "x$with_gmp" != "xno"; then
+    AC_CHECK_LIB([gmp], [__gmpn_tdiv_qr],
+        [AC_DEFINE([HAVE_LIBGMP], [1],
+              [Define to 1 if you have libgmp])
+         [LIBS="-lgmp $LIBS"
+         ]
+         AC_CHECK_HEADER([gmp.h],
+             [AC_DEFINE([HAVE_GMP_H], [1],
+                  [Define to 1 if you have the gmp.h header file])],
+             [if test "x$with_gmp" != "xcheck"; then
+                  AC_MSG_FAILURE(
+                      [--with-gmp was given, but gmp.h header file is not installed])
+              fi
+             ])
+        ],
+        [if test "x$with_gmp" != "xcheck"; then
+            AC_MSG_FAILURE(
+                [--with-gmp was given, but gmp library (version 4 or later) is not installed])
+         fi
+        ])
+fi
 
 # Find out which type of object code exporter to use.
 # If we have winnt use PECOFF.  This really only applies to cygwin here.
@@ -180,9 +207,9 @@ fi
 AC_CHECK_TYPES([IMAGE_FILE_HEADER],
     [AC_DEFINE([HAVE_PECOFF], [], [Define to 1 if you have the PE/COFF types.])]
         [polyexport=pecoff],
-	[AC_CHECK_HEADER([elf.h],
-		[AC_DEFINE([HAVE_ELF_H], [], [Define to 1 if you have the <elf.h> header file.])]
-			[polyexport=elf],
+    [AC_CHECK_HEADER([elf.h],
+        [AC_DEFINE([HAVE_ELF_H], [], [Define to 1 if you have the <elf.h> header file.])]
+            [polyexport=elf],
               [AC_CHECK_HEADER([mach-o/reloc.h],
                   [AC_DEFINE([HAVE_MACH_O_RELOC_H], [], [Define to 1 if you have the <mach-o/reloc.h> header file.])]
                           [polyexport=macho]
@@ -259,8 +286,9 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 
 # Test the --with-portable option to build the interpreter even if
 # we have a code-generator.
-AC_ARG_WITH(portable,
-    [  --with-portable         Build the portable interpreter version of Poly/ML instead of native], [
+AC_ARG_WITH([portable],
+    [AS_HELP_STRING([--with-portable],
+              [Build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])], [
     ac_cv_with_portable=yes], [
     ac_cv_with_portable=no])
 
@@ -291,10 +319,9 @@ case "${host_cpu}" in
             ac_cv_with_portable=yes
             ;;
       ia64*)
-	    AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
+            AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
             ac_cv_with_portable=yes
-
-	    ;;
+        ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 

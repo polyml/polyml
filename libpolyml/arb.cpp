@@ -73,9 +73,7 @@ Thanks are due to D. Knuth for the long division algorithm.
 
 #ifdef HAVE_GMP_H
 #include <gmp.h>
-#if (__GNU_MP_VERSION >= 4)
 #define USE_GMP 1
-#endif
 #endif
 
 #include "globals.h"
