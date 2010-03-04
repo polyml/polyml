@@ -114,7 +114,8 @@ static const char* mainThreadText[MTP_MAXENTRY] =
     "Exporting",
     "Saving state",
     "Loading saved state",
-    "Profiling"
+    "Profiling",
+    "Setting signal handler"
 };
 
 static POLYUNSIGNED total_count = 0;

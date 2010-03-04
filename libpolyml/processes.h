@@ -119,6 +119,7 @@ extern enum _mainThreadPhase {
     MTP_SAVESTATE,
     MTP_LOADSTATE,
     MTP_PROFILING,
+    MTP_SIGHANDLER,
     MTP_MAXENTRY
 } mainThreadPhase;
 
@@ -129,8 +130,8 @@ class MainThreadRequest
 public:
     MainThreadRequest (enum _mainThreadPhase phase): mtp(phase), completed(false) {}
     virtual ~MainThreadRequest () {} // Suppress silly GCC warning
-    bool completed;
     const enum _mainThreadPhase mtp;
+    bool completed;
     virtual void Perform() = 0;
 };
 

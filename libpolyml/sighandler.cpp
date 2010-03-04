@@ -197,7 +197,7 @@ void RequestConsoleInterrupt(void)
 class SignalRequest: public MainThreadRequest
 {
 public:
-    SignalRequest(int s, int r): signl(s), state(r) {}
+    SignalRequest(int s, int r): MainThreadRequest(MTP_SIGHANDLER), signl(s), state(r) {}
 
     virtual void Perform();
     int signl, state;
