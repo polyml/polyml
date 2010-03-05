@@ -38,6 +38,7 @@ extern Handle sub_longc(TaskData *taskData, Handle,Handle);
 extern Handle mult_longc(TaskData *taskData, Handle,Handle);
 extern Handle div_longc(TaskData *taskData, Handle,Handle);
 extern Handle rem_longc(TaskData *taskData, Handle,Handle);
+extern Handle quot_rem_c(TaskData *taskData, Handle,Handle);
 extern Handle or_longc(TaskData *taskData, Handle,Handle);
 extern Handle and_longc(TaskData *taskData, Handle,Handle);
 extern Handle xor_longc(TaskData *taskData, Handle,Handle);

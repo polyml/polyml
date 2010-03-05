@@ -212,6 +212,7 @@ extern int sub_long();
 extern int mult_long();
 extern int div_longa();
 extern int rem_longa();
+extern int quotrem_longa();
 extern int neg_long();
 extern int or_long();
 extern int and_long();
@@ -1107,8 +1108,9 @@ void SparcDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_exception_trace, &exception_tracea);
     add_function_to_io_area(POLY_SYS_lockseg, &locksega);
     add_function_to_io_area(POLY_SYS_profiler, &profilera);
-    add_function_to_io_area(POLY_SYS_is_short, &is_shorta);
     add_function_to_io_area(POLY_SYS_aplus, &add_long);
+    add_function_to_io_area(POLY_SYS_is_short, &is_shorta);
+    add_function_to_io_area(POLY_SYS_quotrem, &quotrem_longa);
     add_function_to_io_area(POLY_SYS_aminus, &sub_long);
     add_function_to_io_area(POLY_SYS_amul, &mult_long);
     add_function_to_io_area(POLY_SYS_adiv, &div_longa);

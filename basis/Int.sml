@@ -154,16 +154,18 @@ struct
      |  baseOf StringCvt.HEX = 16
 
     local
+        val quotRem: int*int->int*int = RunCall.run_call2 POLY_SYS_quotrem
+
         fun toChars base i chs =
-            let
-            val digit = i rem base
+        let
+            val (q, digit) = quotRem(i, base)
             val ch =
                 if digit < 10 then Char.chr(Char.ord(#"0") + digit)
                 else (* Hex *) Char.chr(Char.ord(#"A") + digit - 10)
-            in
+        in
             if i < base then ch :: chs
-            else toChars base (i quot base) (ch :: chs)
-            end
+            else toChars base q (ch :: chs)
+        end
     in
         fun fmt radix i =
             if i < 0

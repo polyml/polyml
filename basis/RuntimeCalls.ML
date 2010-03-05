@@ -58,6 +58,7 @@ struct
   val POLY_SYS_objsize             = 99   (* MJC 27/04/88 *)
   val POLY_SYS_showsize            = 100  (* MJC 09/03/89 *)
 (*val POLY_SYS_interrupt_console_processes = 103*)  (* MJC 01/08/90 *)
+  val POLY_SYS_quotrem             = 104 (* DCJM 05/03/10 *)
   val POLY_SYS_is_short            = 105
   val POLY_SYS_aplus               = 106
   val POLY_SYS_aminus              = 107

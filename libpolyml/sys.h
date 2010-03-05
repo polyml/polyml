@@ -34,6 +34,7 @@
 
 #define POLY_SYS_exit                1
 #define POLY_SYS_chdir               9
+
 #define POLY_SYS_alloc_store         11
 #define POLY_SYS_raisex              14 /* This is now used only by SetException. */
 #define POLY_SYS_get_length          15
@@ -72,6 +73,7 @@
 #define POLY_SYS_objsize             99   /* MJC 27/04/88 */
 #define POLY_SYS_showsize            100  /* MJC 09/03/89 */
 //#define POLY_SYS_interrupt_console_processes 103  /* MJC 01/08/90 */
+#define POLY_SYS_quotrem             104  /* DCJM 05/03/10 */
 #define POLY_SYS_is_short            105
 #define POLY_SYS_aplus               106
 #define POLY_SYS_aminus              107

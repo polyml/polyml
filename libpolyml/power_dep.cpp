@@ -1200,6 +1200,9 @@ void PowerPCDependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_profiler, codeAddr);
     add_word_to_io_area(POLY_SYS_profiler, PolyWord::FromCodePtr(codeAddr));
     
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_quotrem, codeAddr);
+    add_word_to_io_area(POLY_SYS_quotrem, PolyWord::FromCodePtr(codeAddr));
+
     add_function_to_io_area(POLY_SYS_is_short, is_shorta);
     add_function_to_io_area(POLY_SYS_aplus, add_long);
     add_function_to_io_area(POLY_SYS_aminus, sub_long);

@@ -515,6 +515,7 @@ ENDIF
 IFDEF WINDOWS
 POLY_SYS_alloc_store        EQU 11
 POLY_SYS_give_ex_trace      EQU 31
+POLY_SYS_quotrem            EQU 104
 POLY_SYS_aplus              EQU 106
 POLY_SYS_aminus             EQU 107
 POLY_SYS_amul               EQU 108
@@ -1442,6 +1443,73 @@ rem_really_long:
 CALLMACRO   CALL_IO    POLY_SYS_amod
 CALLMACRO   RegMask amod,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
 
+ ;# Combined quotient and remainder.  We have to use the long form
+ ;# if the arguments are long, there's an overflow or we run out of memory.
+CALLMACRO   INLINE_ROUTINE quotrem_long
+    MOVL    Reax,Redi
+    ANDL    Rebx,Redi
+    ANDL    CONST TAG,Redi
+    jz      quotrem_really_long
+    CMPL    CONST TAGGED(0),Rebx
+    jz      quotrem_really_long
+ ;# The only case of overflow is dividing the smallest negative number by -1
+    CMPL    CONST TAGGED((-1)),Rebx
+    jz      quotrem_really_long
+
+  ; Allocate memory for the result.
+IFNDEF HOSTARCHITECTURE_X86_64
+        MOVL    LocalMpointer[Rebp],Recx
+	    SUBL    CONST 12,Recx        ;# 3 words
+ELSE
+        MOVL    R15,Recx
+	    SUBL    CONST 24,Recx        ;# 3 words
+ENDIF
+
+IFDEF TEST_ALLOC
+;# Test case - this will always force a call into RTS.
+        CMPL    LocalMpointer[Rebp],Recx
+ELSE
+        CMPL    LocalMbottom[Rebp],Recx
+ENDIF
+        jb      mem_for_remquot1
+IFNDEF HOSTARCHITECTURE_X86_64
+        MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
+IFDEF WINDOWS
+        mov     dword ptr (-4)[Recx],01000002h  ;# Length word:
+ELSE
+        MOVL    CONST 0x01000002,(-4)[Recx]		;# Two words plus tag
+ENDIF
+ELSE
+        MOVL    Recx,R15                        ;# Updated allocation pointer
+	    MOVL    CONST 2,(-8)[Recx]		        ;# Two words
+	    MOVB    CONST B_bytes,(-1)[Recx]	    ;# Set the byte flag.
+ENDIF
+;# Do the division
+    SARL    CONST TAGSHIFT,Reax
+    MOVL    Rebx,Redi
+    SARL    CONST TAGSHIFT,Redi
+IFNDEF HOSTARCHITECTURE_X86_64
+    cdq
+ELSE
+    cqo
+ENDIF
+    idiv    Redi
+CALLMACRO   MAKETAGGED  Reax,Reax
+CALLMACRO   MAKETAGGED  Redx,Redx
+    MOVL    Reax,Redi
+    MOVL    Reax,[Recx]
+	MOVL    Redx,[Recx+4]
+    MOVL    Recx,Reax
+	ret
+
+mem_for_remquot1:  ;# Not enough store: clobber bad value in ecx.
+        MOVL   CONST 1,Recx
+
+quotrem_really_long:
+    MOVL    Reax,Redi
+CALLMACRO   CALL_IO    POLY_SYS_quotrem
+CALLMACRO   RegMask quotrem,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
+
 CALLMACRO   INLINE_ROUTINE  equal_long
     CMPL    Reax,Rebx
     je      RetTrue
@@ -1902,10 +1970,10 @@ mem_for_real:
 ;# Allocate memory for the result.
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    LocalMpointer[Rebp],Recx
-	SUBL    CONST 12,Recx        ;# Length word (4 bytes) + 8 bytes
+	    SUBL    CONST 12,Recx        ;# Length word (4 bytes) + 8 bytes
 ELSE
         MOVL    R15,Recx
-	SUBL    CONST 16,Recx        ;# Length word (4 bytes) + 8 bytes
+	    SUBL    CONST 16,Recx        ;# Length word (8 bytes) + 8 bytes
 ENDIF
 IFDEF TEST_ALLOC
 ;# Test case - this will always force a call into RTS.
@@ -2305,7 +2373,7 @@ ENDIF
     dd  Mask_all                 ;# 101 is unused
     dd  Mask_all                 ;# 102 is unused
     dd  Mask_all                 ;# 103
-    dd  Mask_all                 ;# 104 is unused
+    dd  Mask_quotrem             ;# 104
     dd  Mask_is_short            ;# 105
     dd  Mask_aplus               ;# 106
     dd  Mask_aminus              ;# 107

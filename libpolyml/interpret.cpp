@@ -1241,6 +1241,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_profiler, TAGGED(POLY_SYS_profiler));
     add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));
 //    add_word_to_io_area(POLY_SYS_raiseexception, TAGGED(POLY_SYS_raiseexception));
+    add_word_to_io_area(POLY_SYS_quotrem, TAGGED(POLY_SYS_quotrem));
     add_word_to_io_area(POLY_SYS_aplus, TAGGED(POLY_SYS_aplus));
     add_word_to_io_area(POLY_SYS_aminus, TAGGED(POLY_SYS_aminus));
     add_word_to_io_area(POLY_SYS_amul, TAGGED(POLY_SYS_amul));

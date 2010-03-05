@@ -110,6 +110,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_timing_dispatch: return 0;
     case POLY_SYS_objsize: return PROPWORD_NORAISE;
     case POLY_SYS_showsize: return PROPWORD_NORAISE;
+    case POLY_SYS_quotrem: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
     case POLY_SYS_is_short: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_aplus: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_aminus: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;

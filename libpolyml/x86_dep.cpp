@@ -365,7 +365,7 @@ extern "C" {
     extern int locksega();
     extern int is_shorta();
     extern int add_long(), sub_long(), mult_long(), div_long(), rem_long(), neg_long();
-    extern int equal_long(), or_long(), and_long(), xor_long();
+    extern int equal_long(), or_long(), and_long(), xor_long(), quotrem_long();
     extern int offset_address();
     extern int shift_right_word();
     extern int word_neq();
@@ -1705,8 +1705,9 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_profiler, codeAddr);
     add_word_to_io_area(POLY_SYS_profiler, PolyWord::FromCodePtr(codeAddr));
 
+    add_function_to_io_area(POLY_SYS_quotrem, &quotrem_long);
     add_function_to_io_area(POLY_SYS_is_short, &is_shorta);
-    add_function_to_io_area(POLY_SYS_aplus, &add_long); // Retain
+    add_function_to_io_area(POLY_SYS_aplus, &add_long);
     add_function_to_io_area(POLY_SYS_aminus, &sub_long);
     add_function_to_io_area(POLY_SYS_amul, &mult_long);
     add_function_to_io_area(POLY_SYS_adiv, &div_long);

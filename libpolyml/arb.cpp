@@ -341,7 +341,7 @@ static Handle make_canonical(TaskData *taskData, Handle x, int sign)
 
     /* The length word of the object is changed to reflect the new length.
        This is safe because any words thrown away must be zero. */
-    DEREFWORDHANDLE(x)->SetLengthWord(WORDS(size+1), F_BYTE_OBJ | (sign < 0 ? F_NEGATIVE_BIT: 0));
+    DEREFWORDHANDLE(x)->SetLengthWord(WORDS(size), F_BYTE_OBJ | (sign < 0 ? F_NEGATIVE_BIT: 0));
 
     return x;
 #endif
@@ -870,28 +870,28 @@ Handle mult_longc(TaskData *taskData, Handle y, Handle x)
 } /* mult_long */
 
 #ifndef USE_GMP
-static void div_unsigned_long(byte *u, byte *v, byte *res, POLYUNSIGNED lu, POLYUNSIGNED lv)
-/* Unsigned division. This is the main divide and remainder routine. The
-result is packed into ``res'' and is separated out by div and rem */
+static void div_unsigned_long(byte *u, byte *v, byte *remres, byte *divres, POLYUNSIGNED lu, POLYUNSIGNED lv)
+// Unsigned division. This is the main divide and remainder routine.
+// remres must be at least lu+1 bytes long
+// divres must be at least lu-lv+1 bytes long but can be zero if not required
 {
     POLYUNSIGNED i,j;
-    int bits;
     long r;
 
     /* Find out how far to shift v to get a 1 in the top bit. */
-    bits = 0;
+    int bits = 0;
     for(r = v[lv-1]; r < 128; r <<= 1) bits++; /* 128 ??? */
 
-    /* Shift u that amount into res+2. We have allowed enough room for
+    /* Shift u that amount into res. We have allowed enough room for
        overflow. */
     r = 0;
     for (i = 0; i < lu; i++)
     {
         r |= u[i] << bits; /*``Or in'' the new bits after shifting*/
-        res[i+2] = r & 0xff;    /* Put into the destination. */
+        remres[i] = r & 0xff;    /* Put into the destination. */
         r >>= 8;                /* and shift down the carry. */
     }
-    res[i+2] = (byte)r; /* Put in the carry */
+    remres[i] = (byte)r; /* Put in the carry */
 
     /* And v that amount. It has already been copied. */
     if ( bits )
@@ -902,18 +902,18 @@ result is packed into ``res'' and is separated out by div and rem */
         /* No carry */
     }
 
-    for(j = lu+2; j >= lv+2; j--)
+    for(j = lu; j >= lv; j--)
     {
     /* j iterates over the higher digits of the dividend until we are left
         with a number which is less than the divisor. This is the remainder. */
         long quotient, dividend, r;
-        dividend = res[j]*256 + res[j-1];
-        quotient = (res[j] == v[lv-1]) ? 255 : dividend/(long)v[lv-1];
+        dividend = remres[j]*256 + remres[j-1];
+        quotient = (remres[j] == v[lv-1]) ? 255 : dividend/(long)v[lv-1];
 
         if (lv != 1)
         {
             while ((long)v[lv-2]*quotient >
-                (dividend - quotient*(long)v[lv-1])*256 + (long)res[j-2])
+                (dividend - quotient*(long)v[lv-1])*256 + (long)remres[j-2])
             {
                 quotient--;
             }
@@ -924,12 +924,12 @@ result is packed into ``res'' and is separated out by div and rem */
         r = 1; /* Initial borrow */
         for(i = 0; i < lv; i++)
         {
-            r += 255 + res[j-lv+i] - quotient * v[i];
-            res[j-lv+i] = r & 0xff;
+            r += 255 + remres[j-lv+i] - quotient * v[i];
+            remres[j-lv+i] = r & 0xff;
             r >>= 8;
         }
 
-        r += res[j]; /* Borrow from leading digit. */
+        r += remres[j]; /* Borrow from leading digit. */
                      /* If we are left with a borrow when the subtraction is complete the
                      quotient must have been too big. We add ``v'' to the dividend and
         subtract 1 from the quotient. */
@@ -939,13 +939,13 @@ result is packed into ``res'' and is separated out by div and rem */
             r = 0;
             for (i = 0; i < lv; i++)
             {
-                r += v[i] + res[j-lv+i];
-                res[j-lv+i] = r & 0xff;
+                r += v[i] + remres[j-lv+i];
+                remres[j-lv+i] = r & 0xff;
                 r >>= 8;
             }
         }
         /* Place the next digit of quotient in result */
-        res[j] = (byte)quotient;
+        if (divres) divres[j-lv] = (byte)quotient;
     }
 
     /* Likewise the remainder. */
@@ -953,19 +953,19 @@ result is packed into ``res'' and is separated out by div and rem */
     {
         r = 0;
         j = lv;
-        j = lv;
         while (j > 0)
         {
             j--;
-            r |= res[j+2];
-            res[j+2] = (r >> bits) & 0xff;
+            r |= remres[j];
+            remres[j] = (r >> bits) & 0xff;
             r = (r & 0xff) << 8;
         }
     }
 } /* div_unsigned_long */
 #endif
 
-Handle div_longc(TaskData *taskData, Handle y, Handle x)
+// Common code for div and mod.  Returns handles to the results.
+static void quotRem(TaskData *taskData, Handle y, Handle x, Handle &remHandle, Handle &divHandle)
 {
     if (IS_INT(DEREFWORD(x)) &&
         IS_INT(DEREFWORD(y))) /* Both short */
@@ -977,8 +977,11 @@ Handle div_longc(TaskData *taskData, Handle y, Handle x)
             raise_exception0(taskData, EXC_divide);
 
         /* Only possible overflow is minint div -1 */
-        if (xs != -MAXTAGGED-1 || ys != -1)
-            return taskData->saveVec.push(TAGGED(xs / ys));
+        if (xs != -MAXTAGGED-1 || ys != -1) {
+            divHandle = taskData->saveVec.push(TAGGED(xs / ys));
+            remHandle = taskData->saveVec.push(TAGGED(xs % ys));
+            return;
+        }
     }
 
 #if USE_GMP
@@ -1003,159 +1006,88 @@ Handle div_longc(TaskData *taskData, Handle y, Handle x)
 
     // If length of v is zero raise divideerror.
     if (ly == 0) raise_exception0(taskData, EXC_divide);
+    if (lx < ly) {
+        divHandle = taskData->saveVec.push(TAGGED(0));
+        remHandle = x; /* When x < y remainder is x. */
+        return;
+    }
 
-    if (lx < ly) /* When x < y quotient must be zero. */
-        return taskData->saveVec.push(TAGGED(0));
+    Handle remRes = alloc_and_save(taskData, WORDS(ly*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle divRes = alloc_and_save(taskData, WORDS((lx-ly+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
 
-    Handle long_z = alloc_and_save(taskData, WORDS((lx-ly+1)*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
-    mp_limb_t *w = DEREFLIMBHANDLE(long_z);
     mp_limb_t *u = DEREFLIMBHANDLE(long_x), *v = DEREFLIMBHANDLE(long_y);
-
-    // Allocate temporary space for the remainder.
-    mp_limb_t *remainder = (mp_limb_t*)calloc(ly, sizeof(mp_limb_t));
+    mp_limb_t *quotient = DEREFLIMBHANDLE(divRes);
+    mp_limb_t *remainder = DEREFLIMBHANDLE(remRes);
 
     // Do the division.
-    mpn_tdiv_qr(w, remainder, 0, u, lx, v, ly);
-    free(remainder);
+    mpn_tdiv_qr(quotient, remainder, 0, u, lx, v, ly);
 
-    return make_canonical(taskData, long_z, sign_x ^ sign_y);
-
+    // Return the results.
+    remHandle = make_canonical(taskData, remRes, sign_x /* Same sign as dividend */);
+    divHandle = make_canonical(taskData, divRes, sign_x ^ sign_y);
 #else
-    /* Get lengths of args. */
-    POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
-    POLYUNSIGNED ly = get_length(DEREFWORD(long_y));
-
-    /* If length of v is zero raise divideerror */
-    if (ly == 0) raise_exception0(taskData, EXC_divide);
-
-    /* Get quotient */
-    if (lx < ly) /* When x < y quotient must be zero. */
-        return taskData->saveVec.push(TAGGED(0));
-
-    long_y = copy_long(taskData, long_y,ly); /* copy in case it needs shifting */
-
-    /* vector for result - size of x + 3 */
-    Handle long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_OBJ);
-
-    div_unsigned_long
-        (DEREFBYTEHANDLE(long_x),
-        DEREFBYTEHANDLE(long_y),
-        DEREFBYTEHANDLE(long_z),
-        lx, ly);
-
-    /* Copy it down */
-    POLYUNSIGNED i;
-    for(i = 0; i <= lx-ly; i++)
-    {
-        DEREFBYTEHANDLE(long_z)[i] = DEREFBYTEHANDLE(long_z)[i+ly+2];
-    }
-
-    /* Clear the rest */
-    for(; i < lx+3; i++)
-    {
-        DEREFBYTEHANDLE(long_z)[i] = 0;
-    }
-
-    return make_canonical(taskData, long_z, sign_x ^ sign_y);
-#endif
-} /* div_longc */
-
-Handle rem_longc(TaskData *taskData, Handle y, Handle x)
-{
-    if (IS_INT(DEREFWORD(x)) &&
-        IS_INT(DEREFWORD(y))) /* Both short */
-    {
-        POLYSIGNED xs = UNTAGGED(DEREFWORD(x));
-        POLYSIGNED ys = UNTAGGED(DEREFWORD(y));
-        /* Raise exceptions if remaindering by zero. */
-        if (ys == 0)
-            raise_exception0(taskData, EXC_divide);
-
-        /* Only possible overflow is minint mod -1 */
-        if (xs != -MAXTAGGED-1 || ys != -1)
-            return taskData->saveVec.push(TAGGED(xs % ys));
-    }
-
-#if USE_GMP
-    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
-    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
-#else
-    PolyWord    x_extend[2], y_extend[2];
-#endif
-    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
-    Handle x_ehandle = &x_extend_addr;
-    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
-    Handle y_ehandle = &y_extend_addr;
-
-    int sign_x, sign_y;
-    Handle long_x = get_long(x, x_ehandle, &sign_x);
-    Handle long_y = get_long(y, y_ehandle, &sign_y);
-
-#ifdef USE_GMP
-    /* Get lengths of args. */
-    mp_size_t lx = numLimbs(DEREFWORD(long_x));
-    mp_size_t ly = numLimbs(DEREFWORD(long_y));
-
-    // If length of v is zero raise divideerror.
-    if (ly == 0) raise_exception0(taskData, EXC_divide);
-    if (lx < ly) return x; /* When x < y remainder is x. */
-
-    Handle long_z = alloc_and_save(taskData, WORDS(ly*sizeof(mp_limb_t)), F_MUTABLE_BIT|F_BYTE_OBJ);
-    mp_limb_t *w = DEREFLIMBHANDLE(long_z);
-    mp_limb_t *u = DEREFLIMBHANDLE(long_x), *v = DEREFLIMBHANDLE(long_y);
-
-    // Allocate temporary space for the quotient.
-    mp_limb_t *quotient = (mp_limb_t*)calloc(lx-ly+1, sizeof(mp_limb_t));
-
-    // Do the division.
-    mpn_tdiv_qr(quotient, w, 0, u, lx, v, ly);
-    free(quotient);
-
-    return make_canonical(taskData, long_z, sign_x /* Same sign as dividend */);
-
-#else
-
     /* Get lengths of args. */
     POLYUNSIGNED lx = get_length(DEREFWORD(long_x));
     POLYUNSIGNED ly = get_length(DEREFWORD(long_y));
 
     /* If length of y is zero raise divideerror */
     if (ly == 0) raise_exception0(taskData, EXC_divide);
-
-    /* Get remainder */
-    if (lx < ly) return x; /* When x < y remainder is x. */
-
-    POLYUNSIGNED i;
-    Handle long_z;
+    // If the length of divisor is less than the dividend the quotient is zero.
+    if (lx < ly) {
+        divHandle = taskData->saveVec.push(TAGGED(0));
+        remHandle = x; /* When x < y remainder is x. */
+        return;
+    }
 
     /* copy in case it needs shifting */
     long_y = copy_long(taskData, long_y, ly);
 
-    /* vector for result - size of x + 3 */
-    long_z = alloc_and_save(taskData, WORDS(lx+3+1), F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle divRes = alloc_and_save(taskData, WORDS(lx-ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
+    Handle remRes = alloc_and_save(taskData, WORDS(lx+1), F_MUTABLE_BIT|F_BYTE_OBJ);
 
     div_unsigned_long
         (DEREFBYTEHANDLE(long_x),
         DEREFBYTEHANDLE(long_y),
-        DEREFBYTEHANDLE(long_z),
+        DEREFBYTEHANDLE(remRes), DEREFBYTEHANDLE(divRes),
         lx, ly);
 
-    /* Copy it down */
-    for(i = 0; i < ly; i++)
-    {
-        DEREFBYTEHANDLE(long_z)[i] = DEREFBYTEHANDLE(long_z)[i+2];
-    }
-
     /* Clear the rest */
-    for(; i < lx+3; i++)
+    for(POLYUNSIGNED i=ly; i < lx+1; i++)
     {
-        DEREFBYTEHANDLE(long_z)[i] = 0;
+        DEREFBYTEHANDLE(remRes)[i] = 0;
     }
 
-    return make_canonical(taskData, long_z, sign_x /* Same sign as dividend */ );
-    /* ML says it should have same as divisor. */
+    remHandle = make_canonical(taskData, remRes, sign_x /* Same sign as dividend */ );
+    divHandle = make_canonical(taskData, divRes, sign_x ^ sign_y);
 #endif
-} /* rem_longc */
+}
+
+// This returns x divided by y.  This always rounds towards zero so
+// corresponds to Int.quot in ML not Int.div.
+Handle div_longc(TaskData *taskData, Handle y, Handle x)
+{
+    Handle remHandle, divHandle;
+    quotRem(taskData, y, x, remHandle, divHandle);
+    return divHandle;
+}
+
+Handle rem_longc(TaskData *taskData, Handle y, Handle x)
+{
+    Handle remHandle, divHandle;
+    quotRem(taskData, y, x, remHandle, divHandle);
+    return remHandle;
+}
+
+// Return quot and rem as a pair.
+Handle quot_rem_c(TaskData *taskData, Handle y, Handle x)
+{
+    Handle remHandle, divHandle;
+    quotRem(taskData, y, x, remHandle, divHandle);
+    Handle result = alloc_and_save(taskData, 2);
+    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
+    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
+    return result;
+}
 
 /* compare_unsigned is passed LONG integers only */
 static int compare_unsigned(Handle x, Handle y)

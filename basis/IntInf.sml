@@ -39,14 +39,11 @@ structure IntInf : INT_INF =
 struct
     open Int (* Inherit everything from Int. *)
     open RuntimeCalls;
+    
+    val quotRem: int*int->int*int = RunCall.run_call2 POLY_SYS_quotrem
 
-    (* The underlying division function does compute both
-       quot and rem (div and mod are defined in terms of these in
-       the Int structure) so it might be worth building quotRem at
-       least into the RTS. For the moment we just define these in
-       terms of the functions from Int. *)
+    (* This should really be defined in terms of quotRem. *)
     fun divMod(i, j) = (i div j, i mod j)
-    fun quotRem (i, j) = (Int.quot(i, j), Int.rem(i, j))
 
     (* Return the position of the highest bit set in the value. *)
     local
