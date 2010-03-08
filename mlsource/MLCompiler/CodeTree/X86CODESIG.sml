@@ -38,7 +38,7 @@ sig
 
     val regRepr: reg -> string
     
-    type addrs
+    type addrs and labList
     val addrZero: addrs
 
     structure RegSet:
@@ -69,7 +69,7 @@ sig
     and      fpUnaryOps = FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
     and      group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
 
-    datatype branchOps = JO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
+    datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
 
     datatype callKinds =
         Recursive
@@ -77,7 +77,9 @@ sig
     |   CodeFun of code
     |   FullCall
 
-    type forwardLabel and backwardLabel
+    datatype forwardLabel = Labels of { refs: labList ref, labId: int ref, uses: int ref }
+    and      backwardLabel = BackLabels of { refs: addrs ref, labId: int ref, uses: int ref }
+
     val mkForwardLabel: unit -> forwardLabel
     and mkBackwardLabel: unit -> backwardLabel
 
@@ -180,6 +182,11 @@ sig
     and memRegStackOverflowCall: int
     and memRegStackOverflowCallEx: int
 
+    (* Debugging controls and streams for optimiser. *)
+    val lowLevelOptimise: code -> bool
+    val printAssemblyCode: code -> bool
+    val printStream: code -> string->unit
+
     structure Sharing:
     sig
         type code           = code
@@ -188,6 +195,7 @@ sig
         and  operation      = operation
         and  regSet         = RegSet.regSet
         and  backwardLabel  = backwardLabel
-        and  forwardLabel  = forwardLabel
+        and  forwardLabel   = forwardLabel
+        and  labList        = labList
     end
 end;

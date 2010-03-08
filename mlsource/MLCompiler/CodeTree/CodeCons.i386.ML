@@ -26,8 +26,6 @@ structure X86OutputCode =
 
 structure X86Optimise =
     X86OPTIMISE(
-        structure DEBUG   = Debug
-        structure PRETTY  = Pretty
         structure X86CODE = X86OutputCode
     );
 

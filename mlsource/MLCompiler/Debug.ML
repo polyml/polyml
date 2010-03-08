@@ -72,6 +72,8 @@ struct
         val codetreeAfterOptTag: bool tag            = tag()
         (* Print pseudo-stack in code-generator? default false *)
         val pstackTraceTag: bool tag                 = tag()
+        (* Switch on/off low-level optimisation. *)
+        val lowlevelOptimiseTag: bool tag            = tag()
         (* Print assembly code in code-generator? default false *)
         val assemblyCodeTag: bool tag                = tag()
         (* Report unreferenced identifiers as warnings *)
@@ -98,6 +100,7 @@ struct
             tagInject parsetreeTag false,
             tagInject codetreeTag false,
             tagInject pstackTraceTag false,
+            tagInject lowlevelOptimiseTag true,
             tagInject assemblyCodeTag false,
             tagInject codetreeAfterOptTag false,
             tagInject timingTag false,

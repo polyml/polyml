@@ -114,6 +114,7 @@ sig
   val parsetreeTag           : bool Universal.tag;
   val codetreeTag            : bool Universal.tag;
   val pstackTraceTag         : bool Universal.tag;
+  val lowlevelOptimiseTag    : bool Universal.tag
   val codetreeAfterOptTag    : bool Universal.tag;
   val traceCompilerTag       : bool Universal.tag;
   val inlineFunctorsTag      : bool Universal.tag;
@@ -1175,6 +1176,7 @@ struct
                 ("parsetreeTag",           toMachineWord parsetreeTag,           Tag Bool),
                 ("codetreeTag",            toMachineWord codetreeTag,            Tag Bool),
                 ("pstackTraceTag",         toMachineWord pstackTraceTag,         Tag Bool),
+                ("lowlevelOptimiseTag",    toMachineWord lowlevelOptimiseTag,    Tag Bool),
                 ("codetreeAfterOptTag",    toMachineWord codetreeAfterOptTag,    Tag Bool),
                 ("traceCompilerTag",       toMachineWord traceCompilerTag,       Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord inlineFunctorsTag,      Tag Bool),

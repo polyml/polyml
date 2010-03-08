@@ -196,7 +196,6 @@ local
     and pstackTrace = ref false
     and parsetree = ref false
     and reportUnreferencedIds = ref false
-    val lowlevelOptimise = ref true
     
     val debug = ref false
     val inlineFunctors = ref true
@@ -614,7 +613,6 @@ local
                     tagInject parsetreeTag (! parsetree),
                     tagInject codetreeTag (! codetree),
                     tagInject pstackTraceTag (! pstackTrace),
-                    tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
                     tagInject timingTag timing,
@@ -1421,7 +1419,6 @@ in
             val assemblyCode = assemblyCode and codetree = codetree
             and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
-            and lowlevelOptimise = lowlevelOptimise
             
             val debug = debug
             val inlineFunctors = inlineFunctors

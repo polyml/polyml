@@ -39,6 +39,7 @@ functor X86OUTPUTCODE (
 structure DEBUG :
 sig
     val assemblyCodeTag : bool Universal.tag
+    val lowlevelOptimiseTag: bool Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end;
@@ -112,11 +113,11 @@ struct
     type labList = jumpFrom ref list
     (* This is the external label type used when constructing operations.
        The ref int is just an identifier for convenience when printing. *)
-    datatype forwardLabel = Labels of labList ref * int ref
-    and      backwardLabel = BackLabels of addrs ref * int ref
+    datatype forwardLabel = Labels of { refs: labList ref, labId: int ref, uses: int ref }
+    and      backwardLabel = BackLabels of { refs: addrs ref, labId: int ref, uses: int ref }
 
-    fun mkForwardLabel() = Labels(ref [], ref 0)
-    and mkBackwardLabel() = BackLabels(ref addrZero, ref 0)
+    fun mkForwardLabel() = Labels{refs = ref [], labId = ref 0, uses = ref 0}
+    and mkBackwardLabel() = BackLabels{refs = ref addrZero, labId = ref 0, uses = ref 0}
 
     datatype setCodeseg =
         Unset
@@ -157,11 +158,15 @@ struct
                                          this to track down a bug and I've left it
                                          in for security.  DCJM 19/1/01. *)
       printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
-      printStream:    string->unit    (* The stream to use *)
+      printStream:    string->unit,   (* The stream to use *)
+      lowLevelOptimise: bool          (* Whether to do the low-level optimisation pass *)
     }
 
-    (* procName is exported. *)
-    fun procName       (Code {procName,...})       = procName;
+    (* Exported functions *)
+    fun procName       (Code {procName,...})       = procName
+    and lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
+    and printAssemblyCode(Code{printAssemblyCode, ...}) = printAssemblyCode
+    and printStream(Code{printStream, ...}) = printStream
 
   (* %ebp points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
@@ -220,7 +225,8 @@ struct
             noClosure      = noClosure,
             branchCheck    = ref addrZero,
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
-            printStream    = printStream
+            printStream    = printStream,
+            lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters
           }
     end
            
@@ -636,9 +642,10 @@ struct
     |   fpUnaryRepr FLD1   = "FPLoadOne"
     |   fpUnaryRepr FLDZ   = "FPLoadZero"
 
-    datatype branchOps = JO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
+    datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA
 
     fun branchOpToWord JO   = 0wx0: Word8.word
+    |   branchOpToWord JNO  = 0wx1
     |   branchOpToWord JB   = 0wx2
     |   branchOpToWord JNB  = 0wx3
     |   branchOpToWord JE   = 0wx4
@@ -651,6 +658,7 @@ struct
     |   branchOpToWord JG   = 0wxf
  
     fun branchOpRepr JO = "JumpOverflow"
+    |   branchOpRepr JNO = "JumpNotOverflow"
     |   branchOpRepr JE = "JumpEqual"
     |   branchOpRepr JNE = "JumpNotEqual"
     |   branchOpRepr JL = "JumpLess"
@@ -2081,7 +2089,7 @@ Calling conventions:
                 stream(shiftTypeRepr shiftType); stream " "; printReg output; stream " by ECX"
             )
 
-        |   ConditionalBranch { test, label=Labels(_, ref lab), predict } =>
+        |   ConditionalBranch { test, label=Labels{labId=ref lab, ...}, predict } =>
             (
                 stream(branchOpRepr test); stream " F"; stream(Int.toString lab);
                 case predict of
@@ -2179,16 +2187,16 @@ Calling conventions:
                 stream "ReturnFromFunction"
         |   RaiseException =>
                 stream "RaiseException"
-        |   UncondBranch(Labels(_, ref lab))=>
+        |   UncondBranch(Labels{labId=ref lab, ...})=>
                 (stream "UncondBranch F"; stream(Int.toString lab))
         |   ResetStack i =>
                 (stream "ResetStack "; stream(Int.toString i))
-        |   BackJumpLabel(BackLabels(_, ref lab)) =>
+        |   BackJumpLabel(BackLabels{labId=ref lab, ...}) =>
                 (stream "B"; stream(Int.toString lab); stream ":")
-        |   JumpBack (BackLabels(_, ref lab)) =>
+        |   JumpBack (BackLabels{labId=ref lab, ...}) =>
                 (stream "JumpBack B"; stream(Int.toString lab))
         |   InterruptCheck => stream "InterruptCheck"
-        |   ForwardJumpLabel(Labels(_, ref lab)) =>
+        |   ForwardJumpLabel(Labels{labId=ref lab, ...}) =>
                 (stream "F"; stream(Int.toString lab); stream ":")
         |   LoadHandlerAddress { handlerLab=_, output=_ } =>
                 stream "LoadHandlerAddress"
@@ -2383,7 +2391,7 @@ Calling conventions:
            the list in reverse order so if we have any duplicates we
            will correctly overwrite the later cases with earlier ones. *)
         fun putInCases [] = ()
-        |   putInCases ((i, BackLabels(a, _)) :: t) = (putCase i (! a); putInCases t)
+        |   putInCases ((i, BackLabels{refs=a, ...}) :: t) = (putCase i (! a); putInCases t)
         
     in
         putInDefaults min;
@@ -2398,8 +2406,8 @@ Calling conventions:
             then
             let
                 (* Set the label fields so it will be clearer. *)
-                fun setLabels(ForwardJumpLabel(Labels(_, lab)), labNo) = (lab := labNo; labNo+1)
-                |   setLabels(BackJumpLabel(BackLabels(_, lab)), labNo) = (lab := labNo; labNo+1)
+                fun setLabels(ForwardJumpLabel(Labels{labId, ...}), labNo) = (labId := labNo; labNo+1)
+                |   setLabels(BackJumpLabel(BackLabels{labId, ...}), labNo) = (labId := labNo; labNo+1)
                 |   setLabels(_, labNo) = labNo
                 val _ = List.foldl setLabels 1 ops
             in
@@ -2727,11 +2735,11 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(ConditionalBranch{ test=opc, label=Labels(label, _), ... } :: remainder) =
+        |   cgOp(ConditionalBranch{ test=opc, label=Labels{refs, ...}, ... } :: remainder) =
             (
                 genop(CondJump opc, code);
                 gen8u(0w0, code);
-                label := [makeShortLabel (!ic addrPlus ~1, code)];
+                refs := makeShortLabel (!ic addrPlus ~1, code) :: !refs;
                 cgOp remainder
             )
 
@@ -2979,7 +2987,8 @@ Calling conventions:
 
         |   cgOp(RaiseException :: remainder) = (checkSources[eax]; raiseException code; cgOp remainder)
 
-        |   cgOp(UncondBranch(Labels(label, _)) :: remainder) = (label := unconditionalBranch code; cgOp remainder)
+        |   cgOp(UncondBranch(Labels{refs, ...}) :: remainder) =
+                (refs := unconditionalBranch code @ ! refs; cgOp remainder)
 
         |   cgOp(ResetStack count1 :: ResetStack count2 :: remainder) =
                 (* Combine adjacent resets. *)
@@ -3009,7 +3018,7 @@ Calling conventions:
                 cgOp remainder
             end
 
-        |   cgOp(BackJumpLabel(BackLabels(dest, _)) :: remainder) =
+        |   cgOp(BackJumpLabel(BackLabels{refs=dest, ...}) :: remainder) =
                 (* Backwards jump label.  Used for loops and also for indexed jumps because the
                    jump table is constructed after the code for each case. *)
             let
@@ -3023,11 +3032,13 @@ Calling conventions:
                 cgOp remainder
             end
 
-        |   cgOp(JumpBack(BackLabels(ref dest, _)) :: remainder) = (jumpback(dest, code); cgOp remainder)
+        |   cgOp(JumpBack(BackLabels{refs=ref dest, uses=ref uses, ...}) :: remainder) =
+                (uses > 0 orelse raise InternalError "BackJumpLabel"; jumpback(dest, code); cgOp remainder)
         
         |   cgOp(InterruptCheck :: remainder) = (stackCheck code; cgOp remainder)
 
-        |   cgOp(ForwardJumpLabel(Labels(ref label, _)) :: remainder) = (fixup(label, code); cgOp remainder)
+        |   cgOp(ForwardJumpLabel(Labels{refs=ref dest, uses=ref uses, ...}) :: remainder) =
+            (uses = 1 orelse raise InternalError ("ForwardJumpLabel" ^ Int.toString uses); fixup(dest, code); cgOp remainder)
 
         |   cgOp(LoadHandlerAddress{ handlerLab, output } :: remainder) =
             (
@@ -3045,17 +3056,16 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(FillJumpTable{ tableAddr=ref tableAddr, cases, default=BackLabels(ref default, _), min, max } :: remainder) =
+        |   cgOp(FillJumpTable{ tableAddr=ref tableAddr, cases,
+                                default=BackLabels{refs=ref default, uses=ref uses, ...}, min, max } :: remainder) =
             (
+                uses > 0 orelse raise InternalError "BackJumpLabel";
                 makeJumpTable(tableAddr, cases, default, min, max, code);
                 cgOp remainder
             )
 
         |   cgOp (RegisterStatusChange{ activate, free } :: remainder) =
             (
-                if regSetMinus(free, !activeSet) = noRegisters
-                then ()
-                else print("Register(s) not free " ^ regSetRepr(regSetMinus(free, !activeSet)));
                 (* Remove free registers from the set and add the active ones. *)
                 activeSet := regSetUnion(regSetMinus(!activeSet, free), activate);
                 cgOp remainder
@@ -4013,6 +4023,7 @@ Calling conventions:
     |   Code {resultSeg = ref Unset, ...} =>
          (* We haven't compiled this yet: assume worst case. *) NONE
 
+ 
     structure Sharing =
     struct
         type code           = code
@@ -4021,7 +4032,8 @@ Calling conventions:
         and  operation      = operation
         and  regSet         = RegSet.regSet
         and  backwardLabel  = backwardLabel
-        and  forwardLabel  = forwardLabel
+        and  forwardLabel   = forwardLabel
+        and  labList        = labList
     end
 
 end (* struct *) (* CODECONS *);

@@ -25,13 +25,15 @@ structure X86CODE: X86CODESIG
 structure X86OPTIMISE:
 sig
     type operation
+    type code
     type operations = operation list
 
-    val optimise: operations -> operations
+    val optimise: code * operations -> operations
 
     structure Sharing:
     sig
         type operation = operation
+        type code = code
     end
 end
 
@@ -70,7 +72,7 @@ struct
     
     val regStackPtr = esp;
     val regReturn   = NONE; (* Return address is on the stack. *)
-    
+ 
     datatype argType = ArgGeneral | ArgFP
 
     (* The first two general arguments are passed in eax and ebx, the first three floating point
@@ -186,6 +188,126 @@ struct
        the operations are implemented on this architecture. *)
     fun checkAndReduce(instr, args, f) = instr(args, f)
     and checkAndReduceBranches(tests, args, f) = tests(args, f)
+
+    (* Exported versions of operations datatype *)
+    fun callFunction v = [CallFunction v]
+    and jumpToFunction v = [JumpToFunction v]
+    and returnFromFunction v = [ReturnFromFunction v]
+    and loadHandlerAddress v = [LoadHandlerAddress v]
+    and startHandler v = [StartHandler v]
+    and indexedCase v = [IndexedCase v]
+
+    and forwardJumpLabel v = [ForwardJumpLabel v]
+
+    and fillJumpTable(v as {default=BackLabels{uses, ...}, cases, ...}) =
+    let
+        (* Jump table: add references to each of the case labels and to the default. *)
+        fun addRef(_, BackLabels{uses, ...}) = uses := !uses+1
+        val () = List.app addRef cases
+    in
+        uses := !uses+1; [FillJumpTable v]
+    end
+
+    and jumpBack (v as BackLabels{uses, ...}) = (uses := !uses+1; [JumpBack v])
+
+    and activeRegister r = [RegisterStatusChange{activate=singleton r, free=noRegisters}]
+    and freeRegister r = [RegisterStatusChange{activate=noRegisters, free=singleton r}]
+
+    and moveRegisterToRegister(source as GenReg _, output as GenReg _) =
+        [MoveRR{source=source, output=output}]
+
+    |   moveRegisterToRegister(source as GenReg _, output as FPReg _) =
+        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromGenReg source]
+
+    |   moveRegisterToRegister(source as FPReg _, output as FPReg _) =
+        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg source]
+
+    |   moveRegisterToRegister(source as FPReg _, output as GenReg _) =
+        (* We need to allocate memory to contain the value. *)
+        [FPStoreToMemory{ base=output, offset=0, andPop=true }, FPLoadFromFPReg source]
+            @ allocStore{size=8 div wordSize, flags=F_bytes, output=output}
+
+    and moveMemoryToRegister(base, offset, output) =
+        (* Destination can only be a general register not a FP reg. *)
+        [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=output}]
+
+    and moveConstantToRegister(lit, output as GenReg _) =
+        if isShort lit
+        then [MoveConstR{source=tag(Word.toInt(toShort lit)), output=output}]
+        else [MoveLongConstR{source=lit, output=output}]
+
+    |   moveConstantToRegister(source, output as FPReg _) =
+        (* Real constants are the addresses of 64-bit quantities on the heap. *)
+            [FPStoreToFPReg{output=output, andPop=true}, loadFPConstant source]
+
+    and moveCodeRefToRegister(code, output) = (* The address of another function *)
+        [LoadCodeRef{code=code, output=output}]
+
+    (* Set a register to an address in the stack.  Just a reg-reg move if
+       offset is zero otherwise a load-address. *)
+    and moveStackAddress(0, output) =
+            [MoveRR{source=esp, output=output}]
+    |   moveStackAddress(stackAddr, output) =
+            [LoadAddress{base=SOME esp, offset=stackAddr*wordSize, index=NoIndex, output=output}]
+
+    and storeRegisterToStack(reg, loc) =
+        if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
+        else [StoreRegToMemory{toStore=reg, address=BaseOffset{offset=loc, base=esp, index=NoIndex}}]
+
+    and storeConstantToStack(lit, loc) =
+    let
+        val addr = BaseOffset{offset=loc, base=regStackPtr, index=NoIndex}
+    in
+        if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
+        else if isShort lit
+        then [StoreConstToMemory{toStore=tag(Word.toInt(toShort lit)), address=addr}]
+        else [StoreLongConstToMemory{toStore=lit, address=addr}]
+    end
+ 
+    fun pushRegisterToStack v = [PushR v]
+    and pushConstantToStack lit =
+            if isShort lit then [PushConst(tag(Word.toInt(toShort lit)))] else [PushLongConst lit]
+    and pushMemoryToStack(reg, offset) = [PushMem{base=reg, offset=offset}]
+
+    fun resetStack 0 = []
+    |   resetStack n =
+        if n < 0 then raise InternalError "resetStack: negative" else [ResetStack n]
+
+    val raiseException = [RaiseException]
+    val interruptCheck = [InterruptCheck]
+    
+    val pushToReserveSpace = pushConstantToStack(toMachineWord 0)
+
+    fun uncondBranch() =
+    let
+        val label as Labels{uses, ...} = mkForwardLabel()
+    in
+        uses := 1;
+        ([UncondBranch label], label)
+    end
+
+    fun condBranch(test, predict) =
+    let
+        val label as Labels{uses, ...} = mkForwardLabel()
+    in
+        uses := 1;
+        ([ConditionalBranch{test=test, predict=predict, label=label}], label)
+    end
+
+    fun backJumpLabel() =
+    let
+        val loopLabel = mkBackwardLabel()
+    in
+        ([BackJumpLabel loopLabel], loopLabel)
+    end
+
+    fun loadCurrentHandler output =
+        [LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=output }]
+    and storeToHandler reg =
+        [StoreRegToMemory{
+            toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
+    
+    val pushCurrentHandler = [PushMem{base=ebp, offset=memRegHandlerRegister}]
 
     (* Default action for all operations. *)
     local
@@ -666,12 +788,12 @@ struct
                     fun checkTag(LiteralSource l) =
                         if isShort l then ([], [])
                         else (* If it's a long constant always emulate. *)
-                        let val lab = mkForwardLabel() in ([UncondBranch lab], [ForwardJumpLabel lab]) end
+                        let val (jump, lab) = uncondBranch() in (jump, forwardJumpLabel lab) end
                     |   checkTag tag =
                         let
-                            val lab = mkForwardLabel()
+                            val (code, lab) = condBranch(JE, PredictNotTaken)
                         in
-                            ([ConditionalBranch{test=JE, label=lab, predict=PredictNotTaken}, makeTest tag], [ForwardJumpLabel lab])
+                            (code @ [makeTest tag], forwardJumpLabel lab)
                         end
                     val (tag1Check, tag1Lab) = checkTag tag1
                     and (tag2Check, tag2Lab) = checkTag tag2
@@ -680,19 +802,18 @@ struct
                         if checkOverflow
                         then
                         let
-                            val lab2 = mkForwardLabel()
+                            val (code2, lab2) = condBranch(JO, PredictNotTaken)
                         in
-                            ([ConditionalBranch{test=JO, label=lab2, predict=PredictNotTaken}], (* Emulate if overflow. *)
-                             [ForwardJumpLabel lab2])
+                            (code2, (* Emulate if overflow. *) forwardJumpLabel lab2)
                         end
                         else ([], [])
-                    val skipEmulator = mkForwardLabel()
-                    val backToInstr = mkBackwardLabel()
+                    val (skipEmulatorCode, skipEmulatorLabel) = uncondBranch()
+                    val (backToInstrCode, backToInstrLabel) = backJumpLabel()
                 in
-                    [ForwardJumpLabel skipEmulator, JumpBack backToInstr, CallRTS memRegArbEmulation] @
-                    overflowLab @ tag2Lab @ tag1Lab @ [UncondBranch skipEmulator] @ (* Skip the emulator call. *)
+                    forwardJumpLabel skipEmulatorLabel @ jumpBack backToInstrLabel @ [CallRTS memRegArbEmulation] @
+                    overflowLab @ tag2Lab @ tag1Lab @ skipEmulatorCode @ (* Skip the emulator call. *)
                     overflowCheck @ operations (* The actual instruction *) @
-                    [BackJumpLabel backToInstr] @ tag2Check @ tag1Check
+                    backToInstrCode @ tag2Check @ tag1Check
                 end
         in
             val testTagsForComparison = testTags false
@@ -707,19 +828,11 @@ struct
                     if isShort l2 then operations else operations @ [CallRTS memRegArbEmulation]
             |   eqTestTags(operations, tag1, tag2) =
                 let
-                    val lab1 = mkForwardLabel()
-                    and lab2 = mkForwardLabel()
+                    val (code1, lab1) = condBranch(JNE, PredictTaken)
+                    and (code2, lab2) = condBranch(JNE, PredictTaken)
                 in
-                    operations @
-                    [
-                        ForwardJumpLabel lab1,
-                        ForwardJumpLabel lab2,
-                        CallRTS memRegArbEmulation,
-                        ConditionalBranch{test=JNE, label=lab2, predict=PredictTaken},
-                        makeTest tag2,
-                        ConditionalBranch{test=JNE, label=lab1, predict=PredictTaken},
-                        makeTest tag1
-                    ]
+                    operations @ forwardJumpLabel lab1 @ forwardJumpLabel lab2 @
+                    [CallRTS memRegArbEmulation] @ code2 @ [makeTest tag2] @ code1 @ [makeTest tag1]
                 end
 
             fun noTagTest (operations, _, _) = operations (* When we don't need a test. *)
@@ -921,13 +1034,12 @@ struct
             (* Get the first word of a long integer.  Used when converting to "word". *)
             fun genFirstLong([InRegister baseReg], SOME outReg) =
                 let
-                    val lab = mkForwardLabel()
+                    val (code, lab) = condBranch(JE, PredictNeutral)
                 in
+                    [TagValue{source=outReg, output=outReg} ] @ forwardJumpLabel lab @
+                    [Group3Ops(outReg, NEG)] @ (* Negate if the sign was set. *)
+                    code @
                     [
-                        TagValue{source=outReg, output=outReg},
-                        ForwardJumpLabel lab,
-                        Group3Ops(outReg, NEG), (* Negate if the sign was set. *)
-                        ConditionalBranch{ test=JE, label=lab, predict=PredictNeutral },
                         (* Test the the sign bit in the header. *)
                         TestByteMem{offset= ~1, base=baseReg, bits=0w16 },
                         LoadMemR{source=BaseOffset{base=baseReg, offset=0, index=NoIndex}, output=outReg}
@@ -942,19 +1054,16 @@ struct
         local (* Get the length of a string. *)
             fun genStringLength([InRegister rs], SOME rd) =
                 let
-                    val lab1 = mkForwardLabel()
-                    and lab2 = mkForwardLabel()
+                    val (condBr, lab1) = condBranch(JE, PredictTaken(*More likely long*))
+                    and (uncondBr, lab2) = uncondBranch()
                 in
+                    forwardJumpLabel lab2 @
                     [
-                        ForwardJumpLabel lab2,
                         TagValue{source=rd, output=rd},
-                        LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd}, (* It's an address. *)
-                        ForwardJumpLabel lab1,
-                        UncondBranch lab2,
-                        MoveConstR{source=tag 1, output=rd}, (* It's a byte: result is 1 *)
-                        ConditionalBranch{test=JE, label=lab1, predict=PredictTaken(*More likely long*)},
-                        TestTagR rs (* Is it a single byte? *)
-                    ]
+                        LoadMemR{source=BaseOffset{base=rs, offset=0, index=NoIndex}, output=rd} (* It's an address. *)
+                    ] @ forwardJumpLabel lab1 @ uncondBr @
+                    [MoveConstR{source=tag 1, output=rd}] @ (* It's a byte: result is 1 *) condBr @
+                    [TestTagR rs (* Is it a single byte? *)]
                 end
             |   genStringLength _ = raise InternalError "genStringLength"
 
@@ -1061,17 +1170,16 @@ struct
                 let
                     val _ = r = reg orelse raise InternalError "genVarShift: different regs"
                     val _ = shiftR = ecx orelse raise InternalError "genVarShift: shift not in ecx"
-                    val lab = mkForwardLabel()
+                    val (test, lab) = condBranch(JNA, PredictTaken)
                 in
                     [
                         MakeSafe ecx, (* ecx may be invalid. *)
                         ArithRConst{ opc=OR, output=reg, source= 1 }, (* Set dest tag. *)
                         ShiftVariable { shiftType=shift, output=reg }, (* Do the shift *)
-                        ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}, (* Untag ecx *)
-                        ForwardJumpLabel lab,
-                        MoveConstR{ source=tag(Word.toInt maxShift), output=ecx },
-                        ConditionalBranch{ test=JNA, label=lab, predict=PredictTaken },
-                        ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
+                        ShiftConstant{shiftType=SRL, output=ecx, shift=0w1}(* Untag ecx *)
+                    ] @ forwardJumpLabel lab @
+                    [ MoveConstR{ source=tag(Word.toInt maxShift), output=ecx } ] @ test @
+                    [ ArithRConst{ opc=CMP, output=ecx, source=tag(Word.toInt maxShift) }
                     ] @
                     (
                         (* If this is a left shift we have to remove the tag.  That isn't needed
@@ -1154,25 +1262,17 @@ struct
                flag isn't defined for larger shifts. *)
             fun genAddSelf(_, SOME output) =
                 let
-                    val skipEmulator = mkForwardLabel()
-                    val lab1 = mkForwardLabel()
-                    val lab2 = mkForwardLabel()
-                    val backToInstr = mkBackwardLabel()
+                    val (skipEmulator, skipEmulatorLab) = uncondBranch()
+                    val (lab1Code, lab1) = condBranch(JE, PredictNotTaken)
+                    val (lab2Code, lab2) = condBranch(JO, PredictNotTaken)
+                    val (backToInstr, backToInstrLab) = backJumpLabel()
                 in
-                    [
-                        ArithRConst{opc=SUB, source=1, output=output},
-                        ForwardJumpLabel skipEmulator,
-                        JumpBack backToInstr,
-                        CallRTS memRegArbEmulation,
-                        ForwardJumpLabel lab1,
-                        ForwardJumpLabel lab2,
-                        UncondBranch skipEmulator,
-                        ConditionalBranch{test=JO, label=lab2, predict=PredictNotTaken},
-                        ArithRR{opc=ADD, source=output, output=output},
-                        BackJumpLabel backToInstr,
-                        ConditionalBranch{test=JE, label=lab1, predict=PredictNotTaken},
-                        TestTagR output
-                    ]
+                    [ArithRConst{opc=SUB, source=1, output=output}] @
+                        forwardJumpLabel skipEmulatorLab @ jumpBack backToInstrLab @
+                    [CallRTS memRegArbEmulation] @ forwardJumpLabel lab1 @
+                    forwardJumpLabel lab2 @ skipEmulator @ lab2Code @
+                    [ArithRR{opc=ADD, source=output, output=output}] @ backToInstr @ lab1Code @
+                    [TestTagR output]
                 end
             |   genAddSelf _ = raise InternalError "genAddSelf"
 
@@ -1230,7 +1330,7 @@ struct
                    register.  We get EDX as a work register and put the divisor in EAX. *)
                 fun genDivMod isDiv ([_, InRegister dividend], _) =
                     let
-                        val notZero = mkForwardLabel()
+                        val (notZero, notZeroLab) = condBranch(JNE, PredictTaken)
                     in
                         (* Because we didn't shift the dividend and the divisor we don't
                            need to shift the remainder but just add in the tag.  We do have
@@ -1245,12 +1345,9 @@ struct
                             ArithRR{opc=XOR, source=edx, output=edx},
                             (* Untag, but don't shift, the divisor and dividend.  At the
                                same time check for zero and raise an exception if it is. *)
-                            ArithRConst{opc=SUB, source=1, output=eax},
-                            ForwardJumpLabel notZero,
-                            CallRTS memRegRaiseDiv,
-                            ConditionalBranch{test=JNE, label=notZero, predict=PredictTaken},
-                            ArithRConst{opc=SUB, source=1, output=dividend}
-                        ]
+                            ArithRConst{opc=SUB, source=1, output=eax}
+                        ] @ forwardJumpLabel notZeroLab @ [CallRTS memRegRaiseDiv ] @ notZero @
+                        [ArithRConst{opc=SUB, source=1, output=dividend}]
                     end
 
                 |   genDivMod _ _ = raise InternalError "genDivMod"
@@ -1411,6 +1508,8 @@ struct
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActInRegisterSet s2]) =
                 let
                     val reg1 = chooseGenReg s1 and reg2 = chooseGenReg s2
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
                 in
                     ActionDone{ outReg=NONE,
                                 operation=ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral }::
@@ -1421,6 +1520,8 @@ struct
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActLiteralSource constnt]) =
                 let
                     val reg1 = chooseGenReg s1
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
@@ -1436,6 +1537,8 @@ struct
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActInRegisterSet s2]) =
                 let
                     val reg2 = chooseGenReg s2
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
@@ -1452,6 +1555,8 @@ struct
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActBaseOffset(base, offset)]) =
                 let
                     val reg1 = chooseGenReg s1
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
@@ -1463,6 +1568,8 @@ struct
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActInRegisterSet s2]) =
                 let
                     val reg2 = chooseGenReg s2
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
@@ -1473,6 +1580,10 @@ struct
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActLiteralSource constnt]) =
+                let
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
+                in
                     ActionDone{ outReg=NONE,
                                 operation=
                                     tagTest(
@@ -1482,8 +1593,13 @@ struct
                                                               source=tag(Word.toIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                            BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt)}
+                end
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActBaseOffset(base, offset)]) =
+                let
+                    val Labels{uses, ...} = destLabel
+                    val () = uses := !uses+1
+                in
                     ActionDone{ outReg=NONE,
                                 operation=
                                       tagTest(
@@ -1494,6 +1610,7 @@ struct
                                                               source=tag(Word.toIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                            BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt) }
+                end
 
             |   testActions _ _  = raise InternalError "testActions"
                 
@@ -1507,15 +1624,21 @@ struct
 
             fun lengthTest test () =
             let
-                val destLabel = mkForwardLabel()
+                val destLabel as Labels{uses, ...} = mkForwardLabel()
                 fun testActions ([ActInRegisterSet regs]) =
+                    (
+                        uses := !uses+1;
                         ActionDone { outReg=NONE,
                             operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
                                        TestTagR(chooseGenReg regs)]}
+                    )
                 |   testActions([ActBaseOffset(base, offset)]) =
+                    (
+                        uses := !uses+1;
                         ActionDone { outReg=NONE,
                             operation=[ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
                                        TestByteMem{base=base, offset=offset, bits=0w1}]}
+                    )
                 |   testActions([ActLiteralSource _]) =
                         (* This should have been optimised away. *)
                         ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
@@ -1544,7 +1667,7 @@ struct
         local
             fun genByteVec test () =
             let
-                val destLabel = mkForwardLabel()
+                val destLabel as Labels{uses, ...} = mkForwardLabel()
 
                 fun generateByteVec([InRegister addr1, offset1, InRegister addr2, offset2, InRegister len]) =
                 let
@@ -1565,6 +1688,7 @@ struct
                             else [ArithRConst{opc=ADD, output=baseReg, source=Word.toInt shortLit}]
                         end
                     |   getOffset _ = raise InternalError "getOffset"
+                    val () = uses := !uses+1
                 in
                     [
                         ConditionalBranch { test=test, label=destLabel, predict=PredictNeutral },
@@ -1627,7 +1751,7 @@ struct
                     ActionDone{ outReg=outputReg, operation=genInstr(ops, outputReg) }
                 end
 
-            fun genTest(opc, destLabel) ([arg1, arg2], _) =
+            fun genTest(opc, destLabel as Labels{uses, ...}) ([arg1, arg2], _) =
                 let
                     (* We need one argument at the top of the stack.  The second
                        can be anywhere.  The order depends on the operation. *)
@@ -1664,6 +1788,8 @@ struct
                         |   JNB => c0 orb c2
                         |   JNA => c0 orb c2
                         |   _ => raise InternalError "testActions"
+
+                    val () = uses := !uses+1
                 in
                     [
                         ConditionalBranch { test=if opc = JNE then JNE else JE, label=destLabel, predict=PredictNeutral },
@@ -1688,7 +1814,6 @@ struct
             fun fpTests opc () =
             let
                 val destLabel = mkForwardLabel()
-                    
             in
                 (* We need eax as a work register. *)
                 (fn _ => ActionGetWorkReg{regSet=singleton eax,
@@ -1788,16 +1913,14 @@ struct
                          (* This is a bit complicated because we can only load from memory
                             but the memory needs to be modifiable. We have a special location
                             we can load from. *)
-                        val skipEmulator = mkForwardLabel()
+                        val (test, skipEmulator) = condBranch(JNE, PredictTaken)
                     in
                         [
                             FPStoreToFPReg{output=output, andPop=true}, (* Store into dest. *)
-                            FPLoadIntAndPop, (* Do instr. *)
-                            ForwardJumpLabel skipEmulator, 
-                            CallRTS memRegArbEmulation,
-                            ConditionalBranch{test=JNE, label=skipEmulator, predict=PredictTaken}, (* Skip emulator if untagged. *)
-                            TestTagR source, PushR source (* Push and test tag. *)
-                        ]
+                            FPLoadIntAndPop (* Do instr. *)
+                        ] @ forwardJumpLabel skipEmulator @
+                        [ CallRTS memRegArbEmulation ] @
+                        test @ [TestTagR source, PushR source (* Push and test tag. *) ]
                     end
                 |   genIntToFPInstr _ = raise InternalError "genIntToFPInstr"
                 fun genIntToFP pref =
@@ -1825,108 +1948,6 @@ struct
     fun isPushI _ = true
      
     fun constrCases (p as (_,_: backwardLabel)) = p: cases
-  
-
-    (* Exported versions of operations datatype *)
-    fun callFunction v = [CallFunction v]
-    and jumpToFunction v = [JumpToFunction v]
-    and returnFromFunction v = [ReturnFromFunction v]
-    and jumpBack v = [JumpBack v]
-    and forwardJumpLabel v = [ForwardJumpLabel v]
-    and loadHandlerAddress v = [LoadHandlerAddress v]
-    and startHandler v = [StartHandler v]
-    and indexedCase v = [IndexedCase v]
-    and fillJumpTable v = [FillJumpTable v]
-
-    and activeRegister r = [RegisterStatusChange{activate=singleton r, free=noRegisters}]
-    and freeRegister r = [RegisterStatusChange{activate=noRegisters, free=singleton r}]
-
-    and moveRegisterToRegister(source as GenReg _, output as GenReg _) =
-        [MoveRR{source=source, output=output}]
-
-    |   moveRegisterToRegister(source as GenReg _, output as FPReg _) =
-        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromGenReg source]
-
-    |   moveRegisterToRegister(source as FPReg _, output as FPReg _) =
-        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg source]
-
-    |   moveRegisterToRegister(source as FPReg _, output as GenReg _) =
-        (* We need to allocate memory to contain the value. *)
-        [FPStoreToMemory{ base=output, offset=0, andPop=true }, FPLoadFromFPReg source]
-            @ allocStore{size=8 div wordSize, flags=F_bytes, output=output}
-
-    and moveMemoryToRegister(base, offset, output) =
-        (* Destination can only be a general register not a FP reg. *)
-        [LoadMemR{source=BaseOffset{base=base, offset=offset, index=NoIndex}, output=output}]
-
-    and moveConstantToRegister(lit, output as GenReg _) =
-        if isShort lit
-        then [MoveConstR{source=tag(Word.toInt(toShort lit)), output=output}]
-        else [MoveLongConstR{source=lit, output=output}]
-
-    |   moveConstantToRegister(source, output as FPReg _) =
-        (* Real constants are the addresses of 64-bit quantities on the heap. *)
-            [FPStoreToFPReg{output=output, andPop=true}, loadFPConstant source]
-
-    and moveCodeRefToRegister(code, output) = (* The address of another function *)
-        [LoadCodeRef{code=code, output=output}]
-
-    (* Set a register to an address in the stack.  Just a reg-reg move if
-       offset is zero otherwise a load-address. *)
-    and moveStackAddress(0, output) =
-            [MoveRR{source=esp, output=output}]
-    |   moveStackAddress(stackAddr, output) =
-            [LoadAddress{base=SOME esp, offset=stackAddr*wordSize, index=NoIndex, output=output}]
-
-    and storeRegisterToStack(reg, loc) =
-        if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
-        else [StoreRegToMemory{toStore=reg, address=BaseOffset{offset=loc, base=esp, index=NoIndex}}]
-
-    and storeConstantToStack(lit, loc) =
-    let
-        val addr = BaseOffset{offset=loc, base=regStackPtr, index=NoIndex}
-    in
-        if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
-        else if isShort lit
-        then [StoreConstToMemory{toStore=tag(Word.toInt(toShort lit)), address=addr}]
-        else [StoreLongConstToMemory{toStore=lit, address=addr}]
-    end
- 
-    fun pushRegisterToStack v = [PushR v]
-    and pushConstantToStack lit =
-            if isShort lit then [PushConst(tag(Word.toInt(toShort lit)))] else [PushLongConst lit]
-    and pushMemoryToStack(reg, offset) = [PushMem{base=reg, offset=offset}]
-
-    fun resetStack 0 = []
-    |   resetStack n =
-        if n < 0 then raise InternalError "resetStack: negative" else [ResetStack n]
-
-    val raiseException = [RaiseException]
-    val interruptCheck = [InterruptCheck]
-    
-    val pushToReserveSpace = pushConstantToStack(toMachineWord 0)
-
-    fun uncondBranch() =
-    let
-        val label = mkForwardLabel()
-    in
-        ([UncondBranch label], label)
-    end
-
-    fun backJumpLabel() =
-    let
-        val loopLabel = mkBackwardLabel()
-    in
-        ([BackJumpLabel loopLabel], loopLabel)
-    end
-
-    fun loadCurrentHandler output =
-        [LoadMemR{ source=BaseOffset{base=ebp, offset=memRegHandlerRegister, index=NoIndex}, output=output }]
-    and storeToHandler reg =
-        [StoreRegToMemory{
-            toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
-    
-    val pushCurrentHandler = [PushMem{base=ebp, offset=memRegHandlerRegister}]
 
     (* The stack limit register is set at least twice this far from the
        end of the stack so we can simply compare the stack pointer with
@@ -1945,15 +1966,11 @@ struct
         let
             fun testRegAndTrap(reg, entryPt) =
             let
-                val skipCheck = mkForwardLabel()
+                (* Normally we won't have a stack overflow so we will skip the check. *)
+                val (skipCheck, skipCheckLab) = condBranch(JNB, PredictTaken)
             in
-                [
-                    ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp },
-                    (* Normally we won't have a stack overflow so we will skip the check. *)
-                    ConditionalBranch{ test=JNB, label=skipCheck, predict=PredictTaken },
-                    CallRTS entryPt,
-                    ForwardJumpLabel skipCheck
-                ]
+                [ArithRMem{ opc=CMP, output=reg, offset=memRegStackLimit, base=ebp }] @
+                skipCheck @ [CallRTS entryPt] @ forwardJumpLabel skipCheckLab
             end
         in
             if stackRequired >= minStackCheck
@@ -1975,7 +1992,7 @@ struct
 
         (* The code is in reverse order.  Reverse it and put the prelude first. *)
     in
-        createCodeSegment(X86OPTIMISE.optimise(preludeCode @ List.rev operations), registerSet, cvec)
+        createCodeSegment(X86OPTIMISE.optimise(cvec, preludeCode @ List.rev operations), registerSet, cvec)
     end
 
     structure Sharing =
