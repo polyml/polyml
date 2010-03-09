@@ -100,7 +100,8 @@ struct
     fun a addrMinus b = Word.toInt a - Word.toInt b
   
     val addrZero = 0w0;
-    val addrLast = wordsToBytes(0w2 << 0w24) - 0w1 (* A big number. *)
+    val addrLast = 0w0 - 0w1 (* A big number. *)
+    val addrUnsetLabel = addrLast (* An invalid address *)
 
     (* The "value" points at the jump instruction, or rather at the
        jump offset part of it.  It is a ref because we may have to change
@@ -124,7 +125,7 @@ struct
         }
 
     fun mkLabel() =
-        Labels{forward = ref [], reverse=ref addrZero, labId = ref 0, uses = ref 0, chain=ref NONE}
+        Labels{forward = ref [], reverse=ref addrUnsetLabel, labId = ref 0, uses = ref 0, chain=ref NONE}
 
     datatype setCodeseg =
         Unset
@@ -2731,7 +2732,7 @@ Calling conventions:
 
         |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse, ...}, ... } :: remainder) =
             (
-                !reverse = addrZero orelse raise InternalError "Conditional jump back";
+                !reverse = addrUnsetLabel orelse raise InternalError "Conditional jump back";
                 genop(CondJump opc, code);
                 gen8u(0w0, code);
                 forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward;
@@ -2987,7 +2988,7 @@ Calling conventions:
                 (* This may be a forward jump, in which case we don't have the destination and
                    can just record it, or it may be a backward jump in which case we already
                    have the destination. *)
-                if reverse = addrZero (* Destination is after this. *)
+                if reverse = addrUnsetLabel (* Destination is after this. *)
                 then forward := unconditionalBranch code @ ! forward
                 else 
                 let
