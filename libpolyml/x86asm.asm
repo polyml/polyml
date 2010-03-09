@@ -1497,7 +1497,11 @@ CALLMACRO   MAKETAGGED  Reax,Reax
 CALLMACRO   MAKETAGGED  Redx,Redx
     MOVL    Reax,Redi
     MOVL    Reax,[Recx]
+IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    Redx,4[Recx]
+ELSE
+    MOVL    Redx,8[Recx]
+ENDIF
     MOVL    Recx,Reax
     ret
 

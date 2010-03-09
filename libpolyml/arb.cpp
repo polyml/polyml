@@ -1131,9 +1131,6 @@ static int compare_unsigned(Handle x, Handle y)
 
 int compareLong(TaskData *taskData, Handle y, Handle x)
 {
-    Handle long_x, long_y;
-    int sign_x, sign_y;
-
     if (IS_INT(DEREFWORD(x)) &&
         IS_INT(DEREFWORD(y))) /* Both short */
     {
@@ -1145,8 +1142,20 @@ int compareLong(TaskData *taskData, Handle y, Handle x)
     }
 
     /* Convert to long form */
-    long_x = get_long(x, taskData->x_ehandle, &sign_x);
-    long_y = get_long(y, taskData->y_ehandle, &sign_y);
+#if USE_GMP
+    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
+#else
+    PolyWord    x_extend[2], y_extend[2];
+#endif
+    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
+    Handle x_ehandle = &x_extend_addr;
+    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
+    Handle y_ehandle = &y_extend_addr;
+
+    int sign_x, sign_y;
+    Handle long_x = get_long(x, x_ehandle, &sign_x); /* Convert to long form */
+    Handle long_y = get_long(y, y_ehandle, &sign_y);
 
     if (sign_x >= 0) /* x is positive */
     {
@@ -1324,9 +1333,6 @@ Handle and_longc(TaskData *taskData, Handle y, Handle x)
 
 Handle or_longc(TaskData *taskData, Handle y, Handle x)
 {
-    Handle long_x, long_y;
-    int sign_x, sign_y;
-
     if (IS_INT(DEREFWORD(x)) &&
         IS_INT(DEREFWORD(y))) /* Both short */
     {
@@ -1336,18 +1342,27 @@ Handle or_longc(TaskData *taskData, Handle y, Handle x)
         return taskData->saveVec.push(TAGGED(t));
     }
 
-    /* Long arguments. */
-    long_x = get_long(x, taskData->x_ehandle , &sign_x); /* Convert to long form */
-    long_y = get_long(y, taskData->y_ehandle , &sign_y);
+#if USE_GMP
+    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
+#else
+    PolyWord    x_extend[2], y_extend[2];
+#endif
+    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
+    Handle x_ehandle = &x_extend_addr;
+    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
+    Handle y_ehandle = &y_extend_addr;
+
+    // Convert to long form.
+    int sign_x, sign_y;
+    Handle long_x = get_long(x, x_ehandle, &sign_x);
+    Handle long_y = get_long(y, y_ehandle, &sign_y);
 
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doOr);
 }
 
 Handle xor_longc(TaskData *taskData, Handle y, Handle x)
 {
-    Handle long_x, long_y;
-    int sign_x, sign_y;
-
     if (IS_INT(DEREFWORD(x)) &&
         IS_INT(DEREFWORD(y))) /* Both short */
     {
@@ -1357,9 +1372,21 @@ Handle xor_longc(TaskData *taskData, Handle y, Handle x)
         return taskData->saveVec.push(TAGGED(t));
     }
 
-    /* Long arguments. */
-    long_x = get_long(x, taskData->x_ehandle , &sign_x); /* Convert to long form */
-    long_y = get_long(y, taskData->y_ehandle , &sign_y);
+#if USE_GMP
+    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
+#else
+    PolyWord    x_extend[2], y_extend[2];
+#endif
+    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
+    Handle x_ehandle = &x_extend_addr;
+    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
+    Handle y_ehandle = &y_extend_addr;
+
+    // Convert to long form.
+    int sign_x, sign_y;
+    Handle long_x = get_long(x, x_ehandle, &sign_x);
+    Handle long_y = get_long(y, y_ehandle, &sign_y);
 
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doXor);
 }
