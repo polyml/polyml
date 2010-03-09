@@ -113,11 +113,18 @@ struct
     type labList = jumpFrom ref list
     (* This is the external label type used when constructing operations.
        The ref int is just an identifier for convenience when printing. *)
-    datatype forwardLabel = Labels of { refs: labList ref, labId: int ref, uses: int ref }
-    and      backwardLabel = BackLabels of { refs: addrs ref, labId: int ref, uses: int ref }
+    datatype label =
+        Labels of
+        {
+            forward: labList ref,
+            reverse: addrs ref,
+            labId: int ref,
+            uses: int ref,
+            chain: label option ref
+        }
 
-    fun mkForwardLabel() = Labels{refs = ref [], labId = ref 0, uses = ref 0}
-    and mkBackwardLabel() = BackLabels{refs = ref addrZero, labId = ref 0, uses = ref 0}
+    fun mkLabel() =
+        Labels{forward = ref [], reverse=ref addrZero, labId = ref 0, uses = ref 0, chain=ref NONE}
 
     datatype setCodeseg =
         Unset
@@ -149,7 +156,12 @@ struct
       procName:       string,         (* Name of the procedure. *)
       otherCodes:     code list ref,  (* Other code vectors with forward references to this vector. *)
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
+      (* These next two are closely related but kept separate to avoid making big
+         changes to the code.  They are only non-empty immediately after JumpLabel instructions.
+         justComeFrom accumulates forward branches to the current location.  justComeFromAddrs
+         accumulates the labels themselves if they are needed for reverse jumps. *)
       justComeFrom:   labList ref,    (* The label we have just jumped from. *)
+      justComeFromAddrs: addrs ref list ref, (* *)
       exited:         bool ref,       (* False if we can fall-through to here *)
       selfCalls:      addrs list ref, (* List of recursive calls to patch up. *)
       selfJumps:      labList ref,    (* List of recursive tail-calls to patch up. *)
@@ -219,6 +231,7 @@ struct
             otherCodes     = ref [],
             resultSeg      = ref Unset,   (* Not yet done *)
             justComeFrom   = ref [],
+            justComeFromAddrs = ref [],
             exited         = ref false,
             selfCalls      = ref [],
             selfJumps      = ref [],
@@ -954,12 +967,6 @@ SS-relative addressing modes:
    reallyFixBranches t cvec
   )
 
-
-  (* Deal with a pending fix-up. *)
-  fun reallyFixup (Code{justComeFrom=ref [], ... }) = ()
-   |  reallyFixup (cvec as Code{justComeFrom=jcf as ref labs, exited, ... }) = 
-       (exited := false; reallyFixBranches labs cvec; jcf := []);
-
     (* Makes a new label. *)
     fun makeShortLabel (addr: addrs, Code{longestBranch, labelList ,...}) : jumpFrom ref =
     let
@@ -1131,18 +1138,28 @@ SS-relative addressing modes:
    end
 
     (* Do all the outstanding operations including fixing up the branches. *)
-    fun doPending (cvec as Code{exited, ...}, size) : unit =
-    (
+    fun doPending (cvec as Code{exited, justComeFromAddrs, branchCheck, ic, ...}, size) : unit =
+    let
+        (* Deal with a pending fix-up. *)
+        fun reallyFixup (Code{justComeFrom=ref [], ... }) = ()
+        |   reallyFixup (cvec as Code{justComeFrom=jcf as ref labs, exited, ... }) = 
+                (exited := false; reallyFixBranches labs cvec; jcf := []);
+    in
         (* If we have not exited and there are branches coming in here
             then we fix them up before jumping round any branch extensions. *)
         if ! exited then () else reallyFixup cvec;
    
         checkBranchList(cvec, ! exited, size);
-            
+
+        exited := false;
         (* Fix up any incoming branches, including a jump round any
            branch extensions. *)
-        reallyFixup cvec
-    )
+        reallyFixup cvec;
+        (* Finally record the current location into any reverse branches. *)
+        branchCheck := !ic;
+        List.app (fn addr => addr := !ic) (! justComeFromAddrs);
+        justComeFromAddrs := []
+    end
 
    (* Generate an opCode byte after doing any pending operations. *)
    fun genop (opb:opCode, cvec) =
@@ -1221,14 +1238,11 @@ SS-relative addressing modes:
   end; (* unconditionalBranch *)
     
   fun genSelfBranch (cvec as Code{justComeFrom, exited, ic, ... }) : labList =
-  let    
-    (* Can we get into the prelude with an 8-bit jump? *)
-    (* Conservative estimation needs to allow for:
-         (1) stack check (10 bytes)
-         (2) 1 byte instruction + 1 byte offset (2 bytes)
-         (3) possible programmer arithmetic error (6 bytes)
-    *)      
-    fun isNearPrelude addr = addr <= 0w110;
+  let   
+    (* This could be simplified.  It was complicated because the original code
+       added the prelude at the end so we couldn't compute the branch offset
+       until after the whole code had been created.  That no longer applies. *) 
+   fun isNearPrelude addr = addr <= 0w110;
 
     (* Is the jump long enough to reach back into the prelude? *)
     fun isLongJump (Jump32From _ )  = true
@@ -1812,19 +1826,6 @@ Calling conventions:
       )
 
     (* Backwards jump for loops. *)
-    fun jumpback (lab, cvec as Code{exited, ic, ...}) : unit =
-    let
-        (* Do any pending instructions before calculating the offset, just
-           in case we put in some instructions first. *)
-        val () = doPending (cvec, 12);
-        val offset  = lab addrMinus (!ic); (* Negative *)
-        val offset2 = offset - 2;
-    in
-        if is8Bit offset2
-        then ( genop (JMP_8, cvec); gen8s (offset2, cvec) )
-        else ( genop  (JMP_32, cvec); gen32s (offset - 5, cvec) );
-        exited := true
-    end
 
     (* Put in a stack check in a loop. This is used to allow the code to be interrupted. *)
     fun stackCheck cvec =
@@ -1945,7 +1946,7 @@ Calling conventions:
     )
 
     (* Operations. *)
-    type cases = word * backwardLabel
+    type cases = word * label
 
     datatype memoryAddress =
         BaseOffset of { base: reg, offset: int, index: indexType }
@@ -1972,7 +1973,7 @@ Calling conventions:
     |   ArithMemLongConst of { opc: arithOp, offset: int, base: reg, source: machineWord }
     |   ShiftConstant of { shiftType: shiftType, output: reg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
-    |   ConditionalBranch of { test: branchOps, label: forwardLabel, predict: branchPrediction }
+    |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
     |   LockMutableSegment of reg
     |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
     |   LoadCodeRef of { output: reg, code: code }
@@ -1990,12 +1991,10 @@ Calling conventions:
     |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
     |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
     |   RaiseException
-    |   UncondBranch of forwardLabel
+    |   UncondBranch of label
     |   ResetStack of int
-    |   BackJumpLabel of backwardLabel
-    |   JumpBack of backwardLabel
     |   InterruptCheck
-    |   ForwardJumpLabel of forwardLabel
+    |   JumpLabel of label
     |   TagValue of { source: reg, output: reg }
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
@@ -2004,7 +2003,7 @@ Calling conventions:
             { testReg: reg, workReg: reg, minCase: word, maxCase: word,
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
     |   FillJumpTable of
-            { tableAddr: addrs ref, cases: cases list, default: backwardLabel, min: word, max: word }
+            { tableAddr: addrs ref, cases: cases list, default: label, min: word, max: word }
     |   RegisterStatusChange of { activate: regSet, free: regSet }
     |   MakeSafe of reg
     |   RepeatOperation of repOps
@@ -2091,7 +2090,7 @@ Calling conventions:
 
         |   ConditionalBranch { test, label=Labels{labId=ref lab, ...}, predict } =>
             (
-                stream(branchOpRepr test); stream " F"; stream(Int.toString lab);
+                stream(branchOpRepr test); stream " L"; stream(Int.toString lab);
                 case predict of
                     PredictNeutral => ()
                 |   PredictTaken => stream " PredictTaken"
@@ -2188,16 +2187,12 @@ Calling conventions:
         |   RaiseException =>
                 stream "RaiseException"
         |   UncondBranch(Labels{labId=ref lab, ...})=>
-                (stream "UncondBranch F"; stream(Int.toString lab))
+                (stream "UncondBranch L"; stream(Int.toString lab))
         |   ResetStack i =>
                 (stream "ResetStack "; stream(Int.toString i))
-        |   BackJumpLabel(BackLabels{labId=ref lab, ...}) =>
-                (stream "B"; stream(Int.toString lab); stream ":")
-        |   JumpBack (BackLabels{labId=ref lab, ...}) =>
-                (stream "JumpBack B"; stream(Int.toString lab))
         |   InterruptCheck => stream "InterruptCheck"
-        |   ForwardJumpLabel(Labels{labId=ref lab, ...}) =>
-                (stream "F"; stream(Int.toString lab); stream ":")
+        |   JumpLabel(Labels{labId=ref lab, ...}) =>
+                (stream "L"; stream(Int.toString lab); stream ":")
         |   LoadHandlerAddress { handlerLab=_, output=_ } =>
                 stream "LoadHandlerAddress"
         |   StartHandler { handlerLab=_ } =>
@@ -2391,7 +2386,7 @@ Calling conventions:
            the list in reverse order so if we have any duplicates we
            will correctly overwrite the later cases with earlier ones. *)
         fun putInCases [] = ()
-        |   putInCases ((i, BackLabels{refs=a, ...}) :: t) = (putCase i (! a); putInCases t)
+        |   putInCases ((i, Labels{reverse=a, ...}) :: t) = (putCase i (! a); putInCases t)
         
     in
         putInDefaults min;
@@ -2406,8 +2401,7 @@ Calling conventions:
             then
             let
                 (* Set the label fields so it will be clearer. *)
-                fun setLabels(ForwardJumpLabel(Labels{labId, ...}), labNo) = (labId := labNo; labNo+1)
-                |   setLabels(BackJumpLabel(BackLabels{labId, ...}), labNo) = (labId := labNo; labNo+1)
+                fun setLabels(JumpLabel(Labels{labId, ...}), labNo) = (labId := labNo; labNo+1)
                 |   setLabels(_, labNo) = labNo
                 val _ = List.foldl setLabels 1 ops
             in
@@ -2735,11 +2729,12 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(ConditionalBranch{ test=opc, label=Labels{refs, ...}, ... } :: remainder) =
+        |   cgOp(ConditionalBranch{ test=opc, label=Labels{forward, reverse, ...}, ... } :: remainder) =
             (
+                !reverse = addrZero orelse raise InternalError "Conditional jump back";
                 genop(CondJump opc, code);
                 gen8u(0w0, code);
-                refs := makeShortLabel (!ic addrPlus ~1, code) :: !refs;
+                forward := makeShortLabel (!ic addrPlus ~1, code) :: !forward;
                 cgOp remainder
             )
 
@@ -2987,8 +2982,27 @@ Calling conventions:
 
         |   cgOp(RaiseException :: remainder) = (checkSources[eax]; raiseException code; cgOp remainder)
 
-        |   cgOp(UncondBranch(Labels{refs, ...}) :: remainder) =
-                (refs := unconditionalBranch code @ ! refs; cgOp remainder)
+        |   cgOp(UncondBranch(Labels{forward, reverse=ref reverse, ...}) :: remainder) =
+            (
+                (* This may be a forward jump, in which case we don't have the destination and
+                   can just record it, or it may be a backward jump in which case we already
+                   have the destination. *)
+                if reverse = addrZero (* Destination is after this. *)
+                then forward := unconditionalBranch code @ ! forward
+                else 
+                let
+                    (* Do any pending instructions before calculating the offset, just
+                       in case we put in some instructions first. *)
+                    val () = doPending (code, 12);
+                    val offset  = reverse addrMinus (!ic); (* Negative *)
+                    val offset2 = offset - 2;
+                in
+                    if is8Bit offset2
+                    then ( genop (JMP_8, code); gen8s (offset2, code) )
+                    else ( genop  (JMP_32, code); gen32s (offset - 5, code) )
+                end;
+                cgOp remainder
+            )
 
         |   cgOp(ResetStack count1 :: ResetStack count2 :: remainder) =
                 (* Combine adjacent resets. *)
@@ -3018,27 +3032,23 @@ Calling conventions:
                 cgOp remainder
             end
 
-        |   cgOp(BackJumpLabel(BackLabels{refs=dest, ...}) :: remainder) =
-                (* Backwards jump label.  Used for loops and also for indexed jumps because the
-                   jump table is constructed after the code for each case. *)
+        |   cgOp(JumpLabel(Labels{forward=ref forward, reverse, ...}) :: remainder) =
             let
-                val Code {exited, ic, branchCheck, ...} = code
+                (* This is a bit complicated.  We may have multiple labels at this
+                   location and they may be a combination of forward and backward labels.
+                   We don't want to put in a branch extension to this location unnecessarily
+                   and in particular we really don't want a 32-bit branch immediately before
+                   this because that would put in a zero word.  Instead we just record
+                   the branches and actually set them when we generate real code. *)
+                val Code {justComeFromAddrs, ...} = code
             in
-                (* Make sure any pending operations are done. *)
-                doPending (code, 0);
-                exited := false; (* We may be jumping here. *)
-                branchCheck := !ic;
-                dest := ! ic (* After any pending operations. *);
+                fixup(forward, code); (* Fix up any forward branches to here. *)
+                (* Record the address. *)
+                justComeFromAddrs := reverse :: ! justComeFromAddrs;
                 cgOp remainder
             end
-
-        |   cgOp(JumpBack(BackLabels{refs=ref dest, uses=ref uses, ...}) :: remainder) =
-                (uses > 0 orelse raise InternalError "BackJumpLabel"; jumpback(dest, code); cgOp remainder)
         
         |   cgOp(InterruptCheck :: remainder) = (stackCheck code; cgOp remainder)
-
-        |   cgOp(ForwardJumpLabel(Labels{refs=ref dest, uses=ref uses, ...}) :: remainder) =
-            (uses = 1 orelse raise InternalError ("ForwardJumpLabel" ^ Int.toString uses); fixup(dest, code); cgOp remainder)
 
         |   cgOp(LoadHandlerAddress{ handlerLab, output } :: remainder) =
             (
@@ -3057,7 +3067,7 @@ Calling conventions:
             )
 
         |   cgOp(FillJumpTable{ tableAddr=ref tableAddr, cases,
-                                default=BackLabels{refs=ref default, uses=ref uses, ...}, min, max } :: remainder) =
+                                default=Labels{reverse=ref default, uses=ref uses, ...}, min, max } :: remainder) =
             (
                 uses > 0 orelse raise InternalError "BackJumpLabel";
                 makeJumpTable(tableAddr, cases, default, min, max, code);
@@ -4031,8 +4041,7 @@ Calling conventions:
         and  addrs          = addrs
         and  operation      = operation
         and  regSet         = RegSet.regSet
-        and  backwardLabel  = backwardLabel
-        and  forwardLabel   = forwardLabel
+        and  label          = label
         and  labList        = labList
     end
 

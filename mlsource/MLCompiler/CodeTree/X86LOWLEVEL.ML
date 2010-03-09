@@ -177,9 +177,12 @@ struct
     withtype nextAction = actionSource list -> argAction
 
     type negotiation = regHint -> nextAction
-    and negotiateTests = unit -> nextAction * forwardLabel
+    and negotiateTests = unit -> nextAction * label
     type 'a instrs = 'a list * ('a -> machineWord option) -> (negotiation * 'a list) option
     and 'a tests = 'a list * ('a -> machineWord option) -> (negotiateTests * 'a list) option
+
+    type  forwardLabel = label
+    and  backwardLabel = label
 
     fun negotiateArguments(perform, pref) = perform pref
     and negotiateTestArguments perform = perform()
@@ -197,18 +200,18 @@ struct
     and startHandler v = [StartHandler v]
     and indexedCase v = [IndexedCase v]
 
-    and forwardJumpLabel v = [ForwardJumpLabel v]
+    and forwardJumpLabel v = [JumpLabel v]
 
-    and fillJumpTable(v as {default=BackLabels{uses, ...}, cases, ...}) =
+    and fillJumpTable(v as {default=Labels{uses, ...}, cases, ...}) =
     let
         (* Jump table: add references to each of the case labels and to the default. *)
-        fun addRef(_, BackLabels{uses, ...}) = uses := !uses+1
+        fun addRef(_, Labels{uses, ...}) = uses := !uses+1
         val () = List.app addRef cases
     in
         uses := !uses+1; [FillJumpTable v]
     end
 
-    and jumpBack (v as BackLabels{uses, ...}) = (uses := !uses+1; [JumpBack v])
+    and jumpBack (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
 
     and activeRegister r = [RegisterStatusChange{activate=singleton r, free=noRegisters}]
     and freeRegister r = [RegisterStatusChange{activate=noRegisters, free=singleton r}]
@@ -280,7 +283,7 @@ struct
 
     fun uncondBranch() =
     let
-        val label as Labels{uses, ...} = mkForwardLabel()
+        val label as Labels{uses, ...} = mkLabel()
     in
         uses := 1;
         ([UncondBranch label], label)
@@ -288,7 +291,7 @@ struct
 
     fun condBranch(test, predict) =
     let
-        val label as Labels{uses, ...} = mkForwardLabel()
+        val label as Labels{uses, ...} = mkLabel()
     in
         uses := 1;
         ([ConditionalBranch{test=test, predict=predict, label=label}], label)
@@ -296,9 +299,9 @@ struct
 
     fun backJumpLabel() =
     let
-        val loopLabel = mkBackwardLabel()
+        val loopLabel = mkLabel()
     in
-        ([BackJumpLabel loopLabel], loopLabel)
+        ([JumpLabel loopLabel], loopLabel)
     end
 
     fun loadCurrentHandler output =
@@ -1617,14 +1620,14 @@ struct
 
             fun makeBranch (testType, tagTest) () =
             let
-                val destLabel = mkForwardLabel()
+                val destLabel = mkLabel()
             in
                 (testActions(testType, destLabel, tagTest), destLabel)
             end
 
             fun lengthTest test () =
             let
-                val destLabel as Labels{uses, ...} = mkForwardLabel()
+                val destLabel as Labels{uses, ...} = mkLabel()
                 fun testActions ([ActInRegisterSet regs]) =
                     (
                         uses := !uses+1;
@@ -1667,7 +1670,7 @@ struct
         local
             fun genByteVec test () =
             let
-                val destLabel as Labels{uses, ...} = mkForwardLabel()
+                val destLabel as Labels{uses, ...} = mkLabel()
 
                 fun generateByteVec([InRegister addr1, offset1, InRegister addr2, offset2, InRegister len]) =
                 let
@@ -1813,7 +1816,7 @@ struct
 
             fun fpTests opc () =
             let
-                val destLabel = mkForwardLabel()
+                val destLabel = mkLabel()
             in
                 (* We need eax as a work register. *)
                 (fn _ => ActionGetWorkReg{regSet=singleton eax,
@@ -2008,8 +2011,8 @@ struct
         and  regHint        = regHint
         and  argAction      = argAction
         and  regSet         = RegSet.regSet
+        and  forwardLabel   = forwardLabel
         and  backwardLabel  = backwardLabel
-        and  forwardLabel  = forwardLabel
     end
 
 end (* struct *) (* CODECONS *);

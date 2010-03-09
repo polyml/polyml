@@ -77,13 +77,19 @@ sig
     |   CodeFun of code
     |   FullCall
 
-    datatype forwardLabel = Labels of { refs: labList ref, labId: int ref, uses: int ref }
-    and      backwardLabel = BackLabels of { refs: addrs ref, labId: int ref, uses: int ref }
+    datatype label =
+        Labels of
+        {
+            forward: labList ref,
+            reverse: addrs ref,
+            labId: int ref,
+            uses: int ref,
+            chain: label option ref
+        }
 
-    val mkForwardLabel: unit -> forwardLabel
-    and mkBackwardLabel: unit -> backwardLabel
+    val mkLabel: unit -> label
 
-    type cases = word * backwardLabel
+    type cases = word * label
 
     datatype indexType =
         NoIndex | Index1 of reg | Index2 of reg | Index4 of reg | Index8 of reg
@@ -113,7 +119,7 @@ sig
     |   ArithMemLongConst of { opc: arithOp, offset: int, base: reg, source: machineWord }
     |   ShiftConstant of { shiftType: shiftType, output: reg, shift: Word8.word }
     |   ShiftVariable of { shiftType: shiftType, output: reg } (* Shift amount is in ecx *)
-    |   ConditionalBranch of { test: branchOps, label: forwardLabel, predict: branchPrediction }
+    |   ConditionalBranch of { test: branchOps, label: label, predict: branchPrediction }
     |   LockMutableSegment of reg
     |   LoadAddress of { output: reg, offset: int, base: reg option, index: indexType }
     |   LoadCodeRef of { output: reg, code: code }
@@ -131,12 +137,10 @@ sig
     |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
     |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
     |   RaiseException
-    |   UncondBranch of forwardLabel
+    |   UncondBranch of label
     |   ResetStack of int
-    |   BackJumpLabel of backwardLabel
-    |   JumpBack of backwardLabel
     |   InterruptCheck
-    |   ForwardJumpLabel of forwardLabel
+    |   JumpLabel of label
     |   TagValue of { source: reg, output: reg }
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
@@ -145,7 +149,7 @@ sig
             { testReg: reg, workReg: reg, minCase: word, maxCase: word,
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
     |   FillJumpTable of
-            { tableAddr: addrs ref, cases: cases list, default: backwardLabel, min: word, max: word }
+            { tableAddr: addrs ref, cases: cases list, default: label, min: word, max: word }
     |   RegisterStatusChange of { activate: RegSet.regSet, free: RegSet.regSet }
     |   MakeSafe of reg
     |   RepeatOperation of repOps
@@ -194,8 +198,7 @@ sig
         and  addrs          = addrs
         and  operation      = operation
         and  regSet         = RegSet.regSet
-        and  backwardLabel  = backwardLabel
-        and  forwardLabel   = forwardLabel
+        and  label          = label
         and  labList        = labList
     end
 end;
