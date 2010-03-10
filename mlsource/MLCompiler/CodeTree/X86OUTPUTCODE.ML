@@ -178,8 +178,6 @@ struct
     (* Exported functions *)
     fun procName       (Code {procName,...})       = procName
     and lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
-    and printAssemblyCode(Code{printAssemblyCode, ...}) = printAssemblyCode
-    and printStream(Code{printStream, ...}) = printStream
 
   (* %ebp points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
@@ -2005,13 +2003,13 @@ Calling conventions:
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
     |   FillJumpTable of
             { tableAddr: addrs ref, cases: cases list, default: label, min: word, max: word }
-    |   RegisterStatusChange of { activate: regSet, free: regSet }
+    |   FreeRegisters of regSet
     |   MakeSafe of reg
     |   RepeatOperation of repOps
     |   Group3Ops of reg * group3Ops
     |   AtomicXAdd of {base: reg, output: reg}
     |   FPLoadFromGenReg of reg
-    |   FPLoadFromFPReg of reg
+    |   FPLoadFromFPReg of { source: reg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: reg, andPop: bool }
     |   FPStoreToMemory of { base: reg, offset: int, andPop: bool }
@@ -2205,17 +2203,14 @@ Calling conventions:
         |   FillJumpTable
                 { tableAddr=_, cases=_, default=_, min=_, max=_ } =>
                 stream "FillJumpTable"
-        |   RegisterStatusChange{ activate, free } =>
-            (
-                stream "RegisterStatusChange +"; stream(regSetRepr activate);
-                stream " -"; stream(regSetRepr free)
-            )
+        |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   MakeSafe reg => ( stream "MakeSafe "; printReg reg)
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
         |   Group3Ops(reg, ops) => ( stream(group3OpsRepr ops); stream " "; printReg reg)
         |   AtomicXAdd{base, output} => (stream "LockedXAdd ("; printReg base; stream ") <=> "; printReg output)
         |   FPLoadFromGenReg reg => (stream "FPLoad "; printReg reg)
-        |   FPLoadFromFPReg reg => (stream "FPLoad "; printReg reg)
+        |   FPLoadFromFPReg {source, lastRef} =>
+                (stream "FPLoad "; printReg source; if lastRef then stream " (LAST)" else())
         |   FPLoadFromConst const => (stream "FPLoad "; stream(Real.toString const) )
         |   FPStoreToFPReg{ output, andPop } =>
                 (if andPop then stream "FPStoreAndPop => " else stream "FPStore => "; printReg output)
@@ -2392,34 +2387,34 @@ Calling conventions:
     in
         putInDefaults min;
         putInCases cl
-    end;
+    end
+
+    fun printLowLevelCode(ops, Code{printAssemblyCode, printStream, procName, ...}) =
+        if printAssemblyCode
+        then
+        let
+            (* Set the label fields so it will be clearer. *)
+            fun setLabels(JumpLabel(Labels{labId, ...}), labNo) = (labId := labNo; labNo+1)
+            |   setLabels(_, labNo) = labNo
+            val _ = List.foldl setLabels 1 ops
+        in
+            if procName = "" (* No name *) then print "?" else print procName;
+            print ":\n";
+            List.app(fn i => printOperation(i, printStream)) ops;
+            print "\n"
+        end
+        else ()
 
     (* Code generate a list of operations.  The list is in reverse order i.e. last instruction first. *)
-    fun codeGenerate (ops, code as Code{ic, printAssemblyCode, printStream, ...}) =
+    fun codeGenerate (ops, code as Code{ic, ...}) =
     let
-        val () =
-            if printAssemblyCode
-            then
-            let
-                (* Set the label fields so it will be clearer. *)
-                fun setLabels(JumpLabel(Labels{labId, ...}), labNo) = (labId := labNo; labNo+1)
-                |   setLabels(_, labNo) = labNo
-                val _ = List.foldl setLabels 1 ops
-            in
-                List.app(fn i => printOperation(i, printStream)) ops
-            end
-            else ()
-    
-        val activeSet = ref (listToSet[esp, ebp])
-        fun checkSources l =
-            List.app (fn r => if inSet(r, ! activeSet) then ()
-            else print(concat["Inactive source ", regRepr r, " at ", Word.toString(!ic), "\n"])) l
-        fun addDests l = activeSet := regSetUnion(! activeSet, listToSet l)
-        fun checkIndexSource NoIndex = ()
-        |   checkIndexSource (Index1 r) = checkSources[r]
-        |   checkIndexSource (Index2 r) = checkSources[r]
-        |   checkIndexSource (Index4 r) = checkSources[r]
-        |   checkIndexSource (Index8 r) = checkSources[r]
+        val () = printLowLevelCode(ops, code)
+
+        (* Source and destination checking.  No longer used.  The optimiser removes RegisterStatusChange
+           "instructions". *)
+        fun checkSources _ = ()
+        fun addDests _ = ()
+        fun checkIndexSource _ = ()
     
         fun cgOp [] = ()
 
@@ -3009,7 +3004,7 @@ Calling conventions:
                 (* Combine adjacent resets. *)
                 cgOp(ResetStack(count1+count2) :: remainder)
 
-        |   cgOp((r as ResetStack _) :: (f as RegisterStatusChange _) :: remainder) =
+        |   cgOp((r as ResetStack _) :: (f as FreeRegisters _) :: remainder) =
                 (* Re-order register frees round resets. *)
                 cgOp(f :: r :: remainder)
 
@@ -3075,12 +3070,7 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp (RegisterStatusChange{ activate, free } :: remainder) =
-            (
-                (* Remove free registers from the set and add the active ones. *)
-                activeSet := regSetUnion(regSetMinus(!activeSet, free), activate);
-                cgOp remainder
-            )
+        |   cgOp (FreeRegisters _ :: remainder) = cgOp remainder
 
         |   cgOp (MakeSafe output :: remainder) =
             (
@@ -3104,11 +3094,11 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp (FPLoadFromFPReg src :: remainder) =
+        |   cgOp (FPLoadFromFPReg{source, ...} :: remainder) =
             (
-                checkSources[src];
+                checkSources[source];
                 (* Assume there's nothing currently on the stack. *)
-                loadFpRegToStack(src, 0w0, code);
+                loadFpRegToStack(source, 0w0, code);
                 cgOp remainder
             )
 
@@ -3392,6 +3382,9 @@ Calling conventions:
 
             else if opByte = opToInt (CondJump JO)
             then (print "jo  \t"; printJmp())
+
+            else if opByte = opToInt (CondJump JNO)
+            then (print "jno  \t"; printJmp())
 
             else if opByte = opToInt (CondJump JL)
             then (print "jl  \t"; printJmp())

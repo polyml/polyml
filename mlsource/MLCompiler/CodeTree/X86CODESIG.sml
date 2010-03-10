@@ -150,13 +150,13 @@ sig
               isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
     |   FillJumpTable of
             { tableAddr: addrs ref, cases: cases list, default: label, min: word, max: word }
-    |   RegisterStatusChange of { activate: RegSet.regSet, free: RegSet.regSet }
+    |   FreeRegisters of RegSet.regSet
     |   MakeSafe of reg
     |   RepeatOperation of repOps
     |   Group3Ops of reg * group3Ops
     |   AtomicXAdd of {base: reg, output: reg}
     |   FPLoadFromGenReg of reg
-    |   FPLoadFromFPReg of reg
+    |   FPLoadFromFPReg of { source: reg, lastRef: bool }
     |   FPLoadFromConst of real
     |   FPStoreToFPReg of { output: reg, andPop: bool }
     |   FPStoreToMemory of { base: reg, offset: int, andPop: bool }
@@ -188,8 +188,7 @@ sig
 
     (* Debugging controls and streams for optimiser. *)
     val lowLevelOptimise: code -> bool
-    val printAssemblyCode: code -> bool
-    val printStream: code -> string->unit
+    val printLowLevelCode: operation list * code -> unit
 
     structure Sharing:
     sig

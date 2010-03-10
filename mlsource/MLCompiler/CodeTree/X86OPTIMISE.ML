@@ -38,6 +38,10 @@ struct
 
     fun optimise(code, ops) =
     let
+        open RegSet
+        (* Print the pre-optimised code if required. *)
+        val () = printLowLevelCode(ops, code)
+
         (* All these instructions can't be eliminated after a jump. *)
         fun labelInstruction(JumpLabel(Labels{uses=ref uses, ...})) = uses > 0
         |   labelInstruction(StartHandler _) = true
@@ -96,12 +100,17 @@ struct
             (* Reorder conditional and unconditional branches.  If we have a conditional branch
                followed by an unconditional branch followed by the destination of the conditional
                branch we can turn the test round. *)
-        |   forward((c as ConditionalBranch{label=Labels{forward=condRef, ...}, test, predict, ...}) ::
+        |   forward((c as ConditionalBranch{label=condDest, test, predict, ...}) ::
                     (u as UncondBranch uncondLab) ::
-                    (d as JumpLabel(Labels{forward=dest, ...})) :: tl, list, rep) =
-            if condRef = dest
-            then
+                    (d as JumpLabel(Labels{forward=nextLabel, ...})) :: tl, list, rep) =
             let
+                (* See where the ultimate destination of the conditional branch is.
+                   If it's already been forwarded we don't want to change that. *)
+                fun follow(Labels{chain=ref(SOME c), ...}) = follow c
+                |   follow c = c
+
+                val Labels{forward=condRef, ...} = follow condDest
+
                 fun reverseTest JE  = JNE
                 |   reverseTest JNE = JE
                 |   reverseTest JA  = JNA
@@ -119,12 +128,16 @@ struct
                 |   reversePrediction PredictTaken = PredictNotTaken
                 |   reversePrediction PredictNotTaken = PredictTaken
             in
-                eliminate c;
-                forward(d :: tl,
-                    ConditionalBranch{label=uncondLab, test=reverseTest test, predict=reversePrediction predict} ::
-                        list, true)
+                if condRef = nextLabel
+                then
+                (
+                    eliminate c;
+                    forward(d :: tl,
+                        ConditionalBranch{label=uncondLab, test=reverseTest test, predict=reversePrediction predict} ::
+                            list, true)
+                )
+                else forward(u :: d :: tl, c :: list, rep)
             end
-            else forward(u :: d :: tl, c :: list, rep)
 
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
@@ -134,14 +147,15 @@ struct
         |   reverse(JumpLabel(Labels{uses=ref 0, ...}) :: tl, list, _) =
                 reverse(tl, list, true)
 
-            (* Combine multiple labels by setting the first to point to the second.  This may subsequently
-               eliminate the first label.  This simplifies branch chaining.  This can only be
-               done after we've eliminated any unreferenced labels. *)
-        |   reverse((a as JumpLabel(Labels{chain as ref NONE, ...})) ::
-                    (b as JumpLabel(bL as Labels{chain=ref chainB, ...})) :: tl,
+            (* Combine multiple labels by setting the earlier to point to the later.  This may
+               subsequently eliminate the first label.  This simplifies branch chaining.
+               This can only be done after we've checked that the later label is
+               actually referenced. *)
+        |   reverse((a as JumpLabel(aL as Labels{chain=ref chainA, ...})) ::
+                    (b as JumpLabel(Labels{chain as ref NONE, ...})) :: tl,
                     list, _) =
             (
-                if isSome chainB then chain := chainB else chain := SOME bL;
+                if isSome chainA then chain := chainA else chain := SOME aL;
                 reverse(b :: tl, a :: list, true)
             )
 
@@ -177,6 +191,88 @@ struct
                 ! oldUses >= 0 orelse raise InternalError "ConditionalBranch2";
                 reverse(ConditionalBranch{label=dest, test=test, predict=predict} :: tl, list, true)
             end
+
+            (* If we free a floating point register after loading it onto the stack we want to
+               propagate that information.  Otherwise push the RegisterStatusChange back up
+               the list. *)
+        |   reverse((r as FreeRegisters regs) :: (f as FPLoadFromFPReg{source, ...}) :: tl, list, _) =
+            if inSet(source, regs)
+            then
+            let
+                val left = regSetMinus(regs, singleton source)
+            in
+                if left = noRegisters
+                then reverse(FPLoadFromFPReg{source=source, lastRef=true} :: tl, list, true)
+                else reverse(FPLoadFromFPReg{source=source, lastRef=true} ::
+                             FreeRegisters left :: tl, list, true)
+            end
+            else reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters regs) :: (f as FPStoreToFPReg{output, ...}) :: tl, list, rep) =
+            if inSet(output, regs)
+            then (* We're discarding this register without using it.  Why?
+                    Split the sets but otherwise do nothing for the moment. *)
+            let
+                val left = regSetMinus(regs, singleton output)
+            in
+                if left = noRegisters
+                then reverse(f :: tl, FreeRegisters(singleton output) :: list, rep)
+                else reverse(f :: FreeRegisters left :: tl, FreeRegisters(singleton output) :: list, rep)
+            end
+            else (* We're saving into a different register.  Push back the Free. *)
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as FPArithConst _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as FPArithMemory _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as ConditionalBranch _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as MakeSafe _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as ArithRConst _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as FPStatusToEAX) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as FPLoadFromConst _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters _) :: (f as MoveRR _) :: tl, list, _) =
+                reverse(f :: r :: tl, list, true) (* Push it back *)
+
+        |   reverse((r as FreeRegisters regs) :: (f as FPArithR{source, ...}) :: tl, list, rep) =
+            if inSet(source, regs)
+            then (* We're freeing the register after the arithmetic.  Split the sets but
+                    otherwise do nothing. *)
+            let
+                val left = regSetMinus(regs, singleton source)
+            in
+                if left = noRegisters
+                then reverse(f :: tl, FreeRegisters(singleton source) :: list, rep)
+                else reverse(f :: FreeRegisters left :: tl, FreeRegisters(singleton source) :: list, rep)
+            end
+            else reverse(f :: r :: tl, list, true) (* Push it back *)
+
+            (* Merge multiple sets. *)
+        |   reverse(FreeRegisters a :: FreeRegisters b :: tl, list, _) =
+                reverse(FreeRegisters(RegSet.regSetUnion(a,b)) :: tl, list, true)
+
+            (* We store a result, then load it. *)
+        |   reverse((l as FPLoadFromFPReg{source, lastRef}) ::
+                    (s as FPStoreToFPReg{output, andPop=true}) :: tl, list, rep) =
+            if source = output
+            then if lastRef
+            then (* We're not reusing the register so we don't need to store. *)
+                reverse(tl, list, true)
+            else (* We're reusing the register later.  Store it there but don't pop. *)
+                reverse(FPStoreToFPReg{output=output, andPop=false} :: tl, list, true)
+            else reverse(s :: tl, l :: list, rep)
 
         |   reverse(hd :: tl, list, rep) = reverse(tl, hd :: list, rep)
 

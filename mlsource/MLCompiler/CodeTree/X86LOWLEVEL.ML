@@ -213,8 +213,13 @@ struct
 
     and jumpBack (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
 
-    and activeRegister r = [RegisterStatusChange{activate=singleton r, free=noRegisters}]
-    and freeRegister r = [RegisterStatusChange{activate=noRegisters, free=singleton r}]
+    (* We're only interested in when floating point registers are freed in order to
+       optimise the code.  For the moment at least we don't use FFree here because
+       that actually generates code and the higher levels call freeRegister
+       after branches which puts them in the wrong position. *)
+    and activeRegister _ = []
+    and freeRegister r =
+        if r ins floatingPtRegisters then [FreeRegisters(singleton r)] else []
 
     and moveRegisterToRegister(source as GenReg _, output as GenReg _) =
         [MoveRR{source=source, output=output}]
@@ -223,11 +228,12 @@ struct
         [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromGenReg source]
 
     |   moveRegisterToRegister(source as FPReg _, output as FPReg _) =
-        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg source]
+        [FPStoreToFPReg{output=output, andPop=true}, FPLoadFromFPReg{source=source, lastRef=false}]
 
     |   moveRegisterToRegister(source as FPReg _, output as GenReg _) =
         (* We need to allocate memory to contain the value. *)
-        [FPStoreToMemory{ base=output, offset=0, andPop=true }, FPLoadFromFPReg source]
+        [FPStoreToMemory{ base=output, offset=0, andPop=true },
+         FPLoadFromFPReg{source=source, lastRef=false}]
             @ allocStore{size=8 div wordSize, flags=F_bytes, output=output}
 
     and moveMemoryToRegister(base, offset, output) =
@@ -1770,7 +1776,7 @@ struct
                         |   _ => (arg1, arg2)
                     val loadToStack =
                         case stackArg of
-                            InRegister(reg as FPReg _) => FPLoadFromFPReg reg
+                            InRegister(reg as FPReg _) => FPLoadFromFPReg{source=reg, lastRef=false}
                         |   InRegister(reg as GenReg _) => FPLoadFromGenReg reg
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "testActions"
@@ -1850,7 +1856,7 @@ struct
                         |   _ => (op1, op2, forward)
                     val loadToStack =
                         case stackArg of
-                            InRegister(reg as FPReg _) => FPLoadFromFPReg reg
+                            InRegister(reg as FPReg _) => FPLoadFromFPReg{source=reg, lastRef=false}
                         |   InRegister(reg as GenReg _) => FPLoadFromGenReg reg
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genBinaryFP"
@@ -1873,7 +1879,7 @@ struct
                 let
                     val loadToStack =
                         case opn of
-                            InRegister(reg as FPReg _) => FPLoadFromFPReg reg
+                            InRegister(reg as FPReg _) => FPLoadFromFPReg{source=reg, lastRef=false}
                         |   InRegister(reg as GenReg _) => FPLoadFromGenReg reg
                         |   LiteralSource lit => loadFPConstant lit
                         |   _ => raise InternalError "genUnaryFP"
@@ -1887,7 +1893,7 @@ struct
                             FPUnary FPATAN,
                             (* Because we have pushed an extra value this appears as
                                modifying fp6. *)
-                            RegisterStatusChange{activate=singleton fp6, free=noRegisters},
+                            FreeRegisters(singleton fp6),
                             FPUnary FLD1,
                             FPFree fp7,
                             loadToStack
