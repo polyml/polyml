@@ -139,6 +139,10 @@ struct
                 else forward(u :: d :: tl, c :: list, rep)
             end
 
+        |   forward(ResetStack count1 :: ResetStack count2 :: tl, list, _) =
+                (* Combine adjacent resets. *)
+                forward(ResetStack(count1+count2) :: tl, list, true)
+
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
         and reverse([], list, rep) = (list, rep)
@@ -273,6 +277,42 @@ struct
             else (* We're reusing the register later.  Store it there but don't pop. *)
                 reverse(FPStoreToFPReg{output=output, andPop=false} :: tl, list, true)
             else reverse(s :: tl, l :: list, rep)
+
+            (* See if we can merge two allocations. *)
+        |   reverse((l as AllocStore{size=aSize, output=aOut}) :: tl, list, rep) =
+            let
+                fun searchAlloc([], _, _) = []
+                |   searchAlloc (AllocStore{size=bSize, output=bOut} :: tl, instrs, modRegs) =
+                    (* We can merge this allocation unless the output register
+                       has been modified in the meantime. *)
+                    if inSet(bOut, modRegs)
+                    then []
+                    else (* Construct a new list with the allocation replaced by an
+                            addition, the original instructions in between and the
+                            first allocation now allocating the original space plus
+                            space for the additional object and its length word. *)
+                        LoadAddress{output=aOut, offset=(bSize+1) * Address.wordSize,
+                                    base=SOME bOut, index=NoIndex} ::
+                            List.rev instrs @ (AllocStore{size=aSize+bSize+1, output=bOut} :: tl)
+                    (* For the moment we allow only a limited range of instructions here*)
+                |   searchAlloc((s as StoreConstToMemory _) :: tl, instrs, modRegs) =
+                        searchAlloc(tl, s :: instrs, modRegs)
+                |   searchAlloc((s as StoreRegToMemory _) :: tl, instrs, modRegs) =
+                        searchAlloc(tl, s :: instrs, modRegs)
+                |   searchAlloc((s as StoreLongConstToMemory _) :: tl, instrs, modRegs) =
+                        searchAlloc(tl, s :: instrs, modRegs)
+                |   searchAlloc((s as ResetStack _) :: tl, instrs, modRegs) =
+                        searchAlloc(tl, s :: instrs, modRegs)
+                |   searchAlloc((s as LoadMemR{output, ...}) :: tl, instrs, modRegs) =
+                        if output = aOut then []
+                        else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output))
+                    (* Anything else terminates the search. *)
+                |   searchAlloc _ = []
+            in
+                case searchAlloc(tl, [], noRegisters) of
+                    [] => reverse(tl, l :: list, rep)
+                |   newTail => reverse(newTail, list, true)
+            end
 
         |   reverse(hd :: tl, list, rep) = reverse(tl, hd :: list, rep)
 
