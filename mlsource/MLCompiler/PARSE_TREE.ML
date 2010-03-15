@@ -5126,186 +5126,163 @@ struct
         | makeArglist _ _ = raise InternalError "makeArgList"
 
 
-      (* Generate variable-bindings (declarations) for each of the
-          expressions as functions. *)
-      fun cgExps([],  _,    _, _, _, _, _, _, _) = []
-        | cgExps (MatchTree {exp, location, ...} ::al, vl::vll,
-                base, patNo, uses, cgExpression, lex, near,
-                cgContext as { decName, debugEnv, level, ...}) =
-          let
-            val noOfArgs = length vl;
-            val patNoIndex = patNo - 1;
-            open Array
-            val pattUses = uses sub patNoIndex;
-        
-            val () =
-               if pattUses = 0
-               then errorNear (lex, false, near, location,
-                      "Pattern " ^ Int.toString patNo ^ " is redundant.")
-               else ();
-        
-            val functionLevel = level + 1; (* For the function. *)
-            local
-                val addresses = ref 1
-            in
-                fun fnMkAddrs n = ! addresses before (addresses := !addresses + n)
-            end
-            
-            val fnContext =
-                cgContext |> repDecName decName |> repMkAddr fnMkAddrs |> repLevel functionLevel
+    fun codeMatch(near : parsetree, alt : matchtree list, arg : codetree, cgExpression,
+                  isHandlerMatch, matchContext as { level, mkAddr, debugEnv, lex, ...}): codetree =
+    let
+        val noOfPats  = length alt;
+        val andortree = buildTree(alt, matchContext);
+        val allVars   = findAllVars alt;
+        (* Check for unreferenced variables. *)
+        val () =
+            if getParameter reportUnreferencedIdsTag (debugParams lex)
+            then List.app (fn l => List.app (reportUnreferencedValue lex) l) allVars
+            else ()
 
-            (* Set the addresses to be suitable for arguments.  At the
-               same time create a debugging environment if required. *)
-            fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...},
-                        (argno, oldDec, oldEnv)) =
-            let
-                val load = mkLoad (~argno, 0)
-                val {dec=nextDec, ctEnv, rtEnv} =
-                    createDebugEntry(v, load, fnContext |> repDebugEnv oldEnv)
-            in
-                lvAddr  := ~argno;
-                lvLevel := functionLevel;
-                (argno - 1, oldDec @ nextDec, (ctEnv, rtEnv))
-            end
-           | setAddr _ = raise InternalError "setAddr"
-          
-            val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
-        
-            val functionBody =
-                mkEnv(envDec @ [cgExpression (exp, fnContext |> repDebugEnv newEnv)]);
-        
-            (* Make it an inline function if it only used once. *)
-            val theCode = 
-              (if pattUses = 1 then mkInlproc else mkProc)
-              (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo);
-          in
-            mkDec (base + patNoIndex, theCode) ::
-              cgExps(al, vll, base, patNo + 1, uses, cgExpression,
-                lex, near, cgContext)
-          end
-        | cgExps _ = raise InternalError "cgExps";
-
-        fun codeMatch 
-           (near : parsetree,
-            alt : matchtree list,
-            arg : codetree,
-            cgExpression,
-            isHandlerMatch : bool,
-            matchContext as { level, mkAddr, debugEnv, lex, ...}
-            )
-           : codetree =
-        let
-            val noOfPats  = length alt;
-            val andortree = buildTree(alt, matchContext);
-            val allVars   = findAllVars alt;
-            (* Check for unreferenced variables. *)
-            val () =
-                if getParameter reportUnreferencedIdsTag (debugParams lex)
-                then List.app (fn l => List.app (reportUnreferencedValue lex) l) allVars
-                else ()
-      
-          val lineNo =
-              case alt of
+        val lineNo =
+            case alt of
                 MatchTree {location, ... } :: _ => location
-              | _ => raise Match
-      
-         (* Save the argument in a variable. *)
-         val decCode   = multipleUses (arg, fn () => mkAddr 1, level);
-     
-         (* Generate code to load it. *)
-         val loadExpCode = #load decCode level;
-     
-         (* Generate a range of addresses for the expressions. *)  
-         val baseAddr  = mkAddr noOfPats;
-      
-         (* Make an array to count the number of references to a pattern.
+            | _ => raise Match
+
+        (* Save the argument in a variable. *)
+        val decCode   = multipleUses (arg, fn () => mkAddr 1, level);
+
+        (* Generate code to load it. *)
+        val loadExpCode = #load decCode level;
+
+        (* Generate a range of addresses for any functions that have to
+           be generated for the expressions. *)  
+        val baseAddr  = mkAddr noOfPats
+
+        (* We want to avoid the code blowing up if we have a large expression which occurs
+           multiple times in the resulting code. 
+           e.g. case x of [1,2,3,4] => exp1 | _ => exp2
+           Here exp2 will be called at several points in the code.  Most patterns occur
+           only once, sometimes a few more times.  The first three times the pattern
+           occurs the code is inserted directly.  Further cases are dealt with as
+           function calls.  *)
+        val insertDirectCount = 3 (* First three cases are inserted directly. *)
+
+        (* Make an array to count the number of references to a pattern.
             This is used to decide whether to use a function for certain
             expressions or to make it inline. *)
-         val uses = Array.array (noOfPats, 0);
+        val uses = IntArray.array (noOfPats, 0);
 
-         (* Set to false if we find it is not exhaustive. *)
-         val exhaustive = ref true;
-     
-         (* Make some code to insert at defaults. *)
-         val codeDefault : unit -> patcode =
-           if isHandlerMatch
-           then (fn () => makePatcode [makeRaise loadExpCode] 0)
-           else (fn () => (exhaustive := false; raiseMatchCode lineNo));
- 
-            (* Generate the code and also check for redundancy
-               and exhaustiveness. *)
-            (* This function is called when we done all the discrimination
-               we can. We fire off the first pattern in the set. *)
-            fun firePatt(pattsLeft, default, env) =
-            if pattsLeft eq empty
-                  then default ()
+        (* Set to false if we find it is not exhaustive. *)
+        val exhaustive = ref true;
+
+        (* Make some code to insert at defaults. *)
+        val codeDefault : unit -> patcode =
+            if isHandlerMatch
+            then (fn () => makePatcode [makeRaise loadExpCode] 0)
+            else (fn () => (exhaustive := false; raiseMatchCode lineNo));
+
+        (* Generate the code and also check for redundancy
+           and exhaustiveness. *)
+        (* This function is called when we done all the discrimination
+           we can. We fire off the first pattern in the set. *)
+        fun firePatt(pattsLeft, default, env) =
+        if pattsLeft eq empty
+        then default ()
+        else
+        let
+            val pattChosen = first pattsLeft
+            val pattChosenIndex = pattChosen - 1
+            (* Increment the count for this pattern. *)
+            val useCount = IntArray.sub(uses, pattChosenIndex) + 1
+            val () = IntArray.update (uses, pattChosenIndex, useCount)
+      
+            val thisVars    = List.nth(allVars, pattChosenIndex)
+            val noOfArgs    = length thisVars
+            val argsForCall = makeArglist thisVars noOfArgs
+            val MatchTree {exp, ... } = List.nth(alt, pattChosenIndex)
+            (* Call the appropriate expression function. *)
+            val expCode =
+                if useCount <= insertDirectCount
+                then cgExpression (exp, matchContext |> repDebugEnv env)
+                else mkEval(mkLoad (baseAddr + pattChosenIndex, 0), argsForCall, false)
+        in
+            makePatcode [expCode] pattChosen
+        end
+
+        val code = codePatt(andortree, loadExpCode, from 1 noOfPats, firePatt,
+                            codeDefault, false, debugEnv, matchContext)
+
+        (* Report inexhaustiveness if necessary.  TODO: It would be nice to have
+           some example of a pattern that isn't matched for. *)
+        val () = 
+            if not (!exhaustive)
+            then errorNear (lex, false, near, lineNo, "Matches are not exhaustive.")
+            else ()
+        (* Report redundant patterns. *)
+        local
+            fun reportRedundant(patNo, 0) =
+                let
+                    val MatchTree {location, ... } = List.nth(alt, patNo)
+                in
+                    errorNear (lex, false, near, location,
+                                "Pattern " ^ Int.toString (patNo+1) ^ " is redundant.")
+                end
+            |   reportRedundant _ = ()
+        in
+            val () = IntArray.appi reportRedundant uses
+        end
+
+      (* Generate variable-bindings (declarations) for each of the
+          expressions as functions. *)
+        fun cgExps([],  _,    _, _, _, _, _, _, _) = []
+        |   cgExps (MatchTree {exp, ...} ::al, vl::vll,
+                base, patNo, uses, cgExpression, lex, near,
+                cgContext as { decName, debugEnv, level, ...}) =
+            if IntArray.sub(uses, patNo - 1) <= insertDirectCount
+            then cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
             else
             let
-                val pattChosen = first pattsLeft;
-                val pattChosenIndex = pattChosen - 1; 
-            in
-                (* Increment the count for this pattern. *)
-                Array.update (uses, pattChosenIndex,(Array.sub(uses, pattChosenIndex)) + 1);
-              
-                (* If we have a single pattern it cannot be duplicated
-                    so we can put the code in immediately, other cases
-                    are made into inline functions and inserted later. *)
-                (* The idea is to avoid the code size blowing up if we
-                    have a large expression which occurs multiple times in
-                    the resulting code
-                    e.g. case x of [1,2,3,4] => exp1 | _ => exp2
-                    Here exp2 will be called at several points in the
-                    code.  DCJM 13/2/01. *)
-                if noOfPats = 1
-                then
-                (
-                      case alt of
-                        MatchTree {exp, ... } :: _ =>
-                           makePatcode [
-                            cgExpression (exp, matchContext |> repDebugEnv env)] pattChosen
-                      | _ => raise InternalError "codeMatch - badly formed parsetree"
-                )
-                else
-                let
-                    val thisVars    = List.nth(allVars, pattChosenIndex);
-                    val noOfArgs    = length thisVars;
-                    val argsForCall = makeArglist thisVars noOfArgs;
+                val noOfArgs = length vl;
+                val patNoIndex = patNo - 1;
+
+                val functionLevel = level + 1; (* For the function. *)
+                local
+                    val addresses = ref 1
                 in
-                    (* Call the appropriate expression function. *)
-                    makePatcode 
-                      [mkEval 
-                        (mkLoad (baseAddr + pattChosenIndex, 0),
-                         argsForCall, false)]
-                      pattChosen
+                    fun fnMkAddrs n = ! addresses before (addresses := !addresses + n)
                 end
+    
+                val fnContext =
+                    cgContext |> repDecName decName |> repMkAddr fnMkAddrs |> repLevel functionLevel
+
+                (* Set the addresses to be suitable for arguments.  At the
+                   same time create a debugging environment if required. *)
+                fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...},
+                            (argno, oldDec, oldEnv)) =
+                    let
+                        val load = mkLoad (~argno, 0)
+                        val {dec=nextDec, ctEnv, rtEnv} =
+                            createDebugEntry(v, load, fnContext |> repDebugEnv oldEnv)
+                    in
+                        lvAddr  := ~argno;
+                        lvLevel := functionLevel;
+                        (argno - 1, oldDec @ nextDec, (ctEnv, rtEnv))
+                    end
+                |   setAddr _ = raise InternalError "setAddr"
+  
+                val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
+
+                val functionBody =
+                    mkEnv(envDec @ [cgExpression (exp, fnContext |> repDebugEnv newEnv)])
+            in
+                mkDec(base + patNoIndex, mkProc (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo)) ::
+                    cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
             end
 
-         val code : patcode = 
-            codePatt(andortree, loadExpCode, from 1 noOfPats, firePatt,
-                     codeDefault, false, debugEnv, matchContext);
-          (* Report inexhaustiveness if necessary. *)
-          val () = 
-            if not (!exhaustive)
-            then errorNear (lex, false, near, lineNo,
-                            "Matches are not exhaustive.")
-          else ();
-        in
-          if noOfPats = 1
-          then
-            (* Special case to speed up compilation. If we have
-                a single pattern we put the code in immediately. *)
-            mkblock (#dec decCode @ #code code)
-          else let
-            (* Now generate the expressions as functions, inline
-               if only used once. Also checks for redundancy. *)
-            val expressionFuns =
-                cgExps(alt, allVars, baseAddr, 1, uses,
-                    cgExpression, lex, near, matchContext);
-          in
-            (* Return the code in a block. *)
-            mkblock (#dec decCode @ (expressionFuns @ #code code))
-          end
-        end (* codeMatch *);
+        |   cgExps _ = raise InternalError "cgExps"
+                (* Now generate the expressions as functions, inline
+           if only used once. *)
+        val expressionFuns =
+            cgExps(alt, allVars, baseAddr, 1, uses, cgExpression, lex, near, matchContext)
+    in
+        (* Return the code in a block. *)
+        mkblock (#dec decCode @ (expressionFuns @ #code code))
+    end (* codeMatch *)
 
     (* Makes a block from a series of alternatives in a match.
        Used only for functions. *)
