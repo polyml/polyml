@@ -126,6 +126,15 @@ typedef struct
     PolyObject *pt;
 } Item;
 
+// The DepthVector type contains all the items of a particular depth.
+typedef struct
+{
+    POLYUNSIGNED    depth;
+    POLYUNSIGNED    nitems;
+    POLYUNSIGNED    vsize;
+    Item            *vector;
+} DepthVector;
+/*
 class Vector
 {
 public:
@@ -139,9 +148,10 @@ public:
     POLYUNSIGNED    vsize;
     Item            *vector;
     Vector          *next;
-};
+};*/
 
-static Vector  *vectors   = 0;
+static DepthVector *depthVectors = 0;
+static POLYUNSIGNED depthVectorSize = 0;
 
 // Returns true if this is an address into either the permanent or temporary areas.
 inline bool IsDataAddress(PolyWord p)
@@ -151,25 +161,22 @@ inline bool IsDataAddress(PolyWord p)
 }
 
 
-Vector * Vector::AddDepth(POLYUNSIGNED depth)
+DepthVector *AddDepth(POLYUNSIGNED depth)
 {
-    Vector  *v;
-    Vector **L = & vectors;
-    
-    for (v = *L; v && v->depth < depth; v = *L)
-    {
-        L = & v->next;
+    if (depth >= depthVectorSize) {
+        POLYUNSIGNED newDepth = depth+1;
+        DepthVector *newVec = (DepthVector *)realloc(depthVectors, sizeof(DepthVector)*newDepth);
+        if (newVec == 0) throw MemoryException();
+        depthVectors = newVec;
+        for (POLYUNSIGNED d = depthVectorSize; d < newDepth; d++) {
+            DepthVector *dv = &depthVectors[d];
+            dv->depth = d;
+            dv->nitems = dv->vsize = 0;
+            dv->vector = 0;
+        }
+        depthVectorSize = newDepth;
     }
-    
-    if (v && v->depth == depth)
-        return v;
-
-    v = new Vector(depth);
-    if (v == 0) // Should throw an exception, but just in case...
-        throw MemoryException();
-    v->next = *L;
-    *L = v;
-    return v;
+    return &depthVectors[depth];
 }
 
 /******************************************************************************/
@@ -179,7 +186,7 @@ Vector * Vector::AddDepth(POLYUNSIGNED depth)
 /******************************************************************************/
 static void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 {
-    Vector *v = Vector::AddDepth (depth);
+    DepthVector *v = AddDepth (depth);
     
     ASSERT (v->nitems <= v->vsize);
     
@@ -242,7 +249,7 @@ static int CompareItems(const void *arg_a, const void *arg_b)
 /*      MergeSameItems                                                        */
 /*                                                                            */
 /******************************************************************************/
-static POLYUNSIGNED MergeSameItems(Vector *v)
+static POLYUNSIGNED MergeSameItems(DepthVector *v)
 {
     POLYUNSIGNED  N = v->nitems;
     Item *itemVec = v->vector;
@@ -310,7 +317,7 @@ static POLYUNSIGNED MergeSameItems(Vector *v)
 class ProcessFixupAddress: public ScanAddress
 {
 public:
-    void FixupItems (Vector *v);
+    void FixupItems (DepthVector *v);
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
@@ -374,7 +381,7 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
     return old;
 }
 
-void ProcessFixupAddress::FixupItems (Vector *v)
+void ProcessFixupAddress::FixupItems (DepthVector *v)
 {
     POLYUNSIGNED  N = v->nitems;
     Item *V = v->vector;
@@ -454,7 +461,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     return depth;
 }
 
-static void RestoreLengthWords(Vector *vec)
+static void RestoreLengthWords(DepthVector *vec)
 {
    // Restore the length words.
     Item *itemVec = vec->vector;
@@ -475,7 +482,7 @@ bool RunShareData(PolyObject *root)
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
     
-    vectors =  0;
+    depthVectors = 0;
 
     // Build the vectors from the immutable objects.
     ProcessAddToVector addToVector;
@@ -485,24 +492,21 @@ bool RunShareData(PolyObject *root)
     catch (MemoryException)
     {
         // If we run out of memory and raise an exception we have to clean up.
-        while (vectors)
+        while (depthVectorSize > 0)
         {
-            Vector *v = vectors;
-            vectors = v->next;
-            delete(v);
+            depthVectorSize--;
+            free(depthVectors[depthVectorSize].vector);
         }
+        free(depthVectors);
+        depthVectors = 0;
         return false; // Run out of memory.
     }
 
     ProcessFixupAddress fixup;
 
-    Vector *vec = vectors;
-
-    if (vec && vec->depth == 0) // Skip the level zero objects.
-         vec = vec->next; // We fix them up when we've done all the rest.
-
-    while (vec)
+    for (POLYUNSIGNED depth = 1; depth < depthVectorSize; depth++)
     {
+        DepthVector *vec = &depthVectors[depth];
         fixup.FixupItems(vec);
         qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
     
@@ -515,8 +519,6 @@ bool RunShareData(PolyObject *root)
     
         totalObjects += vec->nitems;
         totalShared  += n;
-    
-        vec = vec->next; // Get the next vector (if any)
     }  
 
       /* 
@@ -547,14 +549,12 @@ bool RunShareData(PolyObject *root)
     /* We have updated the addresses in objects with non-zero level so they point to
        the single occurrence but we need to do the same with level 0 objects
        (mutables, stacks and code). */
-    vec = vectors;
-    if (vec && vec->depth == 0)
+    if (depthVectorSize > 0)
     {
-        Vector *v = vec;
+        DepthVector *v = &depthVectors[0];
         RestoreLengthWords(v);
         fixup.FixupItems(v);
-        vec = vec->next;
-        delete(v); // Free all the data
+        free(v->vector);
     }
 
     /* Previously we made a complete scan over the memory updating any addresses so
@@ -562,12 +562,11 @@ bool RunShareData(PolyObject *root)
        share any external pointers.  This has been removed but we have to
        reinstate the length words we've overwritten with forwarding pointers because
        there may be references to unshared objects from outside. */
-    while (vec != 0)
+    for (POLYUNSIGNED d = 1; d < depthVectorSize; d++)
     {
-        Vector *v = vec;
+        DepthVector *v = &depthVectors[d];
         RestoreLengthWords(v);
-        vec = vec->next;
-        delete(v);
+        free(v->vector);
     }
 
     if (verbose)
