@@ -3186,6 +3186,30 @@ DCJM 2000.
      |  optimise (Extract(ext as {level, ...}), _) =
             lookupOldAddr (ext, nestingOfThisProcedure, level)
 
+     |  optimise (original as Lambda({isInline=OnlyInline, ...}), _) =
+            (* Used only for functors.  Leave unchanged. *)
+            optVal 
+                {
+                  general = CodeZero,
+                  (* Changed from using CodeNil here to CodeZero.  This avoids a problem
+                     which only surfaced with the changes to ML97 and the possibility of
+                     mixing functor and value declarations in the same "program" (i.e.
+                     top-level declarations with a terminating semicolon.
+                     OnlyInline is used for functors which can only ever be called,
+                     never passed as values, so the "general" value is not really
+                     required.  It can though appear in the result tuple of the "program"
+                     from which the (value) results of the program are extracted.
+
+                     Further change: This previously returned the processed body but the effect of
+                     that was to prevent small functions inside the functor from becoming
+                     inline functions when the functor was applied.  Instead we just return
+                     the original code. *)
+                  special = original,
+                  environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
+                  decs    = [],
+                  recCall = ref false
+                }
+
      |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
                           argTypes, resultType, ...}), _) =
         let
@@ -3197,7 +3221,7 @@ DCJM 2000.
           (* A new table for the new procedure. *)
           val oldAddrTab = stretchArray (initTrans, NONE);
           val newAddrTab = stretchArray (initTrans, NONE);
-          
+
           fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
               (* local declaration or argument. *)
               if index > 0 
@@ -3306,41 +3330,7 @@ DCJM 2000.
 
           val resultCode =
             case lambdaInline of
-                OnlyInline =>
-                (* Used only for functors.  Don't compile now. Return the processed
-                   version as the special value. *)
-                    optVal 
-                    {
-                      general = CodeZero,
-                      (* Changed from using CodeNil here to CodeZero.  This avoids a problem
-                         which only surfaced with the changes to ML97 and the possibility of
-                         mixing functor and value declarations in the same "program" (i.e.
-                         top-level declarations with a terminating semicolon.
-                         OnlyInline is used for functors which can only ever be called,
-                         never passed as values, so the "general" value is not really
-                         required.  It can though appear in the result tuple of the "program"
-                         from which the (value) results of the program are extracted.
-                         DCJM 6/1/00 *)
-                      special =
-                        Lambda 
-                          {
-                           body          = cleanedBody,
-                           isInline      = OnlyInline,
-                           name          = lambdaName,
-                           closure       = [],
-                           argTypes      = argTypes,
-                           resultType    = resultType,
-                           level         = nesting,
-                           closureRefs   = 0,
-                           localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false, argLifetimes = []
-                         },
-                      environ = lookupNewAddr, (* new addresses with cleanedBody. *)
-                      decs    = [],
-                      recCall = ref false
-                    }
-
-            |   MaybeInline => (* Explicitly inlined functions. *)
+               MaybeInline => (* Explicitly inlined functions. *)
                     (* We return the processed version of the function as
                        the general value but the unprocessed version as
                        the special value. *)
