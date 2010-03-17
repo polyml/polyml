@@ -1926,7 +1926,7 @@ struct
     fun setState (save : savedState,
                   table as
                     Ttab{pstack, pstackTrace, printStream, pstackptr, realstackptr, regset, markReal, ...},
-                  carry, mark, isMerge): mergeResult * operation list =
+                  carry, mark, isMerge, isRestoreLoop): mergeResult * operation list =
     let 
         val () = if pstackTrace then printState printStream save "setState" else ()
         val topReg: reg =
@@ -2009,7 +2009,7 @@ struct
                     case saveEntry of
                         NoStackEntry => putOnEntries (s + 1)
       
-                    |   StackEntry {ent, cache, destStack, uses, lifeTime, ...} =>
+                    |   StackEntry {ent, cache, uses, lifeTime, ...} =>
                         let
                             (* Compute the new register set. *)
                             val loadReg =
@@ -2019,25 +2019,27 @@ struct
                                 |   _ => []
                             val cacheRegs = List.foldl(fn (r, l) => incr regset r @ l) [] (setToList cache)
 
-                            (* Propagate the destination stack offset information.  Normally, if
-                               the destination stack is set in the "current" table (tabDestStack)
-                               and also in the saved state the destinations should be the same.
-                               It is possible for them to differ at least in one situation.
-                               When encountering a Loop instruction while processing a BeginLoop
-                               we need to reset the stack to put the arguments into their original
-                               locations and loadEntryBeforeOverwriting clears the destination stack
-                               entry.  That can result in an entry getting a different destination.
-                               This may be cleared up as a result of reprocessing the loop.
-                               This case occurs in Tests/Succeed/Test109.ML. *)
+                            (* The destination stack information is intended to avoid problems
+                               when a value is pushed to the stack in different flows of control.
+                               The first flow of control sets the destination stack with the
+                               actual location where the value was pushed and then when we set
+                               the state we record the destination stack location as the
+                               location where subsequent flows of control should push it.
+                               This goes wrong if we are using setState to restore the loop
+                               state rather than set the initial state for a new flow of control.
+                               In the first case we need to ensure that the destination stack
+                               values are inherited from the current state and override those in
+                               the saved state, because we may have popped items during the first
+                               flow and subsequently pushed different items in their place,
+                               whereas if we're restoring the state we want to throw away any
+                               destination stack information in the current state and take
+                               the information only from the saved state. *)
                             val () =
-                                case (tabDestStack, destStack) of
-                                    (tabDestStack as SOME _, NONE) =>
-                                        (* Set the destination if it's set in the current state
-                                           but not in the state we're setting. *)
-                                        StretchArray.update (pstack, s,
+                                if isRestoreLoop
+                                then ()
+                                else StretchArray.update (pstack, s,
                                             StackEntry {ent=ent, cache=cache, uses=uses,
                                                         destStack=tabDestStack, lifeTime=lifeTime})
-                                |   _ => ()
                             val otherEntries = putOnEntries (s + 1)
               
                             (* Can now set the use counts. The use-counts may have changed
@@ -2654,7 +2656,7 @@ struct
     else if isEmptyLabel lab then []
     else
     let 
-        val (_, code) = setState (state lab, table, NoMerge, ! pstackptr, false)
+        val (_, code) = setState (state lab, table, NoMerge, ! pstackptr, false, false)
     in
         branched := false;
         exited := false;
@@ -2669,7 +2671,8 @@ struct
             else if ! branched
             then
             let
-                val (newResult, newCode) = setState (state lab, table, result lab, newMark mark, true);
+                val (newResult, newCode) =
+                    setState (state lab, table, result lab, newMark mark, true, false)
             in
                 branched := false;
                 exited := false;
@@ -2687,7 +2690,7 @@ struct
                 let
                     (* Have to jump round to get the states the same. *)
                     val (lab1, lab1Code) = unconditionalBranch (mergeRes, table)
-                    val (newResult, newCode) = setState (state lab, table, result lab, newMark mark, true)
+                    val (newResult, newCode) = setState (state lab, table, result lab, newMark mark, true, false)
                     val () = exited := false;
                     val () = branched := false;
                     val (mergeResult, otherMerge) = (* Merge the other way. *)
@@ -3057,7 +3060,7 @@ struct
     let
         (* We're restoring the state to what it was before the loop and we don't generate
            the previous loop code so we can simply discard the "free" instructions here. *)
-        val (_, _) = setState (state, table, NoMerge, ! pstackptr, false);
+        val (_, _) = setState (state, table, NoMerge, ! pstackptr, false, true)
         (* Remove entries from the cache if they've been changed in the loop. *)
         val _ = removeFromCache(table, cacheSet, fn () => true);
         (* Push items to the stack that are pushed in the loop.  Don't move them into other
