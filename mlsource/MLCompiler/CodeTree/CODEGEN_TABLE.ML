@@ -2982,16 +2982,6 @@ struct
         code
     end;
 
-    fun startCase (table as Ttab{branched, exited, pstackptr, ...}, state) : backwardLabel * operation list =
-    let
-        val (_, code) = setState (state, table, NoMerge, ! pstackptr, false);
-        val (jumpCode, destLabel) = backJumpLabel()
-    in
-        exited := false;
-        branched := false;
-        (destLabel, code @ jumpCode)
-    end
-
     datatype argdest = ArgToRegister of reg | ArgToStack of int
 
     (* Get the destination for the argument of a loop instruction.  This
@@ -3164,6 +3154,7 @@ struct
         and  regHint    = regHint
         and  argdest    = argdest
         and  loopPush   = loopPush
+        and  forwardLabel = forwardLabel
         and  backwardLabel = backwardLabel
     end
 

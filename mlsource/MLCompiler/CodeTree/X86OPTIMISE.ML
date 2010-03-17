@@ -45,7 +45,6 @@ struct
         (* All these instructions can't be eliminated after a jump. *)
         fun labelInstruction(JumpLabel(Labels{uses=ref uses, ...})) = uses > 0
         |   labelInstruction(StartHandler _) = true
-        |   labelInstruction(FillJumpTable _) = true
         |   labelInstruction _ = false
 
         (* If we remove a branch the use counts are reduced. *)
@@ -143,6 +142,29 @@ struct
                 (* Combine adjacent resets. *)
                 forward(ResetStack(count1+count2) :: tl, list, true)
 
+        |   forward((a as ArithRConst{ opc=opA, output=outA, source=constA }) ::
+                    (b as ArithRConst{ opc=opB, output=outB, source=constB }) :: tl, list, rep) =
+            if outA = outB andalso (opA = ADD orelse opA = SUB) andalso (opB = ADD orelse opB = SUB)
+            then
+            let
+                val (opc, result) =
+                    case (opA, opB) of
+                        (ADD, ADD) => (ADD, constA+constB)
+                    |   (SUB, SUB) => (SUB, constA+constB)
+                    |   (ADD, SUB) =>
+                            if constA >= constB then (ADD, constA-constB)
+                            else (SUB, constB-constA)
+                    |   (SUB, ADD) =>
+                            if constA >= constB then (SUB, constA-constB)
+                            else (ADD, constB-constA)
+                    |   _ => raise InternalError "forward: ArithRConst"
+            in
+                (* We could extract the case where the result is zero but that
+                   doesn't seem to occur. *)
+                forward(ArithRConst{ opc=opc, output=outA, source=result } :: tl, list, true)
+            end
+            else forward(b :: tl, a :: list, rep)
+
         |   forward(hd :: tl, list, rep) = forward(tl, hd :: list, rep)
         
         and reverse([], list, rep) = (list, rep)
@@ -194,6 +216,35 @@ struct
                 newUses := !newUses + 1;
                 ! oldUses >= 0 orelse raise InternalError "ConditionalBranch2";
                 reverse(ConditionalBranch{label=dest, test=test, predict=predict} :: tl, list, true)
+            end
+
+            (* Branch chaining with indexed branches.  We may be able to forward
+               branch table entries to their new location. *)
+        |   reverse(
+                (i as IndexedCase{testReg, workReg, min, cases}) :: tl, list, rep) =
+            let
+                val changed = ref false
+                fun forwardBranch(Labels{chain=ref(SOME dest), uses=oldUses, ...}) =
+                let
+                    fun follow(Labels{chain=ref(SOME c), ...}) = follow c
+                    |   follow c = c
+                    val dest as Labels{uses=newUses, ...} = follow dest
+                in
+                    oldUses := !oldUses - 1;
+                    ! newUses >= 1 orelse raise InternalError "IndexedBranch1";
+                    newUses := !newUses + 1;
+                    ! oldUses >= 0 orelse raise InternalError "IndexedBranch2";
+                    changed := true;
+                    dest
+                end
+                |   forwardBranch lab = lab
+                val newList = List.map forwardBranch cases
+            in
+                if ! changed
+                then reverse(tl,
+                        IndexedCase{testReg=testReg, workReg=workReg, min=min, cases=newList} :: list,
+                        true)
+                else reverse(tl, i :: list, rep)
             end
 
             (* If we free a floating point register after loading it onto the stack we want to
@@ -306,6 +357,9 @@ struct
                 |   searchAlloc((s as LoadMemR{output, ...}) :: tl, instrs, modRegs) =
                         if output = aOut then []
                         else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output))
+                |   searchAlloc((s as MoveRR{output, ...}) :: tl, instrs, modRegs) =
+                        if output = aOut then []
+                        else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output))                        
                     (* Anything else terminates the search. *)
                 |   searchAlloc _ = []
             in

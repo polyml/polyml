@@ -198,18 +198,51 @@ struct
     and returnFromFunction v = [ReturnFromFunction v]
     and loadHandlerAddress v = [LoadHandlerAddress v]
     and startHandler v = [StartHandler v]
-    and indexedCase v = [IndexedCase v]
+
+    and indexedCase { testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive } =
+    let
+        val defaultLab as Labels{uses=defUses, ...} = mkLabel()
+        fun makeLab _ =
+        let
+            val lab as Labels{uses, ...} = mkLabel()
+        in
+            uses := 1;
+            lab
+        end
+        val indexLabels =
+            List.tabulate(Word.toInt(maxCase-minCase+0w1), makeLab)
+        val testCode =
+            if isExhaustive
+            then []
+            else
+            let
+                (* If this is an arbitrary precision int we need to check it's short
+                   and go to the default if it isn't. *)
+                val testTag =
+                    if isArbitrary
+                    then
+                    (
+                        defUses := 3;
+                        [ConditionalBranch{test=JE, predict=PredictNotTaken, label=defaultLab},
+                         TestTagR testReg]
+                    )
+                    else (defUses := 2; [])
+                (* Range checks. *)
+                val range1 =
+                    [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
+                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) }]
+                val range2 =
+                    [ConditionalBranch{test=JA, predict=PredictNotTaken, label=defaultLab},
+                     ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt maxCase) }]
+            in
+                range2 @ range1 @ testTag
+            end
+        val code = [IndexedCase{testReg=testReg, workReg=workReg, min=minCase, cases=indexLabels}] @ testCode
+    in
+        (code, indexLabels, defaultLab)
+    end
 
     and forwardJumpLabel v = [JumpLabel v]
-
-    and fillJumpTable(v as {default=Labels{uses, ...}, cases, ...}) =
-    let
-        (* Jump table: add references to each of the case labels and to the default. *)
-        fun addRef(_, Labels{uses, ...}) = uses := !uses+1
-        val () = List.app addRef cases
-    in
-        uses := !uses+1; [FillJumpTable v]
-    end
 
     and jumpBack (v as Labels{uses, ...}) = (uses := !uses+1; [UncondBranch v])
 
@@ -1955,8 +1988,6 @@ struct
     end
 
     fun isPushI _ = true
-     
-    fun constrCases (p as (_,_: backwardLabel)) = p: cases
 
     (* The stack limit register is set at least twice this far from the
        end of the stack so we can simply compare the stack pointer with

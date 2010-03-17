@@ -942,34 +942,51 @@ struct
                 (* Need a work register. *)
                 val (workReg, regCode) = getRegisterInSet(transtable, generalRegisters)
 
-                val caseInstr = ref addrZero
-                val () =
-                    codeGenerate(
-                        indexedCase
-                            {testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
+                val (indexCaseInstr, caseLabels, defaultLabel) =
+                    indexedCase{testReg=testReg, workReg=workReg, minCase=min, maxCase=max, 
                             isArbitrary = case caseType of CaseInt => true | _ => false,
-                            isExhaustive=isExhaustive, tableAddrRef = caseInstr} @
-                        regCode @ testCode, cvec);
+                            isExhaustive=isExhaustive}
+
+                val () = codeGenerate(indexCaseInstr @ regCode @ testCode, cvec)
                 val () = codeGenerate(removeStackEntry (transtable, testIndex), cvec)
                 val () = codeGenerate(freeRegister (transtable, workReg), cvec)
 
                 val startOfCase = saveState transtable
 
-                (* Put in the default case, if there is one. *)
-                val (defaultCase, startCode) = startCase (transtable, startOfCase)
-                val () = codeGenerate(startCode, cvec)
+                (* Put in the default case.  Even when the case is exhaustive one entry is
+                   always treated as a default and not included in the list of cases. *)
+                local
+                    (* We have to set "branched" to true before calling fixup. *)
+                    val () = exiting transtable
+                    val startCode = fixup(makeLabels(NoMerge, defaultLabel, startOfCase), transtable)
+                    val () = codeGenerate(startCode, cvec)
 
-                val exitDefault =
-                let
+                    (* Go down the list of cases and fix up any default labels to come here.
+                       Default entries are represented by "holes" in the case list. *)
+                    fun genDefaults(indexVal, label :: labelList, cl as ((_, caseLabel) :: cps)) =
+                        if indexVal = caseLabel
+                        then genDefaults(indexVal+0w1, labelList, cps)
+                        else
+                        (
+                            codeGenerate(forwardJumpLabel label, cvec);
+                            genDefaults(indexVal+0w1, labelList, cl)
+                        ) 
+                    |   genDefaults(indexVal, label :: labelList, []) =
+                        (
+                            codeGenerate(forwardJumpLabel label, cvec);
+                            genDefaults(indexVal+0w1, labelList, [])
+                        )
+                    |   genDefaults(_, [], _) = ()
+                    
+                    val () = genDefaults(min, caseLabels, cases)
+
                     val defaultRes =
                         genToRegister (default, whereto, tailKind, matchFailFn, loopAddr);
 
                     (* Optimisation: return immediately, if possible, rather than
                        jumping and then returning. This may turn the following
                        unconditional branch into dead code, in which case it
-                       will be removed by the lower-level code generator.
-                       SPF 25/11/96
-                     *)
+                       will be removed by the lower-level code generator. *)
                     val () =
                        if isEndOfProc tailKind andalso not (haveExited transtable)
                        then codeGenerate(exit (), cvec)
@@ -984,61 +1001,53 @@ struct
                                 codeGenerate(removeStackEntry (transtable, defaultIndex), cvec)
                         |   NoMerge => ()
                 in
-                    lab
+                    val exitDefault = lab
                 end
 
                 (* Generate the cases. *)
-                fun genCases ((caseExp, caseLabel: word) :: cps) ccl =
-                let
-                    val (caseAddr, startCode) = startCase (transtable, startOfCase)
-                    val () = codeGenerate(startCode, cvec)
-                    val mark = markStack transtable
-
-                    (* For each case label make an entry in the list.  Add
-                      new entries at the beginning. *)
-                    val newCaseList = constrCases(caseLabel, caseAddr) :: ccl;
-
-                    (* Generate this case and exit if tail-recursive. *)
-                    val expResult =
-                        genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
-
-                    val () =
-                        if isEndOfProc tailKind andalso not (haveExited transtable)
-                        then codeGenerate(exit (), cvec)
-                        else ();
-                in
-                    if null cps
-                    then
-                    (
-                        (*  Finished. *)
-                        codeGenerate(
-                            fillJumpTable {tableAddr=caseInstr, cases=newCaseList, default=defaultCase,
-                                           min=min, max=max}, cvec);
-                        expResult (* Last expression. *)
-                    )
-                    else
+                fun genCases(indexVal, label :: labelList, (caseExp, caseLabel) :: cps) =
+                    if indexVal <> caseLabel
+                    then (* We have a hole.  Skip this item. *)
+                        genCases(indexVal+0w1, labelList, (caseExp, caseLabel) :: cps)
+                    else (* The index value corresponds to a label. *)
                     let
-                        val (lab, branchCode) = unconditionalBranch (expResult, transtable)
-                        val () = codeGenerate(branchCode, cvec)
+                        val startCode = fixup(makeLabels(NoMerge, label, startOfCase), transtable)
+                        val () = codeGenerate(startCode, cvec)
+                        val mark = markStack transtable
+
+                        (* Generate this case and exit if tail-recursive. *)
+                        val expResult =
+                            genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
 
                         val () =
-                            case expResult of
-                                MergeIndex expIndex =>
-                                    codeGenerate(removeStackEntry(transtable, expIndex), cvec)
-                            |   NoMerge => ();
-
-                        val lastResult = genCases cps newCaseList;
-                        val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
-                            merge (lab, transtable, lastResult, mark)
-                        val () = codeGenerate(mergeCode, cvec)
+                            if isEndOfProc tailKind andalso not (haveExited transtable)
+                            then codeGenerate(exit (), cvec)
+                            else ();
                     in
-                        mergeRes
-                    end
-                end
-                | genCases [] _ = 
-                    raise InternalError "genCase - null case list"; (* genCases *)
+                        if null cps
+                        then (*  Finished. *) expResult (* Last expression. *)
+                        else
+                        let
+                            val (lab, branchCode) = unconditionalBranch (expResult, transtable)
+                            val () = codeGenerate(branchCode, cvec)
 
-                val caseResult = genCases cases []
+                            val () =
+                                case expResult of
+                                    MergeIndex expIndex =>
+                                        codeGenerate(removeStackEntry(transtable, expIndex), cvec)
+                                |   NoMerge => ();
+
+                            val lastResult = genCases(indexVal+0w1, labelList, cps)
+                            val (mergeRes, mergeCode) = (* Now fix up the exit label. *)
+                                merge (lab, transtable, lastResult, mark)
+                            val () = codeGenerate(mergeCode, cvec)
+                        in
+                            mergeRes
+                        end
+                    end
+                | genCases _ = raise InternalError "genCase - null case list"
+
+                val caseResult = genCases(min, caseLabels, cases)
                 val (mergeRes, mergeCode) = merge (exitDefault, transtable, caseResult, mark)
                 val () = codeGenerate(mergeCode, cvec)
             in

@@ -89,8 +89,6 @@ sig
 
     val mkLabel: unit -> label
 
-    type cases = word * label
-
     datatype indexType =
         NoIndex | Index1 of reg | Index2 of reg | Index4 of reg | Index8 of reg
 
@@ -145,11 +143,7 @@ sig
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
     |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of
-            { testReg: reg, workReg: reg, minCase: word, maxCase: word,
-              isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
-    |   FillJumpTable of
-            { tableAddr: addrs ref, cases: cases list, default: label, min: word, max: word }
+    |   IndexedCase of { testReg: reg, workReg: reg, min: word, cases: label list }
     |   FreeRegisters of RegSet.regSet
     |   MakeSafe of reg
     |   RepeatOperation of repOps

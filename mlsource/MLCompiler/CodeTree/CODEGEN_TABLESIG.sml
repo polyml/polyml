@@ -34,6 +34,7 @@ sig
     type regSet
     type operation
     type loopPush
+    type forwardLabel
     type backwardLabel
 
     val ttabCreate: int * Universal.universal list -> ttab
@@ -97,6 +98,7 @@ sig
     datatype mergeResult = NoMerge | MergeIndex of stackIndex;
 
     val unconditionalBranch: mergeResult * ttab -> labels * operation list
+    val makeLabels: mergeResult * forwardLabel * savedState -> labels
     val jumpBack: backwardLabel * ttab -> operation list
 
     val fixup: labels * ttab -> operation list
@@ -118,7 +120,6 @@ sig
     val compareAndBranch: stackIndex list * negotiateTests * ttab -> labels * operation list
 
     val saveState : ttab -> savedState
-    val startCase : ttab * savedState -> backwardLabel * operation list
     val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
     val restoreLoopState: ttab * savedState * regSet * loopPush list -> operation list
 
@@ -160,6 +161,7 @@ sig
         and  regHint    = regHint
         and  argdest    = argdest
         and  loopPush   = loopPush
+        and  forwardLabel = forwardLabel
         and  backwardLabel = backwardLabel
     end
 end;

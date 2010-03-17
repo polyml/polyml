@@ -1998,11 +1998,7 @@ Calling conventions:
         (* Some of these operations are higher-level and should be reduced. *)
     |   LoadHandlerAddress of { handlerLab: addrs ref, output: reg }
     |   StartHandler of { handlerLab: addrs ref }
-    |   IndexedCase of
-            { testReg: reg, workReg: reg, minCase: word, maxCase: word,
-              isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref }
-    |   FillJumpTable of
-            { tableAddr: addrs ref, cases: cases list, default: label, min: word, max: word }
+    |   IndexedCase of { testReg: reg, workReg: reg, min: word, cases: label list }
     |   FreeRegisters of regSet
     |   MakeSafe of reg
     |   RepeatOperation of repOps
@@ -2196,13 +2192,15 @@ Calling conventions:
                 stream "LoadHandlerAddress"
         |   StartHandler { handlerLab=_ } =>
                 stream "StartHandler"
-        |   IndexedCase
-                { testReg=_, workReg=_, minCase=_, maxCase=_,
-                  isArbitrary=_, isExhaustive=_, tableAddrRef=_ } =>
-                stream "IndexedCase"
-        |   FillJumpTable
-                { tableAddr=_, cases=_, default=_, min=_, max=_ } =>
-                stream "FillJumpTable"
+        |   IndexedCase { testReg, workReg, min, cases } =>
+            (
+                stream "IndexedCase "; printReg testReg; stream " with "; printReg workReg;
+                stream "\n";
+                List.foldl(fn(Labels{labId=ref lab, ...}, v) =>
+                    (stream(Word.toString v); stream " => L"; stream(Int.toString lab); stream "\n"; v+0w1))
+                    min cases;
+                ()
+            )
         |   FreeRegisters regs => (stream "FreeRegister "; stream(regSetRepr regs))
         |   MakeSafe reg => ( stream "MakeSafe "; printReg reg)
         |   RepeatOperation repOp => (stream "Repeat "; stream(repOpsRepr repOp))
@@ -2266,55 +2264,14 @@ Calling conventions:
        the indexed jump at the expense of doubling the size of the table
        itself.  *)
  
-    type caseList = cases list;
-
-    fun indexedCase (r1:reg, r2:reg, min:word, max:word, testArbitrary, isExhaustive,
-                     cvec as Code{exited, ic, ...}) =
+    fun indexedCase (r1:reg, r2:reg, min:word, cases, cvec as Code{exited, ic, ...}) =
     let
-        (* Typically, an indexed case will arise from an ML case expression on
-           values of a datatype although it could arise from an int.  If it
-           comes from a datatype it is likely to be almost exhaustive, "almost"
-           because the last case to be written is treated as the default.  We
-           can't actually find this out, though, because the value constructors
-           are essentially opaque and it is only the later phases of the
-           optimiser that can put together the constructor discrimination into
-           the CASE instruction.  *)
-        val taggedMin = tag(Word.toInt min);
-        val taggedMax = tag(Word.toInt max);
-        
-        val rangeCheck =
-            if isExhaustive then []
-            else
-            let
-                val l1 =
-                    (* If we are testing ints we need to check that the values are
-                       short.  If we're testing word values, including datatype tags,
-                       we don't need this. *)
-                    if testArbitrary
-                    then
-                    (
-                        testTag(r1, cvec);
-                        (* Need to check whether the branch is in range. *)
-                        [putConditional (JE, cvec)]
-                    )
-                    else []
-
-                (* Compare with the minimum. *)
-                val () = genImmed(CMP, r1, taggedMin, cvec);
-                val l2 = putConditional (JL, cvec);
-          
-                (* Compare with the maximum. *)
-                val () = genImmed(CMP, r1, taggedMax, cvec);
-                val l3 = putConditional (JG, cvec)
-            in
-               l1 @ [l2, l3]
-            end
-      
-        val lab = ref addrZero;
+        val startJumpTable = ref addrZero
+        val nCases = List.length cases
     in
         (* Load the address of the jump table. *)
         genop  (MOVL_32_R r2, cvec);
-        addConstToVec (HVal lab, false, cvec);
+        addConstToVec (HVal startJumpTable, false, cvec);
         (* Compute the jump address.  The index is a tagged
            integer so it is already multiplied by 2.  We need to
            multiply by four to get the correct size. We subtract off
@@ -2332,62 +2289,29 @@ Calling conventions:
            the "out of range" checks.  The code to do that doesn't know
            that all these branches will come to the same point so will generate three
            separate long branches. We could combine them but it's hardly worth it. *)
-        doPending (cvec,
-            (Word.toInt max - Word.toInt min + 1) * 8 (* size of table. *) + 3 (* Maximum alignment *));
+        doPending (cvec, nCases * 8 (* size of table. *) + 3 (* Maximum alignment *));
     
         (* The start address must be on a two byte boundary so that the
            address we've loaded is a valid code address. *)
         while (!ic) mod 0w4 <> 0w2 do genop (NOP, cvec);
 
         let
-            fun initialiseTable i =
-            if i > max then () (* Done *)
-            else
+            fun addJump(Labels{forward, reverse=ref reverse, ...}) =
             (
+                reverse = addrUnsetLabel orelse raise InternalError "addJump";
                 gen8u (opToInt JMP_32, cvec);
                 gen32u (0w0, cvec);
+                forward := [ref(Jump32From (!ic addrPlus ~4))]  @ ! forward;
                 (* Add no-ops to make it 8 bytes. *)
                 gen8u (opToInt NOP, cvec);
                 gen8u (opToInt NOP, cvec);
-                gen8u (opToInt NOP, cvec);
-                initialiseTable (i+0w1)
+                gen8u (opToInt NOP, cvec)
             )
-            val here = !ic;
         in
-            lab := here;
-            initialiseTable min;
-            fixup (rangeCheck, cvec); (* The default case comes in here. *)
-            here
+            startJumpTable := !ic;
+            List.app addJump cases
         end
     end;
-
-    fun makeJumpTable (startTab: addrs, cl:caseList, default:addrs, 
-                     min : word, max : word, Code{codeVec, ...}) : unit =
-    let
-        fun putCase i addr =
-        let
-            val addrOfJmp = startTab addrPlus (Word.toInt((i - min) * 0w8))
-            val jumpOffset = (addr addrMinus addrOfJmp) - 5 (* From end of instr. *)
-        in
-            set32s(jumpOffset, addrOfJmp addrPlus 1, codeVec)
-        end
-
-        (* Initialise to the default. *)
-        fun putInDefaults i =
-            if i <= max
-            then (putCase i default; putInDefaults(i+0w1))
-            else ()
-
-        (* Overwrite the defaults by the cases.  N.B.  We've generated
-           the list in reverse order so if we have any duplicates we
-           will correctly overwrite the later cases with earlier ones. *)
-        fun putInCases [] = ()
-        |   putInCases ((i, Labels{reverse=a, ...}) :: t) = (putCase i (! a); putInCases t)
-        
-    in
-        putInDefaults min;
-        putInCases cl
-    end
 
     fun printLowLevelCode(ops, Code{printAssemblyCode, printStream, procName, ...}) =
         if printAssemblyCode
@@ -3055,18 +2979,10 @@ Calling conventions:
 
         |   cgOp(StartHandler{ handlerLab } :: remainder) = (fixupHandler(handlerLab, code);  cgOp remainder)
 
-        |   cgOp(IndexedCase { testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive, tableAddrRef } :: remainder) =
+        |   cgOp(IndexedCase { testReg, workReg, min, cases } :: remainder) =
             (
                 checkSources[testReg]; addDests[workReg]; (* Check workReg is free? *)
-                tableAddrRef := indexedCase(testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive, code);
-                cgOp remainder
-            )
-
-        |   cgOp(FillJumpTable{ tableAddr=ref tableAddr, cases,
-                                default=Labels{reverse=ref default, uses=ref uses, ...}, min, max } :: remainder) =
-            (
-                uses > 0 orelse raise InternalError "BackJumpLabel";
-                makeJumpTable(tableAddr, cases, default, min, max, code);
+                indexedCase(testReg, workReg, min, cases, code);
                 cgOp remainder
             )
 

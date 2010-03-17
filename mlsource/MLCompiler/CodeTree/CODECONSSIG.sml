@@ -163,11 +163,6 @@ sig
 
     val procName:   code -> string      (* Name of the procedure. *)
 
-    type cases
-
-    val constrCases : word * backwardLabel -> cases
-
-
     type operation
     type operations = operation list
 
@@ -199,9 +194,7 @@ sig
     val startHandler: { handlerLab: addrs ref } -> operations
     val indexedCase:
             { testReg: reg, workReg: reg, minCase: word, maxCase: word,
-              isArbitrary: bool, isExhaustive: bool, tableAddrRef: addrs ref } -> operations
-    val fillJumpTable:
-            { tableAddr: addrs ref, cases: cases list, default: backwardLabel, min: word, max: word } -> operations
+              isArbitrary: bool, isExhaustive: bool } -> operations * forwardLabel list * forwardLabel
     val activeRegister: reg -> operations
     val freeRegister: reg -> operations
     val pushToReserveSpace: operations
