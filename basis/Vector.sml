@@ -110,7 +110,7 @@ struct
     let
         val v = vecAsWord vec
     in
-        if i < 0 orelse i >= wordAsInt(System_length v)
+        if not (LibrarySupport.isShortInt i) orelse intAsWord i >= System_length v
         then raise General.Subscript
         else RunCall.unsafeCast(System_loadw (v, intAsWord i))
     end
