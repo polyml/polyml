@@ -364,7 +364,7 @@ struct
                 case unaryCount of
                     0 => (* All are nullary. *)
                     let
-                        val maxTag = Word.fromInt(List.length l)
+                        val maxTag = Word.fromInt(List.length l)-0w1 (* Largest no is length-1 *)
                         fun createRepr(_, []) = []
                         |   createRepr(n, (_, name) :: t) =
                                 createNullaryConstructor(EnumForm{tag=n, maxTag=maxTag}, tvs, name) :: createRepr (n + 0w1, t)
@@ -407,7 +407,7 @@ struct
                         (* With this representation constructors of small tuples make tuples of
                          size n+1 whose first word is the tag.  Nullary constructors are represented
                          by single word objects containing the tag. *)
-                        val maxTag = Word.fromInt(List.length l)
+                        val maxTag = Word.fromInt(List.length l) - 0w1 (* Largest no is length - 1 *)
 
                         fun chooseOptimisedRepr2(_, _, []) = []
                         |   chooseOptimisedRepr2(n, tvs, h :: t) = 
@@ -424,7 +424,7 @@ struct
                                                 val () = lock vec;
                                             in
                                                 ConstForm{value=toMachineWord vec, maxTag=maxTag}
-                                            end;
+                                            end
                                         in
                                             createNullaryConstructor(genConstForm n, tvs, name)
                                         end
