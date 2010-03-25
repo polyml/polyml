@@ -100,7 +100,7 @@ struct
     fun a addrMinus b = Word.toInt a - Word.toInt b
   
     val addrZero = 0w0;
-    val addrLast = 0w0 - 0w1 (* A big number. *)
+    val addrLast = wordsToBytes maxAllocation (* A large address. *)
     val addrUnsetLabel = addrLast (* An invalid address *)
 
     (* The "value" points at the jump instruction, or rather at the
