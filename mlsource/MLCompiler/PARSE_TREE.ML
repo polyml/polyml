@@ -4886,7 +4886,7 @@ struct
       
       
         fun genExnConstrs ([]:consrec list)= 
-             (* Process the feualt matches, if any. *)
+             (* Process the default matches, if any. *)
             othermatches(activeDefaults, default, declEnv)
           
         |   genExnConstrs ({patts, constructor, appliedTo, ...}:: ps) =
@@ -5168,7 +5168,7 @@ struct
         val uses = IntArray.array (noOfPats, 0);
 
         (* Set to false if we find it is not exhaustive. *)
-        val exhaustive = ref true;
+        val exhaustive = ref true
 
         (* Make some code to insert at defaults. *)
         val codeDefault : unit -> patcode =
@@ -5441,20 +5441,32 @@ struct
         | Unit _ => (* Use zero.  It is possible to have () = (). *)
             CodeZero : codetree
 
-        | List{elements, ...} =>
-          let  (* Construct a list. *)
-            (* At the end of the list put a "nil" *)
-            fun consList []       = CodeZero
-              | consList (h :: t) =
-              let
-                val H = codegen (h, context);
-                val T = consList t;
-              in
-                mkTuple [H,T]
-              end (* consList*);
-          in
-            consList elements : codetree
-          end
+        |   List{elements, expType = ref listType, location, ...} =>
+            let (* Construct a list.  We need to apply the constructors appropriate to the type. *)
+                val baseType =
+                    case listType of
+                        TypeConstruction{args=[baseType], ...} => baseType
+                    |   _ => raise InternalError "List: bad element type"
+                val consType = mkFunctionType(mkProductType[baseType, listType], listType)
+                fun consList [] =
+                    let (* "nil" *)
+                        val polyVars = getPolymorphism (nilConstructor, listType, typeVarMap)
+                        fun getConstr level =
+                            ValueConstructor.extractInjection(
+                                codeVal (nilConstructor, level, typeVarMap, [], lex, location))
+                    in
+                        applyToInstance(polyVars, level, typeVarMap, getConstr)
+                    end
+                |   consList (h::t) =
+                    let (* :: *)
+                        val H = codegen (h, context) and T = consList t
+                        val polyVars = getPolymorphism (consConstructor, consType, typeVarMap)
+                    in
+                        applyFunction (consConstructor, mkTuple [H,T], level, typeVarMap, polyVars, lex, location)
+                    end
+            in
+                consList elements : codetree
+            end
 
         | Constraint {value, ...} => codegen (value, context) (* code gen. the value *)
 
