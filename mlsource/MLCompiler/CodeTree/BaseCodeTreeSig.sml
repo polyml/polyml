@@ -39,18 +39,18 @@ sig
     
     |  AltMatch of codetree * codetree(* Pattern-match alternative choices *)
 
-    | Declar of (* Make a local declaration or push an argument *)
+    |   Declar of (* Make a local declaration or push an argument *)
         { (* Declare a value or push an argument. *)
             value:      codetree,
             addr:       int,
             references: int
         }
      
-    | Newenv of codetree list (* Start a block *)
+    |   Newenv of codetree list (* Start a block *)
 
-    | Constnt of machineWord (* Load a constant *)
+    |   Constnt of machineWord (* Load a constant *)
 
-    | Extract of (* Get a local variable, an argument or a closure value *)
+    |   Extract of (* Get a local variable, an argument or a closure value *)
         { (* Load a value. *)
             addr : int, 
             level: int, 
@@ -58,13 +58,10 @@ sig
             lastRef: bool
         }
     
-    | Indirect of 
-        { (* Load a value from a heap record *)
-            base:   codetree,
-            offset: int
-        }
-    
-    | Eval of (* Evaluate a function with an argument list. *)
+    |   Indirect of {base: codetree, offset: int }
+        (* Load a value from a heap record *)
+
+    |   Eval of (* Evaluate a function with an argument list. *)
         {
             function:  codetree,
             argList:   (codetree * argumentType) list,
@@ -72,7 +69,7 @@ sig
             earlyEval: bool
         }
     
-    | Lambda of (* Lambda expressions. *)
+    |   Lambda of (* Lambda expressions. *)
         { (* Lambda expressions. *)
             body          : codetree,           (* The body of the function. *)
             isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
@@ -87,11 +84,11 @@ sig
             argLifetimes  : int list            (* Lifetime data for arguments.  Added by preCode. *)
         }
     
-    | MutualDecs of codetree list (* Set of mutually recursive declarations. *)
+    |   MutualDecs of codetree list (* Set of mutually recursive declarations. *)
 
-    | Cond of codetree * codetree * codetree (* If-statement *)
+    |   Cond of codetree * codetree * codetree (* If-statement *)
 
-    | Case of (* Case expressions *)
+    |   Case of (* Case expressions *)
         {
             cases   : (codetree * word) list,
             test    : codetree,
@@ -99,42 +96,44 @@ sig
             default : codetree
         }
     
-    | BeginLoop of (* Start of tail-recursive inline function. *)
+    |   BeginLoop of (* Start of tail-recursive inline function. *)
         { loop: codetree, arguments: (codetree * argumentType) list }
 
-    | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
+    |   Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    | KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
+    |   KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
 
-    | Raise of codetree (* Raise an exception *)
+    |   Raise of codetree (* Raise an exception *)
 
-    | Ldexc (* Load the exception (used at the start of a handler) *)
+    |   Ldexc (* Load the exception (used at the start of a handler) *)
     
-    | Handle of (* Exception handler *)
-    { (* Exception handler. *)
-        exp      : codetree,
-        taglist  : codetree list,
-        handler  : codetree
-    }
+    |   Handle of (* Exception handler *)
+        { (* Exception handler. *)
+            exp      : codetree,
+            taglist  : codetree list,
+            handler  : codetree
+        }
     
-    | Recconstr of codetree list (* Records (tuples) *)
+    |   Recconstr of codetree list (* Records (tuples) *)
 
-    | Container of int (* Create a container for a tuple on the stack. *)
+    |   Container of int (* Create a container for a tuple on the stack. *)
     
-    | SetContainer of (* Copy a tuple to a container. *)
-    {
-        container: codetree,
-        tuple:     codetree,
-        size:      int
-    }
+    |   SetContainer of { container: codetree, tuple: codetree, size: int}
+         (* Copy a tuple to a container. *)
     
-    | TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
+    |   TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
 
-    | TagTest of { test: codetree, tag: word, maxTag: word }
+    |   TagTest of { test: codetree, tag: word, maxTag: word }
 
-    | Global of optVal (* Global value *)
+    |   IndirectVariable of { base: codetree, offset: codetree }
+        (* Similar to Indirect except the offset is a variable. *)
 
-    | CodeNil
+    |   TupleVariable of varTuple list * codetree (* total length *)
+        (* Construct a tuple using one or more multi-word items. *)
+
+    |   Global of optVal (* Global value *)
+
+    |   CodeNil
     
     and optVal = (* Global values - Also used in the optimiser. *)
         JustTheVal of codetree
@@ -160,6 +159,11 @@ sig
         CaseInt
     |   CaseWord
     |   CaseTag of word
+
+    and varTuple =
+        VarTupleSingle of { source: codetree, destOffset: codetree }
+    |   VarTupleMultiple of
+            { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
 
     (* Return the "size" of the codetree used as a way of estimating whether to insert
        the body inline.  If the bool is true this includes the size of sub-functions

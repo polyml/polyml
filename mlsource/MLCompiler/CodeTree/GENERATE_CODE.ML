@@ -1249,6 +1249,13 @@ struct
                 end
             end
 
+
+        |   IndirectVariable{ base=_, offset=_, ... } =>
+                raise InternalError "TODO: IndirectVariable"
+
+        |   TupleVariable(_(* varList*), _(* length *)) =>
+                raise InternalError "TODO: TupleVariable"
+
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
 

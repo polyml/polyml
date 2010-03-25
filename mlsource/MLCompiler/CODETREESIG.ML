@@ -26,6 +26,11 @@ sig
     datatype argumentType =
         GeneralType
     |   FloatingPtType
+
+    datatype varTuple =
+        VarTupleSingle of { source: codetree, destOffset: codetree }
+    |   VarTupleMultiple of
+            { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
  
     val isCodeNil:          codetree -> bool;
     val CodeNil:            codetree; (* Empty codetree NOT the code for "nil" *)
@@ -70,8 +75,11 @@ sig
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: codetree * int -> codetree
     val mkTagTest:          codetree * word * word -> codetree
+    val mkIndirectVariable: { base: codetree, offset: codetree } -> codetree
+    val mkTupleSlice:       { base: codetree, offset: codetree, length: codetree } -> codetree
+    val mkTupleVariable:    varTuple list * codetree -> codetree
 
-    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list};
+    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list}
 
     val pretty:    codetree -> pretty;
     val evalue:    codetree -> machineWord option

@@ -158,14 +158,10 @@ struct
       | optRec     _ = ref false; (* Generate a temporary. *)
   
     val simpleOptVal : codetree -> optVal = JustTheVal;
-    
-    fun optVal (ov as {general, special, decs, ...}) : optVal =
-      if isCodeNil special
-      then
-        case decs of 
-          [] => JustTheVal general
-        | _  => ValWithDecs {general = general, decs = decs}
-          else OptVal ov;
+
+    fun optVal{special=CodeNil, decs=[], general, ...} = JustTheVal general
+    |   optVal{special=CodeNil, decs, general, ...} = ValWithDecs {general = general, decs = decs}
+    |   optVal ov = OptVal ov
 
   (* gets a value from the run-time system *)
   val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
@@ -372,6 +368,15 @@ struct
   fun mkStr (strbuff:string) = mkConst (toMachineWord strbuff);
 
   val mkContainer  = Container
+
+    val mkIndirectVariable = IndirectVariable
+    and mkTupleVariable = TupleVariable
+
+    (* Construct a new tuple from a sub-section of an existing one. *)
+    fun mkTupleSlice{ base, offset, length } =
+        TupleVariable(
+            [VarTupleMultiple{base=base, length=length, destOffset=CodeZero, sourceOffset=offset}],
+            length)
 
   (* If we have multiple references to a piece of code we may have to save
      it in a temporary and then use it from there. If the code has side-effects
@@ -624,6 +629,18 @@ struct
            container even if it isn't used.  *)
 
     | sideEffectFree(TupleFromContainer(c, _)) = sideEffectFree c
+
+    | sideEffectFree(IndirectVariable{base, ...}) =
+            (* Offset is always side-effect free. *)
+            sideEffectFree base
+
+    | sideEffectFree(TupleVariable(vars, _ (* length - always side-effect free *))) =
+        let
+            fun testTuple(VarTupleSingle{source, ...}) = sideEffectFree source
+            |   testTuple(VarTupleMultiple{base, ...}) = sideEffectFree base
+        in
+            List.all testTuple vars
+        end
 
     | sideEffectFree _ = false
              (* Rest are unsafe (or too rare to be worth checking) *)
@@ -1355,7 +1372,23 @@ DCJM 2000.
                          default=addKillSet(insDefault, hd kills)}
                 end
 
-            |   insert _ = raise InternalError "unknown instruction"
+            |   insert(IndirectVariable{base, offset}) =
+                    IndirectVariable{base=insert base, offset=insert offset}
+
+            |   insert(TupleVariable(vars, length)) =
+                let
+                    fun insertTuple(VarTupleSingle{source, destOffset}) =
+                            VarTupleSingle{source=insert source, destOffset=insert destOffset}
+                    |   insertTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
+                            VarTupleMultiple{base=insert base, length=insert length,
+                                             destOffset=insert destOffset, sourceOffset=insert sourceOffset}
+                in
+                    TupleVariable(mapright insertTuple vars, insert length)
+                end
+
+            |   insert(Declar _) = raise InternalError "insert:Declar"
+            |   insert(MutualDecs _) = raise InternalError "insert:MutualDecs"
+            |   insert(KillItems _) = raise InternalError "insert:KillItems"
 
           and copyCond (condTest, condThen, condElse) =
             let
@@ -1759,7 +1792,39 @@ DCJM 2000.
 
             |   insert(TagTest{test, tag, maxTag}) = TagTest{test=insert test, tag=tag, maxTag=maxTag}
 
-            |   insert _ = raise InternalError "unknown instruction"
+            |   insert(IndirectVariable{base, offset, ...}) =
+                (* Convert this into a Load instruction. *)
+                    insert(mkEval(rtsFunction POLY_SYS_load_word, [base, offset], false))
+
+            |   insert(TupleVariable(vars, length)) =
+                (* Convert this into a set of RTS calls.  This currently uses POLY_SYS_alloc_store
+                   which initialises the store before the copy operations.  It may be possible to
+                   avoid this duplication somehow. *)
+                let
+                    val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
+                    val mutableFlags = Word8.orb(F_words, F_mutable)
+                    val allocTuple =
+                        mkDec(newAddr,
+                            mkEval(rtsFunction POLY_SYS_alloc_store,
+                                [insert length, mkConst (toMachineWord mutableFlags), CodeZero], false)
+                        )
+                    fun copyTuple(VarTupleSingle{source, destOffset}) =
+                            mkEval(rtsFunction POLY_SYS_assign_word,
+                                [mkLoad(newAddr, 0), insert destOffset, insert source], false)
+                    |   copyTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
+                            mkEval(rtsFunction POLY_SYS_move_words,
+                                [insert base, insert sourceOffset, mkLoad(newAddr, 0),
+                                 insert destOffset, insert length], false)
+                    (* Remove the mutable bit (needed by alloc_store). *)
+                    val lock = mkEval(rtsFunction POLY_SYS_lockseg, [mkLoad(newAddr, 0)], false)
+                 in
+                    mkEnv(allocTuple :: (mapright copyTuple vars @ [lock, mkLoad(newAddr, 0)]))
+                end
+
+            |   insert(Declar _) = raise InternalError "insert:Declar"
+            |   insert(MutualDecs _) = raise InternalError "insert:MutualDecs"
+            |   insert(Case _) = raise InternalError "insert:Case"
+            |   insert(KillItems _) = raise InternalError "insert:KillItems"
 
           and copyCond (condTest, condThen, condElse) =
             let
@@ -2362,6 +2427,20 @@ DCJM 2000.
          |  cleanCode (TagTest{test, tag, maxTag}) =
                 TagTest{test=cleanCode test, tag=tag, maxTag=maxTag}
 
+         |  cleanCode(IndirectVariable{base, offset}) =
+                IndirectVariable{base=cleanCode base, offset=cleanCode offset}
+
+         |  cleanCode(TupleVariable(vars, length)) =
+            let
+                fun cleanTuple(VarTupleSingle{source, destOffset}) =
+                        VarTupleSingle{source=cleanCode source, destOffset=cleanCode destOffset}
+                |   cleanTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
+                        VarTupleMultiple{base=cleanCode base, length=cleanCode length,
+                                         destOffset=cleanCode destOffset, sourceOffset=cleanCode sourceOffset}
+            in
+                TupleVariable(map cleanTuple vars, cleanCode length)
+            end
+
          |  cleanCode (Declar _) = raise InternalError "cleanCode: Declar"
 
          |  cleanCode (MutualDecs _) = raise InternalError "cleanCode: MutualDecs"
@@ -2426,29 +2505,33 @@ DCJM 2000.
             (* The code we produce in these inline functions is very limited. *)
                raise InternalError "changeL: Unknown code"
 
-      in
-      case optGeneral entry of
-        gen as Extract _ =>
-          optVal 
-            {
-              general = changeL(gen, 0),
-              special = optSpecial entry,
-              environ = optEnviron entry,
-              decs    = [],
-              recCall = optRec entry
-            }
-        | Constnt _ => entry
-        | gen as Lambda _ =>
-            optVal {
-              general = changeL(gen, 0),
-              special = optSpecial entry,
-              environ = optEnviron entry,
-              decs    = [],
-              recCall = optRec entry
-            }
+    in
+        case optGeneral entry of
+            gen as Extract _ =>
+                optVal 
+                {
+                    general = changeL(gen, 0),
+                    special = optSpecial entry,
+                    environ = optEnviron entry,
+                    decs    = [],
+                    recCall = optRec entry
+                }
+
+        |   Constnt _ => entry
+
+        |   gen as Lambda _ =>
+                optVal
+                {
+                    general = changeL(gen, 0),
+                    special = optSpecial entry,
+                    environ = optEnviron entry,
+                    decs    = [],
+                    recCall = optRec entry
+                }
+            
         | _ => raise InternalError "changeLevel: Unknown entry"
-       end
-  (* end changeLevel *);
+    end
+  (* end changeLevel *)
 
 (*****************************************************************************)
 (*                  optimiseProc                                             *)
@@ -2498,111 +2581,171 @@ DCJM 2000.
        
     fun newDecl (setTab, ins, addrs, pushProc) : codetree list =
     let
-      val gen  = optGeneral ins;
+        val gen  = optGeneral ins;
     in
-      case gen of
-        Constnt _ => 
-          let (* No need to generate code. *)
-            val spec = optSpecial ins;
-            val ov = 
-              (* If it is a non-inline procedure it must be declared. *)
-              case (spec, pushProc) of
-                (Lambda{isInline=NonInline, ...}, true) => simpleOptVal gen
-              | _ => stripDecs ins  (* Remove the declarations before entering it. *)
-            val () = setTab (addrs, ov);
-          in
-            (* Just return the declarations. *)
-            optDecs ins 
-          end
+        case gen of
+            Constnt _ => 
+            let (* No need to generate code. *)
+                val spec = optSpecial ins
+                val ov = 
+                    (* If it is a non-inline procedure it must be declared. *)
+                    case (spec, pushProc) of
+                        (Lambda{isInline=NonInline, ...}, true) => simpleOptVal gen
+                    |   _ => stripDecs ins  (* Remove the declarations before entering it. *)
+                val () = setTab (addrs, ov)
+            in
+                (* Just return the declarations. *)
+                optDecs ins 
+            end
 
-       | Extract { level = 0, ...} =>
-          let
-            (* Declaration is simply giving a new name to a local
-               - can ignore this declaration. *) 
-            val optVal = stripDecs ins (* Simply copy the entry.  *)
-            val () = setTab (addrs, optVal);
-          in
-            optDecs ins
-          end
+        |   Extract { level = 0, ...} =>
+            let
+                (* Declaration is simply giving a new name to a local
+                   - can ignore this declaration. *) 
+                val optVal = stripDecs ins (* Simply copy the entry.  *)
+                val () = setTab (addrs, optVal)
+            in
+                optDecs ins
+            end
 
-(* old ...
-      else if isIndirect gen
-      then let
-        (* It is safe to defer an indirection if we can. For instance,
-           in ML fun f (a as (b,c)) will generate declarations of b and c
-           as indirections on a. If b and c are not used immediately there
-           is no point in loading them  (it only uses up the registers).
-           Once they are actually used they will be loaded into registers
-           and those registers will be cached by the normal register caching
-           scheme, so that if used again soon after they will not be
-           reloaded. *)
-        val ind = cIndirect gen;
-        fun optSetTab (i, v) =
-      setTab
-        (i,
-         optVal 
-           { (* Add on the indirection. *)
-         general = mkInd (indOffset ind, optGeneral v),
-         special = optSpecial v,
-         environ = optEnviron v,
-         decs    = optDecs v
-           });
-      in
-        (* Take off the indirection from the value to be declared and add
-           it to the load instruction. This causes the indirection to be
-           deferred until the value is actually used. *)
-        newDecl
-          (optSetTab,
-       optVal 
-         {
-           general = indBase ind,
-           special = optSpecial ins,
-           environ = optEnviron ins,
-           decs    = optDecs ins
-         },
-           addrs,
-           pushProc)
-      end
-... *)
+            (* This next case was commented out by AHL.  It could probably be reinstated. *)
+(*        |   Indirect {base, offset} =>
+            let
+                (* It is safe to defer an indirection if we can. For instance,
+                   in ML fun f (a as (b,c)) will generate declarations of b and c
+                   as indirections on a. If b and c are not used immediately there
+                   is no point in loading them  (it only uses up the registers).
+                   Once they are actually used they will be loaded into registers
+                   and those registers will be cached by the normal register caching
+                   scheme, so that if used again soon after they will not be
+                   reloaded. *)
+                fun optSetTab (i, v) =
+                    setTab
+                    (i,
+                    optVal 
+                    { (* Add on the indirection. *)
+                        general = mkInd (offset, optGeneral v),
+                        special = optSpecial v,
+                        environ = optEnviron v,
+                        decs    = optDecs v,
+                        recCall = optRec v
+                    })
+            in
+                (* Take off the indirection from the value to be declared and add
+                   it to the load instruction. This causes the indirection to be
+                   deferred until the value is actually used. *)
+                newDecl(optSetTab,
+                    optVal 
+                    {
+                        general = base,
+                        special = optSpecial ins,
+                        environ = optEnviron ins,
+                        decs    = optDecs ins,
+                        recCall = optRec ins
+                    }, addrs, pushProc)
+            end*)
 
-        | _ =>
-          let (* Declare an identifier to have this value. *)
-            val decSpval = ! spval; 
-            val ()       = spval := decSpval + 1 ;
+        |   _ =>
+            let (* Declare an identifier to have this value. *)
+                val decSpval = ! spval; 
+                val ()       = spval := decSpval + 1 ;
             
-            (* The table entry is similar to the result of the expression except
-                that the declarations are taken off and put into the containing
-                block, and the general value is put into a local variable and
-                replaced by an instruction to load from there. If the special
-                is a non-inline procedure it is removed. Non-inline procedures
-                are returned by copyLambda so that they can be inserted inline
-                if they are immediately called (e.g. a catch phrase) but if they
-                are declared they are created as normal procedures. We don't do
-                this for parameters to inline procedures so that lambda-expressions
-                passed to inline procedures will be expanded inline if they are
-                only called inside the inline procedure.
-                e.g. for(..., proc(..)(...)) will be expanded inline. *)
-            val spec = optSpecial ins;
-            val optSpec =
-              case (spec, pushProc) of
-                (Lambda{isInline=NonInline, ...}, true) => CodeNil
-              | _ => spec
+                (* The table entry is similar to the result of the expression except
+                    that the declarations are taken off and put into the containing
+                    block, and the general value is put into a local variable and
+                    replaced by an instruction to load from there. If the special
+                    is a non-inline procedure it is removed. Non-inline procedures
+                    are returned by copyLambda so that they can be inserted inline
+                    if they are immediately called (e.g. a catch phrase) but if they
+                    are declared they are created as normal procedures. We don't do
+                    this for parameters to inline procedures so that lambda-expressions
+                    passed to inline procedures will be expanded inline if they are
+                    only called inside the inline procedure.
+                    e.g. for(..., proc(..)(...)) will be expanded inline. *)
+                val spec = optSpecial ins;
+                val optSpec =
+                    case (spec, pushProc) of
+                        (Lambda{isInline=NonInline, ...}, true) => CodeNil
+                    |   _ => spec
               
-            val optV = 
+                val optV = 
+                    optVal 
+                    {
+                        general = mkLoad (decSpval, 0),
+                        special = optSpec,
+                        environ = optEnviron ins,
+                        decs    = [],
+                        recCall = optRec ins
+                    }
+            
+                val () = setTab (addrs, optV)
+            in
+                optDecs ins @ [mkDecRef(gen, decSpval, 0)]
+            end
+        end (* newDecl *)
+
+    (* Handle an Indirect node or the equivalent in a variable tuple. *)
+    fun doIndirection(source, offset) =
+        case (optSpecial source, optGeneral source) of
+          (spec as Recconstr _, _) =>
+            let
+                (* The "special" entry we've found is a record.  That means that
+                   we are taking a field from a record we made earlier and so we
+                   should be able to get the original code we used when we made
+                   the record.  That might mean the record is never used and
+                   we can optimise away the construction of it completely. The
+                   entry we get back from findEntryInBlock will either be a
+                   constant or a load.  In that case we need to look it up in
+                   the environment we used for the record to give us an optVal.
+                   The previous code in newDecl, commented out by AHL, also put
+                   indirections into the table.  To save having the various cases
+                   in here we simply call optimiseProc which will deal with them.
+                   DCJM 9/1/01. *)
+                val specEntry = findEntryInBlock spec offset;
+                val newCode =
+                 optimiseProc 
+                   {pt=specEntry,
+                    lookupNewAddr=errorEnv, (* We must always look up old addresses. *)
+                    lookupOldAddr=optEnviron source,
+                    enterDec=enterDec, (* should not be used *)
+                    enterNewDec=enterNewDec, (* should not be used *)
+                    nestingOfThisProcedure=nestingOfThisProcedure,
+                    spval=spval,
+                    earlyInline=earlyInline,
+                    evaluate=evaluate,
+                    tailCallEntry=NONE,
+                    recursiveExpansions=recursiveExpansions,
+                    maxInlineSize=maxInlineSize}
+            in
+              optVal 
+                {
+                  general = optGeneral newCode,
+                  special = optSpecial newCode,
+                  environ = optEnviron newCode,
+                  decs    = optDecs source @ optDecs newCode,
+                  recCall = optRec newCode
+                }
+            end
+
+        | (_ , gen as Constnt _ ) => (* General is a constant -  Do the selection now. *)
+            optVal 
+              {
+                general = findEntryInBlock gen offset,
+                special = CodeNil,
+                environ = errorEnv,
+                decs    = optDecs source,
+                recCall = ref false
+              }
+                           
+        | (_, _) => (* No special case possible. *)
               optVal 
             {
-              general = mkLoad (decSpval, 0),
-              special = optSpec,
-              environ = optEnviron ins,
-              decs    = [],
-              recCall = optRec ins
-            };
-            
-            val () = setTab (addrs, optV);
-          in
-            optDecs ins @ [mkDecRef(gen, decSpval, 0)]
-          end
-    end (* newDecl *);
+              general = mkInd (offset, optGeneral source),
+              special = CodeNil,
+              environ = errorEnv,
+              decs    = optDecs source,
+              recCall = ref false
+            }
 
 (*****************************************************************************)
 (*                  optimise (inside optimiseProc)                           *)
@@ -3973,133 +4116,58 @@ DCJM 2000.
           copyDeclarations envDecs
         end (* isNewenv *)
           
-     |  optimise (Recconstr entries, _) =
+    |   optimise (Recconstr entries, _) =
          (* The main reason for optimising record constructions is that they
             appear as tuples in ML. We try to ensure that loads from locally
             created tuples do not involve indirecting from the tuple but can
             get the value which was put into the tuple directly. If that is
             successful we may find that the tuple is never used directly so
             the use-count mechanism will ensure it is never created. *)
-      let
-        val newTab = stretchArray (initTrans, NONE);
-        fun setTab (i, v) = update (newTab, i, SOME v);
-        (* The record construction is treated as a block of local
-           declarations so that any expressions which might have side-effects
-           are done exactly once. *)
-        val allConsts = ref true;
-        
-        fun makeDecs []     _ = {decs = [], gen_args = [], spec_args = []}
-          | makeDecs (h::t) addr =
-          let
-            (* Declare this value. If it is anything but a constant
-              there will be some code. *)
-            val newDecs = newDecl (setTab, optimise(h, NONE), addr, true);
-            val thisArg = valOf (newTab sub addr); (* Get the value back. *)
-            val rest    = makeDecs t (addr + 1);
-            val gen     = optGeneral thisArg;
-            val spec    = optSpecial thisArg;
-            val ()      =
-              if not (isConstnt gen) then allConsts := false else ();
-              
-            val specArgs =
-              if isCodeNil spec andalso isConstnt gen
-              then gen :: #spec_args rest
-              else mkLoad (addr, 0) :: #spec_args rest
-          in
-            {gen_args  = gen :: #gen_args rest,
-             spec_args = specArgs,
-             decs      = newDecs @ #decs rest }
-          end;
+        let
+            val newTab = Array.array(List.length entries+1, NONE)
+            fun setTab (i, v) = Array.update (newTab, i, SOME v);
+            (* The record construction is treated as a block of local
+               declarations so that any expressions which might have side-effects
+               are done exactly once. *)
+            fun makeDecs []     _ = {decs = [], gen = [], spec = []}
+            |   makeDecs (h::t) addr =
+                let
+                    (* Declare this value. If it is anything but a constant
+                       there will be some code. *)
+                    val newDecs = newDecl (setTab, optimise(h, NONE), addr, true)
+                    val thisArg = valOf (Array.sub(newTab, addr)) (* Get the value back. *)
+                    val {decs=restDecs, gen=genRest, spec=specRest} = makeDecs t (addr + 1)
+                    val gen = optGeneral thisArg
+                    (* If there's no "special" and the general is a constant use that for
+                       the special entry otherwise load the original value. *)
+                    val specArg =
+                        case (optSpecial thisArg, gen) of
+                            (CodeNil, Constnt _) => gen
+                        |   _ => mkLoad (addr, 0)
+                in
+                    {gen = gen :: genRest, spec = specArg :: specRest, decs = newDecs @ restDecs }
+                end
           
-        val newDecs = makeDecs entries 1;
-        val newRec  = Recconstr (#gen_args newDecs);
-
-        val gen  = if !allConsts then makeConstVal newRec else newRec;
-        val spec = Recconstr (#spec_args newDecs);
-        
-        val vec = StretchArray.vector newTab
-        
-        fun env ({addr, ...}:loadForm, depth, _) : optVal =
-          changeLevel
-            (valOf (Vector.sub(vec, addr)))
-            (depth - nestingOfThisProcedure)
-      
-      in
-        optVal 
-          {
-            general = gen,
-            special = spec,
-            environ = env,
-            decs    = #decs newDecs,
-            recCall = ref false
-          }
-      end
-          
-      |  optimise (Indirect{ base, offset }, _) =
-     let (* Try to do the selection now if possible. *)
-        val source = optimise(base, NONE)
-      in
-        case (optSpecial source, optGeneral source) of
-          (spec as Recconstr _, _) =>
-            let
-                (* The "special" entry we've found is a record.  That means that
-                   we are taking a field from a record we made earlier and so we
-                   should be able to get the original code we used when we made
-                   the record.  That might mean the record is never used and
-                   we can optimise away the construction of it completely. The
-                   entry we get back from findEntryInBlock will either be a
-                   constant or a load.  In that case we need to look it up in
-                   the environment we used for the record to give us an optVal.
-                   The previous code in newDecl, commented out by AHL, also put
-                   indirections into the table.  To save having the various cases
-                   in here we simply call optimiseProc which will deal with them.
-                   DCJM 9/1/01. *)
-                val specEntry = findEntryInBlock spec offset;
-                val newCode =
-                 optimiseProc 
-                   {pt=specEntry,
-                    lookupNewAddr=errorEnv, (* We must always look up old addresses. *)
-                    lookupOldAddr=optEnviron source,
-                    enterDec=enterDec, (* should not be used *)
-                    enterNewDec=enterNewDec, (* should not be used *)
-                    nestingOfThisProcedure=nestingOfThisProcedure,
-                    spval=spval,
-                    earlyInline=earlyInline,
-                    evaluate=evaluate,
-                    tailCallEntry=NONE,
-                    recursiveExpansions=recursiveExpansions,
-                    maxInlineSize=maxInlineSize}
-            in
-              optVal 
-                {
-                  general = optGeneral newCode,
-                  special = optSpecial newCode,
-                  environ = optEnviron newCode,
-                  decs    = optDecs source @ optDecs newCode,
-                  recCall = optRec newCode
-                }
-            end
-
-        | (_ , gen as Constnt _ ) => (* General is a constant -  Do the selection now. *)
+            val {gen, spec, decs} = makeDecs entries 1
+            val newRec  = Recconstr gen
+            (* Package up the declarations so we can extract the special values. *)
+            val vec = Array.vector newTab
+            fun env ({addr, ...}:loadForm, depth, _) : optVal =
+                changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisProcedure)
+        in
             optVal 
-              {
-                general = findEntryInBlock gen offset,
-                special = CodeNil,
-                environ = errorEnv,
-                decs    = optDecs source,
-                recCall = ref false
-              }
-                           
-        | (_, _) => (* No special case possible. *)
-              optVal 
             {
-              general = mkInd (offset, optGeneral source),
-              special = CodeNil,
-              environ = errorEnv,
-              decs    = optDecs source,
-              recCall = ref false
+                (* If all the general values are constants we can create the tuple now. *)
+                general = if List.all isConstnt gen then makeConstVal newRec else newRec,
+                special = Recconstr spec,
+                environ = env,
+                decs    = decs,
+                recCall = ref false
             }
-      end
+        end
+          
+      |  optimise (Indirect{ base, offset }, _) = (* Try to do the selection now if possible. *)
+            doIndirection(optimise(base, NONE), offset)
        
       |  optimise (pt as Ldexc, _) =
             simpleOptVal pt (* just a constant so return it *)
@@ -4221,7 +4289,7 @@ DCJM 2000.
             )
 
       |  optimise (Global g, _) = g
-      
+
       |  optimise (TagTest{test, tag, maxTag}, _) =
             let
                 val optTest = general test
@@ -4233,7 +4301,147 @@ DCJM 2000.
                         else simpleOptVal CodeFalse
                 |   _ => simpleOptVal(TagTest{test=optTest, tag=tag, maxTag=maxTag})
             end
-      
+
+      |   optimise(IndirectVariable{base, offset}, tailCall) =
+            (* If this is a constant offset turn it into a simple Indirect instr.
+               TODO: If the "base" is actually a TupleVariable we may be able to
+               optimise it away in the same way as with fixed-size tuples. *)
+            let
+                val optOffset = general offset
+            in
+                case optOffset of
+                    Constnt offs =>
+                        optimise(Indirect{base=base, offset=Word.toInt(toShort offs)}, tailCall)
+                |   _ =>
+                    simpleOptVal(IndirectVariable{base=general base, offset=optOffset})
+            end
+
+      |   optimise(TupleVariable(vars, length), _) =
+            (* Try to turn this into a fixed size tuple. *)
+            let
+                val optLength = general length
+            in
+                case optLength of
+                    Constnt _ =>
+                        (* The total length is the sum of all the individual lengths so if it is
+                           a constant then all the offsets and lengths must be.  We can turn this
+                           into a fixed-size tuple.  We need new declarations at least for the multiple
+                           entries so that they are used only once.  Doing that requires us to do the
+                           optimisation at this stage rather than generating a Reccons and calling
+                           "optimise" recursively so this duplicates that code. *)
+                        let
+                            val newTab = stretchArray(List.length vars+1, NONE)
+                            fun setTab (i, v) = StretchArray.update (newTab, i, SOME v);
+                            (* The record construction is treated as a block of local
+                               declarations so that any expressions which might have side-effects
+                               are done exactly once. *)
+                            fun makeOneEntry(optSource, addr) =
+                            let
+                                (* Put the source into a local variable. *)
+                                val newDecs = newDecl (setTab, optSource, addr, true)
+                                val thisArg = valOf (StretchArray.sub(newTab, addr)) (* Get the value back. *)
+                                val gen = optGeneral thisArg
+                                (* If there's no "special" and the general is a constant use that for
+                                   the special entry otherwise load the original value. *)
+                                val specArg =
+                                    case (optSpecial thisArg, gen) of
+                                        (CodeNil, Constnt _) => gen
+                                    |   _ => mkLoad (addr, 0)
+                            in
+                                { gen=gen, spec=specArg, decs=newDecs }
+                            end
+
+                            fun makeDecs([], _) = {decs = [], gen = [], spec = []}
+
+                            |   makeDecs (VarTupleSingle{source, ...} :: t, addr) =
+                                let
+                                    val {gen, spec, decs} = makeOneEntry(optimise(source, NONE), addr)
+                                    val {decs=restDecs, gen=genRest, spec=specRest} = makeDecs(t, addr + 1)
+                                in
+                                    {gen = gen :: genRest, spec = spec :: specRest, decs = decs @ restDecs }
+                                end
+
+                            |   makeDecs (VarTupleMultiple{base, length, sourceOffset, ...} :: t, addr) =
+                                let
+                                    val len =
+                                        case general length of
+                                            Constnt l => Word.toInt(toShort l)
+                                        |   _ => raise InternalError "makeDecs: not constant"
+                                    (* Put the base address into a local variable.  We must do this because
+                                       the base code could have side-effects which must be done exactly once. *)
+                                    val baseDecs = newDecl (setTab, optimise(base, NONE), addr, true)
+                                    val thisArg = valOf (StretchArray.sub(newTab, addr)) (* Get the value back. *)
+                                    val {decs=restDecs, gen=genRest, spec=specRest} = makeDecs(t, addr + len+ 1)
+
+                                    (* Each entry in the result is found by indirection on the base. *)
+                                    fun makeEntries n =
+                                        if n = len then {decs = [], gen = [], spec = []}
+                                        else
+                                        let
+                                            (* The offset could be a variable even if the resulting size is
+                                               a constant. *)
+                                            val indirectEntry =
+                                                case general sourceOffset of
+                                                    Constnt offset => doIndirection(thisArg, n + Word.toInt(toShort offset))
+                                                |   varOffset =>
+                                                    let
+                                                        (* This isn't currently generated so leave this in until it is. *)
+                                                        val _ = raise InternalError "Untested"
+                                                        (* Add the offsets *)
+                                                        val newOffset =
+                                                            if n = 0 then varOffset
+                                                            else mkEval(rtsFunction POLY_SYS_plus_word,
+                                                                        [varOffset, mkConst(toMachineWord n)], true)
+                                                    in
+                                                        simpleOptVal(
+                                                            IndirectVariable{base=optGeneral thisArg, offset=newOffset})
+                                                    end
+                                            val thisEntry = makeOneEntry(indirectEntry, addr+n+1)   
+                                            val {decs, gen, spec} = makeEntries(n+1)
+                                        in
+                                            {decs = #decs thisEntry @ decs, gen = #gen thisEntry :: gen,
+                                             spec = #spec thisEntry :: spec}
+                                        end
+
+                                    val {gen, spec, decs} = makeEntries 0
+                                in
+                                    {gen = gen @ genRest, spec = spec @ specRest, decs = baseDecs @ decs @ restDecs }
+                                end
+          
+                            val {gen, spec, decs} = makeDecs(vars, 1)
+                            val newRec  = Recconstr gen
+                            (* Package up the declarations so we can extract the special values. *)
+                            val vec = StretchArray.vector newTab
+                            fun env ({addr, ...}:loadForm, depth, _) : optVal =
+                                changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisProcedure)
+                        in
+                            optVal 
+                            {
+                                (* If all the general values are constants we can create the tuple now. *)
+                                general = if List.all isConstnt gen then makeConstVal newRec else newRec,
+                                special = Recconstr spec,
+                                environ = env,
+                                decs    = decs,
+                                recCall = ref false
+                            }
+                        end
+                |   _ => (* Can't convert it to a fixed-size tuple.
+                           TODO: We should treat this in the same way as a fixed record so that selection can be
+                           optimised.  This isn't quite so important as for fixed-size tuples.  Fixed-size tuples
+                           are used for structures and there we definitely need to be able to extract inline
+                           functions.  *)
+                    let
+                        fun optTuple(VarTupleSingle{source, destOffset}) =
+                                VarTupleSingle{source=general source, destOffset=general destOffset}
+                        |   optTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
+                                VarTupleMultiple{base=general base, length=general length,
+                                                 destOffset=general destOffset, sourceOffset=general sourceOffset}
+                        val optFields = map optTuple vars
+                    in
+                        simpleOptVal(TupleVariable(optFields, optLength))
+                    end
+            end
+
       |  optimise (Case _, _) = raise InternalError "optimise: Case"
 
       |  optimise (Declar _, _) = raise InternalError "optimise: Declar"

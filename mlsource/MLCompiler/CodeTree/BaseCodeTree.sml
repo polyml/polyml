@@ -49,27 +49,24 @@ struct
 
     |   Extract of loadForm (* Get a local variable, an argument or a closure value *)
     
-    |   Indirect of 
-    { (* Load a value from a heap record *)
-        base:   codetree,
-        offset: int
-    }
+    |   Indirect of {base: codetree, offset: int }
+         (* Load a value from a heap record *)
     
-    | Eval of (* Evaluate a function with an argument list. *)
-    {
-        function:  codetree,
-        argList:   (codetree * argumentType) list,
-        resultType: argumentType,
-        earlyEval: bool
-    }
+    |   Eval of (* Evaluate a function with an argument list. *)
+        {
+            function:  codetree,
+            argList:   (codetree * argumentType) list,
+            resultType: argumentType,
+            earlyEval: bool
+        }
     
-    | Lambda of lambdaForm (* Lambda expressions. *)
+    |   Lambda of lambdaForm (* Lambda expressions. *)
     
-    | MutualDecs of codetree list (* Set of mutually recursive declarations. *)
+    |   MutualDecs of codetree list (* Set of mutually recursive declarations. *)
 
-    | Cond of codetree * codetree * codetree (* If-statement *)
+    |   Cond of codetree * codetree * codetree (* If-statement *)
 
-    | Case of (* Case expressions *)
+    |   Case of (* Case expressions *)
         {
             cases   : (codetree * word) list,
             test    : codetree,
@@ -77,68 +74,79 @@ struct
             default : codetree
         }
     
-    | BeginLoop of (* Start of tail-recursive inline function. *)
+    |   BeginLoop of (* Start of tail-recursive inline function. *)
         { loop: codetree, arguments: (codetree * argumentType) list }
 
-    | Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
+    |   Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    | KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
+    |   KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
 
-    | Raise of codetree (* Raise an exception *)
+    |   Raise of codetree (* Raise an exception *)
 
-    | Ldexc (* Load the exception (used at the start of a handler) *)
-    
-    | Handle of (* Exception handler *)
-    { (* Exception handler. *)
-        exp      : codetree,
-        taglist  : codetree list,
-        handler  : codetree
-    }
-    
-    | Recconstr of codetree list (* Records (tuples) *)
+    |   Ldexc (* Load the exception (used at the start of a handler) *)
 
-    | Container of int (* Create a container for a tuple on the stack. *)
-    
-    | SetContainer of (* Copy a tuple to a container. *)
-    {
-        container: codetree,
-        tuple:     codetree,
-        size:      int
-    }
-    
-    | TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
+    |   Handle of (* Exception handler *)
+        { (* Exception handler. *)
+            exp      : codetree,
+            taglist  : codetree list,
+            handler  : codetree
+        }
 
-    | TagTest of { test: codetree, tag: word, maxTag: word }
+    |   Recconstr of codetree list (* Records (tuples) *)
 
-    | Global of optVal (* Global value *)
+    |   Container of int (* Create a container for a tuple on the stack. *)
 
-    | CodeNil
-    
+    |   SetContainer of (* Copy a tuple to a container. *)
+        {
+            container: codetree,
+            tuple:     codetree,
+            size:      int
+        }
+
+    |   TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
+
+    |   TagTest of { test: codetree, tag: word, maxTag: word }
+
+    |   IndirectVariable of { base: codetree, offset: codetree }
+        (* Similar to Indirect except the offset is a variable. *)
+
+    |   TupleVariable of varTuple list * codetree (* total length *)
+        (* Construct a tuple using one or more multi-word items. *)
+
+    |   Global of optVal (* Global value *)
+
+    |   CodeNil
+
     and optVal = (* Global values - Also used in the optimiser. *)
         JustTheVal of codetree
     
     |   ValWithDecs of {general : codetree, decs : codetree list}
     
     |   OptVal of
-    {
-        (* Expression to load this value - always a constant in global values. *)
-        general : codetree,
-        (* If it is not CodeNil it is the code which generated the general
-           value - either an inline procedure, a type constructor or a tuple. *)
-        special : codetree,
-        (* Environment for the special value. *)
-        environ : loadForm * int * int -> optVal,
-        (* Declarations to precede the value - Always nil for global values. *)
-        decs : codetree list,
-        (* A reference which is used to detect recursive inline expansions. *)
-        recCall: bool ref
-    }
+        {
+            (* Expression to load this value - always a constant in global values. *)
+            general : codetree,
+            (* If it is not CodeNil it is the code which generated the general
+               value - either an inline procedure, a type constructor or a tuple. *)
+            special : codetree,
+            (* Environment for the special value. *)
+            environ : loadForm * int * int -> optVal,
+            (* Declarations to precede the value - Always nil for global values. *)
+            decs : codetree list,
+            (* A reference which is used to detect recursive inline expansions. *)
+            recCall: bool ref
+        }
 
     and caseType =
         CaseInt
     |   CaseWord
     |   CaseTag of word
-    
+
+    and varTuple =
+        VarTupleSingle of { source: codetree, destOffset: codetree }
+    |   VarTupleMultiple of
+            { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
+
     withtype loadForm = 
     { (* Load a value. *)
         addr : int, 
@@ -643,6 +651,63 @@ struct
                 ]
             )
 
+        | IndirectVariable { base, offset } =>
+            PrettyBlock (3, false, [],
+                [
+                    PrettyString("IndirectVariable ("),
+                    PrettyBreak (1, 0),
+                    pretty base,
+                    PrettyBreak (0, 0),
+                    pretty offset,
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
+
+        |   TupleVariable(vars, length) =>
+            let
+                fun printTup(VarTupleSingle{source, destOffset}) =
+                    PrettyBlock(3, false, [],
+                    [
+                        PrettyString "Single (",
+                        pretty source,
+                        PrettyBreak (0, 0),
+                        pretty destOffset,
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ]
+                    )
+                |   printTup(VarTupleMultiple{base, length, destOffset, sourceOffset}) = 
+                    PrettyBlock(3, false, [],
+                    [
+                        PrettyString "Multiple (",
+                        pretty base,
+                        PrettyBreak (0, 0),
+                        pretty length,
+                        PrettyBreak (0, 0),
+                        pretty sourceOffset,
+                        PrettyBreak (0, 0),
+                        pretty destOffset,
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ]
+                    )
+            in
+                PrettyBlock (3, false, [],
+                [
+                    PrettyString "TupleVariable (",
+                    PrettyBreak (1, 0),
+                    pretty length,
+                    PrettyBreak (0, 0)
+                ] @ pList(vars, ",", printTup) @
+                [
+                    PrettyBreak (0, 0),
+                    PrettyString ")"
+                ]
+            )
+            end
+            
+
         (* That list should be exhaustive! *)
     end (* pretty *)
    
@@ -695,7 +760,6 @@ struct
     let
         fun sizeList l = List.foldl (fn (p, s) => size p + s) 0 l
 
-
         and sizeCaseList []           = 0
         |   sizeCaseList ((c,_)::cs) = size c + 1 + sizeCaseList cs
 
@@ -741,6 +805,45 @@ struct
             |   TagTest { test, ... }           => 1 + size test
             |   Case {test,default,cases,...}   =>
                     size test + size default + sizeCaseList cases
+            |   IndirectVariable{base, offset, ...} => size base + size offset + 1
+            |   TupleVariable(vars, _)=>
+                let
+                    fun sizeTuple(VarTupleSingle{source, destOffset, ...}) =
+                            size source + size destOffset
+                    |   sizeTuple(VarTupleMultiple{base, length, destOffset, sourceOffset, ...}) =
+                            size base + size length + size destOffset + size sourceOffset
+                in
+                    List.foldl (fn (p, s) => sizeTuple p + s) 0 vars
+                end
+(*        and size pt =
+            case pt of
+                CodeNil                         => 0
+            |   MatchFail                       => 0
+            |   AltMatch (m1, m2)               => size m1 + size m2
+            |   Declar {value, ...}             => size value
+            |   Newenv cl                       => sizeList cl
+            |   Constnt _                       => 0
+            |   Extract _                       => 0
+            |   Indirect {base,...}             => size base
+            |   Lambda {body, ...}              => 10 + size body
+            |   Eval {function=Constnt _,argList, ...}     => sizeList(List.map #1 argList) + 1
+            |   Eval {function, argList,...}    => size function + sizeList(List.map #1 argList) + 10
+            |   KillItems{expression, ...}      => size expression
+            |   MutualDecs decs                 => sizeList decs
+            |   Cond (i,t,e)                    => size i + size t + size e 
+            |   BeginLoop {loop, arguments, ...}=> size loop + sizeList(List.map #1 arguments)
+            |   Loop args                       => sizeList(List.map #1 args)
+            |   Raise c                         => size c
+            |   Ldexc                           => 0
+            |   Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
+            |   Recconstr cl                    => sizeList cl
+            |   Container _                     => 0
+            |   SetContainer{container, tuple, ...} => size container + size tuple
+            |   TupleFromContainer(container, _) => size container
+            |   Global glob                     => sizeOptVal glob
+            |   TagTest { test, ... }           => size test
+            |   Case {test,default,cases,...}   =>
+                    size test + size default + sizeCaseList cases*)
     in
         size pt
     end
