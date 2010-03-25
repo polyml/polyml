@@ -379,11 +379,14 @@ static void printprofile(void)
             mainThreadCounts[MTP_GCPHASEMARK]+
             mainThreadCounts[MTP_GCPHASECOMPACT] +
             mainThreadCounts[MTP_GCPHASEUPDATE];
-        pEnt = newProfileEntry();
-        strcpy(psGCTotal.chars, "GARBAGE COLLECTION (total)");
-        psGCTotal.length = strlen(psGCTotal.chars);
-        pEnt->count = gc_count;
-        pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psGCTotal);
+        if (gc_count)
+        {
+            pEnt = newProfileEntry();
+            strcpy(psGCTotal.chars, "GARBAGE COLLECTION (total)");
+            psGCTotal.length = strlen(psGCTotal.chars);
+            pEnt->count = gc_count;
+            pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psGCTotal);
+        }
     }
         
  
