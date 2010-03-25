@@ -2450,17 +2450,16 @@ struct
            and use the original code if possible. *)
         fun matchSubStructure (code: codetree, actions: structureMatch): codetree * bool =
         let
-            val decs = multipleUses (code, fn () => mkAddr 1, level);
+            val decs = multipleUses (code, fn () => mkAddr 1, level)
+            (* First sort by the address in the destination vector.  This previously
+               used Misc.quickSort but that results in a lot of memory allocation for
+               the partially sorted lists.  Since we should have exactly N items
+               the range checking in "update" and the "valOf" provide additional
+               checking that all the items are present. *)
+            val a = Array.array(List.length actions, NONE)
+            val () = List.app(fn (i, action) => Array.update(a, i, SOME action)) actions
+            val sortedActions = Array.foldri (fn (n, a, l) => (n, valOf a) :: l) [] a
 
-            (* First sort by the address in the destination vector. *)
-            fun leq (i, _) (j, _) = i <= j
-            val sortedActions = quickSort leq actions
-            val (checkItems, sorted) = ListPair.unzip (quickSort leq actions)
-            (* These should be ascending order but if we've had an error and there are
-               missing entries in the signature they may not be. *)
-            val _ = if ListPair.allEq (op =)(checkItems, List.tabulate(List.length sorted, fn n => n))
-                    then () else raise InternalError "Missing items in structure match"
-            
             fun applyAction ((destAddr, StructureMatch { sourceStructure, contentsMatch }), (otherCode, allSame)) =
                 let
                     val access = structAccess sourceStructure;
