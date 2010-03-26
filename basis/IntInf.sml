@@ -37,7 +37,6 @@ end;
 
 structure IntInf : INT_INF =
 struct
-    open Int (* Inherit everything from Int. *)
     open RuntimeCalls;
     
     val quotRem: int*int->int*int = RunCall.run_call2 POLY_SYS_quotrem
@@ -113,7 +112,17 @@ struct
 
     (* These could be implemented in the RTS although I doubt if it's
        really worth it. *)
-    fun << (i: int, j: Word.word) = i * pow(2, Word.toInt j)
-    and ~>> (i: int, j: Word.word) = Int.div(i, pow(2, Word.toInt j))
-        
+    local
+        val maxShift = Word.fromInt Word.wordSize
+        val fullShift = pow(2, Word.wordSize)
+    in
+        fun << (i: int, j: Word.word) =
+           if j < maxShift
+           then i * Word.toInt(Word.<<(0w1, j))
+           else <<(i * fullShift, j-maxShift)
+    end
+    
+    fun ~>> (i: int, j: Word.word) = Int.div(i, pow(2, Word.toInt j))
+
+    open Int (* Inherit everything from Int.  Do this last because it overrides the overloaded functions. *)
 end;
