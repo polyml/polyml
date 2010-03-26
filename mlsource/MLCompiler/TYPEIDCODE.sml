@@ -723,22 +723,12 @@ struct
     end
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
-    fun equalityForDatatypes(typelist, eqAddresses, eqStatus, baseLevel, typeVarMap): codetree list =
+    fun equalityForDatatypes(typeDataList, eqAddresses, baseLevel, typeVarMap): codetree list =
     let
-        val typesAndAddresses = ListPair.zipEq(typelist, eqAddresses)
+        val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
-        (* This is used for directly or mutually recursive datatypes.
-           Currently we generate all datatypes as single word objects. *)
-        fun typeValueForDatatype eqCode =
-        let
-            open TypeValue
-        in
-            createTypeValue{eqCode=eqCode, printCode=CodeZero,
-                boxedCode=boxedEither, sizeCode=singleWord}
-        end
-
-        fun equalityForDatatype((TypeConstrSet(tyConstr, vConstrs), addr), isEq) =
-        if isEq
+        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr, vConstrs), eqStatus, boxedCode, sizeCode, ...}, addr)) =
+        if eqStatus
         then
         let
             val argTypes = tcTypeVars tyConstr
@@ -763,10 +753,14 @@ struct
                load that address otherwise fall back to the default. *)
             fun getEqFnForID(typeId, _, l) =
                 if sameTypeId(typeId, tcIdentifier tyConstr)
-                then typeValueForDatatype(mkLoad(0, l-baseLevel-1)) (* Directly recursive. *)
+                then (* Directly recursive. *)
+                    TypeValue.createTypeValue{eqCode=mkLoad(0, l-baseLevel-1), printCode=CodeZero,
+                                    boxedCode=boxedCode, sizeCode=sizeCode}
                 else
-                case List.find(fn(tc, _) => sameTypeId(tcIdentifier(tsConstr tc), typeId)) typesAndAddresses of
-                    SOME(_, addr) => typeValueForDatatype(mkLoad(addr, l-baseLevel)) (* Mutually recursive. *)
+                case List.find(fn({typeConstr=tc, ...}, _) => sameTypeId(tcIdentifier(tsConstr tc), typeId)) typesAndAddresses of
+                    SOME({boxedCode, sizeCode, ...}, addr) =>  (* Mutually recursive. *)
+                         TypeValue.createTypeValue{eqCode=mkLoad(addr, l-baseLevel), printCode=CodeZero,
+                                                   boxedCode=boxedCode, sizeCode=sizeCode}
                 |   NONE => codeId(typeId, l)
             
             (* If this is a recursive call and the type arguments that are being passed (if any) are
@@ -867,7 +861,7 @@ struct
         else (* Not an equality type.  This will not be called. *)
             mkDec(addr, CodeZero)
     in
-        ListPair.map equalityForDatatype (typesAndAddresses, eqStatus)
+        List.map equalityForDatatype typesAndAddresses
     end
 
     (* Create a printer function for a datatype when the datatype is declared.
@@ -1128,7 +1122,6 @@ struct
             typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list,
             mkAddr, level, typeVarMap) =
     let
-        val typelist = List.map #typeConstr typeDatalist
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
            when printing other types so that if a pretty printer is later
@@ -1137,12 +1130,8 @@ struct
         (* Create the equality functions.  Because mutual decs can only be functions we
            can't create the typeIDs themselves as mutual declarations. *)
         val eqAddresses = List.map(fn _ => mkAddr 1) typeDatalist (* Make addresses for the equalities. *)
-        local
-            val eqStatus = List.map #eqStatus typeDatalist
-        in
-            val equalityFunctions =
-                mkMutualDecs(equalityForDatatypes(typelist, eqAddresses, eqStatus, level, typeVarMap))
-        end
+        val equalityFunctions =
+            mkMutualDecs(equalityForDatatypes(typeDatalist, eqAddresses, level, typeVarMap))
 
         (* Create the typeId values and set their addresses.  The print function is
            initially set as zero. *)
@@ -1176,14 +1165,14 @@ struct
 
         (* Create the print functions and set the printer code for each typeId. *)
         local
-            fun setPrinter tc =
+            fun setPrinter{typeConstr=tc, ...} =
                 mkEval(
                     rtsFunction POLY_SYS_assign_word,
                     [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
                               CodeZero, printerForDatatype(tc, level, typeVarMap)],
                     false)
         in
-            val printerCode = List.map setPrinter typelist
+            val printerCode = List.map setPrinter typeDatalist
         end
     in
         equalityFunctions :: typeIdCode @ printerCode
