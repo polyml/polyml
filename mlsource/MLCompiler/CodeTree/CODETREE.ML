@@ -693,11 +693,14 @@ struct
        a constant or an exception. *)
     local
         fun evaluateDefault(resultCode, codegen, localCount) =
-            (* Compile the expression, evaluate it, and catch any exceptions. *)
-            mkConst (codegen(resultCode, localCount) ())
-                handle Interrupt => raise Interrupt (* Must not handle this *)
-                | exn as InternalError _ => raise exn
-                | exn => Raise (Constnt(toMachineWord exn))
+            let
+                (* Compile the expression. *)
+                val code = codegen(resultCode, localCount)
+            in
+                mkConst (code()) (* Evaluate it and convert any exceptions into Raise instrs. *)
+                    handle Interrupt => raise Interrupt (* Must not handle this *)
+                    | exn => Raise (Constnt(toMachineWord exn))
+            end
     in
         fun evaluate (resultCode as Constnt _, _, _) =
             (* May already have been reduced to a constant. *)
