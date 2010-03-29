@@ -367,8 +367,7 @@ struct
 
             |   Loop argList => List.app (fn (l, _) => loads l) argList
 
-            |   Handle{exp, taglist, handler} =>
-                    (List.app loads taglist; loads exp; loads handler)
+            |   Handle{exp, handler} => (loads exp; loads handler)
 
             |   MutualDecs decs =>
                 (
@@ -774,14 +773,14 @@ struct
             else NoMerge (* Unused. *)
           end
 
-        | Handle {exp, taglist, handler} =>
+        | Handle {exp, handler} =>
             let
                 (* Push all regs - we don't know what the state will be when 
                    we reach the handler. *)
                 (* i.e. Push all registers except those whose last use occurs in the expression
-                   we're handling or in the set of exceptions we're catching. *) 
+                   we're handling. *) 
                 val () = 
-                    codeGenerate(pushAllBut (transtable, identifyLoads (exp :: taglist), allRegisters), cvec);
+                    codeGenerate(pushAllBut (transtable, identifyLoads[exp], allRegisters), cvec);
                 (* It's not clear what registers will be modified as a result of raising
                  and handling an exception.  Many functions may result in exceptions
                  being raised and rather than add the registers to the register set of
@@ -797,37 +796,26 @@ struct
 
                 (* Save old handler - push regHandler *)
                 val () = codeGenerate(pushCurrentHandler, cvec)
-                val oldIndex = incsp transtable;
+                val oldIndex = incsp transtable
           
                 (* Now it's on the real stack we can remove it from the pstack. *)
-          
-                fun genTag tag =
-                let
+                local
                     (* Push address of new handler. *)
-                    val rsp         = realstackptr transtable;
+                    val rsp         = realstackptr transtable
                     val (handlerEntry, handlerLab, handlerCode)  = pushAddress (transtable, rsp + 1)
                     val () = codeGenerate(handlerCode, cvec)
     
-                    (* Push the exception to be caught. Ensure that it is the
+                    (* Push the exception to be caught.  Now always zero. Ensure that it is the
                        only item added to the stack. *)
-                    val locn        = genToStack (tag, matchFailFn)
+                    val locn        = genToStack (Constnt(toMachineWord 0), matchFailFn)
                     val (stackLocn, stackCode)   = pushValueToStack(transtable, locn, rsp + 2)
                     val () = codeGenerate(stackCode, cvec)
                 in
-                    (handlerLab, handlerEntry, stackLocn)
+                    val handlerLab = handlerLab
+                    and handlerEntry = handlerEntry
+                    and stackLocn = stackLocn
                 end
 
-                (* Generate the list of tags and handler addreses. We reverse the taglist so
-                   the tags that are first in the list are put on the stack last.
-                   We reverse the result so that they get fixed up in
-                   stack order. The checking order is important because we might have
-                   duplicate tags e.g. exception X = Y ... handle X => ...| Y => ... .
-                   I don't think the fix-up order matters now.  I think it had
-                   something to do with avoiding converting short branches into
-                   long ones. *)
-                val tagAndLocnList = map genTag (rev taglist)
-                val handlerList = rev (map #1 tagAndLocnList)
-      
                 (* Initialise regHandler from regStackPtr *)
                 val () = codeGenerate(storeToHandler regStackPtr, cvec)
 
@@ -838,14 +826,8 @@ struct
                 val bodyResult = genToRegister (exp, whereto, NotEnd, matchFailFn, loopAddr);
                 (* Reload the old value of regHandler i.e. remove handler. *)
                 (* Remove the handler entries. *)
-                local
-                    fun remove(_, i, j) =
-                        codeGenerate(
-                            removeStackEntry(transtable, i) @
-                                removeStackEntry(transtable, j), cvec)
-                in
-                    val () = List.app remove tagAndLocnList
-                end
+                val () = codeGenerate(removeStackEntry(transtable, handlerEntry), cvec)
+                val () = codeGenerate(removeStackEntry(transtable, stackLocn), cvec)
                 val () = codeGenerate(reloadHandler(transtable, oldIndex), cvec)
 
                 (* Optimisation: return immediately, if possible, rather than
@@ -871,10 +853,8 @@ struct
      
                 (* Fix up the handler entry point - this resets the stack pointer
                    and clears the cache since the state is not known. *)
-                val _ = 
-                    map (fn handlerLab => codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec))
-                        handlerList
-          
+                val () = codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec)
+
                 (* The code for the handler body itself *)
                 val handlerRes =  genToRegister (handler, whereto, tailKind, matchFailFn, loopAddr)
                 (* Merge the results. *)

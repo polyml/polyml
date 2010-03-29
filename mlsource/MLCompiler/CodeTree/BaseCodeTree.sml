@@ -85,12 +85,7 @@ struct
 
     |   Ldexc (* Load the exception (used at the start of a handler) *)
 
-    |   Handle of (* Exception handler *)
-        { (* Exception handler. *)
-            exp      : codetree,
-            taglist  : codetree list,
-            handler  : codetree
-        }
+    |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree }
 
     |   Recconstr of codetree list (* Records (tuples) *)
 
@@ -794,7 +789,7 @@ struct
             |   Loop args                       => sizeList(List.map #1 args) + 1
             |   Raise c                         => size c + 1
             |   Ldexc                           => 1
-            |   Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
+            |   Handle {exp, handler}           => size exp + size handler
             |   Recconstr cl                    => sizeList cl + 2 (* optimistic *)
             |   Container _                     => 1 (* optimistic *)
             |   SetContainer{container, tuple = Recconstr cl, ...} =>

@@ -2322,10 +2322,10 @@ Calling conventions:
             |   setLabels(_, labNo) = labNo
             val _ = List.foldl setLabels 1 ops
         in
-            if procName = "" (* No name *) then print "?" else print procName;
-            print ":\n";
+            if procName = "" (* No name *) then printStream "?" else printStream procName;
+            printStream ":\n";
             List.app(fn i => printOperation(i, printStream)) ops;
-            print "\n"
+            printStream "\n"
         end
         else ()
 

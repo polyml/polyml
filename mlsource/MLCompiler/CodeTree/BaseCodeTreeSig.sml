@@ -107,13 +107,8 @@ sig
 
     |   Ldexc (* Load the exception (used at the start of a handler) *)
     
-    |   Handle of (* Exception handler *)
-        { (* Exception handler. *)
-            exp      : codetree,
-            taglist  : codetree list,
-            handler  : codetree
-        }
-    
+    |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree }
+
     |   Recconstr of codetree list (* Records (tuples) *)
 
     |   Container of int (* Create a container for a tuple on the stack. *)

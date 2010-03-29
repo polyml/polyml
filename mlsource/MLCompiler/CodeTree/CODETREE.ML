@@ -360,7 +360,7 @@ struct
         TagTest {test=test, tag=tagValue, maxTag=maxTag }
         (*mkEval (rtsFunction POLY_SYS_word_eq, [test, mkConst(toMachineWord tagValue)], true);*)
 
-  fun mkHandle (exp, taglist, handler) = Handle {exp = exp, taglist = taglist, handler = handler};
+  fun mkHandle (exp, handler) = Handle {exp = exp, handler = handler};
   
   val mkRaise      = Raise;
   val mkMutualDecs = MutualDecs;
@@ -604,10 +604,8 @@ struct
           sideEffectFree t andalso
           sideEffectFree e
     | sideEffectFree (Newenv decs) = testList decs
-    | sideEffectFree (Handle { exp, taglist, handler }) =
-          sideEffectFree exp andalso 
-          testList taglist andalso
-          sideEffectFree handler
+    | sideEffectFree (Handle { exp, handler }) =
+          sideEffectFree exp andalso sideEffectFree handler
     | sideEffectFree (Recconstr recs) = testList recs
     | sideEffectFree (Indirect{base, ...}) = sideEffectFree base
     | sideEffectFree (MutualDecs decs) = testList decs
@@ -1321,15 +1319,14 @@ DCJM 2000.
                     }
                 end
     
-            |   insert(Handle { exp, taglist, handler }) =
+            |   insert(Handle { exp, handler }) =
                 let
                     (* The order here is important.  We want to make sure that
                        the last reference to a variable really is the last. *)
-                   val hand = insert handler;
-                   val exp = insert exp;
-                   val tags = map insert taglist
+                   val hand = insert handler
+                   val exp = insert exp
                 in
-                  Handle {exp = exp, taglist = tags, handler = hand}
+                  Handle {exp = exp, handler = hand}
                 end
 
             |   insert(c as Container _) = c
@@ -1770,15 +1767,14 @@ DCJM 2000.
                         it is not a simple declaration. *)
                         copyProcClosure (copyLambda lam (ref true)) true
      
-            |   insert(Handle { exp, taglist, handler }) =
+            |   insert(Handle { exp, handler }) =
                 let
                     (* The order here is important.  We want to make sure that
                        the last reference to a variable really is the last. *)
-                   val hand = insert handler;
-                   val exp = insert exp;
-                   val tags = map insert taglist
+                   val hand = insert handler
+                   val exp = insert exp
                 in
-                  Handle {exp = exp, taglist = tags, handler = hand}
+                  Handle {exp = exp, handler = hand}
                 end
 
             |   insert(c as Container _) = c
@@ -2382,9 +2378,8 @@ DCJM 2000.
 
          |  cleanCode(Ldexc) = Ldexc
 
-         |  cleanCode(Handle{exp, taglist, handler}) =
-                Handle{exp = cleanCode exp, taglist = map cleanCode taglist,
-                       handler = cleanCode handler}
+         |  cleanCode(Handle{exp, handler}) =
+                Handle{exp = cleanCode exp, handler = cleanCode handler}
 
          |  cleanCode(Recconstr decs) = Recconstr(map cleanCode decs)
 
@@ -4175,10 +4170,9 @@ DCJM 2000.
       |  optimise (pt as Ldexc, _) =
             simpleOptVal pt (* just a constant so return it *)
         
-      |  optimise (Handle { exp, taglist, handler }, tailCall) =
+      |  optimise (Handle { exp, handler }, tailCall) =
         simpleOptVal 
           (Handle {exp     = general exp,
-                   taglist = map general taglist,
                    handler = generalOptimise(handler, tailCall)}
           )
 

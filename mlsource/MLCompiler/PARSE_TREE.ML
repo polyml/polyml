@@ -4133,7 +4133,8 @@ struct
                    function is wrapped in a handler that catches all
                    exceptions and calls the exception code. *)
                 mkEval(mkConst exitCode,
-                    [mkTuple[rtEnv level, mkHandle (body, [CodeZero (* all exceptions *)],
+                    [mkTuple[rtEnv level,
+                        mkHandle (body,
                         mkEnv
                             [
                                 (* Must save the exception packet first. *)
@@ -5533,40 +5534,13 @@ struct
                         [mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location]]))
             end
 
-        | HandleTree {exp, hrules, location, ...} =>
+        | HandleTree {exp, hrules, ...} =>
           (* Execute an expression in the scope of a handler *)
           let
-            val handleExp = codegen (exp, context);
-        
-            (* 
-               We only bother with matchTags because they allow
-               PolyML.exception_trace to be more discriminating as to where the
-               exception actually came from (by not bothering to match an exception
-               for handlers than only reraise it again). We don't actually need the tags
-               for pattern-matching because the actual handlers now contain all the
-               pattern-matching code that is actually required for correct execution.
-               If there's a default pattern, we just generate the single default tag
-               (CodeZero), since we'll always match one of the user-supplied patterns.
-           
-               Matching twice (in the RTS and in compiled code) is something of an overhead,
-               but I'm prepared to live with it for now - at least it meets the twin
-               aims of a working exception_trace combined with avoiding exponential code
-               blow-up (which the previous version didn't).
-               SPF 25/11/96.
-            *)
-            val matchTagList : codetree list =
-              case (buildTree(hrules, context)) of
-                Aot { patts = Excons exList, defaults, ...} =>
-                  if defaults eq empty
-                  then map (fn cons : consrec => 
-                               codeVal (#constructor cons, level, typeVarMap, [], lex, location))
-                         exList
-                  else [CodeZero]
-              | _ => [CodeZero]
-          
+            val handleExp = codegen (exp, context)          
             val handlerCode = codeMatch (c, hrules, Ldexc, codegen, true, context)
           in
-            mkHandle (handleExp, matchTagList, handlerCode)
+            mkHandle (handleExp, handlerCode)
           end
 
         | While {test, body, ...} => makeWhile (codegen (test, context), codegen (body, context)) : codetree
