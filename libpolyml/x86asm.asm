@@ -1082,7 +1082,33 @@ CALLMACRO   RegMask set_string_length,(M_Reax OR M_Rebx)
 
 ;# raisex (formerly raisexn) is used by compiled code.
 CALLMACRO   INLINE_ROUTINE  raisex
+
     MOVL    HandlerRegister[Rebp],Recx    ;# Get next handler into %rcx
+
+ ;# Much of the rest of this is legacy code needed for backwards
+ ;# compatibility.  From 5.4 the compiler generates handlers that expect to
+ ;# restore the old handler themselves and deal with exception discrimination
+ ;# so raising an exception just involves jumping to the innermost handler.
+ ;# We need to check whether the handler is a new-format or old format.
+
+ ;# Is this an old-format handler?  The first word will be either a tagged value
+ ;# or the address of a handler as a word-aligned value.  New format handlers
+ ;# have a code-address here which will be word + 2 byte aligned.
+
+IFDEF WINDOWS
+    test    dword ptr [Recx],1
+    jne     rsx1          ;# Old format
+	test    dword ptr [Recx],3
+	je      rsx1          ;# Old format
+    jmp     dword ptr [Recx]
+ELSE
+    TESTL   CONST 1,[Recx]
+    jne     rsx1          ;# Old format
+    TESTL   CONST 3,[Recx]
+    je      rsx1          ;# Old format
+    jmp     *[Recx]
+ENDIF
+
 
  ;# Loop to find the handler for this exception. Handlers consist of one or more
  ;# pairs of identifier and code address, followed by the address of the next
@@ -1143,7 +1169,11 @@ ENDIF
     POPL    HandlerRegister[Rebp] ;# Load previous handler
     MOVL    CONST UNIT,Rebx ;# The values in some regs are illegal.
     MOVL    CONST UNIT,Recx
+IFDEF WINDOWS
     jmp     Redx      ;# Now enter the handler
+ELSE
+    jmp     *Redx      ;# Now enter the handler
+ENDIF
 
 rsx9:
  ;# Must give an exception trace - ex_tracec unwinds to the next handler.

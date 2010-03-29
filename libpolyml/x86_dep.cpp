@@ -217,7 +217,7 @@ public:
     bool emulate_instrs(TaskData *taskData);
     Handle BuildCodeSegment(TaskData *taskData, const byte *code, unsigned bytes, char functionName);
     Handle BuildKillSelf(TaskData *taskData);
-
+    Handle BuildExceptionTrace(TaskData *taskData);
 };
 
 
@@ -773,17 +773,14 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
 {
     taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
     Handle fun = taskData->saveVec.push(PSP_EAX(taskData->stack));
+    Handle extrace = BuildExceptionTrace(taskData);
     PolyObject *functToCall = fun->WordP();
     PSP_EDX(taskData->stack) = functToCall; // Closure address
     // Leave the return address where it is on the stack.
     taskData->stack->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
-    *(--PSP_SP(taskData->stack)) = PolyWord::FromStackAddr(taskData->stack->p_hr); // Create a special handler entry
-    // We have to use a special entry here that can be recognised by the exception
-    // unwinding code because we want to know the stack pointer that is in effect
-    // at the time the exception is raised.  If we simply put a normal handler in here
-    // that handler would be called after the stack was unwound.
-    *(--PSP_SP(taskData->stack)) = TAGGED(0);
-    *(--PSP_SP(taskData->stack)) = TAGGED(0);
+    *(--PSP_SP(taskData->stack)) = PolyWord::FromStackAddr(taskData->stack->p_hr);
+    // Handler addresses must be word + 2 byte aligned.
+    *(--PSP_SP(taskData->stack)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
     taskData->stack->p_hr = PSP_SP(taskData->stack);
     byte *codeAddr;
 #ifndef __GNUC__
@@ -792,7 +789,7 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
 #else
     __asm {
       call endCode
-        add  esp,8               // Remove handler
+        add  esp,4               // Remove handler
         pop  dword ptr [4+ebp]   // Restore the old handler
         ret                      // Return to the original caller
       endCode: pop eax
@@ -804,10 +801,10 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
     __asm__ __volatile__ (
      "call    1f;"
 #ifndef HOSTARCHITECTURE_X86_64
-        "addl    $8,%%esp;"
+        "addl    $4,%%esp;"
         "popl    4(%%ebp);"
 #else /* HOSTARCHITECTURE_X86_64 */
-        "addq    $16,%%rsp;"
+        "addq    $8,%%rsp;"
         "popq    8(%%rbp);"
 #endif /* HOSTARCHITECTURE_X86_64 */
         "ret;"
@@ -1874,6 +1871,56 @@ Handle X86Dependent::BuildKillSelf(TaskData *taskData)
     byte *codeAddr;
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_kill_self, codeAddr);
     return BuildCodeSegment(taskData, codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
+}
+
+// Similarly for the exception trace code.  This is more complicated.
+// For backwards compatibility we need the address to be on a word + 2 byte
+// boundary.
+Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
+{
+    byte *codeAddr;
+#ifndef __GNUC__
+#ifdef HOSTARCHITECTURE_X86_64
+    ASSERT(0); // Inline assembly not supported on Windows 64-bit
+#else
+    __asm {
+      call endCode
+        nop                      // Two NOPs - for alignment
+        nop
+        mov  ebx,eax             // Exception packet as second arg
+        mov  eax,dword ptr [4+ebp] // Handler register
+        add  eax,4               // Point at the handler to restore
+        mov  byte ptr [20+ebp],POLY_SYS_give_ex_trace
+        jmp  dword ptr [48+ebp]   // Jump to exception trace
+      endCode: pop eax
+        mov codeAddr,eax
+    }
+#endif
+#else
+// GCC
+    __asm__ __volatile__ (
+     "call    1f;"
+         "nop;"
+         "nop;"
+#ifndef HOSTARCHITECTURE_X86_64
+         "movl   %%eax,%%ebx;"
+         "movl   4(%%ebp),%%eax;"
+         "addl   $4,%%eax;"
+         "movb  %1,20(%%ebp);"
+         "jmp  *48(%%ebp);"
+#else /* HOSTARCHITECTURE_X86_64 */
+         "movq   %%rax,%%rbx;"
+         "movq   4(%%rbp),%%rax;"
+         "addq   $4,%%rax;"
+         "movb  %1,40(%%rbp);"
+         "jmp  *96(%%rbp);"
+#endif /* HOSTARCHITECTURE_X86_64 */
+    "1: pop %0"
+    :"=r"(codeAddr)
+    :"i"(POLY_SYS_give_ex_trace)
+    );
+#endif
+    return BuildCodeSegment(taskData, codeAddr, 17, 'E');
 }
 
 void X86Dependent::SetException(TaskData *taskData, poly_exn *exc)

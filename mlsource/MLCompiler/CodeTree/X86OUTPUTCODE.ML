@@ -1806,24 +1806,6 @@ Calling conventions:
     )
     |   returnFromFunction _ = raise InternalError "Wrong argument"
 
-
-    (* Exported. The exception argument has already been loaded into eax *)
-    (* Call, rather than jump to, the exception code so that we have
-       the address of the caller if we need to produce an exception
-       trace. *)
-   fun raiseException cvec =
-      (
-       doPending (cvec, 15);
-       (* Since we're calling we put the "return address" on a word+2 byte
-          boundary.  This is never actually used as a return address but
-          it's probably best to make sure it's properly aligned.  It probably
-          simplifies exception tracing which is the reason it's there. *)
-       align (0w3, cvec);
-       genop(Group5, cvec);
-       genmodrm (Based8, 0w2 (* call *), getReg ebp, cvec);
-       gen8u (Word8.fromInt memRegRaiseException, cvec)
-      )
-
     (* Backwards jump for loops. *)
 
     (* Put in a stack check in a loop. This is used to allow the code to be interrupted. *)
@@ -2900,7 +2882,25 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(RaiseException :: remainder) = (checkSources[eax]; raiseException code; cgOp remainder)
+        |   cgOp(RaiseException :: remainder) =
+            (
+                checkSources[eax];
+                (* Load the current handler into ebx.  Any register will do since we
+                   don't preserve registers across exceptions.
+                   Call, rather than jump to, the exception code so that we have
+                   the address of the caller if we need to produce an exception
+                   trace. *)
+                genLoad(memRegHandlerRegister, ebp, ebx, code);
+                doPending (code, 15);
+                (* Since we're calling we put the "return address" on a word+2 byte
+                  boundary.  This is never actually used as a return address but
+                  it's probably best to make sure it's properly aligned.  It probably
+                  simplifies exception tracing which is the reason it's there. *)
+                align (0w3, code);
+                genop(Group5, code);
+                genmodrm (Based0, 0w2 (* call *), getReg ebx, code);
+                cgOp remainder
+            )
 
         |   cgOp(UncondBranch(Labels{forward, reverse=ref reverse, ...}) :: remainder) =
             (

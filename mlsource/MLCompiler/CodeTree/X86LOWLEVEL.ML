@@ -196,8 +196,6 @@ struct
     fun callFunction v = [CallFunction v]
     and jumpToFunction v = [JumpToFunction v]
     and returnFromFunction v = [ReturnFromFunction v]
-    and loadHandlerAddress v = [LoadHandlerAddress v]
-    and startHandler v = [StartHandler v]
 
     and indexedCase { testReg, workReg, minCase, maxCase, isArbitrary, isExhaustive } =
     let
@@ -350,6 +348,15 @@ struct
             toStore=reg, address=BaseOffset{offset=memRegHandlerRegister, base=ebp, index=NoIndex}}]
     
     val pushCurrentHandler = [PushMem{base=ebp, offset=memRegHandlerRegister}]
+
+    fun loadHandlerAddress v = [LoadHandlerAddress v]
+
+    (* Start of handler.  Set the label, reload esp from the handler register, remove the handler
+       address and restore old handler. *)
+    and startHandler v =
+        storeToHandler ebx @
+        [ ResetStack 2, LoadMemR{ source=BaseOffset{base=esp, offset=wordSize, index=NoIndex}, output=ebx }]
+        @ loadCurrentHandler esp @ [StartHandler v]
 
     (* Default action for all operations. *)
     local

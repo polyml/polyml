@@ -805,19 +805,12 @@ struct
                     val (handlerEntry, handlerLab, handlerCode)  = pushAddress (transtable, rsp + 1)
                     val () = codeGenerate(handlerCode, cvec)
     
-                    (* Push the exception to be caught.  Now always zero. Ensure that it is the
-                       only item added to the stack. *)
-                    val locn        = genToStack (Constnt(toMachineWord 0), matchFailFn)
-                    val (stackLocn, stackCode)   = pushValueToStack(transtable, locn, rsp + 2)
-                    val () = codeGenerate(stackCode, cvec)
+                    (* Set the current handler to the stack pointer after these items. *)
+                    val () = codeGenerate(storeToHandler regStackPtr, cvec)
                 in
                     val handlerLab = handlerLab
                     and handlerEntry = handlerEntry
-                    and stackLocn = stackLocn
                 end
-
-                (* Initialise regHandler from regStackPtr *)
-                val () = codeGenerate(storeToHandler regStackPtr, cvec)
 
                 val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
  
@@ -827,7 +820,6 @@ struct
                 (* Reload the old value of regHandler i.e. remove handler. *)
                 (* Remove the handler entries. *)
                 val () = codeGenerate(removeStackEntry(transtable, handlerEntry), cvec)
-                val () = codeGenerate(removeStackEntry(transtable, stackLocn), cvec)
                 val () = codeGenerate(reloadHandler(transtable, oldIndex), cvec)
 
                 (* Optimisation: return immediately, if possible, rather than
