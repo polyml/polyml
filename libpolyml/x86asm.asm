@@ -1143,9 +1143,7 @@ ENDIF
     POPL    HandlerRegister[Rebp] ;# Load previous handler
     MOVL    CONST UNIT,Rebx ;# The values in some regs are illegal.
     MOVL    CONST UNIT,Recx
-    PUSHL   Redx
-    MOVL    Rebx,Redx
-    ret         ;# Now enter the handler
+    jmp     Redx      ;# Now enter the handler
 
 rsx9:
  ;# Must give an exception trace - ex_tracec unwinds to the next handler.
