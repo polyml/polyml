@@ -1892,6 +1892,9 @@ Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
         add  eax,4               // Point at the handler to restore
         mov  byte ptr [20+ebp],POLY_SYS_give_ex_trace
         jmp  dword ptr [48+ebp]   // Jump to exception trace
+        nop
+        nop
+        nop
       endCode: pop eax
         mov codeAddr,eax
     }
@@ -1908,10 +1911,13 @@ Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
          "addl   $4,%%eax;"
          "movb  %1,20(%%ebp);"
          "jmp  *48(%%ebp);"
+         "nop;"  // Pad it to 20 bytes on X86/32
+         "nop;"
+         "nop;"
 #else /* HOSTARCHITECTURE_X86_64 */
          "movq   %%rax,%%rbx;"
-         "movq   4(%%rbp),%%rax;"
-         "addq   $4,%%rax;"
+         "movq   8(%%rbp),%%rax;"
+         "addq   $8,%%rax;"
          "movb  %1,40(%%rbp);"
          "jmp  *96(%%rbp);"
 #endif /* HOSTARCHITECTURE_X86_64 */
@@ -1920,7 +1926,7 @@ Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
     :"i"(POLY_SYS_give_ex_trace)
     );
 #endif
-    return BuildCodeSegment(taskData, codeAddr, 17, 'E');
+    return BuildCodeSegment(taskData, codeAddr, 20, 'E');
 }
 
 void X86Dependent::SetException(TaskData *taskData, poly_exn *exc)
