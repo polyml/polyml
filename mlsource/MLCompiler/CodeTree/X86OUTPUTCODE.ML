@@ -1439,11 +1439,13 @@ SS-relative addressing modes:
         genEA (offset, rb, rd, cvec)
     )
 
-    (* Store an immediate value at a given address and offset. *)
-    fun genStoreIW (cnstnt: machineWord, offset: int, rb: reg, ri: indexType,
-                 cvec as Code{ic, ...}) =
-    (
-      (*  We have a little problem here: we have to be very careful that
+    (* Called when we have a memory operand and a constant that is an address.
+       This is either a move or a comparison. *)
+    fun genMemoryConstant (cnstnt, opcode, arithOp, offset, rb, ri, cvec as Code{ic, ...}) =
+    let
+        val haveIndex = case ri of NoIndex => false | _ => true
+    in
+      (* We have a little problem here: we have to be very careful that
          we don't end up with a full word of zeros on a word boundary because
          that is used as an end-of-code marker.  This can arise if we have
          zero bytes in the high order part of the offset and zero bytes in
@@ -1463,9 +1465,11 @@ SS-relative addressing modes:
         then
         (
             doPending(cvec, 12 + 2);
-            align(case ri of NoIndex => 0w2 | _ => 0w1, cvec)
+            (* We have a sib byte if we either have an index or the base
+               register is esp. *)
+            align(if haveIndex orelse rb = esp then 0w1 else 0w2, cvec)
         )
-        else if offset = 0 andalso rb = eax andalso (case ri of NoIndex => true | _ => false)
+        else if offset = 0 andalso rb = eax andalso not haveIndex
         then (* modrm will be zero.  We need to be sure that this is not the
               first byte in a word. *)
         (
@@ -1475,69 +1479,34 @@ SS-relative addressing modes:
             else ()
         )
         else ();
-        genop (MOVL_32_A, cvec);
+        genop (opcode, cvec);
         case ri of
-            NoIndex => genop2 (offset, rb, 0w0, cvec)
-        |   ri => genIndexed (offset, SOME rb, ri, mkReg 0w0, cvec);
+            NoIndex => genop2 (offset, rb, arithOp, cvec)
+        |   ri => genIndexed (offset, SOME rb, ri, mkReg arithOp, cvec);
         addConstToVec (WVal cnstnt, false, cvec)
-   )
+    end
 
-
-(*    fun genStoreIB (cnstnt: machineWord, offset: int, rb: reg, ri: indexType, cvec) : unit =
-    if not (isShort cnstnt)
-    then (* This should never happen. *)
-        raise InternalError "genStoreI: storing long constant as a byte"
-    else
-    let
-        val v = toInt (toShort cnstnt)
-    in
-        case ri of
-            NoIndex =>
-            (
-                genop (MOVB_8_A, cvec);
-                genop2 (offset, rb, 0w0, cvec);
-                gen8u (Word8.fromInt v, cvec)
-            )
-
-        |   ri =>
-            (
-                (* Untag the index first. *)
-                genop (Group2_1_A, cvec);
-                genmodrm(Register, 0w5 (* shr *), getReg ri, cvec);
-
-                genop (MOVB_8_A, cvec);
-                genIndexed (offset, SOME rb, ri, mkReg 0w0, cvec);
-                gen8u (Word8.fromInt v, cvec);
-          
-                (* Retag the index. *)
-                genTag (ri, cvec)
-            )
-   end*)
-
-    (* Store a value on the stack. *)
-    fun genPush (r:reg, cvec) = genop (PUSH_R r, cvec);
-
-  (* Call the function.  Must ensure that the return address
+    (* Call the function.  Must ensure that the return address
      is on a word + 2 byte boundary. *)
-  fun genSelfCall (cvec as Code{ic, ...}) : addrs =
-  (
-    (* Make sure anything pending is done first. *)
-    (* 15 comes from the maximum instruction size (12)
-       used in genop, together with up to 3 nops. *)
-    doPending (cvec, 15); 
-    (* Ensure the return address is aligned on
-       a word + 2 byte boundary.  *)
-    align (0w1, cvec);
+    fun genSelfCall (cvec as Code{ic, ...}) : addrs =
+    (
+        (* Make sure anything pending is done first. *)
+        (* 15 comes from the maximum instruction size (12)
+           used in genop, together with up to 3 nops. *)
+        doPending (cvec, 15); 
+        (* Ensure the return address is aligned on
+           a word + 2 byte boundary.  *)
+        align (0w1, cvec);
  
-    genop (CALL_32, cvec);  (* 1 byte  *)
-    gen32u (0w0, cvec);       (* 4 bytes *)
+        genop (CALL_32, cvec);  (* 1 byte  *)
+        gen32u (0w0, cvec);       (* 4 bytes *)
     
-    if (!ic) mod 0w4 <> 0w2
-    then raise InternalError "genSelfCall: call not aligned"
-    else ();
+        if (!ic) mod 0w4 <> 0w2
+        then raise InternalError "genSelfCall: call not aligned"
+        else ();
     
-    !ic addrPlus ~4
-  );
+        !ic addrPlus ~4
+    )
 
     (* Register/register move. *)
     fun genMove (rd:reg, rs:reg, cvec) : unit =
@@ -2582,10 +2551,9 @@ Calling conventions:
         |   cgOp(ArithMemLongConst{ opc, offset, base, source } :: remainder) =
             (
                 checkSources[base];
-                (* We may be comparing with an address. *)
-                genop (Group1_32_A (* group1, 32 bit immediate *), code);
-                genop2(offset, base, arithOpToWord opc, code);
-                addConstToVec (WVal source, false, code); (* Remember this constant and address. *)
+                (* Currently this is always a comparison.  We have to be careful that
+                   we don't accidentally get a zero word. *)
+                genMemoryConstant(source, Group1_32_A, arithOpToWord opc, offset, base, NoIndex, code);
                 cgOp remainder
             )
 
@@ -2694,7 +2662,7 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(PushR(reg as GenReg _ ) :: remainder) = (checkSources[reg]; genPush(reg, code); cgOp remainder)
+        |   cgOp(PushR(reg as GenReg _ ) :: remainder) = (checkSources[reg]; genop(PUSH_R reg, code); cgOp remainder)
         |   cgOp(PushR(src as FPReg _ ) :: remainder) =
             (
                 (* We need to push a fp register to the stack.  This can't be done directly so
@@ -2708,8 +2676,8 @@ Calling conventions:
                    that is very expensive because it involves a lock.  This version is
                    slightly more complicated but much quicker. *)
                 checkSources[src];
-                genPush(eax, code);
-                genPush(eax, code);
+                genop (PUSH_R eax, code);
+                genop (PUSH_R eax, code);
                 loadFpRegToStack(src, 0w0, code);
                 allocStoreAndSetSize(8 div wordSize, F_bytes, eax, code);
                 genop(FPESC 0w5, code); (* FSTP [rd] *)
@@ -2797,7 +2765,7 @@ Calling conventions:
         |   cgOp(StoreLongConstToMemory{ toStore=toStore, address=BaseOffset{offset, base, index} } :: remainder) =
             (
                 checkSources[base]; checkIndexSource index;
-                genStoreIW(toStore, offset, base, index, code);
+                genMemoryConstant(toStore, MOVL_32_A, 0w0, offset, base, index, code);
                 cgOp remainder
             )
 
