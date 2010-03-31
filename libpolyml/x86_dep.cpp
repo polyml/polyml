@@ -831,12 +831,17 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
 bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp, POLYCODEPTR &pc)
 {
     X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
+    // Check carefully for valid pointers.  Because this can be called
+    // at any time some of these may be invalid.
+    if (mdTask == 0) return false;
     if (mdTask->memRegisters.inRTS)
     {
+        if (taskData->stack == 0) return false;
         sp = taskData->stack->p_sp;
         pc = taskData->stack->p_pc;
         return true;
     }
+    if (context == 0) return false;
 // The tests for HAVE_UCONTEXT_T, HAVE_STRUCT_SIGCONTEXT and HAVE_WINDOWS_H need
 // to follow the tests in machine_dep.h.
 #if defined(HAVE_UCONTEXT_T)
