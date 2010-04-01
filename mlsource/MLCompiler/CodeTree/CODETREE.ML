@@ -2857,31 +2857,17 @@ DCJM 2000.
             val localNewVec = stretchArray (initTrans, NONE);
             
                 (* copies the argument list. *)
-                fun copy []     _          = [] : codetree list
-                |   copy ((h, _)::t) argAddress =
-                    let
-                        fun setTab (index, v) = update (paramVec, ~index, SOME v);
-                        (* Make the declaration, picking out constants, inline
-                           procedures and load-and-stores. These are entered in the
-                           table, but nil is returned by "newDecl". *)
-                        (* If we are passing an inline-only function here we strip off
-                           the "special" field that was the unprocessed function.  This
-                           avoids problems if we expand it inside the body.  It's possible
-                           that this may mean some optimisations don't get made. *)
-                        val optValue = optimise(h, NONE)
-                        val copiedValue =
-                            case optGeneral optValue of
-                                general as Lambda{ isInline=MaybeInline, ...} =>
-                                    (
-                                        optVal {general = general, decs = optDecs optValue, special=CodeNil,
-                                                environ = optEnviron optValue, recCall = optRec optValue }
-                                    )
-                            |   _ => optValue
-                        
-                        val lapt = newDecl (setTab, copiedValue, argAddress, false);
-                    in (* Now process the rest of the declarations. *)
-                        lapt @ copy t (argAddress + 1)
-                    end (* end copy *);
+            fun copy []     _          = [] : codetree list
+              | copy ((h, _)::t) argAddress =
+              let
+			    fun setTab (index, v) = update (paramVec, ~index, SOME v);
+                (* Make the declaration, picking out constants, inline
+                   procedures and load-and-stores. These are entered in the
+                   table, but nil is returned by "newDecl". *)
+                val lapt = newDecl (setTab, optimise(h, NONE), argAddress, false);
+              in (* Now process the rest of the declarations. *)
+                lapt @ copy t (argAddress + 1)
+              end (* end copy *)
 
             val nArgs = List.length argList
             val copiedArgs = copy argList (~nArgs);
@@ -3471,7 +3457,7 @@ DCJM 2000.
 
           val resultCode =
             case lambdaInline of
-               MaybeInline => (* Explicitly inlined functions. *)
+                MaybeInline => (* Explicitly inlined functions. *)
                     (* We return the processed version of the function as
                        the general value but the unprocessed version as
                        the special value. *)
