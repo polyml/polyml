@@ -242,11 +242,13 @@ local
 
     (* String comparison function used in isPrefix and isSuffix.
        N.B.  The caller must make sure that neither string is a single character. *)
-    fun byteMatch s1 s2 i j l =
-        if l = 0w0 then true
-        else if System_loadb(s1, i + wordSize) = System_loadb(s2, j + wordSize)
-        then byteMatch s1 s2 (i+0w1) (j+0w1) (l-0w1)
-        else false
+    local
+        val byteVecEq: string * word * string * word * word -> bool =
+            RunCall.run_call5 POLY_SYS_bytevec_eq
+    in
+        fun byteMatch s1 s2 i j l =
+            byteVecEq(s1, i+wordSize, s2, j+wordSize, l)
+    end
 
     (* There's an irritating dependency here. Char uses StringCvt.reader
        which means that StringCvt depends on Char so String depends on
@@ -892,7 +894,7 @@ local
         in
             if size_s1 <= size_s2
             then if size_s1 = 1 (* We have to deal with the case of single chars. *)
-            then if size_s2 = 1 then s1 = s2
+            then if size_s2 = 1 then vecAsChar s1 = vecAsChar s2
             else vecAsChar s1 = System_loadb(s2, wordSize)
             else byteMatch s1 s2 0w0 0w0 (intAsWord size_s1)
             else false
@@ -905,7 +907,7 @@ local
         in
             if size_s1 <= size_s2
             then if size_s1 = 1 (* We have to deal with the case of single chars. *)
-            then if size_s2 = 1 then s1 = s2
+            then if size_s2 = 1 then vecAsChar s1 = vecAsChar s2
             else vecAsChar s1 = System_loadb(s2, wordSize+intAsWord(size_s2-1))
             else byteMatch s1 s2 0w0 (intAsWord (size_s2 - size_s1)) (intAsWord size_s1)
             else false
