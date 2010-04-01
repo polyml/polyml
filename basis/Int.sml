@@ -79,22 +79,9 @@ struct
     and minInt = NONE
     and maxInt = NONE
     
-    (* These are overloaded functions and are treated specially. *)
-    (* Since they aren't overloaded in this structure
-       we can pick up the underlying RTS functions. *)
-    val ~ : int->int = RunCall.run_call1 POLY_SYS_aneg
-    and op * : int*int->int = RunCall.run_call2 POLY_SYS_amul
-    and op + : int*int->int = RunCall.run_call2 POLY_SYS_aplus
-    and op - : int*int->int = RunCall.run_call2 POLY_SYS_aminus
-    
     infix 7 quot rem
     val op quot: int * int -> int = RunCall.run_call2 POLY_SYS_adiv
     and op rem:  int * int -> int = RunCall.run_call2 POLY_SYS_amod
-    
-    val op < : int*int->bool = RunCall.run_call2 POLY_SYS_int_lss
-    and op > : int*int->bool = RunCall.run_call2 POLY_SYS_int_gtr
-    and op <= : int*int->bool = RunCall.run_call2 POLY_SYS_int_leq
-    and op >= : int*int->bool = RunCall.run_call2 POLY_SYS_int_geq
 
     (* TODO: There was a bug in the i386 RTS which caused the wrong
        exception to be raised for divide-by-zero.  It's been fixed in
@@ -154,23 +141,66 @@ struct
      |  baseOf StringCvt.HEX = 16
 
     local
-        val quotRem: int*int->int*int = RunCall.run_call2 POLY_SYS_quotrem
+        open LibrarySupport
+        val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+        val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
 
-        fun toChars base i chs =
+        (* Int.toChars turned out to be a major allocation hot-spot in some Isabelle
+           examples.  The old code created a list of the characters and then concatenated
+           them.  This cost 3 words for each character before the actual string was
+           created.  This version avoids that problem. *)
+        
+        fun toChar digit =
+            if digit < 10 then Char.chr(Char.ord(#"0") + digit)
+            else (* Hex *) Char.chr(Char.ord(#"A") + digit - 10)
+
+        fun toChars(base, i, negative, chars: word) =
         let
-            val (q, digit) = quotRem(i, base)
-            val ch =
-                if digit < 10 then Char.chr(Char.ord(#"0") + digit)
-                else (* Hex *) Char.chr(Char.ord(#"A") + digit - 10)
+            val digit = i rem base
+            val ch = toChar digit
         in
-            if i < base then ch :: chs
-            else toChars base q (ch :: chs)
+            if i >= base
+            then (* More to do *)
+            let
+                val (result, pos) = toChars(base, i quot base, negative, chars+0w1)
+            in
+                System_setb(result, pos, ch);
+                (result, pos+0w1)
+            end
+            (* Finished.  Allocate the string. *)
+            else if negative
+            then
+            let
+                val res = allocString(chars+0w2)
+            in
+                System_setb(res, wordSize, #"~");
+                System_setb(res, wordSize+0w1, ch);
+                (res, wordSize+0w2)
+            end
+            else
+            let
+                val res = allocString(chars+0w1)
+            in
+                System_setb(res, wordSize, ch);
+                (res, wordSize+0w1)
+            end
         end
     in
         fun fmt radix i =
-            if i < 0
-            then String.implode(#"~" :: toChars (baseOf radix) (~ i) [])
-            else String.implode(toChars (baseOf radix) i [])
+        let
+            val base = baseOf radix
+        in
+            if i >= 0 andalso i < base
+            then (* This will be a single character.  Treat specially. *)
+                RunCall.unsafeCast(toChar i) : string
+            else (* Multiple characters. *)
+            let
+                val (result, _) = toChars(base, abs i, i < 0, 0w0)
+            in
+                System_lock result;
+                result
+            end
+        end
     end
     
     val toString = fmt StringCvt.DEC
@@ -303,6 +333,19 @@ struct
            not give an explicit type. *)
         val () = RunCall.addOverload convInt "convInt"
     end 
+    
+    (* These are overloaded functions and are treated specially. *)
+    (* Since they aren't overloaded in this structure
+       we can pick up the underlying RTS functions. *)
+    val ~ : int->int = RunCall.run_call1 POLY_SYS_aneg
+    and op * : int*int->int = RunCall.run_call2 POLY_SYS_amul
+    and op + : int*int->int = RunCall.run_call2 POLY_SYS_aplus
+    and op - : int*int->int = RunCall.run_call2 POLY_SYS_aminus
+    
+    val op < : int*int->bool = RunCall.run_call2 POLY_SYS_int_lss
+    and op > : int*int->bool = RunCall.run_call2 POLY_SYS_int_gtr
+    and op <= : int*int->bool = RunCall.run_call2 POLY_SYS_int_leq
+    and op >= : int*int->bool = RunCall.run_call2 POLY_SYS_int_geq
 end;
 
 local
