@@ -693,8 +693,7 @@ struct
 
           | Loop argList => List.app (loads o #1) argList
 
-          | Handle{exp, taglist, handler} =>
-                (List.app loads taglist; loads exp; loads handler)
+          | Handle{exp, handler} => (loads exp; loads handler)
 
           | MutualDecs decs =>
                 (
@@ -1037,7 +1036,7 @@ struct
             else NoMerge (* Unused. *)
           end
 
-        | Handle {exp, taglist, handler} =>
+        | Handle {exp, handler} =>
         let
           (* Push all regs - we don't know what the state will be when 
              we reach the handler. *)
@@ -1046,7 +1045,7 @@ struct
           (* i.e. Push all registers except those whose last use occurs in the expression
              we're handling or in the set of exceptions we're catching. *) 
           val () = 
-            pushAllBut (transtable, cvec, identifyLoads (exp :: taglist, transtable),
+            pushAllBut (transtable, cvec, identifyLoads ([exp], transtable),
                         allRegisters);
           (* It's not clear what registers will be modified as a result of raising
              and handling an exception.  Many functions may result in exceptions
@@ -1068,36 +1067,24 @@ struct
           (* Now it's on the real stack we can remove it from the pstack. *)
           val () = removeStackEntry(transtable, oldIndex);
           
-          fun genTag (tag : codetree) : TRANSTAB.handler =
+          val genTag: TRANSTAB.handler =
           let
             (* Push address of new handler. *)
             val rsp         = realstackptr transtable;
             val handlerLab  = pushAddress (transtable, cvec, rsp + 1);
     
-            (* Push the exception to be caught. Ensure that it is the
-               only item added to the stack. *)
-            val locn        = genToStack (tag, matchFailFn)
+            (* The old format of exception handler consisted of pairs of an
+               exception tag and a handler address.  Zero was the default handler. *)
+            val locn        = pushConst(transtable, toMachineWord 0)
             val stackLocn   = pushValueToStack (cvec, transtable, locn, rsp + 2);
     
             (* Now it's on the real stack we can remove it from the pstack. *)
             val ()    = removeStackEntry(transtable, stackLocn);
           in
             handlerLab
-          end;
+          end
 
-          (* Generate the list of tags and handler addreses. We reverse
-             the taglist so the tags that are first in the list are
-             put on the stack last, so they are checked first.
-             We reverse the result so that they get fixed up in
-             stack order. (I don't think this is important, but
-             I'm not sure.) Did you get all that? SPF 26/11/96 *)
-          (* The checking order is important because we might have
-             duplicate tags (unless the higher levels have removed them)
-             e.g. exception X = Y ... handle X => ...| Y => ... .
-             I don't think the fix-up order matters now.  I think it had
-             something to do with avoiding converting short branches into
-             long ones.  DCJM June 2000. *)
-          val handlerList : TRANSTAB.handler list = rev (map genTag (rev taglist));
+          val handlerList : TRANSTAB.handler list = [genTag]
       
           (* Initialise regHandler from regStackPtr *)
           val () = genRR (instrMove, regStackPtr, regNone, regHandler, cvec);
@@ -1610,6 +1597,12 @@ struct
                     result
                 end
             end
+
+        |   IndirectVariable{ base=_, offset=_, ... } =>
+                raise InternalError "TODO: IndirectVariable"
+
+        |   TupleVariable(_(* varList*), _(* length *)) =>
+                raise InternalError "TODO: TupleVariable"
 
         | CodeNil => 
             raise InternalError "gencde: can't code-generate CodeNil value"
