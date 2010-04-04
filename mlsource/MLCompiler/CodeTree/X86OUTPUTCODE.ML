@@ -155,7 +155,8 @@ struct
       labelList:      labList ref,    (* List of outstanding short branches. *)
       longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
-      otherCodes:     code list ref,  (* Other code vectors with forward references to this vector. *)
+      completionHooks:                (* Functions to call when we have the final code address. *)
+        (code * machineWord -> unit) list ref,
       resultSeg:      setCodeseg ref, (* The segment as the final result. *)
       (* These next two are closely related but kept separate to avoid making big
          changes to the code.  They are only non-empty immediately after JumpLabel instructions.
@@ -178,6 +179,13 @@ struct
     (* Exported functions *)
     fun procName       (Code {procName,...})       = procName
     and lowLevelOptimise(Code{lowLevelOptimise, ...}) = lowLevelOptimise
+
+    (* Add a function to be called when the code is complete and the final address
+       is known.  Called immediately if it has already been compiled. *)
+    fun addCompletionHook(code as Code{resultSeg = ref(Set seg), ...}, hookFn) =
+            hookFn(code, toMachineWord(csegAddr seg))
+    |   addCompletionHook(Code{completionHooks, ...}, hookFn) =
+            completionHooks := hookFn :: !completionHooks
 
   (* %ebp points to a structure that interfaces to the RTS.  These are
      offsets into that structure.  *)
@@ -207,10 +215,7 @@ struct
 
     (* Test for identity of the code segments by testing whether
        the "ic" ref is the same. N.B. NOT its contents. *)
-  
-    infix is;
-  
-    fun (Code{ic=a, ...}) is (Code{ic=b, ...}) = a=b;
+    fun sameCode(Code{ic=a, ...}, Code{ic=b, ...}) = a=b;
   
     (* create and initialise a code segment *)
     fun codeCreate (noClosure : bool, name : string, parameters) : code =
@@ -227,7 +232,7 @@ struct
             labelList      = ref [],
             longestBranch  = ref addrLast, (* None so far *)
             procName       = name,
-            otherCodes     = ref [],
+            completionHooks= ref [],
             resultSeg      = ref Unset,   (* Not yet done *)
             justComeFrom   = ref [],
             justComeFromAddrs = ref [],
@@ -871,20 +876,30 @@ SS-relative addressing modes:
     fun codeConst (Code {resultSeg = ref(Set seg), ... }, isRel, into) =
     (* Already done. *) addConstToVec (WVal (toMachineWord(csegAddr seg)), isRel, into)
 
-  | codeConst (r as Code {otherCodes, ... }, isRel, into) = (* forward *)
-      (* Add the referring procedure onto the list of the procedure
-         referred to if it is not already there. This makes sure that when
-         the referring procedure is finished and its address is known the
-         address will be plugged in to every procedure which needs it. *)
-      let
-        fun onList _ []      = false
-          | onList x (c::cs) = (x is c) orelse onList x cs ;
-          
-        val codeList = ! otherCodes;
-      in
-        if onList into codeList then () else otherCodes := into :: codeList;
-        addConstToVec (CVal r, isRel, into)
-      end;
+    |   codeConst (r, isRel, into as Code{ic = ref constPosition, ...} ) = (* forward *)
+      (* Forward reference to other code or a recursive reference to this one.
+         Add a completion hook to the other code. *)
+        let
+            fun onCompletion(_, finalAddr) =
+            let
+                (* This is called after the forward reference is completed but also
+                   after this code, the one making the reference, has been completed. *)
+                val Code{numOfConsts, resultSeg = ref resultSeg, ...} = into
+            in
+                (* Fix up the forward reference. *)
+                csegPutConstant (scSet resultSeg, constPosition, finalAddr, isRel);
+                (* decrement the "pending references" count *)
+                numOfConsts := !numOfConsts - 0w1;
+                (* If this function has no more references we can lock it. *)
+                if !numOfConsts = 0w0
+                then csegLock (scSet resultSeg)
+                else ()
+            end
+
+            val _ = addCompletionHook(r, onCompletion)
+        in
+            addConstToVec (CVal r, isRel, into)
+        end
 
    (* Removes a label from the list when it has been fixed up
       or converted to the long form. *)
@@ -3693,39 +3708,6 @@ Calling conventions:
         csegPutConstant (seg, constAddr, value, isRel)
     end;
 
-  (* Fix up references from other vectors to this one. *)
-  fun fixOtherRefs (refTo as Code{otherCodes=ref otherCodes, ...}, value) =
-  let
-    fun fixRef (refFrom as
-                    Code{numOfConsts = noc, constVec = ref constVec,
-                         resultSeg = ref resultSeg, ...}) =
-    let      
-      fun putConst (CVal cCode, addr, isRel) =
-        if cCode is refTo
-        then (* A reference to this one. *)
-          (
-          (* Fix up the forward reference. *)
-          constLabels (refFrom, addr, value, isRel);
-          (* decrement the "pending references" count *)
-          noc := !noc - 0w1
-          )
-        else ()
-      |  putConst _ = ();
-    
-    in
-      (* look down its list of forward references until we find ourselves. *)
-      List.app putConst constVec;
-      (* If this function has no more references we can lock it. *)
-      if !noc = 0w0
-      then csegLock (scSet resultSeg)
-      else ()
-    end (* fixRef *);
-  in
-    (* For each `code' which needs a forward reference to `refTo' fixing up. *)
-    List.app fixRef otherCodes
-  end; (* fixOtherRefs *)
-
-
     (* Adjust the destinations of recursive branches i.e. tail recursive calls to the current function
        to include the stack check code that has been added to the start. *)
     fun fixRecursiveBranch (Code{codeVec, ...}, stackCheckSize) (ref (Jump8From addr)) = 
@@ -3882,11 +3864,15 @@ Calling conventions:
           addr
         end
   
-      (* Now we know the address of this object we can fix up
-         any forward references outstanding. This is put in here
-         because there may be directly recursive references. *)
-      val () = fixOtherRefs (cvec, toMachineWord addr);
-  
+        (* Now we know the address of this object we can fix up
+           any forward references outstanding. This is put in here
+           because there may be directly recursive references. *)
+        local
+            val Code{completionHooks=ref hooks, ...} = cvec
+        in
+            val () = List.app(fn f => f(cvec, toMachineWord addr)) hooks
+        end
+
       val () = 
         if printAssemblyCode
         then (* print out the code *)

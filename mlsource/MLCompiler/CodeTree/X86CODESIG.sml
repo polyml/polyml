@@ -23,6 +23,9 @@ sig
     type address = Address.address
 
     type code
+
+    val sameCode: code * code -> bool
+
     datatype reg =
         GenReg of Word8.word
     |   FPReg of Word8.word
@@ -168,6 +171,8 @@ sig
     val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
     val createCodeSegment: operations * RegSet.regSet * code -> address
+
+    val addCompletionHook: code * (code * machineWord -> unit) -> unit
 
     val codeAddress: code -> address option
     val procName:   code -> string      (* Name of the procedure. *)

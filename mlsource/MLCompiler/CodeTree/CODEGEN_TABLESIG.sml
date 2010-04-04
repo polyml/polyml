@@ -47,9 +47,9 @@ sig
     val removeRegistersFromCache: ttab * regSet -> operation list
 
     (* Stack handling *)
-    type stackIndex;
+    eqtype stackIndex
 
-    val noIndex: stackIndex;
+    val noIndex: stackIndex
 
     (* Push entries *)
     val pushReg:      ttab * reg  -> stackIndex;
@@ -142,6 +142,11 @@ sig
     val callCode: stackIndex * bool * ttab -> operation list
     val jumpToCode: stackIndex * bool * reg option * ttab -> operation list
 
+    (* Get constants or code refs, which are really constants. *)
+    datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
+
+    val isConstant: stackIndex * ttab -> constEntry
+
     structure Sharing:
     sig
         type code       = code
@@ -163,5 +168,6 @@ sig
         and  loopPush   = loopPush
         and  forwardLabel = forwardLabel
         and  backwardLabel = backwardLabel
+        and  constEntry = constEntry
     end
 end;

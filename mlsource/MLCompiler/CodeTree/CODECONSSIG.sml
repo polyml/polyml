@@ -31,6 +31,8 @@ sig
     
     datatype argType = ArgGeneral | ArgFP
 
+    val sameCode: code * code -> bool
+
     val regNone:     reg option
     val regClosure:  reg
     val regStackPtr: reg
@@ -236,6 +238,7 @@ sig
     val copyCode: code * operations * int * RegSet.regSet * bool -> address
 
     val codeAddress: code -> address option
+    val addCompletionHook: code * (code * machineWord -> unit) -> unit
 
     structure Sharing:
     sig

@@ -3137,6 +3137,13 @@ struct
         checkStack(!marker)
     end
 
+    datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
+
+    fun isConstant(entry, table) =
+        case pstackRealEntry(table, entry) of
+            {ent = Literal l, ...} => ConstLit l
+        |   {ent = CodeRef c, ...} => ConstCode c
+        |   _ => NotConst
 
     structure Sharing =
     struct
@@ -3159,6 +3166,7 @@ struct
         and  loopPush   = loopPush
         and  forwardLabel = forwardLabel
         and  backwardLabel = backwardLabel
+        and  constEntry = constEntry
     end
 
 end;

@@ -1189,21 +1189,30 @@ DCJM 2000.
                     |   copyDeclarations (MutualDecs mutualDecs :: vs)  =
                         let
                             (* Mutually recursive declarations. *)
+                            (* This is a bit messy.  For static-link functions we need to
+                               make sure the last reference to the closure entries is after
+                               the last call to the function.  For full-closure functions
+                               the last reference must be after the closures have all been
+                               built. *)
                             (* Get the closure lists for all the declarations.  We assume that
                                any of these can call any of the others so we just accumulate
                                them into a single list. *)
                             local
                                 fun getClosure(
-                                        Declar{value=Lambda{makeClosure=false, closure, ...}, ...}, l) = closure @ l
-                                |   getClosure(_, l) = l
-                                val localClosure = List.foldl getClosure [] mutualDecs
+                                        Declar{value=Lambda{makeClosure, closure, ...}, ...},
+                                        (slClosures, fcClosures)) =
+                                    if makeClosure
+                                    then (slClosures, closure @ fcClosures) else (closure @ slClosures, fcClosures)
+                                |   getClosure(_, (slClosures, fcClosures)) = (slClosures, fcClosures)
+                                val (slClosures, fcClosures) = List.foldl getClosure ([], []) mutualDecs
                                 (* Include any statically linked functions this references. *)
                                 fun closureTrans (Extract{fpRel=true, addr, ...}, l) =
                                     if addr > 0 then Array.sub(slClosureTable, addr) @ l else l
                                 |   closureTrans (_, l) = l
-                                val trans = List.foldl closureTrans [] localClosure
+                                val trans = List.foldl closureTrans [] slClosures
                             in
-                                val staticCl = trans @ localClosure
+                                val staticCl = trans @ slClosures
+                                val fullClosureList = fcClosures
                             end
 
                             (* Make the declarations. *)
@@ -1224,6 +1233,11 @@ DCJM 2000.
                             val restOfBlock = copyDeclarations vs
 
                             val () = instrCount := !instrCount+1
+
+                            (* Process the closure entries and extract the ones that are the last refs. *)
+                            val lastRefsForClosure =
+                                List.filter (fn Extract{lastRef=true, ...} => true | _ => false)
+                                    (map insert fullClosureList)
 
                             fun copyDec (Declar{addr=caddr, value=dv, ...}) = mkDec (caddr, insert dv)
                             |   copyDec _ = raise InternalError "copyDec: not a Declar"               
@@ -1251,13 +1265,13 @@ DCJM 2000.
                             |  copyEntries (_::_) =
                                     raise InternalError "copyEntries: Not a Declar";
                   
-                            val decs = copyEntries (copiedDecs);
+                            val decs = copyEntries copiedDecs
                         in
                             (* Return the mutual declarations and the rest of the block. *)
                             case decs of
-                                []   => restOfBlock         (* None left *)
-                            |   [d]  => d :: restOfBlock    (* Just one *)
-                            |   _    => mkMutualDecs decs :: restOfBlock
+                                []   => lastRefsForClosure @ restOfBlock         (* None left *)
+                            |   [d]  => d :: (lastRefsForClosure @ restOfBlock)    (* Just one *)
+                            |   _    => mkMutualDecs decs :: (lastRefsForClosure @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
           
                     |   copyDeclarations (v :: vs)  =
@@ -3848,20 +3862,16 @@ DCJM 2000.
                processing the non-inline functions and then process the
                inlines. DCJM 23/1/01. *)
             let
-              (* Split the inline and non-inline functions. *)
-              val (inlines, nonInlines) =
-                 List.foldl (
-                    fn (d, (inlines, nonInlines)) =>
-                        case d of
-                            Declar{value = Lambda{ isInline=MaybeInline, ...}, ... } =>
-                                (d::inlines, nonInlines)
-                        |   _ => (inlines, d::nonInlines)) ([], []) mutualDecs;
+                (* Split the inline and non-inline functions. *)
+                val (inlines, nonInlines) =
+                    List.partition (
+                        fn Declar{value = Lambda{ isInline=MaybeInline, ...}, ... } => true | _ => false) mutualDecs
                     
-              (* Go down the non-inline functions creating new addresses
-                 for them and entering them in the table. *)
-              val startAddr = !spval
-              val addresses =
-                map (fn Declar{addr, ... } =>
+                (* Go down the non-inline functions creating new addresses
+                   for them and entering them in the table. *)
+                val startAddr = !spval
+                val addresses =
+                    map (fn Declar{addr, ... } =>
                         let
                             val decSpval   = !spval;
                         in
@@ -3870,118 +3880,118 @@ DCJM 2000.
                             decSpval
                         end
                       | _ => raise InternalError "mutualDecs: not Declar")
-                    nonInlines;
-              val endAddr = !spval
-              (* We can now process the inline functions.  Since these
-                 can't be directly recursive we don't need to do anything
-                 special. *)
-              val _ =
-                 List.app (fn Declar{ value, addr, ... } =>
+                    nonInlines
+                val endAddr = !spval
+                (* We can now process the inline functions.  Since these
+                   can't be directly recursive we don't need to do anything
+                   special. *)
+                val _ =
+                    List.app (fn Declar{ value, addr, ... } =>
                                 enterDec (addr, optimise(value, NONE))
                           | _ => raise InternalError "mutualDecs: not Declar")
-                    inlines;
+                    inlines
 
-              (* Next process the non-inlines.  We really want to be able to
-                 compile the functions now if we can and get a constant for
-                 the code address.  We can do that for functions which make
-                 no non-local references or whose non-local references are
-                 by means of constants.  For non-recursive declarations this
-                 is easy since an earlier declaration cannot depend on a later
-                 one but for mutually recursive declarations we don't know
-                 the dependencies.
-                 The simple case is where we have a function which does not
-                 depend on anything and so can be code-generated in the Lambda
-                 case.  Code-generating that may allow others to be code-generated.
-                 Another case is where the functions depend on each other but not
-                 on anything else.  We can compile them together but not
-                 individually.  There are various versions of this second case.
-                 The only one we consider here is if all the (non-constant)
-                 functions are of that form in which case we process the
-                 whole mutually-recursive declaration. *)
-              val hasNonLocalReference = ref false
+                (* Next process the non-inlines.  We really want to be able to
+                   compile the functions now if we can and get a constant for
+                   the code address.  We can do that for functions which make
+                   no non-local references or whose non-local references are
+                   by means of constants.  For non-recursive declarations this
+                   is easy since an earlier declaration cannot depend on a later
+                   one but for mutually recursive declarations we don't know
+                   the dependencies.
+                   The simple case is where we have a function which does not
+                   depend on anything and so can be code-generated in the Lambda
+                   case.  Code-generating that may allow others to be code-generated.
+                   Another case is where the functions depend on each other but not
+                   on anything else.  We can compile them together but not
+                   individually.  There are various versions of this second case.
+                   The only one we consider here is if all the (non-constant)
+                   functions are of that form in which case we process the
+                   whole mutually-recursive declaration. *)
+                val hasNonLocalReference = ref false
 
-              fun checkClosure (Extract{addr, level=0, fpRel=true, ...}) =
+                fun checkClosure (Extract{addr, level=0, fpRel=true, ...}) =
                     if addr >= startAddr andalso addr < endAddr
                     then ()
                     else hasNonLocalReference := true
-              |   checkClosure _ = hasNonLocalReference := true
+                |   checkClosure _ = hasNonLocalReference := true
 
-              fun processNonInlines (Declar{ value = decVal, addr = decAddr, ... },
-                                     decSpval,
-                                     (decs, otherChanges)) =
+                fun processNonInlines (Declar{ value = decVal, addr = decAddr, ... },
+                                       decSpval, (decs, otherChanges)) =
                 (* Have a look at the old entry to see if it's a constant. *)
                 let
                     val oldEntry =
                         lookupOldAddr(
                                 {addr=decAddr, level=0, fpRel=true, lastRef=false},
                                 nestingOfThisProcedure, 0)
-                    val oldGen = optGeneral oldEntry
                 in
-                if isConstnt oldGen
-                then (mkDec (decSpval, oldGen) :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
-                else let
-                    (* Set this entry to create a recursive call if we load
-                       the address while processing the function. The recursive
-                       call may come about as a result of expanding an inline
-                       function which then makes the recursive call. *)
-                    local
-                        val recursive = simpleOptVal (mkGenLoad (0, ~1, false, false))
-                    in
-                        val _ = enterDec(decAddr, recursive);
-                        val _ = enterNewDec(decSpval, recursive)
-                    end;
-                               
-                    (* Now copy this entry. *)
-                    val ins  = optimise(decVal, NONE)
+                    case optGeneral oldEntry of
+                        oldGen as Constnt _ =>
+                            (mkDec (decSpval, oldGen) :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
+                    |   _ =>
+                        let
+                            (* Set this entry to create a recursive call if we load
+                               the address while processing the function. The recursive
+                               call may come about as a result of expanding an inline
+                               function which then makes the recursive call. *)
+                            local
+                                val recursive = simpleOptVal (mkGenLoad (0, ~1, false, false))
+                            in
+                                val _ = enterDec(decAddr, recursive);
+                                val _ = enterNewDec(decSpval, recursive)
+                            end;
+                       
+                            (* Now copy this entry. *)
+                            val ins  = optimise(decVal, NONE)
 
-                    val gen  = optGeneral ins;
-                    val spec = optSpecial ins;
+                            val gen  = optGeneral ins;
+                            val spec = optSpecial ins;
 
-                    (* The general value is either a reference to the
-                       declaration or a constant if the function has just
-                       been compiled into a code segment. *)
-                    val isConstant = isConstnt gen
-                    val optGen =
-                        case gen of
-                            Constnt _ => gen
-                        |   Lambda{closure, ...} => (
-                                List.app checkClosure closure;
-                                mkLoad (decSpval, 0)
+                            (* The general value is either a reference to the
+                               declaration or a constant if the function has just
+                               been compiled into a code segment. *)
+                            val isConstant = isConstnt gen
+                            val optGen =
+                                case gen of
+                                    Constnt _ => gen
+                                |   Lambda{closure, ...} => (
+                                        List.app checkClosure closure;
+                                        mkLoad (decSpval, 0)
+                                    )
+                                |   _ => raise InternalError "processNonInlines: Not a function";
+
+                            (* Explicitly reset the entry in the new table. *)
+                            val _  = enterNewDec(decSpval, simpleOptVal optGen);
+              
+                            (* If this is a small function we leave the special
+                               value so it can be inserted inline.  Otherwise
+                               we clear it. *)
+                            val optSpec =
+                                 case spec of
+                                    Lambda{ isInline=NonInline, ...} => CodeNil
+                                   | _ => optSpecial ins;
+                            val nowInline =
+                                not (isCodeNil optSpec) andalso isCodeNil(optSpecial oldEntry)
+                            (* If this is now a constant or it is a small function when it
+                               wasn't before we need to reprocess everything
+                               which depends on it to try to get the constant inserted
+                               everywhere it can be. *)
+                      in
+                              enterDec 
+                                (decAddr,
+                                 optVal 
+                                    {
+                                      general = optGen,
+                                      special = optSpec,
+                                      environ = optEnviron ins,
+                                      decs    = optDecs ins, (* Should be nil. *)
+                                      recCall = optRec ins
+                                    });
+                            (
+                             mkDec (decSpval, gen) :: decs,
+                             otherChanges orelse isConstant orelse nowInline
                             )
-                        |   _ => raise InternalError "processNonInlines: Not a function";
-
-                    (* Explicitly reset the entry in the new table. *)
-                    val _  = enterNewDec(decSpval, simpleOptVal optGen);
-                      
-                    (* If this is a small function we leave the special
-                       value so it can be inserted inline.  Otherwise
-                       we clear it. *)
-                    val optSpec =
-                         case spec of
-                            Lambda{ isInline=NonInline, ...} => CodeNil
-                           | _ => optSpecial ins;
-                    val nowInline =
-                        not (isCodeNil optSpec) andalso isCodeNil(optSpecial oldEntry)
-                    (* If this is now a constant or it is a small function when it
-                       wasn't before we need to reprocess everything
-                       which depends on it to try to get the constant inserted
-                       everywhere it can be. *)
-                  in
-                    enterDec 
-                        (decAddr,
-                         optVal 
-                            {
-                              general = optGen,
-                              special = optSpec,
-                              environ = optEnviron ins,
-                              decs    = optDecs ins, (* Should be nil. *)
-                              recCall = optRec ins
-                            });
-                    (
-                     mkDec (decSpval, gen) :: decs,
-                     otherChanges orelse isConstant orelse nowInline
-                    )
-                  end
+                      end
                end
 
               | processNonInlines _ =
@@ -4059,12 +4069,16 @@ DCJM 2000.
               (* Deal with the rest of the block *)
               val rest = copyDeclarations vs
 
-              val result =
-                case decs of
-                    [] => []
-                |   [singleton] => [singleton]
-                |   multiple => [mkMutualDecs multiple]
-                val _ = List.app(fn Declar{addr, ...} => if addr < !spval then () else raise InternalError "bad"  | _ => raise InternalError "not a decl") decs
+                (* Separate out the constants.  They don't need to be mutually declared and putting them earlier
+                   may mean that they can be inserted into the code. *)
+                val (constnts, nonConsts) =
+                    List.partition(fn Declar{value=Constnt _, ...} => true | _ => false) decs
+
+                val mutuals =
+                    case nonConsts of
+                        [] => []
+                    |   [singleton] => [singleton]
+                    |   multiple => [mkMutualDecs multiple]
             in
               (* and put these declarations onto the list. *)
               optVal
@@ -4072,7 +4086,7 @@ DCJM 2000.
                   general = optGeneral rest,
                   special = optSpecial rest,
                   environ = optEnviron rest,
-                  decs    = result @ optDecs rest,
+                  decs    = constnts @ mutuals @ optDecs rest,
                   recCall = optRec rest
                 }
             end
