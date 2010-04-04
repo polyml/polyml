@@ -519,6 +519,8 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                 get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
                     (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
             }
+#else
+            int tWake = 0; // Not actually used in single-threaded.
 #endif
             schedLock.Lock();
             // Atomically release the mutex.  This is atomic because we hold schedLock

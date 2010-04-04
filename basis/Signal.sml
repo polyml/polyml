@@ -80,7 +80,8 @@ struct
             sigThread() (* Forever. *)
         end
         
-        fun forkThread() = (Thread.fork(sigThread, []); ())
+        fun forkThread() =
+            (Thread.fork(sigThread, []); ()) handle Thread _ => print "Unable to create signal thread\n"
 
     in
         (* Run this thread now and also start one each time we start up. *)

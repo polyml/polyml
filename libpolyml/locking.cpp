@@ -104,6 +104,8 @@ bool PLock::Trylock(void)
     // TryEnterCriticalSection in Win NT and later but that
     // returns TRUE if the current thread owns the mutex.
    return TryEnterCriticalSection(&lock) == TRUE;
+#else
+   return true; // Single-threaded.
 #endif
 }
 
@@ -194,6 +196,8 @@ bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
     DWORD dwResult = WaitForSingleObject(cond, milliseconds);
     EnterCriticalSection(&pLock->lock);
     return dwResult == WAIT_OBJECT_0;
+#else
+    return true; // Single-threaded.  Return immediately.
 #endif
 }
 

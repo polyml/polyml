@@ -94,7 +94,6 @@ AC_CHECK_LIB(gcc_s, main)
 AC_CHECK_LIB(stdc++, main)
 AC_CHECK_LIB(dl, dlopen)
 AC_CHECK_LIB(m, floor)
-AC_CHECK_LIB(pthread, pthread_create)
 # The next two are only used with mingw
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
@@ -162,7 +161,7 @@ AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
 AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h])
-AC_CHECK_HEADERS([windows.h tchar.h pthread.h semaphore.h])
+AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
 
 # Only check for the X headers if the user said --with-x.
 if test "${with_x+set}" = set; then
@@ -198,6 +197,38 @@ if test "x$with_gmp" != "xno"; then
          fi
         ])
 fi
+
+# Check for pthreads.  Mainly, this allows a single-threaded build on OSes such as Mac OS X
+# that don't have proper multi-threaded profiling.
+AC_ARG_WITH([threads],
+            [AS_HELP_STRING([--with-threads],
+              [use the pthread library for multi-threading @<:@default=check@:>@])],
+            [],
+            [with_threads=check])
+
+# If we want pthreads check that the library and headers are installed.
+if test "x$with_threads" != "xno"; then
+    AC_CHECK_LIB([pthread], [pthread_create],
+        [AC_DEFINE([HAVE_LIBPTHREAD], [1],
+              [Define to 1 if you have the `pthread' library (-lpthread).])
+         [LIBS="-lpthread $LIBS"
+         ]
+         AC_CHECK_HEADER([pthread.h],
+             [AC_DEFINE([HAVE_PTHREAD_H], [1],
+                  [Define to 1 if you have the <pthread.h> header file.])],
+             [if test "x$with_threads" != "xcheck"; then
+                  AC_MSG_FAILURE(
+                      [--with-threads was given, but pthread.h header file is not installed])
+              fi
+             ])
+        ],
+        [if test "x$with_threads" != "xcheck"; then
+            AC_MSG_FAILURE(
+                [--with-threads was given, but pthread library is not installed])
+         fi
+        ])
+fi
+
 
 # Find out which type of object code exporter to use.
 # If we have winnt use PECOFF.  This really only applies to cygwin here.
