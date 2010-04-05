@@ -623,26 +623,35 @@ struct
         printCode(ty, baseLevel)
     end
 
-    and makeEq(ty, level, getTypeValueForID, getRecursiveEq, typeVarMap): codetree =
+    and makeEq(ty, level, getTypeValueForID, typeVarMap): codetree =
     let
         fun equalityForConstruction(constr, args): codetree =
         (* Generate an equality function for a datatype construction. *)
         let
-            (* Get the equality functions for the argument types.
-               These want to be functions taking two arguments.
-               This applies only to polytypes. *)
-            fun getArg ty : codetree =
-            let
-                val eqFun = makeEq(ty, level, getTypeValueForID, getRecursiveEq, typeVarMap)
-                open TypeValue
-            in
-                (* We need a type value here.  The equality function will be used to compare
-                   the argument type and the boxedness and size parameters may be needed for
-                   the constructors. *)
-                createTypeValue{eqCode=eqFun, printCode=CodeZero,
-                    boxedCode=boxednessForType(ty, level, getTypeValueForID, typeVarMap),
-                    sizeCode=sizeForType(ty, level, getTypeValueForID, typeVarMap)}
-            end
+            (* Get argument types parameters for polytypes.  There's a special case
+               here for type vars, essentially the type arguments to the datatype, to avoid taking
+               apart the type value record and then building it again. *)
+            fun getArg ty =
+                if (case ty of TypeVar tyVar =>
+                        (case tvValue tyVar of EmptyType => true | _ => false) | _ => false)
+                then
+                (
+                    case findCachedTypeCode(typeVarMap, ty) of
+                        SOME (code, _) => code level
+                    |   NONE => raise InternalError "getArg"
+                )
+            else
+                let
+                    val eqFun = makeEq(ty, level, getTypeValueForID, typeVarMap)
+                    open TypeValue
+                in
+                    (* We need a type value here.  The equality function will be used to compare
+                       the argument type and the boxedness and size parameters may be needed for
+                       the constructors. *)
+                    createTypeValue{eqCode=eqFun, printCode=CodeZero,
+                        boxedCode=boxednessForType(ty, level, getTypeValueForID, typeVarMap),
+                        sizeCode=sizeForType(ty, level, getTypeValueForID, typeVarMap)}
+                end
 
             val resFun =
             let
@@ -653,19 +662,17 @@ struct
                    the argument.  It may not be an equality type. *)
                 if isPointerEqType iden
                 then rtsFunction POLY_SYS_word_eq
-                else case getRecursiveEq(tcIdentifier constr, args, level) of
-                    SOME recCall => recCall (* It's a direct recusive call of the inner fn. *)
-                |   NONE =>
-                    let
-                        open TypeValue
-                        val codeForId =
-                            extractEquality(getTypeValueForID(tcIdentifier constr, args, level))
-                    in
-                        (* Apply the function we obtained to any type arguments. *)
-                        if null args
-                        then codeForId
-                        else mkEval(codeForId, map getArg args, true)
-                    end
+                else
+                let
+                    open TypeValue
+                    val codeForId =
+                        extractEquality(getTypeValueForID(tcIdentifier constr, args, level))
+                in
+                    (* Apply the function we obtained to any type arguments. *)
+                    if null args
+                    then codeForId
+                    else mkEval(codeForId, map getArg args, true)
+                end
             end
         in
             resFun
@@ -686,17 +693,17 @@ struct
                         |   NONE => raise InternalError "makeEq: should already have been handled"
                     )
 
-                |   tyVal => makeEq(tyVal, level, getTypeValueForID, getRecursiveEq, typeVarMap)
+                |   tyVal => makeEq(tyVal, level, getTypeValueForID, typeVarMap)
             )
 
         |   TypeConstruction{constr, args, ...} =>
                 if tcIsAbbreviation constr  (* May be an alias *)
-                then makeEq (makeEquivalent (constr, args), level, getTypeValueForID, getRecursiveEq, typeVarMap)
+                then makeEq (makeEquivalent (constr, args), level, getTypeValueForID, typeVarMap)
                 else equalityForConstruction(constr, args)
 
         |   LabelledType {recList=[{typeof=singleton, ...}], ...} =>
                 (* Unary tuples are optimised - no indirection. *)
-                makeEq(singleton, level, getTypeValueForID, getRecursiveEq, typeVarMap)
+                makeEq(singleton, level, getTypeValueForID, typeVarMap)
 
         |   LabelledType {recList, ...} =>
             (* Combine the entries.
@@ -708,7 +715,7 @@ struct
                 |   combineEntries ({typeof, ...} :: t, n) =
                     let
                         val compareElements =
-                            makeEq(typeof, newLevel, getTypeValueForID, getRecursiveEq, typeVarMap)
+                            makeEq(typeof, newLevel, getTypeValueForID, typeVarMap)
                     in
                         mkCand(
                             mkEval(compareElements, [mkInd(n, arg2), mkInd(n, arg1)], true),
@@ -727,24 +734,29 @@ struct
     let
         val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
-        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr, vConstrs), eqStatus, boxedCode, sizeCode, ...}, addr)) =
+        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr, vConstrs), eqStatus, boxedCode, sizeCode, ...}, addr),
+                                otherFns) =
         if eqStatus
         then
         let
             val argTypes = tcTypeVars tyConstr
 
-            (* Argument type variables. If it's a poly-type we need an extra function
-               to apply to the type args so the depth is one more. *)
-            val (localArgList, polyAdd, argTypeMap) =
+            (* Argument type variables. *)
+            val (localArgList, argTypeMap) =
                 case argTypes of
-                    [] => ([], 0, typeVarMap)
+                    [] => ([], typeVarMap)
                 |   _ =>
                     let
-                        val (varToArgMap, localArgList) = mkTcArgMap(argTypes, baseLevel+1)
+                        val nArgs = List.length argTypes
+                        (* Add the polymorphic variables after the ordinary ones. *)
+                        val argAddrs = List.tabulate(nArgs, fn n => n-nArgs-2)
+                        val args = List.map(fn addr => fn l => mkLoad(addr, l-(baseLevel+1))) argAddrs
+                        val varToArgMap = ListPair.zipEq(argTypes, args)
+                        val localArgList = List.map (fn addr => mkLoad(addr, 0)) argAddrs
                         val addrs = ref 1 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
-                        (localArgList, 1, extendTypeVarMap(varToArgMap, mkAddr, baseLevel+1, typeVarMap))
+                        (localArgList, extendTypeVarMap(varToArgMap, mkAddr, baseLevel+1, typeVarMap))
                     end
 
             val nTypeVars = List.length argTypes
@@ -752,7 +764,7 @@ struct
             (* If this is a reference to a datatype we're currently generating
                load that address otherwise fall back to the default. *)
             fun getEqFnForID(typeId, _, l) =
-                if sameTypeId(typeId, tcIdentifier tyConstr)
+                if sameTypeId(typeId, tcIdentifier tyConstr) andalso null argTypes
                 then (* Directly recursive. *)
                     TypeValue.createTypeValue{eqCode=mkLoad(0, l-baseLevel-1), printCode=CodeZero,
                                     boxedCode=boxedCode, sizeCode=sizeCode}
@@ -762,18 +774,6 @@ struct
                          TypeValue.createTypeValue{eqCode=mkLoad(addr, l-baseLevel), printCode=CodeZero,
                                                    boxedCode=boxedCode, sizeCode=sizeCode}
                 |   NONE => codeId(typeId, l)
-            
-            (* If this is a recursive call and the type arguments that are being passed (if any) are
-               the same as the original arguments we can call the inner function directly.
-               e.g. if we have datatype 'a list = nil | :: of ('a * 'a list) the recursive
-               call has the same arguments but if we have datatype 'a t = X | Y of int t we
-               can't do this. *)
-            fun getRecursiveEq(typeId, actualArgs, l) =
-                if sameTypeId(typeId, tcIdentifier tyConstr) andalso
-                        ListPair.foldlEq(fn (TypeVar tv, tv', true) => sameTv(tv, tv') | _ => false)
-                            true (actualArgs, argTypes)
-                then SOME(mkLoad(0, l-baseLevel-(polyAdd+1)))
-                else NONE (* Not recursive. *)
 
             (* Filter out the EnumForm constructors.  They arise
                in situations such as datatype t = A of int*int | B | C
@@ -800,7 +800,7 @@ struct
                 else
                 let
                     fun addPolymorphism c = if nTypeVars = 0 then c else mkEval(c, localArgList, true)
-                    val newLevel = baseLevel+polyAdd+1 (* We have one or two enclosing functions. *)
+                    val newLevel = baseLevel+1 (* We have one function. *)
                     val base = codeAccess(access, newLevel)
                     open ValueConstructor
                     fun matches arg =
@@ -826,7 +826,7 @@ struct
                             (* Test whether the values match. *)
                             val eqValue =
                                 mkEval(
-                                    makeEq(resType, newLevel, getEqFnForID, getRecursiveEq, argTypeMap),
+                                    makeEq(resType, newLevel, getEqFnForID, argTypeMap),
                                     [destruct ~1, destruct ~2], true)
                         in
                             (* We have equality if both values match
@@ -849,19 +849,29 @@ struct
                        else processConstrs vConstrs
                  |  _ => (* More than one constructor: should never be zero. *)
                         mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
-            val eqFun =
-                mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)")
-            val code =
-                if polyAdd = 0
-                then eqFun
-                else mkProc(mkEnv(getCachedTypeValues argTypeMap @ [eqFun]), nTypeVars, "equality()")
         in
-            mkDec(addr, code)
+            if null argTypes
+            then mkDec(addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)")) :: otherFns
+            else (* Polymorphic.  Add an extra inline functions. *)
+            let
+                val nArgs = List.length argTypes
+                (* Call the second function with the values to be compared and the base types. *)
+                val polyArgs = List.tabulate(nArgs, fn i => mkLoad(~nArgs+i, 1))
+            in
+                mkDec(addr,
+                    mkInlproc(
+                        mkInlproc(
+                            mkEval(mkLoad(addr+1, 2), polyArgs @ [arg1, arg2], true), 2, "eq-" ^ tcName tyConstr ^ "(2)"),
+                            nArgs, "eq-" ^ tcName tyConstr ^ "(2)(P)")) ::
+                mkDec(addr+1,
+                    mkProc(mkEnv(getCachedTypeValues argTypeMap @ [eqCode]), 2+nTypeVars, "eq-" ^ tcName tyConstr ^ "()")) ::
+                otherFns
+            end
         end
         else (* Not an equality type.  This will not be called. *)
-            mkDec(addr, CodeZero)
+            mkDec(addr, CodeZero) :: otherFns
     in
-        List.map equalityForDatatype typesAndAddresses
+        List.foldl equalityForDatatype [] typesAndAddresses
     end
 
     (* Create a printer function for a datatype when the datatype is declared.
@@ -1022,8 +1032,7 @@ struct
             val eqCode =
                 if not isEq then CodeZero
                 else (* We need a function that takes two arguments rather than a single pair. *)
-                    makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l),
-                           fn _ => NONE, typeVarMap)
+                    makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
             val boxedCode =
                 boxednessForType(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
             val sizeCode =
@@ -1075,7 +1084,7 @@ struct
                             extendTypeVarMap(#1 (mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
 
                         val innerFnCode =
-                            makeEq(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), fn _ => NONE, argTypeMap)
+                            makeEq(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
                     in
                         mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), nArgs, "equality()")
                     end
@@ -1129,7 +1138,14 @@ struct
            printer.  That means that the code has to be produced in stages. *)
         (* Create the equality functions.  Because mutual decs can only be functions we
            can't create the typeIDs themselves as mutual declarations. *)
-        val eqAddresses = List.map(fn _ => mkAddr 1) typeDatalist (* Make addresses for the equalities. *)
+        local
+            (* If this is polymorphic make two addresses, one for the returned equality function and
+               one for the inner function. *)
+            fun makeEqAddr{typeConstr=TypeConstrSet(tyConstr, _), ...} =
+                mkAddr(if null (tcTypeVars tyConstr) then 1 else 2)
+        in
+            val eqAddresses = List.map makeEqAddr typeDatalist (* Make addresses for the equalities. *)
+        end
         val equalityFunctions =
             mkMutualDecs(equalityForDatatypes(typeDatalist, eqAddresses, level, typeVarMap))
 
@@ -1185,7 +1201,7 @@ struct
     let
         (* The final result function must take a single argument. *)
         val resultCode =
-            makeEq(ty, level+1, fn (typeId, _, l) => codeId(typeId, l), fn _ => NONE, typeVarMap)
+            makeEq(ty, level+1, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
     in
         (* We need to wrap this up in a new inline function. *)
         mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)], true),
@@ -1231,7 +1247,7 @@ struct
                     fun getTypeValueForID(typeId, _, l) = codeId(typeId, l)
                     val eqCode =
                         if equality
-                        then makeEq(t, level, fn (typeId, _, l) => codeId(typeId, l), fn _ => NONE, polyVarMap)
+                        then makeEq(t, level, fn (typeId, _, l) => codeId(typeId, l), polyVarMap)
                         else noEquality
                     val boxedCode = boxednessForType(t, level, getTypeValueForID, polyVarMap)
                     val printCode =
