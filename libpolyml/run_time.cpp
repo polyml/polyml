@@ -1075,7 +1075,7 @@ Handle EnterPolyCode(TaskData *taskData)
                 break;
 
             case POLY_SYS_quotrem:
-                machineDependent->CallIO2(taskData, &quot_rem_c);
+                machineDependent->CallIO3(taskData, &quot_rem_c);
                 break;
 
     //        case POLY_SYS_is_short: machineDependent->CallIO1(taskData, &is_shortc); break;

@@ -39,7 +39,7 @@ structure IntInf : INT_INF =
 struct
     open RuntimeCalls;
     
-    val quotRem: int*int->int*int = RunCall.run_call2C2 POLY_SYS_quotrem
+    fun quotRem (i, j) = (Int.quot(i, j), Int.rem(i, j))
 
     (* This should really be defined in terms of quotRem. *)
     fun divMod(i, j) = (i div j, i mod j)

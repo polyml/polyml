@@ -134,115 +134,68 @@ struct
         else if i < 0 then j < 0
         else (* i > 0 *) j > 0
 
-    local
-        (* To reduce the need for arbitrary precision arithmetic we can try to
-           process values in groups. *)
-        (* Return the largest short value and the number of digits. *)
-        fun maxShort(n, radix, acc) =
-            if LibrarySupport.isShortInt(acc * radix)
-            then maxShort(n+1, radix, acc*radix)
-            else (acc, (*Word.fromInt*) RunCall.unsafeCast n)
-        val (maxB, lenB) = maxShort(0, 2, 1)
-        and (maxO, lenO) = maxShort(0, 8, 1)
-        and (maxD, lenD) = maxShort(0, 10, 1)
-        and (maxH, lenH) = maxShort(0, 16, 1)
-    in
-        (* Local function *)
-        fun baseOf StringCvt.BIN = (2,  maxB, lenB)
-         |  baseOf StringCvt.OCT = (8,  maxO, lenO)
-         |  baseOf StringCvt.DEC = (10, maxD, lenD)
-         |  baseOf StringCvt.HEX = (16, maxH, lenH)
-    end
+    (* Local function *)
+    fun baseOf StringCvt.BIN = 2
+     |  baseOf StringCvt.OCT = 8
+     |  baseOf StringCvt.DEC = 10
+     |  baseOf StringCvt.HEX = 16
 
     local
         open LibrarySupport
-        val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg
-        val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte
-        val quotRem: int*int -> int*int = RunCall.run_call2C2 POLY_SYS_quotrem
+        val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
+        val System_setb: string * word * char -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
 
         (* Int.toChars turned out to be a major allocation hot-spot in some Isabelle
            examples.  The old code created a list of the characters and then concatenated
            them.  This cost 3 words for each character before the actual string was
-           created.  This version avoids that problem.  This has also now been
-           modified to reduce the arbitrary precision arithmetic required when the
-           value is long.  Instead of reducing it by the radix each time we take off
-           chunks of up to the maximum value that can be represented as a short precision
-           value. *)
+           created.  This version avoids that problem. *)
         
         fun toChar digit =
             if digit < 10 then Char.chr(Char.ord(#"0") + digit)
             else (* Hex *) Char.chr(Char.ord(#"A") + digit - 10)
+
+        fun toChars(base, i, negative, chars: word) =
+        let
+            val digit = i rem base
+            val ch = toChar digit
+        in
+            if i >= base
+            then (* More to do *)
+            let
+                val (result, pos) = toChars(base, i quot base, negative, chars+0w1)
+            in
+                System_setb(result, pos, ch);
+                (result, pos+0w1)
+            end
+            (* Finished.  Allocate the string. *)
+            else if negative
+            then
+            let
+                val res = allocString(chars+0w2)
+            in
+                System_setb(res, wordSize, #"~");
+                System_setb(res, wordSize+0w1, ch);
+                (res, wordSize+0w2)
+            end
+            else
+            let
+                val res = allocString(chars+0w1)
+            in
+                System_setb(res, wordSize, ch);
+                (res, wordSize+0w1)
+            end
+        end
     in
         fun fmt radix i =
         let
-            val (base, maxShort, shortChars) = baseOf radix
-            val negative = i < 0
-
-            fun toChars(i, chars, continuation, pad) =
-            let
-                val (q, digit) = quotRem(i, base)
-                val ch = toChar digit
-            in
-                if q <> 0
-                then (* More to do *)
-                let
-                    val (result, pos) =
-                        toChars(q, chars+0w1, continuation, pad-0w1)
-                in
-                    System_setb(result, pos, ch);
-                    (result, pos+0w1)
-                end
-                (* Else we've finished this group.  If we have more to do
-                   we may need to pad it out with zeros before starting the
-                   next group. *)
-                else if continuation <> 0
-                then
-                let
-                    val (result, pos) = toCharGroup(continuation, chars + pad)
-                    fun addZeros n =
-                        if n = pad then ()
-                        else (System_setb(result, pos+n, #"0"); addZeros(n+0w1))
-                in
-                    addZeros 0w0;
-                    (result, pos+pad)
-                end
-                (* Really finished.  Allocate the string. *)
-                else if negative
-                then
-                let
-                    val res = allocString(chars+0w2)
-                in
-                    System_setb(res, wordSize, #"~");
-                    System_setb(res, wordSize+0w1, ch);
-                    (res, wordSize+0w2)
-                end
-                else
-                let
-                    val res = allocString(chars+0w1)
-                in
-                    System_setb(res, wordSize, ch);
-                    (res, wordSize+0w1)
-                end
-            end
-
-            (* Process a group of characters that will fit in a short
-               precision number. *)
-            and toCharGroup(i, chars) =
-                if LibrarySupport.isShortInt i
-                then toChars(i, chars, 0, 0w0)
-                else
-                let
-                    val (q, r) = quotRem(i, maxShort)
-                in
-                    toChars(r, chars, q, shortChars)
-                end
+            val base = baseOf radix
         in
             if i >= 0 andalso i < base
             then (* This will be a single character.  Treat specially. *)
                 RunCall.unsafeCast(toChar i) : string
             else (* Multiple characters. *)
             let
-                val (result, _) = toCharGroup(abs i, 0w0)
+                val (result, _) = toChars(base, abs i, i < 0, 0w0)
             in
                 System_lock result;
                 result
@@ -254,7 +207,7 @@ struct
     
     fun scan radix getc src =
         let
-        val (base, _, _) = baseOf radix
+        val base = baseOf radix
         
         (* Read the digits, accumulating the result in acc.  isOk is true
            once we have read a valid digit. *)

@@ -1472,7 +1472,9 @@ CALLMACRO   CALL_IO    POLY_SYS_amod
 CALLMACRO   RegMask amod,(M_Reax OR M_Redi OR M_Redx OR Mask_all)
 
  ;# Combined quotient and remainder.  We have to use the long form
- ;# if the arguments are long, there's an overflow or we run out of memory.
+ ;# if the arguments are long or there's an overflow.  The first two
+ ;# arguments are the values to be divided.  The third argument is the
+ ;# address where the results should be placed. 
 CALLMACRO   INLINE_ROUTINE quotrem_long
     MOVL    Reax,Redi
     ANDL    Rebx,Redi
@@ -1484,32 +1486,11 @@ CALLMACRO   INLINE_ROUTINE quotrem_long
     CMPL    CONST TAGGED((-1)),Rebx
     jz      quotrem_really_long
 
- ;# Allocate memory for the result.
+ ;# Get the address for the result.
 IFNDEF HOSTARCHITECTURE_X86_64
-     MOVL    LocalMpointer[Rebp],Recx
-     SUBL    CONST 12,Recx        ;# 3 words
+    MOVL    4[Resp],Recx
 ELSE
-     MOVL    R15,Recx
-     SUBL    CONST 24,Recx        ;# 3 words
-ENDIF
-
-IFDEF TEST_ALLOC
-;# Test case - this will always force a call into RTS.
-     CMPL    LocalMpointer[Rebp],Recx
-ELSE
-     CMPL    LocalMbottom[Rebp],Recx
-ENDIF
-     jb      mem_for_remquot1
-IFNDEF HOSTARCHITECTURE_X86_64
-     MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
-IFDEF WINDOWS
-     mov     dword ptr (-4)[Recx],2h  ;# Length word:
-ELSE
-     MOVL    CONST 2,(-4)[Recx]       ;# Two words
-ENDIF
-ELSE
-    MOVL    Recx,R15                        ;# Updated allocation pointer
-    MOVL    CONST 2,(-8)[Recx]              ;# Two words
+    MOVL    R8,Recx
 ENDIF
 ;# Do the division
     SARL    CONST TAGSHIFT,Reax
@@ -1531,7 +1512,11 @@ ELSE
     MOVL    Redx,8[Recx]
 ENDIF
     MOVL    Recx,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    ret     CONST 4
+ELSE
     ret
+ENDIF
 
 mem_for_remquot1:  ;# Not enough store: clobber bad value in ecx.
     MOVL   CONST 1,Recx

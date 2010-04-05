@@ -2,7 +2,7 @@
     Title:  save_vec.h - The save vector holds temporary values that may move as
     the result of a garbage collection.
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2010 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -29,6 +29,8 @@
 /* This element points at an element of the Poly heap */
 /* The element is currently represented as a (PolyWord *) */
 
+class StackObject;
+
 class SaveVecEntry {
 public:
     SaveVecEntry(PolyWord w): m_Handle(w) {}
@@ -36,6 +38,10 @@ public:
 
     PolyWord Word() { return m_Handle; }
     PolyObject *WordP() { return m_Handle.AsObjPtr(); }
+
+    // If we have a value that points into the stack we need to replace it
+    // by the base of the stack and the offset.
+    POLYUNSIGNED ReplaceStackHandle(const StackObject *stack);
 
 private:
     PolyWord m_Handle;

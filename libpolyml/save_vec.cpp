@@ -2,7 +2,7 @@
     Title:  save_vec.cpp - The save vector holds temporary values that may move as
     the result of a garbage collection.
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2010 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -74,13 +74,18 @@ Handle SaveVec::push(PolyWord valu) /* Push a PolyWord onto the save vec. */
     return save_vec_addr++;
 }
 
+POLYUNSIGNED SaveVecEntry::ReplaceStackHandle(const StackObject *stack)
+{
+    PolyWord *addr = Word().AsStackAddr();
+    POLYUNSIGNED offset = 0;
+    if (addr > (PolyWord*)stack && addr < stack->Offset(stack->Length()))
+    {
+        offset = addr-(PolyWord*)stack;
+        m_Handle = (PolyObject*)stack;
+    }
+    return offset;
+}
 
-
-/******************************************************************************/
-/*                                                                            */
-/*      run_time_gc - utility function, called indirectly                     */
-/*                                                                            */
-/******************************************************************************/
 void SaveVec::gcScan(ScanAddress *process)
 /* Ensures that all the objects are retained and their addresses updated. */
 {

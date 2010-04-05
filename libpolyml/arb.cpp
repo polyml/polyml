@@ -1079,14 +1079,19 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
 }
 
 // Return quot and rem as a pair.
-Handle quot_rem_c(TaskData *taskData, Handle y, Handle x)
+Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
 {
+    // The result handle will almost certainly point into the stack.
+    // That may well cause problems if we GC so we need to change this
+    // so that the handle contains the base of the stack and compute the
+    // offset.
+    POLYUNSIGNED offset = result->ReplaceStackHandle(taskData->stack);
+    PolyWord *addr = result->Word().AsStackAddr();
     Handle remHandle, divHandle;
     quotRem(taskData, y, x, remHandle, divHandle);
-    Handle result = alloc_and_save(taskData, 2);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
-    return result;
+    DEREFHANDLE(result)->Set(offset+0, DEREFWORDHANDLE(divHandle));
+    DEREFHANDLE(result)->Set(offset+1, DEREFWORDHANDLE(remHandle));
+    return taskData->saveVec.push(TAGGED(0));
 }
 
 /* compare_unsigned is passed LONG integers only */
