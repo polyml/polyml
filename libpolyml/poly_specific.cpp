@@ -76,7 +76,9 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_exit: return 0;
     case POLY_SYS_chdir: return 0;
     case POLY_SYS_alloc_store:
+    case POLY_SYS_alloc_uninit:
         // Allocating memory doesn't have any visible effect on the state.  It can raise Size.
+        // Two allocations return different addresses.
         return PROPWORD_NOUPDATE;
     case POLY_SYS_raisex: return 0;
     case POLY_SYS_get_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;

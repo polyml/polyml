@@ -36,6 +36,7 @@
 #define POLY_SYS_chdir               9
 
 #define POLY_SYS_alloc_store         11
+#define POLY_SYS_alloc_uninit        12
 #define POLY_SYS_raisex              14 /* This is now used only by SetException. */
 #define POLY_SYS_get_length          15
 #define POLY_SYS_get_flags           17

@@ -285,6 +285,7 @@ extern int assign_byte();
 extern int assign_word();
 extern int kill_selfa();
 extern int alloc_store();
+extern int alloc_uninit;
 extern int get_length_a();
 extern int int_to_word();
 extern int move_bytes();
@@ -1175,6 +1176,7 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_exit, PolyWord::FromCodePtr(codeAddr));
     
     add_function_to_io_area(POLY_SYS_alloc_store, alloc_store);
+    add_function_to_io_area(POLY_SYS_alloc_uninit, alloc_uninit);
     
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_chdir, codeAddr);
     add_word_to_io_area(POLY_SYS_chdir, PolyWord::FromCodePtr(codeAddr));

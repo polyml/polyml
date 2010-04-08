@@ -1249,6 +1249,24 @@ ELSE
 CALLMACRO   RegMask assign_word,(M_Reax)
 ENDIF
 
+;# Allocate a piece of memory that does not need to be initialised.
+;# We can't actually risk leaving word objects uninitialised so for the
+;# moment we always initialise.
+CALLMACRO   INLINE_ROUTINE  alloc_uninit
+IFDEF HOSTARCHITECTURE_X86_64
+    MOVL    CONST ZERO,R8
+ELSE
+    POP     Recx         ;# Get the return address
+    PUSHL   CONST ZERO   ;# Push the initial value - zero
+    PUSHL   Recx         ;# Restore the return address
+ENDIF
+;# Drop through into alloc_store
+
+IFNDEF HOSTARCHITECTURE_X86_64
+CALLMACRO   RegMask alloc_uninit,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Redi)
+ELSE
+CALLMACRO   RegMask alloc_uninit,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Redi OR M_R8)
+ENDIF
 
 ;# alloc(size, flags, initial).  Allocates a segment of a given size and
 ;# initialises it.
@@ -1256,6 +1274,7 @@ ENDIF
 ;# This is primarily used for arrays and for strings.  Refs are
 ;# allocated using inline code.
 CALLMACRO   INLINE_ROUTINE  alloc_store
+allsts:
  ;# alloc(size, flags, initial).  Allocates a segment of a given size and
  ;# initialises it.
  ;# First check that the length is acceptable
@@ -1362,6 +1381,7 @@ alloc_in_rts:
     MOVL    Reax,Redx       ;# Clobber these first
     MOVL    Reax,Redi
 CALLMACRO   CALL_IO    POLY_SYS_alloc_store
+
 
 CALLMACRO   INLINE_ROUTINE  add_long
     MOVL    Reax,Redi
@@ -2297,7 +2317,7 @@ ENDIF
     dd  Mask_all                 ;# 9
     dd  Mask_all                 ;# 10 is unused
     dd  Mask_alloc_store         ;# 11
-    dd  Mask_all                 ;# 12
+    dd  Mask_alloc_uninit        ;# 12
     dd  Mask_all                 ;# return = 13
     dd  Mask_all                 ;# raisex = 14
     dd  Mask_get_length          ;# 15

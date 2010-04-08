@@ -1225,6 +1225,7 @@ void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
     add_word_to_io_area(POLY_SYS_alloc_store, TAGGED(POLY_SYS_alloc_store));
+    add_word_to_io_area(POLY_SYS_alloc_uninit, TAGGED(POLY_SYS_alloc_uninit));
     add_word_to_io_area(POLY_SYS_raisex, TAGGED(POLY_SYS_raisex));
     add_word_to_io_area(POLY_SYS_chdir, TAGGED(POLY_SYS_chdir));
     add_word_to_io_area(POLY_SYS_get_length, TAGGED(POLY_SYS_get_length));

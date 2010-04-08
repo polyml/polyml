@@ -27,6 +27,7 @@ struct
   val POLY_SYS_exit                = 1
   val POLY_SYS_chdir               = 9
   val POLY_SYS_alloc_store         = 11
+  val POLY_SYS_alloc_uninit        = 12
   val POLY_SYS_raisex              = 14
   val POLY_SYS_get_length          = 15
   val POLY_SYS_get_flags           = 17

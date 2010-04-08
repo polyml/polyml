@@ -327,7 +327,8 @@ gbla(name): \
     CALL_IO(io_operation, POLY_SYS_io_operation)
     CALL_IO(exception_trace, POLY_SYS_exception_trace)
     CALL_IO(bytevec_eq_, POLY_SYS_bytevec_eq)
-    
+    CALL_IO(alloc_uninit_, POLY_SYS_alloc_uninit)
+
 ! alloc(size, flags, initial).  Allocates a segment of a given size and
 ! initialises it.
 globldec(alloc_store)

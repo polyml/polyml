@@ -268,6 +268,7 @@ extern int thread_self();
 extern int thread_dispatcha();
 extern int kill_selfa();
 extern int alloc_store();
+extern int alloc_uninit_a();
 extern int get_length_a();
 extern int get_flags_a();
 extern int set_flags_a();
@@ -1095,6 +1096,7 @@ void SparcDependent::InitInterfaceVector(void)
 {
     add_function_to_io_area(POLY_SYS_exit, &finisha);
     add_function_to_io_area(POLY_SYS_alloc_store, &alloc_store);
+    add_function_to_io_area(POLY_SYS_alloc_uninit, &alloc_uninit_a);
     add_function_to_io_area(POLY_SYS_chdir, &change_dira);
     add_function_to_io_area(POLY_SYS_get_length, &get_length_a);
     add_function_to_io_area(POLY_SYS_get_flags, &get_flags_a);

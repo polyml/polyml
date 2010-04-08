@@ -563,7 +563,14 @@ globldec(gbla(name)) \
 
     
     CALL_IO(kill_self, POLY_SYS_kill_self)
-    
+
+/* alloc_uninit.  Allocate without necessarily initialising.  Just use
+   alloc_store to do this. */
+INLINE_ROUTINE(alloc_uninit)
+    li      r5,TAGGED(0)
+	/* And drop through to alloc_store. */
+    RegMask(alloc_uninit,(M_R3|M_RR|M_R4|M_R23))
+
 /* alloc(size, flags, initial). 
    Allocates a segment of a given size and initialises it.
    This is primarily used for arrays and for strings.  Refs are
@@ -1483,7 +1490,7 @@ globldec(registerMaskVector)
     dd  Mask_all         /* 9 */
     dd  Mask_all                /* 10 is unused */
     dd  Mask_alloc_store         /* 11 */
-    dd  Mask_all                 /* 12 is now unused */
+    dd  Mask_alloc_uninit        /* 12 */
     dd  Mask_all                 /* return = 13 */
     dd  Mask_all                 /* raisex = 14 */
     dd  Mask_get_length          /* 15 */

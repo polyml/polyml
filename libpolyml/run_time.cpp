@@ -752,6 +752,17 @@ static Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flag
     return taskData->saveVec.push(vector);
 }
 
+// Alloc_uninit returns the address of some memory that will be filled in later
+// so need not be initialised unlike alloc_store where the initial value may be
+// significant.  For word objects we can't risk leaving them uninitialised in case
+// we GC before we've finished filling them.  There's no harm in initialising byte
+// objects.
+static Handle alloc_uninit_c(TaskData *taskData, Handle flags_handle, Handle size )
+{
+    Handle initial = SAVE(TAGGED(0));
+    return alloc_store_long_c(taskData, initial, flags_handle, size);
+}
+
 /* Word functions. These functions assume that their arguments are tagged
    integers and treat them as unsigned values.
    These functions will almost always be implemented directly in the code
@@ -1022,6 +1033,10 @@ Handle EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_alloc_store:
                 machineDependent->CallIO3(taskData, &alloc_store_long_c);
+                break;
+
+            case POLY_SYS_alloc_uninit:
+                machineDependent->CallIO2(taskData, &alloc_uninit_c);
                 break;
 
             case POLY_SYS_chdir:
