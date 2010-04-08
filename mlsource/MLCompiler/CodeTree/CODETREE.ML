@@ -4467,6 +4467,8 @@ DCJM 2000.
     and maxInlineSize      = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
     and compilerOut        = PRETTY.getCompilerOutput debugSwitches
 
+    val () = if printCodeTree then compilerOut(pretty pt) else ();
+
     (* This ensures that everything is printed just before
        it is code-generated. *)
     fun codeGenAndPrint(code, localCount) =
