@@ -2524,11 +2524,14 @@ struct
 
                     local
                         val (copiedCandidate, sourceVars) = generalise sourceTypeOf
+                        val sourceVars =
+                            List.filter (fn {equality, ...} => not justForEqualityTypes orelse equality) sourceVars
                         val () = 
                             case unifyTypes(copiedCandidate, targetType) of
                                 NONE => ()
                             |   SOME report => (print(name ^ ":\n"); PolyML.print report; raise InternalError "unifyTypes failed in pass 3")
-                        val destVars=getPolyTypeVars(targetType, fn _ => NONE)
+                        val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
+                        val destVars = filterTypeVars (getPolyTypeVars(targetType, fn _ => NONE))
 
                         (* If we have the same polymorphic variables in the source
                            and destination we don't need to apply a coercion.

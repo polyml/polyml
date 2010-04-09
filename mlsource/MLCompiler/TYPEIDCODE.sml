@@ -77,6 +77,12 @@ struct
        where < > denotes multiple (poly-style) arguments rather than tuples.
        *)
 
+    (* If this is true we are just using additional arguments for equality type
+       variables.  If false we are using them for all type variables and every
+       polymorphic function is wrapped in a function that passes the type
+       information. *)
+    val justForEqualityTypes = true
+
     val arg1     = mkLoad (~1, 0) (* Used frequently. *)
     val arg2     = mkLoad (~2, 0)
 
@@ -193,9 +199,11 @@ struct
             (* The printer and equality functions must be valid functions even when they
                will never be called.  We may have to construct dummy type values
                by applying a polymorphic type constructor to them and if
-               they don't have the right form the optimiser will complain. *)
-            val errorFunction1 = mkProc(CodeZero, 1, "errorCode1")
-            and errorFunction2 = mkProc(CodeZero, 2, "errorCode2")
+               they don't have the right form the optimiser will complain.
+               If we're only using type values for equality type variables the default
+               print function will be used in polymorphic functions so must print "?". *)
+            val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default")
+            val errorFunction2 = mkProc(CodeZero, 2, "errorCode2")
             val codeFn = mkProc(codePrettyString "fn", 1, "print-function")
 
             local
@@ -226,7 +234,7 @@ struct
             val codeTuple =
                 mkTuple[
                     createTypeValue{ (* Unused type variable. *)
-                        eqCode=errorFunction2, printCode=errorFunction1, boxedCode=boxedEither, sizeCode=singleWord},
+                        eqCode=errorFunction2, printCode=codePrintDefault, boxedCode=boxedEither, sizeCode=singleWord},
                     createTypeValue{ (* Function. *)
                         eqCode=errorFunction2, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
                     intCode, boolCode, stringCode, charCode
@@ -799,7 +807,8 @@ struct
                 if isEnum vConstr then processConstrs rest
                 else
                 let
-                    fun addPolymorphism c = if nTypeVars = 0 then c else mkEval(c, localArgList, true)
+                    fun addPolymorphism c =
+                        if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList, true)
                     val newLevel = baseLevel+1 (* We have one function. *)
                     val base = codeAccess(access, newLevel)
                     open ValueConstructor
@@ -931,7 +940,7 @@ struct
                    functions.  For monotypes the fields contain the injection/test/projection
                    functions directly. *)
                 fun addPolymorphism c =
-                    if null argTypes then c else mkEval(c, localArgList, true)
+                   if null argTypes  orelse justForEqualityTypes then c else mkEval(c, localArgList, true)
 
                 open ValueConstructor
 
@@ -1233,9 +1242,9 @@ struct
     val noPrinter = mkConst (toMachineWord (fn _ => PRETTY.PrettyString "?"))
 
     (* If this is a polymorphic value apply it to the type instance. *)
-    fun applyToInstance([], level, _, code) = code level (* Monomorphic. *)
+    fun applyToInstance'([], level, _, code) = code level (* Monomorphic. *)
 
-    |   applyToInstance(sourceTypes, level, polyVarMap, code) =
+    |   applyToInstance'(sourceTypes, level, polyVarMap, code) =
     let
         (* If we need either the equality or print function we generate a new
            entry and ignore anything in the cache. *)
@@ -1287,6 +1296,12 @@ struct
     in
         mkEval(code level, List.map makePolyParameter sourceTypes, true)
     end
+
+    (* For now limit this to equality types. *)
+    fun applyToInstance(sourceTypes, level, polyVarMap, code) =
+        applyToInstance'(
+            List.filter(fn {equality, ...} => not justForEqualityTypes orelse equality) sourceTypes,
+            level, polyVarMap, code)
 
     structure Sharing =
     struct

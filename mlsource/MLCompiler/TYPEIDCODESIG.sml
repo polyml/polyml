@@ -59,6 +59,8 @@ sig
     end
 
     val defaultTypeCode: codetree
+    
+    val justForEqualityTypes: bool
 
     structure Sharing:
     sig

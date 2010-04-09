@@ -224,7 +224,14 @@ struct
             val mkTypeConstruction = mkTypeConstruction;
         end;
 
-        fun makePolymorphic(tvs, c) = mkInlproc(c, List.length tvs, "")
+        fun makePolymorphic(tvs, c) =
+        let
+            open TYPEIDCODE
+            val tvs =
+                List.filter(fn TypeVar tv => not justForEqualityTypes orelse tvEquality tv | _ => false) tvs
+        in
+            if null tvs then c else mkInlproc(c, List.length tvs, "")
+        end
 
         (* Function to make a type identifier with a pretty printer that just prints "?".
            None of the types are equality types so the equality function is empty. *)

@@ -225,36 +225,36 @@ struct
         The above applies to monotypes.  If this is a polytype each of these is
         actually a function from the base type values to the functions. *)
 
-        fun createNullaryConstructor (test, [], name) = (* Monotype *)
-                createNullaryConstr{
-                    testMatch = mkInlproc(constrMatch(test, arg1), 1, name), (* Test function. *)
-                    constrValue = constrApply(test, CodeZero) (* Value. *)}
-
-        |   createNullaryConstructor (test, tvs, name): codetree =
-            let
-                val numTypes = List.length tvs
-            in
-                createNullaryConstr{
-                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, name), numTypes, name),
-                    constrValue = mkInlproc(constrApply(test, CodeZero), numTypes, name)}
-            end
+        fun createNullaryConstructor (test, tvs, name): codetree =
+        let
+            val numTypes =
+                if justForEqualityTypes then 0 else List.length tvs
+            val testFn = mkInlproc(constrMatch(test, arg1), 1, name) (* Test function. *)
+            and constrVal = constrApply(test, CodeZero) (* Value. *)
+        in
+            if numTypes = 0
+            then createNullaryConstr{ testMatch = testFn, constrValue = constrVal }
+            else createNullaryConstr{
+                    testMatch = mkInlproc(testFn, numTypes, name),
+                    constrValue = mkInlproc(constrVal, numTypes, name)}
+        end
     
-        fun createUnaryConstructor(test: representations, [], name: string): codetree =
-                createValueConstr{
-                    testMatch = mkInlproc(constrMatch(test, arg1), 1, name), (* Test function. *)
-                    injectValue = mkInlproc(constrApply(test, arg1), 1, name), (* Injection function. *)
-                    projectValue = mkInlproc(constrDestruct(test, arg1), 1, name) (* Projection function. *)}
-
-        |   createUnaryConstructor(test: representations, tvs, name: string): codetree =
-            let
-                val numTypes = List.length tvs
-            in
-                createValueConstr{
-                    testMatch = mkInlproc(mkInlproc(constrMatch(test, arg1), 1, name), numTypes, name),
-                    injectValue = mkInlproc(mkInlproc(constrApply(test, arg1), 1, name), numTypes, name),
-                    projectValue = mkInlproc(mkInlproc(constrDestruct(test, arg1), 1, name), numTypes, name)}
-            end
-    end;
+        fun createUnaryConstructor(test: representations, tvs, name: string): codetree =
+        let
+            val numTypes =
+                if justForEqualityTypes then 0 else List.length tvs
+            val testMatch = mkInlproc(constrMatch(test, arg1), 1, name) (* Test function. *)
+            and injectValue = mkInlproc(constrApply(test, arg1), 1, name) (* Injection function. *)
+            and projectValue = mkInlproc(constrDestruct(test, arg1), 1, name) (* Projection function. *)
+        in
+            if numTypes = 0
+            then createValueConstr{testMatch = testMatch, injectValue = injectValue, projectValue = projectValue }
+            else createValueConstr{
+                    testMatch = mkInlproc(testMatch, numTypes, name),
+                    injectValue = mkInlproc(injectValue, numTypes, name),
+                    projectValue = mkInlproc(projectValue, numTypes, name)}
+        end
+    end
 
 (* 
      RefForm is used for "ref" (only). We use various representations
