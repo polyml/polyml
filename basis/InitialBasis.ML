@@ -266,6 +266,9 @@ local
     fun print_char _ _ (c: char) =
         PrettyBlock (0, false, [], [PrettyString "#", PrettyString(RunCall.unsafeCast c)])
 
+      fun nil @ y = y (* This is redefined later. *)
+      |  (a::b) @ y = a :: (b @ y)
+
     fun print_list depth printEl (l: 'a list) =
         let
         (* Print the list as [<elem>, <elem>, etc ]. Replace the
@@ -279,8 +282,6 @@ local
                     PrettyBreak (1, 0) ::
                     plist t (depth - 1)
                     
-          fun nil @ y = y (* This is redefined later. *)
-          |  (a::b) @ y = a :: (b @ y)
         in
           PrettyBlock (1, false, [], (* Wrap this in a begin-end block to keep it together. *)
             PrettyString "[" ::
@@ -289,9 +290,20 @@ local
                 )
             )
         end
+
+    fun print_int _ _ (i: int) =
+    let
+        fun pr i =
+           if i < 0 then PrettyString "~" :: pr (~ i)
+           else if i < 10 then [PrettyString(RunCall.unsafeCast(i + RunCall.unsafeCast #"0"))]
+           else pr(i div 10) @ [PrettyString(RunCall.unsafeCast(i mod 10 + 48))]
+    in
+        PrettyBlock(1, false, [], pr i)
+    end
 in
     val () = addPrettyPrinter print_bool
     val () = addPrettyPrinter print_string
     val () = addPrettyPrinter print_char
     val () = addPrettyPrinter print_list
+    val () = addPrettyPrinter print_int
 end;
