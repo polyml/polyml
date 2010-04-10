@@ -178,25 +178,20 @@ struct
             val (base, maxShort, shortChars) = baseOf radix
             val negative = i < 0
 
-            fun toChars(i, chars, continuation, pad) =
-            let
-                val (q, digit) = quotRem(i, base)
-                val ch = toChar digit
-            in
-                if q <> 0
-                then (* More to do *)
-                let
-                    val (result, pos) =
-                        toChars(q, chars+0w1, continuation, pad-0w1)
-                in
-                    System_setb(result, pos, ch);
-                    (result, pos+0w1)
-                end
-                (* Else we've finished this group.  If we have more to do
-                   we may need to pad it out with zeros before starting the
-                   next group. *)
-                else if continuation <> 0
+            fun toChars(0, chars, 0, _) =
+                (* Really finished.  Allocate the string. *)
+                if negative
                 then
+                let
+                    val res = allocString(chars+0w1)
+                in
+                    System_setb(res, wordSize, #"~");
+                    (res, wordSize+0w1)
+                end
+                else (* Positive *) (allocString chars, wordSize)
+
+            |   toChars(0, chars, continuation, pad) =
+                (* Finished this group but have at least one more group. *)
                 let
                     val (result, pos) = toCharGroup(continuation, chars + pad)
                     fun addZeros n =
@@ -206,24 +201,19 @@ struct
                     addZeros 0w0;
                     (result, pos+pad)
                 end
-                (* Really finished.  Allocate the string. *)
-                else if negative
-                then
+ 
+            |   toChars(i, chars, continuation, pad) =
+                (* More to do in this group. *)
                 let
-                    val res = allocString(chars+0w2)
+                    val (q, digit) = quotRem(i, base)
+                    val ch = toChar digit
+                    (* Get the string. *)
+                    val (result, pos) =
+                        toChars(q, chars+0w1, continuation, pad-0w1)
                 in
-                    System_setb(res, wordSize, #"~");
-                    System_setb(res, wordSize+0w1, ch);
-                    (res, wordSize+0w2)
+                    System_setb(result, pos, ch);
+                    (result, pos+0w1)
                 end
-                else
-                let
-                    val res = allocString(chars+0w1)
-                in
-                    System_setb(res, wordSize, ch);
-                    (res, wordSize+0w1)
-                end
-            end
 
             (* Process a group of characters that will fit in a short
                precision number. *)
@@ -238,7 +228,9 @@ struct
                 end
         in
             if i >= 0 andalso i < base
-            then (* This will be a single character.  Treat specially. *)
+            then (* This will be a single character.  Treat specially.
+                    This is also the only case where we print a leading
+                    zero. *)
                 RunCall.unsafeCast(toChar i) : string
             else (* Multiple characters. *)
             let
