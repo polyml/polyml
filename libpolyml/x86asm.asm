@@ -1862,6 +1862,56 @@ CALLMACRO   INLINE_ROUTINE  teststrgtr
     jmp     RetFalse
 CALLMACRO   RegMask teststrgtr,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
 
+
+CALLMACRO   INLINE_ROUTINE  bytevec_eq
+ ;# Compare arrays of bytes.  The arguments are the same as move_bytes.
+ ;# (source, sourc_offset, destination, dest_offset, length)
+
+ ;# Assume that the offsets and length are all short integers.
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    12[Resp],Redi               ;# Destination address
+    MOVL    8[Resp],Recx                ;# Destination offset, untagged
+ELSE
+    MOVL    R8,Redi                     ;# Destination address
+    MOVL    R9,Recx                     ;# Destination offset, untagged
+ENDIF
+    SHRL    CONST TAGSHIFT,Recx
+    ADDL    Recx,Redi
+    MOVL    Reax,Resi                   ;# Source address
+    SHRL    CONST TAGSHIFT,Rebx
+    ADDL    Rebx,Resi
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Recx                ;# Get the length to move
+ELSE
+    MOVL    R10,Recx                    ;# Get the length to move
+ENDIF
+    SHRL    CONST TAGSHIFT,Recx
+
+    cld                     ;# Make sure we increment
+    CMPL    Reax,Reax       ;# Set the Zero bit
+IFDEF WINDOWS
+    repe    cmpsb
+ELSE
+    repe    
+    cmpsb
+ENDIF
+    MOVL    Reax,Resi       ;# Make these valid
+    MOVL    Reax,Recx
+    MOVL    Reax,Redi
+    jz      bvTrue
+    MOVL    CONST FALSE,Reax
+    jmp     bvRet
+bvTrue:
+    MOV     CONST TRUE,Reax
+bvRet:
+IFNDEF HOSTARCHITECTURE_X86_64
+    ret     CONST 12
+ELSE
+    ret
+ENDIF
+CALLMACRO   RegMask bytevec_eq,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
+
+
 CALLMACRO   INLINE_ROUTINE  is_big_endian
     jmp     RetFalse    ;# I386/486 is little-endian
 CALLMACRO   RegMask is_big_endian,(M_Reax)
@@ -2459,7 +2509,7 @@ ENDIF
     dd  Mask_set_string_length   ;# 151
     dd  Mask_get_first_long_word ;# 152
     dd  Mask_all                 ;# 153 is unused
-    dd  Mask_all                 ;# 154 is unused
+    dd  Mask_bytevec_eq          ;# 154
     dd  Mask_all                 ;# 155 is unused
     dd  Mask_all                 ;# 156 is unused
     dd  Mask_all                 ;# 157 is unused

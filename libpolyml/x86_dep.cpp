@@ -381,7 +381,7 @@ extern "C" {
     extern int set_string_length_a();
     extern int get_first_long_word_a();
     extern int int_to_word();
-    extern int move_bytes(), move_words();
+    extern int move_bytes(), move_words(), bytevec_eq();
     extern int mul_word(), plus_word(), minus_word(), div_word(), mod_word();
     extern int word_geq(), word_leq(), word_gtr(), word_lss();
     extern int raisex();
@@ -1834,9 +1834,7 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_poly_specific, codeAddr); /* DCJM 19/6/06 */
     add_word_to_io_area(POLY_SYS_poly_specific, PolyWord::FromCodePtr(codeAddr));
 
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_bytevec_eq, codeAddr);
-    add_word_to_io_area(POLY_SYS_bytevec_eq, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_bytevec_eq,       &bytevec_eq);
     add_function_to_io_area(POLY_SYS_move_bytes,       &move_bytes);        /* DCJM 10/10/99 */
     add_function_to_io_area(POLY_SYS_move_words,       &move_words);        /* DCJM 10/10/99 */
     add_function_to_io_area(POLY_SYS_mul_word,         &mul_word);        /* DCJM 10/10/99 */
