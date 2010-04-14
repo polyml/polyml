@@ -178,14 +178,14 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
         }
         break;
 #if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
-     case PROCESS_RELOC_I386RELATIVE:         // 32 or 64 bit relative address
+     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             ElfXX_Rel reloc;
             setRelocationAddress(addr, &reloc.r_offset);
              // We seem to need to subtract 4 bytes to get the correct offset in ELF
             offset -= 4;
             reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
-            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            for (unsigned i = 0; i < 4; i++)
             {
                 addr[i] = (byte)(offset & 0xff);
                 offset >>= 8;

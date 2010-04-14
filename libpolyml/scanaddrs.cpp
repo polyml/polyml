@@ -265,7 +265,7 @@ PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKi
             POLYUNSIGNED valu;
             unsigned i;
             byte *pt = addressOfConstant;
-            if (*pt & 0x80) valu = 0-1; else valu = 0;
+            if (pt[3] & 0x80) valu = 0-1; else valu = 0;
             for (i = sizeof(PolyWord); i > 0; i--)
                 valu = (valu << 8) | pt[i-1];
 
@@ -278,15 +278,15 @@ PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKi
 
             return PolyWord::FromUnsigned(valu);
         }
-    case PROCESS_RELOC_I386RELATIVE:         // 32 or 64 bit relative address
+    case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             POLYSIGNED disp;
             byte *pt = addressOfConstant;
             // Get the displacement. This is signed.
-            if (*pt & 0x80) disp = -1; else disp = 0; // Set the sign just in case.
-            for(unsigned i = sizeof(PolyWord); i > 0; i--) disp = (disp << 8) | pt[i-1];
+            if (pt[3] & 0x80) disp = -1; else disp = 0; // Set the sign just in case.
+            for(unsigned i = 4; i > 0; i--) disp = (disp << 8) | pt[i-1];
 
-            byte *absAddr = pt + disp + sizeof(PolyWord); // The address is relative to AFTER the constant
+            byte *absAddr = pt + disp + 4; // The address is relative to AFTER the constant
 
             return PolyWord::FromCodePtr(absAddr);
         }
@@ -342,10 +342,10 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
             }
         }
         break;
-    case PROCESS_RELOC_I386RELATIVE:         // 32 or 64 bit relative address
+    case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            POLYSIGNED newDisp = p.AsCodePtr() - addressOfConstant - sizeof(PolyWord);
-            for (unsigned i = 0; i < sizeof(PolyWord); i++) {
+            POLYSIGNED newDisp = p.AsCodePtr() - addressOfConstant - 4;
+            for (unsigned i = 0; i < 4; i++) {
                 addressOfConstant[i] = (byte)(newDisp & 0xff);
                 newDisp >>= 8;
             }
