@@ -192,7 +192,8 @@ struct
                                             NONE => NONE
                                         |   SOME sp => getsp(rest, sp)
                             in
-                                if consistent orelse not(isSome(getsp(rest, left)))
+                                if consistent orelse left <= blanks orelse
+                                    not(isSome(getsp(rest, left-blanks)))
                                 then (* Either a consistent break or the next item won't fit. *)
                                 (
                                     stream "\n";
