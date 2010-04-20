@@ -1159,7 +1159,7 @@ struct
             val noDefault  = case default of CodeNil => true | _ => false;
             val mergeResult = needsResult andalso not (isEndOfProc tailKind);
 
-            val (isExhaustive, min:int, max:int) =
+            val (_, min:int, max:int) =
                 case caseType of
                     CaseTag max => (true, 0, Word.toInt max)
                 |   _ =>
