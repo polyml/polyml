@@ -27,13 +27,17 @@ sig
     val sameCode: code * code -> bool
 
     datatype reg =
-        GenReg of Word8.word
+        GenReg of Word8.word * bool
     |   FPReg of Word8.word
+
+    val isX64: bool
 
     val eax: reg and ebx: reg and ecx: reg and edx: reg
     and edi: reg and esi: reg and esp: reg and ebp: reg
     and fp0: reg and fp1: reg and fp2: reg and fp3: reg
     and fp4: reg and fp5: reg and fp6: reg and fp7: reg
+    and r8:  reg and r9:  reg and r10: reg and r11: reg
+    and r12: reg and r13: reg and r14: reg and r15: reg
     (* For vector indexing we provide a numbering for the registers. *)
     val regs:   int
     val regN:   int -> reg

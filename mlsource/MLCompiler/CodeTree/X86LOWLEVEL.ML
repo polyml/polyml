@@ -75,7 +75,8 @@ struct
  
     datatype argType = ArgGeneral | ArgFP
 
-    (* The first two general arguments are passed in eax and ebx, the first three floating point
+    (* The first two general arguments are passed in eax and ebx (X86/32) or the
+       first five arguments (X86/64), with the first three floating point
        args in fp0, fp1, fp2.  The cost of pushing floating point values to the stack is high
        so it's almost certainly better to use registers if possible. *)
     fun argRegs l =
@@ -87,7 +88,7 @@ struct
                 SOME fpReg :: allocReg(l, genRegs, fpRegs)
         |   allocReg (_ :: l, genRegs, fpRegs) = NONE :: allocReg(l, genRegs, fpRegs)
     in
-        allocReg(l, [eax, ebx], [fp0, fp1, fp2])
+        allocReg(l, if isX64 then [eax, ebx, r8, r9, r10] else [eax, ebx], [fp0, fp1, fp2])
     end
 
     fun resultReg ArgGeneral = eax (* Result is in eax *)
@@ -481,11 +482,12 @@ struct
             |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
 
         (* Load a base address for a load or store operation. We can use a constant source but
-           only if the index is zero. The base address is the first argument and the index is the
-           second. *)
+           only if the index is zero.  The base address is the first argument and the index is the
+           second.  We can't use a constant base address in 64-bit mode because inline addresses
+           aren't possible (the equivalent code means PC-relative). *)
         fun loadBaseAddress (pref, whenDone) (opAndResults as (_, resReg))
                     (args as (ActLiteralSource base :: ActLiteralSource index :: _)) =
-            if isShort index andalso toShort index = 0w0
+            if isShort index andalso toShort index = 0w0 andalso not isX64
             then whenDone (replaceOperand(0, LiteralSource base) opAndResults) args
             else ActionLoadArg{argNo=0, regSet=generalRegisters,
                         willOverwrite=
@@ -594,7 +596,7 @@ struct
                     |   (InRegister address, LiteralSource offset) =>
                             BaseOffset{offset=Word.toInt(toShort offset)*wordSize, base=address, index=NoIndex}
                     |   (LiteralSource address, LiteralSource index) =>
-                            if isShort index andalso toShort index = 0w0
+                            if isShort index andalso toShort index = 0w0 andalso not isX64
                             then ConstantAddress address
                             else raise InternalError "genStoreWord"
                     |   _ => raise InternalError "genStoreWord"
@@ -671,7 +673,7 @@ struct
                                     next=loadIndex (pref, isWord, whenDone) opAndResults }
 
             fun genLoadInstr isWord ([LiteralSource base, LiteralSource offset], SOME destReg) =
-                    if isShort offset andalso toShort offset = 0w0
+                    if isShort offset andalso toShort offset = 0w0 andalso not isX64
                     then [(if isWord then LoadMemR else LoadByteR)
                             {source=ConstantAddress base, output=destReg}]
                     else raise InternalError "genLoadWord: not zero"
@@ -1035,7 +1037,7 @@ struct
                         |   (InRegister address, LiteralSource offset) =>
                                 BaseOffset{offset=Word.toInt(toShort offset), base=address, index=NoIndex }
                         |   (LiteralSource address, LiteralSource offset) =>
-                                if isShort offset andalso toShort offset = 0w0
+                                if isShort offset andalso toShort offset = 0w0 andalso not isX64
                                 then ConstantAddress address
                                 else raise InternalError "genStoreByte"
                         |   _ => raise InternalError "genStoreByte"
