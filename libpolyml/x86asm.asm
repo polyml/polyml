@@ -1902,7 +1902,7 @@ ENDIF
     MOVL    CONST FALSE,Reax
     jmp     bvRet
 bvTrue:
-    MOV     CONST TRUE,Reax
+    MOVL    CONST TRUE,Reax
 bvRet:
 IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 12
