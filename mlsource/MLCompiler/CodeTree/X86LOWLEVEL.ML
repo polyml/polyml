@@ -57,8 +57,12 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
 
-    val exp2_24 =   0x1000000;
-  
+    val exp2_24 =   0x1000000
+    val exp2_30 =  0x40000000
+
+    fun is32bitSigned a =
+        isShort a andalso let val aI = Word.toIntX(toShort a) in ~exp2_30 <= aI andalso aI < exp2_30 end
+
     (* tag a short constant *)
     fun tag c = 2 * c + 1;
   
@@ -99,6 +103,12 @@ struct
     val op ** = regSetIntersect and op ++ = regSetUnion and op -- = regSetMinus and op ins = inSet
 
     fun allocStore{size, flags, output} =
+    if isX64 andalso flags <> 0w0
+    then
+        [StoreByteConstToMemory{toStore=flags, address=BaseOffset{offset= ~1, base=output, index=NoIndex}},
+         StoreConstToMemory{toStore=size, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
+         AllocStore{size=size, output=output}]
+    else
     let
         val lengthWord = IntInf.orb(size, IntInf.<<(Word8.toInt flags, 0w24))
     in
@@ -227,6 +237,8 @@ struct
                     )
                     else (defUses := 2; [])
                 (* Range checks. *)
+                (* TODO: In 64-bit mode we could have constants that won't fit in
+                   32-bit words. *)
                 val range1 =
                     [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
                      ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) }]
@@ -478,7 +490,10 @@ struct
         (* Load to a register (read-only) or, if it's a literal leave it. *)
         fun loadToRegOrLiteral(regSet, argNo, whenDone) opAndResults args =
             case List.nth(args, argNo) of
-                ActLiteralSource lit => whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) args
+                ActLiteralSource lit => 
+                    if not isX64 orelse is32bitSigned lit
+                    then whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) args
+                    else loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
             |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
 
         (* Load a base address for a load or store operation. We can use a constant source but
@@ -971,7 +986,7 @@ struct
                 end
 
             |   wordSelectedLeft (opRes as ((opcode, tagTest), result)) [_, ActLiteralSource lit] =
-                if isShort lit
+                if is32bitSigned lit
                 then
                 let
                     val intArg = Word.toIntX(toShort lit)
@@ -1192,8 +1207,16 @@ struct
                             0w1 => [LoadAddress{output=reg, base=SOME reg, index=Index1 reg, offset= ~1}]
                         |   0w2 => [LoadAddress{output=reg, base=NONE, index=Index4 reg, offset= ~3}]
                         |   0w3 => [LoadAddress{output=reg, base=NONE, index=Index8 reg, offset= ~7}]
-                        |   _ => [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
-                                  ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
+                        |   _ =>
+                            if shift < 0wx32
+                            then (* Can remove the shifted tag and set the new tag. *)
+                                [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
+                                 ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
+                            else (* 64-bit only.  If the shift is more than 32 bits we remove the
+                                    tag beforehand and put it back afterwards. *)
+                                [ArithRConst{opc=OR, output=reg, source=1 },
+                                 ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift},
+                                 ArithRConst{opc=SUB, output=reg, source=1 }]
                     )
 
             |   genConstShift(SRL, shift) (_, SOME reg) = (* Right logical shift. *)
@@ -1430,10 +1453,12 @@ struct
         local
             (* Load the length word from a memory cell.  We could reuse the base for the
                result rather than getting a new register here. *)
+            val mask = IntInf.<<(1, (Word.fromInt wordSize-0w1)*0w8) - 1
+
             fun vecLen([InRegister base], SOME output) =
                 [TagValue{source=output, output=output},
-                 ArithRConst{opc=AND, output=output, source=exp2_24 - 1},
-                 LoadMemR{source=BaseOffset{base=base, offset= ~ wordSize, index=NoIndex}, output=output}]
+                 ArithRMem{opc=AND, output=output, base=base, offset= ~ wordSize },
+                 MoveConstR{source= mask, output=output }]
             |   vecLen _ = raise InternalError "vecLen"
         in
             fun instrVeclen(args, _) = SOME(fn prefs => generalNegotiator(vecLen, prefs), args)
@@ -1569,6 +1594,8 @@ struct
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActLiteralSource constnt]) =
+                if not isX64 orelse (isShort constnt andalso is32bitSigned(tag(Word.toIntX(toShort constnt))))
+                then
                 let
                     val reg1 = chooseGenReg s1
                     val Labels{uses, ...} = destLabel
@@ -1584,8 +1611,12 @@ struct
                                            else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
                                            InRegister reg1, LiteralSource constnt) }
                 end
+                else ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
+                                  next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActInRegisterSet s2]) =
+                if not isX64 orelse (isShort constnt andalso is32bitSigned(tag(Word.toIntX(toShort constnt))))
+                then
                 let
                     val reg2 = chooseGenReg s2
                     val Labels{uses, ...} = destLabel
@@ -1602,6 +1633,8 @@ struct
                                            else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
                                            InRegister reg2, LiteralSource constnt) }
                 end
+                else ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                  next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActBaseOffset(base, offset)]) =
                 let
@@ -1631,6 +1664,8 @@ struct
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActLiteralSource constnt]) =
+                if not isX64 orelse is32bitSigned constnt
+                then
                 let
                     val Labels{uses, ...} = destLabel
                     val () = uses := !uses+1
@@ -1645,8 +1680,13 @@ struct
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                            BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt)}
                 end
+                else (* If it won't fit in 32-bits we have to load one of the args. *)
+                    ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
+                                  next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActBaseOffset(base, offset)]) =
+                if not isX64 orelse is32bitSigned constnt
+                then
                 let
                     val Labels{uses, ...} = destLabel
                     val () = uses := !uses+1
@@ -1662,6 +1702,9 @@ struct
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
                                            BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt) }
                 end
+                else (* If it won't fit in 32-bits we have to load one of the args. *)
+                    ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
+                                  next=testActions(testType, destLabel, tagTest)}
 
             |   testActions _ _  = raise InternalError "testActions"
                 

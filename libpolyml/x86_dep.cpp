@@ -2092,15 +2092,13 @@ static void skipea(byte **pt, ScanAddress *process, bool lea)
 void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, POLYUNSIGNED length, ScanAddress *process)
 {
     byte *pt = (byte*)addr;
-    PolyWord *end;
-    POLYUNSIGNED unused;
-    /* Find the end of the code (before the constants). */
-    addr->GetConstSegmentForCode(length, end, unused);
-    end -= 3;
-    assert(end->AsUnsigned() == 0); /* This should be the marker word. */
+    PolyWord *end = addr->Offset(length - 1);
 
-    while (pt != (byte*)end)
+    while (true)
     {
+        // We've finished when this is word aligned and points to a zero word.
+        if (((POLYUNSIGNED)pt & -sizeof(POLYUNSIGNED)) && ((PolyWord*)pt)->AsUnsigned() == 0)
+            break;
 #ifdef HOSTARCHITECTURE_X86_64
         // REX prefixes.  Set this first.
         byte lastRex;
@@ -2182,7 +2180,9 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x81: /* Group1_32_A */
             {
                 pt ++;
+#ifndef HOSTARCHITECTURE_X86_64
                 unsigned opCode = *pt;
+#endif /* HOSTARCHITECTURE_X86_64 */
                 skipea(&pt, process, false);
                 // Only check the 32 bit constant if this is a comparison.
                 // For other operations this may be untagged and shouldn't be an address.

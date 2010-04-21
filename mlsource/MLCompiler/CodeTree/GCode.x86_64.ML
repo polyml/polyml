@@ -1,5 +1,8 @@
 (*
-    Copyright (c) 2006     David C. J. Matthews
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
+
+    Modified David C. J. Matthews 2010
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,19 +19,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure X86OutputCode =
-    X86OUTPUTCODE(
-        structure DEBUG   = Debug
-        structure PRETTY  = Pretty
-    );
-
-structure X86Optimise =
-    X86OPTIMISE(
-        structure X86CODE = X86OutputCode
-    );
-
-structure CodeCons =
-    X86LOWLEVEL(
-        structure X86CODE = X86OutputCode
-        structure X86OPTIMISE = X86Optimise
-    );
+structure GCode = 
+  GENERATE_CODE (
+    structure CODECONS      = CodeCons
+    structure CODEGEN_TABLE = CodeGenTable
+    structure BASECODETREE  = BaseCodeTree
+  );
+         

@@ -88,7 +88,9 @@ struct
         val shift =
             if wordSize = 4
             then 0w2
-            else raise InternalError "Invalid word size for x86_32"
+            else if wordSize = 8
+            then 0w3
+            else raise InternalError "Invalid word size for x86_32 or x86+64"
     in
         fun wordsToBytes n = n << shift
         and bytesToWords n = n >> shift
@@ -509,7 +511,7 @@ struct
             if i < 8
             then GenReg(Word8.fromInt i, false)
             else if i < 16
-            then GenReg(Word8.fromInt i, true)
+            then GenReg(Word8.fromInt(i-8), true)
             else FPReg(Word8.fromInt(i-16))
         val regVec = Vector.tabulate(regs, regN)
     in
@@ -530,7 +532,7 @@ struct
           if r = ebp then (if isX64 then "%rbp" else "%ebp") else
           if r = esi then (if isX64 then "%rsi" else "%esi") else
           if r = edi then (if isX64 then "%rdi" else "%edi") else
-          (* X86/64 registers *) "%r" ^ Word8.toString (#1(getReg r))
+          (* X86/64 registers *) "%r" ^ Int.toString (nReg r)
     |   regRepr(FPReg n) = "fp" ^ Word8.toString n
 
     (* Install a pretty printer.  This is simply for when this code is being
@@ -1564,7 +1566,7 @@ SS-relative addressing modes:
          on a word boundary then this could combine with the immediate value
          if all three low-order words were zero.  It's very unlikely but we
          need to consider it. *)
-        if isX64 then () (* We don't have 64-bit immediates. *)
+        if isX64 then raise InternalError "genMemoryConstant" (* We don't have 64-bit immediates. *)
         else if not (is8Bit offset)
         then
         (
@@ -1950,7 +1952,10 @@ Calling conventions:
             then
                 (* subl (size+1)*4,r15; cmpl r15,8(%ebp); jnb 1f;
                    call 40[%ebp]; 1f: movl size,-4(r15);  movl r15,r *)
-                genLeal (r15, r15, ~ bytes, cvec) (* TODO: What if it's too big to fit? *)
+            (
+                genLeal (r15, r15, ~ bytes, cvec); (* TODO: What if it's too big to fit? *)
+                genMove (resultReg, r15, cvec)
+            )
             else
             (
                 (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
@@ -1965,12 +1970,19 @@ Calling conventions:
             (* The result reg contains the requested size as a number of bytes
                on entry and returns with the base address. *)
         (
-            (* Turn this into a negative value. *)
-            genOpRegPlus2(Group3_A, edi, 0w3 (* neg *), code);
-            (* Add this negative value to the current heap pointer. *)
             if isX64
-            then raise InternalError "allocStoreVarCode: 64 bit TODO"
-            else genOpEA (Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, edi, code);
+            then
+            (
+                genReg(SUB, r15, resultReg, code);
+                genMove (resultReg, r15, code)
+            )
+            else
+            (
+                (* Turn this into a negative value. *)
+                genOpRegPlus2(Group3_A, resultReg, 0w3 (* neg *), code);
+                (* Add this negative value to the current heap pointer. *)
+                genOpEA (Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code)
+            );
             allocStoreCommonCode(resultReg, code)
         )
     end
@@ -3891,23 +3903,20 @@ Calling conventions:
         val endic      = !ic; (* Remember end *)
         val ()   = if wordSize = 8 then gen64u(0, cvec) else gen32u (0w0, cvec); (* Marker - 0 (changes !ic) *)
 
-        val wordsForPrelude = 0w0
-
         (* +4 for code size, profile count, function name and constants count *)
          (* +1 for register mask. *)
-        val segSize = !ic div Word.fromInt wordSize + wordsForPrelude + 0w4 + 0w1;
+        val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4 + 0w1
 
         (* Now make the byte segment that we'll turn into the code segment *)
-        val seg : cseg = csegMake segSize;
-        val offset     = wordsForPrelude;
+        val seg : cseg = csegMake segSize
     
         val _ = resultSeg := Set seg;
     
         (* Copy the code into the new segment. *)
-        val _ = csegCopySeg (codeVec, seg, (! ic), offset);
+        val _ = csegCopySeg (codeVec, seg, (! ic), 0w0);
 
         local
-            val endOfCode = bytesToWords(! ic) + offset;
+            val endOfCode = bytesToWords(! ic)
         in
             (* Byte offset of start of code. *)
             local
@@ -3917,8 +3926,8 @@ Calling conventions:
             end;
       
             (* Put in the number of constants. This must go in before we actually put
-               in any constants. There are now only two constants: the function name
-               and the register mask. All other constants are in the code. *)
+               in any constants.  In 32-bit mode there are only two constants: the 
+               function name and the register mask. All other constants are in the code. *)
             local
                 val addr = wordsToBytes(endOfCode + 0w3 + Word.fromInt constsInConstArea + 0w1)
             in
@@ -3956,7 +3965,7 @@ Calling conventions:
 
             |   putConst {const = HVal(ref hv), addrs, posn, ...} =
                 let
-                    val handlerByteOffset = hv + wordsToBytes offset
+                    val handlerByteOffset = hv
                     (* The following comment applies to offsetAddr *)
                     (* Special function to add to an address.
                        This only works if the resulting value is 
@@ -4006,7 +4015,7 @@ Calling conventions:
                 if printAssemblyCode
                 then (* print out the code *)
                 (
-                    printCode cvec seg ((endic) + offset * 0w4);
+                    printCode cvec seg endic;
                     printStream "Register set = ";
                     printStream(regSetRepr registerSet);
                     printStream "\n\n"
