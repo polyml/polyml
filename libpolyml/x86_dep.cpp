@@ -957,11 +957,10 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
         // We will have already garbage collected and recovered sufficient space.
         // This also happens if we have just trapped because of store profiling.
         taskData->allocPointer -= mdTask->allocWords; // Now allocate
-#ifndef HOSTARCHITECTURE_X86_64
         // Set the allocation register to this area.
-        *(get_reg(taskData, mdTask->allocReg)) =
-            PolyWord::FromStackAddr(taskData->allocPointer + 1); /* remember: it's off-by-one */
-#endif
+        if (mdTask->allocReg < 15)
+            *(get_reg(taskData, mdTask->allocReg)) =
+                PolyWord::FromStackAddr(taskData->allocPointer + 1); /* remember: it's off-by-one */
         mdTask->allocWords = 0;
     }
 
@@ -1174,23 +1173,35 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
 
     ASSERT (wordsNeeded <= (1<<24)); /* Max object size including length/flag word is 2^24 words.  */
 #else /* HOSTARCHITECTURE_X86_64 */
-    // This should be movq Length,-8(%r15)
-    ASSERT(stack->p_pc[0] == 0x49 && stack->p_pc[1] == 0xc7 && stack->p_pc[2] == 0x47 && stack->p_pc[3] == 0xf8);
-    // The Length field should be in the next word.  N.B.  This assumes that
-    // the length word < 2^31.
-    ASSERT((stack->p_pc[7] & 0x80) == 0); // Should not be negative
-    for (unsigned i = 7; i >= 4; i--) wordsNeeded = (wordsNeeded << 8) | stack->p_pc[i];
-    wordsNeeded += 1; // That was the object size. We need to add one for the length word.
+    if (stack->p_pc[1] == 0x89)
+    {
+        // New (5.4) format.  This should be movq REG,%r15
+        ASSERT(stack->p_pc[0] == 0x49 || stack->p_pc[0] == 0x4d);
+        mdTask->allocReg = (stack->p_pc[2] >> 3) & 7; // Remember this until we allocate the memory
+        if (stack->p_pc[0] & 0x4) mdTask->allocReg += 8;
+        PolyWord *reg = get_reg(taskData, mdTask->allocReg);
+        PolyWord reg_val = *reg;
+        wordsNeeded = (taskData->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
+        *reg = TAGGED(0); // Clear this - it's not a valid address.
+    }
+    else
+    {
+        // Old (pre-5.4) format.
+        // This should be movq Length,-8(%r15)
+        ASSERT(stack->p_pc[0] == 0x49 && stack->p_pc[1] == 0xc7 && stack->p_pc[2] == 0x47 && stack->p_pc[3] == 0xf8);
+        // The Length field should be in the next word.  N.B.  This assumes that
+        // the length word < 2^31.
+        ASSERT((stack->p_pc[7] & 0x80) == 0); // Should not be negative
+        for (unsigned i = 7; i >= 4; i--) wordsNeeded = (wordsNeeded << 8) | stack->p_pc[i];
+        wordsNeeded += 1; // That was the object size. We need to add one for the length word.
+        mdTask->allocReg = 15; // Don't put it in a register
+        // The value that ends up in allocSpace->pointer includes the
+        // attempted allocation.  Add back the space we tried to allocate
+        taskData->allocPointer += wordsNeeded;
+    }
 #endif /* HOSTARCHITECTURE_X86_64 */
-    
     if (profileMode == kProfileStoreAllocation)
         add_count(taskData, stack->p_pc, stack->p_sp, wordsNeeded);
-
-#ifdef HOSTARCHITECTURE_X86_64
-    // On the X64 the value that ends up in allocSpace->pointer includes the
-    // attempted allocation.  Add back the space we tried to allocate
-    taskData->allocPointer += wordsNeeded;
-#endif /* HOSTARCHITECTURE_X86_64 */
 
     mdTask->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 }

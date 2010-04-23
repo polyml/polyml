@@ -57,7 +57,6 @@ struct
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
     (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
 
-    val exp2_24 =   0x1000000
     val exp2_30 =  0x40000000
 
     fun is32bitSigned a =
@@ -286,7 +285,7 @@ struct
 
     and moveConstantToRegister(lit, output as GenReg _) =
         if isShort lit
-        then [MoveConstR{source=tag(Word.toInt(toShort lit)), output=output}]
+        then [MoveConstR{source=tag(Word.toIntX(toShort lit)), output=output}]
         else [MoveLongConstR{source=lit, output=output}]
 
     |   moveConstantToRegister(source, output as FPReg _) =
@@ -313,13 +312,13 @@ struct
     in
         if loc < 0 then raise InternalError "storeRegisterToStack: Negative stack offset"
         else if isShort lit
-        then [StoreConstToMemory{toStore=tag(Word.toInt(toShort lit)), address=addr}]
+        then [StoreConstToMemory{toStore=tag(Word.toIntX(toShort lit)), address=addr}]
         else [StoreLongConstToMemory{toStore=lit, address=addr}]
     end
  
     fun pushRegisterToStack v = [PushR v]
     and pushConstantToStack lit =
-            if isShort lit then [PushConst(tag(Word.toInt(toShort lit)))] else [PushLongConst lit]
+            if isShort lit then [PushConst(tag(Word.toIntX(toShort lit)))] else [PushLongConst lit]
     and pushMemoryToStack(reg, offset) = [PushMem{base=reg, offset=offset}]
 
     fun resetStack 0 = []
@@ -621,7 +620,7 @@ struct
                         [StoreRegToMemory{toStore=storeReg, address=address}]
                 |   LiteralSource storeConst =>
                         if isShort storeConst
-                        then [StoreConstToMemory{ toStore=tag(Word.toInt(toShort storeConst)), address=address}]
+                        then [StoreConstToMemory{ toStore=tag(Word.toIntX(toShort storeConst)), address=address}]
                         else [StoreLongConstToMemory{ toStore=storeConst, address=address}]
                 |   BaseOffsetSource _ => raise InternalError "genStoreWord"
             end
@@ -805,10 +804,12 @@ struct
                    arg is the length, the second the flags byte and the third the initial
                    value used to initialise each word, for word segments, or byte for
                    byte segs. *)
-                val len = (* We only use the fixed length version for small segments of words. *)
+                val len = (* We only use the fixed length version for small segments of words
+                             (possibly with the noOverwrite/weak flag as well). *)
                     case (mapper lengthArg, mapper flagArg) of
                         (SOME constLength, SOME constFlags) =>
-                            if toShort constLength < 0w5 andalso wordToWord8(toShort constFlags) = F_mutable
+                            if toShort constLength < 0w5 andalso
+                                   (wordToWord8(toShort constFlags) andb8 0w3) = F_words
                             then SOME(toShort constLength)
                             else NONE
                     |   _ => NONE

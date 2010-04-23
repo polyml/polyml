@@ -148,15 +148,16 @@ struct
   (* A code list is used to hold a list of code-vectors which must have the
      address of this code-vector put into it. *)
 
-  datatype const =
-     WVal of machineWord        (* an existing constant *)
-   | CVal of code        (* a forward-reference to another function *)
-   | HVal of addrs ref   (* a handler *)
+    datatype const =
+        WVal of machineWord        (* an existing constant *)
+    |   CVal of code        (* a forward-reference to another function *)
+    |   HVal of addrs ref   (* a handler *)
 
-  and ConstPosn =
-     InlineAbsolute      (* The constant is within the code. *)
-   | InlineRelative      (* The constant is within the code but is PC relative (call or jmp). *)
-   | ConstArea of int    (* The constant is in the constant area. *)
+    and ConstPosn =
+        InlineAbsolute      (* The constant is within the code. *)
+    |   InlineRelative      (* The constant is within the code but is PC relative (call or jmp). *)
+    |   ConstArea of int    (* The constant is in the constant area (64-bit only). *)
+    |   NonAddrArea         (* The constant is in the non-address area (64-bit real values). *)
 
   and code = Code of 
     { codeVec:        cseg,           (* This segment is used as a buffer. When the
@@ -167,6 +168,7 @@ struct
            {const: const, addrs: addrs, posn: ConstPosn} list ref,
       numOfConsts:    word ref,        (* size of constVec *)
       nonInlineConsts: int ref,
+      nonAddressConsts: int ref,
       labelList:      labList ref,    (* List of outstanding short branches. *)
       longestBranch:  addrs ref,      (* Address of the earliest 1-byte branch. *)
       procName:       string,         (* Name of the procedure. *)
@@ -242,6 +244,7 @@ struct
             constVec       = ref [],
             numOfConsts    = ref 0w0,
             nonInlineConsts = ref 0,
+            nonAddressConsts = ref 0,
             labelList      = ref [],
             longestBranch  = ref addrLast, (* None so far *)
             procName       = name,
@@ -415,6 +418,9 @@ struct
         set64u (ival, icVal, codeVec)
     end
     else raise InternalError "gen64u: invalid word"
+
+    fun genWordU(ival, code) =
+        if wordSize = 8 then gen64u(LargeWord.toInt ival, code) else gen32u (ival, code)
     
     fun gen64s (ival: int, Code {ic, codeVec, ...}) : unit =
     let
@@ -438,7 +444,8 @@ struct
             case posn of
                 ConstArea _ => (nonInlineConsts := ! nonInlineConsts + 1; ConstArea(!nonInlineConsts))
             |  p => p
-        val isInline = case posn of ConstArea _ => false | _ => true
+        val isInline =
+            case posn of ConstArea _ => false | NonAddrArea => false | _ => true
     in
 	    numOfConsts := ! numOfConsts + 0w1;
         constVec    := {const = valu, addrs = !ic, posn = realPosn} :: ! constVec;
@@ -981,7 +988,7 @@ SS-relative addressing modes:
     fun codeConst (Code {resultSeg = ref(Set seg), ... }, isRel, into) =
     (* Already done. *) addConstToVec (WVal (toMachineWord(csegAddr seg)), isRel, into)
 
-    |   codeConst (r, isRel, into as Code{ic = ref constPosition, ...} ) = (* forward *)
+    |   codeConst (r, isRel, into as Code{ic = ref constPosition, nonInlineConsts=ref nic, ...} ) = (* forward *)
       (* Forward reference to other code or a recursive reference to this one.
          Add a completion hook to the other code. *)
         let
@@ -989,11 +996,25 @@ SS-relative addressing modes:
             let
                 (* This is called after the forward reference is completed but also
                    after this code, the one making the reference, has been completed. *)
-                val Code{numOfConsts, resultSeg = ref resultSeg, ...} = into
+                val Code{numOfConsts, resultSeg = ref resultSeg, ic = ref endByte, ...} = into
             in
                 (* Fix up the forward reference. *)
-                csegPutConstant (scSet resultSeg, constPosition, finalAddr,
-                                 case isRel of InlineRelative => true | _ => false);
+                case isRel of
+                    InlineRelative =>
+                        csegPutConstant (scSet resultSeg, constPosition, finalAddr, true)
+                |   InlineAbsolute =>
+                        csegPutConstant (scSet resultSeg, constPosition, finalAddr, false)
+
+                |   NonAddrArea => raise InternalError "onCompletion: NonAddrArea"
+
+                |   ConstArea _ =>
+                    let
+                        val addrOfConst = endByte addrPlus (nic+1-1 + 2+1) * wordSize
+                        val seg         = scSet resultSeg
+                    in
+                        csegPutConstant (seg, addrOfConst, finalAddr, false);
+                        set32s(Word.toInt(addrOfConst - constPosition - 0w4), constPosition, seg)
+                    end;
                 (* decrement the "pending references" count *)
                 numOfConsts := !numOfConsts - 0w1;
                 (* If this function has no more references we can lock it. *)
@@ -1287,7 +1308,7 @@ SS-relative addressing modes:
     val maxInstrSize = if isX64 then 15 else 12
 
     (* Generate an opCode byte after doing any pending operations. *)
-    fun genop (opb:opCode, rx, cvec) =
+    fun genop(opb:opCode, rx, cvec) =
     (
         doPending (cvec, maxInstrSize);
         case rx of
@@ -1418,12 +1439,20 @@ SS-relative addressing modes:
     fun genOpPlus2(opb:opCode, offset: int, rb: reg, op2: Word8.word, cvec): unit =
     let
         val (rbC, rbX) = getReg rb
+        val need64bit =
+            case opb of
+                MOVB_8_A => false
+            |   Group1_8_A => false
+            |   Group3_a => false
+            |   FPESC _ => false
+            |   Group5 => false
+            |   _ => isX64 (* For the moment assume everything else requires it *)
     in
         doPending (cvec, maxInstrSize);
         (* For the moment always put in a REX prefix. *)
         (* If (opb = Group5 andalso op2 = 6 (* push *) orelse opb = POP_A)
            andalso not rbX  then we don't need it. *)
-        if isX64 then gen8u(rex{w=true, r=false, b=rbX, x = false}, cvec) else ();
+        if need64bit orelse rbX then gen8u(rex{w=need64bit, r=false, b=rbX, x = false}, cvec) else ();
         gen8u(opToInt opb, cvec);
         genEACode(offset, rbC, op2, cvec)
     end
@@ -1509,7 +1538,7 @@ SS-relative addressing modes:
         val (rc, rx) = getReg r
     in
         (* These are always 64-bit but a REX prefix may be needed for the register. *)
-        genop(opc rc, if rx then SOME{w=true, b = true, x=false, r = false } else NONE, cvec)
+        genop(opc rc, if rx then SOME{w=false, b = true, x=false, r = false } else NONE, cvec)
     end
 
     (* Tag the value in register r *)
@@ -1941,7 +1970,11 @@ Calling conventions:
                 gen8s (memRegHeapOverflowCall, cvec);
                 fixup (lab, cvec)
             end;
-            genOpEA (MOVL_R_A, memRegLocalMPointer, ebp, resultReg, cvec)
+            (* Update the heap pointer now we have the store.  This is also
+               used by the RTS in the event of a trap to work out how much
+               store was being allocated. *)
+            if isX64 then genMove(r15, resultReg, cvec)
+            else genOpEA (MOVL_R_A, memRegLocalMPointer, ebp, resultReg, cvec)
          )
     in
         fun allocStoreCode (size, resultReg, cvec) =
@@ -1949,13 +1982,7 @@ Calling conventions:
             val bytes = (size + 1) * wordSize
         in
             if isX64
-            then
-                (* subl (size+1)*4,r15; cmpl r15,8(%ebp); jnb 1f;
-                   call 40[%ebp]; 1f: movl size,-4(r15);  movl r15,r *)
-            (
-                genLeal (r15, r15, ~ bytes, cvec); (* TODO: What if it's too big to fit? *)
-                genMove (resultReg, r15, cvec)
-            )
+            then genLeal (resultReg, r15, ~ bytes, cvec) (* TODO: What if it's too big to fit? *)
             else
             (
                 (* movl 0(%ebp),r; subl (size+1)*4,r; cmpl r,8(%ebp); jnb 1f;
@@ -1970,19 +1997,12 @@ Calling conventions:
             (* The result reg contains the requested size as a number of bytes
                on entry and returns with the base address. *)
         (
+            (* Turn this into a negative value. *)
+            genOpRegPlus2(Group3_A, resultReg, 0w3 (* neg *), code);
+            (* Add this negative value to the current heap pointer. *)
             if isX64
-            then
-            (
-                genReg(SUB, r15, resultReg, code);
-                genMove (resultReg, r15, code)
-            )
-            else
-            (
-                (* Turn this into a negative value. *)
-                genOpRegPlus2(Group3_A, resultReg, 0w3 (* neg *), code);
-                (* Add this negative value to the current heap pointer. *)
-                genOpEA (Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code)
-            );
+            then genReg(ADD, resultReg, r15, code)
+            else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code);
             allocStoreCommonCode(resultReg, code)
         )
     end
@@ -2583,7 +2603,7 @@ Calling conventions:
         |   cgOp(LoadMemR{source=ConstantAddress addr, output } :: remainder) =
             (
                 addDests[output];
-                (* The absolure address form is interpreted as PC relative in 64-bit mode. *)
+                (* The absolute address form is interpreted as PC relative in 64-bit mode. *)
                 if isX64 then raise InternalError "LoadMemR: ConstantAddress" else ();
                 genop(MOVL_A_R, NONE, code);
                 genmodrm (Based0, #1 (getReg output), 0w5 (* constant address *), code);
@@ -2777,6 +2797,10 @@ Calling conventions:
                 |   STOSL => checkSources[eax]
                 |   _ => (checkSources[esi]; addDests[esi]);
                 genop(REP, NONE, code);
+                (* Put in a rex prefix to force 64-bit mode. *)
+                if isX64 andalso (case repOp of STOSL => true | MOVSL => true | _ => false)
+                then gen8u(rex{w=true, r=false, b=false, x = false}, code)
+                else ();
                 gen8u(repOpsToWord repOp, code);
                 cgOp remainder
             )
@@ -3164,10 +3188,15 @@ Calling conventions:
                 )
                 else
                 (
-                    if isX64 then raise InternalError "FPLoadFromConst" else ();
+                    (* The real constant here is actually the address of an 8-byte memory
+                       object.  FLD takes the address as the argument and in 32-bit mode
+                       we use an absolute address.  In 64-bit mode we need to put the
+                       constant at the end of the code segment and use PC-relative
+                       addressing which happens to be encoded in the same way. *)
                     genop(FPESC 0w5, NONE, code); (* FLD [Constant] *)
-                    genmodrm (Based0, 0w0, 0w5 (* constant address *), code);
-                    addConstToVec(WVal(toMachineWord realValue), InlineAbsolute, code)
+                    genmodrm (Based0, 0w0, 0w5 (* constant address/PC-relative *), code);
+                    addConstToVec(WVal(toMachineWord realValue),
+                        if isX64 then NonAddrArea else InlineAbsolute, code)
                 );
                 cgOp remainder
             end
@@ -3201,10 +3230,11 @@ Calling conventions:
 
         |   cgOp (FPArithConst{ opc, source } :: remainder) =
             (
-                if isX64 then raise InternalError "FPArithConst" else ();
+                (* See comment on FPLoadFromConst *)
                 genop(FPESC 0w4, NONE, code); (* FADD etc [constnt] *)
                 genmodrm (Based0, fpOpToWord opc, 0w5 (* constant address *), code);
-                addConstToVec(WVal source, InlineAbsolute, code);
+                addConstToVec(WVal source,
+                    if isX64 then NonAddrArea else InlineAbsolute, code);
                 cgOp remainder
             )
 
@@ -3867,27 +3897,6 @@ Calling conventions:
 
     end (* printCode *);
 
-    (* constLabels - fill in a constant in the code. *)
-    fun constLabels (Code{resultSeg=ref rseg, ic = ref endByte, ...},
-                   addr : addrs, value : machineWord, posn: ConstPosn) =
-    let
-        val seg       = scSet rseg (* The address of the segment. *)
-        val constAddr = addr
-    in
-        case posn of
-            InlineAbsolute => csegPutConstant (seg, constAddr, value, false)
-        |   InlineRelative => csegPutConstant (seg, constAddr, value, true)
-        |   ConstArea nonInlineCount =>
-            (* Not inline.  Put the constant in the constant area and set the original address
-                to be the relative offset to the constant itself. *)
-            let
-                val addrOfConst = endByte addrPlus (nonInlineCount-1 + 2+1+1) * wordSize
-            in
-                csegPutConstant (seg, addrOfConst, value, false);
-                set32s(Word.toInt(addrOfConst - constAddr - 0w4), constAddr, seg)
-            end
-    end
-
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun createCodeSegment (operations, registerSet, cvec) : address =
     let
@@ -3900,12 +3909,39 @@ Calling conventions:
     
         (* This aligns ic onto a fullword boundary. *)
         val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genop(NOP, NONE, cvec)
-        val endic      = !ic; (* Remember end *)
-        val ()   = if wordSize = 8 then gen64u(0, cvec) else gen32u (0w0, cvec); (* Marker - 0 (changes !ic) *)
+        val endic = !ic (* Remember end *)
+        val ()   = genWordU(0w0, cvec) (* Marker - 0 (changes !ic) *)
+        (* Byte offset of start of code. (changes !ic) *)
+        val () = genWordU(Word.toLargeWord(!ic), cvec)
+        
+        (* Copy the non-address constants.  These are currently only used for real
+           constants in 64-bit mode.  Other constants are left until we have a
+           valid code object. *)
+        local
+            fun putNonAddrConst{const = WVal c, addrs, posn=NonAddrArea, ...} =
+                let
+                    val addrOfConst = ! ic
+                    val cAsAddr = toAddress c
+                    (* For the moment this should always be a real number contained in
+                       a byte segment.  If this changes in the future we may need to
+                       align this back onto a 4/8-byte boundary. *)
+                    val cLength = length cAsAddr * Word.fromInt wordSize
+                    val _ = (cLength = 0w8 andalso flags cAsAddr = F_bytes) orelse
+                                raise InternalError "putNonAddrConst: Not a real number"
+                    fun doCopy n =
+                        if n = cLength then ()
+                        else (gen8u(loadByte(cAsAddr, n), cvec); doCopy(n+0w1))
+                    val () = doCopy 0w0
+                in
+                    set32s(Word.toInt(addrOfConst - addrs - 0w4), addrs, codeVec)
+                end
+            |   putNonAddrConst _ = ()
+        in
+            val () = List.app putNonAddrConst constVec
+        end
 
-        (* +4 for code size, profile count, function name and constants count *)
-         (* +1 for register mask. *)
-        val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4 + 0w1
+        (* +4 for code size, profile count, function name and register mask. *)
+        val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4
 
         (* Now make the byte segment that we'll turn into the code segment *)
         val seg : cseg = csegMake segSize
@@ -3918,27 +3954,20 @@ Calling conventions:
         local
             val endOfCode = bytesToWords(! ic)
         in
-            (* Byte offset of start of code. *)
-            local
-                val addr = wordsToBytes endOfCode
-            in
-                val () = setWordU (Word.toInt addr, addr, seg) 
-            end;
-      
             (* Put in the number of constants. This must go in before we actually put
                in any constants.  In 32-bit mode there are only two constants: the 
                function name and the register mask. All other constants are in the code. *)
             local
-                val addr = wordsToBytes(endOfCode + 0w3 + Word.fromInt constsInConstArea + 0w1)
+                val addr = wordsToBytes(endOfCode + 0w3 + Word.fromInt constsInConstArea)
             in
                 val () = setWordU(2 + constsInConstArea, addr, seg)
             end;
       
             (* Next the profile count. *)
             local
-                val addr = wordsToBytes(endOfCode + 0w1)
+                val addr = wordsToBytes endOfCode
             in
-                val () = setWordU (0, addr, seg) 
+                val () = setWordU(0, addr, seg) 
             end;
       
             (* Now we've filled in all the C integers; now we need to convert the segment
@@ -3950,12 +3979,34 @@ Calling conventions:
                    tagged zero *is* a legal string (it's "\000"). *)
                 val nameWord : machineWord = if procName = "" then toMachineWord 0 else toMachineWord procName;
             in
-                val _ = csegPutWord (seg, endOfCode + 0w2, nameWord);
+                val _ = csegPutWord (seg, endOfCode + 0w1, nameWord);
             end
-            val () = csegPutWord (seg, endOfCode + 0w3, toMachineWord(encodeRegSet registerSet))
+            val () = csegPutWord (seg, endOfCode + 0w2, toMachineWord(encodeRegSet registerSet))
         end
     in 
         let
+
+            (* constLabels - fill in a constant in the code. *)
+            fun constLabels (Code{resultSeg=ref rseg, ...}, addr, value, InlineAbsolute) =
+                    csegPutConstant (scSet rseg, addr, value, false)
+
+            |   constLabels (Code{resultSeg=ref rseg, ...}, addr, value, InlineRelative) =
+                    csegPutConstant (scSet rseg, addr, value, true)
+
+            |   constLabels (_, _, _, NonAddrArea) = () (* Already done. *)
+
+            |   constLabels (Code{resultSeg=ref rseg, ic = ref endByte, ...},
+                           constAddr, value, ConstArea nonInlineCount) =
+                    (* Not inline.  Put the constant in the constant area and set the original address
+                        to be the relative offset to the constant itself. *)
+                    let
+                        val addrOfConst = endByte addrPlus (nonInlineCount-1 + 2+1) * wordSize
+                        val seg       = scSet rseg (* The address of the segment. *)
+                    in
+                        csegPutConstant (seg, addrOfConst, value, false);
+                        set32s(Word.toInt(addrOfConst - constAddr - 0w4), constAddr, seg)
+                    end
+
             (* and then copy the objects from the constant list. *)
             fun putConst {const = WVal c, addrs, posn, ...} =
                 ( (* Can put these in now. *)
@@ -3980,7 +4031,7 @@ Calling conventions:
                     the referenced code *) 
             |   putConst {const = CVal _, ...} = ()
 
-            val () = List.app putConst constVec;
+            val () = List.app putConst constVec
     
             (* Switch off "mutable" bit now if we have no
                forward or recursive references to fix-up *)
