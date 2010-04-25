@@ -1531,10 +1531,16 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             return true;
 
         case 0xdb: // Floating point ESCAPE 3
+        case 0xdf:
             {
                 PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
+#ifdef HOSTARCHITECTURE_X86_64
+                if (stack->p_pc[1] != 0x2c || stack->p_pc[2] != 0x24)
+                    Crash("Unknown instruction after overflow trap");
+#else
                 if (stack->p_pc[1] != 0x04 || stack->p_pc[2] != 0x24)
                     Crash("Unknown instruction after overflow trap");
+#endif /* HOSTARCHITECTURE_X86_64 */
                 // The operand is on the stack.
                 union { double dble; byte bytes[sizeof(double)]; } dValue;
                 dValue.dble = get_C_real(taskData, stack->p_sp[0]);

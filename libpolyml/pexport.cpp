@@ -217,11 +217,12 @@ void PExport::printObject(PolyObject *p)
            number of constants. */
         p->GetConstSegmentForCode(cp, constCount);
         /* The byte count is the length of the segment minus the
-           number of constant minus one for the constant count, one for the
-           marker word, one for the byte count and one for the
-           profile count. */
-        POLYUNSIGNED byteCount = (length - constCount - 4) * sizeof(PolyWord);
-        fprintf(exportFile, "C%lu,%lu|", constCount, byteCount);
+           number of constants minus one for the constant count.
+           It includes the marker word, byte count, profile count
+           and, on the X86/64 at least, any non-address constants.
+           These are actually word values. */
+        POLYUNSIGNED byteCount = (length - constCount - 1) * sizeof(PolyWord);
+        fprintf(exportFile, "D%lu,%lu|", constCount, byteCount);
 
         // First the code.
         byte *u = (byte*)p;
@@ -725,12 +726,13 @@ bool PImport::DoImport()
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord) + 1;
             break;
 
-        case 'C': /* Code segment. */
+        case 'C': /* Code segment (old form). */
+        case 'D': /* Code segment (new form). */
             objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
                for constants. */
             fscanf(f, "%lu,%lu", &nWords, &nBytes);
-            nWords += 4; /* Add words for extras. */
+            nWords += ch == 'C' ? 4 : 1; /* Add words for extras. */
             /* Add in the size of the code itself. */
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
@@ -840,7 +842,9 @@ bool PImport::DoImport()
             }
 
         case 'C': /* Code segment. */
+        case 'D':
             {
+                bool oldForm = ch == 'C';
                 byte *u = (byte*)p;
                 POLYUNSIGNED length = p->Length();
                 /* Read the number of bytes of code and the number of words
@@ -859,11 +863,14 @@ bool PImport::DoImport()
                 ASSERT(ch == '|');
                 /* Set the constant count. */
                 p->Set(length-1, PolyWord::FromUnsigned(nWords));
-                p->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
-                p->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
-                p->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
-                /* Check - the code should end at the marker word. */
-                ASSERT(nBytes == ((length-1-nWords-3)*sizeof(PolyWord)));
+                if (oldForm)
+                {
+                    p->Set(length-1-nWords-1, PolyWord::FromUnsigned(0)); /* Profile count. */
+                    p->Set(length-1-nWords-3, PolyWord::FromUnsigned(0)); /* Marker word. */
+                    p->Set(length-1-nWords-2, PolyWord::FromUnsigned((length-1-nWords-2)*sizeof(PolyWord)));
+                    /* Check - the code should end at the marker word. */
+                    ASSERT(nBytes == ((length-1-nWords-3)*sizeof(PolyWord)));
+                }
                 /* Read in the constants. */
                 for (i = 0; i < nWords; i++)
                 {

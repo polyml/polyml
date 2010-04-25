@@ -1396,7 +1396,7 @@ Handle xor_longc(TaskData *taskData, Handle y, Handle x)
     return logical_long(taskData, long_x, long_y, sign_x, sign_y, doXor);
 }
 
-// Convert a long precision value to integer
+// Convert a long precision value to floating point
 double get_C_real(TaskData *, PolyWord x)
 {
     if (IS_INT(x)) {

@@ -424,14 +424,15 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
         {
            /* A code pointer will be either a return address or a pointer
               to the constant section. (Or an exception handler?) */
-            PolyWord *ptr;
             // We used to have a check that this was not a constant area
             // pointer but we don't have those any more.
             
             /* Initialise ptr to points at the end-of-code marker */
-            OBJ_CODEPTR_TO_CONSTS_PTR(pc, ptr);
-            
-            PolyWord p_name = ptr[3]; /* Get procedure name */
+            // This used to use the OBJ_CODEPTR_TO_CONSTS_PTR macro which
+            // simply looked for the end-of-code marker.
+            PolyObject *ptr = ObjCodePtrToPtr(pc.AsCodePtr());
+            PolyWord *consts = ptr->ConstPtrForCode();
+            PolyWord p_name = consts[0]; /* Get procedure name */
             
             /* The name may be zero if it is anonymous */
             if (p_name == TAGGED(0)) fputs("<anon>\n",stdout);

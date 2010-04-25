@@ -1442,11 +1442,13 @@ SS-relative addressing modes:
         val need64bit =
             case opb of
                 MOVB_8_A => false
-            |   Group1_8_A => false
             |   Group3_a => false
             |   FPESC _ => false
-            |   Group5 => false
-            |   _ => isX64 (* For the moment assume everything else requires it *)
+            |   Group5 => false (* Call/Jmp/Push - size is intrinsic *)
+            |   Group1_8_A => isX64 (* Arithmetic operations - must be 64-bit *)
+            |   Group2_1_A => isX64 (* 1-bit shifts - must be 64-bit *)
+            |   Group2_8_A => isX64 (* n-bit shifts - must be 64-bit *)
+            |   _ => isX64 (* Anything else?  Assume it requires prefix. *)
     in
         doPending (cvec, maxInstrSize);
         (* For the moment always put in a REX prefix. *)
@@ -1548,12 +1550,12 @@ SS-relative addressing modes:
     if is8Bit imm
     then (* Can use one byte immediate *) 
     (
-       genOpRegPlus2 (Group1_8_A, rd, arithOpToWord opn, cvec);
+       genOpRegPlus2(Group1_8_A, rd, arithOpToWord opn, cvec);
        gen8s (imm, cvec)
     )
     else (* Need 32 bit immediate. *)
     (
-       genOpRegPlus2 (Group1_32_A, rd, arithOpToWord opn, cvec);
+       genOpRegPlus2(Group1_32_A, rd, arithOpToWord opn, cvec);
        gen32s(imm, cvec)
     )
 
@@ -2013,18 +2015,17 @@ Calling conventions:
         if isX64
         then
         (
-            genOpPlus2 (MOVL_32_A, ~wordSize, r15, 0w0, cvec);
+            genOpPlus2(MOVL_32_A, ~wordSize, resultReg, 0w0, cvec);
+            (* TODO: What if the length won't fit in 32 bits? *)
             gen32s (size, cvec);
             (* Set the flag byte separately. *)
             if flag <> 0w0
             then
             (
-                genOpPlus2 (MOVB_8_A, ~1, r15, 0w0, cvec);
+                genOpPlus2(MOVB_8_A, ~1, resultReg, 0w0, cvec);
                 gen8s (Word8.toInt flag, cvec)
             )
-            else ();
-            (* TODO: What if the length won't fit in 32 bits? *)
-            genMove(resultReg, r15, cvec)
+            else ()
         )
         else
         (
@@ -3277,7 +3278,10 @@ Calling conventions:
                    to push the value to the stack. *)
                 (* Shift the value we pushed to untag it now we've done any trapping. *)
                 genOpPlus2 (Group2_1_A, 0, esp, 0w7 (* sar *), code);
-                genOpPlus2(FPESC 0w3, 0, esp, 0wx0, code); (* FILD [reg] *)
+                (* fildl (esp) in 32-bit mode or fildq (esp) in 64-bit mode. *)
+                if isX64
+                then genOpPlus2(FPESC 0w7, 0, esp, 0w5, code)
+                else genOpPlus2(FPESC 0w3, 0, esp, 0w0, code);
                 (* Pop the stack.  This value is not a valid tagged value. *)
                 cgOp(ResetStack 1 :: remainder) (* Pop the stack. *)
             )
@@ -3851,7 +3855,8 @@ Calling conventions:
                 else (* mod = 00, 01, 10 *)
                 (
                     case (escNo, nnn) of
-                        (0w3, 0w0) => print "fild\t"
+                        (0w3, 0w0) => print "fildl\t"
+                    |   (0w7, 0w5) => print "fildq\t"
                     |   (0w4, 0w0) => print "fadd\t"
                     |   (0w4, 0w1) => print "fmul\t"
                     |   (0w4, 0w3) => print "fcomp\t"

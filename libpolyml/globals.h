@@ -245,21 +245,6 @@ inline PolyObject *ObjCodePtrToPtr(byte *cp)
     return (PolyObject *)((byte *)wp - byte_offset);
 }
 
-/* We have to very careful here, because the RTS code segments
-   are malformed - they don't contain the usual count of the
-   number of constants.  This means we can't just use a combination
-   of the OBJ_CODEPTR_TO_PTR and OBJ_PTR_TO_CONSTS_PTR macros.
-    SPF 26/7/96
-*/
-
-inline void OBJ_CODEPTR_TO_CONSTS_PTR(PolyWord cp, PolyWord * &xp)
-{
-    POLYUNSIGNED *wp = (POLYUNSIGNED *)(cp.AsUnsigned() & ~(sizeof(PolyWord)-1));
-    while (*wp != 0) wp++;
-    xp = (PolyWord*)wp;
-}
-
-
 /* Don't need to worry about whether shift is signed, 
    because OBJ_PRIVATE_USER_FLAGS_MASK removes the sign bit.
    We don't want the GC bit (which should be 0) anyway.
