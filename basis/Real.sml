@@ -239,10 +239,15 @@ struct
         else if isNan x then raise General.Div else raise General.Overflow
 
     local
-        val maxShortInt = 32768
-        val floatShort: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real;
+        (* The RTS real-to-int function returns only short-precision ints so
+           we need to split the value if it's long.  We split it at the largest
+           value that can be represented as a short integer and also precisely
+           by a real number. *)
+        val maxShortLen = Int.min(Word.wordSize, precision)
+        val maxShortInt = Word.toInt(Word.<<(0w1, Word.fromInt (maxShortLen-1))-0w1)
+        val floatShort: int -> real = RunCall.run_call1 POLY_SYS_int_to_real
         val maxShortIntAsReal = floatShort maxShortInt
-        val floorShort: real -> int  = RunCall.run_call1 POLY_SYS_real_to_int;
+        val floorShort: real -> int  = RunCall.run_call1 POLY_SYS_real_to_int
     in
         val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real
           
