@@ -512,7 +512,7 @@ struct
            exited := true
          end
   
-       | Handle {exp, taglist, handler} =>
+       | Handle {exp, handler} =>
          let
            type handler = labels;
            
@@ -520,31 +520,24 @@ struct
            val () = genPushHandler cvec;
            val () = incsp ();
   
-       fun genTag (tag : codetree) : handler =
-       let
-         (* Push address of new handler. *)
-         val handlerLab : labels = putBranchInstruction (setHandler, cvec);
-             val () = incsp ();
+           val genTag : handler =
+           let
+             (* Push address of new handler. *)
+             val handlerLab : labels = putBranchInstruction (setHandler, cvec);
+                 val () = incsp ();
  
-         (* Push the exception to be caught. *)
-         val () = gencde (tag, ToStack, NotEnd, matchFailFn, loopAddr)
-       in
-         handlerLab
-       end;
+             (* Push the exception to be caught.  This is now always zero *)
+             val () = gencde (Constnt(toMachineWord 0), ToStack, NotEnd, matchFailFn, loopAddr)
+           in
+             handlerLab
+           end
 
-           (* Generate the list of tags and handler addreses. We reverse
-              the taglist so the tags that are first in the list are
-              put on the stack last, so they are checked first.
-              We reverse the result so that they get fixed up in
-              stack order. (I don't think this is important, but
-              I'm not sure.) Did you get all that? SPF 26/11/96
-           *)
-       val handlerList : handler list = rev (map genTag (rev taglist));
+            val handlerList : handler list = [genTag]
 
-      (* Code generate the body; "NotEnd" because we have to come back
-         to remove the handler; "ToStack" because delHandler needs
-         a result to carry down. *)
-      val () = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
+          (* Code generate the body; "NotEnd" because we have to come back
+             to remove the handler; "ToStack" because delHandler needs
+             a result to carry down. *)
+          val () = gencde (exp, ToStack, NotEnd, matchFailFn, loopAddr);
       
           (* Now get out of the handler and restore the old one. *)
           val skipHandler : labels = putBranchInstruction (delHandler, cvec);
@@ -565,7 +558,7 @@ struct
           *)
           val () = realstackptr := oldsp;
           val () = exited := false;
-      val () = alignOffWord (cvec, 0);
+            val () = alignOffWord (cvec, 0);
           val () = apply (fn handlerLab => fixup (handlerLab, cvec)) handlerList;
       (* If we were executing machine code we must re-enter the interpreter. *)
           val () = genEnterIntCatch cvec;
@@ -698,12 +691,18 @@ struct
                 (* This is inserted by the higher level code to get the use-counts
                    correct.  Kill entries are Extract entries with lastRef true. *)
                     gencde (expression, whereto, tailKind, matchFailFn, loopAddr)
-   
-        | CodeNil => 
-            raise InternalError "gencde: can't code-generate CodeNil value"
+
+        |   IndirectVariable _ => 
+                raise InternalError "gencde: IndirectVariable"
+
+        |   TupleVariable _ => 
+                raise InternalError "gencde: TupleVariable"
+
+        |   CodeNil => 
+                raise InternalError "gencde: can't code-generate CodeNil value"
   
-        | Global _ =>
-            raise InternalError "gencde: can't code-generate Global value";
+        |   Global _ =>
+                raise InternalError "gencde: can't code-generate Global value"
 
     in (* body of gencde *) 
 
