@@ -2114,7 +2114,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
     while (true)
     {
         // We've finished when this is word aligned and points to a zero word.
-        if (((POLYUNSIGNED)pt & -sizeof(POLYUNSIGNED)) && ((PolyWord*)pt)->AsUnsigned() == 0)
+        if (((POLYUNSIGNED)pt & (0-sizeof(POLYUNSIGNED))) && ((PolyWord*)pt)->AsUnsigned() == 0)
             break;
 #ifdef HOSTARCHITECTURE_X86_64
         // REX prefixes.  Set this first.
