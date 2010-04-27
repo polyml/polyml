@@ -92,7 +92,8 @@ struct
     val noIndex: stackIndex = ~1 (* An invalid index. *)
 
     datatype stackUnion = 
-        Register  of reg         (* In a register *)
+        Register  of reg * int         (* In a register.  The int is the stack offset if
+                                          the value was originally a container. *)
     |   Literal   of machineWord        (* A constant (was "int") *)
     |   CodeRef   of code        (* Forward reference to code *)
     |   Direct    of {base: reg, offset: int}  (* Register/Offset *)
@@ -336,10 +337,9 @@ struct
       mkIter (next ~1)
     end (* overStack *);
    
-   fun printStackUnion printStream stackun =
+    fun printStackUnion printStream stackun =
       case stackun of
-        Register reg => 
-          printStream(regRepr reg)
+        Register(reg, _) => printStream(regRepr reg)
           
       | Literal w =>
           if isShort w
@@ -448,6 +448,7 @@ struct
         if i = pstackptr then n
         else case pstackEntry(table, i) of
             StackEntry{ent=StackW addr, ...} => maxStack(i+1, Int.max(addr+1, n))
+        |   StackEntry{ent=Register(_, addr), ...} => maxStack(i+1, Int.max(addr+1, n))
         |   _ => maxStack(i+1, n)
         val stackMax = maxStack(first, markReal)
     in
@@ -488,7 +489,7 @@ struct
                 val () = StretchArray.update (pstack, entry, NoStackEntry)
                 val freeCode =
                     case stacken of
-                        Register reg       => free regset reg
+                        Register(reg, _)   => free regset reg
                     |   Direct {base, ...} => free regset base
                     |   Container l        => List.foldl(fn (i, f) => incrUseCount(table, i, ~1) @ f) [] l
                     |   _                  => []
@@ -575,7 +576,9 @@ struct
     end;
 
     (* The top of the pseudo-stack is held in a register *)
-    fun pushReg (table, reg) = pushPstack(table, Register reg, "pushReg", [])
+    fun pushRegFromContainer(table, reg, offset) =
+        pushPstack(table, Register(reg, offset), "pushReg", [])
+    fun pushReg (table, reg) = pushRegFromContainer(table, reg, 0)
 
     (* The top of the pseudo-stack is a constant *)
     fun pushConst (table, v : machineWord) = pushPstack(table, Literal v, "pushConst", [])
@@ -647,7 +650,7 @@ struct
                        itself contains a register we want. *)
                     (keep = noRegisters orelse
                     (case stacken of
-                         Register reg      => inSet(reg, regSet)
+                         Register(reg, _)   => inSet(reg, regSet)
                        | Direct {base,...} => inSet(base, regSet)
                        | _                 => false)
                     )
@@ -787,7 +790,7 @@ struct
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
                         StretchArray.update (pstack, entry,
-                                StackEntry{ent=Register destReg, cache=noRegisters, uses=uses,
+                                StackEntry{ent=Register(destReg, 0), cache=noRegisters, uses=uses,
                                            destStack=destStack, lifeTime=lifeTime});
                         freeCode2 @ freeCode1 @ loadInstrs
                     end
@@ -805,7 +808,7 @@ struct
                         |   NONE => saveDirectOnStack ()
                 end
 
-            | StackEntry {uses, ent = Register reg, cache = cacheReg, destStack, lifeTime} =>
+            | StackEntry {uses, ent = Register(reg, _), cache = cacheReg, destStack, lifeTime} =>
                 if (* uses = 0 orelse *) not (selectEntry entry)
                 then [] 
                 else
@@ -885,7 +888,7 @@ struct
                         (* Clear out the cache and overwrite this entry with a
                            reference to the register. *)
                         StretchArray.update (pstack, entry,
-                            StackEntry {ent = Register destReg, cache=noRegisters, uses=uses,
+                            StackEntry {ent = Register(destReg, 0), cache=noRegisters, uses=uses,
                                         destStack=destStack, lifeTime=lifeTime});
                         freeCode3 @ freeCode2 @ freeCode1 @ moveInstrs
                     end
@@ -1088,7 +1091,7 @@ struct
                    StackEntry {uses, ent = Direct {base, ...}, ...} =>
                        if uses = 0 then regs
                        else (lockRegister(table, base); base::regs)
-                |  StackEntry {uses, ent = Register reg, ...} =>
+                |  StackEntry {uses, ent = Register(reg, _), ...} =>
                        if uses = 0 then regs
                        else (lockRegister(table, reg); reg::regs)
                 | _ => (* neither Direct nor Register *) regs
@@ -1271,7 +1274,7 @@ struct
                             val freeCode = freeSet(regset, regSetMinus(cache, singleton reg))
                         in (* Clear out the cache and overwrite this entry with a reference to the register. *)
                             StretchArray.update (pstack, entry,
-                                StackEntry {ent = Register reg, cache=noRegisters, uses=uses,
+                                StackEntry {ent = Register(reg, 0), cache=noRegisters, uses=uses,
                                             destStack=NONE, lifeTime=lifeTime});
                             freeCode @ regCode
                         end
@@ -1368,7 +1371,7 @@ struct
             then moveRegisterToRegister(oneOf cacheReg, destReg)
             else
             case ent of
-               Register reg =>
+               Register(reg, _) =>
                     if reg <> destReg
                     then moveRegisterToRegister(reg, destReg)
                     else []
@@ -1403,7 +1406,7 @@ struct
 
         val acceptable =
             case stackEntry of
-                Register reg =>
+                Register(reg, _) =>
                     if inSet(reg, rSet)
                     then if not willTrample (* It's acceptable. *)
                     then SOME (reg, entry)
@@ -1493,8 +1496,25 @@ struct
                                | _             => false
                         (* If we are going to cache it we musn't let it be removed. *)
                         val freeCode1 = if cacheIt then incrUseCount (table, entry, 1) else []
+                        (* If we're loading the address of a container we need to ensure that it
+                           stays on the stack as long as the register is in use. This is only a
+                           problem if we're calling a function which returns its result via a
+                           container but in this particular case its result is discarded.  In that
+                           case loading its address in order to pass it into the function will be
+                           the last reference so the container entry will be removed from the
+                           pstack and removeOldItemsFromRealStack could remove the container from
+                           the real stack before the function is called. *)
+                        val stackOffset =
+                            case ent of
+                                Container l =>
+                                (
+                                    case pstackRealEntry(table, hd l) of
+                                        {ent = StackW index, ...} => index
+                                    |   _ => raise InternalError "loadPstackEntry: container entry is not on stack"
+                                )
+                            |   _ => 0
                         val loadEntry = loadPstackEntry(table, entry, resultReg)
-                        val newEntry = pushReg (table, resultReg)
+                        val newEntry = pushRegFromContainer(table, resultReg, stackOffset)
                         val freeCode2 =
                             if cacheIt
                             then
@@ -1560,7 +1580,7 @@ struct
                                    in an exception handler.
                                    It does have implications when setting the state which is
                                    why we no longer check that destinations match in "setState". *)
-                                StackEntry {ent = Register reg, cache=noRegisters, uses=uses,
+                                StackEntry {ent = Register(reg, 0), cache=noRegisters, uses=uses,
                                             destStack=NONE, lifeTime=lifeTime}
                         in
                             (* Clear out the cache and overwrite this entry with a
@@ -1935,7 +1955,7 @@ struct
               | MergeIndex savedTop =>
                 (
                     case pStackRealEntry(save, savedTop) of
-                      (_,{ent = Register reg, ...}) => reg
+                      (_,{ent = Register(reg, _), ...}) => reg
                 
                     | (_,{cache, ...}) =>
                         if cache = noRegisters then raise InternalError "setState: not a register"
@@ -1965,7 +1985,7 @@ struct
                     let
                         val freeThis =
                             case ent of 
-                                Register reg => freeRegister (table, reg)
+                                Register(reg, _) => freeRegister (table, reg)
                             |   Direct {base, ...} => freeRegister (table, base)
                             |   _ => []
                     in
@@ -2014,7 +2034,7 @@ struct
                             (* Compute the new register set. *)
                             val loadReg =
                                 case ent of
-                                    Register reg => incr regset reg
+                                    Register(reg, _) => incr regset reg
                                 |   Direct {base, ...} => incr regset base
                                 |   _ => []
                             val cacheRegs = List.foldl(fn (r, l) => incr regset r @ l) [] (setToList cache)
@@ -2205,7 +2225,7 @@ struct
                 let
                     val sTopReg = 
                         case pStackRealEntry (save, savedTop) of
-                            (_,{ent = Register reg, ...}) => reg
+                            (_,{ent = Register(reg, _), ...}) => reg
                         |   (_,{cache, ...}) =>
                                 if cache = noRegisters then raise InternalError "Not a register"
                                 else oneOf cache
@@ -2431,7 +2451,7 @@ struct
                     |   SOME prefReg => (* Put it in the preferred register. If it's already there
                                            we need to increment the use count because we will
                                            decrement it in "removeEntry". *)
-                        if (case tabEnt of Register reg => reg = prefReg | _ => false) orelse
+                        if (case tabEnt of Register(reg, _) => reg = prefReg | _ => false) orelse
                             inSet(prefReg, tabCache) (* Already there. *)
                         then (addRegUse (table, prefReg); (prefReg, [])) (* Already there. *)
                         else
@@ -2453,7 +2473,7 @@ struct
                     |   StackEntry _ => removeEntry(table, s, false);
             in 
                 StretchArray.update (pstack, s,
-                    StackEntry{ent=Register dReg, cache=noRegisters, uses=tabUses,
+                    StackEntry{ent=Register(dReg, 0), cache=noRegisters, uses=tabUses,
                                destStack=tabDest, lifeTime=tabLife});
                 freeCode @ dRegCode
             end (* loadToReg *)
@@ -2468,7 +2488,7 @@ struct
                         (* If it's in the stack we don't try reloading it. *) []
 
                     |  (StackEntry {ent = tabEnt, cache, uses, destStack, lifeTime, ...},
-                        StackEntry {ent = Register savedReg, ...}) =>
+                        StackEntry {ent = Register(savedReg, _), ...}) =>
                         loadToReg(s, SOME savedReg, tabEnt, cache, uses, destStack, lifeTime)
 
                     |  (StackEntry{ent = tabEnt as Direct{base = tabBase, offset = tabOffset},
@@ -2530,13 +2550,13 @@ struct
                             end
                         in
                         case tabEnt of
-                            Register tabReg =>
+                            Register(tabReg, _) =>
                                 (
                                     (* It's fine if the saved value was cached in that register. *)
                                     if inSet(tabReg, saveCache)
                                     then ()
                                     else case saveEnt of
-                                        Register saveReg =>
+                                        Register(saveReg, _) =>
                                             (* We should have moved these into the same
                                                register.  It's possible it got moved again
                                                as a result of loading something else. *)
@@ -2799,7 +2819,7 @@ struct
                     else ActInRegisterSet{modifiable=noRegisters, readable=cache}
                 )
                 else case stackEntry of
-                    Register reg =>
+                    Register(reg, _) =>
                         if lastRef
                         then ActInRegisterSet{modifiable=singleton reg, readable=singleton reg}
                         else ActInRegisterSet{modifiable=noRegisters, readable=singleton reg}
@@ -2944,7 +2964,7 @@ struct
             then raise InternalError "jumpToCode: indirect call to codeRef"
             else jumpToFunction{callKind=CodeFun code, returnReg=returnReg}
 
-        |  Register reg => (* Should only be the closure register and only in
+        |  Register(reg, _) => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
             then jumpToFunction{callKind=FullCall, returnReg=returnReg}
@@ -2971,7 +2991,7 @@ struct
             then raise InternalError "callCode: indirect call to codeRef"
             else callFunction{callKind=CodeFun code}
 
-        |  Register reg => (* Should only be the closure register and only in
+        |  Register(reg, _) => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
             then callFunction{callKind=FullCall}
@@ -2995,7 +3015,7 @@ struct
             fun getLoopDest entry =
                 case pstackRealEntry(transtable, entry) of
                     {ent = StackW index, ...} => ArgToStack index
-                |   {ent = Register reg, ...} => ArgToRegister reg
+                |   {ent = Register(reg, _), ...} => ArgToRegister reg
                 |   _ => raise InternalError "getLoopDest: wrong entry type"
         in
             map getLoopDest indices
