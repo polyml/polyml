@@ -3165,6 +3165,11 @@ struct
         |   {ent = CodeRef c, ...} => ConstCode c
         |   _ => NotConst
 
+    fun isRegister(entry, table) =
+        case pstackRealEntry(table, entry) of
+            {ent = Register(reg, _), ...} => SOME reg
+        |   _ => NONE
+
     structure Sharing =
     struct
         type code       = code

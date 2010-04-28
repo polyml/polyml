@@ -82,15 +82,13 @@ struct
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
     (* Are we at the end of the procedure. *)
-    datatype tail = EndOfProc of reg | NotEnd;
+    datatype tail = EndOfProc of reg | NotEnd
 
     fun isEndOfProc (EndOfProc _) = true | isEndOfProc _ = false;
 
-    fun chooseMergeRegister (_: ttab, whereto : regHint, tailKind : tail) : regHint =
-        case (tailKind, whereto) of
-            (EndOfProc res, _) => UseReg(singleton res)
-        |   (NotEnd, NoHint)   => UseReg generalRegisters
-        |   (_, whereto)       => whereto
+    fun chooseMergeRegister(_, EndOfProc res) = UseReg(singleton res)
+    |   chooseMergeRegister(NoHint, _) = UseReg generalRegisters
+    |   chooseMergeRegister(whereto, _) = whereto
 
     fun codeToCgType GeneralType = ArgGeneral | codeToCgType FloatingPtType = ArgFP
 
@@ -430,7 +428,7 @@ struct
                 code
             end;
             
-            val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
+            val whereto = chooseMergeRegister(whereto, tailKind)
 
             val exp1Result = 
                genToRegister (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
@@ -812,7 +810,7 @@ struct
                     and handlerEntry = handlerEntry
                 end
 
-                val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
+                val whereto = chooseMergeRegister(whereto, tailKind)
  
                 (* Code generate body, putting the result in result register. *)
                 (* "NotEnd" because we have to come back to remove the handler. *)
@@ -869,7 +867,7 @@ struct
         | Case {cases, test, default, caseType} =>
             let
                 (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
-                val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
+                val whereto = chooseMergeRegister(whereto, tailKind)
                 
                 (* Sort the cases into ascending order.  It's possible that we may have
                    duplicates if this came from an if-then-else construction so we
@@ -1329,7 +1327,7 @@ struct
                     (* If we need a result put it in the result reg.  We request exclusive use
                        of it because otherwise there is a problem when merging the results
                        of an if-then-else if the result register is somewhere else on the
-                       pstack (e.g. let a == ...; if ... then a else ...),
+                       pstack (e.g. val a = ...; if ... then a else ...),
     
                        If we're at the end of a function, we're not merging, so we don't need
                        exclusive use. However, I don't think we actually save anything by trying
@@ -2199,84 +2197,140 @@ struct
 
     (* if/then/else, cand and cor. NB if/then/else may be translated
        into a CASE by the optimiser and code-generated there. *)
-    and genCond (testExp, thenExp, elseExp, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
-    let
-      val needsResult = not (isNoResult whereto);
-      val mark = markStack transtable
-      val lab  = genTest (testExp, false, matchFailFn); (* code for condition *)
-      (* There used to be code in here to handle specially the case where the
-         test expression was a constant.  I've taken that out, partly because
-         the simple cases are dealt with by the optimiser but more seriously
-         because it's necessary to deal with the slightly more general case
-         where the test expression results in a constant (e.g. "if not false"
-         or "if (print "something"; true)" ).  There was a bug in the case
-         where the expression resulted in "true" since "lab" becomes "noJump"
-         if the jump is never taken.  "fixup" leaves "exited" as true so no
-         code is generated for the else-part but it doesn't set the pseudo-stack
-         properly which can cause problems while processing the else-part.
-         DCJM 27 June 2000. *)
-    in  (* brb L1; ..then.. brb L2; L1: ..else..; L2: *)
-      case elseExp of
-        CodeNil => (* No else-part - used for pattern-matching too *)
-          let
-            (* code for "then part" - noResult 'cos we generate "void" below*)
-            val _ =
-                genToRegister (thenExp, NoResult, tailKind, matchFailFn, loopAddr);
+    and genCond (testExp, thenExp, CodeNil, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
+        (* No else-part.  This is used only in pattern matching bindings. *)
+        let
+            val needsResult = not (isNoResult whereto)
+            val mark = markStack transtable
+            val lab  = genTest (testExp, false, matchFailFn) (* code for condition *)
+             (* code for "then part" - noResult 'cos we generate "void" below*)
+            val _ = genToRegister (thenExp, NoResult, tailKind, matchFailFn, loopAddr);
             val (_, mergeCode)  = merge (lab, transtable, NoMerge, mark)
             val () = codeGenerate(mergeCode, cvec)
-          in
+        in
             if needsResult
             then MergeIndex(pushConst (transtable, DummyValue)) (* Generate a void result. *)
             else NoMerge (* Unused *) 
-          end
-      
-      | _ => 
-        if isEmptyLabel lab
-        then
-            ( (* Only the "then" part will be executed.  Don't generate the else-part. *)
-            unmarkStack(transtable, mark);
-            gencde (thenExp, true, whereto, tailKind, matchFailFn, loopAddr)
-            )
-        else if haveExited transtable
-        then
-            ( (* Jump was unconditional - just generate the else-part. *)
-            unmarkStack(transtable, mark);
-            codeGenerate(fixup (lab, transtable), cvec);
-            gencde (elseExp, true, whereto, tailKind, matchFailFn, loopAddr)
-            )
-        else
-          let
-            val whereto : regHint = chooseMergeRegister (transtable, whereto, tailKind);
+        end
     
-            (* code for "then part" *)
-            val thenResult =
-                genToRegister (thenExp, whereto, tailKind, matchFailFn, loopAddr);
-        
-            val () = 
-              if isEndOfProc tailKind andalso not (haveExited transtable)
-              then codeGenerate(exit(), cvec)
-              else ();
+    |   genCond (testExp, thenPt, elsePt, whereto, tailKind, matchFailFn, loopAddr) =
+        let
+            val mark = markStack transtable
+            (* We use the then-part to determine the register for the result so if
+               it's simple we probably want to swap the else- and then-parts  *)
+            val reverse =
+                case thenPt of
+                    Constnt _ => true
+                |   Extract _ => true
+                |   Raise _ => true
+                |   _ => false
+            val (direction, thenExp, elseExp) =
+                if reverse
+                then (true, elsePt, thenPt)
+                else (false, thenPt, elsePt)
+            val lab  = genTest (testExp, direction, matchFailFn) (* code for condition *)
+            (* There used to be code in here to handle specially the case where the
+             test expression was a constant.  I've taken that out, partly because
+             the simple cases are dealt with by the optimiser but more seriously
+             because it's necessary to deal with the slightly more general case
+             where the test expression results in a constant (e.g. "if not false"
+             or "if (print "something"; true)" ).  There was a bug in the case
+             where the expression resulted in "true" since "lab" becomes "noJump"
+             if the jump is never taken.  "fixup" leaves "exited" as true so no
+             code is generated for the else-part but it doesn't set the pseudo-stack
+             properly which can cause problems while processing the else-part.
+             DCJM 27 June 2000. *)
+        in
+            if isEmptyLabel lab
+            then
+            ( (* Only the "then" part will be executed.  Don't generate the else-part. *)
+                unmarkStack(transtable, mark);
+                gencde (thenExp, true, whereto, tailKind, matchFailFn, loopAddr)
+            )
+            else if haveExited transtable
+            then
+            ( (* Jump was unconditional - just generate the else-part. *)
+                unmarkStack(transtable, mark);
+                codeGenerate(fixup (lab, transtable), cvec);
+                gencde (elseExp, true, whereto, tailKind, matchFailFn, loopAddr)
+            )
+            else
+            let
+                (* Generate the then-part and see where the result is.  We need it in a
+                   register but we don't want to decide in advance which register to use.
+                   In particular, if the result is in a floating point register we don't
+                   want to move it to a general register. *)
+                val (thenResult, whereto) =
+                    case (whereto, tailKind) of
+                        (NoHint, NotEnd) =>
+                        let
+                            (* We don't have any preferences. *)
+                            val initialThenResult =
+                                gencde(thenExp, true, whereto, tailKind, matchFailFn, loopAddr)
+                        in
+                            if haveExited transtable (* If we've raised an exception we can ignore this. *)
+                            then (initialThenResult, NoHint)
+                            else case initialThenResult of
+                                MergeIndex res =>
+                                let
+                                    (* Is it in a register?  Merging requires exclusive use
+                                       of the result register and it may be that this register
+                                       is required elsewhere.  Use it as a hint for the register
+                                       type we require and then load it.  If it's not required
+                                       elsewhere this will just return the register it's in. *)
+                                    val regSet =
+                                        case isRegister(res, transtable) of
+                                            SOME reg =>
+                                                if inSet(reg, floatingPtRegisters)
+                                                then floatingPtRegisters
+                                                else generalRegisters
+                                        |   NONE => generalRegisters
+                                    val (_, mergeItem, mergeCode) = loadEntryToSet (transtable, res, regSet, true)
+                                    val () = codeGenerate(mergeCode, cvec)
+                                in
+                                    (MergeIndex mergeItem,
+                                        UseReg(singleton(valOf(isRegister(mergeItem, transtable)))))
+                                end
+                            |   NoMerge => raise InternalError "genCond: no result"
+                        end
+                    |   (_, EndOfProc res) =>
+                        let
+                            (* We want the result in the result reg. *)
+                            val whereto = UseReg(singleton res)
+                        in
+                            (genToRegister (thenExp, whereto, tailKind, matchFailFn, loopAddr), whereto)
+                        end
+                    |   (whereto, _) => (* No result or we have a specific register. *)
+                            (genToRegister (thenExp, whereto, tailKind, matchFailFn, loopAddr), whereto)
+
+                val () = 
+                    if isEndOfProc tailKind andalso not (haveExited transtable)
+                    then codeGenerate(exit(), cvec)
+                    else ()
               
-            val (lab1, branchCode) = unconditionalBranch (thenResult, transtable)
-            val () = codeGenerate(branchCode, cvec)
+                val (lab1, branchCode) = unconditionalBranch (thenResult, transtable)
+                val () = codeGenerate(branchCode, cvec)
             
-            (* Get rid of the result from the stack. If there is a result
-               then the "else-part" will push it. *)
-            val () =
-                case thenResult of
-                    MergeIndex thenIndex => codeGenerate(removeStackEntry(transtable, thenIndex), cvec)
-                  | NoMerge => ();
+                (* Get rid of the result from the stack. If there is a result
+                   then the "else-part" will push it. *)
+                val () =
+                    case thenResult of
+                        MergeIndex thenIndex => codeGenerate(removeStackEntry(transtable, thenIndex), cvec)
+                      | NoMerge => ()
               
-            (* start of "else part" *)
-            val () = codeGenerate(fixup (lab, transtable), cvec);
-            val elseResult =
-                genToRegister (elseExp, whereto, tailKind, matchFailFn, loopAddr)
-            val (mergeRes, mergeCode) = merge (lab1, transtable, elseResult, mark)
-            val () = codeGenerate(mergeCode, cvec)
-          in 
-            mergeRes
-          end
-    end (* genCond *)
+                (* start of "else part" *)
+                val () = codeGenerate(fixup (lab, transtable), cvec);
+                val elseResult =
+                    case whereto of
+                        NoHint => (* Only if the then-part raised an exception *)
+                            gencde(elseExp, true, whereto, tailKind, matchFailFn, loopAddr)
+                    |   _ => genToRegister (elseExp, whereto, tailKind, matchFailFn, loopAddr)
+                val (mergeRes, mergeCode) = merge (lab1, transtable, elseResult, mark)
+                val () = codeGenerate(mergeCode, cvec)
+            in 
+                mergeRes
+            end
+        end (* genCond *)
 
         (* Call a function. Detects special cases of calls to the run-time system
            to do simple operations such as int arithmetic and generates the

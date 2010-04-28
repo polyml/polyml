@@ -146,6 +146,8 @@ sig
     datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
 
     val isConstant: stackIndex * ttab -> constEntry
+    
+    val isRegister: stackIndex * ttab -> reg option
 
     structure Sharing:
     sig
