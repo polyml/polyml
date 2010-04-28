@@ -96,7 +96,7 @@ struct
             tagInject offsetTag (fn () => 0), (* Zero offset *)
             tagInject fileNameTag "",
             tagInject inlineFunctorsTag true,
-            tagInject maxInlineSizeTag 40,
+            tagInject maxInlineSizeTag 80,
             tagInject parsetreeTag false,
             tagInject codetreeTag false,
             tagInject pstackTraceTag false,

@@ -49,6 +49,3 @@ in
 end;
 
 PolyML.print_depth 10;
-
-(* Set the inline level to 40 which seems optimal. *)
-PolyML.Compiler.maxInlineSize := 40;

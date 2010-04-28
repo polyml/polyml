@@ -59,9 +59,6 @@ end;
 
 PolyML.print_depth 10;
 
-(* Set the inline level to 40 which seems optimal. *)
-PolyML.Compiler.maxInlineSize := 40;
-
 (* Write out the result as an export file. *)
 let
     val args = CommandLine.arguments();

@@ -413,10 +413,7 @@ struct
                                  tagInject lineNumberTag (fn () => !lineNo),
                                  tagInject fileNameTag fileName,
                                  tagInject LEX.errorMessageProcTag errorProc,
-                                 (* Set the debug level to 50 while compiling the basis.  This makes
-                                    sure that String.foldr can be expanded inline which reduces the
-                                    garbage in the hashValue function. *)
-                                 tagInject maxInlineSizeTag 50,
+                                 tagInject maxInlineSizeTag 80,
                                  tagInject reportUnreferencedIdsTag true,
                                  (* These are only needed for debugging. *)
                                  tagInject PRETTY.printOutputTag (PRETTY.prettyPrint(print, 70)),

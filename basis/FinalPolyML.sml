@@ -200,7 +200,7 @@ local
     
     val debug = ref false
     val inlineFunctors = ref true
-    val maxInlineSize = ref 40
+    val maxInlineSize = ref 80
     val printInAlphabeticalOrder = ref true
     val traceCompiler = ref false
     
