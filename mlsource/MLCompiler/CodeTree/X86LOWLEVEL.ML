@@ -857,8 +857,8 @@ struct
                 let
                     fun checkTag(LiteralSource l) =
                         if isShort l then ([], [])
-                        else (* If it's a long constant always emulate. *)
-                        let val (jump, lab) = uncondBranch() in (jump, forwardJumpLabel lab) end
+                        else (* Long constant - shouldn't be code-generating. *)
+                             raise InternalError "testTags: long constant"
                     |   checkTag tag =
                         let
                             val (code, lab) = condBranch(JE, PredictNotTaken)
@@ -1028,9 +1028,16 @@ struct
                                    next = wordSelectedRight opRes }
 
             |   wordSelectedRight opRes args = wordSelectedLeft opRes (List.rev args)
+
+            (* If either of the arguments are long constants we don't code-generate and
+               instead fall back to the RTS.  This is likely to be more efficient. *)
+            fun checkShort (opc, args, mapper) =
+                if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
+                then NONE
+                else SOME(wordSelectDest(opc, testTagsForArithmetic), args)
         in
-            val instrAddA = fn (args, _) => SOME(wordSelectDest(ADD, testTagsForArithmetic), args)
-            and instrSubA = fn (args, _) => SOME(wordSelectDest(SUB, testTagsForArithmetic), args)
+            val instrAddA = fn (args, mapper) => checkShort(ADD, args, mapper)
+            and instrSubA = fn (args, mapper) => checkShort(SUB, args, mapper)
             and instrAddW = fn (args, _) => SOME(wordSelectDest(ADD, noTagTest), args)
             and instrSubW = fn (args, _) => SOME(wordSelectDest(SUB, noTagTest), args)
             and instrOrW  = fn (args, _)  => SOME(wordSelectDest(OR, noTagTest), args)
@@ -1740,6 +1747,13 @@ struct
             in
                 (testActions: nextAction, destLabel)
             end
+
+            (* If either of the arguments are long constants we don't code-generate and
+               instead fall back to the RTS.  This is likely to be more efficient. *)
+            fun checkShort (opc, test) (args, mapper) =
+                if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
+                then NONE
+                else SOME(makeBranch(opc, test), args)
          in
             fun testNeqW(args, _) = SOME(makeBranch(JNE, noTagTest), args)
             fun testEqW(args, _)  = SOME(makeBranch(JE, noTagTest), args)
@@ -1747,12 +1761,12 @@ struct
             fun testGtW (args, _) = SOME(makeBranch(JA, noTagTest), args)
             fun testLeqW(args, _) = SOME(makeBranch(JNA, noTagTest), args)
             fun testLtW(args, _)  = SOME(makeBranch(JB, noTagTest), args)
-            fun testNeqA(args, _) = SOME(makeBranch(JNE, eqTestTags), args)
-            fun testEqA(args, _)  = SOME(makeBranch(JE, eqTestTags), args)
-            fun testGeqA(args, _) = SOME(makeBranch(JGE, testTagsForComparison), args)
-            fun testGtA(args, _)  = SOME(makeBranch(JG, testTagsForComparison), args)
-            fun testLeqA(args, _) = SOME(makeBranch(JLE, testTagsForComparison), args)
-            fun testLtA(args, _)  = SOME(makeBranch(JL, testTagsForComparison), args)
+            fun testNeqA(args, mapper)   = checkShort(JNE, eqTestTags)(args, mapper)
+            and testEqA(args, mapper)    = checkShort(JE, eqTestTags)(args, mapper)
+            and testGeqA(args, mapper)   = checkShort(JGE, testTagsForComparison)(args, mapper)
+            and testGtA(args, mapper)    = checkShort(JG, testTagsForComparison)(args, mapper)
+            and testLeqA(args, mapper)   = checkShort(JLE, testTagsForComparison)(args, mapper)
+            and testLtA(args, mapper)    = checkShort(JL, testTagsForComparison)(args, mapper)
             fun Short(args, _)    = SOME(lengthTest JNE, args)
             fun Long(args, _)     = SOME(lengthTest JE, args)
         end

@@ -211,7 +211,7 @@ public:
     void HeapOverflowTrap(TaskData *taskData);
     void ArbitraryPrecisionTrap(TaskData *taskData);
     PolyWord *get_reg(TaskData *taskData, int n);
-    PolyWord *getArgument(TaskData *taskData, unsigned int opByte, unsigned int rexPrefix);
+    PolyWord *getArgument(TaskData *taskData, unsigned int opByte, unsigned int rexPrefix, bool *inConsts=0);
     void do_compare(TaskData *taskData, PolyWord v1, PolyWord v2);
     void do_op(TaskData *taskData, int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle));
     bool emulate_instrs(TaskData *taskData);
@@ -1062,10 +1062,12 @@ PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
     }
 }
 
-PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsigned int rexPrefix)
+PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
+                                    unsigned int rexPrefix, bool *inConsts)
 {
     unsigned int md = modRm >> 6;
     unsigned int rm = modRm & 7;
+    if (inConsts) *inConsts = false; // Default
     if (md == 3) // Register
         return get_reg(taskData, rm + (rexPrefix & 0x1)*8);
     else if (rm == 4)
@@ -1117,6 +1119,7 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsi
         offset = offset*256 + PSP_IC(taskData->stack)[1];
         offset = offset*256 + PSP_IC(taskData->stack)[0];
         PSP_INCR_PC(taskData->stack, 4);
+        if (inConsts) *inConsts = true;
         return (PolyWord*)(taskData->stack->p_pc + offset);
 #else
         Crash("Immediate address in emulated instruction");
@@ -1286,7 +1289,8 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 PSP_INCR_PC(taskData->stack, 1);
                 int modRm = PSP_IC(taskData->stack)[0];
                 PSP_INCR_PC(taskData->stack, 1);
-                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix));
+                bool inConsts = false;
+                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix, &inConsts));
                 if (dest == -1) { // New format
                     PolyWord *destReg = get_reg(taskData, rrr);
                     PolyWord arg1 = *destReg;
@@ -1303,11 +1307,14 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                         }
                         else arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() - arg2.AsUnsigned());
                     }
+                    // If this is in the 64-bit non-address area it is a constant with the
+                    // tag removed.  Add it back in.
+                    if (inConsts) arg2 = PolyWord::FromUnsigned(arg2.AsUnsigned()+1);
                     do_op(taskData, rrr, arg1, arg2, add_longc);
                     // The next operation will subtract the tag.  We need to add in a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
-                    *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
+                    if (! inConsts) *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
                 }
                 else { // Legacy format
                     if (dest != rrr)
@@ -1322,7 +1329,8 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 PSP_INCR_PC(taskData->stack, 1);
                 int modRm = PSP_IC(taskData->stack)[0];
                 PSP_INCR_PC(taskData->stack, 1);
-                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix));
+                bool inConsts = false;
+                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix, &inConsts));
                 if (dest == -1) { // New format
                     PolyWord *destReg = get_reg(taskData, rrr);
                     PolyWord arg1 = *destReg;
@@ -1332,11 +1340,14 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     if (flagsWord & EFLAGS_OF) {
                         arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() + arg2.AsUnsigned());
                     }
+                    // If this is in the 64-bit non-address area it is a constant with the
+                    // tag added.  Subtract it now.
+                    if (inConsts) arg2 = PolyWord::FromUnsigned(arg2.AsUnsigned()-1);
                     do_op(taskData, rrr, arg1, arg2, sub_longc);
                     // The next operation will add the tag.  We need to subtract a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
-                    *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()-1);
+                    if (! inConsts) *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()-1);
                     return true;
                 }
                 else { // Legacy format
