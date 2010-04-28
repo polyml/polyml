@@ -1553,11 +1553,35 @@ SS-relative addressing modes:
        genOpRegPlus2(Group1_8_A, rd, arithOpToWord opn, cvec);
        gen8s (imm, cvec)
     )
-    else (* Need 32 bit immediate. *)
+    else if not isX64 orelse (~exp2_31 <= imm andalso imm < exp2_31)
+    then (* Need 32 bit immediate. *)
     (
        genOpRegPlus2(Group1_32_A, rd, arithOpToWord opn, cvec);
        gen32s(imm, cvec)
     )
+    else (* It won't fit in the immediate; put it in the non-address area. *)
+    let
+        (* For the moment use the same format as real numbers and put
+           this into a piece of memory which is then byte-copied into the
+           constant area. *)
+        open Address
+        val mem = alloc(0w1, F_bytes orb8 F_mutable, toMachineWord 0w0)
+
+        fun setMem(m, n) = 
+        if n = Word.fromInt wordSize then ()
+        else 
+        (
+            assignByte(mem, n, Word8.fromInt(m mod exp2_8));
+            setMem(m div exp2_8, n+0w1)
+        )
+        val () = setMem(imm, 0w0)
+        val () = lock mem
+        val (rc, rx) = getReg rd
+    in
+        genop(Arith (opn, 0w3 (* r/m to reg *)), SOME{w=true, r=rx, b=false, x = false}, cvec);
+        genmodrm (Based0, rc, 0w5 (* PC-relative *), cvec);
+        addConstToVec(WVal(toMachineWord mem), NonAddrArea, cvec)
+    end
 
     fun genReg (opn: arithOp, rd: reg, rs: reg, cvec) =
         genOpReg (Arith (opn, 0w3 (* r/m to reg *)), rd, rs, cvec)
@@ -2673,16 +2697,16 @@ Calling conventions:
             )
 
         |   cgOp(ArithRLongConst{ opc, output, source } :: remainder) =
+            (* This is only used for opc=CMP to compare addresses for equality. *)
             let
                 val (rc, rx) = getReg output
             in
                 checkSources[output]; case opc of CMP => () | _ => addDests[output];
-                (* We may be comparing with an address. *)
                 if isX64
                 then
                 (
                     genop(Arith (opc, 0w3), SOME {w=true, r=rx, b=false, x=false}, code);
-			        genmodrm(Based0, arithOpToWord opc, 0w5 (* Immediate address. *), code);
+			        genmodrm(Based0, rc, 0w5 (* Immediate address. *), code);
                     addConstToVec (WVal source, ConstArea 0, code)
                 )
                 else

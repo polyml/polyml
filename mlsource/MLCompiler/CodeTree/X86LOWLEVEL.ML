@@ -59,7 +59,9 @@ struct
 
     val exp2_30 =  0x40000000
 
-    fun is32bitSigned a =
+    (* This actually checks that the value will fit in 31 bits because we normally have to
+       tag it later. *)
+    fun is31bitSigned a =
         isShort a andalso let val aI = Word.toIntX(toShort a) in ~exp2_30 <= aI andalso aI < exp2_30 end
 
     (* tag a short constant *)
@@ -486,11 +488,12 @@ struct
                              next=loadToOneOf(regSet, overWrite, argNo, whenDone) opAndResults}
                     end
 
-        (* Load to a register (read-only) or, if it's a literal leave it. *)
+        (* Load to a register (read-only) or, if it's a literal leave it.  In
+           64-bit mode we load anything that won't fit in 32-bits when tagged. *)
         fun loadToRegOrLiteral(regSet, argNo, whenDone) opAndResults args =
             case List.nth(args, argNo) of
                 ActLiteralSource lit => 
-                    if not isX64 orelse is32bitSigned lit
+                    if not isX64 orelse is31bitSigned lit
                     then whenDone (replaceOperand(argNo, LiteralSource lit) opAndResults) args
                     else loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
             |   _ => loadToOneOf(regSet, false, argNo, whenDone) opAndResults args
@@ -987,7 +990,7 @@ struct
                 end
 
             |   wordSelectedLeft (opRes as ((opcode, tagTest), result)) [_, ActLiteralSource lit] =
-                if is32bitSigned lit
+                if isShort lit
                 then
                 let
                     val intArg = Word.toIntX(toShort lit)
@@ -1209,7 +1212,7 @@ struct
                         |   0w2 => [LoadAddress{output=reg, base=NONE, index=Index4 reg, offset= ~3}]
                         |   0w3 => [LoadAddress{output=reg, base=NONE, index=Index8 reg, offset= ~7}]
                         |   _ =>
-                            if shift < 0wx32
+                            if shift < 0w32
                             then (* Can remove the shifted tag and set the new tag. *)
                                 [ArithRConst{opc=SUB, output=reg, source=IntInf.<<(1, shift) -1 },
                                  ShiftConstant{shiftType=SLL, output=reg, shift=wordToWord8 shift}]
@@ -1595,8 +1598,6 @@ struct
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActLiteralSource constnt]) =
-                if not isX64 orelse (isShort constnt andalso is32bitSigned(tag(Word.toIntX(toShort constnt))))
-                then
                 let
                     val reg1 = chooseGenReg s1
                     val Labels{uses, ...} = destLabel
@@ -1612,12 +1613,8 @@ struct
                                            else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
                                            InRegister reg1, LiteralSource constnt) }
                 end
-                else ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
-                                  next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActInRegisterSet s2]) =
-                if not isX64 orelse (isShort constnt andalso is32bitSigned(tag(Word.toIntX(toShort constnt))))
-                then
                 let
                     val reg2 = chooseGenReg s2
                     val Labels{uses, ...} = destLabel
@@ -1634,8 +1631,6 @@ struct
                                            else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
                                            InRegister reg2, LiteralSource constnt) }
                 end
-                else ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
-                                  next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActBaseOffset(base, offset)]) =
                 let
@@ -1665,8 +1660,11 @@ struct
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActLiteralSource constnt]) =
-                if not isX64 orelse is32bitSigned constnt
-                then
+                if not isX64 orelse is31bitSigned constnt
+                then (* In 32-bit mode we can put all constants inline but in 64-bit mode anything
+                        that won't fit in 32-bits as well as all addresses need to go in the
+                        constant area.  That requires memory addressing and we don't have
+                        memory-memory comparison operations. *)
                 let
                     val Labels{uses, ...} = destLabel
                     val () = uses := !uses+1
@@ -1686,7 +1684,7 @@ struct
                                   next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActBaseOffset(base, offset)]) =
-                if not isX64 orelse is32bitSigned constnt
+                if not isX64 orelse is31bitSigned constnt
                 then
                 let
                     val Labels{uses, ...} = destLabel

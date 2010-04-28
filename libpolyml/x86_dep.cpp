@@ -1076,12 +1076,9 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsi
         unsigned int ss = (sib >> 6) & 3;
         unsigned int base = sib & 7;
         PSP_INCR_PC(taskData->stack, 1);
-        if (md == 0 && base == 5) 
-        {
-            Crash("Absolute address???");
-            /* An immediate address. */
-            PSP_INCR_PC(taskData->stack, 4);
-        }
+        if (md == 0 && base == 5)
+            // This should not occur in either 32 or 64-bit mode.
+            Crash("Immediate address in emulated instruction");
         else
         {
             int offset = 0;
@@ -1112,8 +1109,18 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm, unsi
     }
     else if (md == 0 && rm == 5)
     {
-        Crash("Immediate operand???");
+#ifdef HOSTARCHITECTURE_X86_64
+        // In 64-bit mode this means PC-relative
+        int offset = PSP_IC(taskData->stack)[3];
+        if (offset >= 128) offset -= 256;
+        offset = offset*256 + PSP_IC(taskData->stack)[2];
+        offset = offset*256 + PSP_IC(taskData->stack)[1];
+        offset = offset*256 + PSP_IC(taskData->stack)[0];
         PSP_INCR_PC(taskData->stack, 4);
+        return (PolyWord*)(taskData->stack->p_pc + offset);
+#else
+        Crash("Immediate address in emulated instruction");
+#endif
     }
     else
     {
