@@ -1136,14 +1136,35 @@ static int compare_unsigned(Handle x, Handle y)
 
 int compareLong(TaskData *taskData, Handle y, Handle x)
 {
-    if (IS_INT(DEREFWORD(x)) &&
-        IS_INT(DEREFWORD(y))) /* Both short */
-    {
-        POLYSIGNED t = UNTAGGED(DEREFWORD(x)) - UNTAGGED(DEREFWORD(y));
+    // Test if the values are bitwise equal.  If either is short
+    // this is the only case where the values could be equal.
+    if (DEREFWORD(x) == DEREFWORD(y)) // Equal
+        return 0;
 
-        if (t == 0) return 0; /* equal */
-        else if (t < 0) return -1; /* less */
-        else return 1; /* greater */
+    if (IS_INT(DEREFWORD(x)))
+    {
+        // x is short.
+        if (IS_INT(DEREFWORD(y))) {
+            // Both short.  We've already tested for equality.
+            if (UNTAGGED(DEREFWORD(x)) < UNTAGGED(DEREFWORD(y)))
+                return -1; // Less
+            else return 1; // Greater
+        }
+        // y is not short.  Just test the sign.  If it's negative
+        // it must be less than any short value and if it's positive
+        // it must be greater.
+        if (OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(y))))
+            return 1; // x is greater
+        else return -1; // x is less
+    }
+
+    // x is not short
+    if (IS_INT(DEREFWORD(y)))
+    {
+        // y is short.  Just test the sign of x
+        if (OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))))
+            return -1; // x is less
+        else return 1; // x is greater
     }
 
     /* Convert to long form */

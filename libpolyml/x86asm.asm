@@ -1615,54 +1615,146 @@ CALLMACRO   CALL_IO    POLY_SYS_aneg
 CALLMACRO   RegMask aneg,(M_Reax OR M_Redi OR Mask_all)
 
 CALLMACRO   INLINE_ROUTINE  int_geq
-    MOVL    Reax,Recx   ;# Use long test if either is long
-    ANDL    Rebx,Reax
-    ANDL    CONST TAG,Reax
-    jz      igeq1
-    CMPL    Rebx,Recx
-    jge     RetTrue
-    jmp     RetFalse
+    TESTL   CONST TAG,Reax ;# Is first arg short?
+	jz      igeq2
+	TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      igeq1
+	CMPL    Rebx,Reax
+	jge     RetTrue
+	jmp     RetFalse
 igeq1:
-    MOVL    Recx,Reax
+ ;# First arg is short, second isn't
+IFDEF WINDOWS
+    test    byte ptr [Rebx-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
+ENDIF
+    jnz     RetTrue     ;# Negative - always less
+	jmp     RetFalse
+
+igeq2:
+ ;# First arg is long
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      igeq3
+ ;# First arg is long, second is short
+IFDEF WINDOWS
+    test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
+ENDIF
+    jz      RetTrue    ;# Positive - always greater
+	jmp     RetFalse
+
+igeq3:
+ ;# Both long
 CALLMACRO   CALL_IO    POLY_SYS_int_geq
-CALLMACRO   RegMask int_geq,(M_Reax OR M_Recx OR Mask_all)
+CALLMACRO   RegMask int_geq,(M_Reax OR Mask_all)
+
 
 CALLMACRO   INLINE_ROUTINE  int_leq
-    MOVL    Reax,Recx
-    ANDL    Rebx,Reax
-    ANDL    CONST TAG,Reax
-    jz      ileq1
-    CMPL    Rebx,Recx
-    jle     RetTrue
-    jmp     RetFalse
+    TESTL   CONST TAG,Reax ;# Is first arg short?
+	jz      ileq2
+	TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      ileq1
+	CMPL    Rebx,Reax
+	jle     RetTrue
+	jmp     RetFalse
 ileq1:
-    MOVL    Recx,Reax
+ ;# First arg is short, second isn't
+IFDEF WINDOWS
+    test    byte ptr [Rebx-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
+ENDIF
+    jz      RetTrue     ;# Negative - always less
+	jmp     RetFalse
+
+ileq2:
+ ;# First arg is long
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      ileq3
+ ;# First arg is long, second is short
+IFDEF WINDOWS
+    test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
+ENDIF
+    jnz     RetTrue    ;# Positive - always greater
+	jmp     RetFalse
+
+ileq3:
 CALLMACRO   CALL_IO    POLY_SYS_int_leq
 CALLMACRO   RegMask int_leq,(M_Reax OR M_Recx OR Mask_all)
 
+
 CALLMACRO   INLINE_ROUTINE  int_gtr
-    MOVL    Reax,Recx
-    ANDL    Rebx,Reax
-    ANDL    CONST TAG,Reax
-    jz      igtr1
-    CMPL    Rebx,Recx
-    jg      RetTrue
-    jmp     RetFalse
+    TESTL   CONST TAG,Reax ;# Is first arg short?
+	jz      igtr2
+	TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      igtr1
+	CMPL    Rebx,Reax
+	jg      RetTrue
+	jmp     RetFalse
 igtr1:
-    MOVL    Recx,Reax
+ ;# First arg is short, second isn't
+IFDEF WINDOWS
+    test    byte ptr [Rebx-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
+ENDIF
+    jnz     RetTrue     ;# Negative - always less
+	jmp     RetFalse
+
+igtr2:
+ ;# First arg is long
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      igtr3
+ ;# First arg is long, second is short
+IFDEF WINDOWS
+    test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
+ENDIF
+    jz      RetTrue    ;# Positive - always greater
+	jmp     RetFalse
+
+igtr3:
 CALLMACRO   CALL_IO    POLY_SYS_int_gtr
 CALLMACRO   RegMask int_gtr,(M_Reax OR M_Recx OR Mask_all)
 
+
 CALLMACRO   INLINE_ROUTINE  int_lss
-    MOVL    Reax,Recx
-    ANDL    Rebx,Reax
-    ANDL    CONST TAG,Reax
-    jz      ilss1
-    CMPL    Rebx,Recx
-    jl      RetTrue
-    jmp     RetFalse
+    TESTL   CONST TAG,Reax ;# Is first arg short?
+	jz      ilss2
+	TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      ilss1
+	CMPL    Rebx,Reax
+	jl      RetTrue
+	jmp     RetFalse
 ilss1:
-    MOVL    Recx,Reax
+ ;# First arg is short, second isn't
+IFDEF WINDOWS
+    test    byte ptr [Rebx-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
+ENDIF
+    jz      RetTrue     ;# Negative - always less
+	jmp     RetFalse
+
+ilss2:
+ ;# First arg is long
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+	jz      ilss3
+ ;# First arg is long, second is short
+IFDEF WINDOWS
+    test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
+ELSE
+    testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
+ENDIF
+    jnz     RetTrue    ;# Positive - always greater
+	jmp     RetFalse
+
+ilss3:
 CALLMACRO   CALL_IO    POLY_SYS_int_lss
 CALLMACRO   RegMask int_lss,(M_Reax OR M_Recx OR Mask_all)
 

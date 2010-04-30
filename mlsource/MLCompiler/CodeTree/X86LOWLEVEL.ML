@@ -55,7 +55,7 @@ struct
     val op andb8 = Word8.andb
 
     val wordToWord8 = Word8.fromLargeWord o Word.toLargeWord
-    (*and word8ToWord = Word.fromLargeWord o Word8.toLargeWord*)
+    and word8ToWord = Word.fromLargeWord o Word8.toLargeWord
 
     val exp2_30 =  0x40000000
 
@@ -886,17 +886,67 @@ struct
                     backToInstrCode @ tag2Check @ tag1Check
                 end
         in
-            val testTagsForComparison = testTags false
-            and testTagsForArithmetic = testTags true
+            val testTagsForArithmetic = testTags true
+
+            fun reverseTestOp JE = JE
+            |   reverseTestOp JNE = JNE
+            |   reverseTestOp JA = JB
+            |   reverseTestOp JB = JA
+            |   reverseTestOp JNA = JNB
+            |   reverseTestOp JNB = JNA
+            |   reverseTestOp JL = JG
+            |   reverseTestOp JG = JL
+            |   reverseTestOp JLE = JGE
+            |   reverseTestOp JGE = JLE
+            |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
+
+            (* If we're comparing a value with a short constant we don't need to
+               emulate the comparison even if the value is actually long.  We just
+               need to look at the sign to decide if it's less or greater because
+               every positive long form value is greater than any short value and
+               every negative long form value is less than any short value. *)
+            fun testTagsForComparison (shortTestAndJump, tag1, LiteralSource tag2Const, opc, destLab) =
+                let
+                    (* The constant should always be short. *)
+                    val _ = isShort tag2Const orelse raise InternalError "testTagsForComparison: long"
+                    val (jumpOnLongCode, longLab) = condBranch(JE, PredictNotTaken)
+                    val (skipLongCode, skipLongLabel) = uncondBranch()
+                    val tag1Reg =
+                        case tag1 of
+                            InRegister reg => reg
+                        |   _ => raise InternalError "testTagsForComparison: not reg"
+                    (* If we're jumping on greater (equal) we jump if the value is
+                       positive (sign bit clear).  If less (equal) we jump if it's
+                       negative.  We need to increment the reference count for the
+                       destination label. *)
+                    val Labels{uses, ...} = destLab
+                    val () = uses := !uses + 1
+                    val skipOnSign =
+                        case opc of
+                            JG => ConditionalBranch{test=JE, predict=PredictNeutral, label=destLab}
+                        |   JGE => ConditionalBranch{test=JE, predict=PredictNeutral, label=destLab}
+                        |   JL => ConditionalBranch{test=JNE, predict=PredictNeutral, label=destLab}
+                        |   JLE => ConditionalBranch{test=JNE, predict=PredictNeutral, label=destLab}
+                        |   _ => raise InternalError "testTagsForComparison: opc"
+                in
+                    forwardJumpLabel skipLongLabel @
+                    [skipOnSign, TestByteMem{base=tag1Reg, offset= ~1, bits=word8ToWord F_negative}] @
+                    forwardJumpLabel longLab @ skipLongCode @ shortTestAndJump @ jumpOnLongCode @ [makeTest tag1]
+                end
+            |   testTagsForComparison (operations, tag1 as LiteralSource _, tag2, opc, destLab) =
+                    (* First argument is the constant - reverse the arguments and the test. *)
+                    testTagsForComparison(operations, tag2, tag1, reverseTestOp opc, destLab)
+            |   testTagsForComparison (operations, tag1, tag2, _, _) =
+                    testTags false (operations, tag1, tag2)
 
             (* Because short integers are normalised we can skip the tag tests
                completely when comparing short constants for equality.  Otherwise we
                only need emulation if both arguments are long. *)
-            fun eqTestTags(operations, LiteralSource l1, _) =
+            fun eqTestTags(operations, LiteralSource l1, _, _, _) =
                     if isShort l1 then operations else operations @ [CallRTS memRegArbEmulation]
-            |   eqTestTags(operations, _, LiteralSource l2) =
+            |   eqTestTags(operations, _, LiteralSource l2, _, _) =
                     if isShort l2 then operations else operations @ [CallRTS memRegArbEmulation]
-            |   eqTestTags(operations, tag1, tag2) =
+            |   eqTestTags(operations, tag1, tag2, _, _) =
                 let
                     val (code1, lab1) = condBranch(JNE, PredictTaken)
                     and (code2, lab2) = condBranch(JNE, PredictTaken)
@@ -1564,24 +1614,22 @@ struct
         end
 
         local
-            fun reverseTestOp JE = JE
-            |   reverseTestOp JNE = JNE
-            |   reverseTestOp JA = JB
-            |   reverseTestOp JB = JA
-            |   reverseTestOp JNA = JNB
-            |   reverseTestOp JNB = JNA
-            |   reverseTestOp JL = JG
-            |   reverseTestOp JG = JL
-            |   reverseTestOp JLE = JGE
-            |   reverseTestOp JGE = JLE
-            |   reverseTestOp _ = raise InternalError "reverseTestOp: unknown branch"
-
             (* Pick an argument register from the general register set. *)
             fun chooseGenReg{readable, ...} = oneOf(regSetIntersect(readable, generalRegisters))
+
+            (* Test to see if this is testing arbitrary precision for ordering.  Because of
+               the way we deal with long-precision comparisons we can't use the memory-constant
+               form for arbitrary precision valuess. *)
+            fun isIntOrdering JG = true
+            |   isIntOrdering JGE = true
+            |   isIntOrdering JL = true
+            |   isIntOrdering JLE = true
+            |   isIntOrdering _ = false
 
             (* Word comparisons are used both for the word type itself but also for tests
                such as tag tests and pointer comparisons.  The x86 allows most combinations
                of registers, memory and constants. *)
+
             fun testActions (testType, destLabel, tagTest) ([ActBaseOffset _, ActBaseOffset _]) =
                     (* Both in memory: Load one. *)
                     ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
@@ -1601,7 +1649,7 @@ struct
                     ActionDone{ outReg=NONE,
                                 operation=ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral }::
                                            tagTest([ArithRR{opc=CMP, output=reg1, source=reg2}],
-                                                   InRegister reg1, InRegister reg2) }
+                                                   InRegister reg1, InRegister reg2, testType, destLabel) }
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActLiteralSource constnt]) =
@@ -1618,7 +1666,7 @@ struct
                                            then ArithRConst{opc=CMP, output=reg1,
                                                             source=tag(Word.toIntX(toShort constnt))}
                                            else ArithRLongConst{opc=CMP, output=reg1, source=constnt}],
-                                           InRegister reg1, LiteralSource constnt) }
+                                           InRegister reg1, LiteralSource constnt, testType, destLabel) }
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActInRegisterSet s2]) =
@@ -1626,17 +1674,18 @@ struct
                     val reg2 = chooseGenReg s2
                     val Labels{uses, ...} = destLabel
                     val () = uses := !uses+1
+                    val revTest = reverseTestOp testType
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
                                     tagTest(
                                            [ConditionalBranch
-                                                { test=reverseTestOp testType, label=destLabel, predict=PredictNeutral },
+                                                { test=revTest, label=destLabel, predict=PredictNeutral },
                                            if isShort constnt
                                            then ArithRConst{opc=CMP, output=reg2,
                                                             source=tag(Word.toIntX(toShort constnt))}
                                            else ArithRLongConst{opc=CMP, output=reg2, source=constnt}],
-                                           InRegister reg2, LiteralSource constnt) }
+                                           InRegister reg2, LiteralSource constnt, revTest, destLabel) }
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActInRegisterSet s1, ActBaseOffset(base, offset)]) =
@@ -1649,7 +1698,8 @@ struct
                                 operation=
                                     tagTest([ConditionalBranch { test=testType, label=destLabel, predict=PredictNeutral },
                                              ArithRMem{opc=CMP, output=reg1, base=base, offset=offset}],
-                                           InRegister reg1, BaseOffsetSource{base=base, offset=offset})}
+                                           InRegister reg1, BaseOffsetSource{base=base, offset=offset},
+                                           testType, destLabel)}
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActInRegisterSet s2]) =
@@ -1657,17 +1707,19 @@ struct
                     val reg2 = chooseGenReg s2
                     val Labels{uses, ...} = destLabel
                     val () = uses := !uses+1
+                    val revTest = reverseTestOp testType
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
                                     tagTest([ConditionalBranch
-                                                { test=reverseTestOp testType, label=destLabel, predict=PredictNeutral },
+                                                { test=revTest, label=destLabel, predict=PredictNeutral },
                                              ArithRMem{opc=CMP, output=reg2, base=base, offset=offset}],
-                                           InRegister reg2, BaseOffsetSource{base=base, offset=offset})}
+                                           InRegister reg2, BaseOffsetSource{base=base, offset=offset},
+                                           revTest, destLabel)}
                 end
 
             |   testActions (testType, destLabel, tagTest) ([ActBaseOffset(base, offset), ActLiteralSource constnt]) =
-                if not isX64 orelse is31bitSigned constnt
+                if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
                 then (* In 32-bit mode we can put all constants inline but in 64-bit mode anything
                         that won't fit in 32-bits as well as all addresses need to go in the
                         constant area.  That requires memory addressing and we don't have
@@ -1684,29 +1736,32 @@ struct
                                            then ArithMemConst{opc=CMP, base=base, offset=offset,
                                                               source=tag(Word.toIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
-                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt)}
+                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
+                                           testType, destLabel)}
                 end
                 else (* If it won't fit in 32-bits we have to load one of the args. *)
                     ActionLoadArg{argNo=0, regSet=generalRegisters, willOverwrite=false,
                                   next=testActions(testType, destLabel, tagTest)}
 
             |   testActions (testType, destLabel, tagTest) ([ActLiteralSource constnt, ActBaseOffset(base, offset)]) =
-                if not isX64 orelse is31bitSigned constnt
+                if not (isIntOrdering testType) andalso (not isX64 orelse is31bitSigned constnt)
                 then
                 let
                     val Labels{uses, ...} = destLabel
                     val () = uses := !uses+1
+                    val revTest = reverseTestOp testType
                 in
                     ActionDone{ outReg=NONE,
                                 operation=
                                       tagTest(
                                            [ConditionalBranch
-                                                { test=reverseTestOp testType, label=destLabel, predict=PredictNeutral },
+                                                { test=revTest, label=destLabel, predict=PredictNeutral },
                                            if isShort constnt
                                            then ArithMemConst{opc=CMP, base=base, offset=offset,
                                                               source=tag(Word.toIntX(toShort constnt))}
                                            else ArithMemLongConst{opc=CMP, base=base, offset=offset, source=constnt}],
-                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt) }
+                                           BaseOffsetSource{base=base, offset=offset}, LiteralSource constnt,
+                                           revTest, destLabel) }
                 end
                 else (* If it won't fit in 32-bits we have to load one of the args. *)
                     ActionLoadArg{argNo=1, regSet=generalRegisters, willOverwrite=false,
@@ -1754,6 +1809,7 @@ struct
                 if List.exists(fn a => case mapper a of SOME n => not(isShort n) | NONE => false) args
                 then NONE
                 else SOME(makeBranch(opc, test), args)
+            fun noTagTest (operations, _, _, _, _) = operations (* When we don't need a test. *)
          in
             fun testNeqW(args, _) = SOME(makeBranch(JNE, noTagTest), args)
             fun testEqW(args, _)  = SOME(makeBranch(JE, noTagTest), args)
