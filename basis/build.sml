@@ -94,6 +94,7 @@ Bootstrap.use "basis/Weak.sml";
 Bootstrap.use "basis/Signal.sml";
 Bootstrap.use "basis/SysWord.sml";
 Bootstrap.use "basis/BIT_FLAGS.sml";
+Bootstrap.use "basis/SingleAssignment.sml";
 
 (* Build Windows or Unix structure as appropriate. *)
 let
