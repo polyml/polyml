@@ -285,7 +285,7 @@ extern int assign_byte();
 extern int assign_word();
 extern int kill_selfa();
 extern int alloc_store();
-extern int alloc_uninit;
+extern int alloc_uninit();
 extern int get_length_a();
 extern int int_to_word();
 extern int move_bytes();
