@@ -150,7 +150,7 @@ static int unixConstVec[] =
 #endif
     EBUSY,
 #ifdef ECANCELED
-/* This is not defined in Linux.  Perhaps somone knows how to spell "cancelled". */
+/* This is not defined in Linux.  Perhaps someone knows how to spell "cancelled". */
     ECANCELED,
 #else
     0, /* Perhaps some other value. */
