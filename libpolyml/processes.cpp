@@ -994,8 +994,8 @@ void Processes::BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInt
 void Waiter::Wait(unsigned maxMillisecs)
 {
     // Since this is used only when we can't monitor the source directly
-    // we set this to 100ms so that we're not waiting too long.
-    if (maxMillisecs > 100) maxMillisecs = 100;
+    // we set this to 10ms so that we're not waiting too long.
+    if (maxMillisecs > 10) maxMillisecs = 10;
 #ifdef WINDOWS_PC
     /* We seem to need to reset the queue before calling
        MsgWaitForMultipleObjects otherwise it frequently returns
