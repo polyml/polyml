@@ -260,7 +260,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             int isDst = 0;
 #ifdef HAVE_LOCALTIME_R
             struct tm result;
-            struct tm *loctime = localtime(&theTime, &result);
+            struct tm *loctime = localtime_r(&theTime, &result);
             isDst = loctime->tm_isdst;
 #else
             {
@@ -270,7 +270,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 isDst = loctime->tm_isdst;
             }
 #endif
-			return Make_arbitrary_precision(taskData, isDst);
+            return Make_arbitrary_precision(taskData, isDst);
         }
 
     case 6: /* Call strftime.  It would be possible to do much of this in

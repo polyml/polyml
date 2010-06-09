@@ -1,9 +1,9 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_INIT([Poly/ML], [5.3], [polyml AT polyml DOT org], [polyml])
+AC_INIT([Poly/ML],[5.3],[polyml AT polyml DOT org],[polyml])
 AM_INIT_AUTOMAKE
-AC_PREREQ(2.59)
+AC_PREREQ(2.65)
 # libtoolize recommends this line.
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -64,9 +64,8 @@ case "${host_os}" in
         ;;
 esac
 
-AC_LIBTOOL_WIN32_DLL # libpolyml can be a DLL but libpolymain can't.
-AC_PROG_LIBTOOL
-AM_PROG_LIBTOOL
+ # libpolyml can be a DLL but libpolymain can't.
+LT_INIT([win32-dll])
 AM_MAINTAINER_MODE
 
 
@@ -290,7 +289,6 @@ AC_FUNC_LSTAT_FOLLOWS_SLASHED_SYMLINK
 AC_FUNC_REALLOC
 AC_FUNC_SELECT_ARGTYPES
 AC_FUNC_SETVBUF_REVERSED
-AC_TYPE_SIGNAL
 AC_FUNC_STAT
 AC_FUNC_STRFTIME
 AC_FUNC_STRTOD
@@ -299,6 +297,7 @@ AC_CHECK_FUNCS([bzero dup2 floor ftruncate getcwd gethostbyaddr gethostname gett
 AC_CHECK_FUNCS([memset mkdir mkfifo munmap pathconf pow realpath rmdir select setlocale socket sqrt strdup strerror])
 AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize sigaltstack mmap mprotect])
 AC_CHECK_FUNCS([getnetbyname getnetbyaddr sysctl])
+AC_CHECK_FUNCS([localtime_r gmtime_r])
 
 # Where are the registers?
 #Linux:
