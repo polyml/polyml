@@ -97,7 +97,7 @@
  ************************************************************************/
 
 #include "proper_io.h"
-
+#include "locking.h"
 #include "globals.h"
 #include "mpoly.h"
 #include "arb.h"
@@ -152,6 +152,11 @@ static void addTimes(struct timeval *result, struct timeval *x);
 static void subTimes(struct timeval *result, struct timeval *x);
 #endif
 
+#if(!(defined(HAVE_GMTIME_R) && defined(HAVE_LOCALTIME_R)))
+// gmtime and localtime are not re-entrant so if we don't have the
+// re-entrant versions we need to use a lock.
+static PLock timeLock;
+#endif
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -191,8 +196,12 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 4: /* Return the time offset which applied/will apply at the
                specified time (in seconds). */
         {
-            int localoff;
+            int localoff = 0;
             time_t theTime;
+            int day = 0;
+#if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
+            struct tm result;
+#endif
 #ifdef WINDOWS_PC
             /* Although the offset is in seconds it is since 1601. */
             LARGE_INTEGER   liTime;
@@ -201,13 +210,39 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #else
             theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
 #endif
-            struct tm *loctime = gmtime(&theTime);
-            if (loctime == NULL) raise_exception0(taskData, EXC_size);
-            localoff = (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
 
-            loctime = localtime(&theTime);
-            if (loctime == NULL) raise_exception0(taskData, EXC_size);
-            localoff -= (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
+            {
+#ifdef HAVE_GMTIME_R
+                struct tm *loctime = gmtime_r(&theTime, &result);
+#else
+                PLocker lock(&timeLock);
+                struct tm *loctime = gmtime(&theTime);
+#endif
+                if (loctime == NULL) raise_exception0(taskData, EXC_size);
+                localoff = (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
+                day = loctime->tm_yday;
+            }
+
+            {
+
+#ifdef HAVE_LOCALTIME_R
+                struct tm *loctime = localtime_r(&theTime, &result);
+#else
+                PLocker lock(&timeLock);
+                struct tm *loctime = localtime(&theTime);
+#endif
+                if (loctime == NULL) raise_exception0(taskData, EXC_size);
+                localoff -= (loctime->tm_hour*60 + loctime->tm_min)*60 + loctime->tm_sec;
+                if (loctime->tm_yday != day)
+                {
+                    // Different day - have to correct it.  We can assume that there
+                    // is at most one day to correct.
+                    if (day == loctime->tm_yday+1 || (day == 0 && loctime->tm_yday >= 364))
+                        localoff += 24*60*60;
+                    else localoff -= 24*60*60;
+                }
+            }
+
             return Make_arbitrary_precision(taskData, localoff);
         }
 
@@ -222,9 +257,20 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #else
             theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
 #endif
-			struct tm *loctime = localtime(&theTime);
-			if (loctime == NULL) raise_exception0(taskData, EXC_size);
-			return Make_arbitrary_precision(taskData, loctime->tm_isdst);
+            int isDst = 0;
+#ifdef HAVE_LOCALTIME_R
+            struct tm result;
+            struct tm *loctime = localtime(&theTime, &result);
+            isDst = loctime->tm_isdst;
+#else
+            {
+                PLocker lock(&timeLock);
+			    struct tm *loctime = localtime(&theTime);
+			    if (loctime == NULL) raise_exception0(taskData, EXC_size);
+                isDst = loctime->tm_isdst;
+            }
+#endif
+			return Make_arbitrary_precision(taskData, isDst);
         }
 
     case 6: /* Call strftime.  It would be possible to do much of this in
