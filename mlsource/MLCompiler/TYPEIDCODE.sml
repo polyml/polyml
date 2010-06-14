@@ -570,10 +570,11 @@ struct
 
                 |   LabelledType { recList, frozen, ...} =>
                     let
-                        (* See if this has fields numbered 1=, 2= etc. *)
+                        (* See if this has fields numbered 1=, 2= etc.   N.B.  If it has only one field
+                           we need to print 1= since we don't have singleton tuples. *)
                         fun isRec([], _) = true
                         |   isRec({name, ...} :: l, n) = name = Int.toString n andalso isRec(l, n+1)
-                        val isTuple = frozen andalso isRec(recList, 1)
+                        val isTuple = frozen andalso isRec(recList, 1) andalso List.length recList >= 2
                         val localLevel = level+1
                         val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
 
