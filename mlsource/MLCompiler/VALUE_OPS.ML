@@ -467,7 +467,9 @@ struct
         (* Constuct printer code applied to the argument and the depth.
            Code-generate and evaluate it. *)
         (* If this is polymorphic apply it to a dummy set of instance types.
-           This may happen if we have val it = NONE at the top level. *)
+           This may happen if we have val it = NONE at the top level.
+           The equality attributes of the type variables must match so that
+           this works correctly with justForEqualityTypes set. *)
         local
             val addrs = ref 1 (* Make local declarations for any type values. *)
             fun mkAddr n = !addrs before (addrs := !addrs + n)
@@ -475,7 +477,7 @@ struct
             val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, 0)
         end
         val dummyTypes =
-            List.map(fn _ => {value=TYPESTRUCT.unitType, equality=false, printity=false})
+            List.map(fn tv => {value=TYPESTRUCT.unitType, equality=tvEquality tv, printity=false})
                 (getPolyTypeVars(types, fn _ => NONE))
         val polyCode = applyToInstance(dummyTypes, 0, typeVarMap, fn _ => mkConst value)
         val printerCode =
@@ -863,7 +865,7 @@ struct
     fun applyToInstanceType(polyVars, ValBound, level, typeVarMap, code) =
             applyToInstance(polyVars, level, typeVarMap, code)
     |   applyToInstanceType(polyVars, Constructor _, level, typeVarMap, code) =
-            applyToInstance(polyVars, level, typeVarMap, code)
+            applyToInstance(if justForEqualityTypes then [] else polyVars, level, typeVarMap, code)
     |   applyToInstanceType(_, PattBound, level, _, code) = code level
     |   applyToInstanceType(_, Exception, level, _, code) = code level
 
@@ -1304,7 +1306,8 @@ struct
            function and use that. *)
         fun getConstr level =
             ValueConstructor.extractInjection(codeVal (value, level, typeVarMap, [], lex, lineno))
-        val polyConstr = applyToInstance(argVars, level, typeVarMap, getConstr)
+        val polyConstr =
+            applyToInstance(if justForEqualityTypes then [] else argVars, level, typeVarMap, getConstr)
     in
          (* Don't apply this "early".  It might be the ref constructor and that
            must not be applied until run-time.  The optimiser should take care
@@ -1452,7 +1455,9 @@ struct
         let
             fun tester level =
                 ValueConstructor.extractTest(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
-            val testCode = applyToInstance(List.map addStatus argVars, level, typeVarMap, tester)
+            val testCode =
+                applyToInstance(if justForEqualityTypes then [] else List.map addStatus argVars,
+                                level, typeVarMap, tester)
         in
             mkEval(testCode, [testing], true)
         end
@@ -1473,7 +1478,9 @@ struct
         let
             fun getInverse level =
                 ValueConstructor.extractProjection(codeVal (value, level, typeVarMap, [], nullLex, location nullLex))
-            val loadCode = applyToInstance(List.map addStatus argVars, level, typeVarMap, getInverse)
+            val loadCode =
+                applyToInstance(if justForEqualityTypes then [] else List.map addStatus argVars,
+                                level, typeVarMap, getInverse)
         in
             mkEval(loadCode, [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
         end
