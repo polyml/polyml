@@ -5333,7 +5333,7 @@ struct
                         fun getConstr level =
                             ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
                     in
-                        applyToInstance(polyVars, level, typeVarMap, getConstr)
+                        applyToInstance(if justForEqualityTypes then [] else polyVars, level, typeVarMap, getConstr)
                     end
 
                 |   _ => codeVal (v, level, typeVarMap, polyVars, lex, location)
