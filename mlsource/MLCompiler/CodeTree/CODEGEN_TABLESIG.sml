@@ -136,7 +136,7 @@ sig
 
     val getModifedRegSet: ttab -> regSet
 
-    datatype argdest = ArgToRegister of reg | ArgToStack of int
+    datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
     val getLoopDestinations: stackIndex list * ttab -> argdest list
 
     val callCode: stackIndex * bool * ttab -> operation list

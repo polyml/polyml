@@ -616,7 +616,11 @@ struct
                   | _ => ()
             in
                 localDeclaration (decl, addr, references, NONE);
-                decl
+                (* Normally "references" will be non-zero but it does seem that we
+                   can get loop variables that are never used.  This may happen as a
+                   result of multiple levels of inline function expansion.  If it's zero
+                   we won't have a location for the loop argument. *)
+                if references = 0 then noIndex else decl
             end
             |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
             val argIndexList = map genLoopArg args;
@@ -693,6 +697,7 @@ struct
                       case dest of
                             ArgToRegister reg => UseReg (singleton reg)
                         |   ArgToStack _ => NoHint
+                        |   ArgDiscard => NoHint
                     val res = gencde (arg, true, whereto, NotEnd, matchFailFn, NONE)
                 in
                     case res of
@@ -723,6 +728,10 @@ struct
                         codeGenerate(code, cvec);
                         argEntry :: moveArgs(args, dests)
                     end
+                |   moveArgs(arg :: args, ArgDiscard :: dests) =
+                        (* If we're just discarding it return the location so we will
+                           remove it from the stack. *)
+                        arg :: moveArgs(args, dests)
                 |   moveArgs _ =
                         raise InternalError "moveArgs: Mismatched arguments"
 

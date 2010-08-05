@@ -3005,7 +3005,7 @@ struct
         code
     end;
 
-    datatype argdest = ArgToRegister of reg | ArgToStack of int
+    datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
 
     (* Get the destination for the argument of a loop instruction.  This
        finds out where the argument was loaded at the start of the loop
@@ -3013,7 +3013,9 @@ struct
     fun getLoopDestinations(indices, transtable) =
         let
             fun getLoopDest entry =
-                case pstackRealEntry(transtable, entry) of
+                if entry = noIndex
+                then ArgDiscard
+                else case pstackRealEntry(transtable, entry) of
                     {ent = StackW index, ...} => ArgToStack index
                 |   {ent = Register(reg, _), ...} => ArgToRegister reg
                 |   _ => raise InternalError "getLoopDest: wrong entry type"
