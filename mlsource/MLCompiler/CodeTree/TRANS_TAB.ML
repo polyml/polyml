@@ -301,7 +301,7 @@ sig
 
   val getModifedRegSet: ttab -> reg list
 
-  datatype argdest = ArgToRegister of reg | ArgToStack of int
+  datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
   val getLoopDestinations: stackIndex list * ttab -> argdest list
 
   val callCode: stackIndex * bool * ttab * code -> unit
@@ -3823,7 +3823,7 @@ in (* local definitions *)
 val allRegisters = allRegisters
 
 
-datatype argdest = ArgToRegister of reg | ArgToStack of int
+datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
 
 (* Get the destination for the argument of a loop instruction.  This
    finds out where the argument was loaded at the start of the loop
@@ -3831,7 +3831,9 @@ datatype argdest = ArgToRegister of reg | ArgToStack of int
 fun getLoopDestinations(indices, transtable) =
     let
         fun getLoopDest entry =
-            case pstackEntry transtable entry of
+            if entry indexEq noIndex
+            then ArgDiscard
+            else case pstackEntry transtable entry of
                 NoStackEntry => raise InternalError "getLoopDest: no entry"
             |   StackEntry{ent = Stack index, ...} => ArgToStack index
             |   StackEntry{ent = Register reg, ...} => ArgToRegister reg

@@ -281,7 +281,7 @@ sig
 
   val getModifedRegSet: ttab -> reg list
 
-  datatype argdest = ArgToRegister of reg | ArgToStack of int
+  datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
   val getLoopDestinations: stackIndex list * ttab -> argdest list
 
   val callCode: stackIndex * bool * ttab * code -> unit
@@ -919,7 +919,7 @@ struct
                 makeEntry (transtable, cvec, decl, addr, 
                     if references = 0 then 0 else 1, (* DCJM 29/11/99. *)
                     false);
-                decl
+                if references = 0 then noIndex else decl
             end
             |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
             val argIndexList = map genLoopArg args;
@@ -955,6 +955,7 @@ struct
                       case dest of
                             ArgToRegister reg => ToReg reg
                         |   ArgToStack _ => ToPstack
+                        |   ArgDiscard => ToPstack
                     val res = gencde (arg, true, whereto, NotEnd, matchFailFn, NONE)
                 in
                     case res of
@@ -982,6 +983,10 @@ struct
                         storeInStack (cvec, transtable, arg, offset);
                         moveArgs(args, dests) (* storeInStack removes its table entry *)
                     )
+                |   moveArgs(arg :: args, ArgDiscard :: dests) =
+                        (* If we're just discarding it return the location so we will
+                           remove it from the stack. *)
+                        arg :: moveArgs(args, dests)
                 |   moveArgs _ =
                         raise InternalError "moveArgs: Mismatched arguments"
 
