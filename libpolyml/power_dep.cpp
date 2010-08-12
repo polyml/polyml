@@ -1461,7 +1461,7 @@ void PowerPCDependent::CallCodeTupled(TaskData *taskData)
             taskData->stack->PS_R6 = argv->Get(3);
         // Remaining args go on the stack.
         for (POLYUNSIGNED i = 4; i < argCount; i++)
-            *(--taskData->stack->p_sp) = argv->Get(i+2);
+            *(--taskData->stack->p_sp) = argv->Get(i);
     }
     // The closure goes into the closure reg.
     taskData->stack->PS_R24 = DEREFWORD(closure);
