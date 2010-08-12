@@ -700,7 +700,7 @@ void SparcDependent::CallCodeTupled(TaskData *taskData)
             taskData->stack->p_reg[OFFSET_ARGREG3] = argv->Get(3);
         // Remaining args go on the stack.
         for (POLYUNSIGNED i = 4; i < argCount; i++)
-            *(--taskData->stack->p_sp) = argv->Get(i+2);
+            *(--taskData->stack->p_sp) = argv->Get(i);
     }
     // The closure goes into the closure reg.
     taskData->stack->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(closure);
@@ -810,7 +810,7 @@ static void catchILL(SIG_HANDLER_ARGS(s, context))
             assert(sigprocmask(SIG_UNBLOCK,&mask,NULL) == 0);
         }
         
-        if (gc_phase != 0)
+        if (mainThreadPhase != MTP_USER_CODE)
             printf("\nStack overflow in the garbage collector.\n");
         else
             printf("\nStack overflow in the runtime system.\n");

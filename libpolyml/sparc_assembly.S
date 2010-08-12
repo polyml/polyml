@@ -817,8 +817,8 @@ mul_really_long:
     CALL_IO(rem_long, POLY_SYS_amod)
     RegMask(amod,Mask_all)
 
-    CALL_IO(remquot_long, POLY_SYS_quotrem)
-    RegMask(aremquot,Mask_all)
+    CALL_IO(quotrem_long, POLY_SYS_quotrem)
+    RegMask(quotrem,Mask_all)
 
 ! INLINE_ROUTINE(name) not optimised due to possible trap. SPF 17/7/96
 #define ARBTEST(name, br_cond) \
@@ -1345,7 +1345,7 @@ globldec(registerMaskVector)
     .long   Mask_all                /* 101 is unused */
     .long   Mask_all                /* 102 is unused */
     .long   Mask_all                 /* 103 - now unused */
-    .long   Mask_aremquot            /* 104 */
+    .long   Mask_quotrem             /* 104 */
     .long   Mask_is_short            /* 105 */
     .long   Mask_aplus               /* 106 */
     .long   Mask_aminus              /* 107 */
