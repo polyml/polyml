@@ -1104,12 +1104,12 @@ CALLMACRO   INLINE_ROUTINE  raisex
     jne     rsx2          ;# New format
 IFDEF WINDOWS
     test    byte ptr [Rebx-1],B_mutable
-	jne     rsx1
+    jne     rsx1
 rsx2:
     jmp     dword ptr [Recx]
 ELSE
-    TESTB   CONST B_mutable,[Rebx-1]
-	jne     rsx1
+    testb   CONST B_mutable,(-1)[Rebx]
+    jne     rsx1
 rsx2:
     jmp     *[Recx]
 ENDIF
