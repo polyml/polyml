@@ -522,11 +522,11 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
 {
     PolyX86Stack * newStack = (PolyX86Stack*)DEREFWORDHANDLE(stackh);
     POLYUNSIGNED stack_size     = newStack->Length();
-    POLYUNSIGNED topStack = stack_size-5;
+    POLYUNSIGNED topStack = stack_size-2;
     newStack->p_space = OVERFLOW_STACK_SIZE;
     newStack->p_pc    = PC_RETRY_SPECIAL;
     newStack->p_sp    = newStack->Offset(topStack); 
-    newStack->p_hr    = newStack->Offset(topStack)+1;
+    newStack->p_hr    = newStack->Offset(topStack);
     newStack->p_nreg  = CHECKED_REGS;
 
     /* If this function takes an argument store it in the argument register. */
@@ -563,22 +563,13 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
        which loads the value at *p_sp into p_pc assuming this is a return address.
        We need to make sure that this value is acceptable since this stack may be
        scanned by a subsequent minor GC if it's already been copied by a minor GC. */
-    newStack->Set(topStack+4, TAGGED(0)); // Acceptable value if we've exited by exception.
-    /* No previous handler so point it at itself. */
-    newStack->Set(topStack+3, PolyWord::FromStackAddr(newStack->Offset(topStack)+3));
+    newStack->Set(topStack+1, TAGGED(0)); // Acceptable value if we've exited by exception.
     // Set the default handler and return address to point to this code.
-    // It's not necessary, on this architecture at least, to make these off-word
-    // aligned since we're pointing at the start of some code.  That may be
-    // necessary on e.g. the Sparc(?), which always subtracts two from a return
-    // address before jumping to it.
+
     Handle killCode = BuildKillSelf(parentTaskData);
     PolyWord killJump = killCode->Word();
     newStack = (PolyX86Stack *)DEREFWORDHANDLE(stackh); // In case it's moved
-    newStack->Set(topStack+2, killJump); // Default handler.
-    /* Set up exception handler.  This also, conveniently, ends up in p_pc
-       if we return normally.  */
-    newStack->Set(topStack+1, TAGGED(0)); /* Default handler. */
-    // Normal Return address.
+    // Normal return address and exception handler.
     newStack->Set(topStack, killJump);
 }
 

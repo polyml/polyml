@@ -1094,18 +1094,23 @@ CALLMACRO   INLINE_ROUTINE  raisex
  ;# Is this an old-format handler?  The first word will be either a tagged value
  ;# or the address of a handler as a word-aligned value.  New format handlers
  ;# have a code-address here which will be word + 2 byte aligned.
+ ;# The default handler put on by InitStackFrame is word-aligned so we
+ ;# also have to check that we really have an exception handler.
 
-IFDEF WINDOWS
-    test    dword ptr [Recx],1
+	MOVL    [Recx],Rebx
+	TESTL   CONST 1,Rebx
     jne     rsx1          ;# Old format
-	test    dword ptr [Recx],3
-	je      rsx1          ;# Old format
+    TESTL   CONST 3,Rebx
+    jne     rsx2          ;# New format
+IFDEF WINDOWS
+    test    byte ptr [Rebx-1],B_mutable
+	jne     rsx1
+rsx2:
     jmp     dword ptr [Recx]
 ELSE
-    TESTL   CONST 1,[Recx]
-    jne     rsx1          ;# Old format
-    TESTL   CONST 3,[Recx]
-    je      rsx1          ;# Old format
+    TESTB   CONST B_mutable,[Rebx-1]
+	jne     rsx1
+rsx2:
     jmp     *[Recx]
 ENDIF
 
