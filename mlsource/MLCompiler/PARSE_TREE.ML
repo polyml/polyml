@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9 David C.J. Matthews
+    Copyright (c) 2000-10 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -3728,11 +3728,20 @@ struct
                     fun getPolyVars typ =
                     let
                         val (copied, tyVars) = generalise typeOf
+                        (* Unify the types.  If there's an error we return a fresh set of the type
+                           variables which gives the most general type.
+                           There shouldn't be an error but there is one
+                           circumstance at least where we can get an error here.  If we have a functor
+                           declaration followed by an application of the functor in the same "program"
+                           we can set an entry in instanceTypes of a Value used in the functor declaration
+                           to an instance in the functor application because the instanceTypes value is
+                           inherited into the functor signature if there's no explicit signature.
+                           We really need to handle this properly and not inherit the instanceTypes
+                           value in that case.  Test116 shows this. *)
                     in
                         if isSome(unifyTypes(copied, typ))
-                        then raise InternalError "getPolyVars: Unable to get type vars"
-                        else ();
-                        tyVars (* Return the type vars instantiated to the instance types. *)
+                        then #2 (generalise typeOf)
+                        else tyVars (* Return the type vars instantiated to the instance types. *)
                     end
                     (* This returns a list, one entry for each instance, of a list of the
                        type variables for that instance. *)
