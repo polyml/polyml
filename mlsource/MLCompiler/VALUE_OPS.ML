@@ -1101,7 +1101,7 @@ struct
                                     val args =
                                         if arity = 1
                                         then [extractPrinter(mkLoad(~1, 1))]
-                                        else List.tabulate(arity, fn n => extractPrinter(mkInd(n, mkLoad(~1, 1))))
+                                        else [mkTuple(List.tabulate(arity, fn n => extractPrinter(mkLoad(n-arity, 1))))]
                                 in
                                     mkProc(
                                         mkProc(
@@ -1112,8 +1112,8 @@ struct
                                                         [mkInd(1, arg1)] (* The depth *), false),
                                                     args, (* Base fns. *) false),
                                                 [mkInd(0, arg1)] (* Value to print *), false),
-                                            arity, "addPP-2"),
-                                        1, "addPP-1")
+                                            1, "addPP-2"),
+                                        arity, "addPP-1")
                                 end
                     in
                         (* Generate a function that will set the "print" ref for the type to
