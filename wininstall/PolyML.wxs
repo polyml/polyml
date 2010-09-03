@@ -1,13 +1,26 @@
 <?xml version='1.0' encoding='windows-1252'?>
   <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'> 
-    <Product Name='PolyML 5.3' Id='67E9D6E7-B357-4E0B-B8D4-7BC3D919E617'
+    <Product Name='PolyML 5.4' Id='*'
 	  	UpgradeCode='D7A17500-0FF5-4FC3-BC36-DD799D57071A'
-		Language='2057' Codepage='1252' Version='5.3.0' Manufacturer='Poly/ML'> 
-      <Package Id='*' Keywords='Installer' Description="Poly/ML 5.3.0 Installer"
+		Language='2057' Codepage='1252' Version='5.4.0' Manufacturer='Poly/ML'> 
+
+      <Package Id='*' Keywords='Installer' Description="Poly/ML 5.4.0 Installer"
 			  InstallerVersion='100' Languages='2057' Compressed='yes' SummaryCodepage='1252' />
       <WixVariable Id="WixUILicenseRtf" Value="Licence.rtf" />
       <Media Id='1' Cabinet='Sample.cab' EmbedCab='yes' DiskPrompt="CD-ROM #1" />
-      <Property Id='DiskPrompt' Value="Poly/ML 5.3.0 Installation [1]" />
+
+      <Upgrade Id="D7A17500-0FF5-4FC3-BC36-DD799D57071A">  
+		   <UpgradeVersion
+			  Minimum="0.0.0.0" Maximum="5.4.0"
+			  Property="PREVIOUSVERSIONSINSTALLED"
+			  IncludeMinimum="yes" IncludeMaximum="no" />
+      </Upgrade> 
+
+	  <InstallExecuteSequence>
+          <RemoveExistingProducts After="InstallFinalize"></RemoveExistingProducts>
+	  </InstallExecuteSequence>
+
+      <Property Id='DiskPrompt' Value="Poly/ML 5.4.0 Installation [1]" />
 
       <Directory Id='TARGETDIR' Name='SourceDir'> 
         <Directory Id='ProgramFilesFolder' Name='PFiles'> 
@@ -15,10 +28,10 @@
 
 
 			<!-- Poly/ML -->
-            <Component Id='PolyLib.dll' Guid='7A568B43-7E9B-4569-B61C-33CE9BB63651'> 
+            <Component Id='PolyLib.dll' Guid='165913D6-076E-43F1-8348-49626CDCA452'> 
               <File Id='PolyLibDLL' Name='PolyLib.dll' DiskId='1' Source='..\Release\PolyLib.dll' />
             </Component>
-            <Component Id='PolyML.exe' Guid='B85CF180-EF3A-4A20-9479-654DD7E48856'> 
+            <Component Id='PolyML.exe' Guid='E341AC0B-5739-4510-AC68-7F0B269B06C6'> 
               <File Id='PolyML.exe' Name='PolyML.exe' DiskId='1' Source='..\Release\PolyML.exe' KeyPath="yes"> 
                 <Shortcut Id="startmenuPolyML" Directory="ProgramMenuDir" Name="PolyML" 
 								Advertise="yes"
@@ -40,7 +53,7 @@
 
         <Directory Id="ProgramMenuFolder" Name="Programs"> 
           <Directory Id="ProgramMenuDir" Name='Poly ML' > 
-            <Component Id='IDProgramGroup' Guid='A12E9CB4-EFE7-4bc3-A24C-E06205CFEF9F'> 
+            <Component Id='IDProgramGroup' Guid='1642CC1A-4BF7-4FF1-AF53-91913EC3D4B1'> 
               <RemoveFolder Id='IDProgramGroup' On='uninstall'/>
               <RegistryValue Root='HKCU' Key='SOFTWARE\PolyML\PolyML'  Type='string' Value='Poly ML'  KeyPath='yes' />
             </Component>
