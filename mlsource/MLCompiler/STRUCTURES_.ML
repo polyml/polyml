@@ -1174,14 +1174,21 @@ struct
                 val structureMatches = univFold(sigTab target, matchStructures, [])
             end
 
-            fun displayValue value =
+            fun displayValue(value as Value {name, locations, typeOf, ...}) =
             let
+                val decLocation =
+                    case List.find (fn DeclaredAt _ => true | _ => false) locations of
+                        SOME(DeclaredAt loc) => [ContextLocation loc]
+                    |   _ => []
+                val valName = PrettyBlock(0, false, decLocation, [PrettyString name])
                 fun dispVal(kind, typeof) =
                     PrettyBlock(0, false, [],
                         [
                             PrettyString kind,
                             PrettyBreak(1, 3),
-                            PrettyString(valName value ^ ":"),
+                            valName,
+                            PrettyBreak(0, 0),
+                            PrettyString(":"),
                             PrettyBreak(1, 0),
                             display (typeof, errorDepth lex, typeEnv)
                         ])
@@ -1190,21 +1197,21 @@ struct
                     Value{class=Constructor _, ...} =>
                         (* When displaying the constructor show the function type.  We may have rebound
                            the constructor in the candidate structure so that it creates a different datatype. *)
-                        dispVal("constructor", valTypeOf value)
+                        dispVal("constructor", typeOf)
                 |   Value{class=Exception, ...} =>
                         PrettyBlock(0, false, [],
                                 PrettyString "exception" ::
                                 PrettyBreak(1, 3) ::
-                                PrettyString(valName value) ::
+                                valName ::
                             (
-                                case getFnArgType (valTypeOf value) of
+                                case getFnArgType typeOf of
                                    NONE => []
                                 |  SOME excType =>
                                     [
                                         PrettyBreak (1, 1), PrettyString "of",
                                         PrettyBreak (1, 3), display (excType, errorDepth lex, typeEnv) ]
                             ))
-                |   _ => dispVal("val", valTypeOf value)    
+                |   _ => dispVal("val", typeOf)    
             end
 
             local

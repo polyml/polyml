@@ -73,7 +73,6 @@ end;
 structure DEBUG :
 sig
     val parsetreeTag   : bool Universal.tag
-    val codetreeTag    : bool Universal.tag
     val timingTag      : bool Universal.tag
     val profilingTag   : int Universal.tag
     val traceCompilerTag : bool Universal.tag
@@ -218,7 +217,6 @@ struct
     val compilerOutput = getCompilerOutput debugSwitches
     
     val timing         = DEBUG.getParameter DEBUG.timingTag debugSwitches
-    and printCodetree  = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
     and printParsetree = DEBUG.getParameter DEBUG.parsetreeTag debugSwitches
     and profiling      = DEBUG.getParameter DEBUG.profilingTag debugSwitches
 
@@ -308,12 +306,7 @@ struct
                 if errorOccurred lex
                 then (* Errors can be produced during the code-generation phase. *)
                    (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
-                else let (* let5 *)
-                       val () =
-                         if printCodetree
-                         then compilerOutput(CODETREE.pretty optimisedCode)
-                         else ();
-                      
+                else let (* let5 *)                      
                       val resultCode : unit -> CODETREE.codetree =
                          CODETREE.genCode(optimisedCode, debugSwitches);
                       val codeTime = cpuTime startTime;
