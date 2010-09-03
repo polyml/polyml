@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2009
+    Modified D.C.J. Matthews 2001-2010
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
