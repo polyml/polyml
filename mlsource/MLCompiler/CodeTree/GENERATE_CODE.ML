@@ -64,9 +64,6 @@ struct
     (* gets a value from the run-time system; 
        usually this is a closure, but sometimes it's an int.  *)
     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-
-    (* minor HACKS *)
-    fun forLoop f i n = if i > n then () else (f i; forLoop f (i + 1) n);
    
     val word0 = toMachineWord 0;
     val word1 = toMachineWord 1;
@@ -1359,13 +1356,8 @@ struct
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
                  mutualRecursive: stackIndex * (unit->operation list) option -> unit, _, whereto, matchFailFn) =
     let
-        fun allConstnt [] = true
-        |   allConstnt (Constnt _ :: t) = allConstnt t
-        |   allConstnt _ = false;
-
         (* Finds the nth. item in the closure and returns the entry *)
         fun findClosure l n = List.nth(l, n-1)
-        
     in
         if not makeClosure
         then
