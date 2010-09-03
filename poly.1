@@ -1,4 +1,4 @@
-.TH POLY 1 "Poly/ML Version 5.3 2009"
+.TH POLY 1 "Poly/ML Version 5.4 2010"
 .SH NAME
 poly \- the Poly/ML Standard ML implementation
 .SH SYNOPSIS
@@ -6,7 +6,8 @@ poly \- the Poly/ML Standard ML implementation
 .SH DESCRIPTION
 .I poly
 starts the Poly/ML shell. Poly/ML is an implementation of Standard ML developed by David Matthews at
-Cambridge and at the Laboratory for Foundations of Computer Science (LFCS) at Edinburgh. 
+the University of Cambridge, at the Laboratory for Foundations of Computer Science (LFCS) at
+the University of Edinburgh and maintained as a project supported by contributors. 
 .SH OPTIONS
 .TP
 .B \-v
@@ -18,23 +19,27 @@ Print a list of the arguments and exit.
 .B \-q
 Suppress the start-up message.
 .TP
-.BI \-H " size"
-Set the initial heap size, in MB.
+.B \--with-markup
+Include extra mark-up information when printing.  This is only suitable when Poly/ML is run under
+an environment that is able to decode the additional information.
 .TP
-.BI \--heap " size"
-Set the initial heap size, in MB.
+.B \--ideprotocol
+Run the IDE communications protocol rather than the normal read-eval-print loop.  Only suitable
+for running within a development environment.
+.TP
+.BI \-H " size, " \--heap " size"
+Set the initial heap size, in MB.  This is used to set the size of the immutables and
+mutables segments if one or other is not explicitly specified.  The heap may grow larger
+than this if required.
 .TP
 .BI \--immutable " size"
-Set the size of the immutables buffer, in MB.
+Set the size of the immutables segment, in MB.  This controls the frequency of major garbage collections.
 .TP
 .BI \--mutable " size"
-Set the size of the mutables buffer, in MB.
+Set the size of the mutables segment, in MB.  This controls the frequency of minor garbage collections.
 .TP
-.BI \--timeslice " timeslice
-Set the timeslice.
-.TP
-.BI \--debug " level"
-Set the debugging level.
+.BI \--debug " options"
+Set various debugging options for the run-time system.
 .fi
 .SH SEE ALSO
 .PP
