@@ -313,7 +313,7 @@ static Handle FINISHED(TaskData *taskData, Handle P)
 
 static void RaiseXWindows(TaskData *taskData, const char *s)
 {
-  if (gc_phase == 0)
+  if (mainThreadPhase == MTP_USER_CODE)
     {
       raise_exception_string(taskData, EXC_XWindows,s);
     }
