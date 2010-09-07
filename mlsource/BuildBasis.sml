@@ -20,12 +20,12 @@
 *)
 
 (* Install initial conversion functions. These can be replaced later on. *)
-RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
-RunCall.addOverload Bootstrap.convInt "convInt";
-RunCall.addOverload Bootstrap.convWord "convWord";
+val () = RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
+val () = RunCall.addOverload Bootstrap.convInt "convInt";
+val () = RunCall.addOverload Bootstrap.convWord "convWord";
 
 (* Build the main basis library. *)
-Bootstrap.use "basis/build.sml";
+val () = Bootstrap.use "basis/build.sml";
 
 (* We've now set up the new name space so everything has to be
    compiled into that rather than the old space. *)

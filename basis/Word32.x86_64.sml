@@ -132,13 +132,13 @@ end;
 
 
 (* Add the overloaded operators. *)
-RunCall.addOverload Word32.~ "~";
-RunCall.addOverload Word32.+ "+";
-RunCall.addOverload Word32.- "-";
-RunCall.addOverload Word32.* "*";
-RunCall.addOverload Word32.div "div";
-RunCall.addOverload Word32.mod "mod";
-RunCall.addOverload Word32.< "<";
-RunCall.addOverload Word32.> ">";
-RunCall.addOverload Word32.<= "<=";
-RunCall.addOverload Word32.>= ">=";
+val () = RunCall.addOverload Word32.~ "~";
+val () = RunCall.addOverload Word32.+ "+";
+val () = RunCall.addOverload Word32.- "-";
+val () = RunCall.addOverload Word32.* "*";
+val () = RunCall.addOverload Word32.div "div";
+val () = RunCall.addOverload Word32.mod "mod";
+val () = RunCall.addOverload Word32.< "<";
+val () = RunCall.addOverload Word32.> ">";
+val () = RunCall.addOverload Word32.<= "<=";
+val () = RunCall.addOverload Word32.>= ">=";

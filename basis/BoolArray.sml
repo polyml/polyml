@@ -530,16 +530,3 @@ in
         end
     end
 end;
-
-(* Equality for both BoolVector.vector and BoolArray.array will be
-   inherited from word.  This will give pointer equality for them
-   which is correct for array but not for vector.  We need to
-   install a special equality function for BoolVector. *)
-local
-open BoolVector
-in
-fun it (a: vector, b: vector): bool =
-    length a = length b andalso
-    foldli (fn (i, v, res) => res andalso sub(b, i) = v) true a
-end;
-RunCall.addOverload it "=";

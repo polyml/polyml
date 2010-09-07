@@ -631,7 +631,7 @@ struct
               | SOME res => res
     in
         (* Install this as a conversion function for real literals. *)
-        val unused: unit = RunCall.addOverload convReal "convReal"
+        val (): unit = RunCall.addOverload convReal "convReal"
     end
     *)
 

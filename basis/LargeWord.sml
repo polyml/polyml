@@ -524,16 +524,16 @@ end;
    that we can capture the inline code.  We've already done this for
    word (=Word.word) in the prelude. *)
 
-RunCall.addOverload LargeWord.~ "~";
-RunCall.addOverload LargeWord.+ "+";
-RunCall.addOverload LargeWord.- "-";
-RunCall.addOverload LargeWord.* "*";
-RunCall.addOverload LargeWord.div "div";
-RunCall.addOverload LargeWord.mod "mod";
-RunCall.addOverload LargeWord.< "<";
-RunCall.addOverload LargeWord.> ">";
-RunCall.addOverload LargeWord.<= "<=";
-RunCall.addOverload LargeWord.>= ">=";
+val () = RunCall.addOverload LargeWord.~ "~";
+val () = RunCall.addOverload LargeWord.+ "+";
+val () = RunCall.addOverload LargeWord.- "-";
+val () = RunCall.addOverload LargeWord.* "*";
+val () = RunCall.addOverload LargeWord.div "div";
+val () = RunCall.addOverload LargeWord.mod "mod";
+val () = RunCall.addOverload LargeWord.< "<";
+val () = RunCall.addOverload LargeWord.> ">";
+val () = RunCall.addOverload LargeWord.<= "<=";
+val () = RunCall.addOverload LargeWord.>= ">=";
 
 
 (* This signature is defined in terms of Word and LargeWord so 

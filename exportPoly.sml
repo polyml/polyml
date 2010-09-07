@@ -17,17 +17,17 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
-RunCall.addOverload Bootstrap.convInt "convInt";
-RunCall.addOverload Bootstrap.convWord "convWord";
+val () = RunCall.addOverload Bootstrap.convString Bootstrap.convStringName;
+val () = RunCall.addOverload Bootstrap.convInt "convInt";
+val () = RunCall.addOverload Bootstrap.convWord "convWord";
 
 (* Build the main basis library. *)
-Bootstrap.use "basis/build.sml";
+val () = Bootstrap.use "basis/build.sml";
 
 (* We've now set up the new name space so everything has to be
    compiled into that rather than the old space. *)
 
-let
+local
     (* Bootstrap.use adds the path given as -I path but PolyML.make and PolyML.use
        don't.  Add the path explicitly. *)
     val args = CommandLine.arguments();
@@ -37,10 +37,11 @@ let
     val path = getPath args
 in
     (* FFI. *)
-    PolyML.make (OS.Path.concat(path, "mlsource/extra/CInterface"));
-    PolyML.use (OS.Path.concat(path, "mlsource/extra/CInterface/clean"));
+    val () = PolyML.make (OS.Path.concat(path, "mlsource/extra/CInterface"));
+    val () = PolyML.use (OS.Path.concat(path, "mlsource/extra/CInterface/clean"));
 
     (* XWindows/Motif *)
+    val () =
     let
        val xcall: int*int->int*int =
         RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows;
@@ -57,10 +58,10 @@ in
     end
 end;
 
-PolyML.print_depth 10;
+val () = PolyML.print_depth 10;
 
 (* Write out the result as an export file. *)
-let
+local
     val args = CommandLine.arguments();
     (* If we have -o filename use that as the output name.
        N.B.  polyImport takes the first argument that is not recognised as
@@ -71,7 +72,7 @@ let
       | getFile (_::tl) = getFile tl
     val fileName = getFile args
 in
-    PolyML.shareCommonData PolyML.rootFunction;
-    PolyML.export(fileName, PolyML.rootFunction)
+    val () = PolyML.shareCommonData PolyML.rootFunction;
+    val () = PolyML.export(fileName, PolyML.rootFunction)
 end;
 

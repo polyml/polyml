@@ -485,7 +485,7 @@ local
            )
         end
 in
-    val unused = PolyML.addPrettyPrinter pretty
+    val () = PolyML.addPrettyPrinter pretty
 end
 ;
 

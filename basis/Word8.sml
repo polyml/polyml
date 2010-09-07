@@ -162,13 +162,13 @@ in
 end;
 
 (* Add the overloaded operators. *)
-RunCall.addOverload Word8.~ "~";
-RunCall.addOverload Word8.+ "+";
-RunCall.addOverload Word8.- "-";
-RunCall.addOverload Word8.* "*";
-RunCall.addOverload Word8.div "div";
-RunCall.addOverload Word8.mod "mod";
-RunCall.addOverload Word8.< "<";
-RunCall.addOverload Word8.> ">";
-RunCall.addOverload Word8.<= "<=";
-RunCall.addOverload Word8.>= ">=";
+val () = RunCall.addOverload Word8.~ "~";
+val () = RunCall.addOverload Word8.+ "+";
+val () = RunCall.addOverload Word8.- "-";
+val () = RunCall.addOverload Word8.* "*";
+val () = RunCall.addOverload Word8.div "div";
+val () = RunCall.addOverload Word8.mod "mod";
+val () = RunCall.addOverload Word8.< "<";
+val () = RunCall.addOverload Word8.> ">";
+val () = RunCall.addOverload Word8.<= "<=";
+val () = RunCall.addOverload Word8.>= ">=";

@@ -78,14 +78,14 @@ in
    val () = PolyML.addPrettyPrinter pretty
 end;
 
-RunCall.addOverload Int32.~ "~";
-RunCall.addOverload Int32.+ "+";
-RunCall.addOverload Int32.- "-";
-RunCall.addOverload Int32.* "*";
-RunCall.addOverload Int32.div "div";
-RunCall.addOverload Int32.mod "mod";
-RunCall.addOverload Int32.< "<";
-RunCall.addOverload Int32.> ">";
-RunCall.addOverload Int32.<= "<=";
-RunCall.addOverload Int32.>= ">=";
-RunCall.addOverload Int32.abs "abs";
+val () = RunCall.addOverload Int32.~ "~";
+val () = RunCall.addOverload Int32.+ "+";
+val () = RunCall.addOverload Int32.- "-";
+val () = RunCall.addOverload Int32.* "*";
+val () = RunCall.addOverload Int32.div "div";
+val () = RunCall.addOverload Int32.mod "mod";
+val () = RunCall.addOverload Int32.< "<";
+val () = RunCall.addOverload Int32.> ">";
+val () = RunCall.addOverload Int32.<= "<=";
+val () = RunCall.addOverload Int32.>= ">=";
+val () = RunCall.addOverload Int32.abs "abs";

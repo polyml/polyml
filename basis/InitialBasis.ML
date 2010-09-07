@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2000
+    Copyright (c) 2000-2010
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -45,109 +45,139 @@ infix  0  before
  
   (* Conversion functions.  At this stage we have installed a simple
      conversion function for strings and ints. *)
-  val it: string->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_conv_real;
-  RunCall.addOverload it "convReal";
+local
+    val cReal: string->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_conv_real
+in
+    val () = RunCall.addOverload cReal "convReal"
+end;
 
-  (* Comparisons.  These are overloaded on strings, chars and word as well as int and real. *)
+(* Comparisons.  These are overloaded on strings, chars and word as well as int and real. *)
+local
+    val iOp: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_geq
+    val sOp: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgeq
+    val rOp: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_geq
+    val cOp: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_geq
+    val wOp: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_geq
+in
+    val () = RunCall.addOverload iOp ">="
+    val () = RunCall.addOverload sOp ">="
+    val () = RunCall.addOverload rOp ">="
+    val () = RunCall.addOverload cOp ">="
+    val () = RunCall.addOverload wOp ">="
+end;
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_geq;
-  RunCall.addOverload it ">=";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgeq;
-  RunCall.addOverload it ">=";
-  val it: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_geq;
-  RunCall.addOverload it ">=";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_geq;
-  RunCall.addOverload it ">=";
-  val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_geq;
-  RunCall.addOverload it ">=";
+local
+    val iOp: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_leq
+    val sOp: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrleq
+    val rOp: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_leq
+    val cOp: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq
+    val wOp: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq
+in
+    val () = RunCall.addOverload iOp "<="
+    val () = RunCall.addOverload sOp "<="
+    val () = RunCall.addOverload rOp "<="
+    val () = RunCall.addOverload cOp "<="
+    val () = RunCall.addOverload wOp "<="
+end;
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_leq;
-  RunCall.addOverload it "<=";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrleq;
-  RunCall.addOverload it "<=";
-  val it: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_leq;
-  RunCall.addOverload it "<=";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq;
-  RunCall.addOverload it "<=";
-  val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_leq;
-  RunCall.addOverload it "<=";
+local
+    val iOp: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_gtr
+    val sOp: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgtr
+    val rOp: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_gtr
+    val cOp: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_gtr
+    val wOp: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_gtr
+in
+    val () = RunCall.addOverload iOp ">"
+    val () = RunCall.addOverload sOp ">"
+    val () = RunCall.addOverload rOp ">"
+    val () = RunCall.addOverload cOp ">"
+    val () = RunCall.addOverload wOp ">"
+end;
 
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_gtr;
-  RunCall.addOverload it ">";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrgtr;
-  RunCall.addOverload it ">";
-  val it: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_gtr;
-  RunCall.addOverload it ">";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_gtr;
-  RunCall.addOverload it ">";
-  val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_gtr;
-  RunCall.addOverload it ">";
-  
-  val it: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_lss;
-  RunCall.addOverload it "<";
-  val it: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrlss;
-  RunCall.addOverload it "<";
-  val it: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_lss;
-  RunCall.addOverload it "<";
-  val it: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_lss;
-  RunCall.addOverload it "<";
-  val it: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_lss;
-  RunCall.addOverload it "<";
-  
-  (* Binary operations. *)
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aplus;
-  RunCall.addOverload it "+";
-  val it: real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Add_real;
-  RunCall.addOverload it "+";
-  val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_plus_word;
-  RunCall.addOverload it "+";
+local
+    val iOp: int*int->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_int_lss
+    val sOp: string*string->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_teststrlss
+    val rOp: real*real->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_Real_lss
+    val cOp: char*char->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_lss
+    val wOp: word*word->bool = RunCall.run_call2 RuntimeCalls.POLY_SYS_word_lss
+in
+    val () = RunCall.addOverload iOp "<"
+    val () = RunCall.addOverload sOp "<"
+    val () = RunCall.addOverload rOp "<"
+    val () = RunCall.addOverload cOp "<"
+    val () = RunCall.addOverload wOp "<"
+end;
 
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aminus;
-  RunCall.addOverload it "-";
-  val it: real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Sub_real;
-  RunCall.addOverload it "-";
-  val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_minus_word;
-  RunCall.addOverload it "-";
+(* Binary operations. *)
+local
+    val iPlus: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aplus
+    val rPlus: real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Add_real
+    val wPlus: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_plus_word
+in
+    val () = RunCall.addOverload iPlus "+"
+    val () = RunCall.addOverload rPlus "+"
+    val () = RunCall.addOverload wPlus "+"
+end;
 
-  val it: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amul;
-  RunCall.addOverload it "*";
-  val it: real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Mul_real;
-  RunCall.addOverload it "*";
-  val it: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mul_word;
-  RunCall.addOverload it "*";
+local
+    val iSub: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_aminus
+    val rSub: real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Sub_real
+    val wSub: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_minus_word
+in
+    val () = RunCall.addOverload iSub "-"
+    val () = RunCall.addOverload rSub "-"
+    val () = RunCall.addOverload wSub "-"
+end;
 
-  (* Unary operations. *)
-  val it: int->int = RunCall.run_call1 RuntimeCalls.POLY_SYS_aneg;
-  RunCall.addOverload it "~";
-  val it: real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real;
-  RunCall.addOverload it "~";
-  local
+local
+    val iMul: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amul
+    val rMul: real*real->real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Mul_real
+    val wMul: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mul_word
+in
+    val () = RunCall.addOverload iMul "*"
+    val () = RunCall.addOverload rMul "*"
+    val () = RunCall.addOverload wMul "*"
+end;
+
+(* Unary operations. *)
+local
+    val iNeg: int->int = RunCall.run_call1 RuntimeCalls.POLY_SYS_aneg
+    val rNeg: real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Neg_real
+    
     val zero: word = RunCall.unsafeCast 0
-  in
-    fun it x = zero - x
-  end;
-  RunCall.addOverload it "~";
+    fun wNeg x = zero - x
+in
+    val () = RunCall.addOverload iNeg "~"
+    val () = RunCall.addOverload rNeg "~"
+    val () = RunCall.addOverload wNeg "~"
+end;
 
-  fun it (i: int): int = if i >= 0 then i else ~ i;
-  RunCall.addOverload it "abs";
-  fun it (x: real): real = if x >= 0.0 then x else ~ x;
-  RunCall.addOverload it "abs";
-  local
+local
+    fun iAbs (i: int): int = if i >= 0 then i else ~ i
+
+    fun rAbs (x: real): real = if x >= 0.0 then x else ~ x
+
     val zero: word = RunCall.unsafeCast 0
-  in
-    fun it x = if x >= zero then x else ~ x
-  end;
-  RunCall.addOverload it "abs";
+    fun wAbs x = if x >= zero then x else ~ x
+in
+    val () = RunCall.addOverload iAbs "abs"
+    val () = RunCall.addOverload rAbs "abs"
+    val () = RunCall.addOverload wAbs "abs"
+end;
 
-  (* div, mod and / are overloaded in ML97.  *)
-  val it: real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real;
-  RunCall.addOverload it "/";
+
+(* div, mod and / are overloaded in ML97.  *)
+local
+    val rDiv: real * real -> real = RunCall.run_call2 RuntimeCalls.POLY_SYS_Div_real
+in
+    val () = RunCall.addOverload rDiv "/"
+end;
   
     local
       infix 7 quot
       val op quot: int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_adiv;
-    in
-      fun it (x, y) =
+
+      fun iDiv (x, y) =
       let
         (* If the signs differ the normal quot operation will give the wrong
            answer. We have to round the result down by subtracting either y-1 or
@@ -167,29 +197,33 @@ infix  0  before
             else (x - (y + 1))
       in
         d quot y (* may raise Div for divide-by-zero *)
-      end;
+      end
+    in
+        val () = RunCall.addOverload iDiv "div"
     end;
-  RunCall.addOverload it "div";
- 
+
     local
       infix 7 rem
       val op rem:  int * int -> int = RunCall.run_call2 RuntimeCalls.POLY_SYS_amod;
-    in
-      fun it(x, y) =
+
+      fun iMod(x, y) =
       let
         val r = (x rem y) (* must handle divide-by-zero *)
           (* handle Div => raise Mod; *)
       in
         if r = 0 orelse (y >= 0) = (r >= 0) then r else r + y
       end;
-    
+    in
+        val () = RunCall.addOverload iMod "mod"
     end;
-  RunCall.addOverload it "mod";
 
-  val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word;
-  RunCall.addOverload it "div";
-  val it : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word;
-  RunCall.addOverload it "mod";
+    local
+        val wDiv : word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_div_word
+        val wMod: word*word->word = RunCall.run_call2 RuntimeCalls.POLY_SYS_mod_word
+    in
+        val () = RunCall.addOverload wDiv "div"
+        val () = RunCall.addOverload wMod "mod"
+    end;
 
     (* We need to use the same identifier for this that we used when
        compiling the compiler, particularly "make". *)
@@ -249,7 +283,7 @@ local
     end;
 
 in
-    val it = RunCall.addOverload convChar "convChar";
+    val () = RunCall.addOverload convChar "convChar";
 end;
 
 (* Print functions.  Some of these are replaced by functions in the Basis library and
