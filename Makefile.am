@@ -117,5 +117,5 @@ clean-local:
 
 # Run tests
 tests: all
-	echo "use \"$(srcdir)/Tests/RunTests\"; OS.Process.exit(if runTests \"$(srcdir)/Tests\" then OS.Process.success else OS.Process.failure):unit;" | ./poly
+	echo "val () = use \"$(srcdir)/Tests/RunTests\"; val () = OS.Process.exit(if runTests \"$(srcdir)/Tests\" then OS.Process.success else OS.Process.failure):unit;" | ./poly
 
