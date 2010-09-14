@@ -1305,7 +1305,10 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     // The next operation will subtract the tag.  We need to add in a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
-                    if (! inConsts) *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
+                    if (! inConsts) {
+                        destReg = get_reg(taskData, rrr); // May have moved because of a GC.
+                        *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
+                    }
                 }
                 else { // Legacy format
                     if (dest != rrr)
@@ -1338,7 +1341,10 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     // The next operation will add the tag.  We need to subtract a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
-                    if (! inConsts) *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()-1);
+                    if (! inConsts) {
+                        destReg = get_reg(taskData, rrr); // May have moved because of a GC.
+                        *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()-1);
+                    }
                     return true;
                 }
                 else { // Legacy format
