@@ -134,6 +134,7 @@ val () = PolyML.Compiler.forgetStructure "Bootstrap";
 
 (* Clean out structures and functors which are only used to build
    the library. *)
+PolyML.Compiler.forgetValue "it";
 PolyML.Compiler.forgetStructure "LibrarySupport";
 PolyML.Compiler.forgetStructure "LibraryIOSupport";
 PolyML.Compiler.forgetStructure "MachineConstants";
