@@ -533,7 +533,7 @@ struct
     fun regRepr(r as GenReg _) =
           if r = eax then (if isX64 then "%rax" else "%eax") else
           if r = ebx then (if isX64 then "%rbx" else "%ebx") else
-          if r = ecx then (if isX64 then "%rcx" else "%edx") else
+          if r = ecx then (if isX64 then "%rcx" else "%ecx") else
           if r = edx then (if isX64 then "%rdx" else "%edx") else
           if r = esp then (if isX64 then "%rsp" else "%esp") else
           if r = ebp then (if isX64 then "%rbp" else "%ebp") else
