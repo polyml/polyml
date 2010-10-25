@@ -33,6 +33,8 @@
 #define ASSERT(x)
 #endif
 
+#include <new>
+
 #include "globals.h"
 #include "memmgr.h"
 #include "osmem.h"
@@ -117,29 +119,34 @@ MemMgr::~MemMgr()
 // Create and initialise a new local space and add it to the table.
 LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 {
-    LocalMemSpace *space = new LocalMemSpace;
-    // Before trying to allocate the heap temporarily allocate the
-    // reserved space.  This ensures that this much space will always
-    // be available for C stacks and the C++ heap.
-    void *reservation = 0;
-    unsigned int rSpace = reservedSpace*sizeof(PolyWord);
+    try {
+        LocalMemSpace *space = new LocalMemSpace;
+        // Before trying to allocate the heap temporarily allocate the
+        // reserved space.  This ensures that this much space will always
+        // be available for C stacks and the C++ heap.
+        void *reservation = 0;
+        unsigned int rSpace = reservedSpace*sizeof(PolyWord);
 
-    if (reservedSpace != 0) {
-        reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
-        if (reservation == 0) {
-            // Insufficient space for the reservation.  Can't allocate this local space.
-            delete space;
-            return 0;
+        if (reservedSpace != 0) {
+            reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
+            if (reservation == 0) {
+                // Insufficient space for the reservation.  Can't allocate this local space.
+                delete space;
+                return 0;
+            }
         }
+
+        bool success = space->InitSpace(size, mut) && AddLocalSpace(space);
+        if (reservation != 0) osMemoryManager->Free(reservation, rSpace);
+        if (success) return space;
+
+        // If something went wrong.
+        delete space;
+        return 0;
     }
-
-    bool success = space->InitSpace(size, mut) && AddLocalSpace(space);
-    if (reservation != 0) osMemoryManager->Free(reservation, rSpace);
-    if (success) return space;
-
-    // If something went wrong.
-    delete space;
-    return 0;
+    catch (std::bad_alloc a) {
+        return 0;
+    }
 }
 
 
@@ -176,27 +183,32 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
                                              bool mut, bool noOv, unsigned index, unsigned hierarchy /*= 0*/)
 {
-    PermanentMemSpace *space = new PermanentMemSpace;
-    space->bottom = base;
-    space->topPointer = space->top = space->bottom + words;
-    space->spaceType = ST_PERMANENT;
-    space->isMutable = mut;
-    space->noOverwrite = noOv;
-    space->index = index;
-    space->hierarchy = hierarchy;
-    if (index >= nextIndex) nextIndex = index+1;
+    try {
+        PermanentMemSpace *space = new PermanentMemSpace;
+        space->bottom = base;
+        space->topPointer = space->top = space->bottom + words;
+        space->spaceType = ST_PERMANENT;
+        space->isMutable = mut;
+        space->noOverwrite = noOv;
+        space->index = index;
+        space->hierarchy = hierarchy;
+        if (index >= nextIndex) nextIndex = index+1;
 
-    // Extend the permanent memory table and add this space to it.
-    PermanentMemSpace **table =
-        (PermanentMemSpace **)realloc(pSpaces, (npSpaces+1) * sizeof(PermanentMemSpace *));
-    if (table == 0)
-    {
-        delete space;
+        // Extend the permanent memory table and add this space to it.
+        PermanentMemSpace **table =
+            (PermanentMemSpace **)realloc(pSpaces, (npSpaces+1) * sizeof(PermanentMemSpace *));
+        if (table == 0)
+        {
+            delete space;
+            return 0;
+        }
+        pSpaces = table;
+        pSpaces[npSpaces++] = space;
+        return space;
+    }
+    catch (std::bad_alloc a) {
         return 0;
     }
-    pSpaces = table;
-    pSpaces[npSpaces++] = space;
-    return space;
 }
 
 // Delete a local space and remove it from the table.
@@ -233,38 +245,43 @@ MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
 // Create and initialise a new export space and add it to the table.
 PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv)
 {
-    PermanentMemSpace *space = new PermanentMemSpace;
-    space->spaceType = ST_EXPORT;
-    space->isMutable = mut;
-    space->noOverwrite = noOv;
-    space->index = nextIndex++;
-    // Allocate the memory itself.
-    size_t iSpace = size*sizeof(PolyWord);
-    space->bottom  =
-        (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
+    try {
+        PermanentMemSpace *space = new PermanentMemSpace;
+        space->spaceType = ST_EXPORT;
+        space->isMutable = mut;
+        space->noOverwrite = noOv;
+        space->index = nextIndex++;
+        // Allocate the memory itself.
+        size_t iSpace = size*sizeof(PolyWord);
+        space->bottom  =
+            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE|PERMISSION_EXEC);
 
-    if (space->bottom == 0)
-    {
-        delete space;
-        return 0;
-    }
-    space->isOwnSpace = true;
+        if (space->bottom == 0)
+        {
+            delete space;
+            return 0;
+        }
+        space->isOwnSpace = true;
  
-    // The size may have been rounded up to a block boundary.
-    size = iSpace/sizeof(PolyWord);
-    space->top = space->bottom + size;
-    space->topPointer = space->bottom;
+        // The size may have been rounded up to a block boundary.
+        size = iSpace/sizeof(PolyWord);
+        space->top = space->bottom + size;
+        space->topPointer = space->bottom;
 
-    // Add to the table.
-    PermanentMemSpace **table = (PermanentMemSpace **)realloc(eSpaces, (neSpaces+1) * sizeof(PermanentMemSpace *));
-    if (table == 0)
-    {
-        delete space;
+        // Add to the table.
+        PermanentMemSpace **table = (PermanentMemSpace **)realloc(eSpaces, (neSpaces+1) * sizeof(PermanentMemSpace *));
+        if (table == 0)
+        {
+            delete space;
+            return 0;
+        }
+        eSpaces = table;
+        eSpaces[neSpaces++] = space;
+        return space;
+    }
+    catch (std::bad_alloc a) {
         return 0;
     }
-    eSpaces = table;
-    eSpaces[neSpaces++] = space;
-    return space;
 }
 
 void MemMgr::DeleteExportSpaces(void)
@@ -293,14 +310,19 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
             pTable[newSpaces++] = pSpace;
         else
         {
-            // Turn this into a local space.
-            LocalMemSpace *space = new LocalMemSpace;
-            space->top = space->gen_top = space->gen_bottom = pSpace->top;
-            space->bottom = space->pointer = pSpace->bottom;
-            space->isMutable = pSpace->isMutable;
-            space->isOwnSpace = true;
-            if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+            try {
+                // Turn this into a local space.
+                LocalMemSpace *space = new LocalMemSpace;
+                space->top = space->gen_top = space->gen_bottom = pSpace->top;
+                space->bottom = space->pointer = pSpace->bottom;
+                space->isMutable = pSpace->isMutable;
+                space->isOwnSpace = true;
+                if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                    return false;
+            }
+            catch (std::bad_alloc a) {
                 return false;
+            }
         }
     }
     // Save newly exported spaces.
@@ -340,16 +362,21 @@ bool MemMgr::DemoteImportSpaces()
             table[newSpaces++] = pSpace;
         else
         {
-            // Turn this into a local space.
-            LocalMemSpace *space = new LocalMemSpace;
-            space->top = pSpace->top;
-            // Space is allocated in local areas from the top down.  This area is full and
-            // all data is in the old generation.  The area can be recovered by a full GC.
-            space->bottom = space->pointer = space->gen_top = space->gen_bottom = pSpace->bottom;
-            space->isMutable = pSpace->isMutable;
-            space->isOwnSpace = true;
-            if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+            try {
+                // Turn this into a local space.
+                LocalMemSpace *space = new LocalMemSpace;
+                space->top = pSpace->top;
+                // Space is allocated in local areas from the top down.  This area is full and
+                // all data is in the old generation.  The area can be recovered by a full GC.
+                space->bottom = space->pointer = space->gen_top = space->gen_bottom = pSpace->bottom;
+                space->isMutable = pSpace->isMutable;
+                space->isOwnSpace = true;
+                if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                    return false;
+            }
+            catch (std::bad_alloc a) {
                 return false;
+            }
         }
     }
     npSpaces = newSpaces;

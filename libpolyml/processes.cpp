@@ -93,6 +93,8 @@
 #include <sys/sysctl.h>
 #endif
 
+#include <new>
+
 /************************************************************************
  *
  * Include runtime headers
@@ -1152,69 +1154,76 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     if (taskArraySize < 1)
     {
         taskArray = (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *));
+        if (taskArray == 0) ::Exit("Unable to create the initial thread - insufficient memory");
         taskArraySize = 1;
     }
-    // We can't use ForkThread because we don't have a taskData object before we start
-    ProcessTaskData *taskData = new ProcessTaskData;
-    taskData->mdTaskData = machineDependent->CreateTaskData();
-    taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
-    taskData->threadObject->index = TAGGED(0); // Index 0
-    // The initial thread is set to accept broadcast interrupt requests
-    // and handle them synchronously.  This is for backwards compatibility.
-    taskData->threadObject->flags = TAGGED(PFLAG_BROADCAST|PFLAG_ASYNCH); // Flags
-    taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
-    taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+
+    try {
+        // We can't use ForkThread because we don't have a taskData object before we start
+        ProcessTaskData *taskData = new ProcessTaskData;
+        taskData->mdTaskData = machineDependent->CreateTaskData();
+        taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
+        taskData->threadObject->index = TAGGED(0); // Index 0
+        // The initial thread is set to accept broadcast interrupt requests
+        // and handle them synchronously.  This is for backwards compatibility.
+        taskData->threadObject->flags = TAGGED(PFLAG_BROADCAST|PFLAG_ASYNCH); // Flags
+        taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+        taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
 #ifdef HAVE_PTHREAD
-    taskData->pthreadId = pthread_self();
+        taskData->pthreadId = pthread_self();
 #elif defined(HAVE_WINDOWS_H)
-    taskData->threadHandle = hMainThread;
+        taskData->threadHandle = hMainThread;
 #endif
-    taskArray[0] = taskData;
+        taskArray[0] = taskData;
 
-    Handle stack =
-        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
-    taskData->stack = (StackObject *)DEREFHANDLE(stack);
-    machineDependent->InitStackFrame(taskData, stack,
-            taskData->saveVec.push(rootFunction), (Handle)0);
+        Handle stack =
+            alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
+        taskData->stack = (StackObject *)DEREFHANDLE(stack);
+        machineDependent->InitStackFrame(taskData, stack,
+                taskData->saveVec.push(rootFunction), (Handle)0);
 
-    // Create a packet for the Interrupt exception once so that we don't have to
-    // allocate when we need to raise it.
-    // We can only do this once the taskData object has been created.
-    if (interrupt_exn == 0)
-        interrupt_exn =
-            DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
+        // Create a packet for the Interrupt exception once so that we don't have to
+        // allocate when we need to raise it.
+        // We can only do this once the taskData object has been created.
+        if (interrupt_exn == 0)
+            interrupt_exn =
+                DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
 
 
-    if (singleThreaded)
-    {
-        // If we don't have threading enter the code as if this were a new thread.
-        // This will call finish so will never return.
-        NewThreadFunction(taskData);
+        if (singleThreaded)
+        {
+            // If we don't have threading enter the code as if this were a new thread.
+            // This will call finish so will never return.
+            NewThreadFunction(taskData);
+        }
+
+        schedLock.Lock();
+        int errorCode = 0;
+#ifdef HAVE_PTHREAD
+        // Create a thread that isn't joinable since we don't want to wait
+        // for it to finish.
+        pthread_attr_t attrs;
+        pthread_attr_init(&attrs);
+        pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+        if (pthread_create(&taskData->pthreadId, &attrs, NewThreadFunction, taskData) != 0)
+            errorCode = errno;
+        pthread_attr_destroy(&attrs);
+#elif defined(HAVE_WINDOWS_H)
+        DWORD dwThrdId; // Have to provide this although we don't use it.
+        taskData->threadHandle =
+            CreateThread(NULL, 0, NewThreadFunction, taskData, 0, &dwThrdId);
+        if (taskData->threadHandle == NULL) errorCode = -GetLastError();
+#endif
+        if (errorCode != 0)
+        {
+            // Thread creation failed.
+            taskArray[0] = 0;
+            delete(taskData);
+            ExitWithError("Unable to create initial thread:", errorCode);
+        }
     }
-
-    schedLock.Lock();
-    int errorCode = 0;
-#ifdef HAVE_PTHREAD
-    // Create a thread that isn't joinable since we don't want to wait
-    // for it to finish.
-    pthread_attr_t attrs;
-    pthread_attr_init(&attrs);
-    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-    if (pthread_create(&taskData->pthreadId, &attrs, NewThreadFunction, taskData) != 0)
-        errorCode = errno;
-    pthread_attr_destroy(&attrs);
-#elif defined(HAVE_WINDOWS_H)
-    DWORD dwThrdId; // Have to provide this although we don't use it.
-    taskData->threadHandle =
-        CreateThread(NULL, 0, NewThreadFunction, taskData, 0, &dwThrdId);
-    if (taskData->threadHandle == NULL) errorCode = -GetLastError();
-#endif
-    if (errorCode != 0)
-    {
-        // Thread creation failed.
-        taskArray[0] = 0;
-        delete(taskData);
-        ExitWithError("Unable to create initial thread:", errorCode);
+    catch (std::bad_alloc a) {
+        ::Exit("Unable to create the initial thread - insufficient memory");
     }
     // Wait until the threads terminate or make a request.
     // We only release schedLock while waiting.
@@ -1297,90 +1306,94 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
     if (singleThreaded)
         raise_exception_string(taskData, EXC_thread, "Threads not available");
 
-    // Create a taskData object for the new thread
-    ProcessTaskData *newTaskData = new ProcessTaskData;
-    newTaskData->mdTaskData = machineDependent->CreateTaskData();
-    // We allocate the thread object in the PARENT's space
-    Handle threadId = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
-    newTaskData->threadObject = (ThreadObject*)DEREFHANDLE(threadId);
-    newTaskData->threadObject->index = TAGGED(0);
-    newTaskData->threadObject->flags = flags; // Flags
-    newTaskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
-    newTaskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+    try {
+        // Create a taskData object for the new thread
+        ProcessTaskData *newTaskData = new ProcessTaskData;
+        newTaskData->mdTaskData = machineDependent->CreateTaskData();
+        // We allocate the thread object in the PARENT's space
+        Handle threadId = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
+        newTaskData->threadObject = (ThreadObject*)DEREFHANDLE(threadId);
+        newTaskData->threadObject->index = TAGGED(0);
+        newTaskData->threadObject->flags = flags; // Flags
+        newTaskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+        newTaskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
 
-    unsigned thrdIndex;
-    schedLock.Lock();
-    // Before forking a new thread check to see whether we have been asked
-    // to exit.  Processes::Exit sets the current set of threads to exit but won't
-    // see a new thread.
-    if (taskData->requests == kRequestKill)
-    {
-        schedLock.Unlock();
-        // Raise an exception although the thread may exit before we get there.
-        raise_exception_string(taskData, EXC_thread, "Thread is exiting");
-    }
-
-    // See if there's a spare entry in the array.
-    for (thrdIndex = 0;
-         thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
-         thrdIndex++);
-
-    if (thrdIndex == taskArraySize) // Need to expand the array
-    {
-        ProcessTaskData **newArray =
-            (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *)*(taskArraySize+1));
-        if (newArray)
+        unsigned thrdIndex;
+        schedLock.Lock();
+        // Before forking a new thread check to see whether we have been asked
+        // to exit.  Processes::Exit sets the current set of threads to exit but won't
+        // see a new thread.
+        if (taskData->requests == kRequestKill)
         {
-            taskArray = newArray;
-            taskArraySize++;
-        }
-        else
-        {
-            delete(newTaskData);
             schedLock.Unlock();
-            raise_exception_string(taskData, EXC_thread, "Too many threads");
+            // Raise an exception although the thread may exit before we get there.
+            raise_exception_string(taskData, EXC_thread, "Thread is exiting");
         }
-    }
-    // Add into the new entry
-    taskArray[thrdIndex] = newTaskData;
-    newTaskData->threadObject->Set(0, TAGGED(thrdIndex)); // Set to the index
-    schedLock.Unlock();
 
-    Handle stack = // Allocate the stack in the parent's heap.
-        alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
-    newTaskData->stack = (StackObject *)DEREFHANDLE(stack);
-    // Also allocate anything needed for the new stack in the parent's heap.
-    // The child still has inMLHeap set so mustn't GC.
-    machineDependent->InitStackFrame(taskData, stack, threadFunction, args);
+        // See if there's a spare entry in the array.
+        for (thrdIndex = 0;
+             thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
+             thrdIndex++);
 
-    // Now actually fork the thread.
-    bool success = false;
-    schedLock.Lock();
-#ifdef HAVE_PTHREAD
-    // Create a thread that isn't joinable since we don't want to wait
-    // for it to finish.
-    pthread_attr_t attrs;
-    pthread_attr_init(&attrs);
-    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-    success = pthread_create(&newTaskData->pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
-    pthread_attr_destroy(&attrs);
-#elif defined(HAVE_WINDOWS_H)
-    DWORD dwThrdId; // Have to provide this although we don't use it.
-    newTaskData->threadHandle =
-        CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, &dwThrdId);
-    success = newTaskData->threadHandle != NULL;
-#endif
-    if (success)
-    {
+        if (thrdIndex == taskArraySize) // Need to expand the array
+        {
+            ProcessTaskData **newArray =
+                (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *)*(taskArraySize+1));
+            if (newArray)
+            {
+                taskArray = newArray;
+                taskArraySize++;
+            }
+            else
+            {
+                delete(newTaskData);
+                schedLock.Unlock();
+                raise_exception_string(taskData, EXC_thread, "Too many threads");
+            }
+        }
+        // Add into the new entry
+        taskArray[thrdIndex] = newTaskData;
+        newTaskData->threadObject->Set(0, TAGGED(thrdIndex)); // Set to the index
         schedLock.Unlock();
-        return threadId;
-    }
-    // Thread creation failed.
-    taskArray[thrdIndex] = 0;
-    delete(newTaskData);
-    schedLock.Unlock();
-    raise_exception_string(taskData, EXC_thread, "Thread creation failed");
 
+        Handle stack = // Allocate the stack in the parent's heap.
+            alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
+        newTaskData->stack = (StackObject *)DEREFHANDLE(stack);
+        // Also allocate anything needed for the new stack in the parent's heap.
+        // The child still has inMLHeap set so mustn't GC.
+        machineDependent->InitStackFrame(taskData, stack, threadFunction, args);
+
+        // Now actually fork the thread.
+        bool success = false;
+        schedLock.Lock();
+    #ifdef HAVE_PTHREAD
+        // Create a thread that isn't joinable since we don't want to wait
+        // for it to finish.
+        pthread_attr_t attrs;
+        pthread_attr_init(&attrs);
+        pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
+        success = pthread_create(&newTaskData->pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
+        pthread_attr_destroy(&attrs);
+    #elif defined(HAVE_WINDOWS_H)
+        DWORD dwThrdId; // Have to provide this although we don't use it.
+        newTaskData->threadHandle =
+            CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, &dwThrdId);
+        success = newTaskData->threadHandle != NULL;
+    #endif
+        if (success)
+        {
+            schedLock.Unlock();
+            return threadId;
+        }
+        // Thread creation failed.
+        taskArray[thrdIndex] = 0;
+        delete(newTaskData);
+        schedLock.Unlock();
+        raise_exception_string(taskData, EXC_thread, "Thread creation failed");
+    }
+    catch (std::bad_alloc a) {
+            raise_exception_string(taskData, EXC_thread, "Insufficient memory");
+    }
 }
 
 // ForkFromRTS.  Creates a new thread from within the RTS.  This is currently used
