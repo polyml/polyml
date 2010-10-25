@@ -511,50 +511,39 @@ local
             val sortedDecs =
                 if inOrder then quickSort order decList else decList
 
+            fun enterDec(n, FixStatusKind f) = #enterFix space (n,f)
+            |   enterDec(n, TypeConstrKind t) = #enterType space (n,t)
+            |   enterDec(n, SignatureKind s) = #enterSig space (n,s)
+            |   enterDec(n, StructureKind s) = #enterStruct space (n,s)
+            |   enterDec(n, FunctorKind f) = #enterFunct space (n,f)
+            |   enterDec(n, ValueKind v) = #enterVal space (n,v)
+
             fun printDec(n, FixStatusKind f) =
-                (
-                    if depth > 0
-                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix(n,f))
-                    else ();
-                    #enterFix space (n,f)
-                )
-            |   printDec(n, TypeConstrKind t) =
-                (
-                    if depth > 0
-                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayType(t, depth, space))
-                    else ();
-                    #enterType space (n,t)
-                )
-            |   printDec(n, SignatureKind s) =
-                (
-                    if depth > 0
-                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displaySig(s, depth, space))
-                    else ();
-                    #enterSig space (n,s)
-                )
-            |   printDec(n, StructureKind s) =
-                (
-                    if depth > 0
-                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayStruct(s, depth, space))
-                    else ();
-                    #enterStruct space (n,s)
-                )
-            |   printDec(n, FunctorKind f) =
-                (
-                    if depth > 0
-                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFunct(f, depth, space))
-                    else ();
-                    #enterFunct space (n,f)
-                )
-            |   printDec(n, ValueKind v) =
-                (
-                    if depth > 0
-                    then prettyPrintWithOptionalMarkup (stream, !lineLength) (displayVal(v, depth, space))
-                    else ();
-                    #enterVal space (n,v)
-                )
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix(n,f))
+
+            |   printDec(_, TypeConstrKind t) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayType(t, depth, space))
+
+            |   printDec(_, SignatureKind s) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displaySig(s, depth, space))
+
+            |   printDec(_, StructureKind s) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayStruct(s, depth, space))
+
+            |   printDec(_, FunctorKind f) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFunct(f, depth, space))
+
+            |   printDec(_, ValueKind v) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayVal(v, depth, space))
+
         in
-            List.app printDec sortedDecs
+            (* First add the declarations to the name space and then print them.  Doing it this way
+               improves the printing of types since these require look-ups in the name space.  For
+               instance the constructors of a datatype from an opened structure should not include
+               the structure name but that will only work once the datatype itself is in the global
+               name-space. *)
+            List.app enterDec sortedDecs;
+            if depth > 0 then List.app printDec sortedDecs else ()
         end
     in
         fun polyCompiler (getChar: unit->char option, parameters: compilerParameters list) =
