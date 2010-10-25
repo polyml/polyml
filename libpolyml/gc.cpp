@@ -69,6 +69,8 @@ static unsigned long    heapSize, immutableSegSize, mutableSegSize;
 static unsigned long    immutableFreeSpace, mutableFreeSpace;
 static unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 
+static bool dontFreeSpace; // Temporary for testing.
+
 static POLYUNSIGNED GetPhysicalMemorySize(void);
 
 // If the GC converts a weak ref from SOME to NONE it sets this ref.  It can be
@@ -1189,7 +1191,7 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
 
         (void)TryMoreHeap(words, isMutableSpace); // If this fails just carry on with what we have.
     }
-    else // currentlyFree >= requiredFree
+    else if (! dontFreeSpace) // currentlyFree >= requiredFree
     {
         // The reason for shrinking the stack is to reduce the swap space and
         // possibly the address space requirements.  This may be necessary if
@@ -1873,7 +1875,7 @@ static POLYUNSIGNED GetPhysicalMemorySize(void)
 // Fills in the defaults and attempts to allocate the heap.  If the heap size
 // is too large it allocates as much as it can.  The default heap size is half the
 // physical memory.
-void CreateHeap(unsigned hsize, unsigned isize, unsigned msize)
+void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, bool heapMax)
 {
     // If no -H option was given set the default initial size to half the memory.
     if (hsize == 0) {
@@ -1893,6 +1895,7 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize)
     heapSize           = K_to_words(hsize);
     immutableSegSize   = K_to_words(isize);
     mutableSegSize     = K_to_words(msize);
+    gMem.SetReservation(K_to_words(rsize));
 
     // Try allocating the space.  If it fails try something smaller.
     LocalMemSpace *iSpace = 0, *mSpace = 0;
@@ -1900,6 +1903,8 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize)
     while (iSpace == 0 || mSpace == 0) {
         if (iSpace != 0) { gMem.DeleteLocalSpace(iSpace); iSpace = 0; }
         if (mSpace != 0) { gMem.DeleteLocalSpace(mSpace); mSpace = 0; }
+        // Allocate the reservation space.
+
 
         // Immutable space
         POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
@@ -1920,6 +1925,21 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize)
         }
     }
     // Heap allocation has succeeded.
+
+    if (heapMax) {
+        // Testing only.  Get as much space as possible.  The idea is to simulate the
+        // situation where the heap has grown until the memory is exhausted.
+        dontFreeSpace = true;
+        unsigned long    segSize = immutableSegSize;
+        // Allocate immutable segments until the heap is exhausted.
+        while (segSize > 1024) {
+            LocalMemSpace *iSpace = 0;
+            // Immutable space
+            POLYUNSIGNED immutSize = ROUNDDOWN(segSize, BITSPERWORD);
+            iSpace = gMem.NewLocalSpace(immutSize, false);
+            if (iSpace == 0) segSize = segSize/2;
+        }
+    }
 
     // The space we need to have free at the end of a partial collection.  If we have less
     // than this we do a full GC.

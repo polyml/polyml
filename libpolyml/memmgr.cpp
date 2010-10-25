@@ -70,6 +70,7 @@ LocalMemSpace::LocalMemSpace()
 bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 {
     isMutable = mut;
+
     // Allocate the heap itself.
     size_t iSpace = size*sizeof(PolyWord);
     bottom  =
@@ -99,6 +100,7 @@ MemMgr::MemMgr()
     lSpaces = 0;
     eSpaces = 0;
     nextIndex = 0;
+    reservedSpace = 0;
 }
 
 MemMgr::~MemMgr()
@@ -116,8 +118,25 @@ MemMgr::~MemMgr()
 LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 {
     LocalMemSpace *space = new LocalMemSpace;
-    if (space->InitSpace(size, mut) && AddLocalSpace(space))
-        return space;
+    // Before trying to allocate the heap temporarily allocate the
+    // reserved space.  This ensures that this much space will always
+    // be available for C stacks and the C++ heap.
+    void *reservation = 0;
+    unsigned int rSpace = reservedSpace*sizeof(PolyWord);
+
+    if (reservedSpace != 0) {
+        reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
+        if (reservation == 0) {
+            // Insufficient space for the reservation.  Can't allocate this local space.
+            delete space;
+            return 0;
+        }
+    }
+
+    bool success = space->InitSpace(size, mut) && AddLocalSpace(space);
+    if (reservation != 0) osMemoryManager->Free(reservation, rSpace);
+    if (success) return space;
+
     // If something went wrong.
     delete space;
     return 0;

@@ -1193,26 +1193,28 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     }
 
     schedLock.Lock();
-    bool success = false;
+    int errorCode = 0;
 #ifdef HAVE_PTHREAD
     // Create a thread that isn't joinable since we don't want to wait
     // for it to finish.
     pthread_attr_t attrs;
     pthread_attr_init(&attrs);
     pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-    success = pthread_create(&taskData->pthreadId, &attrs, NewThreadFunction, taskData) == 0;
+    if (pthread_create(&taskData->pthreadId, &attrs, NewThreadFunction, taskData) != 0)
+        errorCode = errno;
     pthread_attr_destroy(&attrs);
 #elif defined(HAVE_WINDOWS_H)
     DWORD dwThrdId; // Have to provide this although we don't use it.
     taskData->threadHandle =
         CreateThread(NULL, 0, NewThreadFunction, taskData, 0, &dwThrdId);
-    success = taskData->threadHandle != NULL;
+    if (taskData->threadHandle == NULL) errorCode = -GetLastError();
 #endif
-    if (! success)
+    if (errorCode != 0)
     {
         // Thread creation failed.
         taskArray[0] = 0;
         delete(taskData);
+        ExitWithError("Unable to create initial thread:", errorCode);
     }
     // Wait until the threads terminate or make a request.
     // We only release schedLock while waiting.

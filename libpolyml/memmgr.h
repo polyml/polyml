@@ -156,6 +156,8 @@ public:
     bool IsLocalMutable(const void *pt)
     { LocalMemSpace *space = LocalSpaceForAddress(pt); return space != 0 && space->isMutable; }
 
+    void SetReservation(POLYUNSIGNED words) { reservedSpace = words; }
+
     // In several places we assume that segments are filled with valid
     // objects.  This fills unused memory with one or more "byte" objects.
     void FillUnusedSpace(PolyWord *base, POLYUNSIGNED words);
@@ -186,6 +188,8 @@ public:
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);
+
+    POLYUNSIGNED reservedSpace;
 };
 
 extern MemMgr gMem;

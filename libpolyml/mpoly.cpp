@@ -84,7 +84,8 @@ struct _userOptions userOptions;
 
 UNSIGNEDADDR exportTimeStamp;
 
-static unsigned hsize, isize, msize;
+static unsigned hsize, isize, msize, rsize;
+static bool heapMax = false;
 
 struct __argtab {
     const char *argName, *argHelp;
@@ -95,6 +96,7 @@ struct __argtab {
     { "--heap",         "Initial heap size (MB)",                1024,   &hsize },
     { "--immutable",    "Initial size of immutable buffer (MB)", 1024,   &isize },
     { "--mutable",      "Initial size of mutable buffer(MB)",    1024,   &msize },
+    { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",1024,   &rsize },
     { "--debug",        "Debug options",                         1,      &userOptions.debug }
 };
 
@@ -151,6 +153,8 @@ int polymain(int argc, char **argv, exportDescription *exports)
             }
             if (! argUsed) // Add it to the user args.
                 userOptions.user_arg_strings[userOptions.user_arg_count++] = argv[i];
+            else if (strcmp(argv[i], "--heapmax") == 0)
+                heapMax = true;
         }
         else if (exports == 0 && importFileName == 0)
             importFileName = argv[i];
@@ -163,8 +167,8 @@ int polymain(int argc, char **argv, exportDescription *exports)
    
     /* initialise the run-time system before opening the database */
     init_run_time_system();
-    
-    CreateHeap(hsize, isize, msize);
+
+    CreateHeap(hsize, isize, msize, rsize, heapMax);
     
     PolyObject *rootFunction = 0;
 

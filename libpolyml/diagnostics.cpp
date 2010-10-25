@@ -63,6 +63,8 @@
 #include <tchar.h>
 #endif
 
+#include "errors.h"
+
 
 /***********************************************************************
  *
@@ -114,5 +116,24 @@ void Crash(const char *msg, ...)
     #endif    
 
     abort();
+    exit(1);
+}
+
+void ExitWithError(const char *msg, int err)
+{
+    printf("\n");
+    printf(msg);
+    for (int i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
+        if (errortable[i].errorNum == err)
+            printf(errortable[i].errorString);
+
+    printf("\n");
+    fflush(stdout);
+    #if defined(WINDOWS_PC)
+    if (useConsole)
+    {
+        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
+    }
+    #endif
     exit(1);
 }
