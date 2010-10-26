@@ -125,7 +125,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
         // reserved space.  This ensures that this much space will always
         // be available for C stacks and the C++ heap.
         void *reservation = 0;
-        unsigned int rSpace = reservedSpace*sizeof(PolyWord);
+        size_t rSpace = reservedSpace*sizeof(PolyWord);
 
         if (reservedSpace != 0) {
             reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
