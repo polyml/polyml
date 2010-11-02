@@ -135,6 +135,7 @@ sig
     val traceCompilerTag: bool Universal.tag
     val fileNameTag: string Universal.tag
     val reportUnreferencedIdsTag: bool Universal.tag
+    val reportExhaustiveHandlersTag: bool Universal.tag
     val parsetreeTag: bool Universal.tag
     val codetreeTag: bool Universal.tag
     val codetreeAfterOptTag: bool Universal.tag
@@ -415,6 +416,7 @@ struct
                                  tagInject LEX.errorMessageProcTag errorProc,
                                  tagInject maxInlineSizeTag 80,
                                  tagInject reportUnreferencedIdsTag true,
+                                 tagInject reportExhaustiveHandlersTag false, (* True for testing. *)
                                  (* These are only needed for debugging. *)
                                  tagInject PRETTY.printOutputTag (PRETTY.prettyPrint(print, 70)),
                                  tagInject printDepthFunTag(fn () => 20),

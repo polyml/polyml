@@ -78,6 +78,8 @@ struct
         val assemblyCodeTag: bool tag                = tag()
         (* Report unreferenced identifiers as warnings *)
         val reportUnreferencedIdsTag: bool tag       = tag()
+        (* Report catch-all handlers as warnings *)
+        val reportExhaustiveHandlersTag: bool tag      = tag()
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
@@ -110,7 +112,8 @@ struct
             tagInject lineLengthTag 77,
             tagInject traceCompilerTag false,
             tagInject debugTag false,
-            tagInject reportUnreferencedIdsTag false
+            tagInject reportUnreferencedIdsTag false,
+            tagInject reportExhaustiveHandlersTag false
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

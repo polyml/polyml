@@ -93,6 +93,7 @@ sig
     val errorDepthTag : int Universal.tag
     val fileNameTag: string Universal.tag
     val reportUnreferencedIdsTag: bool Universal.tag
+    val reportExhaustiveHandlersTag: bool Universal.tag
     val getParameter :
            'a Universal.tag -> Universal.universal list -> 'a 
 end;
@@ -5185,7 +5186,7 @@ struct
         (* Make some code to insert at defaults. *)
         val codeDefault : unit -> patcode =
             if isHandlerMatch
-            then (fn () => makePatcode [makeRaise loadExpCode] 0)
+            then (fn () => (exhaustive := false; makePatcode [makeRaise loadExpCode] 0))
             else (fn () => (exhaustive := false; raiseMatchCode lineNo));
 
         (* Generate the code and also check for redundancy
@@ -5221,10 +5222,16 @@ struct
 
         (* Report inexhaustiveness if necessary.  TODO: It would be nice to have
            some example of a pattern that isn't matched for. *)
+        (* If this is a handler we may have set the option to report exhaustiveness.
+           This helps in tracking down handlers that don't treat Interrupt specially. *)
         val () = 
-            if not (!exhaustive)
-            then errorNear (lex, false, near, lineNo, "Matches are not exhaustive.")
+            if ! exhaustive
+            then if isHandlerMatch andalso getParameter reportExhaustiveHandlersTag (debugParams lex)
+            then errorNear (lex, false, near, lineNo, "Handler catches all exceptions.")
             else ()
+            else if isHandlerMatch
+            then ()
+            else errorNear (lex, false, near, lineNo, "Matches are not exhaustive.")
         (* Report redundant patterns. *)
         local
             fun reportRedundant(patNo, 0) =

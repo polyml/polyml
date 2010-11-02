@@ -196,7 +196,6 @@ local
     and pstackTrace = ref false
     and parsetree = ref false
     and reportUnreferencedIds = ref false
-    and reportExhaustiveHandlers = ref false
     val lowlevelOptimise = ref true
     
     val debug = ref false
@@ -617,8 +616,7 @@ local
                     tagInject debuggerTag debugFunction,
                     tagInject printOutputTag prettyOut,
                     tagInject rootTreeTag parentTree,
-                    tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
-                    tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers)
+                    tagInject reportUnreferencedIdsTag (! reportUnreferencedIds)
                     ])
         in
             compilerResultFun treeAndCode
@@ -1412,7 +1410,7 @@ in
             val assemblyCode = assemblyCode and codetree = codetree
             and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
-            and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
+            and lowlevelOptimise = lowlevelOptimise
             
             val debug = debug
             val inlineFunctors = inlineFunctors

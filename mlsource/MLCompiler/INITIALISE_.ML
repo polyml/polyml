@@ -121,6 +121,7 @@ sig
   val maxInlineSizeTag       : int Universal.tag;
   val debugTag                : bool Universal.tag;
   val reportUnreferencedIdsTag: bool Universal.tag;
+  val reportExhaustiveHandlersTag: bool Universal.tag;
 end;
 
 structure MISC :
@@ -1220,7 +1221,8 @@ struct
                 ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),
                 ("errorMessageProcTag",    toMachineWord LEX.errorMessageProcTag, Tag errorMessageProcType),
                 ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag navigationType),
-                ("reportUnreferencedIdsTag", toMachineWord reportUnreferencedIdsTag, Tag Bool)
+                ("reportUnreferencedIdsTag", toMachineWord reportUnreferencedIdsTag, Tag Bool),
+                ("reportExhaustiveHandlersTag", toMachineWord reportExhaustiveHandlersTag, Tag Bool)
                 ]
         end;
  

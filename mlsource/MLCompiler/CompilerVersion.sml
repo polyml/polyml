@@ -18,7 +18,7 @@
 
 structure CompilerVersion =
 struct
-   val compilerVersion = "5.4 Release"
-   val versionNumber = 540
+   val compilerVersion = "5.4.1 Testing"
+   val versionNumber = 541
    val versionSuffix = Int.toString versionNumber
 end;
