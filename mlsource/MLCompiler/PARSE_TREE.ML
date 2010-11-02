@@ -4179,6 +4179,7 @@ struct
                                 literal ^ " to " ^ name);
                         NONE
                         )
+                  | Thread.Thread.Interrupt => raise Thread.Thread.Interrupt
                   | _ =>
                           (
                           errorNear (lex, true, near, line,

@@ -47,9 +47,9 @@ struct
              = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun getByName(s, NONE) =
-            ( SOME(doCall1(5, s)) handle _ => NONE )
+            ( SOME(doCall1(5, s)) handle OS.SysErr _ => NONE )
          |  getByName(s, SOME p) =
-            ( SOME(doCall2(6, (s, p))) handle _ => NONE )
+            ( SOME(doCall2(6, (s, p))) handle OS.SysErr _ => NONE )
     end
 
     local
@@ -59,9 +59,9 @@ struct
              = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun getByPort(n, NONE) =
-            ( SOME(doCall1(7, n)) handle _ => NONE )
+            ( SOME(doCall1(7, n)) handle OS.SysErr _ => NONE )
          |  getByPort(n, SOME p) =
-            ( SOME(doCall2(8, (n, p))) handle _ => NONE )
+            ( SOME(doCall2(8, (n, p))) handle OS.SysErr _ => NONE )
     end
 
 end;

@@ -89,10 +89,10 @@ struct
     type instream = TextIO.instream and outstream = TextIO.outstream
     val std_in  : instream = TextIO.stdIn and std_out : outstream = TextIO.stdOut
 
-    fun open_in s = TextIO.openIn s handle _ => raise Io "Cannot open"
-    and open_out s = TextIO.openOut s handle _ => raise Io "Cannot open"
+    fun open_in s = TextIO.openIn s handle IO.Io _ => raise Io "Cannot open"
+    and open_out s = TextIO.openOut s handle IO.Io _ => raise Io "Cannot open"
 
-    fun input(str, i) = TextIO.inputN(str, i) handle _ => raise Io "Cannot read"
+    fun input(str, i) = TextIO.inputN(str, i) handle IO.Io _ => raise Io "Cannot read"
 
     fun lookahead strm =
         case TextIO.lookahead strm of
@@ -102,7 +102,7 @@ struct
     val close_in : instream -> unit = TextIO.closeIn
     and close_out : outstream -> unit = TextIO.closeOut
 
-    fun output(str, s) = TextIO.output(str, s) handle _ => raise Io "Cannot output"
+    fun output(str, s) = TextIO.output(str, s) handle IO.Io _ => raise Io "Cannot output"
 
     val end_of_stream = TextIO.endOfStream
 end;

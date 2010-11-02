@@ -1148,7 +1148,7 @@ struct
             (* Get an environment string.  The underlying call raises an
                exception if the string isn't there. *)
             fun getEnv s =
-                SOME(doCall(14, s)) handle _ => NONE
+                SOME(doCall(14, s)) handle RunCall.SysErr _ => NONE
         end
 
         (* poll is implemented so that an empty list simply waits for

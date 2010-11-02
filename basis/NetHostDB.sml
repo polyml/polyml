@@ -176,7 +176,7 @@ in
                  = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getByName s =
-                SOME(doCall(1, s)) handle _ => NONE
+                SOME(doCall(1, s)) handle OS.SysErr _ => NONE
         end
     
         local
@@ -184,7 +184,7 @@ in
                  = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getByAddr n =
-                SOME(doCall(2, n)) handle _ => NONE
+                SOME(doCall(2, n)) handle OS.SysErr _ => NONE
         end
     
         val scan = scan
@@ -218,7 +218,7 @@ in
                  = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getByName s =
-                SOME(doCall(9, s)) handle _ => NONE
+                SOME(doCall(9, s)) handle OS.SysErr _ => NONE
         end
     
         local
@@ -226,7 +226,7 @@ in
                  = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
         in
             fun getByAddr (n, af) =
-                SOME(doCall(10, (n, af))) handle _ => NONE
+                SOME(doCall(10, (n, af))) handle OS.SysErr _ => NONE
         end
 
         (* The definition of NetDB.scan is very vague.  Assume it's

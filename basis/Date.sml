@@ -109,7 +109,7 @@ struct
 
     (* Convert a month number to the enumerated type. *)
     fun monthNoToMonth n =
-        Vector.sub(monthVec, n) handle _ => raise Date (* Should never happen *)
+        Vector.sub(monthVec, n) handle Subscript => raise Date (* Should never happen *)
 
     fun isLeapYear l =
         if l mod 100 = 0 then (l div 100) mod 4 = 0 else l mod 4 = 0
@@ -525,7 +525,7 @@ struct
     in
         callTiming 6 (newFormat, year, month, day, hour, minute, second,
             dayOfWeek date, yearDay date, summer)
-            handle _ => raise Date
+            handle RunCall.Size => raise Date
     end
 end;
 

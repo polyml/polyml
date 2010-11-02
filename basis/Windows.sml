@@ -470,7 +470,7 @@ struct
     local
         val winCall = RunCall.run_call2 POLY_SYS_os_specific
     in
-        fun findExecutable s = SOME(winCall(1033, s)) handle _ => NONE
+        fun findExecutable s = SOME(winCall(1033, s)) handle OS.SysErr _ => NONE
     end
 
     local

@@ -187,7 +187,7 @@ struct
     val op + : (time * time) -> time = Int.+
     val op - : (time * time) -> time = Int.-
 
-    fun now () = callTiming 1 0 handle _ => raise Time
+    fun now () = callTiming 1 0 handle RunCall.SysErr _ => raise Time
 
 end;
 

@@ -350,7 +350,7 @@ struct
                     Int.toString exp
                 (* Convert it to a real using the RTS conversion function.
                    Change any Conversion exceptions into Domain. *)
-                val result = realConv str handle _ => raise General.Domain
+                val result = realConv str handle RunCall.Conversion _ => raise General.Domain
             in
                 if sign then SOME (~result) else SOME result
             end 

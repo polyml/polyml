@@ -43,7 +43,7 @@ struct
              = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun getByName s =
-            SOME(doCall(3, s)) handle _ => NONE
+            SOME(doCall(3, s)) handle OS.SysErr _ => NONE
     end
 
     local
@@ -51,7 +51,7 @@ struct
              = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
     in
         fun getByNumber n =
-            SOME(doCall(4, n)) handle _ => NONE
+            SOME(doCall(4, n)) handle OS.SysErr _ => NONE
     end
 
 end;

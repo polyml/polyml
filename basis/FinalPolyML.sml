@@ -980,7 +980,7 @@ local
     
     fun fileReadable (fileTuple as (directory, object)) =
         (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
-        if (OS.FileSys.isDir (longName fileTuple); false) handle _ => true
+        if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
         then false
         else
         let
@@ -1027,7 +1027,7 @@ local
     
     (* See if the corresponding file is there and if it is a directory. *)
     fun testForDirectory (name: string) : bool =
-        OS.FileSys.isDir name handle _ => false (* No such file. *)
+        OS.FileSys.isDir name handle OS.SysErr _ => false (* No such file. *)
 
     (* Time stamps. *)
     type timeStamp = Time.time;

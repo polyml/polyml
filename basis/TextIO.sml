@@ -646,7 +646,7 @@ structure TextIO :> TEXT_IO = struct
                 let
                     (* The call to sys_avail can raise an exception if the file is a
                        special device e.g. in the /proc filing system on Linux. *)
-                    val charsAvailable = sys_avail descr handle _ => 0
+                    val charsAvailable = sys_avail descr handle OS.SysErr _ => 0
                     (* If it's less than the blocksize get a block.  This way we
                        always get a reasonable amount if "avail" is giving us a
                        small amount. *)

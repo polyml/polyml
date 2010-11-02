@@ -126,7 +126,7 @@ struct
     fun getRandAccessFns n =
     let
         val isRandomAccess =
-            ((sys_get_pos n; true) handle _ => false)
+            ((sys_get_pos n; true) handle OS.SysErr _ => false)
         val getPos =
             if isRandomAccess
             then SOME(fn () => sys_get_pos n)
@@ -221,7 +221,7 @@ struct
         fun avail () =
         let
             (* If we get an exception or a negative number return NONE. *)
-            val v = sys_avail fd handle _ => ~1
+            val v = sys_avail fd handle OS.SysErr _ => ~1
         in
             if v >= 0 then SOME v else NONE
         end
@@ -336,7 +336,7 @@ struct
         fun avail () =
         let
             (* If we get an exception or a negative number return NONE. *)
-            val v = sys_avail fd handle _ => ~1
+            val v = sys_avail fd handle  OS.SysErr _ => ~1
         in
             if v >= 0 then SOME v else NONE
         end

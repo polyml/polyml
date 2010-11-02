@@ -822,8 +822,9 @@ struct
                 (* The result is zero if it returns successfully.  If
                    an exception is raised we return the remaining
                    time.  We assume that this only happens because
-                   the process is interrupted. *)
-                (doCall(22, finish); Time.zeroTime) handle _ => 
+                   the process is interrupted.  We don't handle the
+                   Interrupt exception, though. *)
+                (doCall(22, finish); Time.zeroTime) handle OS.SysErr _ => 
                     endTime finish
             end
         end
