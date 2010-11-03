@@ -160,7 +160,6 @@ inline bool IsDataAddress(PolyWord p)
     return space != 0 && space->spaceType != ST_IO;
 }
 
-
 DepthVector *AddDepth(POLYUNSIGNED depth)
 {
     if (depth >= depthVectorSize) {
@@ -436,10 +435,12 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
     if (OBJ_IS_MUTABLE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L) || OBJ_IS_CODE_OBJECT(L))
     {
+        // Add these at depth zero.  This allows us to restore the length words.
+        // N.B.  We need to add this BEFORE scanning it in case scanning raises
+        // an exception and we need to restore the length words.
+        AddToVector (0, L, old.AsObjPtr());
         // These always have depth 0.  We still have to process any addresses within them.
         ScanAddressesInObject(obj, L);
-        // Add these at depth zero.  This allows us to restore the length words.
-        AddToVector (0, L, old.AsObjPtr());
         return 0;
     }
 
@@ -447,17 +448,25 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     POLYUNSIGNED depth = 0;
     POLYUNSIGNED n  = OBJ_OBJECT_LENGTH(L);
     PolyWord     *pt = (PolyWord*)obj;
-    // Process all the values in this object and calculate the maximum depth.
-    for(POLYUNSIGNED i = 0; i < n; i++)
-    {
-        POLYUNSIGNED d = AddObjectsToDepthVectors(*pt);
-        if (d > depth) depth = d;
-        pt++;
+
+    try {
+        // Process all the values in this object and calculate the maximum depth.
+        for(POLYUNSIGNED i = 0; i < n; i++)
+        {
+            POLYUNSIGNED d = AddObjectsToDepthVectors(*pt);
+            if (d > depth) depth = d;
+            pt++;
+        }
+        depth++; // Plus one for this object.
+        obj->SetLengthWord(OBJ_SET_DEPTH(depth));// set genuine depth.
+        AddToVector (depth, L, old.AsObjPtr());// add to vector at correct depth
+    } catch (...) {
+        // We haven't added it to the depth vector yet or adding failed.
+        // Restore the length field now.
+        obj->SetLengthWord(L);
+        throw;
     }
 
-    depth++; // Plus one for this object.
-    obj->SetLengthWord(OBJ_SET_DEPTH(depth));// set genuine depth.
-    AddToVector (depth, L, old.AsObjPtr());// add to vector at correct depth
     return depth;
 }
 
@@ -496,7 +505,9 @@ bool RunShareData(PolyObject *root)
         while (depthVectorSize > 0)
         {
             depthVectorSize--;
-            free(depthVectors[depthVectorSize].vector);
+            DepthVector *v = &depthVectors[depthVectorSize];
+            RestoreLengthWords(v);
+            free(v->vector);
         }
         free(depthVectors);
         depthVectors = 0;
