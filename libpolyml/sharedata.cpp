@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006
+    and David C. J. Matthews 2006, 2010
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -483,6 +483,7 @@ bool RunShareData(PolyObject *root)
     POLYUNSIGNED totalShared  = 0;
     
     depthVectors = 0;
+    depthVectorSize = 0;
 
     // Build the vectors from the immutable objects.
     ProcessAddToVector addToVector;
@@ -568,6 +569,9 @@ bool RunShareData(PolyObject *root)
         RestoreLengthWords(v);
         free(v->vector);
     }
+
+    free(depthVectors);
+    depthVectors = 0;
 
     if (verbose)
     {
