@@ -297,7 +297,10 @@ static POLYUNSIGNED GetObjLength(PolyObject *obj)
             obj->SetLengthWord(length);
         return length;
     }
-    else return obj->LengthWord();
+    else {
+        ASSERT(obj->ContainsNormalLengthWord());
+        return obj->LengthWord();
+    }
 }
 
 static void FixForwarding(PolyWord *pt, POLYUNSIGNED space)
@@ -308,6 +311,7 @@ static void FixForwarding(PolyWord *pt, POLYUNSIGNED space)
         PolyObject *obj = (PolyObject*)pt;
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(GetObjLength(obj));
         pt += length;
+        ASSERT(space > length);
         space -= length+1;
     }
 }
