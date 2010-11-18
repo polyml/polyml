@@ -5717,8 +5717,6 @@ static Handle OpenDisplay(TaskData *taskData, PolyStringObject *string)
     
     Poly_string_to_C(string,name,sizeof(name));
     
-    if (userOptions.noDisplay) RaiseXWindows(taskData, "XOpenDisplay failed");
-    
     display = XOpenDisplay(name);
     
     if (display == 0) RaiseXWindows(taskData, "XOpenDisplay failed");
@@ -6197,8 +6195,6 @@ static Handle AppInitialise
     Poly_string_to_C(s1,displayName ,sizeof(displayName));
     Poly_string_to_C(s2,appName     ,sizeof(appName));
     Poly_string_to_C(s3,appClass    ,sizeof(appClass));
-    
-    if (userOptions.noDisplay) RaiseXWindows(taskData, "XtAppInitialise failed (-noDisplay specified)");
     
     app_context = XtCreateApplicationContext();
     

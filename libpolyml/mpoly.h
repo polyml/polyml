@@ -30,7 +30,6 @@ extern struct _userOptions {
     char        **user_arg_strings;
     const char  *programName;
     unsigned    debug;              /* debugging  flags                       */
-    bool        noDisplay;          /* X display flag                         */
 } userOptions;
 
 // Values for debugging flags

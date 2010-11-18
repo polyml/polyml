@@ -115,7 +115,6 @@ int polymain(int argc, char **argv, exportDescription *exports)
     
     char *importFileName = 0;
     userOptions.debug       = 0;
-    userOptions.noDisplay   = false;
 
     userOptions.user_arg_count   = 0;
     userOptions.user_arg_strings = (char**)malloc(argc * sizeof(char*)); // Enough room for all of them
