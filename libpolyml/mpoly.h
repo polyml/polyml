@@ -30,6 +30,7 @@ extern struct _userOptions {
     char        **user_arg_strings;
     const char  *programName;
     unsigned    debug;              /* debugging  flags                       */
+    unsigned    gcthreads;    // Number of threads to use for gc
 } userOptions;
 
 // Values for debugging flags

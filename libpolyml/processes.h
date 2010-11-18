@@ -247,6 +247,8 @@ public:
     virtual void SetSingleThreaded(void) = 0;
 };
 
+// Return the number of processors.  Used when configuring multi-threaded GC.
+extern unsigned NumberOfProcessors(void);
 
 extern ProcessExternal *processes;
 

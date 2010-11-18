@@ -38,4 +38,8 @@ extern void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned 
 
 extern bool convertedWeak;
 
+extern POLYUNSIGNED GetPhysicalMemorySize(void);
+
+extern bool doMultithreadGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate);
+
 #endif

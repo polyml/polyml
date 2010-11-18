@@ -630,30 +630,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
     case 13: // Return the number of processors.
         // Returns 1 if there is any problem.
-        {
-#ifdef WIN32
-            SYSTEM_INFO info;
-            memset(&info, 0, sizeof(info));
-            GetSystemInfo(&info);
-            if (info.dwNumberOfProcessors == 0) // Just in case
-                info.dwNumberOfProcessors = 1;
-            return Make_unsigned(taskData, info.dwNumberOfProcessors);
-#elif(defined(_SC_NPROCESSORS_ONLN))
-            long res = sysconf(_SC_NPROCESSORS_ONLN);
-            if (res <= 0) res = 1;
-            return Make_arbitrary_precision(taskData, res);
-#elif(defined(HAVE_SYSCTL) && defined(CTL_HW) && defined(HW_NCPU))
-            static int mib[2] = { CTL_HW, HW_NCPU };
-            int nCPU = 1;
-            size_t len = sizeof(nCPU);
-            if (sysctl(mib, 2, &nCPU, &len, NULL, 0) == 0 && len == sizeof(nCPU))
-                 return Make_unsigned(taskData, nCPU);
-            else return Make_unsigned(taskData, 1);
-#else
-            // Can't determine.
-            return Make_unsigned(taskData, 1);
-#endif
-        }
+        return Make_unsigned(taskData, NumberOfProcessors());
 
     default:
         {
@@ -1897,4 +1874,31 @@ void ProcessTaskData::GarbageCollect(ScanAddress *process)
         if (allocSize < MIN_HEAP_SIZE)
             allocSize = MIN_HEAP_SIZE;
     }
+}
+
+// Return the number of processors.  Used when configuring multi-threaded GC.
+extern unsigned NumberOfProcessors(void)
+{
+#ifdef WIN32
+        SYSTEM_INFO info;
+        memset(&info, 0, sizeof(info));
+        GetSystemInfo(&info);
+        if (info.dwNumberOfProcessors == 0) // Just in case
+            info.dwNumberOfProcessors = 1;
+        return info.dwNumberOfProcessors;
+#elif(defined(_SC_NPROCESSORS_ONLN))
+        long res = sysconf(_SC_NPROCESSORS_ONLN);
+        if (res <= 0) res = 1;
+        return res;
+#elif(defined(HAVE_SYSCTL) && defined(CTL_HW) && defined(HW_NCPU))
+        static int mib[2] = { CTL_HW, HW_NCPU };
+        int nCPU = 1;
+        size_t len = sizeof(nCPU);
+        if (sysctl(mib, 2, &nCPU, &len, NULL, 0) == 0 && len == sizeof(nCPU))
+             return nCPU;
+        else return 1;
+#else
+        // Can't determine.
+        return 1;
+#endif
 }

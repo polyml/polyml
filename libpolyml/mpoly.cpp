@@ -86,6 +86,7 @@ UNSIGNEDADDR exportTimeStamp;
 
 static unsigned hsize, isize, msize, rsize;
 static bool heapMax = false;
+static unsigned gcthreads = 0;
 
 struct __argtab {
     const char *argName, *argHelp;
@@ -97,6 +98,7 @@ struct __argtab {
     { "--immutable",    "Initial size of immutable buffer (MB)", 1024,   &isize },
     { "--mutable",      "Initial size of mutable buffer(MB)",    1024,   &msize },
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",1024,   &rsize },
+    { "--gcthreads",    "Number of threads to use for garbage collection",1,   &userOptions.gcthreads },
     { "--debug",        "Debug options",                         1,      &userOptions.debug }
 };
 
@@ -105,6 +107,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
 {
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
+    userOptions.gcthreads = 1; // Single threaded
 
     // Get the program name for CommandLine.name.  This is allowed to be a full path or
     // just the last component so we return whatever the system provides.
@@ -163,6 +166,11 @@ int polymain(int argc, char **argv, exportDescription *exports)
 
     if (exports == 0 && importFileName == 0)
         Usage("Missing import file name");
+
+    if (userOptions.gcthreads == 0)
+        // For the moment, at any rate, indicate that we should use as many
+        // threads as there are processors by a thread count of zero.
+        userOptions.gcthreads = NumberOfProcessors();
    
     /* initialise the run-time system before opening the database */
     init_run_time_system();

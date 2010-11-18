@@ -1,7 +1,10 @@
 /*
-    Title:      Garbage Collector
+    Title:      Multi-Threaded Garbage Collector
 
-    Copyright (c) 2000-8
+    Copyright (c) 2010 David C. J. Matthews
+
+    Based on the original garbage collector code
+        Copyright 2000-2008
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -70,11 +73,6 @@ static unsigned long    immutableFreeSpace, mutableFreeSpace;
 static unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 
 static bool dontFreeSpace; // Temporary for testing.
-
-// If the GC converts a weak ref from SOME to NONE it sets this ref.  It can be
-// cleared by the signal handler thread.  There's no need for a lock since it
-// is only set during GC and only cleared when not GCing.
-bool convertedWeak = false;
 
 /*
     How the garbage collector works.
@@ -243,95 +241,6 @@ inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area-
 inline PolyWord *BIT_ADDR(LocalMemSpace *area, POLYUNSIGNED bitno) { return area->bottom + bitno; }
 
 
-void CopyStackFrame(StackObject *old_stack, StackObject *new_stack)
-{
-  /* Moves a stack, updating all references within the stack */
-    PolyWord *old_base  = (PolyWord *)old_stack;
-    PolyWord *new_base = (PolyWord*)new_stack;
-    POLYUNSIGNED old_length = old_stack->Length();
-    POLYUNSIGNED new_length = new_stack->Length();
-    PolyWord        *old_top    = old_base + old_length;
-
-    CheckObject (old_stack);
-
-    ASSERT (old_stack->IsStackObject());
-    ASSERT (new_stack->IsStackObject());
-#if 0
-    /* This doesn't hold if we a copying a "frozen" stack on system start-up */
-    ASSERT (OBJ_IS_MUTABLE_OBJECT(old_base[-1]));
-#endif
-    ASSERT (new_stack->IsMutable());
-
-    /* Calculate the offset of the new stack from the old. If the frame is
-       being extended objects in the new frame will be further up the stack
-       than in the old one. */
-
-    POLYSIGNED offset = new_base - old_base + new_length - old_length;
-
-    /* Copy the registers, changing any that point into the stack. */
-
-    new_stack->p_space = old_stack->p_space;
-    new_stack->p_pc    = old_stack->p_pc;
-    new_stack->p_sp    = old_stack->p_sp + offset;
-    new_stack->p_hr    = old_stack->p_hr + offset;
-    new_stack->p_nreg  = old_stack->p_nreg;
-
-    /* p_nreg contains contains the number of CHECKED registers */
-//    ASSERT(new_stack->p_nreg == CHECKED_REGS);
-
-    POLYUNSIGNED i;
-    for (i = 0; i < new_stack->p_nreg; i++)
-    {
-        PolyWord R = old_stack->p_reg[i];
-
-        /* if the register points into the old stack, make the new copy
-           point at the same relative offset within the new stack,
-           otherwise make the new copy identical to the old version. */
-
-        if (R.IsTagged() || ! INRANGE(R.AsAddress(),old_base,old_top))
-            new_stack->p_reg[i] = R;
-        else new_stack->p_reg[i] = PolyWord::FromStackAddr(R.AsStackAddr() + offset);
-    }
-
-    /* Copy unchecked registers. - The next "register" is the number of
-       unchecked registers to copy. Unchecked registers are used for 
-       values that might look like addresses, i.e. don't have tag bits, 
-       but are not. */
-
-    POLYUNSIGNED n = old_stack->p_reg[i].AsUnsigned();
-    new_stack->p_reg[i] = old_stack->p_reg[i];
-    i++;
-    ASSERT (n < 100);
-    while (n--)
-    { 
-        new_stack->p_reg[i] = old_stack->p_reg[i];
-        i++;
-    }
-
-    /* Skip the unused part of the stack. */
-
-    i = (PolyWord*)old_stack->p_sp - old_base;
-
-    ASSERT (i <= old_length);
-
-    i = old_length - i;
-
-    PolyWord *old = old_stack->p_sp;
-    PolyWord *newp= new_stack->p_sp;
-
-    while (i--)
-    {
-        PolyWord old_word = *old++;
-        if (old_word.IsTagged() || ! INRANGE(old_word.AsAddress(),old_base,old_top))
-            *newp++ = old_word;
-        else
-            *newp++ = PolyWord::FromStackAddr(old_word.AsStackAddr() + offset);
-    }
-
-    CheckObject (new_stack);
-}
-
-
 /**************************************************************************/
 /* This function finds all the mutable objects in the local mutable area. */
 /* These are scanned since they may contain references into the gc area.  */
@@ -356,7 +265,7 @@ static void OpMutables(ScanAddress *process)
     }
 }
 
-class ProcessMarkPointers: public ScanAddress
+class MTGCProcessMarkPointers: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return DoScanAddressAt(pt, false); }
@@ -370,7 +279,7 @@ private:
 };
 
 // Mark all pointers in the heap.
-POLYUNSIGNED ProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
+POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 {
     PolyWord val = *pt;
     CheckPointer (val);
@@ -422,7 +331,7 @@ POLYUNSIGNED ProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 
 // The initial entry to process the roots.  Also used when processing the addresses
 // in objects that can't be handled by ScanAddressAt.
-PolyObject *ProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
+PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 {
     PolyWord val = obj;
     LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
@@ -466,7 +375,7 @@ PolyObject *ProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 // Weak references can occur in the runtime system, eg. streams and windows.
 // Weak references are not marked and so unreferenced streams and windows
 // can be detected and closed.
-void ProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
+void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 {
     PolyObject *val = *pt;
     CheckPointer (val);
@@ -487,7 +396,7 @@ void ProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 
 // This is called both for objects in the local heap and also for mutables
 // in the permanent area and, for partial GCs, for mutables in other areas.
-void ProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L)
+void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L)
 {
     if (OBJ_IS_WEAKREF_OBJECT(L))
     {
@@ -510,7 +419,7 @@ void ProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L
 }
 
 // Check for weak references that are no longer referenced.
-class CheckWeakRef: public ScanAddress {
+class MTGCCheckWeakRef: public ScanAddress {
 public:
     void ScanAreas(void);
 private:
@@ -521,7 +430,7 @@ private:
 };
 
 // This deals with weak references within the run-time system.
-void CheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
+void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 {
     /* If the object has not been marked and this is only a weak reference */
     /* then the pointer is set to zero. This allows streams or windows     */
@@ -546,7 +455,7 @@ void CheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 }
 
 // Deal with weak objects
-void CheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
+void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
 {
     if (! OBJ_IS_WEAKREF_OBJECT(L)) return;
     ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
@@ -593,7 +502,7 @@ void CheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
 // weak refs in the area we're collecting even if they are not
 // actually reachable any more.  N.B.  This differs from OpMutables
 // because it also scans the area we're collecting.
-void CheckWeakRef::ScanAreas(void)
+void MTGCCheckWeakRef::ScanAreas(void)
 {
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
@@ -610,7 +519,7 @@ void CheckWeakRef::ScanAreas(void)
     }
 }
 
-class ProcessUpdate: public ScanAddress
+class MTGCProcessUpdate: public ScanAddress
 {
 public:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
@@ -624,7 +533,7 @@ public:
 /* This function is called in the update phase to update pointers to */
 /* objects in the gc area that are in old mutable segments.          */
 /*********************************************************************/
-PolyObject *ProcessUpdate::ScanObjectAddress(PolyObject *obj)
+PolyObject *MTGCProcessUpdate::ScanObjectAddress(PolyObject *obj)
 {
     PolyWord val = obj;
 
@@ -640,7 +549,7 @@ PolyObject *ProcessUpdate::ScanObjectAddress(PolyObject *obj)
     return obj;
 }
 
-void ProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/)
+void MTGCProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/)
 /* weak is not used, but needed so type of the function is correct */
 {
     PolyWord w = *pt;
@@ -732,7 +641,7 @@ static inline POLYUNSIGNED FindFreeInArea(LocalMemSpace *dst, POLYUNSIGNED limit
 
 // This does nothing to the addresses but by applying it in ScanConstantsWithinCode we
 // adjust any relative addresses so they are relative to the new location.
-class ProcessIdentity: public ScanAddress {
+class MTGCProcessIdentity: public ScanAddress {
 public:
    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 };
@@ -881,7 +790,7 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
             // that might previously have been at this address
             if (OBJ_IS_CODE_OBJECT(L))
             {
-                ProcessIdentity identity;
+                MTGCProcessIdentity identity;
                 machineDependent->FlushInstructionCache(newp, n * sizeof(PolyWord));
                 // We have to update any relative addresses in the code.
                 machineDependent->ScanConstantsWithinCode(newObj, obj, OBJ_OBJECT_LENGTH(L), &identity);
@@ -896,7 +805,7 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
 }
 
 // Update the addresses in a group of words.
-POLYUNSIGNED ProcessUpdate::ScanAddressAt(PolyWord *pt)
+POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
 {
     PolyWord val = *pt;
     Check (val);
@@ -936,7 +845,7 @@ POLYUNSIGNED ProcessUpdate::ScanAddressAt(PolyWord *pt)
 
 // Updates the addresses for objects in the area with the "allocated" bit set.
 // It processes the area between area->pointer and the bit corresponding to area->highest.
-void ProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
+void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 {
     PolyWord *pt      = area->pointer;
     POLYUNSIGNED   bitno   = BITNO(area, pt);
@@ -1252,7 +1161,7 @@ static int RecollectThisGeneration(unsigned thisGeneration)
     return updated * 2 < total; // Less than 50% updated
 }
 
-static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
+bool doMultithreadGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
 {
     /* Invariant: the bitmaps are completely clean. */
     /* Note: this version of doGC does NOT clean the store 
@@ -1337,7 +1246,7 @@ GC_AGAIN:
     }
     
     /* Do the actual marking */
-    ProcessMarkPointers marker;
+    MTGCProcessMarkPointers marker;
     OpMutables(&marker);
     OpGCProcs(&marker);
     /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty here. */
@@ -1354,7 +1263,7 @@ GC_AGAIN:
     mainThreadPhase = MTP_GCPHASECOMPACT;
     
     /* Detect unreferenced streams, windows etc. */
-    CheckWeakRef checkRef;
+    MTGCCheckWeakRef checkRef;
     OpGCProcs(&checkRef);
     checkRef.ScanAreas();
 
@@ -1573,7 +1482,7 @@ GC_AGAIN:
     for(j = 0; j < gMem.nlSpaces; j++)
         gMem.lSpaces[j]->updated = 0;
        
-    ProcessUpdate processUpdate;
+    MTGCProcessUpdate processUpdate;
     OpMutables(&processUpdate);
 
     for(j = 0; j < gMem.nlSpaces; j++)
@@ -1740,263 +1649,5 @@ GC_AGAIN:
     
     /* Invariant: the bitmaps are completely clean */
     return true; // Completed
-}
-
-// Return the physical memory size.  Returns the maximum unsigned integer value if
-// it won't .
-#if defined(HAVE_WINDOWS_H)
-
-// Define this here rather than attempting to use MEMORYSTATUSEX since
-// it may not be in the include and we can't easily test.  The format
-// of MEMORYSTATUSVLM is the same.
-typedef struct _MyMemStatusEx {
-    DWORD dwLength;
-    DWORD dwMemoryLoad;
-    DWORDLONG ullTotalPhys;
-    DWORDLONG ullAvailPhys;
-    DWORDLONG ullTotalPageFile;
-    DWORDLONG ullAvailPageFile;
-    DWORDLONG ullTotalVirtual;
-    DWORDLONG ullAvailVirtual;
-    DWORDLONG ullAvailExtendedVirtual;
-} MyMemStatusEx;
-
-typedef VOID (WINAPI *GLOBALMEMSLVM)(MyMemStatusEx *);
-typedef BOOL (WINAPI *GLOBALMEMSEX)(MyMemStatusEx *);
-#endif
-
-
-POLYUNSIGNED GetPhysicalMemorySize(void)
-{
-    POLYUNSIGNED maxMem = 0-1; // Maximum unsigned value.  
-#if defined(HAVE_WINDOWS_H)
-    {
-        // This is more complicated than it needs to be.  GlobalMemoryStatus
-        // returns silly values if there is more than 4GB so GlobalMemoryStatusEx
-        // is preferred.  However, it is not in all the include files and may not
-        // be in kernel32.dll in pre-XP versions.  Furthermore at one point it was
-        // called GlobalMemoryStatusVlm.  The only way to do this portably is the
-        // hard way.
-        HINSTANCE hlibKernel = LoadLibrary("kernel32.dll");
-        if (hlibKernel)
-        {
-            MyMemStatusEx memStatEx;
-            memset(&memStatEx, 0, sizeof(memStatEx));
-            memStatEx.dwLength = sizeof(memStatEx);
-            GLOBALMEMSEX globalMemStatusEx =
-                (GLOBALMEMSEX)GetProcAddress(hlibKernel, "GlobalMemoryStatusEx");
-            GLOBALMEMSLVM globalMemStatusVlm =
-                (GLOBALMEMSLVM)GetProcAddress(hlibKernel, "GlobalMemoryStatusVlm");
-            if (globalMemStatusEx && ! (*globalMemStatusEx)(&memStatEx))
-                memStatEx.ullTotalPhys = 0; // Clobber any rubbish since it says it failed.
-            else if (globalMemStatusVlm)
-                // GlobalMemoryStatusVlm returns VOID so we assume it worked
-                (*globalMemStatusVlm) (&memStatEx);
-            FreeLibrary(hlibKernel);
-            if (memStatEx.ullTotalPhys) // If it's non-zero assume it succeeded
-            {
-                DWORDLONG dwlMax = maxMem;
-                if (memStatEx.ullTotalPhys > dwlMax)
-                    return maxMem;
-                else
-                    return (POLYUNSIGNED)memStatEx.ullTotalPhys;
-           }
-        }
-        // Fallback if that fails.
-
-        MEMORYSTATUS memStatus;
-        memset(&memStatus, 0, sizeof(memStatus));
-        GlobalMemoryStatus(&memStatus);
-        if (memStatus.dwTotalPhys > maxMem)
-            return maxMem;
-        else
-            return (POLYUNSIGNED)memStatus.dwTotalPhys;
-    }
-
-#endif
-#if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
-    {
-        // Linux and Solaris.  This gives a silly value in Cygwin.
-        long physPages      = sysconf(_SC_PHYS_PAGES);
-        long physPagesize   = sysconf(_SC_PAGESIZE);
-        if (physPages != -1 && physPagesize != -1)
-        {
-            unsigned long maxPages = maxMem / physPagesize;
-            if ((unsigned long)physPages > maxPages)
-                return maxMem;
-            else // We've checked it won't overflow.
-                return physPages*physPagesize;
-        }
-    }
-#endif
-#if defined(HAVE_SYSCTL) && defined(CTL_HW)
-    // FreeBSD and Mac OS X.  It seems HW_MEMSIZE has been added to
-    // Max OS X to return a 64-bit value.
-#ifdef HW_MEMSIZE
-    {
-        static int mib[2] = { CTL_HW, HW_MEMSIZE };
-        uint64_t physMem = 0;
-        size_t len = sizeof(physMem);
-        if (sysctl(mib, 2, &physMem, &len, NULL, 0) == 0 && len == sizeof(physMem))
-        {
-            if (physMem > (uint64_t)maxMem)
-                return maxMem;
-            else
-                return (POLYUNSIGNED)physMem;
-        }
-    }
-#endif
-#ifdef HW_PHYSMEM
-    // If HW_MEMSIZE isn't there or the call failed try this.
-    {
-        static int mib[2] = { CTL_HW, HW_PHYSMEM };
-        unsigned int physMem = 0;
-        size_t len = sizeof(physMem);
-        if (sysctl(mib, 2, &physMem, &len, NULL, 0) == 0 && len == sizeof(physMem))
-        {
-            if (physMem > maxMem)
-                return maxMem;
-            else
-                return physMem;
-        }
-    }
-#endif
-#endif
-    return 0; // Unable to determine
-}
-
-/* This macro must make a whole number of chunks */
-#define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
-
-// Create the initial heap.  hsize, isize and msize are the requested heap sizes
-// from the user arguments in units of kbytes.
-// Fills in the defaults and attempts to allocate the heap.  If the heap size
-// is too large it allocates as much as it can.  The default heap size is half the
-// physical memory.
-void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, bool heapMax)
-{
-    // If no -H option was given set the default initial size to half the memory.
-    if (hsize == 0) {
-        POLYUNSIGNED memsize = GetPhysicalMemorySize();
-        if (memsize == 0) // Unable to determine memory size so default to 64M.
-            memsize = 64 * 1024 * 1024;
-        hsize = memsize / 2 / 1024;
-    }
-    
-    if (hsize < isize) hsize = isize;
-    if (hsize < msize) hsize = msize;
-    
-    if (msize == 0) msize = 4 * 1024 + hsize / 5;  /* set default mutable buffer size */
-    if (isize == 0) isize = hsize - msize;  /* set default immutable buffer size */
-    
-    // Set the heap size and segment sizes.  We allocate in units of this size,
-    heapSize           = K_to_words(hsize);
-    immutableSegSize   = K_to_words(isize);
-    mutableSegSize     = K_to_words(msize);
-    gMem.SetReservation(K_to_words(rsize));
-
-    // Try allocating the space.  If it fails try something smaller.
-    LocalMemSpace *iSpace = 0, *mSpace = 0;
-
-    while (iSpace == 0 || mSpace == 0) {
-        if (iSpace != 0) { gMem.DeleteLocalSpace(iSpace); iSpace = 0; }
-        if (mSpace != 0) { gMem.DeleteLocalSpace(mSpace); mSpace = 0; }
-        // Allocate the reservation space.
-
-
-        // Immutable space
-        POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
-        iSpace = gMem.NewLocalSpace(immutSize, false);
-        // Mutable space
-        POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
-        mSpace = gMem.NewLocalSpace(mutSize, true);
-
-        if (iSpace == 0 || mSpace == 0)
-        {
-            if (immutableSegSize < 1024 || mutableSegSize < 512) {
-                // Too small to be able to run.
-                Exit("Insufficient memory to allocate the heap");
-            }
-            // Make both spaces smaller.  It may be that there's space for one but not both.
-            immutableSegSize = immutableSegSize/2;
-            mutableSegSize = mutableSegSize/2;
-        }
-    }
-    // Heap allocation has succeeded.
-
-    if (heapMax) {
-        // Testing only.  Get as much space as possible.  The idea is to simulate the
-        // situation where the heap has grown until the memory is exhausted.
-        dontFreeSpace = true;
-        unsigned long    segSize = immutableSegSize;
-        // Allocate immutable segments until the heap is exhausted.
-        while (segSize > 1024) {
-            LocalMemSpace *iSpace = 0;
-            // Immutable space
-            POLYUNSIGNED immutSize = ROUNDDOWN(segSize, BITSPERWORD);
-            iSpace = gMem.NewLocalSpace(immutSize, false);
-            if (iSpace == 0) segSize = segSize/2;
-        }
-    }
-
-    // The space we need to have free at the end of a partial collection.  If we have less
-    // than this we do a full GC.
-    // For an immutable area this is zero.  For the mutable area, though, this is 80% of the
-    // mutable segment size since we allocate new objects in the mutable area and this
-    // determines how soon we will need to do another GC.
-    immutableMinFree = 0;
-    mutableMinFree = mutableSegSize - mutableSegSize / 5;
-
-    // This is the space we try to have free at the end of a major collection.  If
-    // we have less than this we allocate another segment.
-    immutableFreeSpace = immutableSegSize/2; // 50% full
-    if (immutableFreeSpace < immutableMinFree)
-        immutableFreeSpace = immutableMinFree;
-    // For the mutable area it is 90% of the segment size.
-    mutableFreeSpace   = mutableSegSize - mutableSegSize/10;
-    if (mutableFreeSpace < mutableMinFree)
-        mutableFreeSpace = mutableMinFree;
-}
-
-class FullGCRequest: public MainThreadRequest
-{
-public:
-    FullGCRequest(): MainThreadRequest(MTP_GCPHASEMARK) {}
-    virtual void Perform()
-    {
-        if (userOptions.gcthreads == 1) doGC (true,0);
-        else doMultithreadGC(true, 0);
-    }
-};
-
-class QuickGCRequest: public MainThreadRequest
-{
-public:
-    QuickGCRequest(POLYUNSIGNED words): MainThreadRequest(MTP_GCPHASEMARK), wordsRequired(words) {}
-
-    virtual void Perform()
-    {
-        if (userOptions.gcthreads == 1) result = doGC (false, wordsRequired);
-        else result = doMultithreadGC(false, wordsRequired); 
-    }
-
-    bool result;
-    POLYUNSIGNED wordsRequired;
-};
-
-// Perform a full garbage collection.  This is called either from ML via the full_gc RTS call
-// or from various RTS functions such as open_file to try to recover dropped file handles.
-void FullGC(TaskData *taskData)
-{
-    FullGCRequest request;
-    processes->MakeRootRequest(taskData, &request);
-}
-
-// This is the normal call when memory is exhausted and we need to garbage collect.
-bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequiredToAllocate)
-{
-    QuickGCRequest request(wordsRequiredToAllocate);
-    processes->MakeRootRequest(taskData, &request);
-    return request.result;
 }
 
