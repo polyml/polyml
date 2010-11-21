@@ -86,7 +86,6 @@ UNSIGNEDADDR exportTimeStamp;
 
 static unsigned hsize, isize, msize, rsize;
 static bool heapMax = false;
-static unsigned gcthreads = 0;
 
 struct __argtab {
     const char *argName, *argHelp;
