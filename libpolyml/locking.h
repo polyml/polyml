@@ -37,6 +37,10 @@
 #include <windows.h>
 #endif
 
+#ifdef HAVE_SEMAPHORE_H
+#include <semaphore.h>
+#endif
+
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
 // Don't include pthread if this is native Windows and not Cygwin
 #include <pthread.h>
@@ -91,6 +95,23 @@ private:
 #elif defined(HAVE_WINDOWS_H)
     HANDLE cond;
     CRITICAL_SECTION *plock;
+#endif
+};
+
+// Semaphore.  Wrapper for Posix semaphore or Windows semaphore.
+class PSemaphore {
+public:
+    PSemaphore();
+    ~PSemaphore();
+    bool Init(unsigned init, unsigned max);
+    bool Wait(void);
+    void Signal(void);
+private:
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+    sem_t localSema, *sema;
+    bool isLocal;
+#elif defined(HAVE_WINDOWS_H)
+    HANDLE sema;
 #endif
 };
 

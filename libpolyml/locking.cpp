@@ -53,6 +53,30 @@
 #include <time.h>
 #endif
 
+#ifdef HAVE_SEMAPHORE_H
+#include <semaphore.h>
+#endif
+
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
+#ifdef HAVE_STDIO_H
+#include <stdio.h>
+#endif
+
 #include "locking.h"
 
 PLock::PLock()
@@ -210,5 +234,88 @@ void PCondVar::Signal(void)
     SetEvent(cond);
 #endif
 }
+
+
+// Initialise a semphore.  Tries to create an unnamed semaphore if
+// it can but tries a named semaphore if it can't.  Mac OS X only
+// supports named semaphores.
+// The semaphore is initialised with a count of zero.
+PSemaphore::PSemaphore()
+{
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+    sema = 0;
+    isLocal = true;
+#elif defined(HAVE_WINDOWS_H)
+    sema = NULL;
+#endif
+}
+
+PSemaphore::~PSemaphore()
+{
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+    if (sema && isLocal) sem_destroy(sema);
+    else if (sema && !isLocal) sem_close(sema);
+#elif defined(HAVE_WINDOWS_H)
+    if (sema != NULL) CloseHandle(sema);
+#endif
+}
+
+bool PSemaphore::Init(unsigned init, unsigned max)
+{
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+    isLocal = true;
+    if (sem_init(&localSema, 0, init) == 0) {
+        sema = &localSema;
+        return true;
+    }
+#if (defined(__CYGWIN__))
+    // Cygwin doesn't define sem_unlink but that doesn't matter
+    // since sem_init works.
+    sema = 0;
+    return false;
+#else
+    isLocal = false;
+    char semname[30];
+    static int count=0;
+    sprintf(semname, "poly%0d-%0d", (int)getpid(), count++);
+    sema = sem_open(semname, O_CREAT|O_EXCL, 00666, init);
+    if (sema == (sem_t*)SEM_FAILED) {
+        sema = 0;
+        return false;
+    }
+    sem_unlink(semname);
+    return true;
+#endif
+#elif defined(HAVE_WINDOWS_H)
+    sema = CreateSemaphore(NULL, init, max, NULL);
+    return sema != NULL;
+#endif
+}
+
+bool PSemaphore::Wait(void)
+{
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+    // Wait until the semaphore is signalled.  A Unix signal may interrupt
+    // it so we need to retry in that case.
+    while (sem_wait(sema) == -1)
+    {
+        if (errno != EINTR)
+            return false;
+    }
+    return true;
+#elif defined(HAVE_WINDOWS_H)
+    return WaitForSingleObject(sema, INFINITE) == WAIT_OBJECT_0;
+#endif
+}
+
+void PSemaphore::Signal(void)
+{
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+    sem_post(sema);
+#elif defined(HAVE_WINDOWS_H)
+    ReleaseSemaphore(sema, 1, NULL);
+#endif
+}
+
 
 

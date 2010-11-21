@@ -70,18 +70,6 @@
 #include <semaphore.h>
 #endif
 
-#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
-
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-
-#ifdef HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
 // If we have the pthread library and header and we have semaphores we can use the pthread
 // signalling mechanism.  But if this is a native Windows build we don't use semaphores or
@@ -142,7 +130,7 @@ static PLock sigLock;
 
 #ifdef USE_PTHREAD_SIGNALS
 static pthread_t detectionThreadId; // Thread processing signals.
-static sem_t *waitSema;
+static PSemaphore *waitSema;
 static int lastSignals[NSIG];
 #endif
 
@@ -210,7 +198,7 @@ static void handle_signal(SIG_HANDLER_ARGS(s, c))
     {
         lastSignals[s]++; // Assume this is atomic with respect to reading.
         // Wake the signal detection thread.
-        sem_post(waitSema);
+        waitSema->Signal();
     }
 }
 
@@ -492,11 +480,8 @@ static void *SignalDetectionThread(void *)
         // Wait until we are woken up by an arriving signal.
         // waitSema will be incremented for each signal so we should
         // not block until we have processed them all.
-        while (sem_wait(waitSema) == -1)
-        {
-            if (errno != EINTR)
-                return 0;
-        }
+        if (! waitSema->Wait()) return 0;
+
         for (int j = 1; j < NSIG; j++)
         {
             if (readSignals[j] < lastSignals[j])
@@ -506,32 +491,6 @@ static void *SignalDetectionThread(void *)
             }
         }
     }
-}
-#endif
-
-#ifdef USE_PTHREAD_SIGNALS
-static sem_t waitSemaphore;
-
-// Initialise a semphore.  Tries to create an unnamed semaphore if
-// it can but tries a named semaphore if it can't.  Mac OS X only
-// supports named semaphores.
-static sem_t *init_semaphore(sem_t *sema, int init)
-{
-    if (sem_init(sema, 0, init) == 0)
-        return sema;
-#if (defined(__CYGWIN__))
-    // Cygwin doesn't define sem_unlink but that doesn't matter
-    // since sem_init works.
-    return 0;
-#else
-    char semname[30];
-    static int count=0;
-    sprintf(semname, "poly%0d-%0d", (int)getpid(), count++);
-    sema = sem_open(semname, O_CREAT|O_EXCL, 00666, init);
-    if (sema == (sem_t*)SEM_FAILED) return 0;
-    sem_unlink(semname);
-    return sema;
-#endif
 }
 #endif
 
@@ -549,9 +508,10 @@ void SigHandler::Init(void)
     sigData[SIGILL].nonMaskable = true;
 #endif
 #ifdef USE_PTHREAD_SIGNALS
+    static PSemaphore waitSemaphore;
     // Initialise the "wait" semaphore so that it blocks immediately.
-    waitSema = init_semaphore(&waitSemaphore, 0);
-    if (waitSema == 0) return;
+    if (! waitSemaphore.Init(0, NSIG)) return;
+    waitSema = &waitSemaphore;
     // Create a new thread to handle signals synchronously.
     // for it to finish.
     pthread_attr_t attrs;
