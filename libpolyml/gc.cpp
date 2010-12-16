@@ -1956,6 +1956,10 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, 
     mutableFreeSpace   = mutableSegSize - mutableSegSize/10;
     if (mutableFreeSpace < mutableMinFree)
         mutableFreeSpace = mutableMinFree;
+
+    // Create the task farm if required
+    if (userOptions.gcthreads != 1)
+        initialiseMultithreadGC(userOptions.gcthreads);
 }
 
 class FullGCRequest: public MainThreadRequest

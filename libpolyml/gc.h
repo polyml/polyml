@@ -40,6 +40,8 @@ extern bool convertedWeak;
 
 extern POLYUNSIGNED GetPhysicalMemorySize(void);
 
+// Multi-thread GC.
 extern bool doMultithreadGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate);
+extern void initialiseMultithreadGC(unsigned threads);
 
 #endif

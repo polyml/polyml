@@ -66,6 +66,7 @@
 #include "bitmap.h"
 #include "rts_module.h"
 #include "memmgr.h"
+#include "gctaskfarm.h"
 
 // Settings moved from userOptions.
 static unsigned long    heapSize, immutableSegSize, mutableSegSize;
@@ -73,6 +74,8 @@ static unsigned long    immutableFreeSpace, mutableFreeSpace;
 static unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 
 static bool dontFreeSpace; // Temporary for testing.
+
+static GCTaskFarm gTaskFarm; // Global task farm.
 
 /*
     How the garbage collector works.
@@ -845,6 +848,7 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
 
 // Updates the addresses for objects in the area with the "allocated" bit set.
 // It processes the area between area->pointer and the bit corresponding to area->highest.
+// area->highest corresponds to gen_top i.e. we don't process older generations.
 void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 {
     PolyWord *pt      = area->pointer;
@@ -877,8 +881,11 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
             bitno++;
         }
         
-        if (bitno == highest)
+        if (bitno == highest) {
+            // Have reached the top of the area or the beginning of an older generation.
+            ASSERT(pt == area->gen_top);
             return;
+        }
         
         /* first set bit corresponds to the length word */
         pt++;
@@ -1159,6 +1166,30 @@ static int RecollectThisGeneration(unsigned thisGeneration)
        until after the update phase has finished with the tombstone.
        DCJM 27/6/09. */
     return updated * 2 < total; // Less than 50% updated
+}
+
+// Task to update addresses in a local area.
+static void updateLocalArea(void *arg1, void *arg2)
+{
+    MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
+    LocalMemSpace *space = (LocalMemSpace *)arg2;
+    if (space->isMutable && space->gen_top != space->top)
+        processUpdate->ScanAddressesInRegion(space->gen_top, space->top);
+    processUpdate->UpdateObjectsInArea(space);
+}
+
+// Task to update addresses in a non-local area.
+static void updateNonLocalMutableArea(void *arg1, void *arg2)
+{
+    MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
+    LocalMemSpace *space = (LocalMemSpace *)arg2;
+    processUpdate->ScanAddressesInRegion(space->bottom, space->top);
+}
+
+static void updateGCProcAddresses(void *arg1, void *)
+{
+    MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
+    OpGCProcs(processUpdate);
 }
 
 bool doMultithreadGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
@@ -1481,14 +1512,28 @@ GC_AGAIN:
     /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
     for(j = 0; j < gMem.nlSpaces; j++)
         gMem.lSpaces[j]->updated = 0;
-       
+
+    // We can do the updates in parallel since they don't interfere at all.
     MTGCProcessUpdate processUpdate;
-    OpMutables(&processUpdate);
-
-    for(j = 0; j < gMem.nlSpaces; j++)
-        processUpdate.UpdateObjectsInArea(gMem.lSpaces[j]);
-
-    OpGCProcs(&processUpdate);
+    //OpMutables(&processUpdate);
+    // Scan the local mutable areas.  It won't do anything if this is a full
+    // GC since gen_top == top.
+    for (j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        gTaskFarm.AddWorkOrRunNow(&updateLocalArea, &processUpdate, space);
+    }
+    // Scan the permanent mutable areas.
+    for (j = 0; j < gMem.npSpaces; j++)
+    {
+        MemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable)
+            gTaskFarm.AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
+    }
+    // Update addresses in RTS modules.
+    gTaskFarm.AddWorkOrRunNow(&updateGCProcAddresses, &processUpdate, 0);
+    // Wait for these to complete before proceeding.
+    gTaskFarm.WaitForCompletion();
 
     {
         POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
@@ -1651,3 +1696,8 @@ GC_AGAIN:
     return true; // Completed
 }
 
+void initialiseMultithreadGC(unsigned threads)
+{
+    if (! gTaskFarm.Initialise(threads, 1000))
+        Crash("Unable to initialise the GC task farm");
+}

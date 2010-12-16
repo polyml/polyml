@@ -189,6 +189,10 @@ SOURCE=.\gc.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\gctaskfarm.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\interpret.cpp
 
 !IF  "$(CFG)" == "PolyLib - Win32 Release"
@@ -419,6 +423,10 @@ SOURCE=.\foreign.h
 # Begin Source File
 
 SOURCE=.\gc.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\gctaskfarm.h
 # End Source File
 # Begin Source File
 
