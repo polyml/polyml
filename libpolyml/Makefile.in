@@ -84,10 +84,10 @@ am__libpolyml_la_SOURCES_DIST = mpoly.cpp gc.cpp diagnostics.cpp \
 	run_time.cpp osmem.cpp save_vec.cpp rts_module.cpp bitmap.cpp \
 	poly_specific.cpp exporter.cpp sharedata.cpp memmgr.cpp \
 	pexport.cpp locking.cpp savestate.cpp multithread_gc.cpp \
-	x86_dep.cpp x86asmtemp.S interpret.cpp sparc_dep.cpp \
-	sparc_assembly.S power_dep.cpp ppcasmtemp.s machoexport.cpp \
-	elfexport.cpp pecoffexport.cpp unix_specific.cpp Console.cpp \
-	windows_specific.cpp
+	gctaskfarm.cpp x86_dep.cpp x86asmtemp.S interpret.cpp \
+	sparc_dep.cpp sparc_assembly.S power_dep.cpp ppcasmtemp.s \
+	machoexport.cpp elfexport.cpp pecoffexport.cpp \
+	unix_specific.cpp Console.cpp windows_specific.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@	x86asmtemp.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@am__objects_1 = interpret.lo
@@ -111,8 +111,8 @@ am_libpolyml_la_OBJECTS = mpoly.lo gc.lo diagnostics.lo arb.lo \
 	scanaddrs.lo polystring.lo run_time.lo osmem.lo save_vec.lo \
 	rts_module.lo bitmap.lo poly_specific.lo exporter.lo \
 	sharedata.lo memmgr.lo pexport.lo locking.lo savestate.lo \
-	multithread_gc.lo $(am__objects_1) $(am__objects_2) \
-	$(am__objects_3)
+	multithread_gc.lo gctaskfarm.lo $(am__objects_1) \
+	$(am__objects_2) $(am__objects_3)
 libpolyml_la_OBJECTS = $(am_libpolyml_la_OBJECTS)
 libpolyml_la_LINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(AM_CXXFLAGS) \
@@ -313,6 +313,7 @@ noinst_HEADERS = \
 	exporter.h \
 	foreign.h \
 	gc.h \
+	gctaskfarm.h \
 	globals.h \
 	int_opcodes.h \
 	io_internal.h \
@@ -358,7 +359,7 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
     rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
-    locking.cpp savestate.cpp multithread_gc.cpp \
+    locking.cpp savestate.cpp multithread_gc.cpp gctaskfarm.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 all: all-am
@@ -445,6 +446,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/exporter.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/foreign.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gc.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gctaskfarm.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/interpret.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/locking.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/machoexport.Plo@am__quote@

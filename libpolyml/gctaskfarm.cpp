@@ -27,6 +27,13 @@
 #error "No configuration file"
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -75,7 +82,7 @@ bool GCTaskFarm::Initialise(unsigned thrdCount, unsigned qSize)
     // Create the worker threads.
     for (unsigned i = 0; i < thrdCount; i++) {
         // Fork a thread
-#ifdef HAVE_PTHREAD
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
         // Create a thread that isn't joinable since we don't want to wait
         // for it to finish.
         pthread_attr_t attrs;
@@ -177,7 +184,7 @@ void GCTaskFarm::ThreadFunction()
     }
 }
 
-#ifdef HAVE_PTHREAD
+#ifdef HAVE_PTHREAD_H
 void *GCTaskFarm::WorkerThreadFunction(void *parameter)
 #else
 DWORD WINAPI GCTaskFarm::WorkerThreadFunction(void *parameter)

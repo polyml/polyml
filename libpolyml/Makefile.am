@@ -70,6 +70,7 @@ noinst_HEADERS = \
 	exporter.h \
 	foreign.h \
 	gc.h \
+	gctaskfarm.h \
 	globals.h \
 	int_opcodes.h \
 	io_internal.h \
@@ -115,7 +116,7 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
     rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
-    locking.cpp savestate.cpp multithread_gc.cpp \
+    locking.cpp savestate.cpp multithread_gc.cpp gctaskfarm.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 # Convert the portable format to a native binary
