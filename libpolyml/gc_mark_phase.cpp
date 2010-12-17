@@ -278,9 +278,9 @@ void GCMarkPhase(void)
     
     // Mutable areas can contain mutable or immutable objects.  Immutable areas
     // should only contain immutable objects.  Verify this.
-    for(j = 0; j < gMem.nlSpaces; j++)
+    for(unsigned l = 0; l < gMem.nlSpaces; l++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
+        LocalMemSpace *lSpace = gMem.lSpaces[l];
         if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
     }
 }

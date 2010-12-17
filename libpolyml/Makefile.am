@@ -117,6 +117,8 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     rts_module.cpp bitmap.cpp poly_specific.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
     locking.cpp savestate.cpp multithread_gc.cpp gctaskfarm.cpp \
+    gc_mark_phase.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
+    gc_update_phase.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 # Convert the portable format to a native binary
