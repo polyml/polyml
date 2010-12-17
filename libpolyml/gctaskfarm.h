@@ -59,7 +59,7 @@ private:
     // This can only be waited for by a single thread because it's not a proper
     // implementation of a condition variable in Windows.
     PCondVar waitForCompletion;
-    unsigned queueSize, queuedItems;
+    unsigned queueSize, queueIn, queuedItems;
     queue_entry *workQueue; // Array of unit->unit functions.
     bool terminate; // Set to true to kill all workers.
     unsigned threadCount; // Count of workers.

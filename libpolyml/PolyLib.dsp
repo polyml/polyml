@@ -189,6 +189,22 @@ SOURCE=.\gc.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\gc_check_weak_ref.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=.\gc_copy_phase.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=.\gc_mark_phase.cpp
+# End Source File
+# Begin Source File
+
+SOURCE=.\gc_update_phase.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\gctaskfarm.cpp
 # End Source File
 # Begin Source File

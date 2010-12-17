@@ -1259,7 +1259,6 @@ static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
     - that's now the user's resposibility SPF 22/10/96
     */
     unsigned j;
-    POLYUNSIGNED gcflags = GC_START;
     static bool doFullGCNextTime = 0;
     static unsigned this_generation = 0;
     
@@ -1308,13 +1307,9 @@ GC_AGAIN:
     
     /* Mark phase */
     mainThreadPhase = MTP_GCPHASEMARK;
-    
-    gcflags |= GC_NEWLINE;
-    
+
     if (doFullGC)
     {
-        gcflags |= GC_FULL;
-        
         /* Collect everything */
         for(j = 0; j < gMem.nlSpaces; j++)
         {
@@ -1322,10 +1317,7 @@ GC_AGAIN:
             lSpace->gen_top = lSpace->top;
         }
     }
-    
-    gcflags &= ~GC_START;
-    gcflags &= ~GC_NEWLINE;
-        
+
     /* Bitmaps are allocated in InitialiseGC and are zeroed
        at the END of each GC, because that way we know how much
        of each bitmap (not all!) we need to touch.

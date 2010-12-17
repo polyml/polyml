@@ -49,7 +49,7 @@
 
 GCTaskFarm::GCTaskFarm()
 {
-    queueSize = queuedItems = 0;
+    queueSize = queueIn = queuedItems = 0;
     workQueue = 0;
     terminate = false;
     threadCount = activeThreadCount = 0;
@@ -65,7 +65,7 @@ void GCTaskFarm::DebugOutput(const char *debug)
 {
 #if (defined(WIN32) && defined(_DEBUG))
     char debugBuff[1000];
-    sprintf(debugBuff, "%u: %u: %s\r\n", GetTickCount(), GetCurrentThreadId(), debug);
+    sprintf(debugBuff, "%u: %u: %s %u\r\n", GetTickCount(), GetCurrentThreadId(), debug, queuedItems);
     OutputDebugString(debugBuff);
 #endif
 }
@@ -115,19 +115,17 @@ void GCTaskFarm::Terminate()
 // Add work to the queue.  Returns true if it succeeds.
 bool GCTaskFarm::AddWork(gctask work, void *arg1, void *arg2)
 {
-    DebugOutput("Adding work");
     PLocker l(&workLock);
-    for (unsigned i = 0; i < queueSize; i++) {
-        if (workQueue[i].task == 0) {
-            workQueue[i].task = work;
-            workQueue[i].arg1 = arg1;
-            workQueue[i].arg2 = arg2;
-            if (queuedItems < threadCount) waitForWork.Signal();
-            queuedItems++;
-            return true;
-        }
-    }
-    return false;
+    if (queuedItems == queueSize) return false; // Queue is full
+    DebugOutput("Adding work");
+    workQueue[queueIn].task = work;
+    workQueue[queueIn].arg1 = arg1;
+    workQueue[queueIn].arg2 = arg2;
+    queueIn++;
+    if (queueIn == queueSize) queueIn = 0;
+    queuedItems++;
+    if (queuedItems < threadCount) waitForWork.Signal();
+    return true;
 }
 
 // Schedule this as a task or run it immediately if the queue is full.
@@ -146,20 +144,17 @@ void GCTaskFarm::ThreadFunction()
         // Find some work.
 
         if (queuedItems > 0) { // There is work
-            gctask work = 0;
-            void *arg1 = 0, *arg2 = 0;
-            for (unsigned i = 0; i < queueSize; i++) {
-                if (workQueue[i].task != 0) {
-                    work = workQueue[i].task;
-                    arg1 = workQueue[i].arg1;
-                    arg2 = workQueue[i].arg2;
-                    workQueue[i].task = 0;
-                    break;
-                }
-            }
+            unsigned outPos;
+            if (queuedItems > queueIn)
+                outPos = queueIn+queueSize-queuedItems;
+            else outPos = queueIn-queuedItems;
+            gctask work = workQueue[outPos].task;
+            void *arg1 = workQueue[outPos].arg1;
+            void *arg2 = workQueue[outPos].arg2;
+            workQueue[outPos].task = 0;
+            queuedItems--;
             DebugOutput("Found work");
             ASSERT(work != 0);
-            queuedItems--;
             workLock.Unlock();
             (*work)(arg1, arg2);
             workLock.Lock();

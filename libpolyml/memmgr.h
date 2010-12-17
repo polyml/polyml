@@ -90,6 +90,7 @@ public:
     PolyWord    *gen_top;         /* top    of area to garbage collect.                */
     PolyWord    *gen_bottom;      /* lowest object in area before copying.             */
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
+    PLock        bitmapLock;      // Mutex to protect access to the bitmap.
     POLYUNSIGNED highest;         /* index of top word in bitmap.                      */
     POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */
     POLYUNSIGNED start_index;     /* last index used to index start array              */

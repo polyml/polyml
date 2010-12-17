@@ -4,6 +4,8 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
+    Further development Copyright David C.J. Matthews 2010
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -43,5 +45,15 @@ extern POLYUNSIGNED GetPhysicalMemorySize(void);
 // Multi-thread GC.
 extern bool doMultithreadGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate);
 extern void initialiseMultithreadGC(unsigned threads);
+
+// The task farm for the GC.  The threads are left waiting for the GC,
+class GCTaskFarm;
+extern GCTaskFarm *gpTaskFarm;
+
+// GC Phases.
+extern void GCMarkPhase(void);
+extern void GCheckWeakRefs(void);
+extern void GCCopyPhase(POLYUNSIGNED &immutable_overflow);
+extern void GCUpdatePhase(void);
 
 #endif
