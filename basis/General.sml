@@ -71,7 +71,7 @@ in
     
     datatype order = LESS | EQUAL | GREATER
     
-    fun op before (a, _) = a
+    fun op before (a, _ : unit) = a
     fun ignore _ = ()
     
     structure General (*: GENERAL *) (* Don't use a signature here. *) =
