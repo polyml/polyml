@@ -747,7 +747,6 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
     /* Invariant: at this point there are no objects below src->gen_bottom */
     POLYUNSIGNED  bitno   = BITNO(src,src->gen_bottom);
     POLYUNSIGNED  highest = src->highest;
-//    Bitmap *bitmap  = &src->bitmap;
     
     for (;;)
     {
@@ -822,6 +821,7 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
                     {
                         free = FindFreeInArea(dst, (src == dst) ? bitno : 0, n);
                         if (free)
+
                             break;
                     }
                     // We mustn't copy it to an earlier area.  N.B. If we're copying from
@@ -1044,6 +1044,7 @@ void ProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 #define GC_FULL    4
 
 // Try to allocate another heap segment.  It tries to allocate the requested size
+
 // but if that fails it allocates what it can.
 static bool TryMoreHeap(POLYUNSIGNED size, bool mut)
 {
@@ -1265,8 +1266,7 @@ static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
     record_gc_time(false);
 
 GC_AGAIN:
-    /* Invariant: the bitmaps are completely clean. */
-    
+    /* Invariant: the bitmaps are completely clean. */    
     /* At this point, we should have
        lSpace->bottom <= lSpace->pointer <= lSpace->gen_top <= lSpace->top       
     
@@ -1590,10 +1590,16 @@ GC_AGAIN:
     }
 
     /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty. */
+    // In addition, if we're doing a partial GC immutable segments will only be dirty in the
+    // area we've allocated.
     for(j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[j];
-        lSpace->bitmap.ClearBits(0, lSpace->gen_top - lSpace->bottom);
+        if (lSpace->i_marked != 0 || lSpace->m_marked != 0)
+            // We've marked something so we may have set a bit below the current pointer
+            lSpace->bitmap.ClearBits(0, lSpace->gen_top - lSpace->bottom);
+        else // Otherwise we only need to clear in the area we've newly allocated.
+            lSpace->bitmap.ClearBits(lSpace->pointer - lSpace->bottom, lSpace->gen_top - lSpace->pointer);
     }
     /* Invariant: the bitmaps are completely clean */
 
@@ -1888,22 +1894,42 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, 
     gMem.SetReservation(K_to_words(rsize));
 
     // Try allocating the space.  If it fails try something smaller.
-    LocalMemSpace *iSpace = 0, *mSpace = 0;
-
-    while (iSpace == 0 || mSpace == 0) {
-        if (iSpace != 0) { gMem.DeleteLocalSpace(iSpace); iSpace = 0; }
-        if (mSpace != 0) { gMem.DeleteLocalSpace(mSpace); mSpace = 0; }
+    for(;;) {
+        bool allocationFailed = false;
+        // Delete any partially allocated spaces.
+        while (gMem.nlSpaces > 0) gMem.DeleteLocalSpace(gMem.lSpaces[gMem.nlSpaces-1]);
         // Allocate the reservation space.
 
-
+        // Allocate as many segments as we have threads running the GC.
+        ASSERT(userOptions.gcthreads >= 1);
         // Immutable space
-        POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
-        iSpace = gMem.NewLocalSpace(immutSize, false);
-        // Mutable space
-        POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
-        mSpace = gMem.NewLocalSpace(mutSize, true);
+        POLYUNSIGNED immutSize =
+            ROUNDDOWN(immutableSegSize / (userOptions.gcthreads*MIN_IMMUTABLE_SEGS_PER_THREAD), BITSPERWORD);
+        POLYUNSIGNED mutSize =
+            ROUNDDOWN(mutableSegSize / (userOptions.gcthreads*MIN_MUTABLE_SEGS_PER_THREAD), BITSPERWORD);
 
-        if (iSpace == 0 || mSpace == 0)
+        for(unsigned i = 0; i < userOptions.gcthreads; i++)
+        {
+            for (unsigned k = 0; k < MIN_MUTABLE_SEGS_PER_THREAD; k++)
+            {
+                if (gMem.NewLocalSpace(mutSize, true) == 0)
+                {
+                    allocationFailed = true;
+                    break;
+                }
+            }
+            if (allocationFailed) break;
+            for (unsigned l = 0; l < MIN_IMMUTABLE_SEGS_PER_THREAD; l++)
+            {
+                if (gMem.NewLocalSpace(immutSize, false) == 0)
+                {
+                    allocationFailed = true;
+                    break;
+                }
+            }
+        }
+
+        if (allocationFailed)
         {
             if (immutableSegSize < 1024 || mutableSegSize < 512) {
                 // Too small to be able to run.
@@ -1913,7 +1939,9 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, 
             immutableSegSize = immutableSegSize/2;
             mutableSegSize = mutableSegSize/2;
         }
+        else break; // Succeeded.
     }
+
     // Heap allocation has succeeded.
 
     if (heapMax) {

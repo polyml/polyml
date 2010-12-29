@@ -37,6 +37,12 @@ the top of the lowest numbered space.  The idea is to free spaces so they can be
 deallocated if they are not required and to compact memory within the spaces that
 are retained.  By following this ordering we avoid moving an object twice since if
 it has been moved it will have been moved into the furthest possible space for it.
+
+Multithreading.
+We want to keep the operations independent to avoid the need for locking.
+So, generally, cells should be kept within their own space.
+Give each thread its own mutable and immutable space to process.
+It can copy cells 
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -66,14 +72,19 @@ it has been moved it will have been moved into the furthest possible space for i
 #include "bitmap.h"
 #include "memmgr.h"
 #include "gctaskfarm.h"
+#include "locking.h"
+
+static PLock copyLock;
 
 inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
 inline PolyWord *BIT_ADDR(LocalMemSpace *area, POLYUNSIGNED bitno) { return area->bottom + bitno; }
 
 /* Search the area downwards looking for n consecutive free words.          */
 /* Return the bitmap index if successful or 0 (should we use -1?) on failure. */
-static inline POLYUNSIGNED FindFreeInArea(LocalMemSpace *dst, POLYUNSIGNED limit, POLYUNSIGNED n)
+static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED limit, POLYUNSIGNED n)
 {
+//    PLocker lock(&dst->bitmapLock);
+
     /* SPF's version of the start caching code. SPF 2/10/96 */
     /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */
     POLYUNSIGNED truncated_n = (n < NSTARTS) ? n : NSTARTS - 1;
@@ -139,8 +150,31 @@ static inline POLYUNSIGNED FindFreeInArea(LocalMemSpace *dst, POLYUNSIGNED limit
            SPF 19/11/1997 */
     }
     /* dst->start[0] .. dst->start[dst->start_index] is still is a descending sequence */
-    
-    return free;
+
+    if (free == 0)
+        return 0;
+
+    // Allocate the space.
+    dst->targetSpace = true;
+    dst->bitmap.SetBits(free, n);
+
+    PolyWord *newp = BIT_ADDR(dst, free); /* New object address */
+        
+    // Update dst->pointer, so the new object doesn't get trampled.
+    if (newp < dst->pointer)
+        dst->pointer = newp;
+
+    // If we are copying into a later area we may copy into an area
+    // that crosses gen_bottom for that area.  We need to adjust gen_bottom
+    // since we assume above that gen_bottom points to a valid object.
+    // DCJM: This may no longer be necessary since we don't copy into
+    // a later area.
+    if (newp < dst->gen_bottom && newp+n > dst->gen_bottom)
+        dst->gen_bottom = newp+n;
+
+    dst->copied += n;
+
+    return newp;
 }
 
 // This does nothing to the addresses but by applying it in ScanConstantsWithinCode we
@@ -150,34 +184,75 @@ public:
    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
 };
 
+// Copy a cell to its new address.
+static void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress)
+{
+    POLYUNSIGNED L = srcAddress->LengthWord();
+    destAddress->SetLengthWord(L); /* copy length word */
+
+    if (OBJ_IS_STACK_OBJECT(L))
+    {
+        CopyStackFrame ((StackObject *)srcAddress, (StackObject *)destAddress);
+        srcAddress->SetForwardingPtr(destAddress);
+    }
+    else /* not a stack object */
+    {
+        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+
+        for (POLYUNSIGNED i = 0; i < n; i++)
+            destAddress->Set(i, srcAddress->Get(i));
+
+        srcAddress->SetForwardingPtr(destAddress);
+        
+        // If this is a code object flush out anything from the instruction cache
+        // that might previously have been at this address
+        if (OBJ_IS_CODE_OBJECT(L))
+        {
+            MTGCProcessIdentity identity;
+            machineDependent->FlushInstructionCache(destAddress, n * sizeof(PolyWord));
+            // We have to update any relative addresses in the code.
+            machineDependent->ScanConstantsWithinCode(destAddress, srcAddress, OBJ_OBJECT_LENGTH(L), &identity);
+        }
+
+        // We mustn't check the object until after we've adjusted any relative offsets.
+        CheckObject(destAddress);
+    }
+}
+
+
+
 // Copy objects from the source space into an earlier space or up within the
 // current space.  compressImmutables determines whether we should search for
 // gaps when copying into a immutable area or simply add the cells onto the
 // end of the area.
-static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
+static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
+                        LocalMemSpace *immutableDest, bool compressImmutables)
 {
     /* Start scanning the bitmap from the very bottom since it is    */
     /* likely that very recently created objects need copying.       */
     /* Skip whole words of zeroes since these may be quite common if */
     /* the objects to be copied are sparsely separated.              */
-    
+
     /* Invariant: at this point there are no objects below src->gen_bottom */
     POLYUNSIGNED  bitno   = BITNO(src,src->gen_bottom);
     // src->highest is the bit position that corresponds to the top of
     // generation we're copying.
     POLYUNSIGNED  highest = src->highest;
-    
+
     for (;;)
     {
-        if (bitno >= highest) return;
+        if (bitno >= highest) break;
+
+        {
+//            PLocker lock(&src->bitmapLock);
+            /* SPF version; Invariant: 0 < highest - bitno */
+            bitno += src->bitmap.CountZeroBits(bitno, highest - bitno);
         
-        /* SPF version; Invariant: 0 < highest - bitno */
-        bitno += src->bitmap.CountZeroBits(bitno, highest - bitno);
-        
-        if (bitno >= highest) return;
-        
-        ASSERT (src->bitmap.TestBit(bitno));
-        
+            if (bitno >= highest) break;
+
+            ASSERT (src->bitmap.TestBit(bitno));
+        }
+
         /* first set bit corresponds to the length word */
         PolyWord *old = BIT_ADDR(src, bitno); /* Old object address */
 
@@ -190,11 +265,11 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
         POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L) + 1 ;/* Length of allocation (including length word) */
         bitno += n;
         
-        POLYUNSIGNED free = 0;  /* Bitmap index of new allocation */
+        PolyWord *newp = 0;
 
         // The destination space if either a mutable space if this is a mutable
         // or an immutable space if it's immutable.
-        LocalMemSpace *dst = 0;   /* New object allocation area */
+        //LocalMemSpace *dst = 0;   /* New object allocation area */
         // Find a mutable space for the mutable objects and an immutable space for
         // the immutables.  We copy objects into earlier spaces or within its own
         // space but we don't copy an object to a later space.  This avoids the
@@ -202,57 +277,119 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
         // into later spaces but that doesn't work well if we have converted old
         // saved state segments into local areas.  It's much better to delete them
         // if possible.
-        for (unsigned i = 0; i < gMem.nlSpaces; i++)
+        if (OBJ_IS_MUTABLE_OBJECT(L))
         {
-            dst = gMem.lSpaces[i];
-            if (OBJ_IS_MUTABLE_OBJECT(L))
+            // Mutable object - need a mutable space for it.
+            if (mutableDest != 0)
+                newp = FindFreeAndAllocate(mutableDest, (src == mutableDest) ? bitno : 0, n);
+            if (newp == 0 && src != mutableDest)
             {
-                // Mutable object
-                if (dst->isMutable)
+                // Have to search in a different space.
+                PLocker lock(&copyLock);
+                unsigned m = 0;
+                LocalMemSpace *oldSpace = mutableDest;
+                if (mutableDest != 0)
                 {
-                    ASSERT(src->isMutable); // Should come from a mutable area
-                    free = FindFreeInArea(dst, (src == dst) ? bitno : 0, n);
-                    if (free)
-                        break; // Found space.
-                    if (src == dst)
-                        break; // We mustn't copy it to an earlier area.
+                    // Find the next space after this
+                    while (gMem.lSpaces[m] != mutableDest) m++;
+                    m++;
                 }
-            }
-            else 
-            {
-                // Immutable object.
-                if (! dst->isMutable)
-                {
-                    /* If we're copying mutables to the immutable area and we're just doing sequential
-                       allocations at the bottom, we can optimise out all that "clever" search
-                       code in FindFreeInArea. */
-                    if (! compressImmutables)
-                    {
-                        POLYUNSIGNED dest_bitno = BITNO(dst, dst->pointer);
-                        ASSERT(src->isMutable); // Only if we're copying from mutable area
-                        if (n < dest_bitno)
-                        {
-                            free = dest_bitno - n;
-                            break;
-                        }
-                    }
-                    else // It's a full GC, so try to be compact within the immutable area. 
-                    {
-                        free = FindFreeInArea(dst, (src == dst) ? bitno : 0, n);
-                        if (free)
-                            break;
-                    }
-                    // We mustn't copy it to an earlier area.  N.B. If we're copying from
-                    // a mutable area we CAN copy it to an immutable area earlier in
-                    // the sequence.
-                    if (src == dst)
+                for (; m < gMem.nlSpaces; m++) {
+                    LocalMemSpace *lSpace = gMem.lSpaces[m];
+                    // The new space must be below the space we're copying from
+                    if (lSpace == src)
                         break;
+                    if (lSpace->isMutable && ! lSpace->spaceInUse)
+                    {
+                        if (mutableDest) mutableDest->spaceInUse = false;
+                        mutableDest = lSpace;
+                        mutableDest->spaceInUse = true;
+                        break;
+                    }
+                }
+                if (mutableDest != oldSpace)
+                {
+                    ASSERT(mutableDest != 0);
+                    bitno -= n; // Redo this object
+                    continue;
                 }
             }
         }
-        
-        if (free == 0) /* no room */
+        else
         {
+            // Immutable object
+            if (compressImmutables)
+            {
+                if (immutableDest != 0)
+                    newp = FindFreeAndAllocate(immutableDest, (src == immutableDest) ? bitno : 0, n);
+            }
+            else if (immutableDest != 0)
+            {
+                // Not compressing the immutables so just allocate at the bottom of the area
+//                PLocker lock(&immutableDest->bitmapLock);
+                POLYUNSIGNED dest_bitno = BITNO(immutableDest, immutableDest->pointer);
+                ASSERT(src->isMutable); // Only if we're copying from mutable area
+                if (n < dest_bitno)
+                {
+                    POLYUNSIGNED free = dest_bitno - n;
+                    immutableDest->targetSpace = true;
+                    immutableDest->bitmap.SetBits(free, n);
+                    newp = BIT_ADDR(immutableDest, free); /* New object address */
+
+                    // Update dst->pointer, so the new object doesn't get trampled.
+                    if (newp < immutableDest->pointer)
+                        immutableDest->pointer = newp;
+
+                    // If we are copying into a later area we may copy into an area
+                    // that crosses gen_bottom for that area.  We need to adjust gen_bottom
+                    // since we assume above that gen_bottom points to a valid object.
+                    // DCJM: This may no longer be necessary since we don't copy into
+                    // a later area.
+                    if (newp < immutableDest->gen_bottom && newp+n > immutableDest->gen_bottom)
+                        immutableDest->gen_bottom = newp+n;
+
+                    immutableDest->copied += n;
+                }
+            }
+            if (newp == 0 && src != immutableDest)
+            {
+                // Have to search in a different space.
+                PLocker lock(&copyLock);
+                unsigned m = 0;
+                LocalMemSpace *oldSpace = immutableDest;
+                if (immutableDest != 0)
+                {
+                    // Find the next space after this
+                    while (gMem.lSpaces[m] != immutableDest) m++;
+                    m++;
+                }
+                for (; m < gMem.nlSpaces; m++) {
+                    LocalMemSpace *lSpace = gMem.lSpaces[m];
+                    // The new space must be below the space we're copying from
+                    // except that if we're copying from a mutable space to an immutable
+                    // space we can choose any immutable space.
+                    if (lSpace == src && !src->isMutable)
+                        break;
+                    if (! lSpace->isMutable && ! lSpace->spaceInUse)
+                    {
+                        if (immutableDest) immutableDest->spaceInUse = false;
+                        immutableDest = lSpace;
+                        immutableDest->spaceInUse = true;
+                        break;
+                    }
+                }
+                ASSERT(immutableDest != 0);
+                // If we've found a new space we can copy into that
+                if (immutableDest != oldSpace)
+                {
+                    bitno -= n; // Redo this object
+                    continue;
+                }
+            }
+        }
+        if (newp == 0) /* no room */
+        {
+//            PLocker lock(&src->bitmapLock);
             // We're not going to move this object
             // Update src->pointer, so the old object doesn't get trampled.
             if (old < src->pointer)
@@ -264,53 +401,195 @@ static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
             /* nothing becomes garbage before then. SPF 19/11/1997                  */
             continue;
         }
-        
-        /* allocate object in the bitmap */
-        dst->bitmap.SetBits(free, n);
-        PolyWord *newp = BIT_ADDR(dst, free); /* New object address */
-        
-        /* Update dst->pointer, so the new object doesn't get trampled. SPF 4/10/96 */
-        if (newp < dst->pointer)
-            dst->pointer = newp;
 
-        // If we are copying into a later area we may copy into an area
-        // that crosses gen_bottom for that area.  We need to adjust gen_bottom
-        // since we assume above that gen_bottom points to a valid object.
-        if (newp < dst->gen_bottom && newp+n > dst->gen_bottom)
-            dst->gen_bottom = newp+n;
+        CopyObjectToNewAddress(obj, (PolyObject*)(newp+1));
+    }
 
-        PolyObject *newObj = (PolyObject*)(newp+1);
-        
-        if (OBJ_IS_STACK_OBJECT(L))
+    {
+        PLocker lock(&copyLock);
+        if (mutableDest) mutableDest->spaceInUse = false;
+        if (immutableDest) immutableDest->spaceInUse = false;
+        src->spaceInUse = false;
+    }
+}
+
+// Copy objects from the source space into an earlier space or up within the
+// current space.  compressImmutables determines whether we should search for
+// gaps when copying into a immutable area or simply add the cells onto the
+// end of the area.
+static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
+{
+    /* Start scanning the bitmap from the very bottom since it is    */
+    /* likely that very recently created objects need copying.       */
+    /* Skip whole words of zeroes since these may be quite common if */
+    /* the objects to be copied are sparsely separated.              */
+
+    /* Invariant: at this point there are no objects below src->gen_bottom */
+    POLYUNSIGNED  bitno   = BITNO(src,src->gen_bottom);
+    // src->highest is the bit position that corresponds to the top of
+    // generation we're copying.
+    POLYUNSIGNED  highest = src->highest;
+
+    // Destination spaces.
+    LocalMemSpace *mutableDest = 0, *immutableDest = 0;
+
+    for (;;)
+    {
+        if (bitno >= highest) return;
+
         {
-            newObj ->SetLengthWord(L); /* copy length word */
-            CopyStackFrame ((StackObject *)obj,(StackObject *)newObj);
-            obj->SetForwardingPtr(newObj);
+//            PLocker lock(&src->bitmapLock);
+            /* SPF version; Invariant: 0 < highest - bitno */
+            bitno += src->bitmap.CountZeroBits(bitno, highest - bitno);
+        
+            if (bitno >= highest) return;
+
+            ASSERT (src->bitmap.TestBit(bitno));
         }
-        else /* not a stack object */
+
+        /* first set bit corresponds to the length word */
+        PolyWord *old = BIT_ADDR(src, bitno); /* Old object address */
+
+        PolyObject *obj = (PolyObject*)(old+1);
+        
+        POLYUNSIGNED L = obj->LengthWord();
+        ASSERT (OBJ_IS_LENGTH(L));
+        CheckObject(obj);
+        
+        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L) + 1 ;/* Length of allocation (including length word) */
+        bitno += n;
+        
+        PolyWord *newp = 0;
+
+        // The destination space if either a mutable space if this is a mutable
+        // or an immutable space if it's immutable.
+        LocalMemSpace *dst = 0;   /* New object allocation area */
+        // Find a mutable space for the mutable objects and an immutable space for
+        // the immutables.  We copy objects into earlier spaces or within its own
+        // space but we don't copy an object to a later space.  This avoids the
+        // risk of copying an object multiple times.  Previously this copied objects
+        // into later spaces but that doesn't work well if we have converted old
+        // saved state segments into local areas.  It's much better to delete them
+        // if possible.
+        bool objectIsMutable = OBJ_IS_MUTABLE_OBJECT(L);
+        // If this is a target space we can't copy objects into another space
+        // because we they may be objects we've already copied into it.
+        // The one exception is that we can copy immutable data out of mutable
+        // spaces.
+        for (unsigned i = 0; i < gMem.nlSpaces; i++)
         {
-            for (POLYUNSIGNED i = 0; i < n; i++)
-                newp[i] = old[i];
-            
-            ASSERT((*newp).AsUnsigned() == L);
-            obj->SetForwardingPtr(newObj);
-            
-            // If this is a code object flush out anything from the instruction cache
-            // that might previously have been at this address
-            if (OBJ_IS_CODE_OBJECT(L))
+            dst = gMem.lSpaces[i];
+            if (objectIsMutable)
             {
-                MTGCProcessIdentity identity;
-                machineDependent->FlushInstructionCache(newp, n * sizeof(PolyWord));
-                // We have to update any relative addresses in the code.
-                machineDependent->ScanConstantsWithinCode(newObj, obj, OBJ_OBJECT_LENGTH(L), &identity);
+                // Mutable object
+                if (dst->isMutable)
+                {
+                    ASSERT(src->isMutable); // Should come from a mutable area
+                    if (! src->targetSpace || src == dst)
+                        newp = FindFreeAndAllocate(dst, (src == dst) ? bitno : 0, n);
+                    if (newp)
+                        break; // Found space.
+                    if (src == dst)
+                        break; // We mustn't copy it to an earlier area.
+                }
             }
+            else 
+            {
+                // Immutable object.
+                if (! dst->isMutable)
+                {
+                    if (! src->targetSpace || src == dst || src->isMutable)
+                    {
+                        /* If we're copying mutables to the immutable area and we're just doing sequential
+                           allocations at the bottom, we can optimise out all that "clever" search
+                           code in FindFreeAndAllocate. */
+                        if (! compressImmutables)
+                        {
+//                            PLocker lock(&dst->bitmapLock);
+                            POLYUNSIGNED dest_bitno = BITNO(dst, dst->pointer);
+                            ASSERT(src->isMutable); // Only if we're copying from mutable area
+                            if (n < dest_bitno)
+                            {
+                                POLYUNSIGNED free = dest_bitno - n;
+                                dst->targetSpace = true;
+                                dst->bitmap.SetBits(free, n);
+                                newp = BIT_ADDR(dst, free); /* New object address */
+        
+                                // Update dst->pointer, so the new object doesn't get trampled.
+                                if (newp < dst->pointer)
+                                    dst->pointer = newp;
 
-            // We mustn't check the object until after we've adjusted any relative offsets.
-            CheckObject((PolyObject*)(BIT_ADDR(dst, free) + 1));
+                                // If we are copying into a later area we may copy into an area
+                                // that crosses gen_bottom for that area.  We need to adjust gen_bottom
+                                // since we assume above that gen_bottom points to a valid object.
+                                // DCJM: This may no longer be necessary since we don't copy into
+                                // a later area.
+                                if (newp < dst->gen_bottom && newp+n > dst->gen_bottom)
+                                    dst->gen_bottom = newp+n;
+
+                                dst->copied += n;
+                                break;
+                            }
+                        }
+                        else // It's a full GC, so try to be compact within the immutable area. 
+                        {
+                            newp = FindFreeAndAllocate(dst, (src == dst) ? bitno : 0, n);
+                            if (newp)
+                                break;
+                        }
+                    }
+                    // We mustn't copy it to an earlier area.  N.B. If we're copying from
+                    // a mutable area we CAN copy it to an immutable area earlier in
+                    // the sequence.
+                    if (src == dst)
+                        break;
+                }
+            }
         }
         
-        dst->copied += n;
-  }
+        if (newp == 0) /* no room */
+        {
+//            PLocker lock(&src->bitmapLock);
+            // We're not going to move this object
+            // Update src->pointer, so the old object doesn't get trampled.
+            if (old < src->pointer)
+                src->pointer = old;
+
+            /* We haven't been able to move this object on this GC, but we might    */
+            /* still be able to move some smaller objects, which might free enough  */
+            /* space that we'll be able to move this object on the next GC, even if */
+            /* nothing becomes garbage before then. SPF 19/11/1997                  */
+            continue;
+        }
+
+        CopyObjectToNewAddress(obj, (PolyObject*)(newp+1));
+    }
+}
+
+static void copyMutableAreaToNewArea(void *arg1, void *arg2)
+{
+    LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    bool compressImmutables = *(bool*)arg2;
+    CopyObjects(lSpace, 0, 0, compressImmutables);
+}
+
+static void copyImmutableAreaToNewArea(void *arg1, void * /*arg2*/)
+{
+    LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    CopyObjects(lSpace, 0, 0, true);
+}
+
+static void copyMutableArea(void *arg1, void *arg2)
+{
+    LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    bool compressImmutables = *(bool*)arg2;
+    CopyObjects(lSpace, lSpace, 0, compressImmutables);
+}
+
+static void copyImmutableArea(void *arg1, void * /*arg2*/)
+{
+    LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    CopyObjects(lSpace, 0, lSpace, true);
 }
 
 void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
@@ -327,6 +606,8 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
             lSpace->start[i] = lSpace->highest;
         lSpace->start_index = NSTARTS - 1;
         lSpace->copied = 0;
+        lSpace->targetSpace = false;
+        ASSERT(! lSpace->spaceInUse);
     }
     /* Invariant: lSpace->start[0] .. lSpace->start[lSpace->start_index] is a descending sequence. */ 
     
@@ -359,7 +640,9 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         // copy these objects.
         bool compressImmutables = immutableNeeded / 2 < immutableFree ; /* Needs tuning!!! */
         
-        /* Reset the allocation pointers. This puts garbage (and real data) below them. */
+        // Reset the allocation pointers. This puts garbage (and real data) below them.
+        // At the end of the compaction the allocation pointer will point below the
+        // lowest real data.
         for(j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[j];
@@ -367,13 +650,15 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
                 lSpace->pointer = lSpace->gen_top;
         }
 
-        /* Invariant: there are no objects below A.M.gen_bottom. */
+        // Do the copying.
+        // Invariant: there are no objects below gen_bottom.
         for(j = gMem.nlSpaces; j > 0; j--)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[j-1];
             if (lSpace->isMutable)
-                CopyObjectsInArea(lSpace, compressImmutables);
+                gpTaskFarm->AddWorkOrRunNow(&copyMutableArea, lSpace, &compressImmutables);
         }
+        gpTaskFarm->WaitForCompletion();
 
         // Calculate the amount copied.
         unsigned markedImmut = 0, markedMut = 0, copiedToI = 0, copiedToM = 0;
@@ -395,8 +680,9 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         ASSERT(copiedToI != markedImmut || copiedToM <= markedMut);
         /* We may have A.M.copied > A.M.m_marked, if the immutable buffer overflows */
         
-        // If we didn't have enough space in the immutable areas to copy out the
-        // immutable objects this will record the extra space we would need.
+        // We should have copied all the immutable objects from the mutable
+        // areas but if we didn't have enough space in the immutable areas
+        // this will record the extra space we need.
         immutable_overflow = markedImmut - copiedToI;
     }
     
@@ -464,7 +750,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
                 {
                     lSpace->copied = 0;
                     /* Invariant: there are no objects below lSpace->gen_bottom. */
-                    CopyObjectsInArea(lSpace, true);
+                    gpTaskFarm->AddWorkOrRunNow(&copyImmutableArea, lSpace, 0);
                 }
                 else // simply reclaim the immutable data (with its embedded garbage)
                     lSpace->pointer = lSpace->gen_bottom;
@@ -477,6 +763,8 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
                 lSpace->gen_bottom = lSpace->pointer;
         }
     }
+    gpTaskFarm->WaitForCompletion();
+
     // An extra little check.
     for(j = 0; j < gMem.nlSpaces; j++)
     {

@@ -67,6 +67,8 @@ LocalMemSpace::LocalMemSpace()
         start[i] = 0;
     start_index = 0;
     i_marked = m_marked = copied = updated = 0;
+    targetSpace = false;
+    spaceInUse = false;
 }
 
 bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)

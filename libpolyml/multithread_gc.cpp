@@ -387,16 +387,27 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         // us under the limit because it would be better to reallocate a larger area.
         POLYUNSIGNED requestedShrink = currentlyFree - requiredFree;
         // Delete the most recent space first.
+        // We retain at least a minimum number of spaces for each GC thread.
+        unsigned spaces = 0;
+        unsigned minSpaces =
+            userOptions.gcthreads * (isMutableSpace ? MIN_MUTABLE_SEGS_PER_THREAD : MIN_IMMUTABLE_SEGS_PER_THREAD);
+        for (unsigned m = 0; m < gMem.nlSpaces; m++)
+        {
+            if (gMem.lSpaces[m]->isMutable == isMutableSpace)
+                spaces++;
+        }
         for (unsigned k = gMem.nlSpaces; k > 0; k--)
         {
             LocalMemSpace *space = gMem.lSpaces[k-1];
             if (space->isMutable == isMutableSpace &&
                 space->pointer == space->top /* It's completely empty */ &&
-                (POLYUNSIGNED)(space->top - space->bottom) <= requestedShrink)
+                (POLYUNSIGNED)(space->top - space->bottom) <= requestedShrink &&
+                spaces > minSpaces)
             {
                 // We can free this space without going under our limit
                 requestedShrink -= space->top - space->bottom;
                 gMem.DeleteLocalSpace(space);
+                spaces--;
             }
         }
     }
@@ -493,9 +504,15 @@ GC_AGAIN:
         }
     }
 
+#if (defined(WIN32) && defined(_DEBUG))
+    ::OutputDebugString("Mark\r\n");
+#endif
     /* Mark phase */
     GCMarkPhase();
 
+#if (defined(WIN32) && defined(_DEBUG))
+    ::OutputDebugString("Weak refs\r\n");
+#endif
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
     
@@ -512,6 +529,9 @@ GC_AGAIN:
     }
 
     /* Compact phase */
+#if (defined(WIN32) && defined(_DEBUG))
+    ::OutputDebugString("Copy\r\n");
+#endif
     POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
     GCCopyPhase(immutable_overflow);
 
@@ -537,6 +557,9 @@ GC_AGAIN:
     }    
 
     // Update Phase.
+#if (defined(WIN32) && defined(_DEBUG))
+    ::OutputDebugString("Update\r\n");
+#endif
     GCUpdatePhase();
 
     {
@@ -554,14 +577,10 @@ GC_AGAIN:
         ASSERT(iUpdated == iMarked - immutable_overflow);
         ASSERT(mUpdated == mMarked + immutable_overflow);
     }
-
-    /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        lSpace->bitmap.ClearBits(0, lSpace->gen_top - lSpace->bottom);
-    }
     /* Invariant: the bitmaps are completely clean */
+#if (defined(WIN32) && defined(_DEBUG))
+    ::OutputDebugString("Complete\r\n");
+#endif
 
     if (doFullGC)
     {

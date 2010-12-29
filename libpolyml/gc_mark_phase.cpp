@@ -26,7 +26,13 @@
 This is the first, mark, phase of the garbage collector.  It detects all
 reachable cells in the area being collected.  At the end of the phase the
 bit-maps associated with the areas will have ones for words belonging to cells
-that must be retained and zeros for words that can be reused. 
+that must be retained and zeros for words that can be reused.
+
+Currently this phase of the GC is not multi-threaded.  There are two reasons for
+this.  The mark phase doesn't divide nicely into separate regions so the effect is
+that there needs to be a mutex to protect access to the bitmap for each region and
+access to this results in a lot of contention.  Also, the mark phase can be highly
+recursive and only the main thread has enough stack space for some data structures.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -50,7 +56,6 @@ that must be retained and zeros for words that can be reused.
 #include "check_objects.h"
 #include "bitmap.h"
 #include "memmgr.h"
-#include "gctaskfarm.h"
 
 /* start <= val < end */
 #define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
@@ -67,19 +72,7 @@ private:
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
     // Have to redefine this for some reason.
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
-
-    static void MarkPointersTask(void *arg1, void *arg2);
 };
-
-
-// Task to mark pointers.
-void MTGCProcessMarkPointers::MarkPointersTask(void *arg1, void *arg2)
-{
-    MTGCProcessMarkPointers *processMark = (MTGCProcessMarkPointers *)arg1;
-    PolyObject *obj = (PolyObject *)arg2;
-    processMark->ScanAddressesInObject(obj);
-}
-
 
 // Mark all pointers in the heap.
 POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
@@ -101,14 +94,8 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     // We shouldn't get code addresses since we handle stacks and code
     // segments separately so if this isn't an integer it must be an object address.
     POLYUNSIGNED new_bitno = BITNO(space, val.AsStackAddr());
-
-    space->bitmapLock.Lock();
-
     if (space->bitmap.TestBit(new_bitno))
-    {
-        space->bitmapLock.Unlock();
         return 0; // Already marked
-    }
 
     PolyObject *obj = val.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
@@ -123,8 +110,6 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     /* Mark the segment including the length word. */
     space->bitmap.SetBits(new_bitno - 1, n + 1);
 
-    space->bitmapLock.Unlock();
-
     if (isWeak) // This is a SOME within a weak reference.
         return 0;
 
@@ -133,13 +118,9 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
     {
         // Have to handle these specially.
-        gpTaskFarm->AddWorkOrRunNow(&MarkPointersTask, this, obj);
+        (void)ScanAddressesInObject(obj, L);
         return 0; // Already done it.
     }
-    // If we've space in the task queue defer it otherwise process it
-    // immediately but avoiding recursion if we can.
-    else if (gpTaskFarm->AddWork(&MarkPointersTask, this, obj))
-        return 0;
     else
         return L;
 }
@@ -161,27 +142,22 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     CheckObject (obj);
 
     POLYUNSIGNED bitno = BITNO(space, val.AsStackAddr());
+    if (space->bitmap.TestBit(bitno)) return obj; /* Already marked */
 
-    {
-        PLocker lock(&space->bitmapLock);
+    POLYUNSIGNED L = obj->LengthWord();
+    ASSERT (OBJ_IS_LENGTH(L));
 
-        if (space->bitmap.TestBit(bitno)) return obj; /* Already marked */
+    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+    ASSERT (n != 0);
 
-        POLYUNSIGNED L = obj->LengthWord();
-        ASSERT (OBJ_IS_LENGTH(L));
+    /* Mark the segment including the length word. */
+    space->bitmap.SetBits (bitno - 1, n + 1);
 
-        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-        ASSERT (n != 0);
-
-        /* Mark the segment including the length word. */
-        space->bitmap.SetBits (bitno - 1, n + 1);
-
-        /* Add up the objects to be moved into the mutable area. */
-        if (OBJ_IS_MUTABLE_OBJECT(L))
-            space->m_marked += n + 1;
-        else
-            space->i_marked += n + 1;
-    }
+    /* Add up the objects to be moved into the mutable area. */
+    if (OBJ_IS_MUTABLE_OBJECT(L))
+        space->m_marked += n + 1;
+    else
+        space->i_marked += n + 1;
 
     // Process the addresses in this object.  We could short-circuit things
     // for word objects by calling ScanAddressesAt directly.
@@ -272,7 +248,6 @@ void GCMarkPhase(void)
     }
 
     GCModules(&marker);
-    gpTaskFarm->WaitForCompletion();
 
     /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty here. */
     

@@ -124,7 +124,7 @@ bool GCTaskFarm::AddWork(gctask work, void *arg1, void *arg2)
     queueIn++;
     if (queueIn == queueSize) queueIn = 0;
     queuedItems++;
-    if (queuedItems < threadCount) waitForWork.Signal();
+    if (queuedItems <= threadCount) waitForWork.Signal();
     return true;
 }
 
