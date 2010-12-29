@@ -876,13 +876,16 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 // Fill in any unused space in the existing segment
                 taskData->FillUnusedSpace();
                 // Get another heap segment with enough space for this object.
-                POLYUNSIGNED spaceSize = taskData->allocSize+words;
+                POLYUNSIGNED requestSpace = taskData->allocSize+words;
+                POLYUNSIGNED spaceSize = requestSpace;
                 // Get the space and update spaceSize with the actual size.
                 PolyWord *space = gMem.AllocHeapSpace(words, spaceSize);
                 if (space)
                 {
-                    // Double the allocation size for the next time.
-                    taskData->IncrementAllocationCount();
+                    // Double the allocation size for the next time if
+                    // we succeeded in allocating the whole space.
+                    if (spaceSize == requestSpace)
+                        taskData->IncrementAllocationCount();
                     taskData->allocLimit = space;
                     taskData->allocPointer = space+spaceSize;
                     // Actually allocate the object
