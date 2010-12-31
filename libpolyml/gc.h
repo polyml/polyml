@@ -59,7 +59,9 @@ extern void GCUpdatePhase(void);
 // The multi-thread GC needs the heap to be broken into multiple segments so
 // that the segments can be processed in parallel during the copy and update phases.
 // This defines the minimum number of segments for each thread. 
-#define MIN_MUTABLE_SEGS_PER_THREAD     2
-#define MIN_IMMUTABLE_SEGS_PER_THREAD   2
+#define MIN_MUTABLE_SEGS_PER_THREAD     1
+#define MIN_IMMUTABLE_SEGS_PER_THREAD   1
+
+#define MINIMUM_SPACE_COUNT            10
 
 #endif

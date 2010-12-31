@@ -1092,8 +1092,8 @@ static void PossiblyExpandImmutableArea(const POLYUNSIGNED wordsNeeded)
             requestedGrowth = immutableSegSize;
         // Make the segments larger if we have already allocated several.
         // The factors here are a guess.  Maybe tune them more carefully
-        unsigned spaceFactor = nISpaces / 3;
-        while (spaceFactor > 0) { requestedGrowth += immutableSegSize; spaceFactor--; }
+//        unsigned spaceFactor = nISpaces / 3;
+//        while (spaceFactor > 0) { requestedGrowth += immutableSegSize; spaceFactor--; }
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
@@ -1179,9 +1179,9 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
             requestedGrowth = segSize;
         // Make the segments larger if we have already allocated several.
         // The factors here are a guess.  Maybe tune them more carefully
-        unsigned spaceFactor = nSpaces / 3;
-        while (spaceFactor > 0) { requestedGrowth += segSize; spaceFactor--; }
-        if (requestedGrowth < wordsRequired) requestedGrowth = wordsRequired;
+//        unsigned spaceFactor = nSpaces / 3;
+//        while (spaceFactor > 0) { requestedGrowth += segSize; spaceFactor--; }
+//        if (requestedGrowth < wordsRequired) requestedGrowth = wordsRequired;
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
@@ -1209,10 +1209,20 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
                 space->pointer == space->top /* It's completely empty */ &&
                 (POLYUNSIGNED)(space->top - space->bottom) <= requestedShrink)
             {
-                // We can free this space without going under our limit
-                requestedShrink -= space->top - space->bottom;
-                gMem.DeleteLocalSpace(space);
+                // We can free this space without going under our limit.
+                // However we don't want to remove useful mutable spaces that can be
+                // used for allocation.
+                if (! isMutableSpace || gMem.nlSpaces > MINIMUM_SPACE_COUNT) {
+                    requestedShrink -= space->top - space->bottom;
+                    gMem.DeleteLocalSpace(space);
+                }
             }
+        }
+        // If we've deleted some unwanted immutable spaces we can reallocate
+        // the mutable spaces.
+        while (gMem.nlSpaces < MINIMUM_SPACE_COUNT) {
+            if (gMem.NewLocalSpace(ROUNDDOWN(mutableSegSize, BITSPERWORD), true) == 0)
+                break;
         }
     }
 }
@@ -1892,8 +1902,8 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
     if (hsize < isize) hsize = isize;
     if (hsize < msize) hsize = msize;
     
-    if (msize == 0) msize = 4 * 1024 + hsize / 5;  /* set default mutable buffer size */
-    if (isize == 0) isize = hsize - msize;  /* set default immutable buffer size */
+    if (msize == 0) msize = hsize / MINIMUM_SPACE_COUNT;  /* set default mutable buffer size */
+    if (isize == 0) isize = hsize / MINIMUM_SPACE_COUNT;  /* set default immutable buffer size */
     
     // Set the heap size and segment sizes.  We allocate in units of this size,
     heapSize           = K_to_words(hsize);
@@ -1911,30 +1921,26 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
         // Allocate as many segments as we have threads running the GC.
         ASSERT(userOptions.gcthreads >= 1);
         // Immutable space
-        POLYUNSIGNED immutSize =
-            ROUNDDOWN(immutableSegSize / (userOptions.gcthreads*MIN_IMMUTABLE_SEGS_PER_THREAD), BITSPERWORD);
-        POLYUNSIGNED mutSize =
-            ROUNDDOWN(mutableSegSize / (userOptions.gcthreads*MIN_MUTABLE_SEGS_PER_THREAD), BITSPERWORD);
+        POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
+        POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
 
+        // Allocate one immutable space per thread
         for(unsigned i = 0; i < userOptions.gcthreads; i++)
         {
-            for (unsigned k = 0; k < MIN_MUTABLE_SEGS_PER_THREAD; k++)
+            if (gMem.NewLocalSpace(immutSize, false) == 0)
             {
+                allocationFailed = true;
+                break;
+            }
+        }
+        ASSERT(userOptions.gcthreads < MINIMUM_SPACE_COUNT);
+        for (unsigned i = 0; i < MINIMUM_SPACE_COUNT-userOptions.gcthreads; i++)
+        {
                 if (gMem.NewLocalSpace(mutSize, true) == 0)
                 {
                     allocationFailed = true;
                     break;
                 }
-            }
-            if (allocationFailed) break;
-            for (unsigned l = 0; l < MIN_IMMUTABLE_SEGS_PER_THREAD; l++)
-            {
-                if (gMem.NewLocalSpace(immutSize, false) == 0)
-                {
-                    allocationFailed = true;
-                    break;
-                }
-            }
         }
 
         if (allocationFailed)
