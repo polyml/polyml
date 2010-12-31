@@ -140,3 +140,25 @@ void ExitWithError(const char *msg, int err)
     #endif
     exit(1);
 }
+
+// Default is to log to stdout
+static FILE *logStream = stdout;
+
+void SetLogFile(const char *fileName)
+{
+    FILE *stream = fopen(fileName, "w");
+    if (stream == NULL)
+        printf("Unable to open debug file %s\n", fileName);
+    else logStream = stream;
+}
+
+// For the moment log to stdout
+void Log(const char *msg, ...)
+{
+    va_list vl;
+    va_start(vl, msg);
+    vfprintf(logStream, msg, vl);
+    va_end(vl);
+    if (logStream == stdout) fflush(stdout);
+}
+

@@ -849,9 +849,6 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
 {
     bool triedInterrupt = false;
 
-    if (userOptions.debug & DEBUG_FORCEGC) // Always GC when allocating?
-        QuickGC(taskData, words);
-
     while (1)
     {
         // After a GC allocPointer and allocLimit are zero and when allocating the
@@ -884,8 +881,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 {
                     // Double the allocation size for the next time if
                     // we succeeded in allocating the whole space.
-                    if (spaceSize == requestSpace)
-                        taskData->IncrementAllocationCount();
+                    taskData->allocCount++; 
+                    if (spaceSize == requestSpace) taskData->allocSize = taskData->allocSize*2;
                     taskData->allocLimit = space;
                     taskData->allocPointer = space+spaceSize;
                     // Actually allocate the object

@@ -231,8 +231,6 @@ Further notes:
 // but if that fails it allocates what it can.
 static bool TryMoreHeap(POLYUNSIGNED size, bool mut)
 {
-    if (userOptions.debug & DEBUG_NOGROW) return false; // No heap growing.
-
     do {
         // Return if this succeeded.
         if (gMem.NewLocalSpace(size, mut))
@@ -594,8 +592,6 @@ GC_AGAIN:
         if (iFull || ! mFull || ! RecollectThisGeneration(this_generation))
             AdjustHeapSize(true /* mutable space */, wordsRequiredToAllocate);
     }
-
-    CheckMemory();
     
     /* Have we cleared enough space? */
     {

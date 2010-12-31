@@ -1048,8 +1048,6 @@ void ProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 // but if that fails it allocates what it can.
 static bool TryMoreHeap(POLYUNSIGNED size, bool mut)
 {
-    if (userOptions.debug & DEBUG_NOGROW) return false; // No heap growing.
-
     do {
         // Return if this succeeded.
         if (gMem.NewLocalSpace(size, mut))
@@ -1616,7 +1614,17 @@ GC_AGAIN:
             AdjustHeapSize(true /* mutable space */, wordsRequiredToAllocate);
     }
 
-    CheckMemory();
+    if (userOptions.debug & DEBUG_GC)
+    {
+        Log("GC: %s GC %u spaces\n", doFullGC ? "Full" : "Partial", gMem.nlSpaces);
+        for(j = 0; j < gMem.nlSpaces; j++)
+        {
+            LocalMemSpace *lSpace = gMem.lSpaces[j];
+            Log("GC: %s space %d free in %d words %2.1f%% free\n", lSpace->isMutable ? "Mutable" : "Immutable",
+                lSpace->pointer - lSpace->bottom, lSpace->top - lSpace->bottom,
+                ((float)(lSpace->pointer - lSpace->bottom)) * 100 / (float)(lSpace->top - lSpace->bottom));
+        }
+    }
     
     /* Have we cleared enough space? */
     {
@@ -1871,7 +1879,7 @@ POLYUNSIGNED GetPhysicalMemorySize(void)
 // Fills in the defaults and attempts to allocate the heap.  If the heap size
 // is too large it allocates as much as it can.  The default heap size is half the
 // physical memory.
-void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, bool heapMax)
+void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
 {
     // If no -H option was given set the default initial size to half the memory.
     if (hsize == 0) {
@@ -1943,22 +1951,6 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize, 
     }
 
     // Heap allocation has succeeded.
-
-    if (heapMax) {
-        // Testing only.  Get as much space as possible.  The idea is to simulate the
-        // situation where the heap has grown until the memory is exhausted.
-        dontFreeSpace = true;
-        unsigned long    segSize = immutableSegSize;
-        // Allocate immutable segments until the heap is exhausted.
-        while (segSize > 1024) {
-            LocalMemSpace *iSpace = 0;
-            // Immutable space
-            POLYUNSIGNED immutSize = ROUNDDOWN(segSize, BITSPERWORD);
-            iSpace = gMem.NewLocalSpace(immutSize, false);
-            if (iSpace == 0) segSize = segSize/2;
-        }
-    }
-
     // The space we need to have free at the end of a partial collection.  If we have less
     // than this we do a full GC.
     // For an immutable area this is zero.  For the mutable area, though, this is 80% of the

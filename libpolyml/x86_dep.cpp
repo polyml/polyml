@@ -405,8 +405,6 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
     do
     {
         taskData->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
-        CheckMemory(); // Do any memory checking before calling SetMemRegisters
-                       // (which may set pc to a temporarily bad value if this is a retry).
         SetMemRegisters(taskData);
 
         X86AsmSwitchToPoly(&mdTask->memRegisters);
@@ -921,8 +919,7 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
 
     // If we haven't yet set the allocation area or we don't have enough we need
     // to create one (or a new one).
-    if (taskData->allocPointer <= taskData->allocLimit + mdTask->allocWords ||
-        (userOptions.debug & DEBUG_FORCEGC))
+    if (taskData->allocPointer <= taskData->allocLimit + mdTask->allocWords)
     {
         if (taskData->allocPointer < taskData->allocLimit)
             Crash ("Bad length in heap overflow trap");
@@ -968,7 +965,7 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     mdTask->memRegisters.localMpointer = taskData->allocPointer + 1;
     // If we are profiling store allocation we set mem_hl so that a trap
     // will be generated.
-    if (profileMode == kProfileStoreAllocation || (userOptions.debug & (DEBUG_FORCEGC|DEBUG_REGION_CHECK)))
+    if (profileMode == kProfileStoreAllocation)
         mdTask->memRegisters.localMbottom = mdTask->memRegisters.localMpointer;
 
     mdTask->memRegisters.polyStack = taskData->stack;

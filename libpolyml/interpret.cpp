@@ -207,8 +207,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
 
     RESTART: /* Load or reload the registers and run the code. */
 
-    if (taskData->allocPointer <= taskData->allocLimit + storeWords ||
-        (userOptions.debug & DEBUG_FORCEGC))
+    if (taskData->allocPointer <= taskData->allocLimit + storeWords)
     {
         if (taskData->allocPointer < taskData->allocLimit)
             Crash ("Bad length in heap overflow trap");

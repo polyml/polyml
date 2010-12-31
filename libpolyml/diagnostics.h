@@ -29,4 +29,7 @@ NORETURNFN(extern void Crash(const char *, ...));
 
 NORETURNFN(extern void ExitWithError(const char *, int err));
 
+extern void SetLogFile(const char *fileName);
+extern void Log(const char *, ...);
+
 #endif

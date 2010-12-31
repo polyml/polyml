@@ -417,7 +417,6 @@ int SparcDependent::SwitchToPoly(TaskData *taskData)
     while (1)
     {
         taskData->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
-        CheckMemory(); // Do any memory checking.
 
         // Remember the position after the last time we checked
         // the memory.
@@ -458,8 +457,7 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
 
     // If we haven't yet set the allocation area or we don't have enough we need
     // to create one (or a new one).
-    if (taskData->allocPointer <= taskData->allocLimit + mdTask->allocWords ||
-        (userOptions.debug & DEBUG_FORCEGC))
+    if (taskData->allocPointer <= taskData->allocLimit + mdTask->allocWords)
     {
         if (taskData->allocPointer < taskData->allocLimit)
             Crash ("Bad length in heap overflow trap");
@@ -494,7 +492,7 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
     // The Sparc version sets %g5 to be -maxint + space.  Each time an object is allocated
     // the size is deducted from this until eventually the space is exhausted.  At that
     // point the subtraction results in an overflow which traps.
-    if (profileMode == kProfileStoreAllocation || (userOptions.debug & DEBUG_REGION_CHECK))
+    if (profileMode == kProfileStoreAllocation)
         mdTask->memRegisters.heapSpaceT = 0x80000000;
     else
         mdTask->memRegisters.heapSpaceT = ((char*)taskData->allocPointer-(char*)taskData->allocLimit) | 0x80000000;
@@ -1062,7 +1060,7 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
         if (profileMode == kProfileStoreAllocation)
             add_count(taskData, taskData->stack->p_pc, taskData->stack->p_sp, len);
         else
-            if (taskData->allocPointer >= taskData->allocLimit && ! (userOptions.debug & DEBUG_REGION_CHECK))
+            if (taskData->allocPointer >= taskData->allocLimit)
                 Crash ("Spurious %%g5 trap");
             
         if (taskData->allocPointer < taskData->allocLimit)

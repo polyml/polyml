@@ -37,7 +37,4 @@ extern void DoCheckMemory(void);
 #define CheckObjectL(pt, l)  {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, l); }
 #define CheckPointer(pt) {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheckPointer(pt); }
 
-inline void CheckMemory(void) { if (userOptions.debug & DEBUG_REGION_CHECK) DoCheckMemory(); }
-
-
 #endif

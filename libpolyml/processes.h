@@ -77,9 +77,6 @@ public:
     virtual void GarbageCollect(ScanAddress *process) = 0;
     virtual void Lock(void) = 0;
     virtual void Unlock(void) = 0;
-    // Increment the allocation count and adjust the allocation size for
-    // the next allocation.  Doubles the allocation for next time.
-    virtual void IncrementAllocationCount(void) { allocCount++; allocSize = allocSize*2; }
 
     MDTaskData  *mdTaskData;    // Machine-specific task data.
     SaveVec     saveVec;

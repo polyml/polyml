@@ -85,21 +85,55 @@ struct _userOptions userOptions;
 UNSIGNEDADDR exportTimeStamp;
 
 static unsigned hsize, isize, msize, rsize;
-static bool heapMax = false;
+
+enum {
+    OPT_HEAP,
+    OPT_IMMUTABLE,
+    OPT_MUTABLE,
+    OPT_RESERVE,
+    OPT_GCTHREADS,
+    OPT_DEBUGOPTS,
+    OPT_DEBUGFILE
+};
 
 struct __argtab {
+    const char *argName, *argHelp;
+    unsigned argKey;
+} argTable[] =
+{
+    { "-H",             "Initial heap size (MB)",                               OPT_HEAP },
+    { "--heap",         "Initial heap size (MB)",                               OPT_HEAP },
+    { "--immutable",    "Initial size of immutable buffer (MB)",                OPT_IMMUTABLE },
+    { "--mutable",      "Initial size of mutable buffer(MB)",                   OPT_MUTABLE },
+    { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
+    { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
+    { "--debug",        "Debug options: checkobjects, gc, x",                   OPT_DEBUGOPTS },
+    { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
+};
+
+struct __debugOpts {
+    const char *optName, *optHelp;
+    unsigned optKey;
+} debugOptTable[] =
+{
+    { "checkobjects",       "Perform additional debugging checks",              DEBUG_CHECK_OBJECTS },
+    { "gc",                 "Log garbage-collector information",                DEBUG_GC },
+    { "x",                  "Log X-windows information",                        DEBUG_X}
+};
+
+/*struct __argtab {
     const char *argName, *argHelp;
     unsigned scale, *argVal;
 } argTable[] =
 {
-    { "-H",             "Initial heap size (MB)",                1024,   &hsize }, // Leave this for the moment
+    { "-H",             "Initial heap size (MB)",                1024,   &hsize },
     { "--heap",         "Initial heap size (MB)",                1024,   &hsize },
     { "--immutable",    "Initial size of immutable buffer (MB)", 1024,   &isize },
     { "--mutable",      "Initial size of mutable buffer(MB)",    1024,   &msize },
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",1024,   &rsize },
     { "--gcthreads",    "Number of threads to use for garbage collection",1,   &userOptions.gcthreads },
     { "--debug",        "Debug options",                         1,      &userOptions.debug }
-};
+};*/
 
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
@@ -133,7 +167,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
                 unsigned argl = strlen(argTable[j].argName);
                 if (strncmp(argv[i], argTable[j].argName, argl) == 0)
                 {
-                    char *p;
+                    char *p, *endp;
                     if (strlen(argv[i]) == argl)
                     { // If it has used all the argument pick the next
                         i++;
@@ -146,16 +180,58 @@ int polymain(int argc, char **argv, exportDescription *exports)
                     }
                     if (i >= argc)
                         printf("Incomplete %s option\n", argTable[j].argName);
-                    else
-                        *(argTable[j].argVal) = atoi(p) * argTable[j].scale;
+                    else switch (argTable[j].argKey)
+                    {
+                    case OPT_HEAP:
+                        hsize = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_IMMUTABLE:
+                        isize = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_MUTABLE:
+                        msize = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_RESERVE:
+                        rsize = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_GCTHREADS:
+                        userOptions.gcthreads = strtol(p, &endp, 10);
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_DEBUGOPTS:
+                        while (*p != '\0')
+                        {
+                            // Debug options are separated by commas
+                            char *q = strchr(p, ',');
+                            if (q == NULL) q = p+strlen(p);
+                            for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
+                            {
+                                if (strlen(debugOptTable[k].optName) == (size_t)(q-p) &&
+                                        strncmp(p, debugOptTable[k].optName, q-p) == 0)
+                                    userOptions.debug |= debugOptTable[k].optKey;
+                            }
+                            p = q;
+                        }
+                        break;
+                    case OPT_DEBUGFILE:
+                        SetLogFile(p);
+                        break;
+                    }
                     argUsed = true;
                     break;
                 }
             }
             if (! argUsed) // Add it to the user args.
                 userOptions.user_arg_strings[userOptions.user_arg_count++] = argv[i];
-            else if (strcmp(argv[i], "--heapmax") == 0)
-                heapMax = true;
         }
         else if (exports == 0 && importFileName == 0)
             importFileName = argv[i];
@@ -174,7 +250,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
     /* initialise the run-time system before opening the database */
     init_run_time_system();
 
-    CreateHeap(hsize, isize, msize, rsize, heapMax);
+    CreateHeap(hsize, isize, msize, rsize);
     
     PolyObject *rootFunction = 0;
 
