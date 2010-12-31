@@ -240,10 +240,6 @@ SOURCE=.\mpoly.cpp
 # End Source File
 # Begin Source File
 
-SOURCE=.\multithread_gc.cpp
-# End Source File
-# Begin Source File
-
 SOURCE=.\network.cpp
 # End Source File
 # Begin Source File

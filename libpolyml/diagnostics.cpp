@@ -141,8 +141,13 @@ void ExitWithError(const char *msg, int err)
     exit(1);
 }
 
+#ifdef WINDOWS_PC
+// Default is to log with OutputDebugString
+static FILE *logStream = NULL;
+#else
 // Default is to log to stdout
 static FILE *logStream = stdout;
+#endif
 
 void SetLogFile(const char *fileName)
 {
@@ -157,7 +162,12 @@ void Log(const char *msg, ...)
 {
     va_list vl;
     va_start(vl, msg);
-    vfprintf(logStream, msg, vl);
+    if (logStream) vfprintf(logStream, msg, vl);
+#ifdef WINDOWS_PC
+    char buff[1024];
+    if (_vsnprintf(buff, sizeof(buff), msg, vl) > 0)
+        ::OutputDebugString(buff);
+#endif
     va_end(vl);
     if (logStream == stdout) fflush(stdout);
 }

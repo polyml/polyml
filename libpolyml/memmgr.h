@@ -90,14 +90,14 @@ public:
     PolyWord    *gen_top;         /* top    of area to garbage collect.                */
     PolyWord    *gen_bottom;      /* lowest object in area before copying.             */
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
-    bool         targetSpace;     // Copy phase of GC: true if we've copied into this.
+    bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.
     bool         spaceInUse;      // Copy phase of GC: true if a thread is copying into this.
     POLYUNSIGNED highest;         /* index of top word in bitmap.                      */
     POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */
     POLYUNSIGNED start_index;     /* last index used to index start array              */
     POLYUNSIGNED i_marked;        /* count of immutable words marked.                  */
     POLYUNSIGNED m_marked;        /* count of mutable words marked.                    */
-    POLYUNSIGNED copied;          /* count of words copied.                            */
+    POLYUNSIGNED copied;          /* count of words copied into this area.             */
     POLYUNSIGNED updated;         /* count of words updated.                           */
 
     friend class MemMgr;

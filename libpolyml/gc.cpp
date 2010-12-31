@@ -1,7 +1,10 @@
 /*
-    Title:      Garbage Collector
+    Title:      Multi-Threaded Garbage Collector
 
-    Copyright (c) 2000-8
+    Copyright (c) 2010 David C. J. Matthews
+
+    Based on the original garbage collector code
+        Copyright 2000-2008
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -63,13 +66,15 @@
 #include "bitmap.h"
 #include "rts_module.h"
 #include "memmgr.h"
+#include "gctaskfarm.h"
 
 // Settings moved from userOptions.
 static unsigned long    heapSize, immutableSegSize, mutableSegSize;
 static unsigned long    immutableFreeSpace, mutableFreeSpace;
 static unsigned long    immutableMinFree, mutableMinFree; // Probably remove
 
-static bool dontFreeSpace; // Temporary for testing.
+static GCTaskFarm gTaskFarm; // Global task farm.
+GCTaskFarm *gpTaskFarm = &gTaskFarm;
 
 // If the GC converts a weak ref from SOME to NONE it sets this ref.  It can be
 // cleared by the signal handler thread.  There's no need for a lock since it
@@ -227,21 +232,8 @@ Further notes:
    
    SPF 17/12/1997
 */
-
-/* start <= val < end */
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
   
-/* start <= val <= end */
-#define INSOFTRANGE(val,start,end) ((start) <= (val) && (val) <= (end))
-
-/* Code pointers are usually aligned to 2 mod 4 
-   However stack->p_pc is not necessarily aligned, so we have to 
-   be careful */
-//#define IN_GC_AREA(_pt) (! IS_INT(_pt) && (IN_GC_IAREA((_pt).AsAddress()) || IN_GC_MAREA((_pt).AsAddress())))
-
-inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
-inline PolyWord *BIT_ADDR(LocalMemSpace *area, POLYUNSIGNED bitno) { return area->bottom + bitno; }
-
+#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
 
 void CopyStackFrame(StackObject *old_stack, StackObject *new_stack)
 {
@@ -330,718 +322,6 @@ void CopyStackFrame(StackObject *old_stack, StackObject *new_stack)
 
     CheckObject (new_stack);
 }
-
-
-/**************************************************************************/
-/* This function finds all the mutable objects in the local mutable area. */
-/* These are scanned since they may contain references into the gc area.  */
-/**************************************************************************/
-// Mark these mutables.
-static void OpMutables(ScanAddress *process)
-{
-    // Scan the local mutable areas.  It won't do anything if this is a full
-    // GC since gen_top == top.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable)
-            process->ScanAddressesInRegion(space->gen_top, space->top);
-    }
-    // Scan the permanent mutable areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
-    {
-        MemSpace *space = gMem.pSpaces[j];
-        if (space->isMutable)
-            process->ScanAddressesInRegion(space->bottom, space->top);
-    }
-}
-
-class ProcessMarkPointers: public ScanAddress
-{
-public:
-    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return DoScanAddressAt(pt, false); }
-    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
-    virtual PolyObject *ScanObjectAddress(PolyObject *base);
-private:
-    POLYUNSIGNED DoScanAddressAt(PolyWord *pt, bool isWeak);
-    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
-    // Have to redefine this for some reason.
-    void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
-};
-
-// Mark all pointers in the heap.
-POLYUNSIGNED ProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
-{
-    PolyWord val = *pt;
-    CheckPointer (val);
-    
-    if (val.IsTagged())
-        return 0;
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-    if (space == 0)
-        return 0; // Ignore it if it points to a permanent area
-
-    // Ignore it if it's outside the range we're currently collecting.
-    if (! INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return 0;
-
-    // We shouldn't get code addresses since we handle stacks and code
-    // segments separately so if this isn't an integer it must be an object address.
-    POLYUNSIGNED new_bitno = BITNO(space, val.AsStackAddr());
-    if (space->bitmap.TestBit(new_bitno))
-        return 0; // Already marked
-
-    PolyObject *obj = val.AsObjPtr();
-    POLYUNSIGNED L = obj->LengthWord();
-    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-
-    /* Add up the objects to be moved into the mutable area. */
-    if (OBJ_IS_MUTABLE_OBJECT(L))
-        space->m_marked += n + 1;
-    else
-        space->i_marked += n + 1;
-
-    /* Mark the segment including the length word. */
-    space->bitmap.SetBits(new_bitno - 1, n + 1);
-
-    if (isWeak) // This is a SOME within a weak reference.
-        return 0;
-
-    if (OBJ_IS_BYTE_OBJECT(L))
-        return 0; // We've done as much as we need
-    else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
-    {
-        // Have to handle these specially.
-        (void)ScanAddressesInObject(obj, L);
-        return 0; // Already done it.
-    }
-    else
-        return L;
-}
-
-// The initial entry to process the roots.  Also used when processing the addresses
-// in objects that can't be handled by ScanAddressAt.
-PolyObject *ProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
-{
-    PolyWord val = obj;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-    if (space == 0)
-        return obj; // Ignore it if it points to a permanent area
-    // Ignore it if it's outside the range we're currently collecting.
-    if (! INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return obj;
-
-    ASSERT(obj->ContainsNormalLengthWord());
-
-    CheckObject (obj);
-
-    POLYUNSIGNED bitno = BITNO(space, val.AsStackAddr());
-    if (space->bitmap.TestBit(bitno)) return obj; /* Already marked */
-
-    POLYUNSIGNED L = obj->LengthWord();
-    ASSERT (OBJ_IS_LENGTH(L));
-
-    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-    ASSERT (n != 0);
-
-    /* Mark the segment including the length word. */
-    space->bitmap.SetBits (bitno - 1, n + 1);
-
-    /* Add up the objects to be moved into the mutable area. */
-    if (OBJ_IS_MUTABLE_OBJECT(L))
-        space->m_marked += n + 1;
-    else
-        space->i_marked += n + 1;
-
-    // Process the addresses in this object.  We could short-circuit things
-    // for word objects by calling ScanAddressesAt directly.
-    ScanAddressesInObject(obj);
-
-    return obj;
-}
-
-
-// These functions are only called with pointers held by the runtime system.
-// Weak references can occur in the runtime system, eg. streams and windows.
-// Weak references are not marked and so unreferenced streams and windows
-// can be detected and closed.
-void ProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
-{
-    PolyObject *val = *pt;
-    CheckPointer (val);
-    if (weak == STRENGTH_WEAK) return;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val);
-    if (space != 0)
-    {
-        PolyWord w = val;
-        if (INRANGE(w.AsStackAddr(), space->gen_bottom, space->gen_top))
-        {
-            POLYUNSIGNED lengthWord = ScanAddressAt(&w);
-            if (lengthWord)
-                ScanAddressesInObject(val, lengthWord);
-            *pt = w.AsObjPtr();
-        }
-    }
-}
-
-// This is called both for objects in the local heap and also for mutables
-// in the permanent area and, for partial GCs, for mutables in other areas.
-void ProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L)
-{
-    if (OBJ_IS_WEAKREF_OBJECT(L))
-    {
-        ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
-        ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
-        // We need to mark the "SOME" values in this object but we don't mark
-        // the references contained within the "SOME".
-        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-        PolyWord *baseAddr = (PolyWord*)base;
-        for (POLYUNSIGNED i = 0; i < n; i++)
-            DoScanAddressAt(baseAddr+i, true);
-        // Add this to the limits for the containing area.
-        MemSpace *space = gMem.SpaceForAddress(baseAddr);
-        PolyWord *startAddr = baseAddr-1; // Must point AT length word.
-        PolyWord *endObject = baseAddr + n;
-        if (startAddr < space->lowestWeak) space->lowestWeak = startAddr;
-        if (endObject > space->highestWeak) space->highestWeak = endObject;
-    }
-    else ScanAddress::ScanAddressesInObject(base, L);
-}
-
-// Check for weak references that are no longer referenced.
-class CheckWeakRef: public ScanAddress {
-public:
-    void ScanAreas(void);
-private:
-    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
-    // This has to be defined since it's virtual.
-    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-    virtual void ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord);
-};
-
-// This deals with weak references within the run-time system.
-void CheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
-{
-    /* If the object has not been marked and this is only a weak reference */
-    /* then the pointer is set to zero. This allows streams or windows     */
-    /* to be closed if there is no other reference to them.                */
-    
-    PolyObject *val = *pt;
-    PolyWord w = val;
-    
-    CheckPointer (val);
-    
-    if (weak == STRENGTH_STRONG)
-        return;
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(w.AsStackAddr());
-    if (space == 0)
-        return; // Not in local area
-    if (! INRANGE(w.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return; // Not in area we're currently collecting.
-    // If it hasn't been marked set it to zero.
-    if (! space->bitmap.TestBit(BITNO(space, w.AsStackAddr())))
-         *pt = 0;
-}
-
-// Deal with weak objects
-void CheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
-{
-    if (! OBJ_IS_WEAKREF_OBJECT(L)) return;
-    ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
-    ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
-    // See if any of the SOME objects contain unreferenced refs.
-    POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
-    PolyWord *baseAddr = (PolyWord*)obj;
-    for (POLYUNSIGNED i = 0; i < length; i++)
-    {
-        PolyWord someAddr = baseAddr[i];
-        if (someAddr.IsDataPtr())
-        {
-            LocalMemSpace *someSpace = gMem.LocalSpaceForAddress(someAddr.AsAddress());
-            if (someSpace != 0 &&
-                    INRANGE(someAddr.AsStackAddr(), someSpace->gen_bottom, someSpace->gen_top))
-            {
-                PolyObject *someObj = someAddr.AsObjPtr();
-                // If this is a weak object the SOME value may refer to an unreferenced
-                // ref.  If so we have to set this entry to NONE.  For safety we also
-                // set the contents of the SOME to TAGGED(0).
-                ASSERT(someObj->Length() == 1 && someObj->IsWordObject()); // Should be a SOME node.
-                PolyWord refAddress = someObj->Get(0);
-                LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
-                if (space != 0 &&
-                    INRANGE(refAddress.AsStackAddr(), space->gen_bottom, space->gen_top))
-                    // If the ref is permanent it's always there.
-                {
-                    POLYUNSIGNED new_bitno = BITNO(space, refAddress.AsStackAddr());
-                    if (! space->bitmap.TestBit(new_bitno))
-                    {
-                        // It wasn't marked so it's otherwise unreferenced.
-                        baseAddr[i] = TAGGED(0); // Set it to NONE.
-                        someObj->Set(0, TAGGED(0)); // For safety.
-                        convertedWeak = true;
-                    }
-                }
-            }
-        }
-    }
-}
-
-// We need to check any weak references both in the areas we are
-// currently collecting and any other areas.  This actually checks
-// weak refs in the area we're collecting even if they are not
-// actually reachable any more.  N.B.  This differs from OpMutables
-// because it also scans the area we're collecting.
-void CheckWeakRef::ScanAreas(void)
-{
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable)
-            ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
-    }
-    // Scan the permanent mutable areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
-    {
-        MemSpace *space = gMem.pSpaces[j];
-        if (space->isMutable)
-            ScanAddressesInRegion(space->lowestWeak, space->highestWeak);
-    }
-}
-
-class ProcessUpdate: public ScanAddress
-{
-public:
-    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
-    virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
-    virtual PolyObject *ScanObjectAddress(PolyObject *base);
-
-    void UpdateObjectsInArea(LocalMemSpace *area);
-};
-
-/*********************************************************************/
-/* This function is called in the update phase to update pointers to */
-/* objects in the gc area that are in old mutable segments.          */
-/*********************************************************************/
-PolyObject *ProcessUpdate::ScanObjectAddress(PolyObject *obj)
-{
-    PolyWord val = obj;
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr());
-    if (space != 0)
-    {
-        if (obj->ContainsForwardingPtr())
-            obj = obj->GetForwardingPtr();
-        else ASSERT(obj->ContainsNormalLengthWord());
-    
-        CheckObject (obj);
-    }
-    return obj;
-}
-
-void ProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/)
-/* weak is not used, but needed so type of the function is correct */
-{
-    PolyWord w = *pt;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(w.AsStackAddr());
-    if (space != 0)
-    {
-        PolyObject *obj = *pt;
-        
-        if (obj->ContainsForwardingPtr())
-            *pt = obj->GetForwardingPtr();
-        else ASSERT(obj->ContainsNormalLengthWord()); /* SPF 24/1/95 */
-        
-        CheckObject (*pt);
-    }
-}  
-
-/* Search the area downwards looking for n consecutive free words.          */
-/* Return the bitmap index if successful or 0 (should we use -1?) on failure. */
-static inline POLYUNSIGNED FindFreeInArea(LocalMemSpace *dst, POLYUNSIGNED limit, POLYUNSIGNED n)
-{
-    /* SPF's version of the start caching code. SPF 2/10/96 */
-    /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */
-    POLYUNSIGNED truncated_n = (n < NSTARTS) ? n : NSTARTS - 1;
-    
-    ASSERT(0 <= limit);
-    
-    /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */ 
-    
-    /* 
-    Update the starting array, so that the first few entries are valid.
-    The starting point for a given size of hole must be at least as
-    small (late) as the starting point for smaller holes.
-    We remember the start_index of our previous allocation, so
-    that if we have the same size object again, this loop becomes
-    trivial. SPF 2/10/96
-    */ 
-    for (POLYUNSIGNED i = dst->start_index; i < truncated_n; i ++)
-    {
-        if (dst->start[i] < dst->start[i+1])
-        {
-            dst->start[i+1] = dst->start[i];
-        }
-    }
-    
-    /* Invariant: dst->start[0] .. dst->start[truncated_n] is a descending sequence. */
-    dst->start_index = truncated_n;
-    /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */ 
-    
-    /* Start our search at the appropriate point. */
-    POLYUNSIGNED start = dst->start[truncated_n];
-    
-    /* If we can't copy UP, give up immediately. It's important that we DON'T
-    update dst->start[n], because that might INCREASE it, which isn't
-    allowed. SPF 19/11/1997
-    */
-    if (start <= limit)
-    {
-        return 0;
-    }
-    
-    POLYUNSIGNED free = dst->bitmap.FindFree(limit, start, n);
-    /* free == 0 || limit <= free && free < start */
-    
-    /* 
-    We DON'T update the array for big allocations, because this would cause
-    us to skip holes that are actually large enough for slightly smaller
-    (but still big) allocations. An allocation is "big" if it doesn't
-    have its own dedicated slot in the start array. This won't actually
-    cost us much, provided there's enough small allocations between
-    the big ones, as these will cause the pointer to be advanced.
-    SPF 2/10/96
-    */
-    /* dst->start[0] .. dst->start[dst->start_index] is a descending sequence */
-    if (n < NSTARTS)
-    {
-        /* free == 0 || limit <= free && free < start */
-        ASSERT(n == dst->start_index);
-        dst->start[n] = (free == 0) ? limit : free;
-        /* Writing "dst->start[n] = free;" is attractive but wrong. The problem
-           is that even if we can't compact the immutables much, we may still
-           be able to copy immutables from the mutable area into the immutable
-           area, but setting dst->start[n] to 0 would prevent this.
-           SPF 19/11/1997 */
-    }
-    /* dst->start[0] .. dst->start[dst->start_index] is still is a descending sequence */
-    
-    return free;
-}
-
-// This does nothing to the addresses but by applying it in ScanConstantsWithinCode we
-// adjust any relative addresses so they are relative to the new location.
-class ProcessIdentity: public ScanAddress {
-public:
-   virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-};
-
-static void CopyObjectsInArea(LocalMemSpace *src, bool compressImmutables)
-{
-    /* Start scanning the bitmap from the very bottom since it is    */
-    /* likely that very recently created objects need copying.       */
-    /* Skip whole words of zeroes since these may be quite common if */
-    /* the objects to be copied are sparsely separated.              */
-    
-    /* Invariant: at this point there are no objects below src->gen_bottom */
-    POLYUNSIGNED  bitno   = BITNO(src,src->gen_bottom);
-    POLYUNSIGNED  highest = src->highest;
-    
-    for (;;)
-    {
-        if (bitno >= highest) return;
-        
-        /* SPF version; Invariant: 0 < highest - bitno */
-        bitno += src->bitmap.CountZeroBits(bitno, highest - bitno);
-        
-        if (bitno >= highest) return;
-        
-        ASSERT (src->bitmap.TestBit(bitno));
-        
-        /* first set bit corresponds to the length word */
-        PolyWord *old = BIT_ADDR(src, bitno); /* Old object address */
-
-        PolyObject *obj = (PolyObject*)(old+1);
-        
-        POLYUNSIGNED L = obj->LengthWord();
-        ASSERT (OBJ_IS_LENGTH(L));
-        CheckObject(obj);
-        
-        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L) + 1 ;/* Length of allocation (including length word) */
-        bitno += n;
-        
-        POLYUNSIGNED free = 0;  /* Bitmap index of new allocation */
-
-        // The destination space if either a mutable space if this is a mutable
-        // or an immutable space if it's immutable.
-        LocalMemSpace *dst = 0;   /* New object allocation area */
-        // Find a mutable space for the mutable objects and an immutable space for
-        // the immutables.  We copy objects into earlier spaces or within its own
-        // space but we don't copy an object to a later space.  This avoids the
-        // risk of copying an object multiple times.  Previously this copied objects
-        // into later spaces but that doesn't work well if we have converted old
-        // saved state segments into local areas.  It's much better to delete them
-        // if possible.
-        for (unsigned i = 0; i < gMem.nlSpaces; i++)
-        {
-            dst = gMem.lSpaces[i];
-            if (OBJ_IS_MUTABLE_OBJECT(L))
-            {
-                // Mutable object
-                if (dst->isMutable)
-                {
-                    ASSERT(src->isMutable); // Should come from a mutable area
-                    free = FindFreeInArea(dst, (src == dst) ? bitno : 0, n);
-                    if (free)
-                        break; // Found space.
-                    if (src == dst)
-                        break; // We mustn't copy it to an earlier area.
-                }
-            }
-            else 
-            {
-                // Immutable object.
-                if (! dst->isMutable)
-                {
-                    /* If we're copying mutables to the immutable area and we're just doing sequential
-                       allocations at the bottom, we can optimise out all that "clever" search
-                       code in FindFreeInArea. */
-                    if (! compressImmutables)
-                    {
-                        POLYUNSIGNED dest_bitno = BITNO(dst, dst->pointer);
-                        ASSERT(src->isMutable); // Only if we're copying from mutable area
-                        if (n < dest_bitno)
-                        {
-                            free = dest_bitno - n;
-                            break;
-                        }
-                    }
-                    else // It's a full GC, so try to be compact within the immutable area. 
-                    {
-                        free = FindFreeInArea(dst, (src == dst) ? bitno : 0, n);
-                        if (free)
-
-                            break;
-                    }
-                    // We mustn't copy it to an earlier area.  N.B. If we're copying from
-                    // a mutable area we CAN copy it to an immutable area earlier in
-                    // the sequence.
-                    if (src == dst)
-                        break;
-                }
-            }
-        }
-        
-        if (free == 0) /* no room */
-        {
-            // We're not going to move this object
-            // Update src->pointer, so the old object doesn't get trampled.
-            if (old < src->pointer)
-                src->pointer = old;
-
-            /* We haven't been able to move this object on this GC, but we might    */
-            /* still be able to move some smaller objects, which might free enough  */
-            /* space that we'll be able to move this object on the next GC, even if */
-            /* nothing becomes garbage before then. SPF 19/11/1997                  */
-            continue;
-        }
-        
-        /* allocate object in the bitmap */
-        dst->bitmap.SetBits(free, n);
-        PolyWord *newp = BIT_ADDR(dst, free); /* New object address */
-        
-        /* Update dst->pointer, so the new object doesn't get trampled. SPF 4/10/96 */
-        if (newp < dst->pointer)
-            dst->pointer = newp;
-
-        // If we are copying into a later area we may copy into an area
-        // that crosses gen_bottom for that area.  We need to adjust gen_bottom
-        // since we assume above that gen_bottom points to a valid object.
-        if (newp < dst->gen_bottom && newp+n > dst->gen_bottom)
-            dst->gen_bottom = newp+n;
-
-        PolyObject *newObj = (PolyObject*)(newp+1);
-        
-        if (OBJ_IS_STACK_OBJECT(L))
-        {
-            newObj ->SetLengthWord(L); /* copy length word */
-            CopyStackFrame ((StackObject *)obj,(StackObject *)newObj);
-            obj->SetForwardingPtr(newObj);
-        }
-        else /* not a stack object */
-        {
-            for (POLYUNSIGNED i = 0; i < n; i++)
-                newp[i] = old[i];
-            
-            ASSERT((*newp).AsUnsigned() == L);
-            obj->SetForwardingPtr(newObj);
-            
-            // If this is a code object flush out anything from the instruction cache
-            // that might previously have been at this address
-            if (OBJ_IS_CODE_OBJECT(L))
-            {
-                ProcessIdentity identity;
-                machineDependent->FlushInstructionCache(newp, n * sizeof(PolyWord));
-                // We have to update any relative addresses in the code.
-                machineDependent->ScanConstantsWithinCode(newObj, obj, OBJ_OBJECT_LENGTH(L), &identity);
-            }
-
-            // We mustn't check the object until after we've adjusted any relative offsets.
-            CheckObject((PolyObject*)(BIT_ADDR(dst, free) + 1));
-        }
-        
-        dst->copied += n;
-  }
-}
-
-// Update the addresses in a group of words.
-POLYUNSIGNED ProcessUpdate::ScanAddressAt(PolyWord *pt)
-{
-    PolyWord val = *pt;
-    Check (val);
-
-    if (val.IsTagged())
-        return 0;
-
-    // It looked like it would be possible to simplify this code and
-    // just call ContainsForwardingPtr on any address.
-    // Profiling shows that it's quite important to avoid calling
-    // ContainsForwardingPtr unnecessarily. I guess the reason is that
-    // it actually accesses the memory referenced by the address and it
-    // is unlikely to be in the cache.
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr());
-    if (space == 0)
-        return 0;
-
-    if (! INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return 0;
-
-    PolyObject *obj = val.AsObjPtr();
-    
-    if (obj->ContainsForwardingPtr())
-    {
-        *pt = obj->GetForwardingPtr();
-        CheckObject (pt->AsObjPtr());
-    }
-    else
-    {
-        ASSERT(obj->ContainsNormalLengthWord());
-        CheckObject(obj);
-    }
-
-    return 0;
-}
-
-// Updates the addresses for objects in the area with the "allocated" bit set.
-// It processes the area between area->pointer and the bit corresponding to area->highest.
-void ProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
-{
-    PolyWord *pt      = area->pointer;
-    POLYUNSIGNED   bitno   = BITNO(area, pt);
-    POLYUNSIGNED   highest = area->highest;
-    
-    for (;;)
-    {
-        ASSERT(bitno <= highest); /* SPF */
-        
-       /* Zero freed space. This is necessary for OpMutableBlock,
-          which expects the old mutable area to contain only
-          genuine objects, tombstones and zero words. This is
-          all rather sad, since zeroing the mutable buffer in
-          this manner may well be one of the hot-spots of the GC.
-          At least we only start at area->pointer, so we shouldn't
-          normally have to zap *too* much store.
-          SPF 22/10/96
-        */
-        /*
-          The alternative, of making these dummy byte objects in which
-          case it is only the length word that needs to be set, didn't
-          seem to make any difference.  The CPU is probably writing back
-          whole cache lines so setting the length word probably means
-          the whole cache line has to be written anyway.  DCJM 2/6/06.
-        */
-        while (bitno < highest && !area->bitmap.TestBit(bitno))
-        {
-            *pt++ = PolyWord::FromUnsigned(0);
-            bitno++;
-        }
-        
-        if (bitno == highest)
-            return;
-        
-        /* first set bit corresponds to the length word */
-        pt++;
-        PolyObject *obj = (PolyObject*)pt;
-        POLYUNSIGNED L = obj->LengthWord();
-        bitno++;
-        
-        if (obj->ContainsForwardingPtr())    /* skip over moved object */
-        {
-            obj = obj->GetForwardingPtr();
-            CheckObject (obj);
-            
-            POLYUNSIGNED length = obj->Length();
-            pt    += length;
-            bitno += length;
-        }
-        else /* !OBJ_IS_POINTER(L) */
-        {
-            CheckObject (obj);
-            
-            if (OBJ_IS_WORD_OBJECT(L))
-            {
-                POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
-                
-                area->updated += length+1;
-                
-                while (length--)
-                {
-                    PolyWord val = *pt;
-                    Check (val);
-
-                    if (! val.IsTagged() && val != PolyWord::FromUnsigned(0))
-                    {
-                        LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-                        if (space != 0 &&
-                              INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-                        {
-                            PolyObject *obj = val.AsObjPtr();
-                        
-                            if (obj->ContainsForwardingPtr())
-                            {
-                                *pt = obj->GetForwardingPtr();
-                                CheckObject (pt->AsObjPtr());
-                            }
-                            else
-                            {
-                                ASSERT(obj->ContainsNormalLengthWord());
-                                CheckObject(obj);
-                            }
-                        }
-                    }
-                    
-                    pt++;
-                    bitno++;
-                }
-            }
-            
-            else /* !OBJ_IS_WORD_OBJECT(L) */
-            {
-                POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
-                area->updated += length+1;
-                ScanAddressesInObject(obj, L);
-                pt    += length;
-                bitno += length;
-            } /* !OBJ_IS_WORD_OBJECT(L) */
-        }  /* !OBJ_IS_POINTER(L) */
-    } /* for loop */
-}
-
-#define GC_START   1
-#define GC_NEWLINE 2
-#define GC_FULL    4
 
 // Try to allocate another heap segment.  It tries to allocate the requested size
 
@@ -1188,7 +468,7 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
 
         (void)TryMoreHeap(words, isMutableSpace); // If this fails just carry on with what we have.
     }
-    else if (! dontFreeSpace) // currentlyFree >= requiredFree
+    else // currentlyFree >= requiredFree
     {
         // The reason for shrinking the stack is to reduce the swap space and
         // possibly the address space requirements.  This may be necessary if
@@ -1326,42 +606,14 @@ GC_AGAIN:
         }
     }
 
-    /* Bitmaps are allocated in InitialiseGC and are zeroed
-       at the END of each GC, because that way we know how much
-       of each bitmap (not all!) we need to touch.
-       SPF 3/10/96 */
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        lSpace->i_marked = lSpace->m_marked = 0;
-    }
-    
-    /* Do the actual marking */
-    ProcessMarkPointers marker;
-    OpMutables(&marker);
-    OpGCProcs(&marker);
-    /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty here. */
-    
-    // Mutable areas can contain mutable or immutable objects.  Immutable areas
-    // should only contain immutable objects.  Verify this.
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
-    }
-    
-    /* Compact phase */
-    mainThreadPhase = MTP_GCPHASECOMPACT;
-    
-    /* Detect unreferenced streams, windows etc. */
-    CheckWeakRef checkRef;
-    OpGCProcs(&checkRef);
-    checkRef.ScanAreas();
 
-    if (convertedWeak)
-        // Notify the signal thread to broadcast on the condition var when
-        // the GC is complete.
-        processes->SignalArrived();
+    if (userOptions.debug & DEBUG_GC) Log("GC: Mark\n");
+    /* Mark phase */
+    GCMarkPhase();
+
+    if (userOptions.debug & DEBUG_GC) Log("GC: Weak refs\n");
+    /* Detect unreferenced streams, windows etc. */
+    GCheckWeakRefs();
     
     /* If we are doing a full GC we expand the immutable area now, so that there's
        enough room to copy the immutables that are currently in the mutable buffer.
@@ -1375,211 +627,15 @@ GC_AGAIN:
         PossiblyExpandImmutableArea(immutableData);
     }
 
-    /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        lSpace->highest = BITNO(lSpace, lSpace->gen_top);
-        for (unsigned i = 0; i < NSTARTS; i++)
-            lSpace->start[i] = lSpace->highest;
-        lSpace->start_index = NSTARTS - 1;
-        lSpace->copied = 0;
-    }
-    /* Invariant: lSpace->start[0] .. lSpace->start[lSpace->start_index] is a descending sequence. */ 
-    
-    /* Invariant: there are no objects below lSpace->gen_bottom. */
+    /* Compact phase */
+    if (userOptions.debug & DEBUG_GC) Log("GC: Copy\n");
 
-    // First, process the mutable areas, copying immutable data into the immutable areas
-    // and compacting mutable objects within the area.
     POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
-    // I think immutable overflow was a problem in the old version of the GC with only
-    // a single segment.  It ought to be possible to change this so it doesn't happen now.
-    {
-        POLYUNSIGNED immutableFree = 0, immutableNeeded = 0;
-        for(j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
-            if (lSpace->isMutable)
-                // Mutable area - add up the immutables to be moved out
-                immutableNeeded += lSpace->i_marked;
-            else
-            { // Immutable area - calculate the number of unallocated words WITHIN the area
-                POLYUNSIGNED immutableSpace = lSpace->gen_top - lSpace->gen_bottom;
-                POLYUNSIGNED immutableUsed = lSpace->i_marked;
-                immutableFree += immutableSpace - immutableUsed;
-            }
-        }
-        // This is an optimisation.  If we have a small amount of immutable data
-        // to move from the mutable area relative to the size of gaps in the
-        // immutable area we use a compacting copy which tries to use these gaps.
-        // If there is a larger amount of immutable data to move we simply add them
-        // on at the bottom.  The idea is to reduce the cost of finding spaces to
-        // copy these objects.
-        bool compressImmutables = immutableNeeded / 2 < immutableFree ; /* Needs tuning!!! */
-        
-        /* Reset the allocation pointers. This puts garbage (and real data) below them. */
-        for(j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
-            if (lSpace->isMutable || compressImmutables)
-                lSpace->pointer = lSpace->gen_top;
-        }
+    GCCopyPhase(immutable_overflow);    
 
-        /* Invariant: there are no objects below A.M.gen_bottom. */
-        for(j = gMem.nlSpaces; j > 0; j--)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j-1];
-            if (lSpace->isMutable)
-                CopyObjectsInArea(lSpace, compressImmutables);
-        }
-
-        // Calculate the amount copied.
-        unsigned markedImmut = 0, markedMut = 0, copiedToI = 0, copiedToM = 0;
-        for(j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
-            if (lSpace->isMutable)
-            {
-                markedImmut += lSpace->i_marked;
-                markedMut += lSpace->m_marked;
-                copiedToM += lSpace->copied;
-            }
-            else
-                copiedToI += lSpace->copied;
-        }
-        
-        ASSERT(copiedToM + copiedToI <= markedMut + markedImmut);
-        ASSERT(copiedToI <= markedImmut);
-        ASSERT(copiedToI != markedImmut || copiedToM <= markedMut);
-        /* We may have A.M.copied > A.M.m_marked, if the immutable buffer overflows */
-        
-        // If we didn't have enough space in the immutable areas to copy out the
-        // immutable objects this will record the extra space we would need.
-        immutable_overflow = markedImmut - copiedToI;
-    }
-    
-    
-    /* The area between A.M.gen_bottom and A.M.pointer may contain
-       tombstones, so we daren't increase A.M.gen_bottom. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (lSpace->isMutable)
-        {
-            // We may have copied mutable objects from an earlier space
-            if (lSpace->pointer < lSpace->gen_bottom)
-                lSpace->gen_bottom = lSpace->pointer;
-        }
-    }
-    
-    /* If we've copied an object from the mutable area below the previous
-       limit of the immutable area using a "non-compressing" copy,
-       it would be unsafe to attempt to compress the immutable area (we
-       might get a double indirection).
-    
-       However, it *is* safe if we've used a "compressing" copy from
-       the mutables buffer. We won't move anything twice, because each
-       object goes into the first "big enough" hole on each pass. If
-       the second pass finds a "big enough" hole above the object, the
-       first pass would have found this hole too, and used it.
-     
-       This is slightly tricky reasoning, so be careful!
-      
-       SPF 19/12/1997
-    */
-    
-    /* Reclaim the genuine data from the immutable buffer. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-        gMem.lSpaces[j]->copied = 0;
-
-    POLYUNSIGNED immutable_space = 0, immutable_used = 0, immutable_needed = 0;
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (! lSpace->isMutable)
-        {
-            // If we have copied immutable objects out of the mutable buffer
-            // below gen_bottom we need to reset that.
-//            if (lSpace->pointer < lSpace->gen_bottom)
-//               lSpace->gen_bottom = lSpace->pointer;
-            immutable_space  += lSpace->gen_top - lSpace->gen_bottom;
-            immutable_used   += lSpace->i_marked + lSpace->copied;
-            immutable_needed += lSpace->i_marked;
-        }
-    }
-
-    POLYUNSIGNED immutable_free = immutable_space - immutable_used;
-    bool compressImmutables = immutable_needed / 4 < immutable_free ; /* Needs tuning!!! */
-
-    for(j = gMem.nlSpaces; j > 0; j--)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j-1];
-        if (! lSpace->isMutable)
-        {
-            if (lSpace->gen_bottom <= lSpace->pointer)
-            {
-                if (compressImmutables)
-                {
-                    lSpace->copied = 0;
-                    /* Invariant: there are no objects below lSpace->gen_bottom. */
-                    CopyObjectsInArea(lSpace, true);
-                }
-                else // simply reclaim the immutable data (with its embedded garbage)
-                    lSpace->pointer = lSpace->gen_bottom;
-
-                ASSERT(lSpace->gen_bottom <= lSpace->pointer);
-                /* The area between lSpace->gen_bottom and lSpace->pointer may contain
-                   tombstones, so we daren't increase lSpace->gen_bottom. */
-            }
-            else // We may have copied immutable objects from an earlier space.
-                lSpace->gen_bottom = lSpace->pointer;
-        }
-    }
-    // An extra little check.
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (! lSpace->isMutable)
-        {
-            ASSERT(lSpace->gen_bottom <= lSpace->pointer);
-        }
-    }
-
-    POLYUNSIGNED mCopied = 0, iCopied = 0, iMarked = 0;
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (lSpace->isMutable)
-            mCopied += lSpace->copied;
-        else
-        {
-            iMarked += lSpace->i_marked;
-            iCopied += lSpace->copied;
-        }
-    }
-    ASSERT(mCopied == 0);
-    ASSERT(iCopied <= iMarked);
-
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        ASSERT(INSOFTRANGE(lSpace->pointer, lSpace->bottom, lSpace->gen_top));
-    }    
-    
-    /* Update phase */
-    mainThreadPhase = MTP_GCPHASEUPDATE;
-    
-    /* Invariant: at most the first (gen_top - bottom) bits of each bitmap can be dirty here. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-        gMem.lSpaces[j]->updated = 0;
-       
-    ProcessUpdate processUpdate;
-    OpMutables(&processUpdate);
-
-    for(j = 0; j < gMem.nlSpaces; j++)
-        processUpdate.UpdateObjectsInArea(gMem.lSpaces[j]);
-
-    OpGCProcs(&processUpdate);
+    // Update Phase.
+    if (userOptions.debug & DEBUG_GC) Log("GC: Update\n");
+    GCUpdatePhase();
 
     {
         POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
@@ -1596,19 +652,8 @@ GC_AGAIN:
         ASSERT(iUpdated == iMarked - immutable_overflow);
         ASSERT(mUpdated == mMarked + immutable_overflow);
     }
-
-    /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty. */
-    // In addition, if we're doing a partial GC immutable segments will only be dirty in the
-    // area we've allocated.
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (lSpace->i_marked != 0 || lSpace->m_marked != 0)
-            // We've marked something so we may have set a bit below the current pointer
-            lSpace->bitmap.ClearBits(0, lSpace->gen_top - lSpace->bottom);
-        else // Otherwise we only need to clear in the area we've newly allocated.
-            lSpace->bitmap.ClearBits(lSpace->pointer - lSpace->bottom, lSpace->gen_top - lSpace->pointer);
-    }
+    /* Invariant: the bitmaps are completely clean */
+    if (userOptions.debug & DEBUG_GC) Log("GC: Complete\n");
     /* Invariant: the bitmaps are completely clean */
 
     if (doFullGC)
@@ -1925,7 +970,7 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
         POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
 
         // Allocate one immutable space per thread
-        for(unsigned i = 0; i < userOptions.gcthreads; i++)
+        for(unsigned j = 0; j < userOptions.gcthreads; j++)
         {
             if (gMem.NewLocalSpace(immutSize, false) == 0)
             {
@@ -1986,8 +1031,7 @@ public:
     FullGCRequest(): MainThreadRequest(MTP_GCPHASEMARK) {}
     virtual void Perform()
     {
-        if (userOptions.gcthreads == 1) doGC (true,0);
-        else doMultithreadGC(true, 0);
+        doGC (true,0);
     }
 };
 
@@ -1998,8 +1042,7 @@ public:
 
     virtual void Perform()
     {
-        if (userOptions.gcthreads == 1) result = doGC (false, wordsRequired);
-        else result = doMultithreadGC(false, wordsRequired); 
+        result = doGC (false, wordsRequired);
     }
 
     bool result;
@@ -2020,5 +1063,11 @@ bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequiredToAllocate)
     QuickGCRequest request(wordsRequiredToAllocate);
     processes->MakeRootRequest(taskData, &request);
     return request.result;
+}
+
+void initialiseMultithreadGC(unsigned threads)
+{
+    if (! gTaskFarm.Initialise(threads, 100))
+        Crash("Unable to initialise the GC task farm");
 }
 
