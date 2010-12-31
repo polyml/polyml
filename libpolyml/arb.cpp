@@ -1086,7 +1086,6 @@ Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
     // so that the handle contains the base of the stack and compute the
     // offset.
     POLYUNSIGNED offset = result->ReplaceStackHandle(taskData->stack);
-    PolyWord *addr = result->Word().AsStackAddr();
     Handle remHandle, divHandle;
     quotRem(taskData, y, x, remHandle, divHandle);
     DEREFHANDLE(result)->Set(offset+0, DEREFWORDHANDLE(divHandle));
