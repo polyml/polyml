@@ -24,7 +24,7 @@
 #define CHECK_OBJECTS_INCLUDED
 
 #include "globals.h"
-#include "mpoly.h" // For userOptions
+#include "diagnostics.h" // For userOptions
 
 
 extern void DoCheck (const PolyWord pt);
@@ -32,9 +32,9 @@ extern void DoCheckPointer (const PolyWord pt);
 extern void DoCheckObject (const PolyObject *base, POLYUNSIGNED lengthWord);
 extern void DoCheckMemory(void);
 
-#define Check(pt)        {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheck(pt); }
-#define CheckObject(pt)  {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, (pt)->LengthWord()); }
-#define CheckObjectL(pt, l)  {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, l); }
-#define CheckPointer(pt) {if (userOptions.debug & DEBUG_CHECK_OBJECTS) DoCheckPointer(pt); }
+#define Check(pt)        {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheck(pt); }
+#define CheckObject(pt)  {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, (pt)->LengthWord()); }
+#define CheckObjectL(pt, l)  {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, l); }
+#define CheckPointer(pt) {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckPointer(pt); }
 
 #endif

@@ -92,7 +92,6 @@ noinst_HEADERS = \
 	process_env.h \
 	processes.h \
 	profiling.h \
-	proper_io.h \
 	realconv.h \
 	reals.h \
 	rts_module.h \
@@ -110,7 +109,7 @@ noinst_HEADERS = \
 
 libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
-    realconv.cpp objsize.cpp proper_io.cpp foreign.cpp \
+    realconv.cpp objsize.cpp foreign.cpp \
     process_env.cpp basicio.cpp network.cpp \
     sighandler.cpp xwindows.cpp check_objects.cpp scanaddrs.cpp \
     polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \

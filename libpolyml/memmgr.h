@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-11 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -91,6 +91,7 @@ public:
     PolyWord    *gen_bottom;      /* lowest object in area before copying.             */
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.
+    bool         copiedIn;        // Copy phase of GC: true if we've copied into this.
     bool         spaceInUse;      // Copy phase of GC: true if a thread is copying into this.
     POLYUNSIGNED highest;         /* index of top word in bitmap.                      */
     POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */

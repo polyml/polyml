@@ -117,23 +117,12 @@ struct __debugOpts {
 } debugOptTable[] =
 {
     { "checkobjects",       "Perform additional debugging checks",              DEBUG_CHECK_OBJECTS },
-    { "gc",                 "Log garbage-collector information",                DEBUG_GC },
+    { "gc",                 "Log summary garbage-collector information",        DEBUG_GC },
+    { "gcdetail",           "Log detailed garbage-collector information",       DEBUG_GC_DETAIL },
+    { "memmgr",             "Memory manager information",                       DEBUG_MEMMGR },
+    { "threads",            "Thread related information",                       DEBUG_THREADS },
     { "x",                  "Log X-windows information",                        DEBUG_X}
 };
-
-/*struct __argtab {
-    const char *argName, *argHelp;
-    unsigned scale, *argVal;
-} argTable[] =
-{
-    { "-H",             "Initial heap size (MB)",                1024,   &hsize },
-    { "--heap",         "Initial heap size (MB)",                1024,   &hsize },
-    { "--immutable",    "Initial size of immutable buffer (MB)", 1024,   &isize },
-    { "--mutable",      "Initial size of mutable buffer(MB)",    1024,   &msize },
-    { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",1024,   &rsize },
-    { "--gcthreads",    "Number of threads to use for garbage collection",1,   &userOptions.gcthreads },
-    { "--debug",        "Debug options",                         1,      &userOptions.debug }
-};*/
 
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
@@ -150,7 +139,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
         userOptions.programName = ""; // Set it to a valid empty string
     
     char *importFileName = 0;
-    userOptions.debug       = 0;
+    debugOptions       = 0;
 
     userOptions.user_arg_count   = 0;
     userOptions.user_arg_strings = (char**)malloc(argc * sizeof(char*)); // Enough room for all of them
@@ -217,9 +206,9 @@ int polymain(int argc, char **argv, exportDescription *exports)
                             {
                                 if (strlen(debugOptTable[k].optName) == (size_t)(q-p) &&
                                         strncmp(p, debugOptTable[k].optName, q-p) == 0)
-                                    userOptions.debug |= debugOptTable[k].optKey;
+                                    debugOptions |= debugOptTable[k].optKey;
                             }
-                            p = q;
+                            if (*q == ',') p = q+1; else p = q;
                         }
                         break;
                     case OPT_DEBUGFILE:
@@ -344,6 +333,15 @@ char *RTSArgHelp(void)
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
         int spaces = sprintf(p, "%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+        p += spaces;
+    }
+    {
+        int spaces = sprintf(p, "Debug options:\n");
+        p += spaces;
+    }
+    for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
+    {
+        int spaces = sprintf(p, "%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
         p += spaces;
     }
     ASSERT((unsigned)(p - buff) < (unsigned)sizeof(buff));

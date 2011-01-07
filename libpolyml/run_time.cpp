@@ -946,6 +946,8 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
     {
         /* Cannot expand the stack any further. */
         fprintf(stderr, "Warning - Stack limit reached - interrupting process\n");
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Stack limit reached - interrupting thread\n");
         // We really should do this only if the thread is handling interrupts
         // asynchronously.  On the other hand what else do we do?
         Handle exn = make_exn(taskData, EXC_interrupt, SAVE(TAGGED(0)));

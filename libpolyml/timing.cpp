@@ -89,6 +89,9 @@
 #include <assert.h>
 #endif
 
+#ifdef HAVE_STDIO_H
+#include <stdio.h>
+#endif
 
 /************************************************************************
  *
@@ -96,7 +99,6 @@
  *
  ************************************************************************/
 
-#include "proper_io.h"
 #include "locking.h"
 #include "globals.h"
 #include "mpoly.h"
@@ -109,6 +111,7 @@
 #include "save_vec.h"
 #include "rts_module.h"
 #include "processes.h"
+#include "diagnostics.h"
 
 #ifdef WINDOWS_PC
 /* Windows file times are 64-bit numbers representing times in
@@ -142,7 +145,7 @@
 
 #ifdef WINDOWS_PC
 static FILETIME startTime;
-static LARGE_INTEGER gcUTime, gcSTime;
+static ULARGE_INTEGER gcUTime, gcSTime;
 #else
 static struct timeval startTime;
 static struct timeval gcUTime, gcSTime;
@@ -156,6 +159,23 @@ static void subTimes(struct timeval *result, struct timeval *x);
 // gmtime and localtime are not re-entrant so if we don't have the
 // re-entrant versions we need to use a lock.
 static PLock timeLock;
+#endif
+
+
+/* There is a problem with getrusage on Solaris where it sometimes fails with EINTR.
+// This is despite the documentation which doesn't mention this and is probably because
+// it is implemented by opening a special device.  We need to handle this and there's really
+// no harm in doing that on all (Unix) systems.  DCJM 27/2/03.
+*/
+#ifndef WINDOWS_PC
+static int proper_getrusage(int who, struct rusage *rusage)
+{
+    while (1) {
+        int res = getrusage(who, rusage);
+        if (res == 0 || errno != EINTR) return res;
+    }
+}
+
 #endif
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
@@ -204,7 +224,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #endif
 #ifdef WINDOWS_PC
             /* Although the offset is in seconds it is since 1601. */
-            LARGE_INTEGER   liTime;
+            ULARGE_INTEGER   liTime;
             get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
             theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
@@ -251,7 +271,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             time_t theTime;
 #ifdef WINDOWS_PC
             /* Although the offset is in seconds it is since 1601. */
-            LARGE_INTEGER   liTime;
+            ULARGE_INTEGER   liTime;
             get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
             theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
@@ -320,7 +340,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             /* GetProcessTimes failed, assume because this is not NT.
                Have to use real time. */
 			GetSystemTimeAsFileTime(&ut);
-            LARGE_INTEGER li, lj;
+            ULARGE_INTEGER li, lj;
             li.LowPart = ut.dwLowDateTime;
             li.HighPart = ut.dwHighDateTime;
             lj.LowPart = startTime.dwLowDateTime;
@@ -364,7 +384,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
 #ifdef WINDOWS_PC
             FILETIME ft;
-            LARGE_INTEGER li, lj;
+            ULARGE_INTEGER li, lj;
 			GetSystemTimeAsFileTime(&ft);
             li.LowPart = ft.dwLowDateTime;
             li.HighPart = ft.dwHighDateTime;
@@ -426,11 +446,9 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
     }
 }
 
-/* This function is called at the beginning and end of garbage
-   collection to record the time used.
-   To speed up garbage collection we decide to do this only if
-   there is a timer running.
-*/
+// This function is called at the beginning and end of garbage
+// collection to record the time used.
+// This also reports the GC time if GC debugging is enabled.
 void record_gc_time(bool isEnd)
 {
 #ifdef WINDOWS_PC
@@ -443,33 +461,77 @@ void record_gc_time(bool isEnd)
 		GetSystemTimeAsFileTime(&ut);
         kt.dwHighDateTime = kt.dwLowDateTime = 0;
     }
-    LARGE_INTEGER liU, liS;
+    ULARGE_INTEGER liU, liS, liR;
     liU.LowPart = ut.dwLowDateTime;
     liU.HighPart = ut.dwHighDateTime;
     liS.LowPart = kt.dwLowDateTime;
     liS.HighPart = kt.dwHighDateTime;
-    /* If this is the start we subtract the current time from
-       the accumulator.  At the end we add it so that the
-       result is right. Since the user program can't call in to get
-       the GC time while we're actually collecting that's quite safe. */
-    if (isEnd) {
-        gcUTime.QuadPart += liU.QuadPart;
-        gcSTime.QuadPart += liS.QuadPart;
+    
+    if (debugOptions & DEBUG_GC)
+    {
+        // Real time is only used for debugging
+        FILETIME ft;
+        GetSystemTimeAsFileTime(&ft);
+        liR.LowPart = ft.dwLowDateTime;
+        liR.HighPart = ft.dwHighDateTime;
     }
-    else {
-        gcUTime.QuadPart -= liU.QuadPart;
-        gcSTime.QuadPart -= liS.QuadPart;
+
+    static ULARGE_INTEGER startUTime, startSTime, startRTime; // Statics to remember start time
+    
+    if (isEnd)
+    {
+        // End of GC.
+        gcUTime.QuadPart += liU.QuadPart - startUTime;
+        gcSTime.QuadPart += liS.QuadPart - startSTime;
+
+        if (debugOptions & DEBUG_GC)
+        {
+            ULARGE_INTEGER userTime = liU.QuadPart - startUTime;
+            ULARGE_INTEGER systemTime = liS.QuadPart - startSTime;
+            ULARGE_INTEGER realTime = liR.QuadPart - startRTime;
+            Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", ((float)userTime) / 1.0E7, 
+                ((float)systemTime) / 1.0E7, ((float)realTime) / 1.0E7,
+                ((float)userTime + systemTime) / (float)realTime);
+        }
+    }
+    else
+    {
+        // Start of GC
+        startUTime = liU.QuadPart;
+        startSTime = liS.QuadPart;
+        if (debugOptions & DEBUG_GC) startRTime = liR.QuadPart;
     }
 #else
-    struct rusage rusage;
-    if (proper_getrusage(RUSAGE_SELF, &rusage) != 0) return;
+    static struct rusage startUsage;
+    static struct timeval startTime;
+
     if (isEnd) {
+        struct rusage rusage;
+        if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
+            return;
+        subTimes(&rusage.ru_utime, &startUsage.ru_utime);
+        subTimes(&rusage.ru_stime, &startUsage.ru_stime);
         addTimes(&gcUTime, &rusage.ru_utime);
         addTimes(&gcSTime, &rusage.ru_stime);
+
+        if (debugOptions & DEBUG_GC)
+        {
+            struct timeval tv;
+            if (gettimeofday(&tv, NULL) != 0)
+                return;
+            subTimes(&tv, &startTime);
+            float userTime = (float)rusage.ru_utime.tv_sec + (float)rusage.ru_utime.tv_usec / 1.0E6;
+            float systemTime = (float)rusage.ru_stime.tv_sec + (float)rusage.ru_stime.tv_usec / 1.0E6;
+            float realTime = (float)tv.tv_sec + (float)tv.tv_usec / 1.0E6;
+            Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
+                systemTime, realTime, (userTime + systemTime) / realTime);
+        }
     }
     else {
-        subTimes(&gcUTime, &rusage.ru_utime);
-        subTimes(&gcSTime, &rusage.ru_stime);
+        // Start of GC
+        proper_getrusage(RUSAGE_SELF, &startUsage);
+        if (debugOptions & DEBUG_GC)
+            gettimeofday(&startTime, NULL);
     }
 #endif
 }

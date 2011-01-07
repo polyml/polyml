@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7 David C. J. Matthews
+    Copyright (c) 2006-7, 2011 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,6 +40,8 @@
 #include "osmem.h"
 #include "scanaddrs.h"
 #include "bitmap.h"
+#include "mpoly.h"
+#include "diagnostics.h"
 
 MemSpace::MemSpace()
 {
@@ -68,6 +70,7 @@ LocalMemSpace::LocalMemSpace()
     start_index = 0;
     i_marked = m_marked = copied = updated = 0;
     copiedOut = false;
+    copiedIn = false;
     spaceInUse = false;
 }
 
@@ -133,6 +136,8 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
             reservation = osMemoryManager->Allocate(rSpace, PERMISSION_READ);
             if (reservation == 0) {
                 // Insufficient space for the reservation.  Can't allocate this local space.
+                if (debugOptions & DEBUG_MEMMGR)
+                    Log("MMGR: New local %smutable space: insufficient reservation space\n");
                 delete space;
                 return 0;
             }
@@ -140,13 +145,23 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 
         bool success = space->InitSpace(size, mut) && AddLocalSpace(space);
         if (reservation != 0) osMemoryManager->Free(reservation, rSpace);
-        if (success) return space;
+        if (success)
+        {
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New local %smutable space %p, bottom=%p, top=%p\n", mut ? "": "im",
+                    space, space->bottom, space->top);
+            return space;
+        }
 
         // If something went wrong.
         delete space;
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New local %smutable space: insufficient space\n");
         return 0;
     }
     catch (std::bad_alloc a) {
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New local %smutable space: \"new\" failed\n");
         return 0;
     }
 }
@@ -227,9 +242,13 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
                 lSpaces[i] = lSpaces[i+1];
                 i++;
             }
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: Deleted local %smutable space %p\n", sp->isMutable ? "im": "", sp);
             return true;
         }
     }
+    if (debugOptions & DEBUG_MEMMGR)
+        Log("MMGR: Deleting local %smutable space: not found in table\n");
     return false;
 }
 

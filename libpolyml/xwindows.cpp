@@ -258,8 +258,8 @@ static void RaiseXWindows(TaskData *taskData, const char *s) __attribute__((nore
 
 #define debug1(fmt,p1) { /*EMPTY*/ }
 #undef  debug1
-#define debug1(fmt,p1) {if (userOptions.debug & DEBUG_X) printf(fmt,p1);}
-#define debug3(fmt,p1,p2,p3) {if (userOptions.debug & DEBUG_X) printf(fmt,p1,p2,p3);}
+#define debug1(fmt,p1) {if (debugOptions & DEBUG_X) printf(fmt,p1);}
+#define debug3(fmt,p1,p2,p3) {if (debugOptions & DEBUG_X) printf(fmt,p1,p2,p3);}
 
 #define debugCreate(type,value)  debug1("%lx " #type " created\n",(unsigned long)(value))
 #define debugReclaim(type,value) debug1("%lx " #type " reclaimed\n",(unsigned long)(value))
@@ -3164,7 +3164,7 @@ static Handle CreateEvent
   
   assert(d == ev->xany.display);
   
-  if (userOptions.debug & DEBUG_X)
+  if (debugOptions & DEBUG_X)
   {
     printf("CreateEvent called, type=%s,", DebugEventName(type));
     printf(" window=%lx\n", ev->xany.window);
@@ -7359,7 +7359,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
 {
     int code = get_C_short(taskData, P0);
     
-    if ((userOptions.debug & DEBUG_X)) DebugPrintCode(DEREFHANDLE(params));
+    if ((debugOptions & DEBUG_X)) DebugPrintCode(DEREFHANDLE(params));
     
     switch(code)
     {

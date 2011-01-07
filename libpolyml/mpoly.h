@@ -29,14 +29,8 @@ extern struct _userOptions {
     unsigned    user_arg_count;
     char        **user_arg_strings;
     const char  *programName;
-    unsigned    debug;              /* debugging  flags                       */
     unsigned    gcthreads;    // Number of threads to use for gc
 } userOptions;
-
-// Values for debugging flags
-#define DEBUG_CHECK_OBJECTS 1       // Check that addresses are valid.
-#define DEBUG_GC            2       // GC debugging output
-#define DEBUG_X             128     // X-Windows debugging
 
 class PolyWord;
 

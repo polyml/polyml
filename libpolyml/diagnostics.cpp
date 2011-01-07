@@ -1,6 +1,8 @@
 /*
     Title:      Diagnostics
 
+    Copyright (c) 2011 David C.J. Matthews
+
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
@@ -65,6 +67,7 @@
 
 #include "errors.h"
 
+unsigned debugOptions = 0; // Debugging options requested on command line.
 
 /***********************************************************************
  *
@@ -169,6 +172,6 @@ void Log(const char *msg, ...)
         ::OutputDebugString(buff);
 #endif
     va_end(vl);
-    if (logStream == stdout) fflush(stdout);
+    if (logStream) fflush(logStream);
 }
 

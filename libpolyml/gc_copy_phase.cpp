@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Copy phase
 
-    Copyright (c) 2010 David C. J. Matthews
+    Copyright (c) 2010-11 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -69,6 +69,7 @@ It can copy cells
 #include "memmgr.h"
 #include "gctaskfarm.h"
 #include "locking.h"
+#include "diagnostics.h"
 
 static PLock copyLock;
 
@@ -169,6 +170,7 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
         dst->gen_bottom = newp+n;
 
     dst->copied += n;
+    dst->copiedIn = true;
 
     return newp;
 }
@@ -185,6 +187,10 @@ static void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddre
 {
     POLYUNSIGNED L = srcAddress->LengthWord();
     destAddress->SetLengthWord(L); /* copy length word */
+
+    if (debugOptions & DEBUG_GC_DETAIL)
+        Log("GC: Copy: %p %lu %u -> %p\n", srcAddress, OBJ_OBJECT_LENGTH(L),
+                    GetTypeBits(L), destAddress);
 
     if (OBJ_IS_STACK_OBJECT(L))
     {
@@ -239,6 +245,9 @@ static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace * &dst, bool isMutab
                 if (dst) dst->spaceInUse = false;
                 dst = lSpace;
                 dst->spaceInUse = true;
+                if (debugOptions & DEBUG_GC)
+                    Log("GC: Copy: copying %s cells from %p to %p\n",
+                                isMutable ? "mutable" : "immutable", src, lSpace);
                 return true;
             }
         }
@@ -255,21 +264,33 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
 {
     {
         PLocker lock(&copyLock);
-        if (mutableDest == 0 && immutableDest == 0 && src->copied != 0)
+        if (mutableDest == 0 && immutableDest == 0 && src->copiedIn)
             // We're copying out of this area.  We can't process it if we've
             // aready copied into it.  It will be processed later.
             return;
         // If we're trying to copy out of this area we need an immutable area.
-        if (immutableDest == 0 && ! FindNextSpace(src, immutableDest, false))
-            return;
-        // If this is a mutable area we may also need a mutable space
-        if (src->isMutable && mutableDest == 0 && ! FindNextSpace(src, mutableDest, true))
+        if (immutableDest == 0)
         {
-            // Release the immutable area before returning.
-            immutableDest->spaceInUse = false;
-            return;
+            if (! FindNextSpace(src, immutableDest, false))
+                return;
+            immutableDest->copiedIn = true;
+        }
+        // If this is a mutable area we may also need a mutable space
+        if (src->isMutable && mutableDest == 0)
+        {
+            if (! FindNextSpace(src, mutableDest, true))
+            {
+                // Release the immutable area before returning.
+                immutableDest->spaceInUse = false;
+                return;
+            }
+            // At least in the case of a mutable space we have to set this
+            // as "copiedIn" so that another thread doesn't try to copy out of
+            // it.
+            mutableDest->copiedIn = true;
         }
         src->spaceInUse = true;
+        ASSERT(! src->copiedOut);
         src->copiedOut = true;
     }
 
@@ -361,6 +382,7 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
                         immutableDest->gen_bottom = newp+n;
 
                     immutableDest->copied += n;
+                    immutableDest->copiedIn = true;
                 }
             }
             if (newp == 0 && src != immutableDest)
@@ -406,6 +428,8 @@ static void copyMutableAreaToNewArea(void *arg1, void *arg2)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     bool compressImmutables = *(bool*)arg2;
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Copy: copying mutable area %p to new area\n", lSpace);
     CopyObjects(lSpace, 0, 0, compressImmutables);
 }
 
@@ -413,6 +437,8 @@ static void copyMutableAreaToNewArea(void *arg1, void *arg2)
 static void copyImmutableAreaToNewArea(void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Copy: copying immutable area %p to new area\n", lSpace);
     CopyObjects(lSpace, 0, 0, true);
 }
 
@@ -420,12 +446,16 @@ static void copyMutableArea(void *arg1, void *arg2)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     bool compressImmutables = *(bool*)arg2;
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Copy: compressing mutable area %p\n", lSpace);
     CopyObjects(lSpace, lSpace, 0, compressImmutables);
 }
 
 static void copyImmutableArea(void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Copy: compressing immutable area %p\n", lSpace);
     CopyObjects(lSpace, 0, lSpace, true);
 }
 
@@ -443,7 +473,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
             lSpace->start[i] = lSpace->highest;
         lSpace->start_index = NSTARTS - 1;
         lSpace->copied = 0;
-        lSpace->copiedOut = false;
+        lSpace->copiedIn = lSpace->copiedOut = false;
         ASSERT(! lSpace->spaceInUse);
     }
     /* Invariant: lSpace->start[0] .. lSpace->start[lSpace->start_index] is a descending sequence. */ 
@@ -509,6 +539,10 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         gpTaskFarm->WaitForCompletion();
 
         // Calculate the amount copied.
+        // markedImmut is the amount of immutable data in the mutable area
+        // markedMut is the amount of mutable data in the mutable area
+        // copiedToI is the amount of immutable data added to the immutable area
+        // copiedToM is the amount of mutable data copied
         unsigned markedImmut = 0, markedMut = 0, copiedToI = 0, copiedToM = 0;
         for(j = 0; j < gMem.nlSpaces; j++)
         {

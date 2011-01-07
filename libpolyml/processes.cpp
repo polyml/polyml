@@ -898,6 +898,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 {
                     triedInterrupt = true;
                     fprintf(stderr,"Run out of store - interrupting threads\n");
+                    if (debugOptions & DEBUG_THREADS)
+                        Log("Thread: Run out of store, interrupting threads\n");
                     BroadcastInterrupt();
                     if (ProcessAsynchRequests(taskData))
                         return 0; // Has been interrupted.

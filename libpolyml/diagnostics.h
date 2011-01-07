@@ -1,6 +1,8 @@
 /*
     Title:  Header for diagnostics.c
 
+    Copyright (c) 2011 David C.J. Matthews
+
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
@@ -31,5 +33,15 @@ NORETURNFN(extern void ExitWithError(const char *, int err));
 
 extern void SetLogFile(const char *fileName);
 extern void Log(const char *, ...);
+
+extern unsigned    debugOptions; // debugging  flags
+
+// Values for debugging flags
+#define DEBUG_CHECK_OBJECTS 1       // Check that addresses are valid.
+#define DEBUG_GC            2       // Summary GC debugging output
+#define DEBUG_MEMMGR        4       // Memory manager output
+#define DEBUG_GC_DETAIL     8       // Detailed GC debugging output
+#define DEBUG_THREADS       16      // Thread-related output
+#define DEBUG_X             128     // X-Windows debugging
 
 #endif

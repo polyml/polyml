@@ -194,6 +194,7 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
         if (obj->ContainsForwardingPtr())    /* skip over moved object */
         {
             obj = obj->GetForwardingPtr();
+            ASSERT(obj->ContainsNormalLengthWord()); // Only one level of forwarding
             CheckObject (obj);
             
             POLYUNSIGNED length = obj->Length();

@@ -133,7 +133,6 @@ typedef char TCHAR;
 #include "globals.h"
 #include "basicio.h"
 #include "sys.h"
-#include "proper_io.h"
 #include "gc.h"
 #include "run_time.h"
 #include "machine_dep.h"
@@ -257,6 +256,47 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       else return false;
 }
 
+#endif
+
+// DCJM 11/5/06 - Do we really need this "fix" for a bug ten years ago in an OS that's
+// probably never used now?
+
+static int proper_stat(char *filename, struct stat *fbp)
+{
+	int res = stat(filename, fbp);
+	while (res != 0 && errno == EINTR) 
+	{ 
+		res = stat(filename, fbp);
+		/* There's a bug in SunOS 5.3 (at least) whereby the stat following
+		an interrupted stat call can give junk results (ENOENT on a real file).
+		I suspect a timing-related problem on automounted file systems.
+		So let's try one more time, just to be sure.
+		SPF 16/12/96
+		*/
+		if (res != 0)
+		{
+			res = stat(filename, fbp);
+		}
+	};
+	return res;
+}
+
+#ifndef WINDOWS_PC
+/* I don't know whether the same applies to lstat but we'll define
+   it in the same way just in case. DCJM 16/5/00. */
+static int proper_lstat(char *filename, struct stat *fbp)
+{
+	int res = lstat(filename, fbp);
+	while (res != 0 && errno == EINTR) 
+	{ 
+		res = lstat(filename, fbp);
+		if (res != 0)
+		{
+			res = lstat(filename, fbp);
+		}
+	};
+	return res;
+}
 #endif
 
 static unsigned max_streams;

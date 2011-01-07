@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Mark phase
 
-    Copyright (c) 2010 David C. J. Matthews
+    Copyright (c) 2010, 2011 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -56,6 +56,7 @@ recursive and only the main thread has enough stack space for some data structur
 #include "check_objects.h"
 #include "bitmap.h"
 #include "memmgr.h"
+#include "diagnostics.h"
 
 /* start <= val < end */
 #define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
@@ -100,6 +101,9 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     PolyObject *obj = val.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+
+    if (debugOptions & DEBUG_GC_DETAIL)
+        Log("GC: Mark: %p %lu %u\n", obj, n, GetTypeBits(L));
 
     /* Add up the objects to be moved into the mutable area. */
     if (OBJ_IS_MUTABLE_OBJECT(L))
@@ -149,6 +153,9 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
     ASSERT (n != 0);
+
+    if (debugOptions & DEBUG_GC_DETAIL)
+        Log("GC: Mark: %p %lu %u\n", obj, n, GetTypeBits(L));
 
     /* Mark the segment including the length word. */
     space->bitmap.SetBits (bitno - 1, n + 1);
@@ -257,5 +264,9 @@ void GCMarkPhase(void)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[l];
         if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Mark: %s space %p: %u immutable words marked, %u mutable words marked\n",
+                                lSpace->isMutable ? "mutable" : "immutable", lSpace,
+                                lSpace->i_marked, lSpace->m_marked);
     }
 }
