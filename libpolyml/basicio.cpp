@@ -1774,7 +1774,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         {
 #ifdef WINDOWS_PC
             /* Windows does not have symbolic links. Raise an exception. */
-            raise_syscall(taskData, "Not implemented", 0);
+            raiseSyscallMessage(taskData, "Not implemented");
             return taskData->saveVec.push(TAGGED(0)); /* To keep compiler happy. */
 #else
             int nLen;

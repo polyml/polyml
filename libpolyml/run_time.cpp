@@ -359,6 +359,16 @@ void raiseSyscallMessage(TaskData *taskData, const char *errmsg)
     raise_exception(taskData, EXC_syserr, pair);
 }
 
+// This was the previous version.  The errmsg argument is ignored unless err is zero.
+// Calls to it should really be replaced with calls to either raiseSyscallMessage
+// or raiseSyscallError but it's been left because there may be cases where errno
+// actually contains zero.
+void raise_syscall(TaskData *taskData, const char *errmsg, int err)
+{
+    if (err == 0) raiseSyscallMessage(taskData, errmsg);
+    else raiseSyscallError(taskData, err);
+}
+
 // Raises a Fail exception.
 void raise_fail(TaskData *taskData, const char *errmsg)
 {
