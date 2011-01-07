@@ -99,6 +99,9 @@ DCJM May 2000.
 #ifdef HAVE_DIRECT_H
 #include <direct.h>
 #endif
+#ifdef HAVE_STDIO_H
+#include <stdio.h>
+#endif
 
 #ifdef HAVE_TCHAR_H
 #include <tchar.h>

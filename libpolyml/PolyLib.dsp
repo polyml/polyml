@@ -280,10 +280,6 @@ SOURCE=.\profiling.cpp
 # End Source File
 # Begin Source File
 
-SOURCE=.\proper_io.cpp
-# End Source File
-# Begin Source File
-
 SOURCE=.\realconv.cpp
 # End Source File
 # Begin Source File
@@ -523,10 +519,6 @@ SOURCE=.\processes.h
 # Begin Source File
 
 SOURCE=.\profiling.h
-# End Source File
-# Begin Source File
-
-SOURCE=.\proper_io.h
 # End Source File
 # Begin Source File
 

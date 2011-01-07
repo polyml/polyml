@@ -476,7 +476,7 @@ void record_gc_time(bool isEnd)
         liR.HighPart = ft.dwHighDateTime;
     }
 
-    static ULARGE_INTEGER startUTime, startSTime, startRTime; // Statics to remember start time
+    static ULONGLONG startUTime, startSTime, startRTime; // Statics to remember start time
     
     if (isEnd)
     {
@@ -486,9 +486,9 @@ void record_gc_time(bool isEnd)
 
         if (debugOptions & DEBUG_GC)
         {
-            ULARGE_INTEGER userTime = liU.QuadPart - startUTime;
-            ULARGE_INTEGER systemTime = liS.QuadPart - startSTime;
-            ULARGE_INTEGER realTime = liR.QuadPart - startRTime;
+            ULONGLONG userTime = liU.QuadPart - startUTime;
+            ULONGLONG systemTime = liS.QuadPart - startSTime;
+            ULONGLONG realTime = liR.QuadPart - startRTime;
             Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", ((float)userTime) / 1.0E7, 
                 ((float)systemTime) / 1.0E7, ((float)realTime) / 1.0E7,
                 ((float)userTime + systemTime) / (float)realTime);
