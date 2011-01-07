@@ -529,7 +529,7 @@ static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
     static bool doFullGCNextTime = 0;
     static unsigned this_generation = 0;
     
-    record_gc_time(false);
+    record_gc_time(GCTimeStart);
 
 GC_AGAIN:
     if (debugOptions & DEBUG_GC) Log("GC: Beginning %s GC, %lu words required\n", 
@@ -593,6 +593,8 @@ GC_AGAIN:
     if (debugOptions & DEBUG_GC) Log("GC: Check weak refs\n");
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
+
+    record_gc_time(GCTimeIntermediate, "Mark");
     
     /* If we are doing a full GC we expand the immutable area now, so that there's
        enough room to copy the immutables that are currently in the mutable buffer.
@@ -610,9 +612,13 @@ GC_AGAIN:
     POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
     GCCopyPhase(immutable_overflow);    
 
+    record_gc_time(GCTimeIntermediate, "Copy");
+
     // Update Phase.
     if (debugOptions & DEBUG_GC) Log("GC: Update\n");
     GCUpdatePhase();
+
+    record_gc_time(GCTimeIntermediate, "Update");
 
     {
         POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
@@ -680,7 +686,7 @@ GC_AGAIN:
                 BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, false) != 0)
             {
                 // No we don't even have that - interrupt console processes and end GC here.
-                record_gc_time(true);
+                record_gc_time(GCTimeEnd);
                 if (debugOptions & DEBUG_GC)
                     Log("GC: Completed - insufficient space\n");
                 return false;
@@ -780,7 +786,7 @@ GC_AGAIN:
     }
 
     /* End of garbage collection */
-    record_gc_time(true);
+    record_gc_time(GCTimeEnd);
     
     /* Invariant: the bitmaps are completely clean */
     if (debugOptions & DEBUG_GC)

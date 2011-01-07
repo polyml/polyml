@@ -449,7 +449,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 // This function is called at the beginning and end of garbage
 // collection to record the time used.
 // This also reports the GC time if GC debugging is enabled.
-void record_gc_time(bool isEnd)
+void record_gc_time(gcTime isEnd, const char *stage)
 {
 #ifdef WINDOWS_PC
     FILETIME kt, ut;
@@ -477,9 +477,35 @@ void record_gc_time(bool isEnd)
     }
 
     static ULONGLONG startUTime, startSTime, startRTime; // Statics to remember start time
-    
-    if (isEnd)
+    static ULONGLONG lastUTime, lastSTime, lastRTime;
+
+    switch (isEnd)
     {
+    case GCTimeStart:
+        // Start of GC
+        startUTime = lastUTime = liU.QuadPart;
+        startSTime = lastSTime = liS.QuadPart;
+        if (debugOptions & DEBUG_GC) startRTime = lastRTime = liR.QuadPart;
+        break;
+
+    case GCTimeIntermediate:
+        // Report intermediate GC time for debugging
+        if (debugOptions & DEBUG_GC)
+        {
+            ULONGLONG userTime = liU.QuadPart - lastUTime;
+            ULONGLONG systemTime = liS.QuadPart - lastSTime;
+            ULONGLONG realTime = liR.QuadPart - lastRTime;
+            Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage,
+                ((float)userTime) / 1.0E7, 
+                ((float)systemTime) / 1.0E7, ((float)realTime) / 1.0E7,
+                ((float)userTime + systemTime) / (float)realTime);
+            lastUTime = liU.QuadPart;
+            lastSTime = liS.QuadPart;
+            lastRTime = liR.QuadPart;
+        }
+        break;
+
+    case GCTimeEnd:
         // End of GC.
         gcUTime.QuadPart += liU.QuadPart - startUTime;
         gcSTime.QuadPart += liS.QuadPart - startSTime;
@@ -493,45 +519,70 @@ void record_gc_time(bool isEnd)
                 ((float)systemTime) / 1.0E7, ((float)realTime) / 1.0E7,
                 ((float)userTime + systemTime) / (float)realTime);
         }
-    }
-    else
-    {
-        // Start of GC
-        startUTime = liU.QuadPart;
-        startSTime = liS.QuadPart;
-        if (debugOptions & DEBUG_GC) startRTime = liR.QuadPart;
+        break;
     }
 #else
-    static struct rusage startUsage;
-    static struct timeval startTime;
+    static struct rusage startUsage, lastUsage;
+    static struct timeval startTime, lastTime;
 
-    if (isEnd) {
-        struct rusage rusage;
-        if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
-            return;
-        subTimes(&rusage.ru_utime, &startUsage.ru_utime);
-        subTimes(&rusage.ru_stime, &startUsage.ru_stime);
-        addTimes(&gcUTime, &rusage.ru_utime);
-        addTimes(&gcSTime, &rusage.ru_stime);
-
+    switch (isEnd)
+    {
+    case GCTimeStart:
+        // Start of GC
+        proper_getrusage(RUSAGE_SELF, &startUsage);
+        lastUsage = startUsage;
         if (debugOptions & DEBUG_GC)
         {
+            gettimeofday(&startTime, NULL);
+            lastTime = startTime;
+        }
+        break;
+
+    case GCTimeIntermediate:
+        // Report intermediate GC time for debugging
+        if (debugOptions & DEBUG_GC)
+        {
+            struct rusage rusage;
             struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
+            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0 || gettimeofday(&tv, NULL) != 0)
                 return;
+            subTimes(&rusage.ru_utime, &lastUsage.ru_utime);
+            subTimes(&rusage.ru_stime, &lastUsage.ru_stime);
             subTimes(&tv, &startTime);
+
             float userTime = (float)rusage.ru_utime.tv_sec + (float)rusage.ru_utime.tv_usec / 1.0E6;
             float systemTime = (float)rusage.ru_stime.tv_sec + (float)rusage.ru_stime.tv_usec / 1.0E6;
             float realTime = (float)tv.tv_sec + (float)tv.tv_usec / 1.0E6;
-            Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
+            Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
                 systemTime, realTime, (userTime + systemTime) / realTime);
+            lastUsage = startUsage;
+            lastTime = startTime;
         }
-    }
-    else {
-        // Start of GC
-        proper_getrusage(RUSAGE_SELF, &startUsage);
-        if (debugOptions & DEBUG_GC)
-            gettimeofday(&startTime, NULL);
+        break;
+
+    case GCTimeEnd:
+        {
+            struct rusage rusage;
+            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
+                return;
+            subTimes(&rusage.ru_utime, &startUsage.ru_utime);
+            subTimes(&rusage.ru_stime, &startUsage.ru_stime);
+            addTimes(&gcUTime, &rusage.ru_utime);
+            addTimes(&gcSTime, &rusage.ru_stime);
+
+            if (debugOptions & DEBUG_GC)
+            {
+                struct timeval tv;
+                if (gettimeofday(&tv, NULL) != 0)
+                    return;
+                subTimes(&tv, &startTime);
+                float userTime = (float)rusage.ru_utime.tv_sec + (float)rusage.ru_utime.tv_usec / 1.0E6;
+                float systemTime = (float)rusage.ru_stime.tv_sec + (float)rusage.ru_stime.tv_usec / 1.0E6;
+                float realTime = (float)tv.tv_sec + (float)tv.tv_usec / 1.0E6;
+                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
+                    systemTime, realTime, (userTime + systemTime) / realTime);
+            }
+        }
     }
 #endif
 }

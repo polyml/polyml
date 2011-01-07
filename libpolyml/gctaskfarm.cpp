@@ -41,10 +41,6 @@
 #define ASSERT(x)
 #endif
 
-#if (defined(WIN32) && defined(_DEBUG))
-#include <stdio.h>
-#endif
-
 #include "gctaskfarm.h"
 
 GCTaskFarm::GCTaskFarm()
@@ -63,11 +59,6 @@ GCTaskFarm::~GCTaskFarm()
 
 void GCTaskFarm::DebugOutput(const char *debug)
 {
-#if (defined(WIN32) && defined(_DEBUG))
-    char debugBuff[1000];
-    sprintf(debugBuff, "%u: %u: %s %u\r\n", GetTickCount(), GetCurrentThreadId(), debug, queuedItems);
-    OutputDebugString(debugBuff);
-#endif
 }
 
 

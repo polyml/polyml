@@ -33,7 +33,13 @@ extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
 /* Called by the garbage collector at the beginning and
    end of garbage collection. */
-extern void record_gc_time(bool isEnd);
+typedef enum __gcTime {
+    GCTimeStart,
+    GCTimeIntermediate,
+    GCTimeEnd
+} gcTime;
+
+extern void record_gc_time(gcTime isEnd, const char *stage = "");
 
 
 #endif

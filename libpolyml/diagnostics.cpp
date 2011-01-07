@@ -126,7 +126,7 @@ void ExitWithError(const char *msg, int err)
 {
     printf("\n");
     printf(msg);
-    for (int i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++) {
+    for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++) {
         if (errortable[i].errorNum == err) {
             printf(errortable[i].errorString);
             break;
