@@ -121,6 +121,7 @@ struct __debugOpts {
     { "gcdetail",           "Log detailed garbage-collector information",       DEBUG_GC_DETAIL },
     { "memmgr",             "Memory manager information",                       DEBUG_MEMMGR },
     { "threads",            "Thread related information",                       DEBUG_THREADS },
+    { "gctasks",            "Log multi-thread GC information",                  DEBUG_GCTASKS },
     { "x",                  "Log X-windows information",                        DEBUG_X}
 };
 

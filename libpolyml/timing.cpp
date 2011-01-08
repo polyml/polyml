@@ -150,9 +150,6 @@ static ULARGE_INTEGER gcUTime, gcSTime;
 static struct timeval startTime;
 static struct timeval gcUTime, gcSTime;
 
-/* Functions to add and subtract times. */
-static void addTimes(struct timeval *result, struct timeval *x);
-static void subTimes(struct timeval *result, struct timeval *x);
 #endif
 
 #if(!(defined(HAVE_GMTIME_R) && defined(HAVE_LOCALTIME_R)))
@@ -588,7 +585,7 @@ void record_gc_time(gcTime isEnd, const char *stage)
 }
 
 #ifndef WINDOWS_PC
-static void addTimes(struct timeval *result, struct timeval *x)
+void addTimes(struct timeval *result, struct timeval *x)
 {
     long uSecs = result->tv_usec + x->tv_usec;
     result->tv_sec += x->tv_sec;
@@ -596,7 +593,7 @@ static void addTimes(struct timeval *result, struct timeval *x)
     result->tv_usec = uSecs;
 }
 
-static void subTimes(struct timeval *result, struct timeval *x)
+void subTimes(struct timeval *result, struct timeval *x)
 {
     long uSecs = result->tv_usec - x->tv_usec;
     result->tv_sec -= x->tv_sec;

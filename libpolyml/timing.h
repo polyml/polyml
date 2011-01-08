@@ -41,5 +41,10 @@ typedef enum __gcTime {
 
 extern void record_gc_time(gcTime isEnd, const char *stage = "");
 
+#ifndef WINDOWS_PC
+/* Functions to add and subtract times. */
+extern void addTimes(struct timeval *result, struct timeval *x);
+extern void subTimes(struct timeval *result, struct timeval *x);
+#endif
 
 #endif

@@ -48,8 +48,6 @@ public:
     void Terminate(void);
 
 private:
-    void DebugOutput(const char *debug);
-
     // The semaphore is zero if there is no work or some value up to
     // the number of threads if there is work.
     PSemaphore waitForWork;

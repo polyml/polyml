@@ -193,6 +193,7 @@ private:
     bool AddLocalSpace(LocalMemSpace *space);
 
     POLYUNSIGNED reservedSpace;
+    unsigned nextAllocator;
 };
 
 extern MemMgr gMem;

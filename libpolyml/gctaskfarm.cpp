@@ -34,6 +34,10 @@
 #include <malloc.h>
 #endif
 
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -42,6 +46,8 @@
 #endif
 
 #include "gctaskfarm.h"
+#include "diagnostics.h"
+#include "timing.h"
 
 GCTaskFarm::GCTaskFarm()
 {
@@ -55,10 +61,6 @@ GCTaskFarm::~GCTaskFarm()
 {
     Terminate();
     free(workQueue);
-}
-
-void GCTaskFarm::DebugOutput(const char *debug)
-{
 }
 
 
@@ -108,7 +110,6 @@ bool GCTaskFarm::AddWork(gctask work, void *arg1, void *arg2)
 {
     PLocker l(&workLock);
     if (queuedItems == queueSize) return false; // Queue is full
-    DebugOutput("Adding work");
     workQueue[queueIn].task = work;
     workQueue[queueIn].arg1 = arg1;
     workQueue[queueIn].arg2 = arg2;
@@ -128,6 +129,12 @@ void GCTaskFarm::AddWorkOrRunNow(gctask work, void *arg1, void *arg2)
 
 void GCTaskFarm::ThreadFunction()
 {
+#ifdef WINDOWS_PC
+    DWORD startActive = GetTickCount();
+#else
+    struct timeval startTime;
+    gettimeofday(&startTime, NULL);
+#endif
     workLock.Lock();
     activeThreadCount++;
     while (! terminate) {
@@ -144,7 +151,6 @@ void GCTaskFarm::ThreadFunction()
             void *arg2 = workQueue[outPos].arg2;
             workQueue[outPos].task = 0;
             queuedItems--;
-            DebugOutput("Found work");
             ASSERT(work != 0);
             workLock.Unlock();
             (*work)(arg1, arg2);
@@ -159,11 +165,34 @@ void GCTaskFarm::ThreadFunction()
             // Now release the lock.
             workLock.Unlock();
 
+            if (debugOptions & DEBUG_GCTASKS)
+            {
+#ifdef WINDOWS_PC
+                Log("GCTask: Thread %u blocking after %u milliseconds\n", ::GetCurrentThreadId(),
+                     GetTickCount() - startActive);
+#else
+                struct timeval endTime;
+                gettimeofday(&endTime, NULL);
+                subTimes(&endTime, &startTime);
+                Log("Thread blocking after %0.4f seconds\n",
+                    (float)endTime.tv_sec + (float)endTime.tv_usec / 1.0E6);
+#endif
+            }
+
             if (terminate) return;
             // Block until there's work.
-            DebugOutput("Worker thread blocking");
             waitForWork.Wait();
             // We've been woken up
+            if (debugOptions & DEBUG_GCTASKS)
+            {
+#ifdef WINDOWS_PC
+	            startActive = GetTickCount();
+                Log("GCTask: Thread %u resuming\n", ::GetCurrentThreadId());
+#else
+                gettimeofday(&startTime, NULL);
+                Log("GCTask: Thread resuming\n");
+#endif
+            }
             workLock.Lock();
             activeThreadCount++;
         }
@@ -184,10 +213,30 @@ DWORD WINAPI GCTaskFarm::WorkerThreadFunction(void *parameter)
 // Wait until the queue is empty.
 void GCTaskFarm::WaitForCompletion(void)
 {
-    DebugOutput("Waiting for completion");
+#ifdef WINDOWS_PC
+    DWORD startWait;
+    if (debugOptions & DEBUG_GCTASKS)
+        startWait = GetTickCount();
+#else
+    struct timeval startWait;
+    if (debugOptions & DEBUG_GCTASKS)
+        gettimeofday(&startWait, NULL);
+#endif
     workLock.Lock();
     while (activeThreadCount > 0 || queuedItems > 0)
         waitForCompletion.Wait(&workLock);
     workLock.Unlock();
-    DebugOutput("Completed");
+
+    if (debugOptions & DEBUG_GCTASKS)
+    {
+#ifdef WINDOWS_PC
+        Log("GCTask: Threads completed after %u milliseconds\n", GetTickCount()-startWait);
+#else
+        struct timeval endWait;
+        gettimeofday(&endWait, NULL);
+        subTimes(&endWait, &startWait);
+        Log("GCTask: Threads completed after %0.4f seconds\n",
+            (float)endWait.tv_sec + (float)endWait.tv_usec / 1.0E6);
+#endif
+    }
 }

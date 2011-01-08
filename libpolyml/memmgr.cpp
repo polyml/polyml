@@ -108,6 +108,7 @@ MemMgr::MemMgr()
     eSpaces = 0;
     nextIndex = 0;
     reservedSpace = 0;
+    nextAllocator = 0;
 }
 
 MemMgr::~MemMgr()
@@ -490,9 +491,16 @@ void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
 PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
 {
     allocLock.Lock();
+    // We try to distribute the allocations between the memory spaces
+    // so that at the next GC we don't have all the most recent cells in
+    // one space.  The most recent cells will be more likely to survive a
+    // GC so distibuting them improves the load balance for a multi-thread GC.
+    nextAllocator++;
+    if (nextAllocator > gMem.nlSpaces) nextAllocator = 0;
+
     for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
+        LocalMemSpace *space = gMem.lSpaces[(j + nextAllocator) % gMem.nlSpaces];
         if (space->isMutable)
         {
             POLYUNSIGNED available = space->pointer - space->bottom;

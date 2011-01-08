@@ -37,11 +37,12 @@ extern void Log(const char *, ...);
 extern unsigned    debugOptions; // debugging  flags
 
 // Values for debugging flags
-#define DEBUG_CHECK_OBJECTS 1       // Check that addresses are valid.
-#define DEBUG_GC            2       // Summary GC debugging output
-#define DEBUG_MEMMGR        4       // Memory manager output
-#define DEBUG_GC_DETAIL     8       // Detailed GC debugging output
-#define DEBUG_THREADS       16      // Thread-related output
-#define DEBUG_X             128     // X-Windows debugging
+#define DEBUG_CHECK_OBJECTS 0x001       // Check that addresses are valid.
+#define DEBUG_GC            0x002       // Summary GC debugging output
+#define DEBUG_MEMMGR        0x004       // Memory manager output
+#define DEBUG_GC_DETAIL     0x008       // Detailed GC debugging output
+#define DEBUG_THREADS       0x010       // Thread-related output
+#define DEBUG_GCTASKS       0x020       // GC task farm
+#define DEBUG_X             0x080       // X-Windows debugging
 
 #endif

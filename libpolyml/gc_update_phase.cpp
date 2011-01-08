@@ -52,6 +52,7 @@ tomb-stone that contains its new location.
 #include "bitmap.h"
 #include "memmgr.h"
 #include "gctaskfarm.h"
+#include "diagnostics.h"
 
 /* start <= val < end */
 #define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
@@ -269,6 +270,8 @@ static void updateLocalArea(void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     LocalMemSpace *space = (LocalMemSpace *)arg2;
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Update local area %p\n", space);
     // If this is a mutable area we also have to process older
     // generations.  That isn't necessary for immutable areas.
     // If this is a full GC gen_top == top and this doesn't do anything.
@@ -276,14 +279,20 @@ static void updateLocalArea(void *arg1, void *arg2)
         processUpdate->ScanAddressesInRegion(space->gen_top, space->top);
     // Process the current generation for mutable or immutable areas.
     processUpdate->UpdateObjectsInArea(space);
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Completed local update for %p. %lu words updated\n", space, space->updated);
 }
 
 // Task to update addresses in a non-local area.
 static void updateNonLocalMutableArea(void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
-    LocalMemSpace *space = (LocalMemSpace *)arg2;
+    MemSpace *space = (MemSpace *)arg2;
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Update non-local mutable area %p\n", space);
     processUpdate->ScanAddressesInRegion(space->bottom, space->top);
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Completed non-local mutable update for %p\n", space);
 }
 
 // Task to update addresses maintained by the RTS itself.
@@ -311,6 +320,7 @@ void GCUpdatePhase()
     for (j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
+        // As well as updating the addresses this also clears the bitmaps.
         gpTaskFarm->AddWorkOrRunNow(&updateLocalArea, &processUpdate, space);
     }
     // Scan the permanent mutable areas.
