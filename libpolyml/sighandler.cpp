@@ -450,13 +450,15 @@ void init_asyncmask(sigset_t *mask)
 class SigHandler: public RtsModule
 {
 public:
-    SigHandler() { threadRunning = false; }
     virtual void Init(void);
     virtual void Uninit(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
 
+#ifdef USE_PTHREAD_SIGNALS
+    SigHandler() { threadRunning = false; }
     pthread_t detectionThreadId;
     bool      threadRunning;
+#endif
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -537,9 +539,11 @@ void SigHandler::Init(void)
 // final clean-up.  Failing to do this causes a hang in Mac OS X.
 void SigHandler::Uninit(void)
 {
+#ifdef USE_PTHREAD_SIGNALS
     terminate = true;
     waitSema->Signal();
     pthread_join(detectionThreadId, NULL);
+#endif
 }
 
 void SigHandler::GarbageCollect(ScanAddress *process)
