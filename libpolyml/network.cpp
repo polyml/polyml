@@ -390,12 +390,15 @@ void WaitNet::Wait(unsigned maxMillisecs)
 {
     fd_set readFds, writeFds, exceptFds;
     struct timeval toWait = { 0, 0 };
-    toWait.tv_usec = maxMillisecs * 1000;
+    // Mac OS X requires the usec field to be less than a million
+    toWait.tv_sec = maxMillisecs / 1000;
+    toWait.tv_usec = (maxMillisecs % 1000) * 1000;
     FD_ZERO(&readFds);
     FD_ZERO(&writeFds);
     FD_ZERO(&exceptFds);
     FD_SET(m_sock, m_isOOB ? &exceptFds : &readFds);
-    select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &toWait);
+    int result = select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &toWait);
+    ASSERT(result >= 0 || errno == EINTR); // The only "error" should be an interrupt.
 }
 
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
