@@ -129,9 +129,9 @@ unsigned receivedSignalCount = 0; // Incremented each time we get a signal
 static PLock sigLock;
 
 #ifdef USE_PTHREAD_SIGNALS
-static pthread_t detectionThreadId; // Thread processing signals.
 static PSemaphore *waitSema;
 static int lastSignals[NSIG];
+static bool terminate = false;
 #endif
 
 
@@ -450,8 +450,13 @@ void init_asyncmask(sigset_t *mask)
 class SigHandler: public RtsModule
 {
 public:
+    SigHandler() { threadRunning = false; }
     virtual void Init(void);
+    virtual void Uninit(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
+
+    pthread_t detectionThreadId;
+    bool      threadRunning;
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -480,7 +485,7 @@ static void *SignalDetectionThread(void *)
         // Wait until we are woken up by an arriving signal.
         // waitSema will be incremented for each signal so we should
         // not block until we have processed them all.
-        if (! waitSema->Wait()) return 0;
+        if (! waitSema->Wait() || terminate) return 0;
 
         for (int j = 1; j < NSIG; j++)
         {
@@ -516,7 +521,6 @@ void SigHandler::Init(void)
     // for it to finish.
     pthread_attr_t attrs;
     pthread_attr_init(&attrs);
-    pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
 #ifdef PTHREAD_STACK_MIN
 #if (PTHREAD_STACK_MIN < 4096)
     pthread_attr_setstacksize(&attrs, 4096); // But not too small: FreeBSD makes it 2k
@@ -524,9 +528,18 @@ void SigHandler::Init(void)
     pthread_attr_setstacksize(&attrs, PTHREAD_STACK_MIN); // Only small stack.
 #endif
 #endif
-    pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0);
+    threadRunning = pthread_create(&detectionThreadId, &attrs, SignalDetectionThread, 0) == 0;
     pthread_attr_destroy(&attrs);
 #endif
+}
+
+// Wait for the signal thread to finish before the semaphore is deleted in the
+// final clean-up.  Failing to do this causes a hang in Mac OS X.
+void SigHandler::Uninit(void)
+{
+    terminate = true;
+    waitSema->Signal();
+    pthread_join(detectionThreadId, NULL);
 }
 
 void SigHandler::GarbageCollect(ScanAddress *process)
