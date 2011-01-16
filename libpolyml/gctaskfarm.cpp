@@ -174,7 +174,7 @@ void GCTaskFarm::ThreadFunction()
                 struct timeval endTime;
                 gettimeofday(&endTime, NULL);
                 subTimes(&endTime, &startTime);
-                Log("Thread blocking after %0.4f seconds\n",
+                Log("GCTask: Thread blocking after %0.4f seconds\n",
                     (float)endTime.tv_sec + (float)endTime.tv_usec / 1.0E6);
 #endif
             }
