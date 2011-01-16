@@ -61,6 +61,6 @@ extern void GCUpdatePhase(void);
 #define MIN_MUTABLE_SEGS_PER_THREAD     1
 #define MIN_IMMUTABLE_SEGS_PER_THREAD   1
 
-#define MINIMUM_SPACE_COUNT            10
+#define MINIMUM_SPACE_COUNT            1
 
 #endif

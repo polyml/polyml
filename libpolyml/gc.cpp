@@ -373,8 +373,8 @@ static void PossiblyExpandImmutableArea(const POLYUNSIGNED wordsNeeded)
             requestedGrowth = immutableSegSize;
         // Make the segments larger if we have already allocated several.
         // The factors here are a guess.  Maybe tune them more carefully
-//        unsigned spaceFactor = nISpaces / 3;
-//        while (spaceFactor > 0) { requestedGrowth += immutableSegSize; spaceFactor--; }
+        unsigned spaceFactor = nISpaces / (3 * userOptions.gcthreads);
+        while (spaceFactor > 0) { requestedGrowth += immutableSegSize; spaceFactor--; }
 
         POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
         POLYUNSIGNED words   = chunks * BITSPERWORD;
@@ -437,7 +437,9 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
 {
     // Do we need any new spaces?
     unsigned newSpaces = BufferIsReallyFull(isMutableSpace, wordsRequired, true);
-    
+    const POLYUNSIGNED segSize =
+        isMutableSpace ? mutableSegSize : immutableSegSize;
+   
     if (newSpaces > 0)
     {
         // We need some more space
@@ -445,8 +447,6 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         {    // expand the heap.
             POLYUNSIGNED requestedGrowth = wordsRequired;
             wordsRequired = 0; // We don't need to include this in any other spaces.
-            const POLYUNSIGNED segSize =
-                isMutableSpace ? mutableSegSize : immutableSegSize;
             if (requestedGrowth < segSize)
                 requestedGrowth = segSize;
             POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
@@ -467,17 +467,26 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         // Count the number of empty spaces.  We don't allow this to get below the number
         // of GC threads.
         unsigned nSpaces = 0;
+        POLYUNSIGNED allocSpace = 0, freeSpace = 0;
         for (unsigned j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *space = gMem.lSpaces[j];
-            if (space->isMutable == isMutableSpace && space->pointer == space->top)
-                nSpaces++;
+            if (space->isMutable == isMutableSpace)
+            {
+                if (space->allocatedSpace() == 0) nSpaces++;
+                else allocSpace += space->allocatedSpace();
+                freeSpace += space->freeSpace();
+            }
         }
+        // Delete spaces provided we have at least one for each thread.  A space can be deleted if
+        // it is small or if the available free space is at least a fifth of the allocated space.
         for (unsigned k = gMem.nlSpaces; k > 0 && nSpaces > userOptions.gcthreads; k--)
         {
             LocalMemSpace *space = gMem.lSpaces[k-1];
-            if (space->isMutable == isMutableSpace && space->pointer == space->top /* It's completely empty */)
+            if (space->isMutable == isMutableSpace && space->allocatedSpace() == 0 /* It's completely empty */
+                && (space->spaceSize() < segSize || freeSpace > allocSpace/5))
             {
+                freeSpace -= space->freeSpace();
                 gMem.DeleteLocalSpace(space);
                 nSpaces--;
             }
@@ -532,8 +541,10 @@ static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
     record_gc_time(GCTimeStart);
 
 GC_AGAIN:
-    if (debugOptions & DEBUG_GC) Log("GC: Beginning %s GC, %lu words required\n", 
-            doFullGC ? "full": "partial", wordsRequiredToAllocate);
+    if (debugOptions & DEBUG_GC) 
+        Log("GC: %s GC, %lu words required %u spaces\n", 
+            doFullGC ? "Full": doFullGCNextTime ? "Full (recovery)" : "Partial", 
+            wordsRequiredToAllocate, gMem.nlSpaces);
     /* Invariant: the bitmaps are completely clean. */    
     /* At this point, we should have
        lSpace->bottom <= lSpace->pointer <= lSpace->gen_top <= lSpace->top       
@@ -636,8 +647,6 @@ GC_AGAIN:
         ASSERT(mUpdated == mMarked + immutable_overflow);
     }
     /* Invariant: the bitmaps are completely clean */
-    if (debugOptions & DEBUG_GC) Log("GC: Complete\n");
-    /* Invariant: the bitmaps are completely clean */
 
     if (doFullGC)
     {
@@ -654,7 +663,6 @@ GC_AGAIN:
 
     if (debugOptions & DEBUG_GC)
     {
-        Log("GC: %s GC %u spaces\n", doFullGC ? "Full" : "Partial", gMem.nlSpaces);
         for(j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[j];
@@ -682,14 +690,18 @@ GC_AGAIN:
             else // It was a full GC but we don't have as much free space as we normally
                  // want at the end of a full GC.  Do we have as much as we would want at the
                  // end of a partial GC?
-            if (BufferIsReallyFull(false /* immutable area */, 0, false) != 0 ||
-                BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, false) != 0)
+            {
+            iFull = BufferIsReallyFull(false /* immutable area */, 0, false) != 0;
+            mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, false) != 0;
+            if (iFull || mFull)
             {
                 // No we don't even have that - interrupt console processes and end GC here.
                 record_gc_time(GCTimeEnd);
                 if (debugOptions & DEBUG_GC)
-                    Log("GC: Completed - insufficient space\n");
+                    Log("GC: Completed - insufficient space in buffer(s): %s%s\n",
+                        iFull ? "immutable " : "", mFull ? "mutable " : "");
                 return false;
+            }
             }
         }
     }
