@@ -941,11 +941,12 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
    a procedure to ensure that there is enough space for the maximum that can
    be allocated. */
 {
+    StackObject *oldStack = taskData->stack;
     /* Get current size of new stack segment. */
-    POLYUNSIGNED old_len = OBJECT_LENGTH(taskData->stack);
+    POLYUNSIGNED old_len = oldStack->Length();
  
     /* The minimum size must include the reserved space for the registers. */
-    POLYUNSIGNED min_size = ((PolyWord*)taskData->stack) + old_len - lower_limit + taskData->stack->p_space;
+    POLYUNSIGNED min_size = ((PolyWord*)oldStack) + old_len - lower_limit + oldStack->p_space;
     
     if (old_len >= min_size) return; /* Ok with present size. */
 
@@ -969,10 +970,18 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
     for (new_len = old_len; new_len < min_size; new_len *= 2);
     if (new_len > MAX_OBJECT_SIZE) new_len = MAX_OBJECT_SIZE;
 
+    if (debugOptions & DEBUG_THREADS)
+        Log("THREAD: Growing stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);
+
     /* Must make a new frame and copy the data over. */
     StackObject *new_stack = // N.B.  May throw a C++ exception.
         (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
-    CopyStackFrame(taskData->stack, new_stack);
+    CopyStackFrame(oldStack, new_stack);
+    // Turn the old stack into a byte segment.  If it's in an old generation it will
+    // be scanned by each partial GC until the next full GC.  Making it a byte segment
+    // should avoid this.
+    oldStack->SetLengthWord(old_len, F_BYTE_OBJ);
+
     taskData->stack = new_stack;
 }
 
@@ -983,29 +992,31 @@ static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 {
     int reserved = get_C_long(taskData, DEREFWORDHANDLE(reserved_space));
 
-    int old_len; /* Current size of stack segment. */
-    int new_len; /* New size */
-    int min_size;
-    StackObject *new_stack;
-
     if (reserved < 0)
     {
        raise_exception0(taskData, EXC_size);
     }
 
+    StackObject *oldStack = taskData->stack;
     /* Get current size of new stack segment. */
-    old_len = OBJECT_LENGTH(taskData->stack);
+    POLYUNSIGNED old_len = oldStack->Length();
  
     /* The minimum size must include the reserved space for the registers. */
-    min_size = (((PolyWord*)taskData->stack) + old_len - (PolyWord*)taskData->stack->p_sp) + taskData->stack->p_space + reserved;
-    
+    POLYUNSIGNED min_size = (((PolyWord*)oldStack) + old_len - (PolyWord*)oldStack->p_sp) + oldStack->p_space + reserved;
+
+    POLYUNSIGNED new_len; /* New size */
     for (new_len = machineDependent->InitialStackSize(); new_len < min_size; new_len *= 2);
 
     if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
 
     /* Must make a new frame and copy the data over. */
-    new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
-    CopyStackFrame(taskData->stack, new_stack);
+    StackObject *new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
+    CopyStackFrame(oldStack, new_stack);
+    // Turn the old stack into a byte segment.  If it's in an old generation it will
+    // be scanned by each partial GC until the next full GC.  Making it a byte segment
+    // should avoid this.
+    oldStack->SetLengthWord(old_len, F_BYTE_OBJ);
+
     taskData->stack = new_stack;    
     return SAVE(TAGGED(0));
 }
