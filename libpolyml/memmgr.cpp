@@ -149,20 +149,20 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
         if (success)
         {
             if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: New local %smutable space %p, bottom=%p, top=%p\n", mut ? "": "im",
-                    space, space->bottom, space->top);
+                Log("MMGR: New local %smutable space %p, size=%luk words, bottom=%p, top=%p\n", mut ? "": "im",
+                    space, space->spaceSize()/1024, space->bottom, space->top);
             return space;
         }
 
         // If something went wrong.
         delete space;
         if (debugOptions & DEBUG_MEMMGR)
-            Log("MMGR: New local %smutable space: insufficient space\n");
+            Log("MMGR: New local %smutable space: insufficient space\n", mut ? "": "im");
         return 0;
     }
     catch (std::bad_alloc a) {
         if (debugOptions & DEBUG_MEMMGR)
-            Log("MMGR: New local %smutable space: \"new\" failed\n");
+            Log("MMGR: New local %smutable space: \"new\" failed\n", mut ? "": "im");
         return 0;
     }
 }
@@ -236,6 +236,7 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
     {
         if (lSpaces[i] == sp)
         {
+            bool wasMutable = sp->isMutable;
             delete sp;
             nlSpaces--;
             while (i < nlSpaces)
@@ -244,7 +245,7 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
                 i++;
             }
             if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: Deleted local %smutable space %p\n", sp->isMutable ? "im": "", sp);
+                Log("MMGR: Deleted local %smutable space %p\n", wasMutable ? "": "im", sp);
             return true;
         }
     }
@@ -394,9 +395,18 @@ bool MemMgr::DemoteImportSpaces()
                 space->isMutable = pSpace->isMutable;
                 space->isOwnSpace = true;
                 if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
+                {
+                    if (debugOptions & DEBUG_MEMMGR)
+                        Log("MMGR: Unable to convert saved state space %p into local space\n", pSpace);
                     return false;
+                }
+                if (debugOptions & DEBUG_MEMMGR)
+                    Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
+                            pSpace, pSpace->isMutable ? "im": "", space);
             }
             catch (std::bad_alloc a) {
+                if (debugOptions & DEBUG_MEMMGR)
+                    Log("MMGR: Unable to convert saved state space %p into local space (\"new\" failed)\n", pSpace);
                 return false;
             }
         }

@@ -49,6 +49,8 @@ public:
 
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
+    
+    POLYUNSIGNED spaceSize() { return top-bottom; } // No of words
 
     // These next two are used in the GC to limit scanning for
     // weak refs.
@@ -100,6 +102,9 @@ public:
     POLYUNSIGNED m_marked;        /* count of mutable words marked.                    */
     POLYUNSIGNED copied;          /* count of words copied into this area.             */
     POLYUNSIGNED updated;         /* count of words updated.                           */
+    
+    POLYUNSIGNED allocatedSpace() { return top-pointer; } // Words allocated
+    POLYUNSIGNED freeSpace() { return pointer-bottom; } // Words free
 
     friend class MemMgr;
 };
