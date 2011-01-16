@@ -738,6 +738,9 @@ void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
 
 void Processes::ThreadExit(TaskData *taskData)
 {
+    if (debugOptions & DEBUG_THREADS)
+        Log("THREAD: Thread %p exiting\n", taskData);
+
     if (singleThreaded) finish(0);
 
     schedLock.Lock();
@@ -899,7 +902,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                     triedInterrupt = true;
                     fprintf(stderr,"Run out of store - interrupting threads\n");
                     if (debugOptions & DEBUG_THREADS)
-                        Log("Thread: Run out of store, interrupting threads\n");
+                        Log("THREAD: Run out of store, interrupting threads\n");
                     BroadcastInterrupt();
                     if (ProcessAsynchRequests(taskData))
                         return 0; // Has been interrupted.
@@ -1200,10 +1203,14 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             delete(taskData);
             ExitWithError("Unable to create initial thread:", errorCode);
         }
+
+        if (debugOptions & DEBUG_THREADS)
+            Log("THREAD: Forked initial root thread %p\n", taskData);
     }
     catch (std::bad_alloc a) {
         ::Exit("Unable to create the initial thread - insufficient memory");
     }
+
     // Wait until the threads terminate or make a request.
     // We only release schedLock while waiting.
     while (1)
@@ -1345,7 +1352,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
         // Now actually fork the thread.
         bool success = false;
         schedLock.Lock();
-    #ifdef HAVE_PTHREAD
+#ifdef HAVE_PTHREAD
         // Create a thread that isn't joinable since we don't want to wait
         // for it to finish.
         pthread_attr_t attrs;
@@ -1353,21 +1360,29 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
         pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
         success = pthread_create(&newTaskData->pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
         pthread_attr_destroy(&attrs);
-    #elif defined(HAVE_WINDOWS_H)
+#elif defined(HAVE_WINDOWS_H)
         DWORD dwThrdId; // Have to provide this although we don't use it.
         newTaskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, &dwThrdId);
         success = newTaskData->threadHandle != NULL;
-    #endif
+#endif
         if (success)
         {
             schedLock.Unlock();
+
+            if (debugOptions & DEBUG_THREADS)
+                Log("THREAD: Forking new thread %p from thread %p\n", newTaskData, taskData);
+
             return threadId;
         }
         // Thread creation failed.
         taskArray[thrdIndex] = 0;
         delete(newTaskData);
         schedLock.Unlock();
+
+        if (debugOptions & DEBUG_THREADS)
+            Log("THREAD: Fork from thread %p failed\n", taskData);
+
         raise_exception_string(taskData, EXC_thread, "Thread creation failed");
     }
     catch (std::bad_alloc a) {
