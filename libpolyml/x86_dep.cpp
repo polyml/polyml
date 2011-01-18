@@ -327,7 +327,7 @@ inline PolyWord& PSP_R13(TaskData *taskData) { return x86Stack(taskData)->p_r13;
 inline PolyWord& PSP_R14(TaskData *taskData) { return x86Stack(taskData)->p_r14; }
 #endif
 
-inline POLYUNSIGNED& PSP_EFLAGS(StackSpace *s) { return ((PolyX86Stack*)s->stack())->p_flags; }
+inline POLYUNSIGNED& PSP_EFLAGS(TaskData *taskData) { return x86Stack(taskData)->p_flags; }
 
 #define EFLAGS_CF               0x0001
 #define EFLAGS_PF               0x0004
@@ -337,7 +337,7 @@ inline POLYUNSIGNED& PSP_EFLAGS(StackSpace *s) { return ((PolyX86Stack*)s->stack
 #define EFLAGS_OF               0x0800
 
 inline POLYCODEPTR& PSP_IC(TaskData *taskData) { return taskData->stack->stack()->p_pc; }
-inline void PSP_INCR_PC(TaskData *taskData, unsigned n) { taskData->stack->stack()->p_pc += n; }
+inline void PSP_INCR_PC(TaskData *taskData, int /* May be -ve */n) { taskData->stack->stack()->p_pc += n; }
 inline PolyWord*& PSP_SP(TaskData *taskData) { return taskData->stack->stack()->p_sp; }
 inline PolyWord*& PSP_HR(TaskData *taskData) { return taskData->stack->stack()->p_hr; }
 
@@ -1115,7 +1115,7 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
         offset = offset*256 + PSP_IC(taskData)[0];
         PSP_INCR_PC(taskData, 4);
         if (inConsts) *inConsts = true;
-        return (PolyWord*)(taskData->stack->p_pc + offset);
+        return (PolyWord*)(taskData->stack->stack()->p_pc + offset);
 #else
         Crash("Immediate address in emulated instruction");
 #endif
@@ -1226,11 +1226,11 @@ void X86Dependent::do_compare(TaskData *taskData, PolyWord v1, PolyWord v2)
     val2 = taskData->saveVec.push(v2);
     int r = compareLong(taskData, val2, val1);
     /* Clear the flags. */
-    POLYUNSIGNED flags = PSP_EFLAGS(taskData->stack);
+    POLYUNSIGNED flags = PSP_EFLAGS(taskData);
     flags &= -256;
     if (r == 0) flags |= EFLAGS_ZF;
     else if (r < 0) flags |= EFLAGS_SF;
-    PSP_EFLAGS(taskData->stack) = flags;
+    PSP_EFLAGS(taskData) = flags;
 }
 
 /******************************************************************************/
@@ -1259,8 +1259,8 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 {
     int src1 = -1, src2 = -1, dest = -1;
     bool doneSubtraction = false;
-    POLYUNSIGNED flagsWord = PSP_EFLAGS(taskData->stack);
-    PSP_EFLAGS(taskData->stack) &= ~EFLAGS_OF; // Make sure the overflow flag is clear.
+    POLYUNSIGNED flagsWord = PSP_EFLAGS(taskData);
+    PSP_EFLAGS(taskData) &= ~EFLAGS_OF; // Make sure the overflow flag is clear.
     while(1) {
         byte rexPrefix = 0;
 #ifdef HOSTARCHITECTURE_X86_64
