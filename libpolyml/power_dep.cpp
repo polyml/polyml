@@ -416,7 +416,6 @@ void PowerPCDependent::InitStackFrame(TaskData *taskData, StackSpace *space, Han
     // or return from a function always subtracts two.
     Handle killCode = BuildKillSelfCode(taskData);
     PolyWord killJump = PolyWord::FromUnsigned(killCode->Word().AsUnsigned() | HANDLEROFFSET);
-    stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
 
     stack->PS_R24 = DEREFWORD(proc); /* Set r24 to the closure address. */
     stack->PS_LR = killJump; /* Set link reg to code to kill process. */
@@ -567,7 +566,7 @@ void PowerPCDependent::SetMemRegisters(TaskData *taskData)
     else if (mdTask->allocWords != 0) // May just be store profiling.
         taskData->allocPointer -= mdTask->allocWords;
 
-    mdTask->memRegisters.polyStack = taskData->stack;
+    mdTask->memRegisters.polyStack = taskData->stack->stack();
     mdTask->memRegisters.stackTop = taskData->stack->top;
 
     // Set the raiseException entry to point to the assembly code.
@@ -786,7 +785,7 @@ void PowerPCDependent::InterruptCode(TaskData *taskData)
     // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
     // it's safe to do this repeatedly.
     if (taskData->stack != 0) 
-        mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->stack()->Length()-1); 
+        mdTask->memRegisters.stackLimit = taskData->stack->top-1; 
     taskData->pendingInterrupt = true;
 }
 
