@@ -571,7 +571,7 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
         sSpaces = table;
         sSpaces[nsSpaces++] = space;
         if (debugOptions & DEBUG_MEMMGR)
-            Log("MMGR: New stack space %p allocated\n", space);
+            Log("MMGR: New stack space %p allocated at %p size %lu\n", space, space->bottom, space->spaceSize());
         return space;
     }
     catch (std::bad_alloc a) {
@@ -647,12 +647,16 @@ static void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, Stac
 
     while (i--)
     {
+//        ASSERT(old >= old_base && old < old_base+old_length);
+//        ASSERT(newp >= new_base && newp < new_base+new_length);
         PolyWord old_word = *old++;
         if (old_word.IsTagged() || old_word.AsStackAddr() < old_base || old_word.AsStackAddr() >= old_top)
             *newp++ = old_word;
         else
             *newp++ = PolyWord::FromStackAddr(old_word.AsStackAddr() + offset);
     }
+    ASSERT(old == ((PolyWord*)old_stack)+old_length);
+    ASSERT(newp == ((PolyWord*)new_stack)+new_length);
 }
 
 
@@ -671,8 +675,8 @@ bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
     newSize = iSpace/sizeof(PolyWord);
     CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
     if (debugOptions & DEBUG_MEMMGR)
-        Log("MMGR: Size of stack %p changed from %lu to %lu\n", space, space->spaceSize(), newSize);
-    osMemoryManager->Free(space->bottom, space->spaceSize());
+        Log("MMGR: Size of stack %p changed from %lu to %lu at %p\n", space, space->spaceSize(), newSize, newSpace);
+    osMemoryManager->Free(space->bottom, (char*)space->top - (char*)space->bottom);
     space->bottom = newSpace;
     space->top = newSpace+newSize;
     return true;
