@@ -355,7 +355,6 @@ void SparcDependent::InitStackFrame(TaskData *taskData, StackSpace *space, Handl
     // or return from a function always subtracts two.
     Handle killCode = BuildKillSelfCode(taskData);
     PolyWord killJump = PolyWord::FromUnsigned(killCode->Word().AsUnsigned() | HANDLEROFFSET);
-    stack = (StackObject *)DEREFWORDHANDLE(stackh); // In case it's moved
 
     stack->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(proc); /* Set regClosureto the closure address. */
     stack->p_reg[CHECKED_REGS]      = PolyWord::FromUnsigned(UNCHECKED_REGS);
@@ -469,7 +468,7 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
     else if (mdTask->allocWords != 0) // May just be store profiling.
         taskData->allocPointer -= mdTask->allocWords;
     
-    mdTask->memRegisters.polyStack = taskData->stack;
+    mdTask->memRegisters.polyStack = taskData->stack->stack();
     mdTask->memRegisters.stackTop = taskData->stack->top;
 
     // Set the raiseException entry to point to the assembly code.
