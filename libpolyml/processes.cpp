@@ -642,7 +642,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     }
 }
 
-TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
+TaskData::TaskData(): mdTaskData(0), allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
         stack(0), threadObject(0), signalStack(0), pendingInterrupt(false)
 {
 }
@@ -651,6 +651,7 @@ TaskData::~TaskData()
 {
     if (signalStack) free(signalStack);
     if (stack) gMem.DeleteStackSpace(stack);
+    delete(mdTaskData);
 }
 
 
