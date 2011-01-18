@@ -32,7 +32,8 @@ typedef enum {
     ST_PERMANENT,   // Permanent areas are part of the object code
                     // Also loaded saved state.
     ST_LOCAL,       // Local heaps contain volatile data
-    ST_EXPORT       // Temporary export area
+    ST_EXPORT,      // Temporary export area
+    ST_STACK        // ML Stack for a thread
 } SpaceType;
 
 // Base class for the various memory spaces.
@@ -50,7 +51,7 @@ public:
     PolyWord        *bottom;    // Bottom of area
     PolyWord        *top;       // Top of area.
     
-    POLYUNSIGNED spaceSize() { return top-bottom; } // No of words
+    POLYUNSIGNED spaceSize(void)const { return top-bottom; } // No of words
 
     // These next two are used in the GC to limit scanning for
     // weak refs.
@@ -103,10 +104,42 @@ public:
     POLYUNSIGNED copied;          /* count of words copied into this area.             */
     POLYUNSIGNED updated;         /* count of words updated.                           */
     
-    POLYUNSIGNED allocatedSpace() { return top-pointer; } // Words allocated
-    POLYUNSIGNED freeSpace() { return pointer-bottom; } // Words free
+    POLYUNSIGNED allocatedSpace(void)const { return top-pointer; } // Words allocated
+    POLYUNSIGNED freeSpace(void)const { return pointer-bottom; } // Words free
 
     friend class MemMgr;
+};
+
+// For historical reasons the saved state is held in the base of the
+// stack.  This defines the layout.  Machine-dependent modules may extend
+// this class.
+class StackBase
+{
+public:
+    POLYUNSIGNED    p_space;    // space available
+    POLYCODEPTR     p_pc;       // Program counter (instruction pointer)
+    PolyWord        *p_sp;      // stack pointer
+    PolyWord        *p_hr;      // handler pointer
+    POLYUNSIGNED    p_nreg;     // number of checked registers
+
+    PolyWord Get(POLYUNSIGNED i) const { return ((PolyWord*)this)[i]; }
+    void Set(POLYUNSIGNED i, PolyWord v) { ((PolyWord*)this)[i] = v; }
+    PolyWord *Offset(POLYUNSIGNED i) const { return ((PolyWord*)this)+i; } // Backwards compatibility
+};
+
+class StackObject: public StackBase
+{
+public:
+    PolyWord        p_reg[1];
+};
+
+// Stack spaces.  These are managed by the thread module
+class StackSpace: public MemSpace
+{
+public:
+    StackSpace() { isOwnSpace = true; }
+
+    StackObject *stack()const { return (StackObject *)bottom; }
 };
 
 class MemMgr
@@ -133,6 +166,17 @@ public:
     PolyWord *AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords);
     PolyWord *AllocHeapSpace(POLYUNSIGNED words)
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
+
+    // Allocate space for the initial stack for a thread.  The caller must
+    // initialise the new stack.  Returns 0 if allocation fails.
+    StackSpace *NewStackSpace(POLYUNSIGNED size);
+
+    // Adjust the space for a stack.  Returns true if it succeeded.  If it failed
+    // it leaves the stack untouched.
+    bool GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize);
+
+    // Delete a stack when a thread has finished.
+    bool DeleteStackSpace(StackSpace *space);
 
     // Create and delete export spaces
     PermanentMemSpace *NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv);
@@ -185,6 +229,10 @@ public:
     // Table for export spaces
     PermanentMemSpace **eSpaces;
     unsigned neSpaces;
+
+    // Table for stack spaces
+    StackSpace **sSpaces;
+    unsigned nsSpaces;
 
     // Used for quick check for local addresses.
     PolyWord *minLocal, *maxLocal;

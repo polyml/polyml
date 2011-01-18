@@ -82,6 +82,7 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "arb.h"
 #include "save_vec.h"
 #include "processes.h"
+#include "memmgr.h"
 
 #define BITS_PER_POLYWORD (SIZEOF_LONG*8)
 
@@ -1082,14 +1083,29 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
 Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
 {
     // The result handle will almost certainly point into the stack.
-    // That may well cause problems if we GC so we need to change this
-    // so that the handle contains the base of the stack and compute the
-    // offset.
-    POLYUNSIGNED offset = result->ReplaceStackHandle(taskData->stack);
+    // That isn't a valid value for an entry on the save stack and
+    // will cause problems if we GC so we must clobber it.
+    // Stacks (no longer) move as a result of a GC and are not ML objects.
+    PolyWord *addr = result->Word().AsStackAddr();
+    if (addr >= taskData->stack->bottom && addr < taskData->stack->top)
+        result->OverWrite();
+    PolyWord *oldStack = taskData->stack->bottom;
+
     Handle remHandle, divHandle;
     quotRem(taskData, y, x, remHandle, divHandle);
-    DEREFHANDLE(result)->Set(offset+0, DEREFWORDHANDLE(divHandle));
-    DEREFHANDLE(result)->Set(offset+1, DEREFWORDHANDLE(remHandle));
+
+    ASSERT(taskData->stack->bottom == oldStack); // Just to be absolutely sure!
+
+    if (addr >= taskData->stack->bottom && addr < taskData->stack->top)
+    {
+        addr[0] = DEREFWORDHANDLE(divHandle);
+        addr[1] = DEREFWORDHANDLE(remHandle);
+    }
+    else
+    {
+        DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
+        DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
+    }
     return taskData->saveVec.push(TAGGED(0));
 }
 

@@ -29,8 +29,6 @@
 /* This element points at an element of the Poly heap */
 /* The element is currently represented as a (PolyWord *) */
 
-class StackObject;
-
 class SaveVecEntry {
 public:
     SaveVecEntry(PolyWord w): m_Handle(w) {}
@@ -41,7 +39,7 @@ public:
 
     // If we have a value that points into the stack we need to replace it
     // by the base of the stack and the offset.
-    POLYUNSIGNED ReplaceStackHandle(const StackObject *stack);
+    void OverWrite(void) { m_Handle = TAGGED(0); }
 
 private:
     PolyWord m_Handle;

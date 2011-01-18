@@ -119,7 +119,7 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 
     if (OBJ_IS_BYTE_OBJECT(L))
         return 0; // We've done as much as we need
-    else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
+    else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
     {
         // Have to handle these specially.
         (void)ScanAddressesInObject(obj, L);

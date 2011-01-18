@@ -184,7 +184,6 @@ SPF 24/1/95
 // Zero bits mean ordinary word object containing addresses or tagged integers.
 #define F_BYTE_OBJ                  0x01  /* byte object (contains no pointers) */
 #define F_CODE_OBJ                  0x02  /* code object (mixed bytes and words) */
-#define F_STACK_OBJ                 0x03  /* stack object - may contain internal pointers */
 #define F_NO_OVERWRITE              0x08  /* don't overwrite when loading - mutables only. */
 #define F_NEGATIVE_BIT              0x10  /* sign bit for arbitrary precision ints */
 #define F_WEAK_BIT                  0x20  /* object contains weak references to option values. */
@@ -194,7 +193,6 @@ SPF 24/1/95
 
 #define _OBJ_BYTE_OBJ                _TOP_BYTE(0x01)  /* byte object (contains no pointers) */
 #define _OBJ_CODE_OBJ                _TOP_BYTE(0x02)  /* code object (mixed bytes and words) */
-#define _OBJ_STACK_OBJ               _TOP_BYTE(0x03)  /* stack object - may contain internal pointers */
 
 #define _OBJ_NO_OVERWRITE            _TOP_BYTE(0x08)  /* don't overwrite when loading - mutables only. */
 #define _OBJ_NEGATIVE_BIT            _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
@@ -217,7 +215,6 @@ inline byte GetTypeBits(POLYUNSIGNED L)             { return (byte)(L >> OBJ_PRI
 inline POLYUNSIGNED OBJ_OBJECT_LENGTH(POLYUNSIGNED L)   { return L & _OBJ_PRIVATE_LENGTH_MASK; }
 inline bool OBJ_IS_BYTE_OBJECT(POLYUNSIGNED L)          { return (GetTypeBits(L) == F_BYTE_OBJ); }
 inline bool OBJ_IS_CODE_OBJECT(POLYUNSIGNED L)          { return (GetTypeBits(L) == F_CODE_OBJ); }
-inline bool OBJ_IS_STACK_OBJECT(POLYUNSIGNED L)         { return (GetTypeBits(L) == F_STACK_OBJ); }
 inline bool OBJ_IS_NO_OVERWRITE(POLYUNSIGNED L)         { return ((L & _OBJ_NO_OVERWRITE) != 0); }
 inline bool OBJ_IS_NEGATIVE(POLYUNSIGNED L)             { return ((L & _OBJ_NEGATIVE_BIT) != 0); }
 inline bool OBJ_IS_MUTABLE_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_MUTABLE_BIT) != 0); }
@@ -285,7 +282,6 @@ public:
 
     bool IsByteObject(void) const { return OBJ_IS_BYTE_OBJECT(LengthWord()); }
     bool IsCodeObject(void) const { return OBJ_IS_CODE_OBJECT(LengthWord()); }
-    bool IsStackObject(void) const { return OBJ_IS_STACK_OBJECT(LengthWord()); }
     bool IsWordObject(void) const { return OBJ_IS_WORD_OBJECT(LengthWord()); }
     bool IsMutable(void) const { return OBJ_IS_MUTABLE_OBJECT(LengthWord()); }
     bool IsWeakRefObject(void) const { return OBJ_IS_WEAKREF_OBJECT(LengthWord()); }
@@ -356,25 +352,6 @@ public:
 };
 
 typedef PolyException poly_exn;
-
-/*********************************************************************
- *
- * Stack object 
- *
- *********************************************************************/
-class StackObject: public PolyObject {
-public:
-    /* space available */
-    POLYUNSIGNED    p_space;
-    POLYCODEPTR     p_pc;
-    /* stack pointer */
-    PolyWord        *p_sp;
-    /* handler pointer */
-    PolyWord        *p_hr;
-    /* number of checked registers */
-    POLYUNSIGNED    p_nreg;
-    PolyWord        p_reg[1];
-};
 
 /* 
  * Stream tokens are pointers to UNTAGGED C integers 

@@ -433,7 +433,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
        they both call functions 100 bytes ahead) and so they will appear the
        same but if the functions they jump to are different they are actually
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
-    if (OBJ_IS_MUTABLE_OBJECT(L) || OBJ_IS_STACK_OBJECT(L) || OBJ_IS_CODE_OBJECT(L))
+    if (OBJ_IS_MUTABLE_OBJECT(L) || OBJ_IS_CODE_OBJECT(L))
     {
         // Add these at depth zero.  This allows us to restore the length words.
         // N.B.  We need to add this BEFORE scanning it in case scanning raises

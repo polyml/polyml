@@ -192,33 +192,25 @@ static void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddre
         Log("GC: Copy: %p %lu %u -> %p\n", srcAddress, OBJ_OBJECT_LENGTH(L),
                     GetTypeBits(L), destAddress);
 
-    if (OBJ_IS_STACK_OBJECT(L))
+    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+
+    for (POLYUNSIGNED i = 0; i < n; i++)
+        destAddress->Set(i, srcAddress->Get(i));
+
+    srcAddress->SetForwardingPtr(destAddress);
+    
+    // If this is a code object flush out anything from the instruction cache
+    // that might previously have been at this address
+    if (OBJ_IS_CODE_OBJECT(L))
     {
-        CopyStackFrame ((StackObject *)srcAddress, (StackObject *)destAddress);
-        srcAddress->SetForwardingPtr(destAddress);
+        MTGCProcessIdentity identity;
+        machineDependent->FlushInstructionCache(destAddress, n * sizeof(PolyWord));
+        // We have to update any relative addresses in the code.
+        machineDependent->ScanConstantsWithinCode(destAddress, srcAddress, OBJ_OBJECT_LENGTH(L), &identity);
     }
-    else /* not a stack object */
-    {
-        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
 
-        for (POLYUNSIGNED i = 0; i < n; i++)
-            destAddress->Set(i, srcAddress->Get(i));
-
-        srcAddress->SetForwardingPtr(destAddress);
-        
-        // If this is a code object flush out anything from the instruction cache
-        // that might previously have been at this address
-        if (OBJ_IS_CODE_OBJECT(L))
-        {
-            MTGCProcessIdentity identity;
-            machineDependent->FlushInstructionCache(destAddress, n * sizeof(PolyWord));
-            // We have to update any relative addresses in the code.
-            machineDependent->ScanConstantsWithinCode(destAddress, srcAddress, OBJ_OBJECT_LENGTH(L), &identity);
-        }
-
-        // We mustn't check the object until after we've adjusted any relative offsets.
-        CheckObject(destAddress);
-    }
+    // We mustn't check the object until after we've adjusted any relative offsets.
+    CheckObject(destAddress);
 }
 
 // Find the next space in the sequence.  It may return with the space unchanged if it

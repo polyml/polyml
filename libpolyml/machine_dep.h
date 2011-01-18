@@ -46,6 +46,7 @@ class ScanAddress;
 class TaskData;
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
+class StackSpace;
 
 class MDTaskData {
 public:
@@ -97,7 +98,7 @@ public:
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
     // Initialise the stack for a new thread.  Because this is called from the parent thread
     // the task data object passed in is that of the parent.
-    virtual void InitStackFrame(TaskData *parentTaskData, Handle stack, Handle proc, Handle arg) = 0;
+    virtual void InitStackFrame(TaskData *parentTaskData, StackSpace *space, Handle proc, Handle arg) = 0;
     virtual void SetException(TaskData *taskData, poly_exn *exc) = 0;
     // General RTS functions.
     virtual void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *)) = 0;

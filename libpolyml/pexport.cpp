@@ -241,69 +241,6 @@ void PExport::printObject(PolyObject *p)
         // Finally any constants in the code object.
         machineDependent->ScanConstantsWithinCode(p, this);
     }
-    else if (p->IsStackObject())
-    {
-        StackObject *s = (StackObject*)p;
-        PolyWord *q;
-        ASSERT(! p->IsMutable());
-        fprintf(exportFile, "Q%lu|", length);
-        /* First the standard registers, space, pc, sp, hr. */
-        fprintf(exportFile, "%lu,", s->p_space);
-
-        /* pc may be TAGGED(0) indicating a retry. */
-        PolyWord pc = PolyWord::FromCodePtr(s->p_pc);
-        if (pc == TAGGED(0))
-            fprintf(exportFile, "%lu,\n", TAGGED(0).AsUnsigned());
-        else printCodeAddr(s->p_pc);
-
-        putc(',', exportFile);
-        fprintf(exportFile, "%%%lu+%lu,", myIndex, (POLYUNSIGNED)(s->p_sp-(PolyWord*)p)); /* Word offset of sp. */
-        fprintf(exportFile, "%%%lu+%lu", myIndex, (POLYUNSIGNED)(s->p_hr-(PolyWord*)p)); /* Word offset of hr. */
-
-        /* Checked registers. */
-        fprintf(exportFile, " %lu|", s->p_nreg);
-        PolyWord *stackStart = (PolyWord*)p;
-        PolyWord *stackEnd = stackStart+length;
-        for (i = 0; i < s->p_nreg; i++)
-        {
-            PolyWord r = s->p_reg[i];
-            if (r.AsStackAddr() >= stackStart && r.AsStackAddr() < stackEnd)
-                fprintf(exportFile, "%%%lu+%lu", myIndex, (POLYUNSIGNED)(r.AsStackAddr() - (PolyWord*)p));
-            /* It seems we can have zeros in the registers, at least on the i386. */
-            else if (r == PolyWord::FromUnsigned(0))
-                fprintf(exportFile, "0");
-            else
-                printValue(r);
-            if (i < s->p_nreg-1)
-                putc(',', exportFile);
-        }
-        /* Unchecked registers, just as numbers. */
-        POLYUNSIGNED nUnchecked = s->p_reg[i++].AsUnsigned();
-        printf(" %lu|", nUnchecked);
-        nUnchecked += i;
-        for (; i < nUnchecked; i++)
-        {
-            fprintf(exportFile, "%lu", s->p_reg[i].AsUnsigned());
-            if (i < nUnchecked-1)
-                putc(',', exportFile);
-        }
-        q = s->p_sp;
-        /* Now the values on the stack. */
-        POLYUNSIGNED stackLength = length - (s->p_sp-stackStart);
-        fprintf(exportFile, " %lu|", stackLength);
-        q = s->p_sp;
-        for (i = 0; i < stackLength; i++)
-        {
-            PolyWord r = q[i];
-            /* A stack may contain a value which is an offset. */
-            if (r.AsStackAddr() >= stackStart && r.AsStackAddr() < stackEnd)
-                fprintf(exportFile, "%%%lu+%lu", myIndex, (POLYUNSIGNED)(r.AsStackAddr() - (PolyWord*)p));
-            else printValue(r);
-            if (i < stackLength-1)
-                putc(',', exportFile);
-        }
-
-    }
     else /* Ordinary objects, essentially tuples. */
     {
         fprintf(exportFile, "O%lu|", length);
@@ -588,17 +525,6 @@ bool PImport::GetValue(PolyWord *result)
         ASSERT(j >= -MAXTAGGED-1 && j <= MAXTAGGED);
         *result = TAGGED(j);
     }
-    else if (ch == '%')
-    {
-        /* Offset within the object.  Only in a stack. */
-        POLYUNSIGNED obj, offset;
-        fscanf(f, "%lu+%lu", &obj, &offset);
-        ASSERT(obj < nObjects);
-        PolyObject *q = objMap[obj];
-        ASSERT(q->IsStackObject());
-        ASSERT(offset >= 0 && offset < q->Length());
-        *result = PolyWord::FromStackAddr(((PolyWord)q).AsStackAddr() + offset);
-    }
     else if (ch == 'I')
     {
         /* IO entry number. */
@@ -704,8 +630,6 @@ bool PImport::DoImport()
         /* Object type. */
         switch (ch)
         {
-        case 'Q': /* Stack segment. */
-            objBits |= F_STACK_OBJ;
         case 'O': /* Simple object. */
             fscanf(f, "%lu", &nWords);
             break;

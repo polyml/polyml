@@ -25,12 +25,9 @@
 #ifndef GC_H_INCLUDED
 #define GC_H_INCLUDED
 
-class StackObject;
 #include "globals.h" // For POLYUNSIGNED
 
 class TaskData;
-
-extern void CopyStackFrame(StackObject *old_stack, StackObject *new_stack);
 
 // Make a request for a full garbage collection.
 extern void FullGC(TaskData *taskData);

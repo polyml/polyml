@@ -4,6 +4,8 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
+    Further work copyright David C. J. Matthews 2011
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -189,7 +191,7 @@ public:
     virtual void SetForRetry(TaskData *taskData, int ioCall);
     virtual void InterruptCode(TaskData *taskData);
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
-    virtual void InitStackFrame(TaskData *taskData, Handle stack, Handle proc, Handle arg);
+    virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
     virtual void SetException(TaskData *taskData, poly_exn *exc);
     virtual void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *));
     virtual void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle));
@@ -250,42 +252,6 @@ static byte *heapOverflow, *stackOverflow, *stackOverflowEx, *raiseDiv, *arbEmul
  *
  **********************************************************************/
 
-
-/**********************************************************************
- *
- * Register fields in the stack. 
- *
- **********************************************************************/
-#define PSP_EAX(stack)          ((PolyX86Stack*)(stack))->p_eax
-#define PSP_EBX(stack)          ((PolyX86Stack*)(stack))->p_ebx
-#define PSP_ECX(stack)          ((PolyX86Stack*)(stack))->p_ecx
-#define PSP_EDX(stack)          ((PolyX86Stack*)(stack))->p_edx
-#define PSP_ESI(stack)          ((PolyX86Stack*)(stack))->p_esi
-#define PSP_EDI(stack)          ((PolyX86Stack*)(stack))->p_edi
-
-// X64 registers only
-#define PSP_R8(stack)           ((PolyX86Stack*)(stack))->p_r8
-#define PSP_R9(stack)           ((PolyX86Stack*)(stack))->p_r9
-#define PSP_R10(stack)          ((PolyX86Stack*)(stack))->p_r10
-#define PSP_R11(stack)          ((PolyX86Stack*)(stack))->p_r11
-#define PSP_R12(stack)          ((PolyX86Stack*)(stack))->p_r12
-#define PSP_R13(stack)          ((PolyX86Stack*)(stack))->p_r13
-#define PSP_R14(stack)          ((PolyX86Stack*)(stack))->p_r14
-
-#define PSP_EFLAGS(stack)       ((PolyX86Stack*)(stack))->p_flags
-#define EFLAGS_CF               0x0001
-#define EFLAGS_PF               0x0004
-#define EFLAGS_AF               0x0010
-#define EFLAGS_ZF               0x0040
-#define EFLAGS_SF               0x0080
-#define EFLAGS_OF               0x0800
-
-#define PSP_IC(stack)           (stack)->p_pc
-#define PSP_INCR_PC(stack, n)   (stack)->p_pc += n
-#define PSP_SP(stack)           (stack)->p_sp
-#define PSP_HR(stack)           (stack)->hr
-
-
 // Structure of floating point save area.
 // This is dictated by the hardware.
 typedef byte fpregister[10];
@@ -334,6 +300,47 @@ public:
     POLYUNSIGNED    p_flags;
     struct fpSaveArea p_fp;
 };
+
+/**********************************************************************
+ *
+ * Register fields in the stack. 
+ *
+ **********************************************************************/
+// Changed from macros to inline functions to improve type safety
+inline PolyX86Stack* x86Stack(TaskData *taskData) { return (PolyX86Stack*)taskData->stack->stack(); }
+
+inline PolyWord& PSP_EAX(TaskData *taskData) { return x86Stack(taskData)->p_eax; }
+inline PolyWord& PSP_EBX(TaskData *taskData) { return x86Stack(taskData)->p_ebx; }
+inline PolyWord& PSP_ECX(TaskData *taskData) { return x86Stack(taskData)->p_ecx; }
+inline PolyWord& PSP_EDX(TaskData *taskData) { return x86Stack(taskData)->p_edx; }
+inline PolyWord& PSP_ESI(TaskData *taskData) { return x86Stack(taskData)->p_esi; }
+inline PolyWord& PSP_EDI(TaskData *taskData) { return x86Stack(taskData)->p_edi; }
+
+#ifdef HOSTARCHITECTURE_X86_64
+// X64 registers only
+inline PolyWord& PSP_R8(TaskData *taskData) { return x86Stack(taskData)->p_r8; }
+inline PolyWord& PSP_R9(TaskData *taskData) { return x86Stack(taskData)->p_r9; }
+inline PolyWord& PSP_R10(TaskData *taskData) { return x86Stack(taskData)->p_r10; }
+inline PolyWord& PSP_R11(TaskData *taskData) { return x86Stack(taskData)->p_r11; }
+inline PolyWord& PSP_R12(TaskData *taskData) { return x86Stack(taskData)->p_r12; }
+inline PolyWord& PSP_R13(TaskData *taskData) { return x86Stack(taskData)->p_r13; }
+inline PolyWord& PSP_R14(TaskData *taskData) { return x86Stack(taskData)->p_r14; }
+#endif
+
+inline POLYUNSIGNED& PSP_EFLAGS(StackSpace *s) { return ((PolyX86Stack*)s->stack())->p_flags; }
+
+#define EFLAGS_CF               0x0001
+#define EFLAGS_PF               0x0004
+#define EFLAGS_AF               0x0010
+#define EFLAGS_ZF               0x0040
+#define EFLAGS_SF               0x0080
+#define EFLAGS_OF               0x0800
+
+inline POLYCODEPTR& PSP_IC(TaskData *taskData) { return taskData->stack->stack()->p_pc; }
+inline void PSP_INCR_PC(TaskData *taskData, unsigned n) { taskData->stack->stack()->p_pc += n; }
+inline PolyWord*& PSP_SP(TaskData *taskData) { return taskData->stack->stack()->p_sp; }
+inline PolyWord*& PSP_HR(TaskData *taskData) { return taskData->stack->stack()->p_hr; }
+
 
 // Values for the returnReason byte
 enum RETURN_REASON {
@@ -421,7 +428,7 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.  Pop the return address into the program counter.
             // It may well not be a valid code address anyway.
-            PSP_IC(taskData->stack) = (*(PSP_SP(taskData->stack))++).AsCodePtr();
+            PSP_IC(taskData) = (*(PSP_SP(taskData))++).AsCodePtr();
             HeapOverflowTrap(taskData); // Computes a value for allocWords only
             break;
 
@@ -430,8 +437,8 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
                 // The stack check has failed.  This may either be because we really have
                 // overflowed the stack or because the stack limit value has been adjusted
                 // to result in a call here.
-                PSP_IC(taskData->stack) = (*PSP_SP(taskData->stack)++).AsCodePtr();
-                CheckAndGrowStack(taskData, taskData->stack->p_sp);
+                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
+                CheckAndGrowStack(taskData, taskData->stack->stack()->p_sp);
             }
             catch (IOException) {
                // We may get an exception while handling this if we run out of store
@@ -444,9 +451,9 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
                 // the fixed overflow size the code will calculate the limit in %EDI.
                 // We need to extract that and the clear that register since it may
                 // very well be outside the stack and therefore a "bad address".
-                PolyWord *stackP = PSP_EDI(taskData->stack).AsStackAddr();
-                PSP_EDI(taskData->stack) = TAGGED(0);
-                PSP_IC(taskData->stack) = (*PSP_SP(taskData->stack)++).AsCodePtr();
+                PolyWord *stackP = PSP_EDI(taskData).AsStackAddr();
+                PSP_EDI(taskData) = TAGGED(0);
+                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
                 CheckAndGrowStack(taskData, stackP);
             }
             catch (IOException) {
@@ -460,11 +467,11 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
                 // is either ignored, for Word operations, or results in a call to
                 // the abitrary precision emulation code.  This is the exception
                 // (no pun intended).
-                PSP_IC(taskData->stack) = (*PSP_SP(taskData->stack)++).AsCodePtr();
+                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
                 // Set all the registers to a safe value here.  We will almost certainly
                 // have shifted a value in one of the registers before testing it for zero.
-                for (POLYUNSIGNED i = 0; i < taskData->stack->p_nreg; i++)
-                    taskData->stack->p_reg[i] = TAGGED(0);
+                for (POLYUNSIGNED i = 0; i < taskData->stack->stack()->p_nreg; i++)
+                    taskData->stack->stack()->p_reg[i] = TAGGED(0);
                 raise_exception0(taskData, EXC_divide);
             }
             catch (IOException) {
@@ -474,7 +481,7 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
 
         case RETURN_ARB_EMULATION:
             try {
-                PSP_IC(taskData->stack) = (*PSP_SP(taskData->stack)++).AsCodePtr();
+                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
                 ArbitraryPrecisionTrap(taskData);
             }
             catch (IOException) {
@@ -484,25 +491,25 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
 
         case RETURN_CALLBACK_RETURN:
             // Remove the extra exception handler we created in SetCallbackFunction
-            ASSERT(taskData->stack->p_hr == PSP_SP(taskData->stack));
-            PSP_SP(taskData->stack) += 2;
-            taskData->stack->p_hr = (*(PSP_SP(taskData->stack)++)).AsStackAddr(); // Restore the previous handler.
-            mdTask->callBackResult = taskData->saveVec.push(PSP_EAX(taskData->stack)); // Argument to return is in EAX.
+            ASSERT(taskData->stack->stack()->p_hr == PSP_SP(taskData));
+            PSP_SP(taskData) += 2;
+            taskData->stack->stack()->p_hr = (*(PSP_SP(taskData)++)).AsStackAddr(); // Restore the previous handler.
+            mdTask->callBackResult = taskData->saveVec.push(PSP_EAX(taskData)); // Argument to return is in EAX.
             // Restore the registers
 #ifdef HOSTARCHITECTURE_X86_64
-            PSP_R10(taskData->stack) = *PSP_SP(taskData->stack)++;
-            PSP_R9(taskData->stack) = *PSP_SP(taskData->stack)++;
-            PSP_R8(taskData->stack) = *PSP_SP(taskData->stack)++;
+            PSP_R10(taskData) = *PSP_SP(taskData)++;
+            PSP_R9(taskData) = *PSP_SP(taskData)++;
+            PSP_R8(taskData) = *PSP_SP(taskData)++;
 #endif
-            PSP_EBX(taskData->stack) = *PSP_SP(taskData->stack)++;
-            PSP_EAX(taskData->stack) = *PSP_SP(taskData->stack)++;
-            PSP_EDX(taskData->stack) = *PSP_SP(taskData->stack)++;
-            taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr(); // Set the return address
+            PSP_EBX(taskData) = *PSP_SP(taskData)++;
+            PSP_EAX(taskData) = *PSP_SP(taskData)++;
+            PSP_EDX(taskData) = *PSP_SP(taskData)++;
+            taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr(); // Set the return address
             return -2;
 
         case RETURN_CALLBACK_EXCEPTION:
             // An ML callback has raised an exception.
-            SetException(taskData, (poly_exn *)PSP_EAX(taskData->stack).AsObjPtr());
+            SetException(taskData, (poly_exn *)PSP_EAX(taskData).AsObjPtr());
             // Raise a C++ exception.  If the foreign function that called this callback
             // doesn't handle the exception it will be raised in the calling ML function.
             // But if it is caught we may have a problem ...
@@ -515,11 +522,11 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
     } while (1);
 }
 
-void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handle proc, Handle arg)
+void X86Dependent::InitStackFrame(TaskData *parentTaskData, StackSpace *space, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
-    PolyX86Stack * newStack = (PolyX86Stack*)DEREFWORDHANDLE(stackh);
-    POLYUNSIGNED stack_size     = newStack->Length();
+    PolyX86Stack * newStack = (PolyX86Stack*)space->stack();
+    POLYUNSIGNED stack_size     = space->spaceSize();
     POLYUNSIGNED topStack = stack_size-2;
     newStack->p_space = OVERFLOW_STACK_SIZE;
     newStack->p_pc    = PC_RETRY_SPECIAL;
@@ -566,7 +573,6 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
 
     Handle killCode = BuildKillSelf(parentTaskData);
     PolyWord killJump = killCode->Word();
-    newStack = (PolyX86Stack *)DEREFWORDHANDLE(stackh); // In case it's moved
     // Normal return address and exception handler.
     newStack->Set(topStack, killJump);
 }
@@ -575,14 +581,14 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, Handle stackh, Handl
 void X86Dependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
 {
     // Set the return address now.
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
     try {
         Handle result = (*ioFun)(taskData);
-        PSP_EAX(taskData->stack) = result->Word();
+        PSP_EAX(taskData) = result->Word();
         // If this is a normal return we can pop the return address.
         // If this has raised an exception, set for retry or changed process
         // we mustn't.  N,B, The return address could have changed because of GC
-        PSP_SP(taskData->stack)++;
+        PSP_SP(taskData)++;
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -597,12 +603,12 @@ void X86Dependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
 
 void X86Dependent::CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
 {
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
     try {
         Handle result = (*ioFun)(taskData, saved1);
-        PSP_EAX(taskData->stack) = result->Word();
-        PSP_SP(taskData->stack)++; // Pop the return address.
+        PSP_EAX(taskData) = result->Word();
+        PSP_SP(taskData)++; // Pop the return address.
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -617,13 +623,13 @@ void X86Dependent::CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
 
 void X86Dependent::CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
 {
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
     try {
         Handle result = (*ioFun)(taskData, saved2, saved1);
-        PSP_EAX(taskData->stack) = result->Word();
-        PSP_SP(taskData->stack)++;
+        PSP_EAX(taskData) = result->Word();
+        PSP_SP(taskData)++;
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -638,21 +644,21 @@ void X86Dependent::CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
 
 void X86Dependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
 {
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
 #ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData->stack)[1]);
+    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[1]);
 #else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData->stack));
+    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
     try {
         Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
-        PSP_EAX(taskData->stack) = result->Word();
+        PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
-        PSP_SP(taskData->stack) += 2; // Pop the return address and a stack arg.
+        PSP_SP(taskData) += 2; // Pop the return address and a stack arg.
 #else /* HOSTARCHITECTURE_X86_64 */
-        PSP_SP(taskData->stack)++;
+        PSP_SP(taskData)++;
 #endif /* HOSTARCHITECTURE_X86_64 */
     }
     catch (IOException exc) {
@@ -668,23 +674,23 @@ void X86Dependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
 
 void X86Dependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
 #ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData->stack)[2]);
-    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData->stack)[1]);
+    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[2]);
+    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[1]);
 #else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData->stack));
-    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData->stack));
+    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
+    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
     try {
         Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
-        PSP_EAX(taskData->stack) = result->Word();
+        PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
-        PSP_SP(taskData->stack) += 3; // Pop the return address and two stack args.
+        PSP_SP(taskData) += 3; // Pop the return address and two stack args.
 #else /* HOSTARCHITECTURE_X86_64 */
-        PSP_SP(taskData->stack)++;
+        PSP_SP(taskData)++;
 #endif /* HOSTARCHITECTURE_X86_64 */
     }
     catch (IOException exc) {
@@ -701,25 +707,25 @@ void X86Dependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handl
 // The only functions with 5 args are move_bytes/word_long
 void X86Dependent::CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData->stack));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData->stack));
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
 #ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData->stack)[3]);
-    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData->stack)[2]);
-    Handle saved5 = taskData->saveVec.push(PSP_SP(taskData->stack)[1]);
+    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[3]);
+    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[2]);
+    Handle saved5 = taskData->saveVec.push(PSP_SP(taskData)[1]);
 #else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData->stack));
-    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData->stack));
-    Handle saved5 = taskData->saveVec.push(PSP_R10(taskData->stack));
+    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
+    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
+    Handle saved5 = taskData->saveVec.push(PSP_R10(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
     try {
         Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
-        PSP_EAX(taskData->stack) = result->Word();
+        PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
-        PSP_SP(taskData->stack) += 4; // Pop the return address and 3 stack args
+        PSP_SP(taskData) += 4; // Pop the return address and 3 stack args
 #else /* HOSTARCHITECTURE_X86_64 */
-        PSP_SP(taskData->stack)++;
+        PSP_SP(taskData)++;
 #endif /* HOSTARCHITECTURE_X86_64 */
     }
     catch (IOException exc) {
@@ -760,17 +766,17 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
 // function.
 void X86Dependent::SetExceptionTrace(TaskData *taskData)
 {
-    taskData->stack->p_pc = (*PSP_SP(taskData->stack)).AsCodePtr();
-    Handle fun = taskData->saveVec.push(PSP_EAX(taskData->stack));
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle fun = taskData->saveVec.push(PSP_EAX(taskData));
     Handle extrace = BuildExceptionTrace(taskData);
     PolyObject *functToCall = fun->WordP();
-    PSP_EDX(taskData->stack) = functToCall; // Closure address
+    PSP_EDX(taskData) = functToCall; // Closure address
     // Leave the return address where it is on the stack.
-    taskData->stack->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
-    *(--PSP_SP(taskData->stack)) = PolyWord::FromStackAddr(taskData->stack->p_hr);
+    taskData->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
+    *(--PSP_SP(taskData)) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr);
     // Handler addresses must be word + 2 byte aligned.
-    *(--PSP_SP(taskData->stack)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
-    taskData->stack->p_hr = PSP_SP(taskData->stack);
+    *(--PSP_SP(taskData)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
+    taskData->stack->stack()->p_hr = PSP_SP(taskData);
     byte *codeAddr;
 #ifndef __GNUC__
 #ifdef HOSTARCHITECTURE_X86_64
@@ -803,8 +809,8 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
     );
 #endif
     Handle retCode = BuildCodeSegment(taskData, codeAddr, 8 /* Code is 8 bytes */, 'R');
-    *(--PSP_SP(taskData->stack)) = retCode->WordP(); // Code for normal return.
-    PSP_EAX(taskData->stack) = TAGGED(0); // Set the argument of the function to "unit".
+    *(--PSP_SP(taskData)) = retCode->WordP(); // Code for normal return.
+    PSP_EAX(taskData) = TAGGED(0); // Set the argument of the function to "unit".
 }
 
 // In Solaris-x86 the registers are named EIP and ESP.
@@ -826,8 +832,8 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
     if (mdTask->memRegisters.inRTS)
     {
         if (taskData->stack == 0) return false;
-        sp = taskData->stack->p_sp;
-        pc = taskData->stack->p_pc;
+        sp = taskData->stack->stack()->p_sp;
+        pc = taskData->stack->stack()->p_pc;
         return true;
     }
     if (context == 0) return false;
@@ -893,7 +899,7 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
     return false;
 #endif
     // Check the sp value is in the current stack.
-    if (sp >= (PolyWord*)taskData->stack && sp < taskData->stack->Offset(taskData->stack->Length()))
+    if (sp >= (PolyWord*)taskData->stack && sp < taskData->stack->stack()->Offset(taskData->stack->spaceSize()))
         return true;
     else
         return false; // Bad stack pointer
@@ -907,7 +913,7 @@ void X86Dependent::InterruptCode(TaskData *taskData)
     // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
     // it's safe to do this repeatedly.
     if (taskData->stack != 0) 
-        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
+        mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->spaceSize()-1);
     taskData->pendingInterrupt = true;
 }
 
@@ -968,16 +974,16 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     if (profileMode == kProfileStoreAllocation)
         mdTask->memRegisters.localMbottom = mdTask->memRegisters.localMpointer;
 
-    mdTask->memRegisters.polyStack = taskData->stack;
+    mdTask->memRegisters.polyStack = taskData->stack->stack();
     // Whenever the ML code enters a function it checks that the stack pointer is above
     // this value.  The default is to set it to the top of the reserved area
     // but if we've had an interrupt we set it to the end of the stack.
     // InterruptCode may be called either when the thread is in the RTS or in ML code.
-    mdTask->memRegisters.stackTop = taskData->stack->Offset(taskData->stack->Length() - 1);
+    mdTask->memRegisters.stackTop = taskData->stack->stack()->Offset(taskData->stack->spaceSize() - 1);
     if (taskData->pendingInterrupt)
-        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1);
-    else mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
-    mdTask->memRegisters.handlerRegister = taskData->stack->p_hr;
+        mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->spaceSize()-1);
+    else mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->stack()->p_space);
+    mdTask->memRegisters.handlerRegister = taskData->stack->stack()->p_hr;
     mdTask->memRegisters.requestCode = 0; // Clear these because only one will be set.
     mdTask->memRegisters.returnReason = RETURN_IO_CALL;
 
@@ -997,8 +1003,8 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     // We set the PC to zero to indicate that we should retry the call to the RTS
     // function.  In that case we need to set it back to the code address before we
     // return.  This is also used if we have raised an exception.
-    if (PSP_IC(taskData->stack) == PC_RETRY_SPECIAL)
-        taskData->stack->p_pc = PSP_EDX(taskData->stack).AsObjPtr()->Get(0).AsCodePtr();
+    if (PSP_IC(taskData) == PC_RETRY_SPECIAL)
+        taskData->stack->stack()->p_pc = PSP_EDX(taskData).AsObjPtr()->Get(0).AsCodePtr();
 }
 
 // This is called whenever we have returned from ML to C.
@@ -1006,11 +1012,12 @@ void X86Dependent::SaveMemRegisters(TaskData *taskData)
 {
     X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
     // Check a few items on the stack to see it hasn't been overwritten
-    if (! taskData->stack->IsStackObject() || taskData->stack->p_space != OVERFLOW_STACK_SIZE ||
-          taskData->stack->p_nreg != CHECKED_REGS || taskData->stack->p_reg[CHECKED_REGS] != PolyWord::FromUnsigned(UNCHECKED_REGS))
+    if (taskData->stack->stack()->p_space != OVERFLOW_STACK_SIZE ||
+          taskData->stack->stack()->p_nreg != CHECKED_REGS ||
+          taskData->stack->stack()->p_reg[CHECKED_REGS] != PolyWord::FromUnsigned(UNCHECKED_REGS))
         Crash("Stack overwritten\n");
     taskData->allocPointer = mdTask->memRegisters.localMpointer - 1;
-    taskData->stack->p_hr = mdTask->memRegisters.handlerRegister;
+    taskData->stack->stack()->p_hr = mdTask->memRegisters.handlerRegister;
     mdTask->allocWords = 0;
 }
 
@@ -1019,14 +1026,14 @@ void X86Dependent::SetForRetry(TaskData *taskData, int ioCall)
 {
     /* We now have to set the closure entry for the RTS call to work.
        DCJM 4/1/01. */
-    PSP_EDX(taskData->stack) = (PolyObject*)IoEntry(ioCall);
-    taskData->stack->p_pc = PC_RETRY_SPECIAL; // This value is treated specially in SetMemRegisters
+    PSP_EDX(taskData) = (PolyObject*)IoEntry(ioCall);
+    taskData->stack->stack()->p_pc = PC_RETRY_SPECIAL; // This value is treated specially in SetMemRegisters
 }
 
 PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
 /* Returns a pointer to the register given by n. */
 {
-    PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
+    PolyX86Stack *stack = x86Stack(taskData);
     switch (n) 
     {
     case 0: return &stack->p_eax;
@@ -1061,11 +1068,11 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
     else if (rm == 4)
     {
         // s-i-b present.  Used for esp and r12 as well as indexing.
-        unsigned int sib = PSP_IC(taskData->stack)[0];
+        unsigned int sib = PSP_IC(taskData)[0];
         unsigned int index = (sib >> 3) & 7;
         unsigned int ss = (sib >> 6) & 3;
         unsigned int base = sib & 7;
-        PSP_INCR_PC(taskData->stack, 1);
+        PSP_INCR_PC(taskData, 1);
         if (md == 0 && base == 5)
             // This should not occur in either 32 or 64-bit mode.
             Crash("Immediate address in emulated instruction");
@@ -1075,24 +1082,24 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
             if (md == 1)
             {
                 // One byte offset
-                offset = PSP_IC(taskData->stack)[0];
+                offset = PSP_IC(taskData)[0];
                 if (offset >= 128) offset -= 256;
-                PSP_INCR_PC(taskData->stack, 1);
+                PSP_INCR_PC(taskData, 1);
             }
             else if (md == 2)
             {
                 // Four byte offset
-                offset = PSP_IC(taskData->stack)[3];
+                offset = PSP_IC(taskData)[3];
                 if (offset >= 128) offset -= 256;
-                offset = offset*256 + PSP_IC(taskData->stack)[2];
-                offset = offset*256 + PSP_IC(taskData->stack)[1];
-                offset = offset*256 + PSP_IC(taskData->stack)[0];
-                PSP_INCR_PC(taskData->stack, 4);
+                offset = offset*256 + PSP_IC(taskData)[2];
+                offset = offset*256 + PSP_IC(taskData)[1];
+                offset = offset*256 + PSP_IC(taskData)[0];
+                PSP_INCR_PC(taskData, 4);
             }
             if (ss != 0 || index != 4) Crash("Index register present");
             byte *ea;
             if (rexPrefix & 0x1) base += 8;
-            if (base == 4) /* esp */ ea = (byte*)taskData->stack->p_sp + offset;
+            if (base == 4) /* esp */ ea = (byte*)taskData->stack->stack()->p_sp + offset;
             else ea = get_reg(taskData, base)->AsCodePtr()+offset;
             return (PolyWord*)ea;
         }
@@ -1101,12 +1108,12 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
     {
 #ifdef HOSTARCHITECTURE_X86_64
         // In 64-bit mode this means PC-relative
-        int offset = PSP_IC(taskData->stack)[3];
+        int offset = PSP_IC(taskData)[3];
         if (offset >= 128) offset -= 256;
-        offset = offset*256 + PSP_IC(taskData->stack)[2];
-        offset = offset*256 + PSP_IC(taskData->stack)[1];
-        offset = offset*256 + PSP_IC(taskData->stack)[0];
-        PSP_INCR_PC(taskData->stack, 4);
+        offset = offset*256 + PSP_IC(taskData)[2];
+        offset = offset*256 + PSP_IC(taskData)[1];
+        offset = offset*256 + PSP_IC(taskData)[0];
+        PSP_INCR_PC(taskData, 4);
         if (inConsts) *inConsts = true;
         return (PolyWord*)(taskData->stack->p_pc + offset);
 #else
@@ -1119,19 +1126,19 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
         if (md == 1)
         {
             // One byte offset
-            offset = PSP_IC(taskData->stack)[0];
+            offset = PSP_IC(taskData)[0];
             if (offset >= 128) offset -= 256;
-            PSP_INCR_PC(taskData->stack, 1);
+            PSP_INCR_PC(taskData, 1);
         }
         else if (md == 2)
         {
             // Four byte offset
-            offset = PSP_IC(taskData->stack)[3];
+            offset = PSP_IC(taskData)[3];
             if (offset >= 128) offset -= 256;
-            offset = offset*256 + PSP_IC(taskData->stack)[2];
-            offset = offset*256 + PSP_IC(taskData->stack)[1];
-            offset = offset*256 + PSP_IC(taskData->stack)[0];
-            PSP_INCR_PC(taskData->stack, 4);
+            offset = offset*256 + PSP_IC(taskData)[2];
+            offset = offset*256 + PSP_IC(taskData)[1];
+            offset = offset*256 + PSP_IC(taskData)[0];
+            PSP_INCR_PC(taskData, 4);
         }
         PolyWord base = *(get_reg(taskData, rm + (rexPrefix & 0x1)*8));
         byte *ea = base.AsCodePtr() + offset;
@@ -1143,7 +1150,7 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
 void X86Dependent::HeapOverflowTrap(TaskData *taskData)
 {
     X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
-    PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
+    PolyX86Stack *stack = x86Stack(taskData);
     POLYUNSIGNED wordsNeeded = 0;
     // The next instruction, after any branches round forwarding pointers, will
     // be a store of register containing the adjusted heap pointer.  We need to
@@ -1258,25 +1265,25 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
         byte rexPrefix = 0;
 #ifdef HOSTARCHITECTURE_X86_64
         // Get any REX prefix
-        if (PSP_IC(taskData->stack)[0] >= 0x40 && PSP_IC(taskData->stack)[0] <= 0x4f)
+        if (PSP_IC(taskData)[0] >= 0x40 && PSP_IC(taskData)[0] <= 0x4f)
         {
-            rexPrefix = PSP_IC(taskData->stack)[0];
-            PSP_INCR_PC(taskData->stack, 1);
+            rexPrefix = PSP_IC(taskData)[0];
+            PSP_INCR_PC(taskData, 1);
         }
 #endif /* HOSTARCHITECTURE_X86_64 */
         // Decode the register fields and include any REX bits
-        int bbb = PSP_IC(taskData->stack)[1] & 7;
+        int bbb = PSP_IC(taskData)[1] & 7;
         if (rexPrefix & 0x1) bbb += 8;
-        int rrr = (PSP_IC(taskData->stack)[1] >> 3) & 7;
+        int rrr = (PSP_IC(taskData)[1] >> 3) & 7;
         if (rexPrefix & 0x4) rrr += 8;
 
-        switch (PSP_IC(taskData->stack)[0]) {
+        switch (PSP_IC(taskData)[0]) {
         case 0x03: 
             {
                 /* add. */
-                PSP_INCR_PC(taskData->stack, 1);
-                int modRm = PSP_IC(taskData->stack)[0];
-                PSP_INCR_PC(taskData->stack, 1);
+                PSP_INCR_PC(taskData, 1);
+                int modRm = PSP_IC(taskData)[0];
+                PSP_INCR_PC(taskData, 1);
                 bool inConsts = false;
                 PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix, &inConsts));
                 if (dest == -1) { // New format
@@ -1317,9 +1324,9 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
         case 0x2b: /* Subtraction. */
             {
-                PSP_INCR_PC(taskData->stack, 1);
-                int modRm = PSP_IC(taskData->stack)[0];
-                PSP_INCR_PC(taskData->stack, 1);
+                PSP_INCR_PC(taskData, 1);
+                int modRm = PSP_IC(taskData)[0];
+                PSP_INCR_PC(taskData, 1);
                 bool inConsts = false;
                 PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix, &inConsts));
                 if (dest == -1) { // New format
@@ -1355,9 +1362,9 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
         case 0x3b: /* Compare. */
             {
-                PSP_INCR_PC(taskData->stack, 1);
-                int modRm = PSP_IC(taskData->stack)[0];
-                PSP_INCR_PC(taskData->stack, 1);
+                PSP_INCR_PC(taskData, 1);
+                int modRm = PSP_IC(taskData)[0];
+                PSP_INCR_PC(taskData, 1);
                 PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
                 do_compare(taskData, *(get_reg(taskData, rrr)), arg);
                 return true;
@@ -1365,40 +1372,40 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
         case 0x8d: /* leal - Used to remove a tag before an add and multiply. */
             // Also used to put the tag on after a subtraction.
-            if ((PSP_IC(taskData->stack)[1] & 7) == 4)
+            if ((PSP_IC(taskData)[1] & 7) == 4)
             { // R12 (and RSP but that isn't used here) have to be encoded with a SIB byte.
-                ASSERT((PSP_IC(taskData->stack)[2] & 7) == 4); // Should be same register
-                PSP_INCR_PC(taskData->stack, 1);
+                ASSERT((PSP_IC(taskData)[2] & 7) == 4); // Should be same register
+                PSP_INCR_PC(taskData, 1);
             }
             if (doneSubtraction)
             {
-                PSP_INCR_PC(taskData->stack, 3);
+                PSP_INCR_PC(taskData, 3);
                 return true;
             }
             if (src1 == -1) src1 = bbb; else src2 = bbb;
             dest = rrr;
-            ASSERT(PSP_IC(taskData->stack)[2] == 0xff);
-            PSP_INCR_PC(taskData->stack, 3);
+            ASSERT(PSP_IC(taskData)[2] == 0xff);
+            PSP_INCR_PC(taskData, 3);
             break;
 
         case 0x89: /* movl: move source into dest. */
-            if ((PSP_IC(taskData->stack)[1] & 0xc0) != 0xc0)
+            if ((PSP_IC(taskData)[1] & 0xc0) != 0xc0)
                  Crash("Can't move into store.");
             dest = bbb;
             if (src1 == -1) src1 = rrr; else src2 = rrr;
-            PSP_INCR_PC(taskData->stack, 2);
+            PSP_INCR_PC(taskData, 2);
                 /* Next should be add-immediate. */
             break;
 
         case 0x83: { /* One byte immediate: Add, sub or compare. */
-            PSP_INCR_PC(taskData->stack, 1);
-            int modRm = PSP_IC(taskData->stack)[0];
-            PSP_INCR_PC(taskData->stack, 1);
+            PSP_INCR_PC(taskData, 1);
+            int modRm = PSP_IC(taskData)[0];
+            PSP_INCR_PC(taskData, 1);
             PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
 
-            int cval = PSP_IC(taskData->stack)[0];
+            int cval = PSP_IC(taskData)[0];
             if (cval >= 128) cval -= 256;
-            PSP_INCR_PC(taskData->stack, 1);
+            PSP_INCR_PC(taskData, 1);
 
             switch (modRm & (7 << 3)) // This is a code.  Ignore any REX override.
             {
@@ -1448,17 +1455,17 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             }
 
         case 0x81: { /* 4 byte immediate: Add, sub or compare. */
-            PSP_INCR_PC(taskData->stack, 1);
-            int modRm = PSP_IC(taskData->stack)[0];
-            PSP_INCR_PC(taskData->stack, 1);
+            PSP_INCR_PC(taskData, 1);
+            int modRm = PSP_IC(taskData)[0];
+            PSP_INCR_PC(taskData, 1);
             PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
 
-            int cval = PSP_IC(taskData->stack)[3];
+            int cval = PSP_IC(taskData)[3];
             if (cval >= 128) cval -= 256;
-            cval = cval*256 + PSP_IC(taskData->stack)[2];
-            cval = cval*256 + PSP_IC(taskData->stack)[1];
-            cval = cval*256 + PSP_IC(taskData->stack)[0];
-            PSP_INCR_PC(taskData->stack, 4);
+            cval = cval*256 + PSP_IC(taskData)[2];
+            cval = cval*256 + PSP_IC(taskData)[1];
+            cval = cval*256 + PSP_IC(taskData)[0];
+            PSP_INCR_PC(taskData, 4);
 
             switch (modRm & (7 << 3))
             {
@@ -1499,53 +1506,53 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
         case 0xeb: // jmp - used in branch forwarding.
             // This is used to skip back to the instruction being emulated.
-            if (PSP_IC(taskData->stack)[1] >= 128)
-                PSP_INCR_PC(taskData->stack, PSP_IC(taskData->stack)[1] - 256 + 2);
-            else PSP_INCR_PC(taskData->stack, PSP_IC(taskData->stack)[1] + 2);
+            if (PSP_IC(taskData)[1] >= 128)
+                PSP_INCR_PC(taskData, PSP_IC(taskData)[1] - 256 + 2);
+            else PSP_INCR_PC(taskData, PSP_IC(taskData)[1] + 2);
             break;
 
         case 0x50: /* push eax - used before a multiply. */
 #ifdef HOSTARCHITECTURE_X86_64
             ASSERT((rexPrefix & 1) == 0); // Check it's not r8
 #endif /* HOSTARCHITECTURE_X86_64 */
-            *(--PSP_SP(taskData->stack)) = PSP_EAX(taskData->stack);
-            PSP_INCR_PC(taskData->stack, 1);
+            *(--PSP_SP(taskData)) = PSP_EAX(taskData);
+            PSP_INCR_PC(taskData, 1);
             break;
 
         case 0x52: /* push edx - used before a multiply. */
 #ifdef HOSTARCHITECTURE_X86_64
             ASSERT((rexPrefix & 1) == 0); // Check it's not r10
 #endif /* HOSTARCHITECTURE_X86_64 */
-            *(--PSP_SP(taskData->stack)) = PSP_EDX(taskData->stack);
-            PSP_INCR_PC(taskData->stack, 1);
+            *(--PSP_SP(taskData)) = PSP_EDX(taskData);
+            PSP_INCR_PC(taskData, 1);
             break;
 
         case 0xd1: /* Group1A - must be sar edx before a multiply or sar [esp] before Real.fromInt */
-            if (PSP_IC(taskData->stack)[1] == 0xfa) {
-                PSP_INCR_PC(taskData->stack, 2);
+            if (PSP_IC(taskData)[1] == 0xfa) {
+                PSP_INCR_PC(taskData, 2);
                 /* If we haven't moved anything into edx then edx must be
                    one of the arguments. */
                 if (src2 == -1) src2 = 2; /* edx. */
             }
-            else if (PSP_IC(taskData->stack)[1] == 0x3c) {
-                PSP_INCR_PC(taskData->stack, 3);
+            else if (PSP_IC(taskData)[1] == 0x3c) {
+                PSP_INCR_PC(taskData, 3);
             }
             else Crash("Unknown instruction after overflow trap");
             break;
 
         case 0xf7: /* Multiply instruction. */
-            if (PSP_IC(taskData->stack)[1] != 0xea)
+            if (PSP_IC(taskData)[1] != 0xea)
                 Crash("Unknown instruction after overflow trap");
             do_op(taskData, 0 /* eax */, *(get_reg(taskData, src1)), *(get_reg(taskData, src2)), mult_longc);
             /* Subtract one because the next instruction will tag it. */
-            PSP_EAX(taskData->stack) = PolyWord::FromUnsigned(PSP_EAX(taskData->stack).AsUnsigned() - 1);
-            PSP_INCR_PC(taskData->stack, 2);
+            PSP_EAX(taskData) = PolyWord::FromUnsigned(PSP_EAX(taskData).AsUnsigned() - 1);
+            PSP_INCR_PC(taskData, 2);
             return true;
 
         case 0xdb: // Floating point ESCAPE 3
         case 0xdf:
             {
-                PolyX86Stack *stack = (PolyX86Stack*)taskData->stack;
+                PolyX86Stack *stack = x86Stack(taskData);
 #ifdef HOSTARCHITECTURE_X86_64
                 if (stack->p_pc[1] != 0x2c || stack->p_pc[2] != 0x24)
                     Crash("Unknown instruction after overflow trap");
@@ -1556,7 +1563,6 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 // The operand is on the stack.
                 union { double dble; byte bytes[sizeof(double)]; } dValue;
                 dValue.dble = get_C_real(taskData, stack->p_sp[0]);
-                stack = (PolyX86Stack*)taskData->stack; // Shouldn't have GC'd, but just in case.
                 unsigned top = (stack->p_fp.sw >> 11) & 7;
                 top = (top-1) & 0x7;
                 stack->p_fp.sw = (stack->p_fp.sw & (~0x3800)) | (top << 11);
@@ -1583,7 +1589,7 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     }
                     stack->p_fp.registers[0][1] = acc << 3;
                 }
-                PSP_INCR_PC(taskData->stack, 3);
+                PSP_INCR_PC(taskData, 3);
             }
             return true;
 
@@ -1598,10 +1604,10 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
 {
     // Arithmetic operation has overflowed or detected long values.
     if (profileMode == kProfileEmulation)
-        add_count(taskData, PSP_IC(taskData->stack), PSP_SP(taskData->stack), 1);
+        add_count(taskData, PSP_IC(taskData), PSP_SP(taskData), 1);
     // Emulate the arbitrary precision instruction.
     if (! emulate_instrs(taskData))
-        Crash("Arbitrary precision emulation fault at %x\n", PSP_IC(taskData->stack));
+        Crash("Arbitrary precision emulation fault at %x\n", PSP_IC(taskData));
 }
 
 // These macros build small pieces of assembly code for each io call.
@@ -1965,9 +1971,9 @@ Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
 void X86Dependent::SetException(TaskData *taskData, poly_exn *exc)
 // Set up the stack of a process to raise an exception.
 {
-    PSP_EDX(taskData->stack) = (PolyObject*)IoEntry(POLY_SYS_raisex);
-    PSP_IC(taskData->stack)     = PC_RETRY_SPECIAL;
-    PSP_EAX(taskData->stack) = exc; /* put exception data into eax */
+    PSP_EDX(taskData) = (PolyObject*)IoEntry(POLY_SYS_raisex);
+    PSP_IC(taskData)     = PC_RETRY_SPECIAL;
+    PSP_EAX(taskData) = exc; /* put exception data into eax */
 }
 
 void X86Dependent::ResetSignals(void)
@@ -1981,7 +1987,7 @@ void X86Dependent::ResetSignals(void)
 void X86Dependent::CallCodeTupled(TaskData *taskData)
 {
     // The eventual return address is on the stack - leave it there.
-    PolyObject *argTuple = PSP_EAX(taskData->stack).AsObjPtr();
+    PolyObject *argTuple = PSP_EAX(taskData).AsObjPtr();
     Handle closure = taskData->saveVec.push(argTuple->Get(0));
     Handle argvec = taskData->saveVec.push(argTuple->Get(1));
 
@@ -1994,7 +2000,7 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
         if (argCount > ARGS_IN_REGS)
         {
             try {
-                CheckAndGrowStack(taskData, taskData->stack->p_sp - (argCount - ARGS_IN_REGS));
+                CheckAndGrowStack(taskData, taskData->stack->stack()->p_sp - (argCount - ARGS_IN_REGS));
             }
             catch (IOException)
             {
@@ -2003,30 +2009,30 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
         }
 
         // First argument is in EAX
-        PSP_EAX(taskData->stack) = argv->Get(0);
+        PSP_EAX(taskData) = argv->Get(0);
         // Second arg, if there is one, goes into EBX
         if (argCount > 1)
-            PSP_EBX(taskData->stack) = argv->Get(1);
+            PSP_EBX(taskData) = argv->Get(1);
 #ifdef HOSTARCHITECTURE_X86_64
         if (argCount > 2)
-            PSP_R8(taskData->stack) = argv->Get(2);
+            PSP_R8(taskData) = argv->Get(2);
         if (argCount > 3)
-            PSP_R9(taskData->stack) = argv->Get(3);
+            PSP_R9(taskData) = argv->Get(3);
         if (argCount > 4)
-            PSP_R10(taskData->stack) = argv->Get(4);
+            PSP_R10(taskData) = argv->Get(4);
 #endif /* HOSTARCHITECTURE_X86_64 */
         // Remaining args go on the stack.
-        PolyWord returnAddress = *PSP_SP(taskData->stack)++;
+        PolyWord returnAddress = *PSP_SP(taskData)++;
         for (POLYUNSIGNED i = ARGS_IN_REGS; i < argCount; i++)
         {
-            *(--PSP_SP(taskData->stack)) = argv->Get(i);
+            *(--PSP_SP(taskData)) = argv->Get(i);
         }
-        *(--PSP_SP(taskData->stack)) = returnAddress;
+        *(--PSP_SP(taskData)) = returnAddress;
     }
     // The closure goes into the closure reg.
-    PSP_EDX(taskData->stack) = DEREFWORD(closure);
+    PSP_EDX(taskData) = DEREFWORD(closure);
     // First word of closure is entry point.
-    PSP_IC(taskData->stack) = (PSP_EDX(taskData->stack)).AsObjPtr()->Get(0).AsCodePtr();
+    PSP_IC(taskData) = (PSP_EDX(taskData)).AsObjPtr()->Get(0).AsCodePtr();
 }
 
 // Sets up a callback function on the current stack.  The present state is that
@@ -2042,26 +2048,26 @@ void X86Dependent::SetCallbackFunction(TaskData *taskData, Handle func, Handle a
     Handle callBackException = BuildCodeSegment(taskData, codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
     // Save the closure pointer and argument registers to the stack.  If we have to
     // retry the current RTS call we need these to have their original values.
-    *(--PSP_SP(taskData->stack)) = PSP_EDX(taskData->stack);
-    *(--PSP_SP(taskData->stack)) = PSP_EAX(taskData->stack);
-    *(--PSP_SP(taskData->stack)) = PSP_EBX(taskData->stack);
+    *(--PSP_SP(taskData)) = PSP_EDX(taskData);
+    *(--PSP_SP(taskData)) = PSP_EAX(taskData);
+    *(--PSP_SP(taskData)) = PSP_EBX(taskData);
 #ifdef HOSTARCHITECTURE_X86_64
-    *(--PSP_SP(taskData->stack)) = PSP_R8(taskData->stack);
-    *(--PSP_SP(taskData->stack)) = PSP_R9(taskData->stack);
-    *(--PSP_SP(taskData->stack)) = PSP_R10(taskData->stack);
+    *(--PSP_SP(taskData)) = PSP_R8(taskData);
+    *(--PSP_SP(taskData)) = PSP_R9(taskData);
+    *(--PSP_SP(taskData)) = PSP_R10(taskData);
 #endif
     // Set up an exception handler so we will enter callBackException if there is an exception.
-    *(--PSP_SP(taskData->stack)) = PolyWord::FromStackAddr(taskData->stack->p_hr); // Create a special handler entry
-    *(--PSP_SP(taskData->stack)) = callBackException->Word();
-    *(--PSP_SP(taskData->stack)) = TAGGED(0);
-    taskData->stack->p_hr = PSP_SP(taskData->stack);
+    *(--PSP_SP(taskData)) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); // Create a special handler entry
+    *(--PSP_SP(taskData)) = callBackException->Word();
+    *(--PSP_SP(taskData)) = TAGGED(0);
+    taskData->stack->stack()->p_hr = PSP_SP(taskData);
     // Push the call to callBackReturn onto the stack as the return address.
-    *(--PSP_SP(taskData->stack)) = callBackReturn->Word();
+    *(--PSP_SP(taskData)) = callBackReturn->Word();
     // Set up the entry point of the callback.
     PolyObject *functToCall = func->WordP();
-    PSP_EDX(taskData->stack) = functToCall; // Closure address
-    PSP_EAX(taskData->stack) = args->Word();
-    taskData->stack->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
+    PSP_EDX(taskData) = functToCall; // Closure address
+    PSP_EAX(taskData) = args->Word();
+    taskData->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
 }
 
 // Decode and process an effective address.  There may

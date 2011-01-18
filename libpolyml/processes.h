@@ -39,7 +39,7 @@
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
-class StackObject;
+class StackSpace;
 class PolyWord;
 class ScanAddress;
 class MDTaskData;
@@ -84,7 +84,7 @@ public:
     PolyWord    *allocLimit;    // ... lower limit of allocation
     POLYUNSIGNED allocSize;     // The preferred heap segment size
     unsigned    allocCount;     // The number of allocations since the last GC
-    StackObject *stack;
+    StackSpace  *stack;
     ThreadObject *threadObject;  // Pointer to the thread object.
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)

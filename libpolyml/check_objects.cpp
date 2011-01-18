@@ -90,21 +90,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
     if (flags == F_BYTE_OBJ) /* possibly signed byte object */
         return; /* Nothing more to do */
 
-    if (flags == F_STACK_OBJ)
-    {
-        StackObject *stack = (StackObject *) base;
-        POLYUNSIGNED     skip  = stack->p_sp - (PolyWord*)base;
-
-        ASSERT (INRANGE(stack->p_sp, (PolyWord*)base, (PolyWord*)end));
-        ASSERT (INRANGE(stack->p_hr, (PolyWord*)base, (PolyWord*)end));
-
-        /* Skip to the start of the stack. */
-        ASSERT (skip < n);
-
-        pt += skip; 
-        n  -= skip;
-    }
-    else if (flags == F_CODE_OBJ) /* code object */
+    if (flags == F_CODE_OBJ) /* code object */
     {
         ScanCheckAddress checkAddr;
         /* We flush the instruction cache here in case we change any of the

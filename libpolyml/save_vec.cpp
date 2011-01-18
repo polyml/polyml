@@ -39,6 +39,7 @@
 #include "save_vec.h"
 #include "check_objects.h"
 #include "scanaddrs.h"
+#include "memmgr.h"
 
 
 #define SVEC_SIZE 1000
@@ -72,18 +73,6 @@ Handle SaveVec::push(PolyWord valu) /* Push a PolyWord onto the save vec. */
 
     *save_vec_addr = SaveVecEntry(valu);
     return save_vec_addr++;
-}
-
-POLYUNSIGNED SaveVecEntry::ReplaceStackHandle(const StackObject *stack)
-{
-    PolyWord *addr = Word().AsStackAddr();
-    POLYUNSIGNED offset = 0;
-    if (addr > (PolyWord*)stack && addr < stack->Offset(stack->Length()))
-    {
-        offset = addr-(PolyWord*)stack;
-        m_Handle = (PolyObject*)stack;
-    }
-    return offset;
 }
 
 void SaveVec::gcScan(ScanAddress *process)

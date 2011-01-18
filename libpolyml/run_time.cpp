@@ -165,7 +165,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     
     if (profileMode == kProfileStoreAllocation)
     {
-        StackObject *stack = taskData->stack;
+        StackObject *stack = taskData->stack->stack();
         add_count(taskData, stack->p_pc, stack->p_sp, words);
     }
 
@@ -401,9 +401,9 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
     // handlers which would otherwise look like return addresses.
     // Since we don't pass that in we may find it is actually out of
     // date if we are producing a trace as a result of pressing ^C.
-    StackObject *stack = taskData->stack;
+    StackObject *stack = taskData->stack->stack();
     PolyWord *exceptions = stack->p_hr;
-    PolyWord *endStack = stack->Offset(stack->Length());
+    PolyWord *endStack = taskData->stack->top;
     
 #ifdef DEBUG    
     printf("starting trace: sp = %p, finish = %p, end_of_stack = %p\n",
@@ -464,9 +464,8 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 /* CALL_IO0(stack_trace_, NOIND) */
 static Handle stack_trace_c(TaskData *taskData)
 {
-    StackObject *stack = taskData->stack;
-    PolyWord *endStack = stack->Offset(stack->Length());
-    give_stack_trace (taskData, stack->p_sp, endStack);
+    StackObject *stack = taskData->stack->stack();
+    give_stack_trace (taskData, stack->p_sp, taskData->stack->top);
     return SAVE(TAGGED(0));
 }
 
@@ -500,14 +499,14 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     putc('\n',stdout);
     
     /* Trace down as far as the dummy handler on the stack. */
-    StackObject *stack = taskData->stack;
+    StackObject *stack = taskData->stack->stack();
     give_stack_trace(taskData, stack->p_sp, handler);
     fputs("End of trace\n\n",stdout);
     fflush(stdout);
     
     /* Set up the next handler so we don't come back here when we raise
        the exception again. */
-    taskData->stack->p_hr = (PolyWord*)(handler->AsStackAddr());
+    taskData->stack->stack()->p_hr = (PolyWord*)(handler->AsStackAddr());
     
     /* Set the exception data back again. */
     machineDependent->SetException(taskData, (poly_exn *)DEREFHANDLE(exnHandle));
@@ -941,9 +940,9 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
    a procedure to ensure that there is enough space for the maximum that can
    be allocated. */
 {
-    StackObject *oldStack = taskData->stack;
+    StackObject *oldStack = taskData->stack->stack();
     /* Get current size of new stack segment. */
-    POLYUNSIGNED old_len = oldStack->Length();
+    POLYUNSIGNED old_len = taskData->stack->spaceSize();
  
     /* The minimum size must include the reserved space for the registers. */
     POLYUNSIGNED min_size = ((PolyWord*)oldStack) + old_len - lower_limit + oldStack->p_space;
@@ -951,38 +950,26 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
     if (old_len >= min_size) return; /* Ok with present size. */
 
     // If it is too small double its size.
-    // BUT, the maximum size is 2^24-1 words (on 32 bit) or 2^56-1 on 64 bit.
 
-    if (old_len == MAX_OBJECT_SIZE)
+    POLYUNSIGNED new_len; /* New size */
+    for (new_len = old_len; new_len < min_size; new_len *= 2);
+
+    if (! gMem.GrowOrShrinkStack(taskData->stack, new_len))
     {
         /* Cannot expand the stack any further. */
-        fprintf(stderr, "Warning - Stack limit reached - interrupting process\n");
-        if (debugOptions & DEBUG_GC)
-            Log("GC: Stack limit reached - interrupting thread\n");
+        fprintf(stderr, "Warning - Unable to increase stack - interrupting thread\n");
+        if (debugOptions & DEBUG_THREADS)
+            Log("THREAD: Unable to grow stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);
         // We really should do this only if the thread is handling interrupts
         // asynchronously.  On the other hand what else do we do?
         Handle exn = make_exn(taskData, EXC_interrupt, SAVE(TAGGED(0)));
         machineDependent->SetException(taskData, DEREFEXNHANDLE(exn));
-        return;
     }
-
-    POLYUNSIGNED new_len; /* New size */
-    for (new_len = old_len; new_len < min_size; new_len *= 2);
-    if (new_len > MAX_OBJECT_SIZE) new_len = MAX_OBJECT_SIZE;
-
-    if (debugOptions & DEBUG_THREADS)
-        Log("THREAD: Growing stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);
-
-    /* Must make a new frame and copy the data over. */
-    StackObject *new_stack = // N.B.  May throw a C++ exception.
-        (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
-    CopyStackFrame(oldStack, new_stack);
-    // Turn the old stack into a byte segment.  If it's in an old generation it will
-    // be scanned by each partial GC until the next full GC.  Making it a byte segment
-    // should avoid this.
-    oldStack->SetLengthWord(old_len, F_BYTE_OBJ);
-
-    taskData->stack = new_stack;
+    else
+    {
+        if (debugOptions & DEBUG_THREADS)
+            Log("THREAD: Growing stack for thread %p from %lu to %lu\n", taskData, old_len, new_len);
+    }
 }
 
 // This is used after executing each top-level command to minimise the
@@ -997,9 +984,9 @@ static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
        raise_exception0(taskData, EXC_size);
     }
 
-    StackObject *oldStack = taskData->stack;
+    StackObject *oldStack = taskData->stack->stack();
     /* Get current size of new stack segment. */
-    POLYUNSIGNED old_len = oldStack->Length();
+    POLYUNSIGNED old_len = taskData->stack->spaceSize();
  
     /* The minimum size must include the reserved space for the registers. */
     POLYUNSIGNED min_size = (((PolyWord*)oldStack) + old_len - (PolyWord*)oldStack->p_sp) + oldStack->p_space + reserved;
@@ -1009,15 +996,9 @@ static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 
     if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
 
-    /* Must make a new frame and copy the data over. */
-    StackObject *new_stack = (StackObject *)alloc(taskData, new_len, F_MUTABLE_BIT|F_STACK_OBJ);
-    CopyStackFrame(oldStack, new_stack);
-    // Turn the old stack into a byte segment.  If it's in an old generation it will
-    // be scanned by each partial GC until the next full GC.  Making it a byte segment
-    // should avoid this.
-    oldStack->SetLengthWord(old_len, F_BYTE_OBJ);
+    // Try to change the stack size but ignore any error since the current size will do.
+    gMem.GrowOrShrinkStack(taskData->stack, new_len);
 
-    taskData->stack = new_stack;    
     return SAVE(TAGGED(0));
 }
 

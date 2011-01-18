@@ -80,7 +80,7 @@ enum RETURN_REASON {
   tagged registers. SPF 30/1/97.
 */
 
-/* Location of these registers in taskData->stack->p_reg[] */ 
+/* Location of these registers in taskData->stack->stack()->p_reg[] */ 
 #define OFFSET_REGRESULT    2 /* regResult == argReg0 on SPARC */ 
 #define OFFSET_ARGREG0      2
 #define OFFSET_ARGREG1      3
@@ -121,7 +121,7 @@ enum RETURN_REASON {
 // assembly code.
 typedef struct _MemRegisters {
     int inRTS;
-        /* This is set when taskData->stack->p_pc and taskData->stack->p_sp are set */
+        /* This is set when taskData->stack->stack()->p_pc and taskData->stack->stack()->p_sp are set */
     int requestCode;
     int returnReason;
 
@@ -152,7 +152,7 @@ public:
     // Create a task data object.
     virtual MDTaskData *CreateTaskData(void) { return new SparcTaskData(); }
 
-    virtual void InitStackFrame(TaskData *taskData, Handle stack, Handle proc, Handle arg);
+    virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
     virtual int SwitchToPoly(TaskData *taskData);
     virtual void SetForRetry(TaskData *taskData, int ioCall);
@@ -322,7 +322,7 @@ extern void SparcAsmFlushInstructionCache(void *p, POLYUNSIGNED bytes);
 
 };
 
-void SparcDependent::InitStackFrame(TaskData *taskData, Handle stackh, Handle proc, Handle arg)
+void SparcDependent::InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
    /* This code is pretty tricky. 
@@ -337,9 +337,9 @@ void SparcDependent::InitStackFrame(TaskData *taskData, Handle stackh, Handle pr
             point at itself.     
     */
     unsigned i;
-    StackObject *stack = (StackObject *)DEREFWORDHANDLE(stackh);
+    StackObject *stack = (StackObject *)space->stack();
 
-    POLYUNSIGNED stack_size = stack->Length();
+    POLYUNSIGNED stack_size = space->spaceSize();
     stack->p_space = OVERFLOW_STACK_SIZE;
     stack->p_pc    = PC_RETRY_SPECIAL; /* As if we had called MD_set_for_retry. */
     stack->p_nreg  = CHECKED_REGS;
@@ -383,8 +383,8 @@ bool SparcDependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *co
     SparcTaskData *mdTask = (SparcTaskData*)taskData->mdTaskData;
     if (mdTask->memRegisters.inRTS)
     {
-        sp = taskData->stack->p_sp;
-        pc = taskData->stack->p_pc;
+        sp = taskData->stack->stack()->p_sp;
+        pc = taskData->stack->stack()->p_pc;
         return true;
     }
     else /* in poly code or assembly code */
@@ -400,7 +400,7 @@ void SparcDependent::InterruptCode(TaskData *taskData)
 {
     SparcTaskData *mdTask = (SparcTaskData*)taskData->mdTaskData;
     if (taskData->stack != 0) 
-        mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->Length()-1); 
+        mdTask->memRegisters.stackLimit = taskData->stack->top-1; 
 }
 
 // These are just for debugging.  They record the last point before
@@ -420,7 +420,7 @@ int SparcDependent::SwitchToPoly(TaskData *taskData)
 
         // Remember the position after the last time we checked
         // the memory.
-        lastPC = taskData->stack->p_pc;
+        lastPC = taskData->stack->stack()->p_pc;
         lastRequest = mdTask->memRegisters.requestCode;
         lastReason = mdTask->memRegisters.returnReason;
         lastBase = taskData->allocPointer;
@@ -470,7 +470,7 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
         taskData->allocPointer -= mdTask->allocWords;
     
     mdTask->memRegisters.polyStack = taskData->stack;
-    mdTask->memRegisters.stackTop = taskData->stack->Offset(taskData->stack->Length());
+    mdTask->memRegisters.stackTop = taskData->stack->top;
 
     // Set the raiseException entry to point to the assembly code.
     mdTask->memRegisters.raiseException = (byte*)raisex;
@@ -497,13 +497,13 @@ void SparcDependent::SetMemRegisters(TaskData *taskData)
     else
         mdTask->memRegisters.heapSpaceT = ((char*)taskData->allocPointer-(char*)taskData->allocLimit) | 0x80000000;
     
-    mdTask->memRegisters.stackLimit = taskData->stack->Offset(taskData->stack->p_space);
+    mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->stack()->p_space);
     mdTask->memRegisters.threadId = taskData->threadObject;
     
-    if (taskData->stack->p_pc == PC_RETRY_SPECIAL)
+    if (taskData->stack->stack()->p_pc == PC_RETRY_SPECIAL)
         // We need to retry the call.  The entry point should be the
         // first word of the closure which is in %o4.
-        taskData->stack->p_pc = taskData->stack->p_reg[OFFSET_REGCLOSURE].AsObjPtr()->Get(0).AsCodePtr();
+        taskData->stack->stack()->p_pc = taskData->stack->stack()->p_reg[OFFSET_REGCLOSURE].AsObjPtr()->Get(0).AsCodePtr();
 }
 
 // Called as part of the call of an IO function.
@@ -515,10 +515,10 @@ void SparcDependent::StartIOCall(TaskData *taskData)
     // not allowed to remain in a register field.  We have to OR in the
     // return offset there.  Because this may be a retry we may already
     // have been here before so we use OR rather than ADD.
-    POLYUNSIGNED returnAddr = taskData->stack->p_reg[OFFSET_REGRETURN].AsUnsigned();
+    POLYUNSIGNED returnAddr = taskData->stack->stack()->p_reg[OFFSET_REGRETURN].AsUnsigned();
     returnAddr |= SAVERETURNOFFSET; // Make it a valid code address.
-    taskData->stack->p_reg[OFFSET_REGRETURN] = PolyWord::FromUnsigned(returnAddr);
-    taskData->stack->p_pc = (byte*)(returnAddr + RETURNOFFSET);
+    taskData->stack->stack()->p_reg[OFFSET_REGRETURN] = PolyWord::FromUnsigned(returnAddr);
+    taskData->stack->stack()->p_pc = (byte*)(returnAddr + RETURNOFFSET);
 }
 
 // IO Functions called indirectly from assembly code.
@@ -527,7 +527,7 @@ void SparcDependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
     StartIOCall(taskData);
     try {
         Handle result = (*ioFun)(taskData);
-        taskData->stack->p_reg[OFFSET_REGRESULT] = result->Word();
+        taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -543,10 +543,10 @@ void SparcDependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
 void SparcDependent::CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
 {
     StartIOCall(taskData);
-    Handle saved1 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]);
     try {
         Handle result = (*ioFun)(taskData, saved1);
-        taskData->stack->p_reg[OFFSET_REGRESULT] = result->Word();
+        taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -562,11 +562,11 @@ void SparcDependent::CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Han
 void SparcDependent::CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
 {
     StartIOCall(taskData);
-    Handle saved1 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]);
-    Handle saved2 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG1]);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG1]);
     try {
         Handle result = (*ioFun)(taskData, saved2, saved1);
-        taskData->stack->p_reg[OFFSET_REGRESULT] = result->Word();
+        taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -582,12 +582,12 @@ void SparcDependent::CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Han
 void SparcDependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
 {
     StartIOCall(taskData);
-    Handle saved1 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]);
-    Handle saved2 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG1]);
-    Handle saved3 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG2]);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG1]);
+    Handle saved3 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG2]);
     try {
         Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
-        taskData->stack->p_reg[OFFSET_REGRESULT] = result->Word();
+        taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -604,13 +604,13 @@ void SparcDependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Han
 void SparcDependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
     StartIOCall(taskData);
-    Handle saved1 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]);
-    Handle saved2 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG1]);
-    Handle saved3 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG2]);
-    Handle saved4 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG3]);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG1]);
+    Handle saved3 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG2]);
+    Handle saved4 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG3]);
     try {
         Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
-        taskData->stack->p_reg[OFFSET_REGRESULT] = result->Word();
+        taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = result->Word();
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -627,15 +627,15 @@ void SparcDependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Han
 void SparcDependent::CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
     StartIOCall(taskData);
-    Handle saved1 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]);
-    Handle saved2 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG1]);
-    Handle saved3 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG2]);
-    Handle saved4 = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG3]);
-    Handle saved5 = taskData->saveVec.push(taskData->stack->p_sp[0]);
+    Handle saved1 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]);
+    Handle saved2 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG1]);
+    Handle saved3 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG2]);
+    Handle saved4 = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG3]);
+    Handle saved5 = taskData->saveVec.push(taskData->stack->stack()->p_sp[0]);
     try {
         Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
-        taskData->stack->p_reg[OFFSET_REGRESULT] = result->Word();
-        taskData->stack->p_sp++; // Pop the final argument now we're returning.
+        taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = result->Word();
+        taskData->stack->stack()->p_sp++; // Pop the final argument now we're returning.
     }
     catch (IOException exc) {
         switch (exc.m_reason)
@@ -651,12 +651,12 @@ void SparcDependent::CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Han
 // Return the callback result.  The current ML process (thread) terminates.
 Handle SparcDependent::CallBackResult(TaskData *taskData)
 {
-    return taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]); // Argument to return is in %o0.
+    return taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]); // Argument to return is in %o0.
 }
 
 void SparcDependent::SetForRetry(TaskData *taskData, int ioCall)
 {
-    taskData->stack->p_pc = PC_RETRY_SPECIAL; /* This value is treated specially. */
+    taskData->stack->stack()->p_pc = PC_RETRY_SPECIAL; /* This value is treated specially. */
 }
 
 // Call a piece of compiled code.  Note: this doesn't come via CallIO1
@@ -666,7 +666,7 @@ void SparcDependent::CallCodeTupled(TaskData *taskData)
     // The eventual return address is in %o7 - leave it there
     // but call StartIOCall to make sure it's tagged before any possible G.C.
     StartIOCall(taskData);
-    PolyObject *argTuple = taskData->stack->p_reg[OFFSET_ARGREG0].AsObjPtr();
+    PolyObject *argTuple = taskData->stack->stack()->p_reg[OFFSET_ARGREG0].AsObjPtr();
     Handle closure = taskData->saveVec.push(argTuple->Get(0));
     Handle argvec = taskData->saveVec.push(argTuple->Get(1));
 
@@ -679,7 +679,7 @@ void SparcDependent::CallCodeTupled(TaskData *taskData)
             // Check we have space for the arguments.  This may result in a GC which
             // in turn may throw a C++ exception.
             try {
-                CheckAndGrowStack(taskData, taskData->stack->p_sp - (argCount - 4));
+                CheckAndGrowStack(taskData, taskData->stack->stack()->p_sp - (argCount - 4));
             }
             catch (IOException exc)
             {
@@ -688,22 +688,22 @@ void SparcDependent::CallCodeTupled(TaskData *taskData)
             }
         }
         // First argument is in %o0
-        taskData->stack->p_reg[OFFSET_ARGREG0] = argv->Get(0);
+        taskData->stack->stack()->p_reg[OFFSET_ARGREG0] = argv->Get(0);
         // Second arg, if there is one, goes into %o1 etc.
         if (argCount > 1)
-            taskData->stack->p_reg[OFFSET_ARGREG1] = argv->Get(1);
+            taskData->stack->stack()->p_reg[OFFSET_ARGREG1] = argv->Get(1);
         if (argCount > 2)
-            taskData->stack->p_reg[OFFSET_ARGREG2] = argv->Get(2);
+            taskData->stack->stack()->p_reg[OFFSET_ARGREG2] = argv->Get(2);
         if (argCount > 3)
-            taskData->stack->p_reg[OFFSET_ARGREG3] = argv->Get(3);
+            taskData->stack->stack()->p_reg[OFFSET_ARGREG3] = argv->Get(3);
         // Remaining args go on the stack.
         for (POLYUNSIGNED i = 4; i < argCount; i++)
-            *(--taskData->stack->p_sp) = argv->Get(i);
+            *(--taskData->stack->stack()->p_sp) = argv->Get(i);
     }
     // The closure goes into the closure reg.
-    taskData->stack->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(closure);
+    taskData->stack->stack()->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(closure);
     // First word of closure is entry point.
-    taskData->stack->p_pc = DEREFHANDLE(closure)->Get(0).AsCodePtr(); // pc points to the start of the code
+    taskData->stack->stack()->p_pc = DEREFHANDLE(closure)->Get(0).AsCodePtr(); // pc points to the start of the code
 }
 
 // This code is executed if the function returns without raising an exception.  Because
@@ -723,22 +723,22 @@ void SparcDependent::SetExceptionTrace(TaskData *taskData)
 {
     // Save the return address for when we've called the function.  This will
     // be popped by the special "return" code we'll set up.
-    *(--taskData->stack->p_sp) =
-        PolyWord::FromUnsigned(taskData->stack->p_reg[OFFSET_REGRETURN].AsUnsigned() | SAVERETURNOFFSET);
-    *(--taskData->stack->p_sp) = PolyWord::FromStackAddr(taskData->stack->p_hr); // Save previous handler.
-    *(--taskData->stack->p_sp) = TAGGED(0); // Push special handler address.
-    *(--taskData->stack->p_sp) = TAGGED(0); // Push "catch all" exception id.
-    taskData->stack->p_hr = taskData->stack->p_sp; // This is the new handler.
-    Handle fun = taskData->saveVec.push(taskData->stack->p_reg[OFFSET_ARGREG0]); // Argument - function to call and trace
-    taskData->stack->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(fun); // Closure register must contain the closure
-    taskData->stack->p_pc = DEREFHANDLE(fun)->Get(0).AsCodePtr(); // pc points to the start of the code
+    *(--taskData->stack->stack()->p_sp) =
+        PolyWord::FromUnsigned(taskData->stack->stack()->p_reg[OFFSET_REGRETURN].AsUnsigned() | SAVERETURNOFFSET);
+    *(--taskData->stack->stack()->p_sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); // Save previous handler.
+    *(--taskData->stack->stack()->p_sp) = TAGGED(0); // Push special handler address.
+    *(--taskData->stack->stack()->p_sp) = TAGGED(0); // Push "catch all" exception id.
+    taskData->stack->stack()->p_hr = taskData->stack->stack()->p_sp; // This is the new handler.
+    Handle fun = taskData->saveVec.push(taskData->stack->stack()->p_reg[OFFSET_ARGREG0]); // Argument - function to call and trace
+    taskData->stack->stack()->p_reg[OFFSET_REGCLOSURE] = DEREFWORD(fun); // Closure register must contain the closure
+    taskData->stack->stack()->p_pc = DEREFHANDLE(fun)->Get(0).AsCodePtr(); // pc points to the start of the code
 
     Handle retCode = BuildCodeSegment(taskData, setExceptionCode, sizeof(setExceptionCode)/sizeof(unsigned), 'R');
 
     // Set %o7 so that if the traced function returns normally (i.e. without raising an
     // exception) it will enter the "return" code which will remove this handler.
-    taskData->stack->p_reg[OFFSET_REGRETURN] = PolyWord::FromUnsigned(retCode->Word().AsUnsigned() | SAVERETURNOFFSET);
-    taskData->stack->p_reg[OFFSET_ARGREG0] = TAGGED(0); // Give the function we're calling a unit argument.
+    taskData->stack->stack()->p_reg[OFFSET_REGRETURN] = PolyWord::FromUnsigned(retCode->Word().AsUnsigned() | SAVERETURNOFFSET);
+    taskData->stack->stack()->p_reg[OFFSET_ARGREG0] = TAGGED(0); // Give the function we're calling a unit argument.
 }
 
 
@@ -769,7 +769,7 @@ static void catchSEGV(SIG_HANDLER_ARGS(s, context))
     /* This piece of code is extremely messy. It has to get the state when the
        interrupt occured by unwinding the stack. It can then save the registers
        and call ``translate''. */
-    taskData->stack->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
+    taskData->stack->stack()->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
     cntxt->uc_mcontext.gregs[REG_PC]  = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->uc_mcontext.gregs[REG_nPC] = cntxt->uc_mcontext.gregs[REG_PC] + 4;
 }
@@ -827,11 +827,11 @@ static void catchILL(SIG_HANDLER_ARGS(s, context))
        interrupt occured by unwinding the stack. It can then save the registers
        and call ``translate''. */
 #ifdef SOLARIS
-    taskData->stack->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
+    taskData->stack->stack()->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
     cntxt->uc_mcontext.gregs[REG_PC]  = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->uc_mcontext.gregs[REG_nPC] = cntxt->uc_mcontext.gregs[REG_PC] + 4;
 #else
-    taskData->stack->p_pc = (byte*)cntxt->si_regs.pc;
+    taskData->stack->stack()->p_pc = (byte*)cntxt->si_regs.pc;
     cntxt->si_regs.pc = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->si_regs.npc = cntxt->si_regs.pc + 4;
 #endif
@@ -879,11 +879,11 @@ static void catchEMT(SIG_HANDLER_ARGS(s, context))
        interrupt occured by unwinding the stack. It can then save the registers
        and call ``translate''. */
 #ifdef SOLARIS
-    taskData->stack->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
+    taskData->stack->stack()->p_pc = (byte*)cntxt->uc_mcontext.gregs[REG_PC]; /* Save trapping pc. */
     cntxt->uc_mcontext.gregs[REG_PC]  = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->uc_mcontext.gregs[REG_nPC] = cntxt->uc_mcontext.gregs[REG_PC] + 4;
 #else
-    taskData->stack->p_pc = (byte*)cntxt->si_regs.pc;
+    taskData->stack->stack()->p_pc = (byte*)cntxt->si_regs.pc;
     cntxt->si_regs.pc = (int)&SparcAsmSaveStateAndReturn; /* Restart in trap_handler. */
     cntxt->si_regs.npc = cntxt->si_regs.pc + 4;
 #endif
@@ -904,19 +904,19 @@ static PolyWord *get_reg(TaskData *taskData, int rno)
 /* Returns a pointer to the register given by the 5 bit value rno. */
 {
     if (8 <= rno && rno <= 23) /* %o0 - %l7 */
-        return &taskData->stack->p_reg[rno-6];
+        return &taskData->stack->stack()->p_reg[rno-6];
     
     else switch (rno) 
     {
     case 0:  /* %g0 */ return &zero;
-    case 1:  /* %g1 */ return &taskData->stack->p_reg[0];
-    case 2:  /* %g2 */ return &taskData->stack->p_reg[1];
+    case 1:  /* %g1 */ return &taskData->stack->stack()->p_reg[0];
+    case 2:  /* %g2 */ return &taskData->stack->stack()->p_reg[1];
          /* These last two are used as unchecked work registers. */
-    case 28: /* %i4 */ return &taskData->stack->p_reg[CHECKED_REGS+1];
-    case 29: /* %i5 */ return &taskData->stack->p_reg[CHECKED_REGS+2];
-    case 3:  /* %g3 (hr) */ return (PolyWord*)&taskData->stack->p_hr;
-    case 4:  /* %g4 (sp) */ return (PolyWord*)&taskData->stack->p_sp;
-    default: Crash("Unknown register %d at %x\n", rno, (int)(taskData->stack->p_pc));
+    case 28: /* %i4 */ return &taskData->stack->stack()->p_reg[CHECKED_REGS+1];
+    case 29: /* %i5 */ return &taskData->stack->stack()->p_reg[CHECKED_REGS+2];
+    case 3:  /* %g3 (hr) */ return (PolyWord*)&taskData->stack->stack()->p_hr;
+    case 4:  /* %g4 (sp) */ return (PolyWord*)&taskData->stack->stack()->p_sp;
+    default: Crash("Unknown register %d at %x\n", rno, (int)(taskData->stack->stack()->p_pc));
          /*NOTREACHED*/
     }
 }
@@ -968,7 +968,7 @@ static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
         int r = compareLong(taskData, arg2, arg1);
         // Put the result of the comparison in the condition code field.  We compare
         // this with zero in MD_switch_to_poly to actually set the codes.
-        taskData->stack->p_reg[CHECKED_REGS+3] = PolyWord::FromUnsigned(r);
+        taskData->stack->stack()->p_reg[CHECKED_REGS+3] = PolyWord::FromUnsigned(r);
     }
     else if ((instr & 0x2000) == 0)
     {
@@ -978,8 +978,8 @@ static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
            operation they may be left pointing in the wrong place.  We save the
            values +1 on the save vec so they will be updated if they are addresses,
            and put them back just before putting in the result. */
-        Handle i4v = taskData->saveVec.push(AddOne(taskData->stack->p_reg[CHECKED_REGS+1]));
-        Handle i5v = taskData->saveVec.push(AddOne(taskData->stack->p_reg[CHECKED_REGS+2]));
+        Handle i4v = taskData->saveVec.push(AddOne(taskData->stack->stack()->p_reg[CHECKED_REGS+1]));
+        Handle i5v = taskData->saveVec.push(AddOne(taskData->stack->stack()->p_reg[CHECKED_REGS+2]));
         
         Handle res;
         if (instr & 0x80000) 
@@ -989,8 +989,8 @@ static void emulate_trap(TaskData *taskData, POLYUNSIGNED instr)
         
         /* Put back the values into i4 and i5, and then put in the result (into 
            either i4 or i5). */
-        taskData->stack->p_reg[CHECKED_REGS+1] = SubOne(i4v->Word());
-        taskData->stack->p_reg[CHECKED_REGS+2] = SubOne(i5v->Word());
+        taskData->stack->stack()->p_reg[CHECKED_REGS+1] = SubOne(i4v->Word());
+        taskData->stack->stack()->p_reg[CHECKED_REGS+2] = SubOne(i5v->Word());
         *(get_reg(taskData, rd)) = SubOne(res->Word());
     }
     else { /* Adding or subtracting a constant - can't be doing a multiplication
@@ -1015,7 +1015,7 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
     SparcTaskData *mdTask = (SparcTaskData*)taskData->mdTaskData;
     mdTask->memRegisters.inRTS = 1;
     
-    POLYUNSIGNED instr = *(POLYUNSIGNED*)taskData->stack->p_pc; /* instruction that trapped. */
+    POLYUNSIGNED instr = *(POLYUNSIGNED*)taskData->stack->stack()->p_pc; /* instruction that trapped. */
     
     /* Trap instructions can be as a result of stack or heap overflow,
        or may be caused by arithmetic overflows when using tagged numbers.
@@ -1025,7 +1025,7 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
        taddcctv and tsubcctv occur as a result of arithmetic overflow. */
     
     /* Skip over the trap instruction. */
-    taskData->stack->p_pc += 4;
+    taskData->stack->stack()->p_pc += 4;
     
     if (instr == 0x8bd02010 || instr == 0x8bd02018)  /* tlu 24 is stack overflow */
     {
@@ -1033,12 +1033,12 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
         /* We need to examine the previous instruction */
         /* in order to work out the required amount of space. */
         
-        instr = *(POLYUNSIGNED*)(taskData->stack->p_pc-8);  /* get previous instruction */
+        instr = *(POLYUNSIGNED*)(taskData->stack->stack()->p_pc-8);  /* get previous instruction */
         
         if (instr == 0x80a1001b) /* cmp %g4, %i3 is normal stack check */
-            CheckAndGrowStack(taskData, taskData->stack->p_sp); /* may allocate */
+            CheckAndGrowStack(taskData, taskData->stack->stack()->p_sp); /* may allocate */
         else if (instr == 0x80a7401b) /* cmp %i5, %i3 is large stack check */
-            CheckAndGrowStack(taskData, taskData->stack->p_reg[CHECKED_REGS+2].AsStackAddr());
+            CheckAndGrowStack(taskData, taskData->stack->stack()->p_reg[CHECKED_REGS+2].AsStackAddr());
         else Crash ("Bad stack check sequence"); /* may allocate */
         
         // Now handle any interrupts.
@@ -1051,14 +1051,14 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
         if (instr & 0x00002000) // Immediate data
             len = instr & 0xfff;
         else // In i5.
-            len = taskData->stack->p_reg[CHECKED_REGS+2].AsUnsigned();
+            len = taskData->stack->stack()->p_reg[CHECKED_REGS+2].AsUnsigned();
 
         len = len / sizeof(PolyWord);
         
         /* printf ("Trap:0x%08x = tsubcctv %%g5,%d,%%g5\n",instr,len); */
         
         if (profileMode == kProfileStoreAllocation)
-            add_count(taskData, taskData->stack->p_pc, taskData->stack->p_sp, len);
+            add_count(taskData, taskData->stack->stack()->p_pc, taskData->stack->stack()->p_sp, len);
         else
             if (taskData->allocPointer >= taskData->allocLimit)
                 Crash ("Spurious %%g5 trap");
@@ -1076,12 +1076,12 @@ bool SparcDependent::TrapHandle(TaskData *taskData)
     else if ((instr & 0xc1f00000) == 0x81100000 /* tsubcctv or taddcctv */)
     {
         if (profileMode == kProfileEmulation)
-            add_count(taskData, taskData->stack->p_pc, taskData->stack->p_sp, 1);
+            add_count(taskData, taskData->stack->stack()->p_pc, taskData->stack->stack()->p_sp, 1);
         
         emulate_trap(taskData, instr);
     }
  
-    else Crash("Bad trap pc=%p, instr=%08x",taskData->stack->p_pc-4,instr);
+    else Crash("Bad trap pc=%p, instr=%08x",taskData->stack->stack()->p_pc-4,instr);
     return false;
 }
 
@@ -1278,9 +1278,9 @@ Handle SparcDependent::BuildKillSelfCode(TaskData *taskData)
 void SparcDependent::SetException(TaskData *taskData, poly_exn *exc)
 /* Set up the stack of a process to raise an exception. */
 {
-    taskData->stack->p_reg[OFFSET_REGCLOSURE] = (PolyObject*)IoEntry(POLY_SYS_raisex);
-    taskData->stack->p_pc   = PC_RETRY_SPECIAL;
-    taskData->stack->p_reg[OFFSET_REGRESULT] = exc;
+    taskData->stack->stack()->p_reg[OFFSET_REGCLOSURE] = (PolyObject*)IoEntry(POLY_SYS_raisex);
+    taskData->stack->stack()->p_pc   = PC_RETRY_SPECIAL;
+    taskData->stack->stack()->p_reg[OFFSET_REGRESULT] = exc;
 }
 
 /******************************************************************************/

@@ -650,6 +650,7 @@ TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), 
 TaskData::~TaskData()
 {
     if (signalStack) free(signalStack);
+    if (stack) gMem.DeleteStackSpace(stack);
 }
 
 
@@ -1158,10 +1159,11 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 #endif
         taskArray[0] = taskData;
 
-        Handle stack =
-            alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
-        taskData->stack = (StackObject *)DEREFHANDLE(stack);
-        machineDependent->InitStackFrame(taskData, stack,
+        taskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
+        if (taskData->stack == 0)
+            ::Exit("Unable to create the initial thread - insufficient memory");
+
+        machineDependent->InitStackFrame(taskData, taskData->stack,
                 taskData->saveVec.push(rootFunction), (Handle)0);
 
         // Create a packet for the Interrupt exception once so that we don't have to
@@ -1342,12 +1344,16 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
         newTaskData->threadObject->Set(0, TAGGED(thrdIndex)); // Set to the index
         schedLock.Unlock();
 
-        Handle stack = // Allocate the stack in the parent's heap.
-            alloc_and_save(taskData, machineDependent->InitialStackSize(), F_MUTABLE_BIT|F_STACK_OBJ);
-        newTaskData->stack = (StackObject *)DEREFHANDLE(stack);
-        // Also allocate anything needed for the new stack in the parent's heap.
+        newTaskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
+        if (newTaskData->stack == 0)
+        {
+            delete(newTaskData);
+            raise_exception_string(taskData, EXC_thread, "Unable to allocate thread stack");
+        }
+
+        // Allocate anything needed for the new stack in the parent's heap.
         // The child still has inMLHeap set so mustn't GC.
-        machineDependent->InitStackFrame(taskData, stack, threadFunction, args);
+        machineDependent->InitStackFrame(taskData, newTaskData->stack, threadFunction, args);
 
         // Now actually fork the thread.
         bool success = false;
@@ -1862,12 +1868,8 @@ void Processes::GarbageCollect(ScanAddress *process)
 void ProcessTaskData::GarbageCollect(ScanAddress *process)
 {
     saveVec.gcScan(process);
-    if (stack != 0)
-    {
-        PolyObject *p = stack;
-        process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_STRONG);
-        stack = (StackObject*)p;
-    }
+    if (stack != 0) process->ScanAddressesInStack(stack);
+
     if (threadObject != 0)
     {
         PolyObject *p = threadObject;

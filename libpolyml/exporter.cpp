@@ -243,10 +243,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
 
     newObj->SetLengthWord(lengthWord); // copy length word
 
-    if (OBJ_IS_STACK_OBJECT(lengthWord))
-        CopyStackFrame ((StackObject *)obj,(StackObject *)newObj);
-    else
-        memcpy(newObj, obj, words*sizeof(PolyWord));
+    memcpy(newObj, obj, words*sizeof(PolyWord));
 
     obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
@@ -512,43 +509,6 @@ void Exporter::relocateObject(PolyObject *p)
         /* Now the constants. */
         for (POLYUNSIGNED i = 0; i < constCount; i++) relocateValue(&(cp[i]));
 
-    }
-    else if (p->IsStackObject())
-    {
-        StackObject *s = (StackObject*)p;
-        POLYUNSIGNED length = p->Length();
-
-        ASSERT(! p->IsMutable()); // Should have been frozen
-        /* First the standard registers, space, pc, sp, hr. */
-        // pc may be TAGGED(0) indicating a retry.
-        PolyWord pc = PolyWord::FromCodePtr(s->p_pc);
-        if (pc != TAGGED(0))
-            s->p_pc = createRelocation(pc, &s->p_pc).AsCodePtr();
-
-        PolyWord *stackPtr = s->p_sp; // Save this before we change it.
-        s->p_sp = createRelocation(PolyWord::FromStackAddr(s->p_sp), &s->p_sp).AsStackAddr();
-        s->p_hr = createRelocation(PolyWord::FromStackAddr(s->p_hr), &s->p_hr).AsStackAddr();
-
-        /* Checked registers. */
-        PolyWord *stackStart = (PolyWord*)p;
-        PolyWord *stackEnd = stackStart+length;
-        for (POLYUNSIGNED i = 0; i < s->p_nreg; i++)
-        {
-            PolyWord r = s->p_reg[i];
-            if (r.AsStackAddr() >= stackStart && r.AsStackAddr() < stackEnd)
-                createRelocation(&s->p_reg[i]);
-            /* It seems we can have zeros in the registers, at least on the i386. */
-            else if (r == PolyWord::FromUnsigned(0)) {}
-            else relocateValue(&(s->p_reg[i]));
-        }
-        /* Now the values on the stack. */
-        for (PolyWord *q = stackPtr; q < stackEnd; q++)
-        {
-            /* A stack may contain a value which is an offset. */
-            if ((*q).AsStackAddr() >= stackStart && (*q).AsStackAddr() < stackEnd)
-                createRelocation(q);
-            else relocateValue(q);
-        }
     }
     else /* Ordinary objects, essentially tuples. */
     {

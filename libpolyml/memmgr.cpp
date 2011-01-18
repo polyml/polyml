@@ -101,11 +101,12 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 
 MemMgr::MemMgr()
 {
-    npSpaces = nlSpaces = 0;
+    npSpaces = nlSpaces = nsSpaces = 0;
     minLocal = maxLocal = 0;
     pSpaces = 0;
     lSpaces = 0;
     eSpaces = 0;
+    sSpaces = 0;
     nextIndex = 0;
     reservedSpace = 0;
     nextAllocator = 0;
@@ -116,10 +117,16 @@ MemMgr::~MemMgr()
     unsigned i;
     for (i = 0; i < npSpaces; i++)
         delete(pSpaces[i]);
+    free(pSpaces);
     for (i = 0; i < nlSpaces; i++)
         delete(lSpaces[i]);
+    free(lSpaces);
     for (i = 0; i < neSpaces; i++)
         delete(eSpaces[i]);
+    free(eSpaces);
+    for (i = 0; i < nsSpaces; i++)
+        delete(sSpaces[i]);
+    free(sSpaces);
 }
 
 // Create and initialise a new local space and add it to the table.
@@ -528,6 +535,172 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
     }
     allocLock.Unlock();
     return 0; // There isn't space even for the minimum.
+}
+
+StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
+{
+    try {
+        StackSpace *space = new StackSpace;
+        size_t iSpace = size*sizeof(PolyWord);
+        space->bottom =
+            (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+        if (space->bottom == 0)
+        {
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New stack space: insufficient space\n");
+            delete space;
+            return false;
+        }
+
+        // The size may have been rounded up to a block boundary.
+        size = iSpace/sizeof(PolyWord);
+        space->top = space->bottom + size;
+        space->spaceType = ST_STACK;
+        space->isMutable = true;
+
+        // Extend the permanent memory table and add this space to it.
+        StackSpace **table =
+            (StackSpace **)realloc(sSpaces, (nsSpaces+1) * sizeof(StackSpace *));
+        if (table == 0)
+        {
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: New stack space: table realloc failed\n");
+            delete space;
+            return 0;
+        }
+        sSpaces = table;
+        sSpaces[nsSpaces++] = space;
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New stack space %p allocated\n", space);
+        return space;
+    }
+    catch (std::bad_alloc a) {
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: New stack space: \"new\" failed\n");
+        return 0;
+    }
+}
+
+// Copy a stack
+static void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
+{
+  /* Moves a stack, updating all references within the stack */
+    PolyWord *old_base  = (PolyWord *)old_stack;
+    PolyWord *new_base  = (PolyWord*)new_stack;
+    PolyWord *old_top   = old_base + old_length;
+
+    /* Calculate the offset of the new stack from the old. If the frame is
+       being extended objects in the new frame will be further up the stack
+       than in the old one. */
+
+    POLYSIGNED offset = new_base - old_base + new_length - old_length;
+
+    /* Copy the registers, changing any that point into the stack. */
+
+    new_stack->p_space = old_stack->p_space;
+    new_stack->p_pc    = old_stack->p_pc;
+    new_stack->p_sp    = old_stack->p_sp + offset;
+    new_stack->p_hr    = old_stack->p_hr + offset;
+    new_stack->p_nreg  = old_stack->p_nreg;
+
+    /* p_nreg contains contains the number of CHECKED registers */
+
+    POLYUNSIGNED i;
+    for (i = 0; i < new_stack->p_nreg; i++)
+    {
+        PolyWord R = old_stack->p_reg[i];
+
+        /* if the register points into the old stack, make the new copy
+           point at the same relative offset within the new stack,
+           otherwise make the new copy identical to the old version. */
+
+        if (R.IsTagged() || R.AsStackAddr() < old_base || R.AsStackAddr() >= old_top)
+            new_stack->p_reg[i] = R;
+        else new_stack->p_reg[i] = PolyWord::FromStackAddr(R.AsStackAddr() + offset);
+    }
+
+    /* Copy unchecked registers. - The next "register" is the number of
+       unchecked registers to copy. Unchecked registers are used for 
+       values that might look like addresses, i.e. don't have tag bits, 
+       but are not. */
+
+    POLYUNSIGNED n = old_stack->p_reg[i].AsUnsigned();
+    new_stack->p_reg[i] = old_stack->p_reg[i];
+    i++;
+    ASSERT (n < 100);
+    while (n--)
+    { 
+        new_stack->p_reg[i] = old_stack->p_reg[i];
+        i++;
+    }
+
+    /* Skip the unused part of the stack. */
+
+    i = (PolyWord*)old_stack->p_sp - old_base;
+
+    ASSERT (i <= old_length);
+
+    i = old_length - i;
+
+    PolyWord *old = old_stack->p_sp;
+    PolyWord *newp= new_stack->p_sp;
+
+    while (i--)
+    {
+        PolyWord old_word = *old++;
+        if (old_word.IsTagged() || old_word.AsStackAddr() < old_base || old_word.AsStackAddr() >= old_top)
+            *newp++ = old_word;
+        else
+            *newp++ = PolyWord::FromStackAddr(old_word.AsStackAddr() + offset);
+    }
+}
+
+
+bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
+{
+    size_t iSpace = newSize*sizeof(PolyWord);
+    PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
+    if (newSpace == 0)
+    {
+        if (debugOptions & DEBUG_MEMMGR)
+            Log("MMGR: Unable to change size of stack %p from %lu to %lu: insufficient space\n",
+                space, space->spaceSize(), newSize);
+        return false;
+    }
+    // The size may have been rounded up to a block boundary.
+    newSize = iSpace/sizeof(PolyWord);
+    CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
+    if (debugOptions & DEBUG_MEMMGR)
+        Log("MMGR: Size of stack %p changed from %lu to %lu\n", space, space->spaceSize(), newSize);
+    osMemoryManager->Free(space->bottom, space->spaceSize());
+    space->bottom = newSpace;
+    space->top = newSpace+newSize;
+    return true;
+}
+
+
+// Delete a stack when a thread has finished.
+bool MemMgr::DeleteStackSpace(StackSpace *space)
+{
+    for (unsigned i = 0; i < nsSpaces; i++)
+    {
+        if (sSpaces[i] == space)
+        {
+            delete space;
+            nsSpaces--;
+            while (i < nsSpaces)
+            {
+                sSpaces[i] = sSpaces[i+1];
+                i++;
+            }
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: Deleted stack space %p\n", space);
+            return true;
+        }
+    }
+    if (debugOptions & DEBUG_MEMMGR)
+        Log("MMGR: Deleting stack space %p: not found in table\n", space);
+    return false;
 }
 
 MemMgr gMem; // The one and only memory manager object

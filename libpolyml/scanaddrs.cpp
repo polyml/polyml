@@ -38,6 +38,7 @@
 #include "machine_dep.h"
 #include "check_objects.h"
 #include "diagnostics.h"
+#include "memmgr.h"
 
 // Process the value at a given location and update it as necessary.
 POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
@@ -74,12 +75,10 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
 }
 
 // Process a value within the stack.
-PolyWord ScanAddress::ScanStackAddress(PolyWord val, StackObject *base, bool isCode)
+PolyWord ScanAddress::ScanStackAddress(PolyWord val, StackSpace *stack, bool isCode)
 {
-    PolyWord *end = (PolyWord*)base + base->Length();
-
-    ASSERT(base->ContainsNormalLengthWord());
-    ASSERT(base->IsStackObject());
+    PolyWord *base = stack->bottom;
+    PolyWord *end = stack->top;
 
     // If isCode is set we definitely have a code address.  It may have the
     // bottom bit set or it may be word aligned.
@@ -125,32 +124,7 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
         PolyWord *baseAddr = (PolyWord*)obj;
     
-        if (OBJ_IS_STACK_OBJECT(lengthWord))
-        {
-            StackObject *stack = (StackObject *) obj;
-            PolyWord *stackPtr = stack->p_sp; // Save this BEFORE we update
-            PolyWord *stackEnd = (PolyWord*)obj + length;
-        
-            // Either this is TAGGED(0) indicating a retry or it's a code pointer.
-            if (stack->p_pc != TAGGED(0).AsCodePtr())
-                stack->p_pc = ScanStackAddress (PolyWord::FromCodePtr(stack->p_pc), stack, true).AsCodePtr();
-
-            // Stack pointer and handler pointers
-            stack->p_sp =
-                ScanStackAddress (PolyWord::FromStackAddr(stack->p_sp), stack, false).AsStackAddr();
-            stack->p_hr =
-                ScanStackAddress (PolyWord::FromStackAddr(stack->p_hr), stack, false).AsStackAddr();
-
-            // The checked registers.
-            for (POLYUNSIGNED i = 0; i < stack->p_nreg; i++)
-                stack->p_reg[i] = ScanStackAddress(stack->p_reg[i], stack, false);
-
-            // Now the values on the stack.
-            for (PolyWord *q = stackPtr; q < stackEnd; q++)
-                *q = ScanStackAddress(*q,stack, false);
-            return; // We're done.
-        }
-        else if (OBJ_IS_CODE_OBJECT(lengthWord))
+        if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
             // Scan constants within the code.
             machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
@@ -221,6 +195,34 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
 
     } while(1);
 }
+
+// Scan addresses in a stack space.
+void ScanAddress::ScanAddressesInStack(StackSpace *stackSpace)
+{
+    StackObject *stack = stackSpace->stack();
+    POLYUNSIGNED length = stackSpace->spaceSize();
+    PolyWord *stackPtr = stack->p_sp; // Save this BEFORE we update
+    PolyWord *stackEnd = stackSpace->top;
+
+    // Either this is TAGGED(0) indicating a retry or it's a code pointer.
+    if (stack->p_pc != TAGGED(0).AsCodePtr())
+        stack->p_pc = ScanStackAddress (PolyWord::FromCodePtr(stack->p_pc), stackSpace, true).AsCodePtr();
+
+    // Stack pointer and handler pointers
+    stack->p_sp =
+        ScanStackAddress (PolyWord::FromStackAddr(stack->p_sp), stackSpace, false).AsStackAddr();
+    stack->p_hr =
+        ScanStackAddress (PolyWord::FromStackAddr(stack->p_hr), stackSpace, false).AsStackAddr();
+
+    // The checked registers.
+    for (POLYUNSIGNED i = 0; i < stack->p_nreg; i++)
+        stack->p_reg[i] = ScanStackAddress(stack->p_reg[i], stackSpace, false);
+
+    // Now the values on the stack.
+    for (PolyWord *q = stackPtr; q < stackEnd; q++)
+        *q = ScanStackAddress(*q, stackSpace, false);
+}
+
 
 void ScanAddress::ScanAddressesInRegion(PolyWord *region, PolyWord *end)
 {

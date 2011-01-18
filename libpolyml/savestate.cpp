@@ -732,46 +732,6 @@ void LoadRelocate::RelocateObject(PolyObject *p)
         // N.B. This does not deal with constants within the code.  These have
         // to be handled by real relocation entries.
     }
-    else if (p->IsStackObject())
-    {
-        StackObject *s = (StackObject*)p;
-        POLYUNSIGNED length = p->Length();
-
-        ASSERT(! p->IsMutable()); // Should have been frozen
-        /* First the standard registers, space, pc, sp, hr. */
-        // pc may be TAGGED(0) indicating a retry.
-        PolyWord pc = PolyWord::FromCodePtr(s->p_pc);
-        if (pc != TAGGED(0))
-        {
-            RelocateAddressAt(&pc);
-            s->p_pc = pc.AsCodePtr();
-        }
-
-        PolyWord *stackPtr = s->p_sp; // Save this before we change it.
-        // These point within the current stack.
-        PolyWord sp = PolyWord::FromStackAddr(s->p_sp);
-        RelocateAddressAt(&sp);
-        s->p_sp = sp.AsStackAddr();
-        PolyWord hr = PolyWord::FromStackAddr(s->p_hr);
-        RelocateAddressAt(&hr);
-        s->p_hr = hr.AsStackAddr();
-
-        /* Checked registers. */
-        PolyWord *stackStart = (PolyWord*)p;
-        PolyWord *stackEnd = stackStart+length;
-        for (POLYUNSIGNED i = 0; i < s->p_nreg; i++)
-        {
-            PolyWord r = s->p_reg[i];
-            if (r.AsStackAddr() >= stackStart && r.AsStackAddr() < stackEnd)
-                RelocateAddressAt(&s->p_reg[i]);
-            /* It seems we can have zeros in the registers, at least on the i386. */
-            else if (r == PolyWord::FromUnsigned(0)) {}
-            else RelocateAddressAt(&(s->p_reg[i]));
-        }
-        /* Now the values on the stack. */
-        for (PolyWord *q = stackPtr; q < stackEnd; q++)
-            RelocateAddressAt(q);
-    }
     else /* Ordinary objects, essentially tuples. */
     {
         POLYUNSIGNED length = p->Length();

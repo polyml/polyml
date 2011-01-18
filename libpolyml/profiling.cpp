@@ -174,8 +174,8 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
     /* The first PC may be valid even if it's not a code pointer */
     bool is_code = true;
     PolyWord pc = PolyWord::FromCodePtr(fpc);
-    StackObject *stack = taskData->stack;
-    PolyWord *endStack = stack->Offset(stack->Length());
+    StackObject *stack = taskData->stack->stack();
+    PolyWord *endStack = taskData->stack->top;
     
     /* First try the pc value we have been given - if that fails search down
        the stack to see if there is a return address we can use. */

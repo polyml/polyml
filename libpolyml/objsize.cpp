@@ -323,10 +323,6 @@ POLYUNSIGNED ProcessVisitAddresses::ShowWord(PolyWord w)
             ShowBytes(p);
         return 0;
     }
-    else if (OBJ_IS_STACK_OBJECT(L))
-    {
-        return 0; // We shouldn't get stack objects.
-    }
     else if (OBJ_IS_CODE_OBJECT(L))
     {
         PolyWord *cp;
