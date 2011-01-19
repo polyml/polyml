@@ -94,6 +94,8 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     gen_top = top;
     pointer = top;
     gen_bottom = top;
+
+    allocationSpace = false;
     
     // Bitmap for the space.
     return bitmap.Create(size);
@@ -174,6 +176,13 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
     }
 }
 
+// Create a local space for initial allocation.
+LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
+{
+    LocalMemSpace *result = NewLocalSpace(size, true);
+    if (result) result->allocationSpace = true;
+    return result;
+}
 
 // Add a local memory space to the table.
 bool MemMgr::AddLocalSpace(LocalMemSpace *space)
@@ -518,7 +527,7 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
     for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[(j + nextAllocator) % gMem.nlSpaces];
-        if (space->isMutable)
+        if (space->allocationSpace)
         {
             POLYUNSIGNED available = space->pointer - space->bottom;
             if (available > 0 && available >= minWords)

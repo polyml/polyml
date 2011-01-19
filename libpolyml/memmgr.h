@@ -93,6 +93,7 @@ public:
     PolyWord    *gen_top;         /* top    of area to garbage collect.                */
     PolyWord    *gen_bottom;      /* lowest object in area before copying.             */
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
+    bool         allocationSpace; // True if this is (mutable) space for initial allocation
     bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.
     bool         copiedIn;        // Copy phase of GC: true if we've copied into this.
     bool         spaceInUse;      // Copy phase of GC: true if a thread is copying into this.
@@ -148,6 +149,8 @@ public:
     MemMgr();
     ~MemMgr();
 
+    // Create a local space for initial allocation.
+    LocalMemSpace *CreateAllocationSpace(POLYUNSIGNED size);
     // Create and initialise a new local space and add it to the table.
     LocalMemSpace *NewLocalSpace(POLYUNSIGNED size, bool mut);
     // Create an entry for a permanent space.

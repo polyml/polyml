@@ -84,12 +84,11 @@ struct _userOptions userOptions;
 
 UNSIGNEDADDR exportTimeStamp;
 
-static unsigned hsize, isize, msize, rsize;
-
 enum {
     OPT_HEAP,
     OPT_IMMUTABLE,
     OPT_MUTABLE,
+    OPT_ALLOCATION,
     OPT_RESERVE,
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
@@ -105,6 +104,7 @@ struct __argtab {
     { "--heap",         "Initial heap size (MB)",                               OPT_HEAP },
     { "--immutable",    "Initial size of immutable buffer (MB)",                OPT_IMMUTABLE },
     { "--mutable",      "Initial size of mutable buffer(MB)",                   OPT_MUTABLE },
+    { "--allocation",   "Size of allocation area(MB)",                          OPT_ALLOCATION },
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { "--debug",        "Debug options: checkobjects, gc, x",                   OPT_DEBUGOPTS },
@@ -128,6 +128,8 @@ struct __debugOpts {
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
+    unsigned hsize=0, isize=0, msize=0, rsize=0, asize=0;
+
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 1; // Single threaded
@@ -187,6 +189,11 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         if (*endp != '\0') 
                             printf("Incomplete %s option\n", argTable[j].argName);
                         break;
+                    case OPT_ALLOCATION:
+                        asize = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
                     case OPT_RESERVE:
                         rsize = strtol(p, &endp, 10) * 1024;
                         if (*endp != '\0') 
@@ -240,7 +247,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
     /* initialise the run-time system before opening the database */
     init_run_time_system();
 
-    CreateHeap(hsize, isize, msize, rsize);
+    CreateHeap(hsize, isize, msize, asize, rsize);
     
     PolyObject *rootFunction = 0;
 

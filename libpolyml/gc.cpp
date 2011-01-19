@@ -402,12 +402,6 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
                 nSpaces--;
             }
         }
-        // If we've deleted some unwanted immutable spaces we can reallocate
-        // the mutable spaces.
-        while (gMem.nlSpaces < MINIMUM_SPACE_COUNT) {
-            if (gMem.NewLocalSpace(ROUNDDOWN(mutableSegSize, BITSPERWORD), true) == 0)
-                break;
-        }
     }
 }
 
@@ -848,7 +842,7 @@ POLYUNSIGNED GetPhysicalMemorySize(void)
 // Fills in the defaults and attempts to allocate the heap.  If the heap size
 // is too large it allocates as much as it can.  The default heap size is half the
 // physical memory.
-void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
+void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, unsigned rsize)
 {
     // If no -H option was given set the default initial size to half the memory.
     if (hsize == 0) {
@@ -858,19 +852,18 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
         hsize = memsize / 2 / 1024;
     }
     
-    if (hsize < isize) hsize = isize;
-    if (hsize < msize) hsize = msize;
+    if (hsize < isize+msize+asize) hsize = isize+msize+asize;
 
-    // The number of spaces is the maximum of the required space count or one per GC thread.
-    unsigned spaceCount = 
-        userOptions.gcthreads*2 > MINIMUM_SPACE_COUNT ? userOptions.gcthreads*2 : MINIMUM_SPACE_COUNT;
-    
-    if (msize == 0) msize = hsize / spaceCount;  /* set default mutable buffer size */
-    if (isize == 0) isize = hsize / spaceCount;  /* set default immutable buffer size */
+    hsize = hsize / userOptions.gcthreads; // The space is divided between the threads.
+    // Defaults are half the heap for the immutable buffer, 5% for mutable and 45% for allocation
+    if (msize == 0) msize = hsize / 20;  /* set default mutable buffer size */
+    if (isize == 0) isize = hsize / 2;  /* set default immutable buffer size */
+    if (asize == 0) asize = hsize / 2 - hsize / 20;
     
     // Set the segment sizes.  We allocate in units of this size,
     immutableSegSize   = K_to_words(isize);
     mutableSegSize     = K_to_words(msize);
+    POLYUNSIGNED allocSegSize = K_to_words(asize);
     gMem.SetReservation(K_to_words(rsize));
 
     // Try allocating the space.  If it fails try something smaller.
@@ -886,34 +879,28 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
         POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
         POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
 
-        // Allocate one immutable space per thread
+        // Allocate one immutable, one mutable space and one allocation space per thread
         for(unsigned j = 0; j < userOptions.gcthreads; j++)
         {
-            if (gMem.NewLocalSpace(immutSize, false) == 0)
+            if (gMem.NewLocalSpace(immutSize, false) == 0 ||
+                gMem.NewLocalSpace(mutSize, true) == 0 ||
+                gMem.CreateAllocationSpace(allocSegSize) == 0)
             {
                 allocationFailed = true;
                 break;
             }
         }
-        // And fill the remaining space with mutable spaces.
-        for (unsigned i = 0; i < spaceCount; i++)
-        {
-                if (gMem.NewLocalSpace(mutSize, true) == 0)
-                {
-                    allocationFailed = true;
-                    break;
-                }
-        }
 
         if (allocationFailed)
         {
-            if (immutableSegSize < 1024 || mutableSegSize < 512) {
+            if (immutableSegSize < 1024 || mutableSegSize < 512 || allocSegSize < 1024) {
                 // Too small to be able to run.
                 Exit("Insufficient memory to allocate the heap");
             }
-            // Make both spaces smaller.  It may be that there's space for one but not both.
+            // Make spaces smaller.  It may be that there's space for some but not all.
             immutableSegSize = immutableSegSize/2;
             mutableSegSize = mutableSegSize/2;
+            allocSegSize = allocSegSize/2;
         }
         else break; // Succeeded.
     }
@@ -924,16 +911,14 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize)
     // For an immutable area this is zero.  For the mutable area, though, this is 80% of the
     // mutable segment size since we allocate new objects in the mutable area and this
     // determines how soon we will need to do another GC.
-    immutableMinFree = 0;
-    mutableMinFree = mutableSegSize - mutableSegSize / 5;
+    immutableMinFree = mutableSegSize = 0;
 
     // This is the space we try to have free at the end of a major collection.  If
     // we have less than this we allocate another segment.
     immutableFreeSpace = immutableSegSize/2; // 50% full
     if (immutableFreeSpace < immutableMinFree)
         immutableFreeSpace = immutableMinFree;
-    // For the mutable area it is 90% of the segment size.
-    mutableFreeSpace   = mutableSegSize - mutableSegSize/10;
+    mutableFreeSpace   = mutableSegSize/2;
     if (mutableFreeSpace < mutableMinFree)
         mutableFreeSpace = mutableMinFree;
 

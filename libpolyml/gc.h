@@ -33,7 +33,7 @@ class TaskData;
 extern void FullGC(TaskData *taskData);
 // Make a request for a partial garbage collection.
 extern bool QuickGC(TaskData *taskData, POLYUNSIGNED words_needed);
-extern void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned rsize);
+extern void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, unsigned rsize);
 
 extern bool convertedWeak;
 
@@ -51,13 +51,5 @@ extern void GCMarkPhase(void);
 extern void GCheckWeakRefs(void);
 extern void GCCopyPhase(POLYUNSIGNED &immutable_overflow);
 extern void GCUpdatePhase(void);
-
-// The multi-thread GC needs the heap to be broken into multiple segments so
-// that the segments can be processed in parallel during the copy and update phases.
-// This defines the minimum number of segments for each thread. 
-#define MIN_MUTABLE_SEGS_PER_THREAD     1
-#define MIN_IMMUTABLE_SEGS_PER_THREAD   1
-
-#define MINIMUM_SPACE_COUNT            1
 
 #endif

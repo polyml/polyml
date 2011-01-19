@@ -227,7 +227,7 @@ static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace * &dst, bool isMutab
     }
     for (; m < gMem.nlSpaces; m++) {
         LocalMemSpace *lSpace = gMem.lSpaces[m];
-        if (lSpace->isMutable == isMutable)
+        if (lSpace->isMutable == isMutable && !lSpace->allocationSpace)
         {
             // The new space must be below the space we're copying from.
             if (lSpace == src) return false;
