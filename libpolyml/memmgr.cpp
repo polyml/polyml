@@ -548,6 +548,8 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
 
 StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
 {
+    PLocker lock(&stackSpaceLock);
+
     try {
         StackSpace *space = new StackSpace;
         size_t iSpace = size*sizeof(PolyWord);
@@ -693,8 +695,11 @@ bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
 
 
 // Delete a stack when a thread has finished.
+// This can be called by an ML thread so needs an interlock.
 bool MemMgr::DeleteStackSpace(StackSpace *space)
 {
+    PLocker lock(&stackSpaceLock);
+
     for (unsigned i = 0; i < nsSpaces; i++)
     {
         if (sSpaces[i] == space)

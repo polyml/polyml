@@ -236,6 +236,7 @@ public:
     // Table for stack spaces
     StackSpace **sSpaces;
     unsigned nsSpaces;
+    PLock stackSpaceLock;
 
     // Used for quick check for local addresses.
     PolyWord *minLocal, *maxLocal;
