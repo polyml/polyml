@@ -200,7 +200,6 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
 void ScanAddress::ScanAddressesInStack(StackSpace *stackSpace)
 {
     StackObject *stack = stackSpace->stack();
-    POLYUNSIGNED length = stackSpace->spaceSize();
     PolyWord *stackPtr = stack->p_sp; // Save this BEFORE we update
     PolyWord *stackEnd = stackSpace->top;
 

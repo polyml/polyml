@@ -479,7 +479,7 @@ GC_AGAIN:
         PermanentMemSpace *pSpace = gMem.pSpaces[j];
         pSpace->highestWeak = pSpace->bottom;
         pSpace->lowestWeak = pSpace->top;
-    }        
+    }
     
     
     /* Our recovery actions may insist on a full GC */
@@ -488,9 +488,6 @@ GC_AGAIN:
         doFullGC = true;
         doFullGCNextTime = false;
     }
-    
-    /* Mark phase */
-    mainThreadPhase = MTP_GCPHASEMARK;
 
     if (doFullGC)
     {
@@ -944,7 +941,7 @@ public:
 
     virtual void Perform()
     {
-        result = doGC (false, wordsRequired);
+        result = RunQuickGC() || doGC (true, wordsRequired);
     }
 
     bool result;

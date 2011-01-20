@@ -110,6 +110,7 @@ static const char* mainThreadText[MTP_MAXENTRY] =
     "GARBAGE COLLECTION (mark phase)",
     "GARBAGE COLLECTION (copy phase)",
     "GARBAGE COLLECTION (update phase)",
+    "GARBAGE COLLECTION (minor collection)",
     "Common data sharing",
     "Exporting",
     "Saving state",
@@ -174,7 +175,6 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
     /* The first PC may be valid even if it's not a code pointer */
     bool is_code = true;
     PolyWord pc = PolyWord::FromCodePtr(fpc);
-    StackObject *stack = taskData->stack->stack();
     PolyWord *endStack = taskData->stack->top;
     
     /* First try the pc value we have been given - if that fails search down
@@ -378,7 +378,8 @@ static void printprofile(void)
         POLYUNSIGNED gc_count =
             mainThreadCounts[MTP_GCPHASEMARK]+
             mainThreadCounts[MTP_GCPHASECOMPACT] +
-            mainThreadCounts[MTP_GCPHASEUPDATE];
+            mainThreadCounts[MTP_GCPHASEUPDATE] +
+            mainThreadCounts[MTP_GCQUICK];
         if (gc_count)
         {
             pEnt = newProfileEntry();

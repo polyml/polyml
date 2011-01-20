@@ -183,7 +183,7 @@ public:
 };
 
 // Copy a cell to its new address.
-static void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress)
+void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress)
 {
     POLYUNSIGNED L = srcAddress->LengthWord();
     destAddress->SetLengthWord(L); /* copy length word */
