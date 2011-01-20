@@ -280,6 +280,10 @@ SOURCE=.\profiling.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\quick_gc.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\realconv.cpp
 # End Source File
 # Begin Source File
