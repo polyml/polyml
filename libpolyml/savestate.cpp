@@ -487,7 +487,8 @@ void SaveRequest::Perform()
     for (unsigned l = 0; l < gMem.nlSpaces; l++)
     {
         LocalMemSpace *space = gMem.lSpaces[l];
-        fixup.ScanAddressesInRegion(space->pointer, space->top);
+        fixup.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+        fixup.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
     GCModules(&fixup);
 

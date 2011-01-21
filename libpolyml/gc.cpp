@@ -325,7 +325,7 @@ static unsigned BufferIsReallyFull(bool mutableRegion, POLYUNSIGNED wordsNeeded,
         LocalMemSpace *space = gMem.lSpaces[i];
         if (space->isMutable == mutableRegion)
         {
-            POLYUNSIGNED currentlyFree = space->pointer - space->bottom;
+            POLYUNSIGNED currentlyFree = space->freeSpace();
             if (currentlyFree >= wordsNeeded)
             {
                 currentlyFree -= wordsNeeded;
@@ -405,72 +405,33 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
     }
 }
 
-static int RecollectThisGeneration(unsigned thisGeneration)
-{
-    if (thisGeneration > 3)
-        return false;
-
-    POLYUNSIGNED total = 0, updated = 0;
-    for(unsigned j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        total += lSpace->gen_top - lSpace->pointer;
-        updated += lSpace->updated;
-    }
-    if (total == 0)
-        return false;
-    /* I think the idea here is that if we have a significant number of
-       objects in the current generation which have not actually been
-       visited to have their addresses updated we should not merge
-       this generation with the old data and treat them as "old" but
-       instead treat them as "new".
-       If we have allocated a large object in the mutable area we
-       may not have a gap big enough to move it to.  We may though
-       have created enough space in this minor GC to move it next time.
-       That's because if we have moved an object we can't use the space
-       until after the update phase has finished with the tombstone.
-       DCJM 27/6/09. */
-    return updated * 2 < total; // Less than 50% updated
-}
-
-static bool doGC(bool doFullGC, const POLYUNSIGNED wordsRequiredToAllocate)
+static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
     /* Invariant: the bitmaps are completely clean. */
     /* Note: this version of doGC does NOT clean the store 
     - that's now the user's resposibility SPF 22/10/96
     */
     unsigned j;
-    static bool doFullGCNextTime = 0;
-    static unsigned this_generation = 0;
     
     record_gc_time(GCTimeStart);
 
-GC_AGAIN:
     if (debugOptions & DEBUG_GC) 
-        Log("GC: %s GC, %lu words required %u spaces\n", 
-            doFullGC ? "Full": doFullGCNextTime ? "Full (recovery)" : "Partial", 
-            wordsRequiredToAllocate, gMem.nlSpaces);
-    /* Invariant: the bitmaps are completely clean. */    
-    /* At this point, we should have
-       lSpace->bottom <= lSpace->pointer <= lSpace->gen_top <= lSpace->top       
+        Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.nlSpaces);
+    /* Invariant: the bitmaps are completely clean. */   
     
-       lSpace->gen_top divides the current generation from the old one.
-       lSpace->pointer is the current allocation pointer.
-    */
-
     for(j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[j];
-        ASSERT (lSpace->top     >= lSpace->gen_top);
-        ASSERT (lSpace->gen_top >= lSpace->pointer);
-        ASSERT (lSpace->pointer >= lSpace->bottom);
-        // Record low-water mark before we change anything.
-        // gen_bottom is the lowest object actually allocated in the
-        // area.
-        lSpace->gen_bottom = lSpace->pointer;
+        ASSERT (lSpace->top >= lSpace->upperAllocPtr);
+        ASSERT (lSpace->upperAllocPtr >= lSpace->lowerAllocPtr);
+        ASSERT (lSpace->lowerAllocPtr >= lSpace->bottom);
         // Set upper and lower limits of weak refs.
         lSpace->highestWeak = lSpace->bottom;
         lSpace->lowestWeak = lSpace->top;
+        // Reset the allocation pointers.  They will be set to the
+        // limits of the retained data.
+        lSpace->lowerAllocPtr = lSpace->bottom;
+        lSpace->upperAllocPtr = lSpace->top;
     }
 
     // Set limits of weak refs.
@@ -480,25 +441,6 @@ GC_AGAIN:
         pSpace->highestWeak = pSpace->bottom;
         pSpace->lowestWeak = pSpace->top;
     }
-    
-    
-    /* Our recovery actions may insist on a full GC */
-    if (doFullGCNextTime)
-    {
-        doFullGC = true;
-        doFullGCNextTime = false;
-    }
-
-    if (doFullGC)
-    {
-        /* Collect everything */
-        for(j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
-            lSpace->gen_top = lSpace->top;
-        }
-    }
-
 
     /* Mark phase */
     GCMarkPhase();
@@ -513,7 +455,6 @@ GC_AGAIN:
        enough room to copy the immutables that are currently in the mutable buffer.
        There's no point expanding the mutable buffer now - we'll do that later 
        when we know *exactly* how large we want it to be. */ 
-    if (doFullGC) 
     {
         POLYUNSIGNED immutableData = 0;
         for(j = 0; j < gMem.nlSpaces; j++)
@@ -550,16 +491,13 @@ GC_AGAIN:
     }
     /* Invariant: the bitmaps are completely clean */
 
-    if (doFullGC)
     {
         /* If we've had an immutable overflow, allow for this when we grow the heap */
         AdjustHeapSize(false /* immutable space*/, immutable_overflow);
-        bool iFull = BufferIsReallyFull(false /* immutable area */, immutable_overflow, doFullGC) != 0;
-        bool mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, doFullGC) != 0;
+        bool iFull = BufferIsReallyFull(false /* immutable area */, immutable_overflow, true) != 0;
+        bool mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, true) != 0;
         
-        /* If we're going to recollect the current generation, don't adjust the mutable buffer size yet. */
-        /* We'll (probably) do that on the next collection. SPF 22/12/1997 */
-        if (iFull || ! mFull || ! RecollectThisGeneration(this_generation))
+        if (iFull || ! mFull)
             AdjustHeapSize(true /* mutable space */, wordsRequiredToAllocate);
     }
 
@@ -569,30 +507,18 @@ GC_AGAIN:
         {
             LocalMemSpace *lSpace = gMem.lSpaces[j];
             Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->isMutable ? "Mutable" : "Immutable",
-                lSpace, lSpace->pointer - lSpace->bottom, lSpace->top - lSpace->bottom,
-                ((float)(lSpace->top - lSpace->pointer)) * 100 / (float)(lSpace->top - lSpace->bottom));
+                lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
+                ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
         }
     }
     
     /* Have we cleared enough space? */
     {
-        bool iFull = BufferIsReallyFull(false /* immutable area */, immutable_overflow, doFullGC) != 0;
-        bool mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, doFullGC) != 0;
+        bool iFull = BufferIsReallyFull(false /* immutable area */, immutable_overflow, true) != 0;
+        bool mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, true) != 0;
         
         if (iFull || mFull)
         {
-            /* Recovery actions */
-            if (!iFull && RecollectThisGeneration(this_generation)) /* Needs tuning!!! */
-            {
-                /* The next GC will re-collect THIS generation, which should be
-                   enough to recover properly. */
-            }
-            else if (! doFullGC) // Do a full GC next time
-                doFullGCNextTime = true;
-            else // It was a full GC but we don't have as much free space as we normally
-                 // want at the end of a full GC.  Do we have as much as we would want at the
-                 // end of a partial GC?
-            {
             iFull = BufferIsReallyFull(false /* immutable area */, 0, false) != 0;
             mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, false) != 0;
             if (iFull || mFull)
@@ -604,34 +530,7 @@ GC_AGAIN:
                         iFull ? "immutable " : "", mFull ? "mutable " : "");
                 return false;
             }
-            }
         }
-    }
-    
-
-    if (RecollectThisGeneration(this_generation))
-    {
-        /* Generally we treat all the objects we have left after this GC as "old" for
-           the purposes of subsequent minor GCs.  If, though, a collection has left us
-           with significant gaps we don't do that merge and instead on the next GC we
-           recollect everything since the last collection. */
-        /* If this was a full GC, make sure the next one is too, as we may
-           need to reconfigure the mutable buffer size. If we only did a
-           partial next, we would still have to mark all the immutables again
-           (they would still be new) which is the main cost of a full GC.
-            */
-        doFullGCNextTime |= doFullGC;
-        this_generation++;
-    }
-    else
-    {
-        /* Merge this generation with the old one */
-        for(j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
-            lSpace->gen_top = lSpace->pointer;
-        }
-        this_generation = 0;
     }
     
     // Do we have enough space for the original allocation request?
@@ -639,64 +538,17 @@ GC_AGAIN:
     for(j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
-        if (space->isMutable)
+        if (space->allocationSpace)
         {
-            if ((POLYUNSIGNED)(space->pointer - space->bottom) >= wordsRequiredToAllocate)
+            if (space->freeSpace() >= wordsRequiredToAllocate)
             {
                 haveSpace = true;
                 break;
             }
         }
-    }
-    if (! haveSpace)
-    {
-        /* Try our recovery action immediately */
-        if (debugOptions & DEBUG_GC)
-            Log("GC: Insufficent space, restarting collection\n");
-        goto GC_AGAIN;
-    }
-    
-    /* If the heap is very close to what we can handle on this machine,
-       do the full GC immediately, because if we wait, we'll generate
-       more data in the mutable buffer which will make the thrashing caused
-       by the inevitable full GC even worse. SPF 2/3/1998  */
-    if (doFullGCNextTime)
-    {
-        POLYUNSIGNED memSize = GetPhysicalMemorySize();
-        // Ignore this if we can't determine.or if we have more memory than the address space.
-        if (memSize != 0 && memSize+1 != 0)
-        {
-            POLYUNSIGNED memWords = memSize/sizeof(PolyWord);
-            POLYUNSIGNED spaceUsed = 0;
-            unsigned i;
-            for (i = 0; i < gMem.npSpaces; i++)
-            {
-                MemSpace *space = gMem.pSpaces[i];
-                spaceUsed += space->top - space->bottom;
-            }
-            for (i = 0; i < gMem.nlSpaces; i++)
-            {
-                LocalMemSpace *space = gMem.lSpaces[i];
-                // For mutable segments include all the space since
-                // that's going to be used for allocation.  For immutable
-                // spaces include only the area currently in use
-                if (space->isMutable)
-                    spaceUsed += space->top - space->bottom;
-                else
-                    spaceUsed += space->top - space->pointer;
-            }
-        
-            // This crude estimate leaves out C heap, space for executable etc.
-            // We used to include the bitmaps here as well.  Since that's a fixed percentage of
-            // the sizes it could easily be taken account of by reducing the percentage of real
-            // pages that cause a full collection.
-            POLYUNSIGNED heapLoad;
-            if (memWords < 100) heapLoad = 100;
-            else heapLoad = spaceUsed / (memWords/100);
-            // If we're more than 80% full.
-            if (heapLoad > 80)
-                goto GC_AGAIN;
-        }
+#ifdef FILL_UNUSED_MEMORY
+        memset(space->bottom, 0xaa, (char*)space->pointer - (char*)space->bottom);
+#endif
     }
 
     /* End of garbage collection */
@@ -704,8 +556,13 @@ GC_AGAIN:
     
     /* Invariant: the bitmaps are completely clean */
     if (debugOptions & DEBUG_GC)
-        Log("GC: Completed successfully\n");
-    return true; // Completed
+    {
+        if (haveSpace)
+            Log("GC: Completed successfully\n");
+        else Log("GC: Completed with insufficient space\n");
+    }
+
+    return haveSpace; // Completed
 }
 
 // Return the physical memory size.  Returns the maximum unsigned integer value if
@@ -930,7 +787,7 @@ public:
     FullGCRequest(): MainThreadRequest(MTP_GCPHASEMARK) {}
     virtual void Perform()
     {
-        doGC (true,0);
+        doGC (0);
     }
 };
 
@@ -941,7 +798,7 @@ public:
 
     virtual void Perform()
     {
-        result = RunQuickGC() || doGC (true, wordsRequired);
+        result = RunQuickGC() || doGC (wordsRequired);
     }
 
     bool result;

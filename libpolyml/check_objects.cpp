@@ -127,13 +127,16 @@ void DoCheckPointer (const PolyWord pt)
 void DoCheckMemory()
 {
     ScanCheckAddress memCheck;
-    // Scan the local mutable area.  This is where new objects are created.
-    // The immutable areas are only modified by the GC.
+    // Scan the allocation areas.  This is where new objects are created.
+    // The other local areas are only modified by the GC.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable)
-            memCheck.ScanAddressesInRegion(space->pointer, space->top);
+        if (space->allocationSpace)
+        {
+            memCheck.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+            memCheck.ScanAddressesInRegion(space->upperAllocPtr, space->top);
+        }
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)

@@ -89,15 +89,14 @@ protected:
     bool InitSpace(POLYUNSIGNED size, bool mut);
 
 public:
-    PolyWord    *pointer;         // Allocation pointer. Objects are allocated AFTER this.
-    PolyWord    *gen_top;         /* top    of area to garbage collect.                */
-    PolyWord    *gen_bottom;      /* lowest object in area before copying.             */
+    PolyWord    *upperAllocPtr;   // Allocation pointer. Objects are allocated AFTER this.
+    PolyWord    *lowerAllocPtr;   // Allocation pointer. Objects are allocated BEFORE this.
+    PolyWord    *partialGCTop;    // Value of upperAllocPtr before the current partial GC.
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
     bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.
     bool         copiedIn;        // Copy phase of GC: true if we've copied into this.
     bool         spaceInUse;      // Copy phase of GC: true if a thread is copying into this.
-    POLYUNSIGNED highest;         /* index of top word in bitmap.                      */
     POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */
     POLYUNSIGNED start_index;     /* last index used to index start array              */
     POLYUNSIGNED i_marked;        /* count of immutable words marked.                  */
@@ -105,8 +104,10 @@ public:
     POLYUNSIGNED copied;          /* count of words copied into this area.             */
     POLYUNSIGNED updated;         /* count of words updated.                           */
     
-    POLYUNSIGNED allocatedSpace(void)const { return top-pointer; } // Words allocated
-    POLYUNSIGNED freeSpace(void)const { return pointer-bottom; } // Words free
+    POLYUNSIGNED allocatedSpace(void)const // Words allocated
+        { return (top-upperAllocPtr) + (lowerAllocPtr-bottom); }
+    POLYUNSIGNED freeSpace(void)const // Words free
+        { return upperAllocPtr-lowerAllocPtr; }
 
     friend class MemMgr;
 };

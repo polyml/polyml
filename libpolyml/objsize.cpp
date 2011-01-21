@@ -127,8 +127,7 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     for (j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
-        // Local areas only have objects from the allocation pointer to the top.
-        bitmaps[bm++] = new VisitBitmap(space->pointer, space->top);
+        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
     ASSERT(bm == nBitmaps);
 

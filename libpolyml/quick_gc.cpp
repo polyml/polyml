@@ -81,8 +81,8 @@ PolyObject *QuickGCScanner::CopyToGCArea(PolyObject *obj)
             lSpace->freeSpace() > length /* At least length+1*/)
         {
             // Can use this space.
-            lSpace->pointer -= length+1;
-            PolyObject *destAddress = (PolyObject*)(lSpace->pointer+1);
+            lSpace->upperAllocPtr -= length+1;
+            PolyObject *destAddress = (PolyObject*)(lSpace->upperAllocPtr+1);
             CopyObjectToNewAddress(obj, destAddress);
             return destAddress;
         }
@@ -188,13 +188,14 @@ bool RunQuickGC(void)
     for(unsigned k = 0; k < gMem.nlSpaces; k++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[k];
-        ASSERT (lSpace->top     >= lSpace->gen_top);
-        ASSERT (lSpace->gen_top >= lSpace->pointer);
-        ASSERT (lSpace->pointer >= lSpace->bottom);
-        // Record low-water mark before we change anything.
-        // gen_bottom is the lowest object actually allocated in the
-        // area.
-        lSpace->gen_bottom = lSpace->pointer;
+        ASSERT (lSpace->top >= lSpace->upperAllocPtr);
+        ASSERT (lSpace->upperAllocPtr >= lSpace->lowerAllocPtr);
+        ASSERT (lSpace->lowerAllocPtr >= lSpace->bottom);
+        // Remember the top before we started this GC.  It's
+        // only relevant for mutable areas.  It avoids us rescanning
+        // objects that may have been added to the space as a result of
+        // scanning another space.
+        lSpace->partialGCTop = lSpace->upperAllocPtr;
     }
 
     QuickGCScanner marker;
@@ -203,8 +204,8 @@ bool RunQuickGC(void)
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable)
-            marker.ScanAddressesInRegion(space->gen_top, space->top);
+        if (space->isMutable && !space->allocationSpace)
+            marker.ScanAddressesInRegion(space->partialGCTop, space->top);
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
@@ -224,14 +225,19 @@ bool RunQuickGC(void)
         for(unsigned l = 0; l < gMem.nlSpaces; l++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
-            if (lSpace->allocationSpace) lSpace->pointer = lSpace->top;
-            // The top of the current generation is the allocation pointer.
-            lSpace->gen_top = lSpace->pointer;
-
+            if (lSpace->allocationSpace)
+            {
+                lSpace->upperAllocPtr = lSpace->top;
+                lSpace->lowerAllocPtr = lSpace->bottom;
+#ifdef FILL_UNUSED_MEMORY
+                // This provides extra checking if we have dangling pointers
+                memset(lSpace->bottom, 0xaa, (char*)lSpace->top - (char*)lSpace->bottom);
+#endif
+            }
             if (debugOptions & DEBUG_GC)
                 Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->isMutable ? "Mutable" : "Immutable",
-                    lSpace, lSpace->pointer - lSpace->bottom, lSpace->top - lSpace->bottom,
-                    ((float)(lSpace->top - lSpace->pointer)) * 100 / (float)(lSpace->top - lSpace->bottom));
+                    lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
+                    ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
         }
     }
     else
@@ -244,7 +250,7 @@ bool RunQuickGC(void)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
             if (lSpace->allocationSpace)
-                recovery.ScanAddressesInRegion(lSpace->pointer, lSpace->top);
+                recovery.ScanAddressesInRegion(lSpace->upperAllocPtr, lSpace->top);
         }
     }
 

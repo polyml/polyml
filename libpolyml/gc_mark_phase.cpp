@@ -58,8 +58,6 @@ recursive and only the main thread has enough stack space for some data structur
 #include "memmgr.h"
 #include "diagnostics.h"
 
-/* start <= val < end */
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
 inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
 
 class MTGCProcessMarkPointers: public ScanAddress
@@ -87,10 +85,6 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
     if (space == 0)
         return 0; // Ignore it if it points to a permanent area
-
-    // Ignore it if it's outside the range we're currently collecting.
-    if (! INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return 0;
 
     // We shouldn't get code addresses since we handle stacks and code
     // segments separately so if this isn't an integer it must be an object address.
@@ -137,9 +131,6 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
     if (space == 0)
         return obj; // Ignore it if it points to a permanent area
-    // Ignore it if it's outside the range we're currently collecting.
-    if (! INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return obj;
 
     ASSERT(obj->ContainsNormalLengthWord());
 
@@ -187,13 +178,10 @@ void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength we
     if (space != 0)
     {
         PolyWord w = val;
-        if (INRANGE(w.AsStackAddr(), space->gen_bottom, space->gen_top))
-        {
-            POLYUNSIGNED lengthWord = ScanAddressAt(&w);
-            if (lengthWord)
-                ScanAddressesInObject(val, lengthWord);
-            *pt = w.AsObjPtr();
-        }
+        POLYUNSIGNED lengthWord = ScanAddressAt(&w);
+        if (lengthWord)
+            ScanAddressesInObject(val, lengthWord);
+        *pt = w.AsObjPtr();
     }
 }
 
@@ -238,14 +226,6 @@ void GCMarkPhase(void)
     /* Do the actual marking */
     MTGCProcessMarkPointers marker;
 
-    // Scan the local mutable areas.  It won't do anything if this is a full
-    // GC since gen_top == top.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable)
-            marker.ScanAddressesInRegion(space->gen_top, space->top);
-    }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {

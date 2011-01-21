@@ -370,7 +370,8 @@ static void printprofile(void)
         {
             LocalMemSpace *space = gMem.lSpaces[j];
             // Local areas only have objects from the allocation pointer to the top.
-            PrintProfileCounts(space->pointer, space->top);
+            PrintProfileCounts(space->bottom, space->lowerAllocPtr);
+            PrintProfileCounts(space->upperAllocPtr, space->top);
         }
     } // else if we haven't actually had an interrupt avoid expensive scan of memory.
 

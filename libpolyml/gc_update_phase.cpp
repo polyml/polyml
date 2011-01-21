@@ -54,9 +54,6 @@ tomb-stone that contains its new location.
 #include "gctaskfarm.h"
 #include "diagnostics.h"
 
-/* start <= val < end */
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
-
 inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
 
 class MTGCProcessUpdate: public ScanAddress
@@ -126,9 +123,6 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
     if (space == 0)
         return 0;
 
-    if (! INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return 0;
-
     PolyObject *obj = val.AsObjPtr();
     
     if (obj->ContainsForwardingPtr())
@@ -150,9 +144,9 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
 // area->highest corresponds to gen_top i.e. we don't process older generations.
 void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 {
-    PolyWord *pt      = area->pointer;
+    PolyWord *pt      = area->upperAllocPtr;
     POLYUNSIGNED   bitno   = BITNO(area, pt);
-    POLYUNSIGNED   highest = area->highest;
+    POLYUNSIGNED   highest = BITNO(area, area->top);
 
     for (;;)
     {
@@ -181,8 +175,8 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
         }
         
         if (bitno == highest) {
-            // Have reached the top of the area or the beginning of an older generation.
-            ASSERT(pt == area->gen_top);
+            // Have reached the top of the area
+            ASSERT(pt == area->top);
             break;
         }
         
@@ -220,8 +214,7 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
                     if (! val.IsTagged() && val != PolyWord::FromUnsigned(0))
                     {
                         LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-                        if (space != 0 &&
-                              INRANGE(val.AsStackAddr(), space->gen_bottom, space->gen_top))
+                        if (space != 0)
                         {
                             PolyObject *obj = val.AsObjPtr();
                         
@@ -258,11 +251,11 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
     // means we can avoid clearing more than we really need.
     if (area->i_marked != 0 || area->m_marked != 0)
         // We've marked something so we may have set a bit below the current pointer
-        area->bitmap.ClearBits(0, area->gen_top - area->bottom);
+        area->bitmap.ClearBits(0, area->top - area->bottom);
     else // Otherwise we only need to clear in the area we've newly allocated.  This is
         // the case when we're doing a partial collection and copying into the
         // immutable area.
-        area->bitmap.ClearBits(area->pointer - area->bottom, area->gen_top - area->pointer);
+        area->bitmap.ClearBits(area->upperAllocPtr - area->bottom, area->top - area->upperAllocPtr);
 }
 
 // Task to update addresses in a local area.
@@ -272,11 +265,6 @@ static void updateLocalArea(void *arg1, void *arg2)
     LocalMemSpace *space = (LocalMemSpace *)arg2;
     if (debugOptions & DEBUG_GC)
         Log("GC: Update local area %p\n", space);
-    // If this is a mutable area we also have to process older
-    // generations.  That isn't necessary for immutable areas.
-    // If this is a full GC gen_top == top and this doesn't do anything.
-    if (space->isMutable && space->gen_top != space->top)
-        processUpdate->ScanAddressesInRegion(space->gen_top, space->top);
     // Process the current generation for mutable or immutable areas.
     processUpdate->UpdateObjectsInArea(space);
     if (debugOptions & DEBUG_GC)

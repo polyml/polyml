@@ -51,9 +51,6 @@ that are no longer reachable.  It is performed after the first, mark, phase.
 #include "memmgr.h"
 //#include "gctaskfarm.h"
 
-/* start <= val < end */
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
-
 inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
 
 class MTGCCheckWeakRef: public ScanAddress {
@@ -84,8 +81,6 @@ void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
     LocalMemSpace *space = gMem.LocalSpaceForAddress(w.AsStackAddr());
     if (space == 0)
         return; // Not in local area
-    if (! INRANGE(w.AsStackAddr(), space->gen_bottom, space->gen_top))
-        return; // Not in area we're currently collecting.
     // If it hasn't been marked set it to zero.
     if (! space->bitmap.TestBit(BITNO(space, w.AsStackAddr())))
          *pt = 0;
@@ -106,8 +101,7 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
         if (someAddr.IsDataPtr())
         {
             LocalMemSpace *someSpace = gMem.LocalSpaceForAddress(someAddr.AsAddress());
-            if (someSpace != 0 &&
-                    INRANGE(someAddr.AsStackAddr(), someSpace->gen_bottom, someSpace->gen_top))
+            if (someSpace != 0)
             {
                 PolyObject *someObj = someAddr.AsObjPtr();
                 // If this is a weak object the SOME value may refer to an unreferenced
@@ -116,8 +110,7 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                 ASSERT(someObj->Length() == 1 && someObj->IsWordObject()); // Should be a SOME node.
                 PolyWord refAddress = someObj->Get(0);
                 LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
-                if (space != 0 &&
-                    INRANGE(refAddress.AsStackAddr(), space->gen_bottom, space->gen_top))
+                if (space != 0)
                     // If the ref is permanent it's always there.
                 {
                     POLYUNSIGNED new_bitno = BITNO(space, refAddress.AsStackAddr());

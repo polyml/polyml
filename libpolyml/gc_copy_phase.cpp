@@ -157,17 +157,9 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
 
     PolyWord *newp = BIT_ADDR(dst, free); /* New object address */
         
-    // Update dst->pointer, so the new object doesn't get trampled.
-    if (newp < dst->pointer)
-        dst->pointer = newp;
-
-    // If we are copying into a later area we may copy into an area
-    // that crosses gen_bottom for that area.  We need to adjust gen_bottom
-    // since we assume above that gen_bottom points to a valid object.
-    // DCJM: This may no longer be necessary since we don't copy into
-    // a later area.
-    if (newp < dst->gen_bottom && newp+n > dst->gen_bottom)
-        dst->gen_bottom = newp+n;
+    // Update dst->upperAllocPtr, so the new object doesn't get trampled.
+    if (newp < dst->upperAllocPtr)
+        dst->upperAllocPtr = newp;
 
     dst->copied += n;
     dst->copiedIn = true;
@@ -292,10 +284,10 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
     /* the objects to be copied are sparsely separated.              */
 
     /* Invariant: at this point there are no objects below src->gen_bottom */
-    POLYUNSIGNED  bitno   = BITNO(src,src->gen_bottom);
+    POLYUNSIGNED  bitno   = BITNO(src, src->bottom);
     // src->highest is the bit position that corresponds to the top of
     // generation we're copying.
-    POLYUNSIGNED  highest = src->highest;
+    POLYUNSIGNED  highest = BITNO(src, src->top);
 
     for (;;)
     {
@@ -353,7 +345,7 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
             else if (immutableDest != 0)
             {
                 // Not compressing the immutables so just allocate at the bottom of the area
-                POLYUNSIGNED dest_bitno = BITNO(immutableDest, immutableDest->pointer);
+                POLYUNSIGNED dest_bitno = BITNO(immutableDest, immutableDest->upperAllocPtr);
                 ASSERT(src->isMutable); // Only if we're copying from mutable area
                 if (n < dest_bitno)
                 {
@@ -362,16 +354,8 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
                     newp = BIT_ADDR(immutableDest, free); /* New object address */
 
                     // Update dst->pointer, so the new object doesn't get trampled.
-                    if (newp < immutableDest->pointer)
-                        immutableDest->pointer = newp;
-
-                    // If we are copying into a later area we may copy into an area
-                    // that crosses gen_bottom for that area.  We need to adjust gen_bottom
-                    // since we assume above that gen_bottom points to a valid object.
-                    // DCJM: This may no longer be necessary since we don't copy into
-                    // a later area.
-                    if (newp < immutableDest->gen_bottom && newp+n > immutableDest->gen_bottom)
-                        immutableDest->gen_bottom = newp+n;
+                    if (newp < immutableDest->upperAllocPtr)
+                        immutableDest->upperAllocPtr = newp;
 
                     immutableDest->copied += n;
                     immutableDest->copiedIn = true;
@@ -391,9 +375,9 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest,
         if (newp == 0) /* no room */
         {
             // We're not going to move this object
-            // Update src->pointer, so the old object doesn't get trampled.
-            if (old < src->pointer)
-                src->pointer = old;
+            // Update src->upperAllocPtr, so the old object doesn't get trampled.
+            if (old < src->upperAllocPtr)
+                src->upperAllocPtr = old;
 
             /* We haven't been able to move this object on this GC, but we might    */
             /* still be able to move some smaller objects, which might free enough  */
@@ -460,9 +444,9 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
     for(j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[j];
-        lSpace->highest = BITNO(lSpace, lSpace->gen_top);
+        POLYUNSIGNED highest = BITNO(lSpace, lSpace->top);
         for (unsigned i = 0; i < NSTARTS; i++)
-            lSpace->start[i] = lSpace->highest;
+            lSpace->start[i] = highest;
         lSpace->start_index = NSTARTS - 1;
         lSpace->copied = 0;
         lSpace->copiedIn = lSpace->copiedOut = false;
@@ -486,7 +470,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
                 immutableNeeded += lSpace->i_marked;
             else
             { // Immutable area - calculate the number of unallocated words WITHIN the area
-                POLYUNSIGNED immutableSpace = lSpace->gen_top - lSpace->gen_bottom;
+                POLYUNSIGNED immutableSpace = lSpace->top - lSpace->bottom;
                 POLYUNSIGNED immutableUsed = lSpace->i_marked;
                 immutableFree += immutableSpace - immutableUsed;
             }
@@ -498,16 +482,6 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         // on at the bottom.  The idea is to reduce the cost of finding spaces to
         // copy these objects.
         bool compressImmutables = immutableNeeded / 2 < immutableFree ; /* Needs tuning!!! */
-        
-        // Reset the allocation pointers. This puts garbage (and real data) below them.
-        // At the end of the compaction the allocation pointer will point below the
-        // lowest real data.
-        for(j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j];
-            if (lSpace->isMutable || compressImmutables)
-                lSpace->pointer = lSpace->gen_top;
-        }
 
         // Do the copying.
         // Invariant: there are no objects below gen_bottom.
@@ -559,21 +533,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         // this will record the extra space we need.
         immutable_overflow = markedImmut - copiedToI;
     }
-    
-    
-    /* The area between A.M.gen_bottom and A.M.pointer may contain
-       tombstones, so we daren't increase A.M.gen_bottom. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (lSpace->isMutable)
-        {
-            // We may have copied mutable objects from an earlier space
-            if (lSpace->pointer < lSpace->gen_bottom)
-                lSpace->gen_bottom = lSpace->pointer;
-        }
-    }
-    
+
     /* If we've copied an object from the mutable area below the previous
        limit of the immutable area using a "non-compressing" copy,
        it would be unsafe to attempt to compress the immutable area (we
@@ -604,7 +564,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
             // below gen_bottom we need to reset that.
 //            if (lSpace->pointer < lSpace->gen_bottom)
 //               lSpace->gen_bottom = lSpace->pointer;
-            immutable_space  += lSpace->gen_top - lSpace->gen_bottom;
+            immutable_space  += lSpace->top - lSpace->bottom;
             immutable_used   += lSpace->i_marked + lSpace->copied;
             immutable_needed += lSpace->i_marked;
         }
@@ -631,38 +591,11 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
     for(j = gMem.nlSpaces; j > 0; j--)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[j-1];
-        if (! lSpace->isMutable)
-        {
-            if (lSpace->gen_bottom <= lSpace->pointer)
-            {
-                if (compressImmutables)
-                {
-                    /* Invariant: there are no objects below lSpace->gen_bottom. */
-                    if (! lSpace->copiedOut)
-                        gpTaskFarm->AddWorkOrRunNow(&copyImmutableArea, lSpace, 0);
-                }
-                else // simply reclaim the immutable data (with its embedded garbage)
-                    lSpace->pointer = lSpace->gen_bottom;
+        if (! lSpace->isMutable && compressImmutables && ! lSpace->copiedOut)
+            gpTaskFarm->AddWorkOrRunNow(&copyImmutableArea, lSpace, 0);
 
-                ASSERT(lSpace->gen_bottom <= lSpace->pointer);
-                // The area between lSpace->gen_bottom and lSpace->pointer may contain
-                // tombstones, so we daren't increase lSpace->gen_bottom.
-            }
-            else // We may have copied immutable objects from an earlier space.
-                lSpace->gen_bottom = lSpace->pointer;
-        }
     }
     gpTaskFarm->WaitForCompletion();
-
-    // An extra little check.
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (! lSpace->isMutable)
-        {
-            ASSERT(lSpace->gen_bottom <= lSpace->pointer);
-        }
-    }
 
     POLYUNSIGNED iCopied = 0, iMarked = 0;
     for(j = 0; j < gMem.nlSpaces; j++)
@@ -675,10 +608,4 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         }
     }
     ASSERT(iCopied <= iMarked);
-
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        ASSERT(INSOFTRANGE(lSpace->pointer, lSpace->bottom, lSpace->gen_top));
-    }    
 }

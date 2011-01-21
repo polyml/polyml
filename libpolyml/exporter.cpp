@@ -115,7 +115,7 @@ CopyScan::CopyScan(bool isExport/*=true*/, unsigned h/*=0*/): hierarchy(h)
     for (i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
-        POLYUNSIGNED size = space->top-space->pointer;
+        POLYUNSIGNED size = space->allocatedSpace();
         // It looks as though the mutable size generally gets
         // overestimated while the immutable size is correct.
         if (space->isMutable)
@@ -373,7 +373,8 @@ void Exporter::RunExport(PolyObject *rootFunction)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
         // Local areas only have objects from the allocation pointer to the top.
-        FixForwarding(space->pointer, space->top - space->pointer);
+        FixForwarding(space->bottom, space->lowerAllocPtr - space->bottom);
+        FixForwarding(space->upperAllocPtr, space->top - space->upperAllocPtr);
     }
     for (j = 0; j < gMem.npSpaces; j++)
     {
