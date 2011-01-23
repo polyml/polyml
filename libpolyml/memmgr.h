@@ -92,6 +92,7 @@ public:
     PolyWord    *upperAllocPtr;   // Allocation pointer. Objects are allocated AFTER this.
     PolyWord    *lowerAllocPtr;   // Allocation pointer. Objects are allocated BEFORE this.
     PolyWord    *partialGCTop;    // Value of upperAllocPtr before the current partial GC.
+    PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
     bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.

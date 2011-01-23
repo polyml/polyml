@@ -90,6 +90,7 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     top = bottom + size;
     upperAllocPtr = top;
     lowerAllocPtr = bottom;
+    fullGCLowerLimit = top;
 
     allocationSpace = false;
     
@@ -348,7 +349,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
             try {
                 // Turn this into a local space.
                 LocalMemSpace *space = new LocalMemSpace;
-                space->top = pSpace->top;
+                space->top = space->fullGCLowerLimit = pSpace->top;
                 space->bottom = space->upperAllocPtr = space->lowerAllocPtr = pSpace->bottom;
                 space->isMutable = pSpace->isMutable;
                 space->isOwnSpace = true;
@@ -403,7 +404,8 @@ bool MemMgr::DemoteImportSpaces()
                 space->top = pSpace->top;
                 // Space is allocated in local areas from the top down.  This area is full and
                 // all data is in the old generation.  The area can be recovered by a full GC.
-                space->bottom = space->upperAllocPtr = space->lowerAllocPtr = pSpace->bottom;
+                space->bottom = space->upperAllocPtr = space->lowerAllocPtr =
+                    space->fullGCLowerLimit = pSpace->bottom;
                 space->isMutable = pSpace->isMutable;
                 space->isOwnSpace = true;
                 if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
@@ -525,14 +527,14 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
         LocalMemSpace *space = gMem.lSpaces[(j + nextAllocator) % gMem.nlSpaces];
         if (space->allocationSpace)
         {
-            POLYUNSIGNED available = space->upperAllocPtr - space->bottom;
+            POLYUNSIGNED available = space->freeSpace();
             if (available > 0 && available >= minWords)
             {
                 // Reduce the maximum value if we had less than that.
                 if (available < maxWords)
                     maxWords = available;
-                space->upperAllocPtr -= maxWords; // Allocate it.
-                PolyWord *result = space->upperAllocPtr; // Return the address.
+                PolyWord *result = space->lowerAllocPtr; // Return the address.
+                space->lowerAllocPtr += maxWords; // Allocate it.
                 allocLock.Unlock();
                 return result;
             }

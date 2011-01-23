@@ -104,8 +104,11 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
         return 0;
 
     LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-    if (space == 0 || ! space->allocationSpace)
-        return 0; // Ignore it if it points to a permanent area
+
+    // We only copy it if it is in a local allocation space and not in the
+    // "overflow" area of data that could not copied by the last full GC.
+    if (space == 0 || ! space->allocationSpace || val.AsAddress() >= space->upperAllocPtr)
+        return 0;
 
     // We shouldn't get code addresses since we handle code
     // segments separately so if this isn't an integer it must be an object address.
@@ -200,11 +203,11 @@ bool RunQuickGC(void)
 
     QuickGCScanner marker;
 
-    // Scan the local mutable areas other than allocation areas.
+    // Scan the local mutable including any overflow area in the allocation areas.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable && !space->allocationSpace)
+        if (space->isMutable)
             marker.ScanAddressesInRegion(space->partialGCTop, space->top);
     }
     // Scan the permanent mutable areas.
@@ -227,7 +230,8 @@ bool RunQuickGC(void)
             LocalMemSpace *lSpace = gMem.lSpaces[l];
             if (lSpace->allocationSpace)
             {
-                lSpace->upperAllocPtr = lSpace->top;
+                // The space is now free, apart from any space above upperAllocPtr that
+                // may have been left from a previous full GC
                 lSpace->lowerAllocPtr = lSpace->bottom;
 #ifdef FILL_UNUSED_MEMORY
                 // This provides extra checking if we have dangling pointers
@@ -250,7 +254,7 @@ bool RunQuickGC(void)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
             if (lSpace->allocationSpace)
-                recovery.ScanAddressesInRegion(lSpace->upperAllocPtr, lSpace->top);
+                recovery.ScanAddressesInRegion(lSpace->bottom, lSpace->lowerAllocPtr);
         }
     }
 

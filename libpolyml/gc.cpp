@@ -428,6 +428,11 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         // Set upper and lower limits of weak refs.
         lSpace->highestWeak = lSpace->bottom;
         lSpace->lowestWeak = lSpace->top;
+        // Remember the lower limit of the area.  We only need to copy data
+        // from beyond this.
+        if (lSpace->lowerAllocPtr != lSpace->bottom)
+            lSpace->fullGCLowerLimit = lSpace->bottom;
+        else lSpace->fullGCLowerLimit = lSpace->upperAllocPtr;
         // Reset the allocation pointers.  They will be set to the
         // limits of the retained data.
         lSpace->lowerAllocPtr = lSpace->bottom;
@@ -547,7 +552,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             }
         }
 #ifdef FILL_UNUSED_MEMORY
-        memset(space->bottom, 0xaa, (char*)space->pointer - (char*)space->bottom);
+        memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);
 #endif
     }
 
