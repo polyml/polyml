@@ -89,10 +89,18 @@ protected:
     bool InitSpace(POLYUNSIGNED size, bool mut);
 
 public:
+    // Allocation.  The minor GC allocates at the bottom of the areas while the
+    // major GC and initial allocations are made at the top.  The reason for this
+    // is that it's only possible to scan objects from the bottom up and the minor
+    // GC combines scanning with allocation whereas the major GC compacts from the
+    // bottom into the top of an area.
     PolyWord    *upperAllocPtr;   // Allocation pointer. Objects are allocated AFTER this.
     PolyWord    *lowerAllocPtr;   // Allocation pointer. Objects are allocated BEFORE this.
-    PolyWord    *partialGCTop;    // Value of upperAllocPtr before the current partial GC.
+
     PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
+    PolyWord    *partialGCTop;    // Value of lowerAllocPtr before the current partial GC.
+    PolyWord    *partialGCScan;   // Scan pointer used in minor GC
+
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
     bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.

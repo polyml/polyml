@@ -3,10 +3,6 @@
 
     Copyright (c) 2011 David C. J. Matthews
 
-    Based on the original garbage collector code
-        Copyright 2000-2008
-        Cambridge University Technical Services Limited
-
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -81,78 +77,85 @@ PolyObject *QuickGCScanner::CopyToGCArea(PolyObject *obj)
             lSpace->freeSpace() > length /* At least length+1*/)
         {
             // Can use this space.
-            lSpace->upperAllocPtr -= length+1;
-            PolyObject *destAddress = (PolyObject*)(lSpace->upperAllocPtr+1);
+            PolyObject *destAddress = (PolyObject*)(lSpace->lowerAllocPtr+1);
+            lSpace->lowerAllocPtr += length+1;
             CopyObjectToNewAddress(obj, destAddress);
             return destAddress;
         }
     }
     // Not enough space.
     succeeded = false;
-    if (debugOptions & DEBUG_GC_DETAIL)
-        Log("GC: Quick: Insufficient space to move object at %p size %lu type %u\n",
-                obj, length, GetTypeBits(obj->LengthWord()));
     return obj;
 }
 
 // Copy all the objects.
 POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
 {
-    PolyWord val = *pt;
+    POLYUNSIGNED n = 1; // Set up the loop to process one word at *pt
+    pt++;
     
-    if (val.IsTagged())
-        return 0;
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-
-    // We only copy it if it is in a local allocation space and not in the
-    // "overflow" area of data that could not copied by the last full GC.
-    if (space == 0 || ! space->allocationSpace || val.AsAddress() >= space->upperAllocPtr)
-        return 0;
-
-    // We shouldn't get code addresses since we handle code
-    // segments separately so if this isn't an integer it must be an object address.
-    ASSERT(OBJ_IS_DATAPTR(val));
-
-    PolyObject *obj = val.AsObjPtr();
-
-    // Has it been moved already?
-    if (obj->ContainsForwardingPtr())
+    while (n-- != 0)
     {
-        PolyObject *newAddress = obj->GetForwardingPtr();
-        ASSERT(newAddress->ContainsNormalLengthWord());
-        *pt = newAddress;
-        return 0;
+        PolyWord val = *(--pt);
+        if (val.IsTagged())
+            continue;
+
+        LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
+
+        // We only copy it if it is in a local allocation space and not in the
+        // "overflow" area of data that could not copied by the last full GC.
+        if (space == 0 || ! space->allocationSpace || val.AsAddress() >= space->upperAllocPtr)
+            continue;
+
+        // We shouldn't get code addresses since we handle code
+        // segments separately so if this isn't an integer it must be an object address.
+        ASSERT(OBJ_IS_DATAPTR(val));
+
+        PolyObject *obj = val.AsObjPtr();
+
+        // Has it been moved already?
+        if (obj->ContainsForwardingPtr())
+        {
+            PolyObject *newAddress = obj->GetForwardingPtr();
+            ASSERT(newAddress->ContainsNormalLengthWord());
+            *pt = newAddress;
+            continue;
+        }
+
+        CheckPointer (val);
+
+        POLYUNSIGNED L = obj->LengthWord();
+        n = OBJ_OBJECT_LENGTH(L);
+
+        // Copy the object.  Returns the new address unless there wasn't enough space
+        // in which case it returns the original address.
+        // Copy the object.
+        PolyObject *newObject = CopyToGCArea(obj);
+
+        CheckObject(newObject);
+
+        *pt = newObject;
+
+        if (debugOptions & DEBUG_GC_DETAIL)
+        {
+            if (*pt == obj)
+                Log("GC: Quick: Insufficient space to move %p %lu %u\n", obj, n, GetTypeBits(L));
+            else Log("GC: Quick: %p %lu %u moved to %p\n", obj, n, GetTypeBits(L), newObject);
+        }
+
+        // Stop now unless this is a simple word object we have been able to move.
+        if (newObject == obj || OBJ_IS_MUTABLE_OBJECT(L) || GetTypeBits(L) != 0)
+            return 0;
+
+        // We can simply return zero in which case this performs a breadth-first scan.
+        // A breadth-first scan distributes the objects through the memory so
+        // to retain some degree of locality we try to copy some object pointed at
+        // by this one.  We work from the end back so that we follow the tail pointers
+        // for lists.
+        pt = (PolyWord*)newObject + n;
     }
 
-    CheckPointer (val);
-
-    POLYUNSIGNED L = obj->LengthWord();
-    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-
-    // Copy the object.
-    PolyObject *newObject = CopyToGCArea(obj);
-
-    // If we haven't been able to move this we mustn't scan it further
-    // because that could lead to an infinite loop.
-    if (newObject == obj)
-        return 0;
-
-    *pt = newObject;
-
-    if (debugOptions & DEBUG_GC_DETAIL)
-        Log("GC: Quick: %p %lu %u moved to %p\n", obj, n, GetTypeBits(L), newObject);
-
-    if (OBJ_IS_BYTE_OBJECT(L))
-        return 0; // We've done as much as we need
-//    else if (OBJ_IS_CODE_OBJECT(L)/* || OBJ_IS_WEAKREF_OBJECT(L)*/)
-//    {
-//        // Have to handle these specially.
-//        (void)ScanAddressesInObject(newObject, L);
-//        return 0; // Already done it.
-//    }
-    else
-        return L;
+    return 0;
 }
 
 // The initial entry to process the roots.  Also used when processing the addresses
@@ -199,8 +202,11 @@ bool RunQuickGC(void)
         // objects that may have been added to the space as a result of
         // scanning another space.
         lSpace->partialGCTop = lSpace->upperAllocPtr;
+        // If we're scanning a space this is where we start.
+        lSpace->partialGCScan = lSpace->lowerAllocPtr;
     }
 
+    // First scan the roots, copying the data into the mutable and immutable areas.
     QuickGCScanner marker;
 
     // Scan the local mutable including any overflow area in the allocation areas.
@@ -208,7 +214,13 @@ bool RunQuickGC(void)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
         if (space->isMutable)
+        {
+            // The upper area contains data copied by the last major GC.
             marker.ScanAddressesInRegion(space->partialGCTop, space->top);
+            // The lower area contains data copied by previous minor GCs.
+            if (! space->allocationSpace)
+                marker.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+        }
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
@@ -218,7 +230,37 @@ bool RunQuickGC(void)
             marker.ScanAddressesInRegion(space->bottom, space->top);
     }
 
+    // Scan RTS addresses.  This will include the thread stacks.
     GCModules(&marker);
+
+    // Now iterate over the areas scanning and copying until everything is copied.
+    // We have to continue this even if we've run out of space to ensure that all
+    // the addresses of objects that have been moved have been updated.
+    while (true)
+    {
+        bool allDone = true;
+        // We're finished when there is no unscanned data
+        for (unsigned k = 0; k < gMem.nlSpaces && allDone; k++)
+        {
+            LocalMemSpace *space = gMem.lSpaces[k];
+            allDone = space->partialGCScan == space->lowerAllocPtr;
+        }
+        if (allDone) break;
+
+        // Scan each area that has had data added to it.
+        for (unsigned l = 0; l < gMem.nlSpaces; l++)
+        {
+            LocalMemSpace *space = gMem.lSpaces[l];
+
+            while (space->partialGCScan != space->lowerAllocPtr)
+            {
+                PolyWord *lastAllocPtr = space->lowerAllocPtr;
+                // Scan the area.  This may well result in more data being added
+                marker.ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
+                space->partialGCScan = lastAllocPtr;
+            }
+        }
+    }
 
     record_gc_time(GCTimeEnd);
 
@@ -230,12 +272,10 @@ bool RunQuickGC(void)
             LocalMemSpace *lSpace = gMem.lSpaces[l];
             if (lSpace->allocationSpace)
             {
-                // The space is now free, apart from any space above upperAllocPtr that
-                // may have been left from a previous full GC
                 lSpace->lowerAllocPtr = lSpace->bottom;
 #ifdef FILL_UNUSED_MEMORY
                 // This provides extra checking if we have dangling pointers
-                memset(lSpace->bottom, 0xaa, (char*)lSpace->top - (char*)lSpace->bottom);
+                memset(lSpace->bottom, 0xaa, (char*)lSpace->upperAllocPtr - (char*)lSpace->bottom);
 #endif
             }
             if (debugOptions & DEBUG_GC)
