@@ -205,7 +205,19 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     LocalMemSpace **table = (LocalMemSpace **)realloc(lSpaces, (nlSpaces+1) * sizeof(LocalMemSpace *));
     if (table == 0) return false;
     lSpaces = table;
-    lSpaces[nlSpaces++] = space;
+    // We need to make sure that any allocation spaces are inserted after any other
+    // mutable spaces.  That's because the copy phase of the full GC copies into earlier
+    // spaces and we want to try to empty the allocation area as far as possible.
+    if (space->allocationSpace)
+        lSpaces[nlSpaces++] = space; // Just add at the end
+    else
+    {
+        unsigned s;
+        for (s = nlSpaces; s > 0 && lSpaces[s-1]->allocationSpace; s--)
+            lSpaces[s] = lSpaces[s-1];
+        lSpaces[s] = space;
+        nlSpaces++;
+    }
     return true;
 }
 
