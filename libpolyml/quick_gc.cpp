@@ -47,44 +47,81 @@ these has filled up it fails and a full garbage collection must be done.
 #include "memmgr.h"
 #include "diagnostics.h"
 #include "timing.h"
+#include "gctaskfarm.h"
 
-/* start <= val < end */
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
-inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
+static PLock copyLock;
 
 class QuickGCScanner: public ScanAddress
 {
 public:
-    QuickGCScanner(): succeeded(true) {}
+    QuickGCScanner(GCTaskId* id): taskID(id), startPosn(0), succeeded(true) {}
 
+    // Overrides for ScanAddress class
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
-
-    bool succeeded;
 private:
-    PolyObject *CopyToGCArea(PolyObject *obj);
+    PolyObject *FindNewAddress(PolyObject *obj, POLYUNSIGNED L, LocalMemSpace *srcSpace, GCTaskId *inTask);
+
+    GCTaskId *taskID;
+    unsigned startPosn; // Used to distribute data between spaces.
+    bool objectCopied;
+public:
+    bool succeeded;
 };
 
-PolyObject *QuickGCScanner::CopyToGCArea(PolyObject *obj)
+PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L,
+                                           LocalMemSpace *srcSpace, GCTaskId *inTask)
 {
-    bool isMutable = obj->IsMutable();
-    POLYUNSIGNED length = obj->Length();
+    bool isMutable = OBJ_IS_MUTABLE_OBJECT(L);
+    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+    ASSERT(inTask == 0 || inTask == taskID);
+
+    startPosn++;
+    if (startPosn >= gMem.nlSpaces) startPosn = 0;
 
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[i];
-        if (lSpace->isMutable == isMutable && ! lSpace->allocationSpace &&
-            lSpace->freeSpace() > length /* At least length+1*/)
+        LocalMemSpace *lSpace = gMem.lSpaces[(i + startPosn) % gMem.nlSpaces];
+        if (lSpace->spaceOwner == inTask && lSpace->isMutable == isMutable &&
+            ! lSpace->allocationSpace && lSpace->freeSpace() > n /* At least n+1*/)
         {
-            // Can use this space.
-            PolyObject *destAddress = (PolyObject*)(lSpace->lowerAllocPtr+1);
-            lSpace->lowerAllocPtr += length+1;
-            CopyObjectToNewAddress(obj, destAddress);
-            return destAddress;
+            if (lSpace->spaceOwner == 0 && taskID != 0)
+            {
+                if (debugOptions & DEBUG_GC)
+                    Log("GC: Quick: Thread %p is taking ownership of space %p\n", taskID, lSpace);
+                lSpace->spaceOwner = taskID; // Take ownership of this space.
+            }
+
+            PolyObject *newObject = (PolyObject*)(lSpace->lowerAllocPtr+1);
+
+            // It's possible that another thread may have actually copied the 
+            // object since we loaded the length word so we check it again.
+            // If this is a mutable we must ensure that checking the forwarding
+            // pointer here and updating it if necessary is atomic.  We don't need
+            // to do that for immutable data so there is a small chance that an
+            // object may be copied twice.  That's not a problem for immutable data.
+            bool requireLock = isMutable;
+
+            if (requireLock) srcSpace->spaceLock.Lock();
+            if (obj->ContainsForwardingPtr())
+            {
+                newObject = obj->GetForwardingPtr();
+                if (requireLock) srcSpace->spaceLock.Unlock();
+                if (debugOptions & DEBUG_GC_DETAIL)
+                    Log("GC: Quick: %p %lu %u has already moved to %p\n", obj, n, GetTypeBits(L), newObject);
+                objectCopied = false;
+                return obj->GetForwardingPtr();
+            }
+            obj->SetForwardingPtr(newObject);
+            if (requireLock) srcSpace->spaceLock.Unlock();
+
+            lSpace->lowerAllocPtr += n+1;
+            CopyObjectToNewAddress(obj, newObject, L);
+            objectCopied = true;
+            return newObject;
         }
     }
-    // Not enough space.
-    succeeded = false;
+    // Insufficient space
     return obj;
 }
 
@@ -97,64 +134,76 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
     while (n-- != 0)
     {
         PolyWord val = *(--pt);
-        if (val.IsTagged())
-            continue;
-
-        LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-
-        // We only copy it if it is in a local allocation space and not in the
-        // "overflow" area of data that could not copied by the last full GC.
-        if (space == 0 || ! space->allocationSpace || val.AsAddress() >= space->upperAllocPtr)
-            continue;
-
-        // We shouldn't get code addresses since we handle code
-        // segments separately so if this isn't an integer it must be an object address.
-        ASSERT(OBJ_IS_DATAPTR(val));
-
-        PolyObject *obj = val.AsObjPtr();
-
-        // Has it been moved already?
-        if (obj->ContainsForwardingPtr())
+        if (! val.IsTagged())
         {
-            PolyObject *newAddress = obj->GetForwardingPtr();
-            ASSERT(newAddress->ContainsNormalLengthWord());
-            *pt = newAddress;
-            continue;
+            LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
+
+            // We only copy it if it is in a local allocation space and not in the
+            // "overflow" area of data that could not copied by the last full GC.
+            if (space != 0 && space->allocationSpace && val.AsAddress() <= space->upperAllocPtr)
+            {
+                // We shouldn't get code addresses since we handle code
+                // segments separately so if this isn't an integer it must be an object address.
+                ASSERT(OBJ_IS_DATAPTR(val));
+
+                PolyObject *obj = val.AsObjPtr();
+                // Load the length word without any interlock.  We can't assume that
+                // another thread won't also copy this at the same time.
+                POLYUNSIGNED L = obj->LengthWord();
+
+                // Has it been moved already? N.B.  Another thread may be in the process of
+                // moving it so the new object may not be fully copied.
+                if (OBJ_IS_POINTER(L))
+                    *pt = OBJ_GET_POINTER(L);
+                else
+                {
+                    // We need to copy this object.
+                    //CheckPointer (val); 
+
+                    PolyObject *newObject = obj; // New address of object.
+
+                    if (taskID != 0)
+                        // See if we can find space in an area we already own.
+                        newObject = FindNewAddress(obj, L, space, taskID);
+
+                    if (newObject == obj)
+                    {
+                        // See if we can find space in another area that hasn't yet been
+                        // claimed.  We need the lock here.
+                        PLocker lock(&copyLock);
+                        newObject = FindNewAddress(obj, L, space, 0);
+                    }
+
+                    if (newObject == obj) // Couldn't copy it - not enough space.
+                        succeeded = false;
+
+                    *pt = newObject; // Update the pointer to the object
+
+                    if (debugOptions & DEBUG_GC_DETAIL)
+                    {
+                        if (*pt == obj)
+                            Log("GC: Quick: Insufficient space to move %p %lu %u\n", obj, n, GetTypeBits(L));
+                        else Log("GC: Quick: %p %lu %u moved to %p\n", obj, n, GetTypeBits(L), newObject);
+                    }
+
+                    // Stop now unless this is a simple word object we have been able to move.
+                    // Also stop if we're just scanning the roots.
+                    if (taskID != 0 && newObject != obj && ! OBJ_IS_MUTABLE_OBJECT(L) && 
+                        GetTypeBits(L) == 0 && objectCopied)
+                    {
+                        // We can simply return zero in which case this performs a breadth-first scan.
+                        // A breadth-first scan distributes the objects through the memory so
+                        // to retain some degree of locality we try to copy some object pointed at
+                        // by this one.  We work from the end back so that we follow the tail pointers
+                        // for lists.
+                        n = OBJ_OBJECT_LENGTH(L); // Object length
+                        pt = (PolyWord*)newObject + n;
+                    }
+                }
+            }
         }
-
-        CheckPointer (val);
-
-        POLYUNSIGNED L = obj->LengthWord();
-        n = OBJ_OBJECT_LENGTH(L);
-
-        // Copy the object.  Returns the new address unless there wasn't enough space
-        // in which case it returns the original address.
-        // Copy the object.
-        PolyObject *newObject = CopyToGCArea(obj);
-
-        CheckObject(newObject);
-
-        *pt = newObject;
-
-        if (debugOptions & DEBUG_GC_DETAIL)
-        {
-            if (*pt == obj)
-                Log("GC: Quick: Insufficient space to move %p %lu %u\n", obj, n, GetTypeBits(L));
-            else Log("GC: Quick: %p %lu %u moved to %p\n", obj, n, GetTypeBits(L), newObject);
-        }
-
-        // Stop now unless this is a simple word object we have been able to move.
-        if (newObject == obj || OBJ_IS_MUTABLE_OBJECT(L) || GetTypeBits(L) != 0)
-            return 0;
-
-        // We can simply return zero in which case this performs a breadth-first scan.
-        // A breadth-first scan distributes the objects through the memory so
-        // to retain some degree of locality we try to copy some object pointed at
-        // by this one.  We work from the end back so that we follow the tail pointers
-        // for lists.
-        pt = (PolyWord*)newObject + n;
     }
-
+    // We've reached the end without finding a pointer to follow
     return 0;
 }
 
@@ -165,6 +214,7 @@ PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
     PolyWord val = base;
     // Scan this as an address.
     POLYUNSIGNED lengthWord = QuickGCScanner::ScanAddressAt(&val);
+    ASSERT(lengthWord == 0);
     if (lengthWord)
         ScanAddressesInObject(val.AsObjPtr(), lengthWord);
     return val.AsObjPtr();
@@ -181,6 +231,71 @@ PolyObject *QuickGCRecovery::ScanObjectAddress(PolyObject *base)
     if (base->ContainsForwardingPtr())
         return base->GetForwardingPtr();
     else return base;
+}
+
+static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
+{
+    QuickGCScanner marker(id);
+    LocalMemSpace *initialSpace = (LocalMemSpace *)arg1;
+    {
+        PLocker lock(&copyLock);
+        // Take ownership of this space unless another thread
+        // is already copying into it.  In that case that thread
+        // will be responsible for it.
+        if (initialSpace->spaceOwner != 0)
+            return;
+        initialSpace->spaceOwner = id;
+    }
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Quick: Thread %p is processing space %p\n", id, initialSpace);
+
+    while (true)
+    {
+        bool allDone = true;
+        // We're finished when there is no unscanned data in any space we own.
+        for (unsigned k = 0; k < gMem.nlSpaces && allDone; k++)
+        {
+            LocalMemSpace *space = gMem.lSpaces[k];
+            if (space->spaceOwner == id)
+                allDone = space->partialGCScan == space->lowerAllocPtr;
+        }
+        if (allDone) break;
+
+        // Scan each area that has had data added to it.
+        for (unsigned l = 0; l < gMem.nlSpaces; l++)
+        {
+            LocalMemSpace *space = gMem.lSpaces[l];
+            if (space->spaceOwner == id)
+            {
+                // Scan the area.  This may well result in more data being added
+                while (space->partialGCScan != space->lowerAllocPtr)
+                {
+                    PolyWord *lastAllocPtr = space->lowerAllocPtr;
+                    // Scan the area.  This may well result in more data being added
+                    marker.ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
+                    // If we ran out of space stop here.  We need to rescan any objects
+                    // that contain addresses we couldn't move because another thread
+                    // may have done.
+                    if (! marker.succeeded)
+                    {
+                        if (debugOptions & DEBUG_GC)
+                            Log("GC: Quick: Thread %p has insufficient space\n", id);
+                        return;
+                    }
+                    space->partialGCScan = lastAllocPtr;
+                }
+            }
+        }
+    }
+    // Release the spaces we're holding in case another thread wants to use them.
+    PLocker lock(&copyLock);
+    for (unsigned m = 0; m < gMem.nlSpaces; m++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[m];
+        if (space->spaceOwner == id)
+            space->spaceOwner = 0;
+    }
 }
 
 bool RunQuickGC(void)
@@ -204,10 +319,11 @@ bool RunQuickGC(void)
         lSpace->partialGCTop = lSpace->upperAllocPtr;
         // If we're scanning a space this is where we start.
         lSpace->partialGCScan = lSpace->lowerAllocPtr;
+        lSpace->spaceOwner = 0; // Not currently owned
     }
 
     // First scan the roots, copying the data into the mutable and immutable areas.
-    QuickGCScanner marker;
+    QuickGCScanner rootScan(0);
 
     // Scan the local mutable including any overflow area in the allocation areas.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
@@ -216,10 +332,10 @@ bool RunQuickGC(void)
         if (space->isMutable)
         {
             // The upper area contains data copied by the last major GC.
-            marker.ScanAddressesInRegion(space->partialGCTop, space->top);
+            rootScan.ScanAddressesInRegion(space->partialGCTop, space->top);
             // The lower area contains data copied by previous minor GCs.
             if (! space->allocationSpace)
-                marker.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+                rootScan.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
         }
     }
     // Scan the permanent mutable areas.
@@ -227,44 +343,37 @@ bool RunQuickGC(void)
     {
         MemSpace *space = gMem.pSpaces[j];
         if (space->isMutable)
-            marker.ScanAddressesInRegion(space->bottom, space->top);
+            rootScan.ScanAddressesInRegion(space->bottom, space->top);
     }
 
     // Scan RTS addresses.  This will include the thread stacks.
-    GCModules(&marker);
+    GCModules(&rootScan);
 
-    // Now iterate over the areas scanning and copying until everything is copied.
-    // We have to continue this even if we've run out of space to ensure that all
-    // the addresses of objects that have been moved have been updated.
-    while (true)
+    // At this point the immutable and mutable areas will have some root objects
+    // in the space between partialGCScan (the old value of lowerAllocPtr) and
+    // lowerAllocPtr.  These will contain the addresses of objects in the allocation
+    // areas.  We need to scan these root objects and then any new objects we copy
+    // until there are no objects left to scan.
+    for (unsigned l = 0; l < gMem.nlSpaces; l++)
     {
-        bool allDone = true;
-        // We're finished when there is no unscanned data
-        for (unsigned k = 0; k < gMem.nlSpaces && allDone; k++)
-        {
-            LocalMemSpace *space = gMem.lSpaces[k];
-            allDone = space->partialGCScan == space->lowerAllocPtr;
-        }
-        if (allDone) break;
+        LocalMemSpace *space = gMem.lSpaces[l];
+        if (space->partialGCScan != space->lowerAllocPtr)
+            gpTaskFarm->AddWorkOrRunNow(&scanCopiedArea, space, 0);
+    }
 
-        // Scan each area that has had data added to it.
-        for (unsigned l = 0; l < gMem.nlSpaces; l++)
-        {
-            LocalMemSpace *space = gMem.lSpaces[l];
+    gpTaskFarm->WaitForCompletion();
 
-            while (space->partialGCScan != space->lowerAllocPtr)
-            {
-                PolyWord *lastAllocPtr = space->lowerAllocPtr;
-                // Scan the area.  This may well result in more data being added
-                marker.ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
-                space->partialGCScan = lastAllocPtr;
-            }
-        }
+    // Did we manage to copy everything?
+    for (unsigned m = 0; m < gMem.nlSpaces; m++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[m];
+        if (space->partialGCScan != space->lowerAllocPtr)
+            rootScan.succeeded = false;
     }
 
     record_gc_time(GCTimeEnd);
 
-    if (marker.succeeded)
+    if (rootScan.succeeded)
     {
         // If it succeeded the allocation areas are now empty.
         for(unsigned l = 0; l < gMem.nlSpaces; l++)
@@ -286,23 +395,27 @@ bool RunQuickGC(void)
     }
     else
     {
-        // We are going to have to do a full GC because there wasn't space.  The objects
-        // we haven't been able to move won't have been scanned so we have to make sure
-        // we've updated addresses within them before we return.
+        // Else: if we failed to find space we have data in the allocation areas that have not been
+        // moved.  Since they are not scanned they may contain the addresses of objects that have
+        // been moved i.e. containing forwarding pointers.  There's also the case where one thread
+        // has run out of space and so it leaves pointers into the allocation area in its objects
+        // only for another thread to copy them later.
         QuickGCRecovery recovery;
         for (unsigned l = 0; l < gMem.nlSpaces; l++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
             if (lSpace->allocationSpace)
                 recovery.ScanAddressesInRegion(lSpace->bottom, lSpace->lowerAllocPtr);
+            else
+                recovery.ScanAddressesInRegion(lSpace->partialGCScan, lSpace->lowerAllocPtr);
         }
     }
 
     if (debugOptions & DEBUG_GC)
     {
-        if (marker.succeeded) Log("GC: Completed successfully\n");
+        if (rootScan.succeeded) Log("GC: Completed successfully\n");
         else Log("GC: Quick GC failed\n");
     }
 
-    return marker.succeeded;
+    return rootScan.succeeded;
 }

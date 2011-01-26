@@ -185,9 +185,8 @@ public:
 };
 
 // Copy a cell to its new address.
-void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress)
+void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POLYUNSIGNED L)
 {
-    POLYUNSIGNED L = srcAddress->LengthWord();
     destAddress->SetLengthWord(L); /* copy length word */
 
     if (debugOptions & DEBUG_GC_DETAIL)
@@ -198,8 +197,6 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress)
 
     for (POLYUNSIGNED i = 0; i < n; i++)
         destAddress->Set(i, srcAddress->Get(i));
-
-    srcAddress->SetForwardingPtr(destAddress);
     
     // If this is a code object flush out anything from the instruction cache
     // that might previously have been at this address
@@ -361,7 +358,8 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
             continue;
         }
 
-        CopyObjectToNewAddress(obj, (PolyObject*)(newp+1));
+        obj->SetForwardingPtr((PolyObject*)(newp+1));
+        CopyObjectToNewAddress(obj, (PolyObject*)(newp+1), L);
     }
 
     {
@@ -375,7 +373,7 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
 // Copy mutable areas into a new area.  If the area to be copied has
 // already received data copied from elsewhere it isn't copied and is
 // processed in copyMutableArea.
-static void copyMutableAreaToNewArea(void *arg1, void * /*arg2*/)
+static void copyMutableAreaToNewArea(GCTaskId*, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
@@ -384,7 +382,7 @@ static void copyMutableAreaToNewArea(void *arg1, void * /*arg2*/)
 }
 
 // Similar to copyMutableAreaToNewArea but for immutable data.
-static void copyImmutableAreaToNewArea(void *arg1, void * /*arg2*/)
+static void copyImmutableAreaToNewArea(GCTaskId*, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
@@ -392,7 +390,7 @@ static void copyImmutableAreaToNewArea(void *arg1, void * /*arg2*/)
     CopyObjects(lSpace, 0, 0);
 }
 
-static void copyMutableArea(void *arg1, void * /*arg2*/)
+static void copyMutableArea(GCTaskId*, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
@@ -400,7 +398,7 @@ static void copyMutableArea(void *arg1, void * /*arg2*/)
     CopyObjects(lSpace, lSpace, 0);
 }
 
-static void copyImmutableArea(void *arg1, void * /*arg2*/)
+static void copyImmutableArea(GCTaskId*, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)

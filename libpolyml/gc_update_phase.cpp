@@ -259,7 +259,7 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 }
 
 // Task to update addresses in a local area.
-static void updateLocalArea(void *arg1, void *arg2)
+static void updateLocalArea(GCTaskId*, void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     LocalMemSpace *space = (LocalMemSpace *)arg2;
@@ -272,7 +272,7 @@ static void updateLocalArea(void *arg1, void *arg2)
 }
 
 // Task to update addresses in a non-local area.
-static void updateNonLocalMutableArea(void *arg1, void *arg2)
+static void updateNonLocalMutableArea(GCTaskId*, void *arg1, void *arg2)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     MemSpace *space = (MemSpace *)arg2;
@@ -284,7 +284,7 @@ static void updateNonLocalMutableArea(void *arg1, void *arg2)
 }
 
 // Task to update addresses maintained by the RTS itself.
-static void updateGCProcAddresses(void *arg1, void *)
+static void updateGCProcAddresses(GCTaskId*, void *arg1, void *)
 {
     MTGCProcessUpdate *processUpdate = (MTGCProcessUpdate *)arg1;
     GCModules(processUpdate);

@@ -49,6 +49,10 @@
 #include "diagnostics.h"
 #include "timing.h"
 
+static GCTaskId gTask;
+
+GCTaskId *globalTask = &gTask;
+
 GCTaskFarm::GCTaskFarm()
 {
     queueSize = queueIn = queuedItems = 0;
@@ -124,11 +128,12 @@ bool GCTaskFarm::AddWork(gctask work, void *arg1, void *arg2)
 void GCTaskFarm::AddWorkOrRunNow(gctask work, void *arg1, void *arg2)
 {
     if (! AddWork(work, arg1, arg2))
-        (*work)(arg1, arg2);
+        (*work)(globalTask, arg1, arg2);
 }
 
 void GCTaskFarm::ThreadFunction()
 {
+    GCTaskId myTaskId;
 #ifdef WINDOWS_PC
     DWORD startActive = GetTickCount();
 #else
@@ -153,7 +158,7 @@ void GCTaskFarm::ThreadFunction()
             queuedItems--;
             ASSERT(work != 0);
             workLock.Unlock();
-            (*work)(arg1, arg2);
+            (*work)(&myTaskId, arg1, arg2);
             workLock.Lock();
         }
         else {

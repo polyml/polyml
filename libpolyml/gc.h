@@ -46,7 +46,7 @@ extern void initialiseMultithreadGC(unsigned threads);
 class GCTaskFarm;
 extern GCTaskFarm *gpTaskFarm;
 
-extern void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress);
+extern void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POLYUNSIGNED L);
 
 extern bool RunQuickGC(void);
 

@@ -1,7 +1,7 @@
 /*
     Title:      Task farm for Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010 David C. J. Matthews
+    Copyright (c) 2010,2011 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,10 +24,17 @@
 
 #include "locking.h"
 
+// An empty class just used as an ID.
+class GCTaskId {
+
+};
+
+extern GCTaskId *globalTask; // The ID used when a function is run immediately
+
 // Function for action.  The usual C++ approach would be to use an
 // object pointer but that requires lots of small objects to be created
 // and deleted.
-typedef void (*gctask)(void*, void*);
+typedef void (*gctask)(GCTaskId*, void*, void*);
 
 typedef struct {
     gctask  task;

@@ -26,6 +26,7 @@
 #include "locking.h"
 
 class ScanAddress;
+class GCTaskId;
 
 typedef enum {
     ST_IO,          // The io area forms an interface with the RTS
@@ -100,6 +101,8 @@ public:
     PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
     PolyWord    *partialGCTop;    // Value of lowerAllocPtr before the current partial GC.
     PolyWord    *partialGCScan;   // Scan pointer used in minor GC
+    PLock       spaceLock;        // Lock used to protect forwarding pointers
+    GCTaskId    *spaceOwner;      // The thread that "owns" this space during a GC.
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
