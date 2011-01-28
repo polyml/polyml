@@ -79,3 +79,12 @@ struct
 
 end;
 
+(* Override the default printer so they're abstract. *)
+local
+    fun prettyCPUTimer _ _ (_: Timer.cpu_timer) = PolyML.PrettyString "?"
+    and prettyRealTimer _ _ (_: Timer.real_timer) = PolyML.PrettyString "?"
+in
+    val () = PolyML.addPrettyPrinter prettyCPUTimer
+    and () = PolyML.addPrettyPrinter prettyRealTimer
+end;
+
