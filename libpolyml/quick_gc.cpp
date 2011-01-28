@@ -100,7 +100,11 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L,
             // pointer here and updating it if necessary is atomic.  We don't need
             // to do that for immutable data so there is a small chance that an
             // object may be copied twice.  That's not a problem for immutable data.
-            bool requireLock = isMutable;
+            // Also lock this if it's code.  This may not be necessary but code objects
+            // are rare. Updating the addresses in code objects is complicated and
+            // it's possible that there are assumptions somewhere that there's only one
+            // copy.
+            bool requireLock = isMutable || OBJ_IS_CODE_OBJECT(L);
 
             if (requireLock) srcSpace->spaceLock.Lock();
             if (obj->ContainsForwardingPtr())
@@ -213,10 +217,9 @@ PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
 {
     PolyWord val = base;
     // Scan this as an address.
-    POLYUNSIGNED lengthWord = QuickGCScanner::ScanAddressAt(&val);
-    ASSERT(lengthWord == 0);
-    if (lengthWord)
-        ScanAddressesInObject(val.AsObjPtr(), lengthWord);
+    (void)QuickGCScanner::ScanAddressAt(&val);
+    // Ignore the result of ScanAddressAt which is always zero and
+    // just return the updated address.
     return val.AsObjPtr();
 }
 
