@@ -246,7 +246,7 @@ void GCMarkPhase(void)
         if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
         if (debugOptions & DEBUG_GC)
             Log("GC: Mark: %s space %p: %u immutable words marked, %u mutable words marked\n",
-                                lSpace->isMutable ? "mutable" : "immutable", lSpace,
+                                lSpace->spaceTypeString(), lSpace,
                                 lSpace->i_marked, lSpace->m_marked);
     }
 }

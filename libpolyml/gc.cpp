@@ -511,7 +511,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         for(j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[j];
-            Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->isMutable ? "Mutable" : "Immutable",
+            Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                 lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                 ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
         }

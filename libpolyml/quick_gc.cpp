@@ -391,7 +391,7 @@ bool RunQuickGC(void)
 #endif
             }
             if (debugOptions & DEBUG_GC)
-                Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->isMutable ? "Mutable" : "Immutable",
+                Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                     lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                     ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
         }

@@ -58,6 +58,9 @@ public:
     // weak refs.
     PolyWord        *lowestWeak, *highestWeak;
 
+    // Used when printing debugging info
+    virtual const char *spaceTypeString() { return isMutable ? "mutable" : "immutable"; }
+
     friend class MemMgr;
 };
 
@@ -120,6 +123,9 @@ public:
         { return (top-upperAllocPtr) + (lowerAllocPtr-bottom); }
     POLYUNSIGNED freeSpace(void)const // Words free
         { return upperAllocPtr-lowerAllocPtr; }
+
+    virtual const char *spaceTypeString()
+        { return allocationSpace ? "allocation" : MemSpace::spaceTypeString(); }
 
     friend class MemMgr;
 };

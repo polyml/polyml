@@ -173,13 +173,13 @@ void GCTaskFarm::ThreadFunction()
             if (debugOptions & DEBUG_GCTASKS)
             {
 #ifdef WINDOWS_PC
-                Log("GCTask: Thread %u blocking after %u milliseconds\n", ::GetCurrentThreadId(),
+                Log("GCTask: Thread %p blocking after %u milliseconds\n", &myTaskId,
                      GetTickCount() - startActive);
 #else
                 struct timeval endTime;
                 gettimeofday(&endTime, NULL);
                 subTimes(&endTime, &startTime);
-                Log("GCTask: Thread blocking after %0.4f seconds\n",
+                Log("GCTask: Thread %p blocking after %0.4f seconds\n", &myTaskId,
                     (float)endTime.tv_sec + (float)endTime.tv_usec / 1.0E6);
 #endif
             }
@@ -192,11 +192,10 @@ void GCTaskFarm::ThreadFunction()
             {
 #ifdef WINDOWS_PC
 	            startActive = GetTickCount();
-                Log("GCTask: Thread %u resuming\n", ::GetCurrentThreadId());
 #else
                 gettimeofday(&startTime, NULL);
-                Log("GCTask: Thread resuming\n");
 #endif
+                Log("GCTask: Thread %p resuming\n", &myTaskId);
             }
             workLock.Lock();
             activeThreadCount++;
