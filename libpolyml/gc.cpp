@@ -713,7 +713,12 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
 
     if (hsize < isize+msize+asize) hsize = isize+msize+asize;
 
-    hsize = hsize / userOptions.gcthreads; // The space is divided between the threads.
+    // The space is divided between the threads so that the total
+    // is the value given in the option.
+    hsize = hsize / userOptions.gcthreads;
+    msize = msize / userOptions.gcthreads;
+    isize = isize / userOptions.gcthreads;
+    asize = asize / userOptions.gcthreads;
     // Defaults are half the heap for the immutable buffer, 5% for mutable and 45% for allocation
     if (msize == 0) msize = hsize / 20;  /* set default mutable buffer size */
     if (isize == 0) isize = hsize / 2;  /* set default immutable buffer size */

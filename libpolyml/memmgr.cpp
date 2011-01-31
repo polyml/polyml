@@ -144,7 +144,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
             if (reservation == 0) {
                 // Insufficient space for the reservation.  Can't allocate this local space.
                 if (debugOptions & DEBUG_MEMMGR)
-                    Log("MMGR: New local %smutable space: insufficient reservation space\n");
+                    Log("MMGR: New local %smutable space: insufficient reservation space\n", mut ? "": "im");
                 delete space;
                 return 0;
             }
@@ -261,7 +261,8 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
     {
         if (lSpaces[i] == sp)
         {
-            bool wasMutable = sp->isMutable;
+            if (debugOptions & DEBUG_MEMMGR)
+                Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
             delete sp;
             nlSpaces--;
             while (i < nlSpaces)
@@ -269,13 +270,10 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
                 lSpaces[i] = lSpaces[i+1];
                 i++;
             }
-            if (debugOptions & DEBUG_MEMMGR)
-                Log("MMGR: Deleted local %smutable space %p\n", wasMutable ? "": "im", sp);
             return true;
         }
     }
-    if (debugOptions & DEBUG_MEMMGR)
-        Log("MMGR: Deleting local %smutable space: not found in table\n");
+    ASSERT(false); // It should always be in the table.
     return false;
 }
 
@@ -726,8 +724,7 @@ bool MemMgr::DeleteStackSpace(StackSpace *space)
             return true;
         }
     }
-    if (debugOptions & DEBUG_MEMMGR)
-        Log("MMGR: Deleting stack space %p: not found in table\n", space);
+    ASSERT(false); // It should always be in the table.
     return false;
 }
 
