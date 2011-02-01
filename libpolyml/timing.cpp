@@ -543,17 +543,19 @@ void record_gc_time(gcTime isEnd, const char *stage)
             struct timeval tv;
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0 || gettimeofday(&tv, NULL) != 0)
                 return;
+            struct rusage nextUsage = rusage;
+            struct timeval nextTime = tv;
             subTimes(&rusage.ru_utime, &lastUsage.ru_utime);
             subTimes(&rusage.ru_stime, &lastUsage.ru_stime);
-            subTimes(&tv, &startTime);
+            subTimes(&tv, &lastTime);
 
             float userTime = (float)rusage.ru_utime.tv_sec + (float)rusage.ru_utime.tv_usec / 1.0E6;
             float systemTime = (float)rusage.ru_stime.tv_sec + (float)rusage.ru_stime.tv_usec / 1.0E6;
             float realTime = (float)tv.tv_sec + (float)tv.tv_usec / 1.0E6;
             Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
                 systemTime, realTime, (userTime + systemTime) / realTime);
-            lastUsage = startUsage;
-            lastTime = startTime;
+            lastUsage = nextUsage;
+            lastTime = nextTime;
         }
         break;
 
