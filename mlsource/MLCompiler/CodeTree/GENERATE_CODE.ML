@@ -640,7 +640,8 @@ struct
                    because we may have pushed some onto the stack as we loaded the
                    later ones.  That's fine so long as when we loop we put the new
                    values in the same place.  *)
-                val argDestList = getLoopDestinations(argIndexList, transtable)
+                val (argDestList, clearOps) = getLoopDestinations(argIndexList, transtable)
+                val () = codeGenerate(clearOps, cvec)
                 (* Start of loop.  This is where we jump to if the loop is taken. *)
                 val (startLoopCode, startLoop) = backJumpLabel()
                 val () = codeGenerate(startLoopCode, cvec)

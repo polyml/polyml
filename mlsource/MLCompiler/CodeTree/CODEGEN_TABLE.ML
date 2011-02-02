@@ -3019,8 +3019,15 @@ struct
                     {ent = StackW index, ...} => ArgToStack index
                 |   {ent = Register(reg, _), ...} => ArgToRegister reg
                 |   _ => raise InternalError "getLoopDest: wrong entry type"
+            (* Remove cache registers from loop variables.  There was a bug where a
+               loop variable was not being reloaded when the corresponding stack
+               entry had been modified within the loop. *)
+            fun removeCache(entry, ops) =
+                if entry = noIndex
+                then ops
+                else clearCacheEntry(transtable, allRegisters, entry) @ ops
         in
-            map getLoopDest indices
+            (map getLoopDest indices, List.foldl removeCache [] indices)
         end
 
     type loopPush = stackIndex
