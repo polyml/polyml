@@ -828,6 +828,9 @@ TryAgain:
         }
 
     case 46: /* Accept a connection. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
+
     case 58: /* Non-blocking accept. */
         {
             PIOSTRUCT strm = get_stream(args->WordP());
@@ -902,6 +905,8 @@ TryAgain:
         }
 
     case 48: /* Connect to an address. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
     case 59: /* Non-blocking connect. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
@@ -1002,6 +1007,8 @@ TryAgain:
         }
 
     case 51: /* Send data on a socket. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
     case 60: /* Non-blocking send. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
@@ -1048,6 +1055,8 @@ TryAgain:
         }
 
     case 52: /* Send data on a socket to a given address. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
     case 61: /* Non-blocking send. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
@@ -1095,6 +1104,8 @@ TryAgain:
         }
 
     case 53: /* Receive data into an array. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
     case 62: /* Non-blocking receive. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
@@ -1134,6 +1145,8 @@ TryAgain:
     case 54: /* Receive data into an array and return the sender's
                 address along with the length.  In Windows this can
                 only be used with datagrams. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
     case 63: /* Non-blocking receive. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
@@ -1542,6 +1555,8 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
    minus one.  */
 static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 {
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
     fd_set readers, writers, excepts;
     struct timeval timeout;
     int i, nVec, selectRes;

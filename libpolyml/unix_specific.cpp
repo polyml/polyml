@@ -605,6 +605,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if ((unsigned long)tv.tv_sec < secs ||
                 ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec < usecs))
                 processes->BlockAndRestart(taskData, NULL, true /* Interruptable. */, POLY_SYS_os_specific);
+            else processes->TestAnyEvents(taskData); // Check for interrupts anyway
+
             return Make_arbitrary_precision(taskData, 0);
         }
     
@@ -1224,6 +1226,9 @@ Handle waitForProcess(TaskData *taskData, Handle args)
 /* Get result status of a child process. */
 {
 TryAgain:
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
+
     int kind = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
     int pid = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
     int callFlags = get_C_long(taskData, DEREFHANDLE(args)->Get(2));

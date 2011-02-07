@@ -222,6 +222,8 @@ public:
     virtual bool ProcessAsynchRequests(TaskData *taskData) = 0;
     // Process an interrupt request synchronously.
     virtual void TestSynchronousRequests(TaskData *taskData) = 0;
+    // Process any events, synchronous or asynchronous.
+    virtual void TestAnyEvents(TaskData *taskData) = 0;
     
     // ForkFromRTS.  Creates a new thread from within the RTS.
     virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg) = 0;

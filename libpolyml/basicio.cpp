@@ -550,6 +550,9 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
        is provided for future use.  Windows remembers the mode used
        when the file was opened to determine whether to translate
        CRLF into LF. */
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
+
     while (1) // Loop if interrupted.
     {
         // First test to see if we have input available.
@@ -610,6 +613,8 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
 static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
     POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORD(args));
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
 
     while (1) // Loop if interrupted.
     {
@@ -840,7 +845,9 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
     PolyObject  *bitVec =  DEREFHANDLE(args)->Get(1).AsObjPtr();
     POLYUNSIGNED nDesc = strmVec->Length();
     ASSERT(nDesc ==  bitVec->Length());
-    
+    // We should check for interrupts even if we're not going to block.
+    processes->TestAnyEvents(taskData);
+
     /* Simply do a non-blocking poll. */
 #ifdef WINDOWS_PC
     {
@@ -1626,6 +1633,8 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         return readString(taskData, strm, args, false);
 
     case 27: /* Block until input is available. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
         while (true) {
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -1639,6 +1648,8 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         return Make_arbitrary_precision(taskData, canOutput(taskData, strm) ? 1:0);
 
     case 29: /* Block until output is possible. */
+        // We should check for interrupts even if we're not going to block.
+        processes->TestAnyEvents(taskData);
         while (true) {
             if (canOutput(taskData, strm))
                 return Make_arbitrary_precision(taskData, 0);

@@ -229,6 +229,8 @@ public:
     virtual bool ProcessAsynchRequests(TaskData *taskData);
     // Process an interrupt request synchronously.
     virtual void TestSynchronousRequests(TaskData *taskData);
+    // Process any events, synchronous or asynchronous.
+    virtual void TestAnyEvents(TaskData *taskData);
 
     // Set a thread to be interrupted or killed.  Wakes up the
     // thread if necessary.  MUST be called with taskArrayLock held.
@@ -615,6 +617,11 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
     case 11: // Interrupt this thread now if it has been interrupted
         TestSynchronousRequests(taskData);
+        // Also process any asynchronous requests that may be pending.
+        // These will be handled "soon" but if we have just switched from deferring
+        // interrupts this guarantees that any deferred interrupts will be handled now.
+        if (ProcessAsynchRequests(taskData))
+            throw IOException(EXC_EXCEPTION);
         return SAVE(TAGGED(0));
 
     case 12: // Kill a specific thread
@@ -943,13 +950,11 @@ Handle exitThread(TaskData *taskData)
    broadcastInterrupt. */
 void Processes::ThreadPauseForIO(TaskData *taskData, Waiter *pWait)
 {
-    TestSynchronousRequests(taskData); // Consider this a blocking call that may raise Interrupt
+    TestAnyEvents(taskData); // Consider this a blocking call that may raise Interrupt
     ThreadReleaseMLMemory(taskData);
     pWait->Wait(1000); // Wait up to a second
     ThreadUseMLMemory(taskData);
-    TestSynchronousRequests(taskData); // Check if we've been interrupted.
-    if (ProcessAsynchRequests(taskData))
-        throw IOException(EXC_EXCEPTION);
+    TestAnyEvents(taskData); // Check if we've been interrupted.
 }
 
 // This is largely a legacy of the old single-thread version.  In that version there
@@ -1510,6 +1515,14 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
         throw KillException();
         // Doesn't return.
     }
+}
+
+// Check for asynchronous or synchronous events
+void Processes::TestAnyEvents(TaskData *taskData)
+{
+    TestSynchronousRequests(taskData);
+    if (ProcessAsynchRequests(taskData))
+        throw IOException(EXC_EXCEPTION);
 }
 
 // Stop.  Usually called by one of the threads but
