@@ -1120,6 +1120,7 @@ in
                 print "-v             Print the version of Poly/ML and exit\n";
                 print "--help         Print this message and exit\n";
                 print "-q             Suppress the start-up message\n";
+                print "--use FILE     Executes 'use \"FILE\";' before the ML shell starts\n";
                 print "--with-markup  Include extra mark-up information when printing\n";
                 print "--ideprotocol  Run the IDE communications protocol\n";
                 print "\nRun time system arguments:\n";
@@ -1143,12 +1144,43 @@ in
                        SIG_IGN => ()
                     |  SIG_DFL => (signal(2, SIG_HANDLE(fn _ => Thread.Thread.broadcastInterrupt())); ())
                     |  oldHandle => (signal(2, oldHandle); ())
-            in
-                PolyML.shell ();
+
+                fun tryUseFileArguments [] = true (* done successfully *)
+                  | tryUseFileArguments (arg::args) = 
+                    if arg = "--use" then case args 
+                      of filenameArg::moreArgs =>
+                         ((PolyML.use filenameArg; 
+                            tryUseFileArguments moreArgs)
+                            handle x => 
+                            (print ("Error trying to use the file: '" 
+                                    ^ filenameArg ^ "'\n"); 
+                             case x 
+                             of IO.Io rep => 
+                               (print ("IO.Io exception raised.\n  name: " ^ (#name rep) 
+                                      ^ "  (in function: " ^ (#function rep) ^ ")\n"); 
+                                false)
+                              | _ => raise x))
+                       | [] => (print "'--use' requires a filename to be given as the next argument.\n"; false)
+                    else tryUseFileArguments args;
+
+            in (if tryUseFileArguments (CommandLine.arguments()) 
+                   then PolyML.shell () else ()); 
                 OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
             end
         end;
 
+(* 
+OS.SysErr (s,SOME err) => 
+                              (print (s ^ "\nError in used file: '" 
+                                 ^ filenameArg ^ "'\nError name: " 
+                                 ^ (OS.errorName err) ^ "Error Message:" 
+                                 ^ (OS.errorMsg err) ^ "\n");   
+                              false)
+                            | OS.SysErr (s,NONE) => 
+                              (print (s ^ "\nError in used file: '" 
+                                 ^ filenameArg ^ "\n"); 
+                              false) 
+*)
         structure IDEInterface =
         struct
             val parseTree = parseTree
