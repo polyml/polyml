@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Update phase
 
-    Copyright (c) 2010 David C. J. Matthews
+    Copyright (c) 2010, 2011 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -186,10 +186,18 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
         POLYUNSIGNED L = obj->LengthWord();
         bitno++;
         
-        if (obj->ContainsForwardingPtr())    /* skip over moved object */
+        if (obj->ContainsForwardingPtr())
         {
-            obj = obj->GetForwardingPtr();
-            ASSERT(obj->ContainsNormalLengthWord()); // Only one level of forwarding
+            // Skip over moved objects.  We have to find the new location to find
+            // its length.
+            // This previously allowed for only one level of forwarding i.e.
+            // an object will only have been moved once.
+            // Makarius reported that the assertion to that effect sometimes
+            // failed with multi-threading enabled so we'll allow for the
+            // possibility of more than one level.
+            while (obj->ContainsForwardingPtr())
+                obj = obj->GetForwardingPtr();
+
             CheckObject (obj);
             
             POLYUNSIGNED length = obj->Length();
