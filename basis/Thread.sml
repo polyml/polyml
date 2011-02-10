@@ -327,7 +327,8 @@ struct
                     Word.orb(newValue, Word.andb(Word.notb mask, oldValues)));
                 (* If we are now handling interrupts asynchronously check whether
                    we have a pending interrupt now.  This will only be effective
-                   if we were previously handling them synchronously or *)
+                   if we were previously handling them synchronously or blocking
+                   them. *)
                 if Word.andb(newValue, 0w4) = 0w4
                 then testInterrupt()
                 else ()
