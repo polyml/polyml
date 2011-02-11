@@ -161,16 +161,6 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     if (newp < dst->upperAllocPtr)
         dst->upperAllocPtr = newp;
 
-#if(0)
-    // If we are copying into a later area we may copy into an area
-    // that crosses fullGCLowerLimit for that area.  We need to adjust fullGCLowerLimit
-    // since we assume above that fullGCLowerLimit points to a valid object.
-    // DCJM: This may no longer be necessary since we don't copy into
-    // a later area.
-    if (newp < dst->fullGCLowerLimit && newp+n > dst->fullGCLowerLimit)
-        dst->fullGCLowerLimit = newp+n;
-#endif
-
     dst->copied += n;
     dst->copiedIn = true;
 
@@ -289,10 +279,9 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
     /* the objects to be copied are sparsely separated.              */
 
     /* Invariant: at this point there are no objects below src->fullGCLowerLimit */
-    // DCJM: We start at fullGCLowerLimit because that was the lowest address that may
-    // have been used in the area since it was the value of upperAllocPointer at
-    // the start.  If nothing else, using it may speed up searching the bitmap for
-    // areas that are largely empty.
+    // We start at fullGCLowerLimit which is the lowest marked object in the heap
+    // N.B.  It's essential that the first set bit at or above this corresponds
+    // to the length word of a real object.
     POLYUNSIGNED  bitno   = BITNO(src, src->fullGCLowerLimit);
     // src->highest is the bit position that corresponds to the top of
     // generation we're copying.
@@ -351,11 +340,11 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
             if (old < src->upperAllocPtr)
                 src->upperAllocPtr = old;
 
-            /* We haven't been able to move this object on this GC, but we might    */
-            /* still be able to move some smaller objects, which might free enough  */
-            /* space that we'll be able to move this object on the next GC, even if */
-            /* nothing becomes garbage before then. SPF 19/11/1997                  */
-            continue;
+            // Previously this continued compressing to try to make space available
+            // on the next GC.  Normally full GCs are infrequent so the chances are
+            // that at the next GC other data will have been freed.  Just stop at
+            // this point.
+            break;
         }
 
         obj->SetForwardingPtr((PolyObject*)(newp+1));
@@ -507,21 +496,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         // this will record the extra space we need.
         immutable_overflow = markedImmut - copiedToI;
     }
-    
-    
-    /* The area between A.M.fullGCLowerLimit and A.M.pointer may contain
-       tombstones, so we daren't increase A.M.fullGCLowerLimit. */
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (lSpace->isMutable)
-        {
-            // We may have copied mutable objects from an earlier space
-            if (lSpace->upperAllocPtr < lSpace->fullGCLowerLimit)
-                lSpace->fullGCLowerLimit = lSpace->upperAllocPtr;
-        }
-    }
-    
+
     /* If we've copied an object from the mutable area below the previous
        limit of the immutable area using a "non-compressing" copy,
        it would be unsafe to attempt to compress the immutable area (we
@@ -537,7 +512,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
       
        SPF 19/12/1997
     */
-    
+
     /* Reclaim the genuine data from the immutable buffer. */
     for(j = 0; j < gMem.nlSpaces; j++)
         gMem.lSpaces[j]->copied = 0;
@@ -548,10 +523,6 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         LocalMemSpace *lSpace = gMem.lSpaces[j];
         if (! lSpace->isMutable)
         {
-            // If we have copied immutable objects out of the mutable buffer
-            // below fullGCLowerLimit we need to reset that.
-//            if (lSpace->pointer < lSpace->fullGCLowerLimit)
-//               lSpace->fullGCLowerLimit = lSpace->pointer;
             immutable_space  += lSpace->top - lSpace->fullGCLowerLimit;
             immutable_used   += lSpace->i_marked + lSpace->copied;
             immutable_needed += lSpace->i_marked;
@@ -581,6 +552,11 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         LocalMemSpace *lSpace = gMem.lSpaces[j-1];
         if (! lSpace->isMutable)
         {
+            // If the current allocation pointer is below the lowest marked object then
+            // we must already have copied some data into this area and filled all the
+            // holes or at least found something that was too big to fit in the holes.
+            // Compacting the area would not free any space but might allow the next
+            // GC to recover something.
             if (lSpace->fullGCLowerLimit <= lSpace->upperAllocPtr)
             {
                 if (compressImmutables)
@@ -591,26 +567,10 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
                 }
                 else // simply reclaim the immutable data (with its embedded garbage)
                     lSpace->upperAllocPtr = lSpace->fullGCLowerLimit;
-
-                ASSERT(lSpace->fullGCLowerLimit <= lSpace->upperAllocPtr);
-                // The area between lSpace->fullGCLowerLimit and lSpace->upperAllocPtr may contain
-                // tombstones, so we daren't increase lSpace->fullGCLowerLimit.
             }
-            else // We may have copied immutable objects from an earlier space.
-                lSpace->fullGCLowerLimit = lSpace->upperAllocPtr;
         }
     }
     gpTaskFarm->WaitForCompletion();
-
-    // An extra little check.
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (! lSpace->isMutable)
-        {
-            ASSERT(lSpace->fullGCLowerLimit <= lSpace->upperAllocPtr);
-        }
-    }
 
     POLYUNSIGNED iCopied = 0, iMarked = 0;
     for(j = 0; j < gMem.nlSpaces; j++)
