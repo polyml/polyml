@@ -162,7 +162,6 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
         dst->upperAllocPtr = newp;
 
     dst->copied += n;
-    dst->copiedIn = true;
 
     return newp;
 }
@@ -205,7 +204,7 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
 // Find the next space in the sequence.  It may return with the space unchanged if it
 // is unable to find a suitable space.
 // The copyLock must be held before this function is called.
-static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutable)
+static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutable, GCTaskId *id)
 {
     unsigned m = 0;
     if (*dst != 0)
@@ -224,9 +223,22 @@ static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutabl
             if (! lSpace->spaceInUse)
             {
                 // Change the space.
-                if (*dst) (*dst)->spaceInUse = false;
+                if (*dst)
+                {
+                    // Release any old space.
+                    ASSERT((*dst)->spaceOwner == id);
+                    (*dst)->spaceOwner = 0;
+                    (*dst)->spaceInUse = false;
+                }
                 (*dst) = lSpace;
-                (*dst)->spaceInUse = true;
+                lSpace->spaceInUse = true;
+                lSpace->spaceOwner = id;
+                // We need to set copiedIn to true here while we still hold the lock.
+                // The effect of this is to prevent this space from being processed
+                // during the "copy-to-new-space" pass and instead process it during
+                // the compaction pass.  If we don't set it here we could start copying
+                // out of the space in a new thread while we're still copying into it.
+                lSpace->copiedIn = true;
                 if (debugOptions & DEBUG_GC)
                     Log("GC: Copy: copying %s cells from %p to %p\n",
                                 isMutable ? "mutable" : "immutable", src, lSpace);
@@ -239,7 +251,7 @@ static bool FindNextSpace(LocalMemSpace *src, LocalMemSpace **dst, bool isMutabl
 
 // Copy objects from the source space into an earlier space or up within the
 // current space.
-static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMemSpace *immutableDest)
+static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMemSpace *immutableDest, GCTaskId *id)
 {
     {
         PLocker lock(&copyLock);
@@ -247,28 +259,28 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
             // We're copying out of this area.  We can't process it if we've
             // aready copied into it.  It will be processed later.
             return;
+        ASSERT(! src->spaceInUse);
+        ASSERT(src->spaceOwner == 0);
         // If we're trying to copy out of this area we need an immutable area.
         if (immutableDest == 0)
         {
-            if (! FindNextSpace(src, &immutableDest, false))
+            if (! FindNextSpace(src, &immutableDest, false, id))
                 return;
-            immutableDest->copiedIn = true;
         }
         // If this is a mutable area we may also need a mutable space
         if (src->isMutable && mutableDest == 0)
         {
-            if (! FindNextSpace(src, &mutableDest, true))
+            if (! FindNextSpace(src, &mutableDest, true, id))
             {
                 // Release the immutable area before returning.
                 immutableDest->spaceInUse = false;
+                ASSERT(immutableDest->spaceOwner == id);
+                immutableDest->spaceOwner = 0;
                 return;
             }
-            // At least in the case of a mutable space we have to set this
-            // as "copiedIn" so that another thread doesn't try to copy out of
-            // it.
-            mutableDest->copiedIn = true;
         }
         src->spaceInUse = true;
+        src->spaceOwner = id;
         ASSERT(! src->copiedOut);
         src->copiedOut = true;
     }
@@ -325,7 +337,7 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
             // See if we can find a different space.
             PLocker lock(&copyLock);
             // N.B.  FindNextSpace side-effects mutableDest/immutableDest to give the next space.
-            if (FindNextSpace(src, isMutable ? &mutableDest : &immutableDest, isMutable))
+            if (FindNextSpace(src, isMutable ? &mutableDest : &immutableDest, isMutable, id))
             {
                 bitno -= n; // Redo this object
                 continue;
@@ -353,46 +365,58 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
 
     {
         PLocker lock(&copyLock);
-        if (mutableDest) mutableDest->spaceInUse = false;
-        if (immutableDest) immutableDest->spaceInUse = false;
+        if (mutableDest && mutableDest != src)
+        {
+            mutableDest->spaceInUse = false;
+            ASSERT(mutableDest->spaceOwner == id);
+            mutableDest->spaceOwner = 0;
+        }
+        if (immutableDest && immutableDest != src)
+        {
+            immutableDest->spaceInUse = false;
+            ASSERT(immutableDest->spaceOwner == id);
+            immutableDest->spaceOwner = 0;
+        }
         src->spaceInUse = false;
+        ASSERT(src->spaceOwner == id);
+        src->spaceOwner = 0;
     }
 }
 
 // Copy mutable areas into a new area.  If the area to be copied has
 // already received data copied from elsewhere it isn't copied and is
 // processed in copyMutableArea.
-static void copyMutableAreaToNewArea(GCTaskId*, void *arg1, void * /*arg2*/)
+static void copyMutableAreaToNewArea(GCTaskId *id, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
         Log("GC: Copy: copying mutable area %p to new area\n", lSpace);
-    CopyObjects(lSpace, 0, 0);
+    CopyObjects(lSpace, 0, 0, id);
 }
 
 // Similar to copyMutableAreaToNewArea but for immutable data.
-static void copyImmutableAreaToNewArea(GCTaskId*, void *arg1, void * /*arg2*/)
+static void copyImmutableAreaToNewArea(GCTaskId *id, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
         Log("GC: Copy: copying immutable area %p to new area\n", lSpace);
-    CopyObjects(lSpace, 0, 0);
+    CopyObjects(lSpace, 0, 0, id);
 }
 
-static void copyMutableArea(GCTaskId*, void *arg1, void * /*arg2*/)
+static void copyMutableArea(GCTaskId *id, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
         Log("GC: Copy: compressing mutable area %p\n", lSpace);
-    CopyObjects(lSpace, lSpace, 0);
+    CopyObjects(lSpace, lSpace, 0, id);
 }
 
-static void copyImmutableArea(GCTaskId*, void *arg1, void * /*arg2*/)
+static void copyImmutableArea(GCTaskId *id, void *arg1, void * /*arg2*/)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     if (debugOptions & DEBUG_GC)
         Log("GC: Copy: compressing immutable area %p\n", lSpace);
-    CopyObjects(lSpace, 0, lSpace);
+    CopyObjects(lSpace, 0, lSpace, id);
 }
 
 void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
@@ -410,6 +434,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         lSpace->start_index = NSTARTS - 1;
         lSpace->copied = 0;
         lSpace->copiedIn = lSpace->copiedOut = false;
+        lSpace->spaceOwner = 0;
         ASSERT(! lSpace->spaceInUse);
     }
     /* Invariant: lSpace->start[0] .. lSpace->start[lSpace->start_index] is a descending sequence. */ 
