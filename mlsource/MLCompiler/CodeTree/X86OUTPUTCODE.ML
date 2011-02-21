@@ -1070,7 +1070,7 @@ SS-relative addressing modes:
          then raise InternalError "reallyFixBranches: jump already patched"
          else set8s (diff, addr, cseg);
 
-     removeLabel (addr, cvec)
+         removeLabel (addr, cvec)
        end
        
      | Jump32From addr =>
@@ -1190,7 +1190,11 @@ SS-relative addressing modes:
     (* If we have just made an unconditional branch then we make the 
        distance shorter. *)
     let
-        val maxDiff = (if branched then 100 else 127 - 5) - size;
+        (* Generally we only need to extend the nearest short branch but it
+           is possible that two branches could be very close together.  In that
+           case extending one branch could push another out of range. *)
+        val maxDiff =
+            Int.min(if branched then 100 else 127, 127 - 5 * List.length (!labelList)) - size;
 
         (* See if we must extend some branches.  If we are going to fix up a label
            immediately we don't normally extend it.  The exception is if we have
@@ -1219,12 +1223,11 @@ SS-relative addressing modes:
             is that more recent labels appear before earlier ones.
             We must put the earliest labels in first because they may
             be about to go out of range. *)
-          val convertRest = convertLabels labs;
+          val convertRest = convertLabels labs
        in
          (* Now do this entry. *)
          case !lab of
-           Jump32From _ => (* shouldn't happen? *)
-             convertRest
+           Jump32From _ => raise InternalError "Long jump in label list" (* shouldn't happen *)
            
          | Jump8From addr =>
             (* If we are about to fix this label up we don't need to extend it except that we
@@ -1233,7 +1236,7 @@ SS-relative addressing modes:
             if List.exists (fn a => a = lab) (! justComeFrom)
                 andalso (jumpSpace = 0 orelse !ic addrMinus addr < 127 - jumpSpace)
             then lab :: convertRest
-            else if !ic addrMinus addr > (100 - size)
+            else if !ic addrMinus addr > (100 - size) orelse !ic addrMinus addr > maxDiff
             then (* Getting close - convert it. *)
             (
                 reallyFixBranches [lab] cvec; (* fix up short jump to here *)
@@ -1255,7 +1258,7 @@ SS-relative addressing modes:
             )
        end (* convertLabels *);
     in
-        if !ic addrMinus ! longestBranch > maxDiff
+        if ! longestBranch <> addrLast andalso !ic addrMinus ! longestBranch > maxDiff
         then
         let         
             (* Must skip round the branches unless we have just taken an
