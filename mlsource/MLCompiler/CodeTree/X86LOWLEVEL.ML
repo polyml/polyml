@@ -1466,6 +1466,11 @@ struct
                 fun genDivMod isDiv ([_, InRegister dividend], _) =
                     let
                         val (notZero, notZeroLab) = condBranch(JNE, PredictTaken)
+                        (* The instruction to add back the tag to "dividend" was missing and this caused
+                           a rare crash on X86/64.  I've now added it in to fix the bug and I'm assuming
+                           that dividend cannot be either eax or edx.  This next test to just to make sure. *)
+                        val _ =
+                           if dividend = eax orelse dividend = edx then raise InternalError "genDivMod" else ()
                     in
                         (* Because we didn't shift the dividend and the divisor we don't
                            need to shift the remainder but just add in the tag.  We do have
@@ -1475,6 +1480,7 @@ struct
                         then [MakeSafe edx, TagValue{source=eax, output=eax}]
                         else [MakeSafe eax, ArithRConst{opc=ADD, output=edx, source=1}]) @
                         [
+                            ArithRConst{opc=ADD, source=1, output=dividend},
                             (* Clear the high order of the accumulator and do the division. *)
                             Group3Ops(dividend, DIV),
                             ArithRR{opc=XOR, source=edx, output=edx},
