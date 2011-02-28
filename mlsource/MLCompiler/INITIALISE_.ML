@@ -1295,6 +1295,63 @@ struct
                  ("getValue",               toMachineWord getValue, valueVal ->> TYPETREE.exnType)]
         end;
 
+    (* PolyML.CodeTree structure.  This exports the CodeTree structure into the ML space. *)
+        local
+            open CODETREE
+            val codetreeStr = makeEmptyGlobal "CodeTree"
+            val _ = #enterStruct polyMLEnv ("CodeTree", codetreeStr)
+            val (Env codetreeEnv) = makeEnv (sigTab(structSignat codetreeStr))
+
+            fun createType typeName =
+            let
+                val typeconstr =
+                    makeTypeConstructor(typeName, [],
+                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.CodeTree." ^ typeName)),
+                        declInBasis);
+            in
+                #enterType codetreeEnv (typeName, TypeConstrSet(typeconstr, []));
+                mkTypeConstruction (typeName, typeconstr, [], declInBasis)
+            end
+
+            val CodeTree = createType "codetree" and MachineWord = createType "machineWord"
+
+            (* For the moment export these only for the general argument and result types. *)
+            fun simpleFn (code, nArgs, name) =
+                mkFunction(code, List.tabulate(nArgs, fn _ => GeneralType), GeneralType, name)
+            and simpleInlineFn (code, nArgs, name) =
+                mkInlineFunction(code, List.tabulate(nArgs, fn _ => GeneralType), GeneralType, name)
+            and simpleCall(func, args) =
+                mkCall(func, List.map (fn c => (c, GeneralType)) args, GeneralType)
+        in
+            val () = applyList (fn (name, v, t) =>
+                                #enterVal codetreeEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                [
+                ("pretty", toMachineWord CodeTree.pretty, CodeTree ->> PrettyType),
+                ("mkConstant", toMachineWord mkConst, MachineWord ->> CodeTree),
+                ("genCode", toMachineWord genCode, CodeTree ** List Universal ->> (Unit ->> CodeTree)),
+                ("evalue", toMachineWord evalue, CodeTree ->> Option MachineWord),
+                ("codeNil", toMachineWord CodeNil, CodeTree),
+                ("mkFunction", toMachineWord simpleFn,
+                    mkProductType[CodeTree, Int, String] ->> CodeTree),
+                ("mkInlineFunction", toMachineWord simpleInlineFn,
+                    mkProductType[CodeTree, Int, String] ->> CodeTree),
+                ("mkCall", toMachineWord simpleCall, CodeTree ** List CodeTree ->> CodeTree),
+                ("mkLoad", toMachineWord mkLoad, Int ** Int ->> CodeTree),
+                ("mkRecLoad", toMachineWord mkRecLoad, Int ->> CodeTree),
+                ("mkDec", toMachineWord mkDec, Int ** CodeTree ->> CodeTree),
+                ("mkInd", toMachineWord mkInd, Int ** CodeTree ->> CodeTree),
+                ("mkIf", toMachineWord mkIf, mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),
+                ("mkWhile", toMachineWord mkWhile, CodeTree ** CodeTree ->> CodeTree),
+                ("mkEnv", toMachineWord mkEnv, List CodeTree ->> CodeTree),
+                ("mkMutualDecs", toMachineWord mkMutualDecs, List CodeTree ->> CodeTree),
+                ("mkTuple", toMachineWord mkTuple, List CodeTree ->> CodeTree),
+                ("mkRaise", toMachineWord mkRaise, CodeTree ->> CodeTree),
+                ("mkHandle", toMachineWord mkHandle, CodeTree ** CodeTree ->> CodeTree),
+                ("Ldexc", toMachineWord Ldexc, CodeTree),
+                ("rtsFunction", toMachineWord rtsFunction, Int ->> CodeTree)
+                ]
+        end
+
     in
         ()
     end (* initGlobalEnv *);
