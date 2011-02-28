@@ -1541,6 +1541,29 @@ in
             end
         end
         
+        and CodeTree =
+        struct
+            open PolyML.CodeTree
+            (* Add options to the code-generation phase. *)
+            val genCode =
+                fn code =>
+                let
+                    open Bootstrap Bootstrap.Universal
+                    val compilerOut = prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
+                in
+                    genCode(code,
+                        [
+                            tagInject compilerOutputTag compilerOut,
+                            tagInject maxInlineSizeTag (! maxInlineSize),
+                            tagInject codetreeTag (! codetree),
+                            tagInject pstackTraceTag (! pstackTrace),
+                            tagInject lowlevelOptimiseTag (! lowlevelOptimise),
+                            tagInject assemblyCodeTag (! assemblyCode),
+                            tagInject codetreeAfterOptTag (! codetreeAfterOpt)
+                        ])
+                end
+        end
+
         (* Original print_depth etc functions. *)
         fun profiling   i = Compiler.profiling := i
         and timing      b = Compiler.timing := b
