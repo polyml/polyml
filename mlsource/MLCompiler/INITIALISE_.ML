@@ -1226,74 +1226,6 @@ struct
                 ]
         end;
  
-(*****************************************************************************)
-(*                  Entries for printing                                     *)
-(*****************************************************************************)
-        local
-            open TYPETREE
-            (* These are used to display the declarations made. *)
-            fun displayFix((name: string, f: fixStatus)): pretty =
-            let
-                open PRETTY
-            in
-                PrettyBlock (0, false, [],
-                    [displayFixStatus f, PrettyBreak (1, 0), PrettyString name])
-            end
-            
-            fun getValue (Value{access = Global code, class = ValBound, ...}) = valOf(evalue code)
-            |   getValue _ = raise Fail "Not a global value"
-
-            (* The exported versions expect full name spaces as arguments.  Because we convert
-               the exported versions to machineWord and give them types as data structures the
-               compiler can't actually check that the type we give matched the internal type. *)
-            fun makeTypeEnv(nameSpace: nameSpace): printTypeEnv =
-            {
-                lookupType = fn s => case #lookupType nameSpace s of NONE => NONE | SOME t => SOME(t, NONE),
-                lookupStruct = fn s => case #lookupStruct nameSpace s of NONE => NONE | SOME t => SOME(t, NONE)
-            }
-            fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace) =
-                TYPETREE.displayTypeConstrs(tyCons, depth, makeTypeEnv nameSpace)
-            and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace) =
-                TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
-            and exportedDisplaySigs(sign, depth, nameSpace: nameSpace) =
-                    displaySignatures(sign, depth, makeTypeEnv nameSpace)
-            and exportedDisplayFunctors(funct, depth, nameSpace: nameSpace) =
-                    displayFunctors(funct, depth, makeTypeEnv nameSpace)
-            and exportedDisplayValues(valu, depth, nameSpace: nameSpace) =
-                    displayValues(valu, depth, makeTypeEnv nameSpace)
-            and exportedDisplayStructs(str, depth, nameSpace: nameSpace) =
-                    displayStructures(str, depth, makeTypeEnv nameSpace)
-        in
-            (* Add these to the PolyML.NameSpace structure. *)
-            val () = applyList (fn (name, v, t) =>
-                                #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
-                [
-                ("displayFix",             toMachineWord displayFix, String ** fixityVal ->> PrettyType),
-                ("displaySig",             toMachineWord exportedDisplaySigs,
-                    mkProductType[signatureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayStruct",             toMachineWord exportedDisplayStructs,
-                    mkProductType[structureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayFunct",             toMachineWord exportedDisplayFunctors,
-                    mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayVal",             toMachineWord exportedDisplayValues,
-                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayType",             toMachineWord exportedDisplayTypeConstr,
-                    mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
-                (* displayTypeExpression doesn't really belong here since it's used
-                   as part of the parse tree rather the name space. *)
-                ("displayTypeExpression",    toMachineWord exportedDisplayTypeExp,
-                    mkProductType[Types, Int, nameSpaceType] ->> PrettyType)
-                ]
-            (* Put this in Bootstrap, at least for the moment.
-               Used to print values in the debugger without the "val", "=" and the type. *)
-           val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
-                [("printValue",             toMachineWord printValues,
-                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                 (* This is used to get the actual value out of a global "value".
-                    It's currently used only in the debugger to get the exception
-                    packet out of a global exception value. *)
-                 ("getValue",               toMachineWord getValue, valueVal ->> TYPETREE.exnType)]
-        end;
 
     (* PolyML.CodeTree structure.  This exports the CodeTree structure into the ML space. *)
         local
@@ -1323,6 +1255,8 @@ struct
             and simpleCall(func, args) =
                 mkCall(func, List.map (fn c => (c, GeneralType)) args, GeneralType)
         in
+            val CodeTree = CodeTree
+
             val () = applyList (fn (name, v, t) =>
                                 #enterVal codetreeEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
@@ -1351,6 +1285,89 @@ struct
                 ("rtsFunction", toMachineWord rtsFunction, Int ->> CodeTree)
                 ]
         end
+
+(*****************************************************************************)
+(*                  Entries for printing                                     *)
+(*****************************************************************************)
+        local
+            open TYPETREE
+            (* These are used to display the declarations made. *)
+            fun displayFix((name: string, f: fixStatus)): pretty =
+            let
+                open PRETTY
+            in
+                PrettyBlock (0, false, [],
+                    [displayFixStatus f, PrettyBreak (1, 0), PrettyString name])
+            end
+
+            (* getValue can now be written in terms of codeForValue so it can probably be removed. *)
+            fun getValue (Value{access = Global code, class = ValBound, ...}) = valOf(evalue code)
+            |   getValue _ = raise Fail "Not a global value"
+
+            (* The exported versions expect full name spaces as arguments.  Because we convert
+               the exported versions to machineWord and give them types as data structures the
+               compiler can't actually check that the type we give matched the internal type. *)
+            fun makeTypeEnv(nameSpace: nameSpace): printTypeEnv =
+            {
+                lookupType = fn s => case #lookupType nameSpace s of NONE => NONE | SOME t => SOME(t, NONE),
+                lookupStruct = fn s => case #lookupStruct nameSpace s of NONE => NONE | SOME t => SOME(t, NONE)
+            }
+            fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace) =
+                TYPETREE.displayTypeConstrs(tyCons, depth, makeTypeEnv nameSpace)
+            and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace) =
+                TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
+            and exportedDisplaySigs(sign, depth, nameSpace: nameSpace) =
+                    displaySignatures(sign, depth, makeTypeEnv nameSpace)
+            and exportedDisplayFunctors(funct, depth, nameSpace: nameSpace) =
+                    displayFunctors(funct, depth, makeTypeEnv nameSpace)
+            and exportedDisplayValues(valu, depth, nameSpace: nameSpace) =
+                    displayValues(valu, depth, makeTypeEnv nameSpace)
+            and exportedDisplayStructs(str, depth, nameSpace: nameSpace) =
+                    displayStructures(str, depth, makeTypeEnv nameSpace)
+
+            fun codeForValue (Value{access = Global code, class = ValBound, ...}) = code
+            |   codeForValue _ = raise Fail "Not a global value"
+            and codeForStruct (Struct{access = Global code, ...}) = code
+            |   codeForStruct _ = raise Fail "Not a global structure"
+            and codeForFunct funct =
+                case functorAccess funct of
+                    Global code => code
+                |   _ => raise Fail "Not a global functor"
+        in
+            (* Add these to the PolyML.NameSpace structure. *)
+            val () = applyList (fn (name, v, t) =>
+                                #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                [
+                ("displayFix",             toMachineWord displayFix, String ** fixityVal ->> PrettyType),
+                ("displaySig",             toMachineWord exportedDisplaySigs,
+                    mkProductType[signatureVal, Int, nameSpaceType] ->> PrettyType),
+                ("displayStruct",             toMachineWord exportedDisplayStructs,
+                    mkProductType[structureVal, Int, nameSpaceType] ->> PrettyType),
+                ("displayFunct",             toMachineWord exportedDisplayFunctors,
+                    mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
+                ("displayVal",             toMachineWord exportedDisplayValues,
+                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
+                ("displayType",             toMachineWord exportedDisplayTypeConstr,
+                    mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
+                (* displayTypeExpression doesn't really belong here since it's used
+                   as part of the parse tree rather the name space. *)
+                ("displayTypeExpression",    toMachineWord exportedDisplayTypeExp,
+                    mkProductType[Types, Int, nameSpaceType] ->> PrettyType),
+                (* Code functions *)
+                ("codeForValue",    toMachineWord codeForValue, valueVal ->> CodeTree),
+                ("codeForStruct",   toMachineWord codeForStruct, structureVal ->> CodeTree),
+                ("codeForFunct",    toMachineWord codeForFunct, functorVal ->> CodeTree)
+               ]
+            (* Put this in Bootstrap, at least for the moment.
+               Used to print values in the debugger without the "val", "=" and the type. *)
+           val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
+                [("printValue",             toMachineWord printValues,
+                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
+                 (* This is used to get the actual value out of a global "value".
+                    It's currently used only in the debugger to get the exception
+                    packet out of a global exception value. *)
+                 ("getValue",               toMachineWord getValue, valueVal ->> TYPETREE.exnType)]
+        end;
 
     in
         ()
