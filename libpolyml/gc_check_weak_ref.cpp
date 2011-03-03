@@ -155,9 +155,4 @@ void GCheckWeakRefs()
     MTGCCheckWeakRef checkRef;
     GCModules(&checkRef);
     checkRef.ScanAreas();
-
-    if (convertedWeak)
-        // Notify the signal thread to broadcast on the condition var when
-        // the GC is complete.
-        processes->SignalArrived();
 }

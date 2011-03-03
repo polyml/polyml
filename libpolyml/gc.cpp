@@ -818,6 +818,12 @@ void FullGC(TaskData *taskData)
 {
     FullGCRequest request;
     processes->MakeRootRequest(taskData, &request);
+
+    if (convertedWeak)
+        // Notify the signal thread to broadcast on the condition var when
+        // the GC is complete.  We mustn't call SignalArrived within the GC
+        // because it locks schedLock and the main GC thread already holds schedLock.
+        processes->SignalArrived();
 }
 
 // This is the normal call when memory is exhausted and we need to garbage collect.
@@ -825,6 +831,10 @@ bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequiredToAllocate)
 {
     QuickGCRequest request(wordsRequiredToAllocate);
     processes->MakeRootRequest(taskData, &request);
+
+    if (convertedWeak)
+        processes->SignalArrived();
+
     return request.result;
 }
 
