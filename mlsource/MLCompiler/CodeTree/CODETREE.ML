@@ -338,8 +338,12 @@ struct
 
     val mkIf = Cond
 
+    (* For the moment limit these to general arguments. *)
+    fun mkLoop args = Loop (List.map(fn c => (c, GeneralType)) args)
+    and mkBeginLoop(exp, args) = BeginLoop{loop=exp, arguments=List.map(fn c => (c, GeneralType)) args}
+
     fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
-        BeginLoop{loop=mkIf(b, mkEnv[e, Loop[]], CodeZero), arguments=[]}
+        mkBeginLoop(mkIf(b, mkEnv[e, mkLoop[]], CodeZero), [])
 
   (* We previously had conditional-or and conditional-and as separate
      instructions.  I've taken them out since they can be implemented

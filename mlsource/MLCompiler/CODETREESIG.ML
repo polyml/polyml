@@ -78,6 +78,8 @@ sig
     val mkIndirectVariable: { base: codetree, offset: codetree } -> codetree
     val mkTupleSlice:       { base: codetree, offset: codetree, length: codetree } -> codetree
     val mkTupleVariable:    varTuple list * codetree -> codetree
+    val mkBeginLoop:        codetree * codetree list -> codetree
+    val mkLoop:             codetree list -> codetree
 
     val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list}
 

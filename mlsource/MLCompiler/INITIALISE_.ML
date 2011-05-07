@@ -1276,6 +1276,8 @@ struct
                 ("mkInd", toMachineWord mkInd, Int ** CodeTree ->> CodeTree),
                 ("mkIf", toMachineWord mkIf, mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),
                 ("mkWhile", toMachineWord mkWhile, CodeTree ** CodeTree ->> CodeTree),
+                ("mkLoop", toMachineWord mkLoop, List CodeTree ->> CodeTree),
+                ("mkBeginLoop", toMachineWord mkBeginLoop, CodeTree ** List CodeTree ->> CodeTree),
                 ("mkEnv", toMachineWord mkEnv, List CodeTree ->> CodeTree),
                 ("mkMutualDecs", toMachineWord mkMutualDecs, List CodeTree ->> CodeTree),
                 ("mkTuple", toMachineWord mkTuple, List CodeTree ->> CodeTree),
