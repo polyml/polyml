@@ -391,11 +391,12 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
         }
         // Delete spaces provided we have at least one for each thread.  A space can be deleted if
         // it is small or if the available free space is at least a fifth of the allocated space.
+        // Don't delete allocation spaces.  We need at least one of these.
         for (unsigned k = gMem.nlSpaces; k > 0 && nSpaces > userOptions.gcthreads; k--)
         {
             LocalMemSpace *space = gMem.lSpaces[k-1];
             if (space->isMutable == isMutableSpace && space->allocatedSpace() == 0 /* It's completely empty */
-                && (space->spaceSize() < segSize || freeSpace > allocSpace/5))
+                && (space->spaceSize() < segSize || freeSpace > allocSpace/5) && ! space->allocationSpace)
             {
                 freeSpace -= space->freeSpace();
                 gMem.DeleteLocalSpace(space);
