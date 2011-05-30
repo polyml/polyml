@@ -69,6 +69,7 @@ LocalMemSpace::LocalMemSpace()
     copiedOut = false;
     copiedIn = false;
     spaceInUse = false;
+    allocationSpace = false;
 }
 
 bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
