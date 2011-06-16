@@ -72,6 +72,7 @@
 #include "save_vec.h"
 #include "memmgr.h"
 #include "foreign.h"
+#include "reals.h"
 
 #ifndef HAVE_SIGALTSTACK
 // If we can't handle signals on a separate stack make sure there's space
@@ -1005,6 +1006,15 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     // return.  This is also used if we have raised an exception.
     if (PSP_IC(taskData) == PC_RETRY_SPECIAL)
         taskData->stack->stack()->p_pc = PSP_EDX(taskData).AsObjPtr()->Get(0).AsCodePtr();
+
+    // Set the rounding mode to the value set within the RTS.
+    x86Stack(taskData)->p_fp.cw &= 0x73ff;
+    switch (getrounding(taskData)) {
+    case POLY_ROUND_TONEAREST: /* 0 */ break;
+    case POLY_ROUND_DOWNWARD: x86Stack(taskData)->p_fp.cw |= 0x400; break;
+    case POLY_ROUND_UPWARD: x86Stack(taskData)->p_fp.cw |= 0x800; break;
+    case POLY_ROUND_TOZERO: x86Stack(taskData)->p_fp.cw |= 0xc00; break;
+    }
 }
 
 // This is called whenever we have returned from ML to C.

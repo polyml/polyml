@@ -725,7 +725,8 @@ ENDIF
     MOVL    Redx,EDX_OFF[Reax]
     MOVL    Resi,ESI_OFF[Reax]
     MOVL    Redi,EDI_OFF[Reax]
-    FNSAVE  FPREGS_OFF[Reax]
+    FNSAVE  FPREGS_OFF[Reax]          ;# Save FP state.  Also resets the state so...
+	FLDCW   FPREGS_OFF[Reax]          ;# ...load because we need the same rounding mode in the RTS
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R8,R8_OFF[Reax]
     MOVL    R9,R9_OFF[Reax]

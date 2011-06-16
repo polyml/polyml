@@ -422,40 +422,40 @@ static Handle powerOf(TaskData *mdTaskData, Handle args)
 // but they are frequently inlined 
 #if defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-static PolyWord getrounding(TaskData *)
+int getrounding(TaskData *)
 {
     switch (fegetround())
     {
-    case FE_TONEAREST: return TAGGED(0);
-    case FE_DOWNWARD: return TAGGED(1);
-    case FE_UPWARD: return TAGGED(2);
-    case FE_TOWARDZERO: return TAGGED(3);
+    case FE_TONEAREST: return POLY_ROUND_TONEAREST;
+    case FE_DOWNWARD: return POLY_ROUND_DOWNWARD;
+    case FE_UPWARD: return POLY_ROUND_UPWARD;
+    case FE_TOWARDZERO: return POLY_ROUND_TOZERO;
     }
-    return TAGGED(0); // Keep the compiler happy
+    return 0; // Keep the compiler happy
 }
 
 static void setrounding(TaskData *taskData, Handle args)
 {
     switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
-    case 0: fesetround(FE_TONEAREST); break; // Choose nearest
-    case 1: fesetround(FE_DOWNWARD); break; // Towards negative infinity
-    case 2: fesetround(FE_UPWARD); break; // Towards positive infinity
-    case 3: fesetround(FE_TOWARDZERO); break; // Truncate towards zero
+    case POLY_ROUND_TONEAREST: fesetround(FE_TONEAREST); break; // Choose nearest
+    case POLY_ROUND_DOWNWARD: fesetround(FE_DOWNWARD); break; // Towards negative infinity
+    case POLY_ROUND_UPWARD: fesetround(FE_UPWARD); break; // Towards positive infinity
+    case POLY_ROUND_TOZERO: fesetround(FE_TOWARDZERO); break; // Truncate towards zero
     }
 }
 
 #elif (defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
 // Older FreeBSD.  Cygwin has the ieeefp.h header but not the functions!
-static PolyWord getrounding(TaskData *)
+int getrounding(TaskData *)
 {
     switch (fpgetround())
     {
-    case FP_RN: return TAGGED(0);
-    case FP_RM: return TAGGED(1);
-    case FP_RP: return TAGGED(2);
-    case FP_RZ: return TAGGED(3);
-    default: return TAGGED(0); /* Shouldn't happen. */ 
+    case FP_RN: return POLY_ROUND_TONEAREST;
+    case FP_RM: return POLY_ROUND_DOWNWARD;
+    case FP_RP: return POLY_ROUND_UPWARD;
+    case FP_RZ: return POLY_ROUND_TOZERO;
+    default: return 0; /* Shouldn't happen. */ 
     }
 }
 
@@ -463,52 +463,52 @@ static void setrounding(TaskData *taskData, Handle args)
 {
     switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
-    case 0: fpsetround(FP_RN); break; /* Choose nearest */
-    case 1: fpsetround(FP_RM); break; /* Towards negative infinity */
-    case 2: fpsetround(FP_RP); break; /* Towards positive infinity */
-    case 3: fpsetround(FP_RZ); break; /* Truncate towards zero */
+    case POLY_ROUND_TONEAREST: fpsetround(FP_RN); break; /* Choose nearest */
+    case POLY_ROUND_DOWNWARD: fpsetround(FP_RM); break; /* Towards negative infinity */
+    case POLY_ROUND_UPWARD: fpsetround(FP_RP); break; /* Towards positive infinity */
+    case POLY_ROUND_TOZERO: fpsetround(FP_RZ); break; /* Truncate towards zero */
     }
 }
 
 #elif defined(WINDOWS_PC)
 // Windows version
-static PolyWord getrounding(TaskData *)
+int getrounding(TaskData *)
 {
     switch (_controlfp(0,0) & _MCW_RC)
     {
-    case _RC_NEAR: return TAGGED(0);
-    case _RC_DOWN: return TAGGED(1);
-    case _RC_UP: return TAGGED(2);
-    case _RC_CHOP: return TAGGED(3);
+    case _RC_NEAR: return POLY_ROUND_TONEAREST;
+    case _RC_DOWN: return POLY_ROUND_DOWNWARD;
+    case _RC_UP: return POLY_ROUND_UPWARD;
+    case _RC_CHOP: return POLY_ROUND_TOZERO;
     }
-    return TAGGED(0); // Keep the compiler happy
+    return 0; // Keep the compiler happy
 }
 
 static void setrounding(TaskData *mdTaskData, Handle args)
 {
     switch (get_C_long(mdTaskData, DEREFWORDHANDLE(args)))
     {
-    case 0: _controlfp(_RC_NEAR, _MCW_RC); break; // Choose nearest
-    case 1: _controlfp(_RC_DOWN, _MCW_RC); break; // Towards negative infinity
-    case 2: _controlfp(_RC_UP, _MCW_RC); break; // Towards positive infinity
-    case 3: _controlfp(_RC_CHOP, _MCW_RC); break; // Truncate towards zero
+    case POLY_ROUND_TONEAREST: _controlfp(_RC_NEAR, _MCW_RC); break; // Choose nearest
+    case POLY_ROUND_DOWNWARD: _controlfp(_RC_DOWN, _MCW_RC); break; // Towards negative infinity
+    case POLY_ROUND_UPWARD: _controlfp(_RC_UP, _MCW_RC); break; // Towards positive infinity
+    case POLY_ROUND_TOZERO: _controlfp(_RC_CHOP, _MCW_RC); break; // Truncate towards zero
     }
 }
 
 #elif defined(_FPU_GETCW) && defined(_FPU_SETCW)
 // Older Linux version
-static PolyWord getrounding(TaskData *)
+int getrounding(TaskData *)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
     switch (ctrl & _FPU_RC_ZERO)
     {
-    case _FPU_RC_NEAREST: return TAGGED(0);
-    case _FPU_RC_DOWN: return TAGGED(1);
-    case _FPU_RC_UP: return TAGGED(2);
-    case _FPU_RC_ZERO: return TAGGED(4);
+    case _FPU_RC_NEAREST: return POLY_ROUND_TONEAREST;
+    case _FPU_RC_DOWN: return POLY_ROUND_DOWNWARD;
+    case _FPU_RC_UP: return POLY_ROUND_UPWARD;
+    case _FPU_RC_ZERO: return POLY_ROUND_TOZERO;
     }
-    return TAGGED(0); /* Never reached but this avoids warning message. */
+    return 0; /* Never reached but this avoids warning message. */
 }
 
 static void setrounding(TaskData *taskData, Handle args)
@@ -518,10 +518,10 @@ static void setrounding(TaskData *taskData, Handle args)
     ctrl &= ~_FPU_RC_ZERO; /* Mask off any existing rounding. */
     switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
-    case 0: ctrl |= _FPU_RC_NEAREST;
-    case 1: ctrl |= _FPU_RC_DOWN;
-    case 2: ctrl |= _FPU_RC_UP;
-    case 3: ctrl |= _FPU_RC_ZERO;
+    case POLY_ROUND_TONEAREST: ctrl |= _FPU_RC_NEAREST;
+    case POLY_ROUND_DOWNWARD: ctrl |= _FPU_RC_DOWN;
+    case POLY_ROUND_UPWARD: ctrl |= _FPU_RC_UP;
+    case POLY_ROUND_TOZERO: ctrl |= _FPU_RC_ZERO;
     }
     _FPU_SETCW(ctrl);
 }
@@ -535,40 +535,40 @@ static void getround(union db *res)
     __asm__ ("stfd f0,0(r3)");
 }
 
-static PolyWord getrounding(TaskData *)
+int getrounding(TaskData *)
 {
     union db roundingRes;
     getround(&roundingRes);
     switch (roundingRes.wrd[1] & 3)
     {
-    case 0: return TAGGED(0); /* Choose nearest */
-    case 1: return TAGGED(3); /* Round towards zero */
-    case 2: return TAGGED(2); /* Towards positive infinity */
-    case 3: return TAGGED(1); /* Towards negative infinity */
+    case 0: return POLY_ROUND_TONEAREST; /* Choose nearest */
+    case 1: return POLY_ROUND_TOZERO; /* Round towards zero */
+    case 2: return POLY_ROUND_UPWARD; /* Towards positive infinity */
+    case 3: return POLY_ROUND_DOWNWARD; /* Towards negative infinity */
     }
-    return TAGGED(0); /* Never reached but this avoids warning message. */
+    return 0; /* Never reached but this avoids warning message. */
 }
 
 static void setrounding(TaskData *taskData, Handle args)
 {
     switch (get_C_long(taskData, DEREFWORDHANDLE(args)))
     {
-    case 0: __asm__("mtfsfi 7,0"); break; /* Choose nearest */
-    case 1: __asm__("mtfsfi 7,3"); break; /* Towards negative infinity */
-    case 2: __asm__("mtfsfi 7,2"); break; /* Towards positive infinity */
-    case 3: __asm__("mtfsfi 7,1"); break; /* Truncate towards zero */
+    case POLY_ROUND_TONEAREST: __asm__("mtfsfi 7,0"); break; /* Choose nearest */
+    case POLY_ROUND_DOWNWARD: __asm__("mtfsfi 7,3"); break; /* Towards negative infinity */
+    case POLY_ROUND_UPWARD: __asm__("mtfsfi 7,2"); break; /* Towards positive infinity */
+    case POLY_ROUND_TOZERO: __asm__("mtfsfi 7,1"); break; /* Truncate towards zero */
     }
 }
 #else
 // Give up.
-static PolyWord getrounding(TaskData *mdTaskData)
+int getrounding(TaskData *mdTaskData)
 {
-    raise_exception_string(mdTaskData, EXC_Fail, "Unable to get flaoting point rounding control");
+    raise_exception_string(mdTaskData, EXC_Fail, "Unable to get floating point rounding control");
 }
 
 static void setrounding(TaskData *mdTaskData, Handle)
 {
-    raise_exception_string(mdTaskData, EXC_Fail, "Unable to set flaoting point rounding control");
+    raise_exception_string(mdTaskData, EXC_Fail, "Unable to set floating point rounding control");
 }
 #endif
 
@@ -634,7 +634,7 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
         setrounding(mdTaskData, args);
         return mdTaskData->saveVec.push(TAGGED(0)); /* Unit */
     case 10: /* getroundingmode */
-        return mdTaskData->saveVec.push(getrounding(mdTaskData));
+        return mdTaskData->saveVec.push(TAGGED(getrounding(mdTaskData)));
     /* Floating point representation queries. */
 #ifdef _DBL_RADIX
     case 11: /* Value of radix */ return mdTaskData->saveVec.push(TAGGED(_DBL_RADIX));
