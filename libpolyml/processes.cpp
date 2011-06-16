@@ -340,7 +340,7 @@ enum _mainThreadPhase mainThreadPhase = MTP_USER_CODE;
 // Get the attribute flags.
 static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 {
-    return UNTAGGED_UNSIGNED(taskData->threadObject->Get(1));
+    return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
 }
 
 // As far as possible we want locking and unlocking an ML mutex to be fast so
@@ -737,7 +737,7 @@ void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
         machineDependent->InterruptCode(p);
         p->threadLock.Signal();
         // Set the value in the ML object as well so the ML code can see it
-        p->threadObject->Set(3, TAGGED(request));
+        p->threadObject->requestCopy = TAGGED(request);
     }
 #ifdef HAVE_WINDOWS_H
     // Wake any threads waiting for IO
@@ -755,7 +755,7 @@ void Processes::ThreadExit(TaskData *taskData)
     schedLock.Lock();
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
     // Remove this from the taskArray
-    unsigned index = UNTAGGED(taskData->threadObject->Get(0));
+    unsigned index = UNTAGGED(taskData->threadObject->index);
     ASSERT(index < taskArraySize && taskArray[index] == taskData);
     taskArray[index] = 0;
     delete(taskData);
@@ -1347,7 +1347,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
         }
         // Add into the new entry
         taskArray[thrdIndex] = newTaskData;
-        newTaskData->threadObject->Set(0, TAGGED(thrdIndex)); // Set to the index
+        newTaskData->threadObject->index = TAGGED(thrdIndex); // Set to the index
         schedLock.Unlock();
 
         newTaskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
@@ -1444,10 +1444,10 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
                     // This word is only ever set by the thread itself so
                     // we don't need to synchronise.
                     attrs = (attrs & (~PFLAG_INTMASK)) | PFLAG_SYNCH;
-                    ptaskData->threadObject->Set(1, TAGGED(attrs));
+                    ptaskData->threadObject->flags = TAGGED(attrs);
                 }
                 ptaskData->requests = kRequestNone; // Clear this
-                ptaskData->threadObject->Set(3, TAGGED(0)); // And in the ML copy
+                ptaskData->threadObject->requestCopy = TAGGED(0); // And in the ML copy
                 schedLock.Unlock();
                 // Don't actually throw the exception here.
                 machineDependent->SetException(taskData, interrupt_exn);
@@ -1501,7 +1501,7 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
             if (intBits == PFLAG_SYNCH)
             {
                 ptaskData->requests = kRequestNone; // Clear this
-                ptaskData->threadObject->Set(3, TAGGED(0));
+                ptaskData->threadObject->requestCopy = TAGGED(0);
                 schedLock.Unlock();
                 machineDependent->SetException(taskData, interrupt_exn);
                 throw IOException(EXC_EXCEPTION);
