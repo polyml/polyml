@@ -69,6 +69,15 @@
 #define ASSERT(x)
 #endif
 
+#if (SIZEOF_VOIDP == 8)
+#define DIRECT_WORD_RELOCATION      IMAGE_REL_AMD64_ADDR64
+#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_AMD64_REL32
+#else
+#define DIRECT_WORD_RELOCATION      IMAGE_REL_I386_DIR32
+#define RELATIVE_32BIT_RELOCATION   IMAGE_REL_I386_REL32
+#endif
+
+
 // Generate the address relative to the start of the segment.
 void PECOFFExport::setRelocationAddress(void *p, DWORD *reloc)
 {
@@ -87,7 +96,7 @@ PolyWord PECOFFExport::createRelocation(PolyWord p, void *relocAddr)
     unsigned addrArea = findArea(addr);
     POLYUNSIGNED offset = (char*)addr - (char*)memTable[addrArea].mtAddr;
     reloc.SymbolTableIndex = addrArea;
-    reloc.Type = IMAGE_REL_I386_DIR32;
+    reloc.Type = DIRECT_WORD_RELOCATION;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
     return PolyWord::FromUnsigned(offset);
@@ -146,9 +155,9 @@ void PECOFFExport::ScanConstant(byte *addr, ScanRelocationKind code)
     }
 
     if (code == PROCESS_RELOC_I386RELATIVE)
-        reloc.Type = IMAGE_REL_I386_REL32;
+        reloc.Type = RELATIVE_32BIT_RELOCATION;
     else
-        reloc.Type = IMAGE_REL_I386_DIR32;
+        reloc.Type = DIRECT_WORD_RELOCATION;
 
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -182,7 +191,11 @@ void PECOFFExport::exportStore(void)
     // Write out initial values for the headers.  These are overwritten at the end.
     // File header
     memset(&fhdr, 0, sizeof(fhdr));
+#if (SIZEOF_VOIDP == 8)
+    fhdr.Machine = IMAGE_FILE_MACHINE_AMD64; // x86-64
+#else
     fhdr.Machine = IMAGE_FILE_MACHINE_I386; // i386
+#endif
     fhdr.NumberOfSections = memTableEntries+1; // One for each area plus one for the tables.
     (void)time((time_t*)&fhdr.TimeDateStamp);
     //fhdr.NumberOfSymbols = memTableEntries+1; // One for each area plus "poly_exports"
@@ -260,14 +273,14 @@ void PECOFFExport::exportStore(void)
 
     // Address of "memTable" within "exports". We can't use createRelocation because
     // the position of the relocation is not in either the mutable or the immutable area.
-    reloc.Type = IMAGE_REL_I386_DIR32;
+    reloc.Type = DIRECT_WORD_RELOCATION;
     reloc.SymbolTableIndex = memTableEntries; // Relative to poly_exports
     reloc.VirtualAddress = offsetof(exportDescription, memTable);
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
 
     // Address of "rootFunction" within "exports"
-    reloc.Type = IMAGE_REL_I386_DIR32;
+    reloc.Type = DIRECT_WORD_RELOCATION;
     unsigned rootAddrArea = findArea(rootFunction);
     reloc.SymbolTableIndex = rootAddrArea;
     reloc.VirtualAddress = offsetof(exportDescription, rootFunction);
@@ -276,7 +289,7 @@ void PECOFFExport::exportStore(void)
 
     for (i = 0; i < memTableEntries; i++)
     {
-        reloc.Type = IMAGE_REL_I386_DIR32;
+        reloc.Type = DIRECT_WORD_RELOCATION;
         reloc.SymbolTableIndex = i; // Relative to base symbol
         reloc.VirtualAddress =
             sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr);
