@@ -536,7 +536,7 @@ TryAgain:
         {
             /* Get a network entry. */
             struct netent *net = NULL;
-#ifdef HAVE_DECL_GETNETBYNAME
+#if HAVE_DECL_GETNETBYNAME
             char netName[MAXHOSTNAMELEN];
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args),
                         netName, MAXHOSTNAMELEN);
