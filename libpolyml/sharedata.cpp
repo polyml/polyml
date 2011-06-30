@@ -526,7 +526,7 @@ bool RunShareData(PolyObject *root)
     
         if (n && verbose)
         {
-            printf("Level %4lu, Objects %6lu, Shared %6lu\n", vec->depth, vec->nitems, n);
+            printf("Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT "\n", vec->depth, vec->nitems, n);
         }
     
         totalObjects += vec->nitems;
@@ -586,7 +586,7 @@ bool RunShareData(PolyObject *root)
 
     if (verbose)
     {
-        printf ("Total Objects %6lu, Total Shared %6lu\n", totalObjects, totalShared);
+        printf ("Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT "\n", totalObjects, totalShared);
         fflush(stdout); /* We need this for Windows at least. */
     }
     return true; // Succeeded.

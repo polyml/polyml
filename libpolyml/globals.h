@@ -59,19 +59,40 @@
    containing 01. 
    DCJM 27/9/00.
  */
+
+#if HAVE_STDINT_H
+#  include <stdint.h>
+#endif
+#if HAVE_INTTYPES_H
+#  define __STDC_FORMAT_MACROS
+#  include <inttypes.h>
+#endif
+
+#ifdef HAVE_STDDEF_H
+#  include <stddef.h>
+#endif
+
 #if (defined(HOSTARCHITECTURE_SPARC) && !defined(INTERPRETED))
 #define POLY_TAGSHIFT    2
 #else
 #define POLY_TAGSHIFT    1
 #endif
 
-#if defined(WINDWOWS_PC)
-#include <windows.h>
-typedef INT_PTR         POLYSIGNED;
-typedef UINT_PTR        POLYUNSIGNED;
+#if defined(WINDOWS_PC)
+#  include <windows.h>
+#endif
+
+typedef intptr_t        POLYSIGNED;
+typedef uintptr_t       POLYUNSIGNED;
+
+// libpolyml uses printf-style I/O instead of C++ standard IOstreams,
+// so we need specifier to format POLYUNSIGNED/POLYSIGNED values.
+#ifdef PRIuPTR
+#  define POLYUFMT PRIuPTR
+#  define POLYSFMT PRIdPTR
 #else
-typedef long            POLYSIGNED;
-typedef unsigned long   POLYUNSIGNED;
+#  define POLYUFMT "lu"         // as before.  Cross your fingers.
+#  define POLYSFMT "ld"         // idem.
 #endif
 
 typedef unsigned char   byte;
@@ -420,6 +441,5 @@ typedef enum { NoMoreChildren,CannotCreate,CreatedOk } CStatus ;
 #else
 #define ZERO_X  ""
 #endif
-
 
 #endif

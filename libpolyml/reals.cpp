@@ -750,7 +750,7 @@ void RealArithmetic::Init(void)
     /* Some compilers object to overflow in constants so
        we compute the values here. */
     double zero = 0.0;
-#if(defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
+#if HAVE_DECL_FPSETMASK
     /* In FreeBSD 3.4 at least, we sometimes get floating point
        exceptions if we don't clear the mask.  Maybe need to do
        this on other platforms as well just to be sure. */

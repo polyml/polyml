@@ -225,15 +225,19 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     }
     if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size);
 
+#ifdef USE_GMP
+    POLYUNSIGNED length = numLimbs(number);
+#else    
     POLYUNSIGNED length = get_length(number);
+#endif
     unsigned i;
-    unsigned long c;
+    POLYUNSIGNED c;
     POLYOBJPTR ptr = number.AsObjPtr();
 
-    if ( length > 2*sizeof(unsigned long) ) raise_exception0(taskData, EXC_size);
+    if ( length > 2 * sizeof(POLYUNSIGNED) ) raise_exception0(taskData, EXC_size);
 
     /* Low-order word. */
-    if (length > sizeof(unsigned long)) i = sizeof(unsigned long); else i = length;
+    if (length > sizeof(POLYUNSIGNED)) i = sizeof(POLYUNSIGNED); else i = length;
     c = 0;
     while (i--) c = (c << 8) | ((byte *) ptr)[i];
     *pLo = c;
@@ -241,7 +245,7 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     /* High-order word. */
     i = length;
     c = 0;
-    while (i-- > sizeof(unsigned long)) c = (c << 8) | ((byte *) ptr)[i];
+    while (i-- > sizeof(POLYUNSIGNED)) c = (c << 8) | ((byte *) ptr)[i];
     *pHi = c;
 }
 #endif

@@ -169,7 +169,7 @@ void ProcessVisitAddresses::ShowBytes(PolyObject *start)
 
     if (start->IsMutable()) printf("MUTABLE ");
 
-    printf("BYTES:%p:%lu\n", array, bytes);
+    printf("BYTES:%p:%" POLYUFMT "\n", array, bytes);
 
     POLYUNSIGNED i, n;
     for (i = 0, n = 0; n < bytes; n++)
@@ -204,7 +204,7 @@ void ProcessVisitAddresses::ShowCode(PolyObject *start)
     else
         (void) Poly_string_to_C(string, buffer, sizeof(buffer));
 
-    printf("CODE:%p:%lu %s\n", start, length, buffer);
+    printf("CODE:%p:%" POLYUFMT " %s\n", start, length, buffer);
 
     POLYUNSIGNED i, n;
     for (i = 0, n = 0; n < length; n++)
@@ -230,7 +230,7 @@ void ProcessVisitAddresses::ShowWords(PolyObject *start)
     putc('\n', stdout);
     if (start->IsMutable()) printf("MUTABLE ");
     
-    printf("WORDS:%p:%lu\n", start, length);
+    printf("WORDS:%p:%" POLYUFMT "\n", start, length);
     
     POLYUNSIGNED i, n;
     for (i = 0, n = 0; n < length; n++)

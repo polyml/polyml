@@ -285,7 +285,7 @@ static void writeProfileResults(void)
         for (i = 0; i < P.used; i++)
         {
             PPROFENTRY pEnt = &P.pTab[i];
-            fprintf(stdout, "%10lu ", pEnt->count);
+            fprintf(stdout, "%10" POLYUFMT " ", pEnt->count);
             print_string(pEnt->functionName);
             putc ('\n', stdout);
         }
@@ -412,7 +412,7 @@ static void printprofile(void)
     if (total_count)
     {
         
-        printf("\nTotal: %lu; Counted: %lu; Uncounted: %lu",
+        printf("\nTotal: %" POLYUFMT "; Counted: %" POLYUFMT "; Uncounted: %" POLYUFMT,
             total_count, P.total, total_count - P.total);
         
         total_count = 0;

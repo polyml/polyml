@@ -490,9 +490,9 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
             if (fileName.IsTagged() || ((PolyStringObject *)fileName.AsObjPtr())->length != 0) {
                 printf(" raised in ");
                 print_string(fileName);
-                if (lineNo != 0) printf(" line %ld", lineNo);
+                if (lineNo != 0) printf(" line %" POLYSFMT, lineNo);
             }
-            else if (lineNo != 0) printf(" raised at line %ld", lineNo);
+            else if (lineNo != 0) printf(" raised at line %" POLYSFMT, lineNo);
             fputs("\n", stdout);
         }
     }

@@ -599,9 +599,9 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (length > MAX_PATH)
                 raise_syscall(taskData, "File name too long", ENAMETOOLONG);
             hInst = FindExecutable(fileName, NULL, execName);
-            if ((unsigned)hInst <= 32)
+            if ((POLYUNSIGNED)hInst <= 32)
             {
-                raise_syscall(taskData, "FindExecutable failed", -(int)hInst);
+               raise_syscall(taskData, "FindExecutable failed", -(int)(POLYUNSIGNED)hInst);
             }
             return SAVE(C_string_to_Poly(taskData, execName));
         }
@@ -776,10 +776,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     // case 1102: // Return the address of the window callback function.
 
     case 1103: // Return the application instance.
-        return Make_arbitrary_precision(taskData, (int)hApplicationInstance);
+        return Make_unsigned(taskData, (POLYUNSIGNED)hApplicationInstance);
 
     case 1104: // Return the main window handle
-        return Make_arbitrary_precision(taskData, (int)hMainWindow);
+        return Make_unsigned(taskData, (POLYUNSIGNED)hMainWindow);
 
 //    case 1105: // Set the callback function
 
@@ -1017,7 +1017,7 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
 
     Handle str_token = make_stream_entry(taskData);
     PIOSTRUCT strm = &basic_io_vector[STREAMID(str_token)];
-    strm->device.ioDesc = _open_osfhandle ((long)hStream, mode);
+    strm->device.ioDesc = _open_osfhandle ((POLYSIGNED) hStream, mode);
     if (strm->device.ioDesc == -1)
         raise_syscall(taskData, "_open_osfhandle failed", errno);
     strm->ioBits = ioBits | IO_BIT_OPEN | IO_BIT_PIPE;

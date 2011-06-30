@@ -312,11 +312,11 @@ static Handle vol_alloc (TaskData *taskData)
     PolyVolData* v = (PolyVolData*)alloc(taskData, VOL_BOX_SIZE, F_MUTABLE_BIT|F_BYTE_OBJ);
     Handle result = SAVE(v);
     
-    trace(("index=<%lu>\n",next_vol));
+    trace(("index=<%" POLYUFMT ">\n",next_vol));
     if (next_vol >= num_vols)
     {
         POLYUNSIGNED new_num_vols = (num_vols==0) ? INITIAL_NUM_VOLS : num_vols*2;
-        info(("<%lu> ---> <%lu>\n", num_vols, new_num_vols));
+        info(("<%" POLYUFMT "> ---> <%" POLYUFMT ">\n", num_vols, new_num_vols));
         Volatile *new_vols = (Volatile*)realloc(vols, sizeof(Volatile)*new_num_vols);
         if (new_vols == NULL)
             RAISE_EXN("Can't Enlarge Volatile Array");
@@ -338,7 +338,7 @@ static Handle vol_alloc_with_c_space (TaskData *taskData, POLYUNSIGNED size)
 {
     PLocker plocker(&volLock);
     Handle res = vol_alloc(taskData);
-    trace(("size= %lu\n",size));
+    trace(("size= %" POLYUFMT "\n",size));
     Vmalloc( C_POINTER(UNVOLHANDLE(res)), size );
     OWN_C_SPACE(UNVOLHANDLE(res)) = size; /* Size of owned space. */
     return res;
@@ -358,10 +358,10 @@ static void* DEREFVOL (TaskData *taskData, PolyWord v)
     PolyVolData *vol = (PolyVolData*)v.AsObjPtr();
     
     POLYUNSIGNED index = V_INDEX(vol);
-    trace(("<%lu>\n",index));
+    trace(("<%" POLYUFMT ">\n",index));
     
     if (!(IsVolMagic(vol))) {
-        info (("Invalid volatile -- bad magic number, index=<%lu>\n", index));
+        info (("Invalid volatile -- bad magic number, index=<%" POLYUFMT ">\n", index));
         RAISE_EXN("Bad volatile magic number");
     }
     
@@ -371,11 +371,11 @@ static void* DEREFVOL (TaskData *taskData, PolyWord v)
             return vols[index].C_pointer;
             
         } else {
-            info(("Invalid volatile -- backpointer is wrong <%lu>: <%p> != <%p>\n",
+            info(("Invalid volatile -- backpointer is wrong <%" POLYUFMT ">: <%p> != <%p>\n",
                 index, vol, (void *)vols[index].ML_pointer));
         }
     } else {
-        info(("Invalid volatile -- no such vol index <%lu>\n", index));
+        info(("Invalid volatile -- no such vol index <%" POLYUFMT ">\n", index));
     }
     RAISE_EXN("Invalid volatile");
     /*NOTREACHED*/
@@ -615,7 +615,7 @@ void Foreign::GarbageCollect(ScanAddress *process)
     POLYUNSIGNED to,from;
     
     for (from=FIRST_VOL, to=FIRST_VOL; from < next_vol; from++) {
-        mes(("to=<%lu> from=<%lu>\n",to,from));
+        mes(("to=<%" POLYUFMT "> from=<%" POLYUFMT ">\n",to,from));
         
         if (vols[from].ML_pointer != NULL) {
             PolyObject *p = vols[from].ML_pointer;
@@ -624,22 +624,22 @@ void Foreign::GarbageCollect(ScanAddress *process)
             
             if (vols[from].ML_pointer == NULL) { /* It's no longer reachable. */
                 if (vols[from].C_finaliser) {
-                    trace(("Calling finaliser on <%lu>\n",from));
+                    trace(("Calling finaliser on <%" POLYUFMT ">\n",from));
                     vols[from].C_finaliser(*(void**)vols[from].C_pointer);
                 }
 
                 if (vols[from].Own_C_space) {
                     
-                    mes(("Trashing malloc space of <%lu>\n",from));
+                    mes(("Trashing malloc space of <%" POLYUFMT ">\n",from));
                     memset(vols[from].C_pointer, 0, vols[from].Own_C_space);
                     
-                    trace(("Freeing malloc space of <%lu>\n",from));
+                    trace(("Freeing malloc space of <%" POLYUFMT ">\n",from));
                     Vfree(vols[from].C_pointer);
                 }
             }
             
             if (from>to) {
-                trace(("Shifting volatile <%lu> ---> <%lu>\n",from,to));
+                trace(("Shifting volatile <%" POLYUFMT "> ---> <%" POLYUFMT ">\n",from,to));
                 vols[to] = vols[from];
                 V_INDEX(vols[to].ML_pointer) = to;
             }
@@ -647,7 +647,7 @@ void Foreign::GarbageCollect(ScanAddress *process)
         }
     }
     next_vol = to;
-    info(("unfreed mallocs=<%lu> next_vol=<%lu>\n", malloc_count, next_vol));
+    info(("unfreed mallocs=<%" POLYUFMT "> next_vol=<%" POLYUFMT ">\n", malloc_count, next_vol));
     
     /* Callback table.  Added DCJM 12/4/04.  We always process these as strong references.
     For the time being at any rate we treat these as permanent entries so that once a
@@ -890,7 +890,7 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
             typedef struct { int x0; int x1; int x2; int x3; } small_struct4;
             
             POLYSIGNED size = get_C_long(taskData, ret_conv.AsObjPtr()->Get(0));
-            info(("Expecting return type Cstruct, size <%lu>\n", size));
+            info(("Expecting return type Cstruct, size <%" POLYUFMT ">\n", size));
             
             /* We have to treat small structures specially, because GCC does.
             It would be nice to insist that the library we are calling
@@ -915,7 +915,7 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
             else if (size > (int)sizeof(STRUCT_MAX))
             {
                 char buf[100];
-                sprintf(buf, "Required size of return structure <%lu> is too large", size);
+                sprintf(buf, "Required size of return structure <%" POLYUFMT "> is too large", size);
                 raise_exception_string(taskData, EXC_foreign, buf);
             }
             else

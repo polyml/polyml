@@ -99,6 +99,27 @@ AC_CHECK_LIB(m, floor)
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
 
+## Check for signed and unsigned integer types large enough
+## to hold pointer values
+AC_CHECK_TYPES([intptr_t],[],[AC_TYPE_INTPTR_T])
+AC_CHECK_TYPES([uintptr_t],[],[AC_TYPE_UINTPTR_T])
+
+## External names on Win64.  They have no leading underscores as per
+## the X64 ABI published by MS.  Earlier versions of GCC (anything
+## prior to 4.5.0) were faulty.
+case $host,$GCC in
+  x86_64-w64*,yes)
+     AC_MSG_CHECKING([whether external symbols need leading underscore])
+     AC_LANG_PUSH([C++])
+     AC_TRY_LINK(
+       [asm(".long bar");
+        extern "C" long bar;],
+       [],
+       [AC_DEFINE(POLY_LINKAGE_PREFIX, [_], [Define prefix of external names]) AC_MSG_RESULT([yes])])
+     AC_LANG_POP([C++])
+esac
+
+
 # Solaris needs -lsocket, -lnsl and -lrt
 # Use AC_CHECK_FUNC first so that the library is only included if it's really needed
 # and not just because it's present.
@@ -296,7 +317,12 @@ AC_FUNC_VPRINTF
 AC_CHECK_FUNCS([bzero dup2 floor ftruncate getcwd gethostbyaddr gethostname gettimeofday memmove])
 AC_CHECK_FUNCS([memset mkdir mkfifo munmap pathconf pow realpath rmdir select setlocale socket sqrt strdup strerror])
 AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize sigaltstack mmap mprotect])
-AC_CHECK_FUNCS([getnetbyname getnetbyaddr sysctl])
+## The mingw64 toolchain does not provide a declaration for getnetbyname,
+## but curiously its runtime provides an external match.
+AC_CHECK_DECLS([getnetbyname], [], [], [[#include <netdb.h>]])
+## There does not seem to be a declaration for fpsetmask in mingw64.
+AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
+AC_CHECK_FUNCS([getnetbyaddr sysctl])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 
 # Where are the registers?

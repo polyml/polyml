@@ -110,7 +110,7 @@ void PExport::printCodeAddr(byte *q)
 {
     PolyObject *obj = ObjCodePtrToPtr(q);
     unsigned long a = getIndex(obj);
-    fprintf(exportFile, "$%lu+%lu", a, (POLYUNSIGNED)(q - (byte*)obj));
+    fprintf(exportFile, "$%lu+%" POLYUFMT, a, (POLYUNSIGNED)(q - (byte*)obj));
 }
 
 /* Get the index corresponding to an address. */
@@ -136,7 +136,7 @@ void PExport::printAddress(void *p)
 void PExport::printValue(PolyWord q)
 {
     if (IS_INT(q) || q == PolyWord::FromUnsigned(0))
-        fprintf(exportFile, "%ld", UNTAGGED(q));
+        fprintf(exportFile, "%" POLYSFMT, UNTAGGED(q));
     else if (OBJ_IS_CODEPTR(q))
         printCodeAddr(q.AsCodePtr());
     else
@@ -175,7 +175,7 @@ void PExport::printObject(PolyObject *p)
             (POLYUNSIGNED)((ps->length + sizeof(PolyWord) -1) / sizeof(PolyWord)) == length-1)
         {
             /* Looks like a string. */
-            fprintf(exportFile, "S%lu|", ps->length);
+            fprintf(exportFile, "S%" POLYUFMT "|", ps->length);
             for (unsigned i = 0; i < ps->length; i++)
             {
                 char ch = ps->chars[i];
@@ -201,7 +201,7 @@ void PExport::printObject(PolyObject *p)
             */
             byte *u = (byte*)p;
             putc('B', exportFile);
-            fprintf(exportFile, "%lu|", length*sizeof(PolyWord));
+            fprintf(exportFile, "%" POLYUFMT "|", length*sizeof(PolyWord));
             for (unsigned i = 0; i < (unsigned)(length*sizeof(PolyWord)); i++)
             {
                 fprintf(exportFile, "%02x", u[i]);
@@ -222,7 +222,7 @@ void PExport::printObject(PolyObject *p)
            and, on the X86/64 at least, any non-address constants.
            These are actually word values. */
         POLYUNSIGNED byteCount = (length - constCount - 1) * sizeof(PolyWord);
-        fprintf(exportFile, "D%lu,%lu|", constCount, byteCount);
+        fprintf(exportFile, "D%" POLYUFMT ",%" POLYUFMT "|", constCount, byteCount);
 
         // First the code.
         byte *u = (byte*)p;
@@ -243,7 +243,7 @@ void PExport::printObject(PolyObject *p)
     }
     else /* Ordinary objects, essentially tuples. */
     {
-        fprintf(exportFile, "O%lu|", length);
+        fprintf(exportFile, "O%" POLYUFMT "|", length);
         for (i = 0; i < length; i++)
         {
             printValue(p->Get(i));
@@ -263,7 +263,7 @@ void PExport::ScanConstant(byte *addr, ScanRelocationKind code)
     // We put in all the values including tagged constants.
     PolyObject *obj = ObjCodePtrToPtr(addr);
     // Put in the byte offset and the relocation type code.
-    fprintf(exportFile, "%lu,%d,", (POLYUNSIGNED)(addr - (byte*)obj), code);
+    fprintf(exportFile, "%" POLYUFMT ",%d,", (POLYUNSIGNED)(addr - (byte*)obj), code);
     printValue(p); // The value to plug in.
     fprintf(exportFile, " ");
 }
@@ -500,7 +500,7 @@ bool PImport::GetValue(PolyWord *result)
     {
         /* Address of an object. */
         POLYUNSIGNED obj;
-        fscanf(f, "%lu", &obj);
+        fscanf(f, "%" POLYUFMT, &obj);
         ASSERT(obj < nObjects);
         *result = objMap[obj];
     }
@@ -508,7 +508,7 @@ bool PImport::GetValue(PolyWord *result)
     {
         /* Code address. */
         POLYUNSIGNED obj, offset;
-        fscanf(f, "%lu+%lu", &obj, &offset);
+        fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &obj, &offset);
         ASSERT(obj < nObjects);
         PolyObject *q = objMap[obj];
         ASSERT(q->IsCodeObject());
@@ -519,7 +519,7 @@ bool PImport::GetValue(PolyWord *result)
         /* Tagged integer. */
         POLYSIGNED j;
         ungetc(ch, f);
-        fscanf(f, "%ld", &j);
+        fscanf(f, "%" POLYSFMT, &j);
         /* The assertion may be false if we are porting to a machine
            with a shorter tagged representation. */
         ASSERT(j >= -MAXTAGGED-1 && j <= MAXTAGGED);
@@ -529,7 +529,7 @@ bool PImport::GetValue(PolyWord *result)
     {
         /* IO entry number. */
         POLYUNSIGNED j;
-        fscanf(f, "%lu", &j);
+        fscanf(f, "%" POLYUFMT, &j);
         ASSERT(j >= 0 && j < POLY_SYS_vecsize);
         *result = (PolyObject*)&gMem.ioSpace.bottom[j * IO_SPACING];
     }
@@ -537,7 +537,7 @@ bool PImport::GetValue(PolyWord *result)
     {
         /* IO entry number with offset. */
         POLYUNSIGNED j, offset;
-        fscanf(f, "%lu+%lu", &j, &offset);
+        fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &j, &offset);
         ASSERT(j >= 0 && j < POLY_SYS_vecsize);
         PolyWord base = (PolyObject*)&gMem.ioSpace.bottom[j * IO_SPACING];
         *result = PolyWord::FromCodePtr(base.AsCodePtr() + offset);
@@ -583,7 +583,7 @@ bool PImport::DoImport()
     if (ch == 'M') { while (getc(f) != '\n') ; ch = getc(f); }
     ASSERT(ch == 'O'); /* Number of objects. */
     while (getc(f) != '\t') ;
-    fscanf(f, "%lu", &nObjects);
+    fscanf(f, "%" POLYUFMT, &nObjects);
     /* Create a mapping table. */
     objMap = (PolyObject**)calloc(nObjects, sizeof(PolyObject*));
     if (objMap == 0)
@@ -598,7 +598,7 @@ bool PImport::DoImport()
     } while (ch == '\n');
     ASSERT(ch == 'R'); /* Root object number. */
     while (getc(f) != '\t') ;
-    fscanf(f, "%lu", &nRoot);
+    fscanf(f, "%" POLYUFMT, &nRoot);
 
     /* Now the objects themselves. */
     while (1)
@@ -612,7 +612,7 @@ bool PImport::DoImport()
         } while (ch == '\r' || ch == '\n');
         if (ch == EOF) break;
         ungetc(ch, f);
-        fscanf(f, "%lu", &objNo);
+        fscanf(f, "%" POLYUFMT, &objNo);
         ch = getc(f);
         ASSERT(ch == ':');
         ASSERT(objNo < nObjects);
@@ -631,12 +631,12 @@ bool PImport::DoImport()
         switch (ch)
         {
         case 'O': /* Simple object. */
-            fscanf(f, "%lu", &nWords);
+            fscanf(f, "%" POLYUFMT, &nWords);
             break;
 
         case 'B': /* Byte segment. */
             objBits |= F_BYTE_OBJ;
-            fscanf(f, "%lu", &nBytes);
+            fscanf(f, "%" POLYUFMT, &nBytes);
             /* Round up to appropriate number of words. */
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
             break;
@@ -644,7 +644,7 @@ bool PImport::DoImport()
         case 'S': /* String. */
             objBits |= F_BYTE_OBJ;
             /* The length is the number of characters. */
-            fscanf(f, "%lu", &nBytes);
+            fscanf(f, "%" POLYUFMT, &nBytes);
             /* Round up to appropriate number of words.  Need to add
                one PolyWord for the length PolyWord.  */
             nWords = (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord) + 1;
@@ -655,7 +655,7 @@ bool PImport::DoImport()
             objBits |= F_CODE_OBJ;
             /* Read the number of bytes of code and the number of words
                for constants. */
-            fscanf(f, "%lu,%lu", &nWords, &nBytes);
+            fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
             nWords += ch == 'C' ? 4 : 1; /* Add words for extras. */
             /* Add in the size of the code itself. */
             nWords += (nBytes + sizeof(PolyWord) -1) / sizeof(PolyWord);
@@ -697,7 +697,7 @@ bool PImport::DoImport()
         POLYUNSIGNED  nWords, nBytes, i;
         if (feof(f))
             break;
-        fscanf(f, "%lu", &objNo);
+        fscanf(f, "%" POLYUFMT, &objNo);
         if (feof(f))
             break;
         ch = getc(f);
@@ -715,7 +715,7 @@ bool PImport::DoImport()
         switch (ch)
         {
         case 'O': /* Simple object. */
-            fscanf(f, "%lu", &nWords);
+            fscanf(f, "%" POLYUFMT, &nWords);
             ch = getc(f);
             ASSERT(ch == '|');
             ASSERT(nWords == p->Length());
@@ -734,7 +734,7 @@ bool PImport::DoImport()
         case 'B': /* Byte segment. */
             {
                 byte *u = (byte*)p;
-                fscanf(f, "%lu", &nBytes);
+                fscanf(f, "%" POLYUFMT, &nBytes);
                 ch = getc(f); ASSERT(ch == '|');
                 for (i = 0; i < nBytes; i++)
                 {
@@ -751,7 +751,7 @@ bool PImport::DoImport()
             {
                 PolyStringObject * ps = (PolyStringObject *)p;
                 /* The length is the number of characters. */
-                fscanf(f, "%lu", &nBytes);
+                fscanf(f, "%" POLYUFMT, &nBytes);
                 ch = getc(f); ASSERT(ch == '|');
                 ps->length = nBytes;
                 for (i = 0; i < nBytes; i++)
@@ -773,7 +773,7 @@ bool PImport::DoImport()
                 POLYUNSIGNED length = p->Length();
                 /* Read the number of bytes of code and the number of words
                    for constants. */
-                fscanf(f, "%lu,%lu", &nWords, &nBytes);
+                fscanf(f, "%" POLYUFMT ",%" POLYUFMT, &nWords, &nBytes);
                 /* Read the code. */
                 ch = getc(f); ASSERT(ch == '|');
                 for (i = 0; i < nBytes; i++)
@@ -833,11 +833,11 @@ bool PImport::DoImport()
                 StackObject *s = (StackObject*)p;
                 POLYUNSIGNED n;
                 POLYUNSIGNED length = p->Length();
-                fscanf(f, "%lu", &nWords);
+                fscanf(f, "%" POLYUFMT, &nWords);
                 ch = getc(f); ASSERT(ch == '|');
 
                 /* Standard fields: size, pc, sp, hr. */
-                fscanf(f, "%lu", &s->p_space);
+                fscanf(f, "%" POLYUFMT, &s->p_space);
                 ch = getc(f); ASSERT(ch == ',');
                 if (! ReadValue(p, (PolyWord*)&s->p_pc - (PolyWord*)p))
                     return false;
@@ -849,7 +849,7 @@ bool PImport::DoImport()
                     return false;
 
                 /* Checked registers. */
-                fscanf(f, "%lu", &n);
+                fscanf(f, "%" POLYUFMT, &n);
                 s->p_nreg = n;
                 ch = getc(f); ASSERT(ch == '|');
                 for (i = 0; i < n; i++)
@@ -861,18 +861,18 @@ bool PImport::DoImport()
                            (ch == ' ' && i == n-1));
                 }
                 /* Unchecked registers. */
-                fscanf(f, "%lu", &n);
+                fscanf(f, "%" POLYUFMT, &n);
                 s->p_reg[i] = PolyWord::FromUnsigned(n);
                 ch = getc(f); ASSERT(ch == '|');
                 for (i = 0; i < n; i++)
                 {
                     POLYSIGNED n;
-                    fscanf(f, "%ld", &n);
+                    fscanf(f, "%" POLYSFMT, &n);
                     s->p_reg[s->p_nreg+i+1] = PolyWord::FromSigned(n);
                     ch = getc(f);
                 }
                 /* Stack values. */
-                fscanf(f, "%lu", &n);
+                fscanf(f, "%" POLYUFMT, &n);
                 ASSERT(n == length - (s->p_sp-(PolyWord*)p));
                 ch = getc(f); ASSERT(ch == '|');
                 for (i = 0; i < n; i++)
