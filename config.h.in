@@ -37,6 +37,14 @@
 /* Define to 1 if you have the <ctype.h> header file. */
 #undef HAVE_CTYPE_H
 
+/* Define to 1 if you have the declaration of `fpsetmask', and to 0 if you
+   don't. */
+#undef HAVE_DECL_FPSETMASK
+
+/* Define to 1 if you have the declaration of `getnetbyname', and to 0 if you
+   don't. */
+#undef HAVE_DECL_GETNETBYNAME
+
 /* Define to 1 if you have the <direct.h> header file. */
 #undef HAVE_DIRECT_H
 
@@ -104,9 +112,6 @@
 /* Define to 1 if you have the `getnetbyaddr' function. */
 #undef HAVE_GETNETBYADDR
 
-/* Define to 1 if you have the `getnetbyname' function. */
-#undef HAVE_GETNETBYNAME
-
 /* Define to 1 if you have the `getpagesize' function. */
 #undef HAVE_GETPAGESIZE
 
@@ -130,6 +135,9 @@
 
 /* Define to 1 if the system has the type `IMAGE_FILE_HEADER'. */
 #undef HAVE_IMAGE_FILE_HEADER
+
+/* Define to 1 if the system has the type `intptr_t'. */
+#undef HAVE_INTPTR_T
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -490,6 +498,9 @@
 /* Define to 1 if the system has the type `ucontext_t'. */
 #undef HAVE_UCONTEXT_T
 
+/* Define to 1 if the system has the type `uintptr_t'. */
+#undef HAVE_UINTPTR_T
+
 /* Define to 1 if you have the `uname' function. */
 #undef HAVE_UNAME
 
@@ -576,6 +587,9 @@
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
+/* Define prefix of external names */
+#undef POLY_LINKAGE_PREFIX
+
 /* Define to the type of arg 1 for `select'. */
 #undef SELECT_TYPE_ARG1
 
@@ -620,6 +634,10 @@
 /* Define to `int' if <sys/types.h> doesn't define. */
 #undef gid_t
 
+/* Define to the type of a signed integer type wide enough to hold a pointer,
+   if such a type exists, and if the system does not define it. */
+#undef intptr_t
+
 /* Define to `int' if <sys/types.h> does not define. */
 #undef mode_t
 
@@ -637,6 +655,10 @@
 
 /* Define to `int' if <sys/types.h> doesn't define. */
 #undef uid_t
+
+/* Define to the type of an unsigned integer type wide enough to hold a
+   pointer, if such a type exists, and if the system does not define it. */
+#undef uintptr_t
 
 /* Define as `fork' if `vfork' does not work. */
 #undef vfork
