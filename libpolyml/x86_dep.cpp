@@ -72,7 +72,6 @@
 #include "save_vec.h"
 #include "memmgr.h"
 #include "foreign.h"
-#include "reals.h"
 
 #ifndef HAVE_SIGALTSTACK
 // If we can't handle signals on a separate stack make sure there's space
@@ -1009,15 +1008,18 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
 
     // Set the rounding mode to the value set within the RTS.
     x86Stack(taskData)->p_fp.cw &= 0x73ff;
-#ifndef __CYGWIN__
-    // fpgetround is not provided in the Cygwin library so getrounding raises an exception.
-    switch (getrounding(taskData)) {
-    case POLY_ROUND_TONEAREST: /* 0 */ break;
-    case POLY_ROUND_DOWNWARD: x86Stack(taskData)->p_fp.cw |= 0x400; break;
-    case POLY_ROUND_UPWARD: x86Stack(taskData)->p_fp.cw |= 0x800; break;
-    case POLY_ROUND_TOZERO: x86Stack(taskData)->p_fp.cw |= 0xc00; break;
-    }
+    // Get the rounding mode.
+    unsigned short controlWord = 0;
+#ifndef __GNUC__
+    __asm fnstcw controlWord;
+#else
+    __asm__ (
+        "fnstcw %0"
+        :"=m" (controlWord)
+    );
 #endif
+    x86Stack(taskData)->p_fp.cw &= 0xf3ff;
+    x86Stack(taskData)->p_fp.cw |= controlWord & 0xc00;
 }
 
 // This is called whenever we have returned from ML to C.

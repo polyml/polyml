@@ -418,11 +418,16 @@ static Handle powerOf(TaskData *mdTaskData, Handle args)
     return real_result(mdTaskData, pow(x, y));
 }
 
+#define POLY_ROUND_TONEAREST    0
+#define POLY_ROUND_DOWNWARD     1
+#define POLY_ROUND_UPWARD       2
+#define POLY_ROUND_TOZERO       3
+
 // It would be nice to be able to use autoconf to test for these as functions
 // but they are frequently inlined 
 #if defined(HAVE_FENV_H)
 // C99 version.  This is becoming the most common.
-int getrounding(TaskData *)
+static int getrounding(TaskData *)
 {
     switch (fegetround())
     {
@@ -447,7 +452,7 @@ static void setrounding(TaskData *taskData, Handle args)
 
 #elif (defined(HAVE_IEEEFP_H) && ! defined(__CYGWIN__))
 // Older FreeBSD.  Cygwin has the ieeefp.h header but not the functions!
-int getrounding(TaskData *)
+static int getrounding(TaskData *)
 {
     switch (fpgetround())
     {
@@ -472,7 +477,7 @@ static void setrounding(TaskData *taskData, Handle args)
 
 #elif defined(WINDOWS_PC)
 // Windows version
-int getrounding(TaskData *)
+static int getrounding(TaskData *)
 {
     switch (_controlfp(0,0) & _MCW_RC)
     {
@@ -497,7 +502,7 @@ static void setrounding(TaskData *mdTaskData, Handle args)
 
 #elif defined(_FPU_GETCW) && defined(_FPU_SETCW)
 // Older Linux version
-int getrounding(TaskData *)
+static int getrounding(TaskData *)
 {
     fpu_control_t ctrl;
     _FPU_GETCW(ctrl);
@@ -535,7 +540,7 @@ static void getround(union db *res)
     __asm__ ("stfd f0,0(r3)");
 }
 
-int getrounding(TaskData *)
+static int getrounding(TaskData *)
 {
     union db roundingRes;
     getround(&roundingRes);
@@ -561,7 +566,7 @@ static void setrounding(TaskData *taskData, Handle args)
 }
 #else
 // Give up.
-int getrounding(TaskData *mdTaskData)
+static int getrounding(TaskData *mdTaskData)
 {
     raise_exception_string(mdTaskData, EXC_Fail, "Unable to get floating point rounding control");
 }

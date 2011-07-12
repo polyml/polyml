@@ -56,10 +56,4 @@ extern Handle Real_neqc(TaskData *mdTaskData, Handle y, Handle x);
 
 extern Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code);
 
-extern int getrounding(TaskData *);
-#define POLY_ROUND_TONEAREST    0
-#define POLY_ROUND_DOWNWARD     1
-#define POLY_ROUND_UPWARD       2
-#define POLY_ROUND_TOZERO       3
-
 #endif
