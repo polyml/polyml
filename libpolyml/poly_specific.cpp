@@ -51,6 +51,8 @@
 #include "memmgr.h"
 #include "processes.h"
 #include "savestate.h"
+#include "statistics.h"
+#include "../polystatistics.h"
 
 #define SAVE(x) taskData->saveVec.push(x)
 
@@ -283,6 +285,22 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 24: // Return the name of the immediate parent stored in a child
         return ShowParent(taskData, args);
+
+    case 25: // Get the local statistics
+        {
+            polystatistics localStats;
+            if (! gStats->getLocalsStatistics(&localStats))
+                raise_exception_string(taskData, EXC_Fail, "No statistics available");
+            return SAVE(TAGGED(0));
+        }
+
+    case 26: // Get remote statistics.  The argument is the process ID to get the statistics.
+        {
+            polystatistics localStats;
+            if (! gStats->getRemoteStatistics(get_C_ulong(taskData, DEREFHANDLE(args)), &localStats))
+                raise_exception_string(taskData, EXC_Fail, "No statistics available");
+            return SAVE(TAGGED(0));
+        }
 
         // These next ones were originally in process_env and have now been moved here,
     case 100: /* Return the maximum word segment size. */

@@ -101,6 +101,7 @@ noinst_HEADERS = \
 	scanaddrs.h \
 	sharedata.h \
 	sighandler.h \
+	statistics.h \
 	sys.h \
 	timing.h \
 	version.h \
@@ -117,7 +118,7 @@ libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
     exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
     locking.cpp savestate.cpp gctaskfarm.cpp \
     gc_mark_phase.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
-    gc_update_phase.cpp quick_gc.cpp \
+    gc_update_phase.cpp quick_gc.cpp statistics.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 # Convert the portable format to a native binary

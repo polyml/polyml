@@ -320,6 +320,10 @@ SOURCE=.\sighandler.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\statistics.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\timing.cpp
 # End Source File
 # Begin Source File
@@ -510,6 +514,10 @@ SOURCE=..\polyexports.h
 # End Source File
 # Begin Source File
 
+SOURCE=..\polystatistics.h
+# End Source File
+# Begin Source File
+
 SOURCE=.\polystring.h
 # End Source File
 # Begin Source File
@@ -563,6 +571,10 @@ SOURCE=.\sharedata.h
 # Begin Source File
 
 SOURCE=.\sighandler.h
+# End Source File
+# Begin Source File
+
+SOURCE=.\statistics.h
 # End Source File
 # Begin Source File
 
