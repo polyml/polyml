@@ -532,40 +532,8 @@ TryAgain:
             return makeServEntry(taskData, serv);
         }
 
-    case 9:
-        {
-            /* Get a network entry. */
-            struct netent *net = NULL;
-#if HAVE_DECL_GETNETBYNAME
-            char netName[MAXHOSTNAMELEN];
-            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args),
-                        netName, MAXHOSTNAMELEN);
-            if (length > MAXHOSTNAMELEN)
-                raise_syscall(taskData, "Network name too long", ENAMETOOLONG);
-            /* Winsock2 does not have getnetbyname.
-               Just return failure. */
-            net = getnetbyname(netName);
-#endif
-            if (net == NULL)
-                raise_syscall(taskData, "getnetbyname failed", GETERROR);
-            return makeNetEntry(taskData, net);
-        }
-
-    case 10:
-        {
-            /* Look up network entry from a number. */
-            struct netent *net = NULL;
-#ifdef HAVE_GETNETBYADDR
-            unsigned long netNum = htonl(get_C_ulong(taskData, DEREFHANDLE(args)->Get(0)));
-            long af = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1));
-            /* Winsock2 does not have getnetbyaddr.
-               Just return failure. */
-            net = getnetbyaddr(netNum, af);
-#endif
-            if (net == NULL)
-                raise_syscall(taskData, "getnetbyaddr failed", GETERROR);
-            return makeNetEntry(taskData, net);
-        }
+    // 9 and 10 were used for the NetDB structure which was removed from
+    // the basis library a long time ago.
 
     case 11:
         {

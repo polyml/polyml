@@ -40,23 +40,6 @@ sig
     val toString : in_addr -> string
 end;
 
-signature NET_DB =
-sig
-    eqtype net_addr
-    type addr_family
-    type entry
-    val name : entry -> string
-    val aliases : entry -> string list
-    val addrType : entry -> addr_family
-    val addr : entry -> net_addr
-    val getByName : string -> entry option
-    val getByAddr : net_addr * addr_family -> entry option
-    val scan : (char, 'a) StringCvt.reader -> (net_addr, 'a) StringCvt.reader
-    val fromString : string -> net_addr option
-    val toString : net_addr -> string
-end;
-
-
 local
     fun power2 0 = 1
     |   power2 n = 2 * power2(n-1)
@@ -201,50 +184,6 @@ in
         end
     end;
 
-
-    structure NetDB :>
-        NET_DB where type addr_family = NetHostDB.addr_family =
-    struct
-        type net_addr = int
-        and addr_family = NetHostDB.addr_family
-        type entry = string * string list * addr_family * int
-        val name: entry -> string = #1
-        val aliases : entry -> string list = #2
-        val addrType : entry -> addr_family = #3
-        val addr : entry -> net_addr = #4
-        
-        local
-            val doCall: int*string -> entry
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
-        in
-            fun getByName s =
-                SOME(doCall(9, s)) handle OS.SysErr _ => NONE
-        end
-    
-        local
-            val doCall: int*(int*addr_family) -> entry
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_network
-        in
-            fun getByAddr (n, af) =
-                SOME(doCall(10, (n, af))) handle OS.SysErr _ => NONE
-        end
-
-        (* The definition of NetDB.scan is very vague.  Assume it's
-           the same as NetHostDB. *)
-        val scan = scan
-        and fromString = StringCvt.scanString scan
-    
-        fun toString n =
-        let
-            fun pr n i =
-                (if i > 0 then pr (n div 256) (i-1) ^ "." else "") ^
-                    Int.toString (n mod 256)
-                
-        in
-            pr n 3 (* Always generate 4 numbers. *)
-        end
-    end;
-
 end;
 
 
@@ -253,9 +192,7 @@ local
        This must be done outside
        the structure if we use opaque matching. *)
     fun printAddr _ _ x = PolyML.PrettyString(NetHostDB.toString x)
-    fun printNet _ _ x = PolyML.PrettyString(NetDB.toString x)
 in
     val () = PolyML.addPrettyPrinter printAddr
-    val () = PolyML.addPrettyPrinter printNet
 end
 

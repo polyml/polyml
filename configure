@@ -19616,20 +19616,6 @@ _ACEOF
 fi
 done
 
-## The mingw64 toolchain does not provide a declaration for getnetbyname,
-## but curiously its runtime provides an external match.
-ac_fn_c_check_decl "$LINENO" "getnetbyname" "ac_cv_have_decl_getnetbyname" "#include <netdb.h>
-"
-if test "x$ac_cv_have_decl_getnetbyname" = x""yes; then :
-  ac_have_decl=1
-else
-  ac_have_decl=0
-fi
-
-cat >>confdefs.h <<_ACEOF
-#define HAVE_DECL_GETNETBYNAME $ac_have_decl
-_ACEOF
-
 ## There does not seem to be a declaration for fpsetmask in mingw64.
 ac_fn_c_check_decl "$LINENO" "fpsetmask" "ac_cv_have_decl_fpsetmask" "#include <ieeefp.h>
 "
@@ -19643,13 +19629,12 @@ cat >>confdefs.h <<_ACEOF
 #define HAVE_DECL_FPSETMASK $ac_have_decl
 _ACEOF
 
-for ac_func in getnetbyaddr sysctl
+for ac_func in sysctl
 do :
-  as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
-ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
-if eval test \"x\$"$as_ac_var"\" = x"yes"; then :
+  ac_fn_c_check_func "$LINENO" "sysctl" "ac_cv_func_sysctl"
+if test "x$ac_cv_func_sysctl" = x""yes; then :
   cat >>confdefs.h <<_ACEOF
-#define `$as_echo "HAVE_$ac_func" | $as_tr_cpp` 1
+#define HAVE_SYSCTL 1
 _ACEOF
 
 fi

@@ -41,10 +41,6 @@
    don't. */
 #undef HAVE_DECL_FPSETMASK
 
-/* Define to 1 if you have the declaration of `getnetbyname', and to 0 if you
-   don't. */
-#undef HAVE_DECL_GETNETBYNAME
-
 /* Define to 1 if you have the <direct.h> header file. */
 #undef HAVE_DIRECT_H
 
@@ -108,9 +104,6 @@
 
 /* Define to 1 if you have the `gethostname' function. */
 #undef HAVE_GETHOSTNAME
-
-/* Define to 1 if you have the `getnetbyaddr' function. */
-#undef HAVE_GETNETBYADDR
 
 /* Define to 1 if you have the `getpagesize' function. */
 #undef HAVE_GETPAGESIZE

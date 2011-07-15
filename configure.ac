@@ -317,12 +317,9 @@ AC_FUNC_VPRINTF
 AC_CHECK_FUNCS([bzero dup2 floor ftruncate getcwd gethostbyaddr gethostname gettimeofday memmove])
 AC_CHECK_FUNCS([memset mkdir mkfifo munmap pathconf pow realpath rmdir select setlocale socket sqrt strdup strerror])
 AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize sigaltstack mmap mprotect])
-## The mingw64 toolchain does not provide a declaration for getnetbyname,
-## but curiously its runtime provides an external match.
-AC_CHECK_DECLS([getnetbyname], [], [], [[#include <netdb.h>]])
 ## There does not seem to be a declaration for fpsetmask in mingw64.
 AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
-AC_CHECK_FUNCS([getnetbyaddr sysctl])
+AC_CHECK_FUNCS([sysctl])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 
 # Where are the registers?
