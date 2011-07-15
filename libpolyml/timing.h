@@ -40,5 +40,14 @@ typedef enum __gcTime {
 } gcTime;
 
 extern void record_gc_time(gcTime isEnd, const char *stage = "");
+#ifdef WINDOWS_PC
+extern void addTimes(FILETIME *result, const FILETIME *x);
+extern void subTimes(FILETIME *result, const FILETIME *x);
+extern float timeToSeconds(const FILETIME *x);
+#else
+extern void addTimes(struct timeval *result, const struct timeval *x);
+extern void subTimes(struct timeval *result, const struct timeval *x);
+extern float timeToSeconds(const struct timeval *x);
+#endif
 
 #endif

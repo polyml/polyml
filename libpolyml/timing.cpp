@@ -170,18 +170,6 @@ static int proper_getrusage(int who, struct rusage *rusage)
 
 #endif
 
-/* Functions to add and subtract times. */
-#ifdef WINDOWS_PC
-static void addTimes(FILETIME *result, const FILETIME *x);
-static void subTimes(FILETIME *result, const FILETIME *x);
-static float timeToSeconds(const FILETIME *x);
-#else
-static void addTimes(struct timeval *result, const struct timeval *x);
-static void subTimes(struct timeval *result, const struct timeval *x);
-static float timeToSeconds(const struct timeval *x);
-#endif
-
-
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_long(taskData, DEREFWORDHANDLE(code));

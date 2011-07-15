@@ -66,6 +66,23 @@
 #include <string.h>
 #endif
 
+
+#ifdef HAVE_TIME_H
+#include <time.h>
+#endif
+
+#ifdef HAVE_SYS_TIMES_H
+#include <sys/times.h>
+#endif
+
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+
+#ifdef HAVE_SYS_RESOURCE_H
+#include <sys/resource.h>
+#endif
+
 #if defined(HAVE_MMAP)
 // How do we get the page size?
 #ifndef HAVE_GETPAGESIZE
@@ -324,7 +341,7 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     int remMapFd = -1;
     char remMapFileName[40];
     remMapFileName[0] = 0;
-    sprintf(remMapFileName, "/tmp/" POLY_STATS_NAME "%lu", pid);
+    sprintf(remMapFileName, "/tmp/" POLY_STATS_NAME "%" POLYUFMT, pid);
     remMapFd = open(remMapFileName, O_RDONLY);
     if (remMapFd == -1) return false;
     polystatistics *sMem = (polystatistics*)mmap(0, memSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);

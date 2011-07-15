@@ -239,8 +239,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
             Make_arb_from_pair(taskData, stats->psTimers[k].dwHighDateTime, stats->psTimers[k].dwLowDateTime);
 #else
         Handle sizeValue =
-            Make_arb_from_pair_scaled(taskData, stats->psTimers[k].ru_utime.tv_sec,
-                        stats->psTimers[k].ru_utime.tv_usec, 1000000);
+            Make_arb_from_pair_scaled(taskData, stats->psTimers[k].tv_sec, stats->psTimers[k].tv_usec, 1000000);
 #endif
         times->WordP()->Set(k, sizeValue->Word());
         taskData->saveVec.reset(mark);
