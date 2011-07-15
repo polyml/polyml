@@ -42,6 +42,7 @@
 #include "bitmap.h"
 #include "mpoly.h"
 #include "diagnostics.h"
+#include "statistics.h"
 
 MemSpace::MemSpace()
 {
@@ -158,6 +159,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: New local %smutable space %p, size=%luk words, bottom=%p, top=%p\n", mut ? "": "im",
                     space, space->spaceSize()/1024, space->bottom, space->top);
+            globalStats.incSize(PSS_TOTAL_HEAP, space->spaceSize() * sizeof(PolyWord));
             return space;
         }
 
@@ -178,7 +180,12 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
 LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
 {
     LocalMemSpace *result = NewLocalSpace(size, true);
-    if (result) result->allocationSpace = true;
+    if (result) 
+    {
+        result->allocationSpace = true;
+        globalStats.incSize(PSS_ALLOCATION, result->freeSpace()*sizeof(PolyWord));
+        globalStats.incSize(PSS_ALLOCATION_UNRESERVED, result->freeSpace()*sizeof(PolyWord));
+    }
     return result;
 }
 
@@ -264,6 +271,7 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
         {
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
+            globalStats.decSize(PSS_TOTAL_HEAP, sp->spaceSize() * sizeof(PolyWord));
             delete sp;
             nlSpaces--;
             while (i < nlSpaces)
@@ -428,6 +436,7 @@ bool MemMgr::DemoteImportSpaces()
                 if (debugOptions & DEBUG_MEMMGR)
                     Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
                             pSpace, pSpace->isMutable ? "im": "", space);
+                globalStats.incSize(PSS_TOTAL_HEAP, space->spaceSize() * sizeof(PolyWord));
             }
             catch (std::bad_alloc a) {
                 if (debugOptions & DEBUG_MEMMGR)
@@ -547,6 +556,7 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 space->lowerAllocPtr += maxWords; // Allocate it.
                 allocLock.Unlock();
+                globalStats.decSize(PSS_ALLOCATION_UNRESERVED, maxWords*sizeof(PolyWord));
                 return result;
             }
         }

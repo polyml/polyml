@@ -48,6 +48,7 @@ these has filled up it fails and a full garbage collection must be done.
 #include "diagnostics.h"
 #include "timing.h"
 #include "gctaskfarm.h"
+#include "statistics.h"
 
 static PLock copyLock;
 
@@ -304,6 +305,7 @@ static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
 bool RunQuickGC(void)
 {
     record_gc_time(GCTimeStart);
+    globalStats.incCount(PSC_GC_PARTIALGC);
     mainThreadPhase = MTP_GCQUICK;
 
     if (debugOptions & DEBUG_GC)
@@ -378,22 +380,31 @@ bool RunQuickGC(void)
 
     if (rootScan.succeeded)
     {
+        globalStats.setSize(PSS_AFTER_LAST_GC, 0);
+        globalStats.setSize(PSS_ALLOCATION, 0);
+        globalStats.setSize(PSS_ALLOCATION_UNRESERVED, 0);
         // If it succeeded the allocation areas are now empty.
         for(unsigned l = 0; l < gMem.nlSpaces; l++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
+            POLYUNSIGNED free;
             if (lSpace->allocationSpace)
             {
                 lSpace->lowerAllocPtr = lSpace->bottom;
+                free = lSpace->freeSpace();
 #ifdef FILL_UNUSED_MEMORY
                 // This provides extra checking if we have dangling pointers
                 memset(lSpace->bottom, 0xaa, (char*)lSpace->upperAllocPtr - (char*)lSpace->bottom);
 #endif
+                globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
+                globalStats.incSize(PSS_ALLOCATION_UNRESERVED, free*sizeof(PolyWord));
             }
+            else free = lSpace->freeSpace();
             if (debugOptions & DEBUG_GC)
                 Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                     lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                     ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
+            globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
         }
     }
     else

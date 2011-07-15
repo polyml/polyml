@@ -203,6 +203,58 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     }
 }
 
+// Convert the statistics into ML data.  This is further unpicked within ML.
+static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
+{
+    // Vector for the counts.  Initially created as mutable then locked.
+    Handle counts = alloc_and_save(taskData, N_PS_COUNTERS, F_MUTABLE_BIT);
+    for (unsigned i = 0; i < N_PS_COUNTERS; i++)
+    {
+        Handle mark = taskData->saveVec.mark();
+        Handle counterValue = Make_unsigned(taskData, stats->psCounters[i]);
+        counts->WordP()->Set(i, counterValue->Word());
+        taskData->saveVec.reset(mark);
+    }
+    // Can now lock the count vector by removing the mutable flag.
+    counts->WordP()->SetLengthWord(N_PS_COUNTERS);
+
+    // Vector for the sizes.
+    Handle sizes = alloc_and_save(taskData, N_PS_SIZES, F_MUTABLE_BIT);
+    for (unsigned j = 0; j < N_PS_SIZES; j++)
+    {
+        Handle mark = taskData->saveVec.mark();
+        Handle sizeValue = Make_unsigned(taskData, stats->psSizes[j]);
+        sizes->WordP()->Set(j, sizeValue->Word());
+        taskData->saveVec.reset(mark);
+    }
+    sizes->WordP()->SetLengthWord(N_PS_SIZES);
+
+    // Vector for the times.
+    Handle times = alloc_and_save(taskData, N_PS_TIMES, F_MUTABLE_BIT);
+    for (unsigned k = 0; k < N_PS_SIZES; k++)
+    {
+        Handle mark = taskData->saveVec.mark();
+#ifdef HAVE_WINDOWS_H
+        Handle sizeValue = 
+            Make_arb_from_pair(taskData, stats->psTimers[k].dwHighDateTime, stats->psTimers[k].dwLowDateTime);
+#else
+        Handle sizeValue =
+            Make_arb_from_pair_scaled(taskData, stats->psTimers[k].ru_utime.tv_sec,
+                        stats->psTimers[k].ru_utime.tv_usec, 1000000);
+#endif
+        times->WordP()->Set(k, sizeValue->Word());
+        taskData->saveVec.reset(mark);
+    }
+    times->WordP()->SetLengthWord(N_PS_TIMES);
+
+    // Result vector
+    Handle resultVec = alloc_and_save(taskData, 3);
+    resultVec->WordP()->Set(0, counts->Word());
+    resultVec->WordP()->Set(1, sizes->Word());
+    resultVec->WordP()->Set(2, times->Word());
+    return resultVec;
+}
+
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_long(taskData, DEREFWORDHANDLE(code));
@@ -289,17 +341,17 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 25: // Get the local statistics
         {
             polystatistics localStats;
-            if (! gStats->getLocalsStatistics(&localStats))
+            if (! globalStats.getLocalsStatistics(&localStats))
                 raise_exception_string(taskData, EXC_Fail, "No statistics available");
-            return SAVE(TAGGED(0));
+            return unpackStats(taskData, &localStats);
         }
 
     case 26: // Get remote statistics.  The argument is the process ID to get the statistics.
         {
             polystatistics localStats;
-            if (! gStats->getRemoteStatistics(get_C_ulong(taskData, DEREFHANDLE(args)), &localStats))
+            if (! globalStats.getRemoteStatistics(get_C_ulong(taskData, DEREFHANDLE(args)), &localStats))
                 raise_exception_string(taskData, EXC_Fail, "No statistics available");
-            return SAVE(TAGGED(0));
+            return unpackStats(taskData, &localStats);
         }
 
         // These next ones were originally in process_env and have now been moved here,

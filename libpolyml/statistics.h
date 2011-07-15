@@ -27,6 +27,8 @@
 #endif
 
 #include "globals.h"
+#include "locking.h"
+#include "../polystatistics.h"
 
 class Statistics  
 {
@@ -35,9 +37,28 @@ public:
     ~Statistics();
 
     bool getLocalsStatistics(struct polystatistics *statCopy);
-    bool getRemoteStatistics(POLYUNSIGNED processId, struct polystatistics *statCopy); 
+    bool getRemoteStatistics(POLYUNSIGNED processId, struct polystatistics *statCopy);
+
+    void incCount(int which);
+    void decCount(int which);
+
+    void setSize(int which, size_t s);
+    void incSize(int which, size_t s);
+    void decSize(int which, size_t s);
+    size_t getSize(int which);
+
+#ifdef WINDOWS_PC
+    // Native Windows
+    void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime);
+#else
+    // Unix and Cygwin
+    void copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime);
+#endif
+    
+    void updatePeriodicStats(void);
 
 private:
+    PLock accessLock;
 #ifdef HAVE_WINDOWS_H
     // File mapping handle
     HANDLE hFileMap;
@@ -49,6 +70,6 @@ private:
     struct polystatistics *statMemory;
 };
 
-extern Statistics *gStats;
+extern Statistics globalStats;
 
 #endif // STATISTICS_INCLUDED

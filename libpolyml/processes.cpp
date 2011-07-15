@@ -120,6 +120,7 @@
 #include "profiling.h"
 #include "sharedata.h"
 #include "exporter.h"
+#include "statistics.h"
 
 #ifdef WINDOWS_PC
 #include "Console.h"
@@ -452,7 +453,9 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                         // we don't do anything here.
                     }
                 case kRequestNone:
+                    globalStats.incCount(PSC_THREADS_WAIT_MUTEX);
                     ptaskData->threadLock.Wait(&schedLock);
+                    globalStats.decCount(PSC_THREADS_WAIT_MUTEX);
                 }
                 ptaskData->blockMutex = 0; // No longer blocked.
                 ThreadUseMLMemoryWithSchedLock(ptaskData);
@@ -549,10 +552,12 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             {
                 // Now release the ML memory.  A GC can start.
                 ThreadReleaseMLMemoryWithSchedLock(ptaskData);
+                globalStats.incCount(PSC_THREADS_WAIT_CONDVAR);
                 // We pass zero as the wake time to represent infinity.
                 if (isInfinite)
                     ptaskData->threadLock.Wait(&schedLock);
                 else (void)ptaskData->threadLock.WaitUntil(&schedLock, &tWake);
+                globalStats.decCount(PSC_THREADS_WAIT_CONDVAR);
                 // We want to use the memory again.
                 ThreadUseMLMemoryWithSchedLock(ptaskData);
             }
@@ -749,6 +754,8 @@ void Processes::ThreadExit(TaskData *taskData)
 {
     if (debugOptions & DEBUG_THREADS)
         Log("THREAD: Thread %p exiting\n", taskData);
+
+    globalStats.decCount(PSC_THREADS);
 
     if (singleThreaded) finish(0);
 
@@ -952,7 +959,9 @@ void Processes::ThreadPauseForIO(TaskData *taskData, Waiter *pWait)
 {
     TestAnyEvents(taskData); // Consider this a blocking call that may raise Interrupt
     ThreadReleaseMLMemory(taskData);
+    globalStats.incCount(PSC_THREADS_WAIT_IO);
     pWait->Wait(1000); // Wait up to a second
+    globalStats.decCount(PSC_THREADS_WAIT_IO);
     ThreadUseMLMemory(taskData);
     TestAnyEvents(taskData); // Check if we've been interrupted.
 }
@@ -1085,7 +1094,8 @@ static void *NewThreadFunction(void *parameter)
 #endif
     initThreadSignals(taskData);
     pthread_setspecific(processesModule.tlsId, taskData);
-    taskData->saveVec.init(); // Removal initial data
+    taskData->saveVec.init(); // Remove initial data
+    globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
         (void)EnterPolyCode(taskData); // Will normally (always?) call ExitThread.
@@ -1102,6 +1112,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
     TlsSetValue(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Removal initial data
+    globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
         (void)EnterPolyCode(taskData);
@@ -1117,6 +1128,7 @@ static void NewThreadFunction(void *parameter)
     ProcessTaskData *taskData = (ProcessTaskData *)parameter;
     initThreadSignals(taskData);
     taskData->saveVec.init(); // Removal initial data
+    globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
         (void)EnterPolyCode(taskData);
@@ -1278,7 +1290,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // Now release schedLock and wait for a thread
         // to wake us up.  Use a timed wait to avoid the race with
         // setting exitRequest.
-        initialThreadWait.WaitFor(&schedLock, 2000);
+        initialThreadWait.WaitFor(&schedLock, 1000);
+        // Update the periodic stats.
+        globalStats.updatePeriodicStats();
     }
     schedLock.Unlock();
     // We are about to return normally.  Stop any crowbar function
@@ -1758,7 +1772,9 @@ bool Processes::WaitForSignal(TaskData *taskData, PLock *sigLock)
     {
         // Now release the ML memory.  A GC can start.
         ThreadReleaseMLMemoryWithSchedLock(ptaskData);
+        globalStats.incCount(PSC_THREADS_WAIT_SIGNAL);
         ptaskData->threadLock.Wait(&schedLock);
+        globalStats.decCount(PSC_THREADS_WAIT_SIGNAL);
         // We want to use the memory again.
         ThreadUseMLMemoryWithSchedLock(ptaskData);
     }

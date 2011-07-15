@@ -93,12 +93,6 @@
 #include <stdio.h>
 #endif
 
-/************************************************************************
- *
- * Include runtime headers
- *
- ************************************************************************/
-
 #include "locking.h"
 #include "globals.h"
 #include "mpoly.h"
@@ -112,6 +106,7 @@
 #include "rts_module.h"
 #include "processes.h"
 #include "diagnostics.h"
+#include "statistics.h"
 
 #ifdef WINDOWS_PC
 /* Windows file times are 64-bit numbers representing times in
@@ -145,7 +140,7 @@
 
 #ifdef WINDOWS_PC
 static FILETIME startTime;
-static ULARGE_INTEGER gcUTime, gcSTime;
+static FILETIME gcUTime, gcSTime;
 #else
 static struct timeval startTime;
 static struct timeval gcUTime, gcSTime;
@@ -174,6 +169,18 @@ static int proper_getrusage(int who, struct rusage *rusage)
 }
 
 #endif
+
+/* Functions to add and subtract times. */
+#ifdef WINDOWS_PC
+static void addTimes(FILETIME *result, const FILETIME *x);
+static void subTimes(FILETIME *result, const FILETIME *x);
+static float timeToSeconds(const FILETIME *x);
+#else
+static void addTimes(struct timeval *result, const struct timeval *x);
+static void subTimes(struct timeval *result, const struct timeval *x);
+static float timeToSeconds(const struct timeval *x);
+#endif
+
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -332,18 +339,9 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
 #ifdef WINDOWS_PC
             FILETIME ut, ct, et, kt;
-            if (GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                return Make_arb_from_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
-            /* GetProcessTimes failed, assume because this is not NT.
-               Have to use real time. */
-			GetSystemTimeAsFileTime(&ut);
-            ULARGE_INTEGER li, lj;
-            li.LowPart = ut.dwLowDateTime;
-            li.HighPart = ut.dwHighDateTime;
-            lj.LowPart = startTime.dwLowDateTime;
-            lj.HighPart = startTime.dwHighDateTime;
-            li.QuadPart -= lj.QuadPart;
-            return Make_arb_from_pair(taskData, li.HighPart, li.LowPart);
+            if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
+                raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
+            return Make_arb_from_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
 #else
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
@@ -357,10 +355,9 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
 #ifdef WINDOWS_PC
             FILETIME ct, et, kt, ut;
-            if (GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-                return Make_arb_from_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
-            /* If GetProcessTimes fails just return 0. */
-            return Make_arbitrary_precision(taskData, 0);
+            if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
+                raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
+            return Make_arb_from_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
 #else
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
@@ -372,7 +369,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 9: /* Return GC time since the start. */
 #ifdef WINDOWS_PC
-        return Make_arb_from_pair(taskData, gcUTime.HighPart, gcUTime.LowPart);
+        return Make_arb_from_pair(taskData, gcUTime.dwHighDateTime, gcUTime.dwLowDateTime);
 #else
         return Make_arb_from_pair_scaled(taskData, gcUTime.tv_sec, gcUTime.tv_usec, 1000000);
 #endif
@@ -381,14 +378,9 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
 #ifdef WINDOWS_PC
             FILETIME ft;
-            ULARGE_INTEGER li, lj;
 			GetSystemTimeAsFileTime(&ft);
-            li.LowPart = ft.dwLowDateTime;
-            li.HighPart = ft.dwHighDateTime;
-            lj.LowPart = startTime.dwLowDateTime;
-            lj.HighPart = startTime.dwHighDateTime;
-            li.QuadPart -= lj.QuadPart;
-            return Make_arb_from_pair(taskData, li.HighPart, li.LowPart);
+            subTimes(&ft, &startTime);
+            return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)
@@ -428,7 +420,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 13: /* Return GC system time since the start. */
         /* This function was added in Gansner & Reppy. */
 #ifdef WINDOWS_PC
-        return Make_arb_from_pair(taskData, gcSTime.HighPart, gcSTime.LowPart);
+        return Make_arb_from_pair(taskData, gcSTime.dwHighDateTime, gcSTime.dwLowDateTime);
 #else
         return Make_arb_from_pair_scaled(taskData, gcSTime.tv_sec, gcSTime.tv_usec, 1000000);
 #endif
@@ -450,71 +442,61 @@ void record_gc_time(gcTime isEnd, const char *stage)
 {
 #ifdef WINDOWS_PC
     FILETIME kt, ut;
-    FILETIME ct, et;
-    if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
-    {
-        /* GetProcessTimes failed, assume because this is not NT.
-           Have to use real time. */
-		GetSystemTimeAsFileTime(&ut);
-        kt.dwHighDateTime = kt.dwLowDateTime = 0;
-    }
-    ULARGE_INTEGER liU, liS, liR;
-    liU.LowPart = ut.dwLowDateTime;
-    liU.HighPart = ut.dwHighDateTime;
-    liS.LowPart = kt.dwLowDateTime;
-    liS.HighPart = kt.dwHighDateTime;
-    
-    if (debugOptions & DEBUG_GC)
-    {
-        // Real time is only used for debugging
-        FILETIME ft;
-        GetSystemTimeAsFileTime(&ft);
-        liR.LowPart = ft.dwLowDateTime;
-        liR.HighPart = ft.dwHighDateTime;
-    }
+    FILETIME ct, et; // Unused
+    FILETIME rt;
 
-    static ULONGLONG startUTime, startSTime, startRTime; // Statics to remember start time
-    static ULONGLONG lastUTime, lastSTime, lastRTime;
+    static FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
+    static FILETIME startRTime, lastRTime;
+
+    GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
+    if (debugOptions & DEBUG_GC) GetSystemTimeAsFileTime(&rt);
 
     switch (isEnd)
     {
     case GCTimeStart:
         // Start of GC
-        startUTime = lastUTime = liU.QuadPart;
-        startSTime = lastSTime = liS.QuadPart;
-        if (debugOptions & DEBUG_GC) startRTime = lastRTime = liR.QuadPart;
+        startUsageU = lastUsageU = ut;
+        startUsageS = lastUsageS = kt;
+        if (debugOptions & DEBUG_GC) startRTime = lastRTime = rt;
         break;
 
     case GCTimeIntermediate:
         // Report intermediate GC time for debugging
         if (debugOptions & DEBUG_GC)
         {
-            ULONGLONG userTime = liU.QuadPart - lastUTime;
-            ULONGLONG systemTime = liS.QuadPart - lastSTime;
-            ULONGLONG realTime = liR.QuadPart - lastRTime;
-            Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage,
-                ((float)userTime) / 1.0E7, 
-                ((float)systemTime) / 1.0E7, ((float)realTime) / 1.0E7,
-                ((float)userTime + systemTime) / (float)realTime);
-            lastUTime = liU.QuadPart;
-            lastSTime = liS.QuadPart;
-            lastRTime = liR.QuadPart;
+            FILETIME nextU = ut, nextS = kt, nextR = rt;
+            subTimes(&ut, &lastUsageU);
+            subTimes(&kt, &lastUsageS);
+            subTimes(&rt, &lastRTime);
+
+            float userTime = timeToSeconds(&ut);
+            float systemTime = timeToSeconds(&kt);
+            float realTime = timeToSeconds(&rt);
+
+            Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
+                systemTime, realTime, (userTime + systemTime) / realTime);
+            lastUsageU = nextU;
+            lastUsageS = nextS;
+            lastRTime = nextR;
         }
         break;
 
-    case GCTimeEnd:
-        // End of GC.
-        gcUTime.QuadPart += liU.QuadPart - startUTime;
-        gcSTime.QuadPart += liS.QuadPart - startSTime;
-
-        if (debugOptions & DEBUG_GC)
+    case GCTimeEnd: // End of GC.
         {
-            ULONGLONG userTime = liU.QuadPart - startUTime;
-            ULONGLONG systemTime = liS.QuadPart - startSTime;
-            ULONGLONG realTime = liR.QuadPart - startRTime;
-            Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", ((float)userTime) / 1.0E7, 
-                ((float)systemTime) / 1.0E7, ((float)realTime) / 1.0E7,
-                ((float)userTime + systemTime) / (float)realTime);
+            subTimes(&ut, &startUsageU);
+            subTimes(&kt, &startUsageS);
+            addTimes(&gcUTime, &ut);
+            addTimes(&gcSTime, &kt);
+
+            if (debugOptions & DEBUG_GC)
+            {
+                float userTime = timeToSeconds(&ut);
+                float systemTime = timeToSeconds(&kt);
+                float realTime = timeToSeconds(&rt);
+                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
+                    systemTime, realTime, (userTime + systemTime) / realTime);
+            }
+            globalStats.copyGCTimes(gcUTime, gcSTime);
         }
         break;
     }
@@ -549,9 +531,9 @@ void record_gc_time(gcTime isEnd, const char *stage)
             subTimes(&rusage.ru_stime, &lastUsage.ru_stime);
             subTimes(&tv, &lastTime);
 
-            float userTime = (float)rusage.ru_utime.tv_sec + (float)rusage.ru_utime.tv_usec / 1.0E6;
-            float systemTime = (float)rusage.ru_stime.tv_sec + (float)rusage.ru_stime.tv_usec / 1.0E6;
-            float realTime = (float)tv.tv_sec + (float)tv.tv_usec / 1.0E6;
+            float userTime = timeToSeconds(&rusage.ru_utime);
+            float systemTime = timeToSeconds(&rusage.ru_stime);
+            float realTime = timeToSeconds(&tv);
             Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
                 systemTime, realTime, (userTime + systemTime) / realTime);
             lastUsage = nextUsage;
@@ -575,19 +557,52 @@ void record_gc_time(gcTime isEnd, const char *stage)
                 if (gettimeofday(&tv, NULL) != 0)
                     return;
                 subTimes(&tv, &startTime);
-                float userTime = (float)rusage.ru_utime.tv_sec + (float)rusage.ru_utime.tv_usec / 1.0E6;
-                float systemTime = (float)rusage.ru_stime.tv_sec + (float)rusage.ru_stime.tv_usec / 1.0E6;
-                float realTime = (float)tv.tv_sec + (float)tv.tv_usec / 1.0E6;
+                float userTime = timeToSeconds(&rusage.ru_utime);
+                float systemTime = timeToSeconds(&rusage.ru_stime);
+                float realTime = timeToSeconds(&tv);
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
                     systemTime, realTime, (userTime + systemTime) / realTime);
             }
+            globalStats.copyGCTimes(gcUTime, gcSTime);
         }
     }
 #endif
 }
 
-#ifndef WINDOWS_PC
-void addTimes(struct timeval *result, struct timeval *x)
+#ifdef WINDOWS_PC
+void addTimes(FILETIME *result, const FILETIME *x)
+{
+    ULARGE_INTEGER liA, liB;
+    liA.LowPart = result->dwLowDateTime;
+    liA.HighPart = result->dwHighDateTime;
+    liB.LowPart = x->dwLowDateTime;
+    liB.HighPart = x->dwHighDateTime;
+    liA.QuadPart += liB.QuadPart;
+    result->dwLowDateTime = liA.LowPart;
+    result->dwHighDateTime = liA.HighPart;
+}
+
+void subTimes(FILETIME *result, const FILETIME *x)
+{
+    ULARGE_INTEGER liA, liB;
+    liA.LowPart = result->dwLowDateTime;
+    liA.HighPart = result->dwHighDateTime;
+    liB.LowPart = x->dwLowDateTime;
+    liB.HighPart = x->dwHighDateTime;
+    liA.QuadPart -= liB.QuadPart;
+    result->dwLowDateTime = liA.LowPart;
+    result->dwHighDateTime = liA.HighPart;
+}
+
+float timeToSeconds(const FILETIME *x)
+{
+    ULARGE_INTEGER ul;
+    ul.LowPart = x->dwLowDateTime;
+    ul.HighPart = x->dwHighDateTime;
+    return (float)ul.QuadPart / (float)1.0E7;
+}
+#else
+void addTimes(struct timeval *result, const struct timeval *x)
 {
     long uSecs = result->tv_usec + x->tv_usec;
     result->tv_sec += x->tv_sec;
@@ -595,12 +610,17 @@ void addTimes(struct timeval *result, struct timeval *x)
     result->tv_usec = uSecs;
 }
 
-void subTimes(struct timeval *result, struct timeval *x)
+void subTimes(struct timeval *result, const struct timeval *x)
 {
     long uSecs = result->tv_usec - x->tv_usec;
     result->tv_sec -= x->tv_sec;
     if (uSecs < 0) { result->tv_sec--; uSecs += 1000000; }
     result->tv_usec = uSecs;
+}
+
+float timeToSeconds(const struct timeval *x)
+{
+    return (float)x->tv_sec + (float)x->tv_usec / 1.0E6;
 }
 #endif
 
@@ -616,8 +636,7 @@ static Timing timingModule;
 void Timing::Init(void)
 {
 #ifdef WINDOWS_PC
-	/* Record an initial time of day to use as the basis of
-	   real timing and also CPU timing if GetProcessTimes doesn't work. */
+	// Record an initial time of day to use as the basis of real timing
 	GetSystemTimeAsFileTime(&startTime);
 #else
     gettimeofday(&startTime, NULL);

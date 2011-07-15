@@ -68,6 +68,7 @@
 #include "memmgr.h"
 #include "gctaskfarm.h"
 #include "mpoly.h"
+#include "statistics.h"
 
 // The immutable and mutable segment sizes are the default units of allocation
 // for new address spaces.
@@ -415,6 +416,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     unsigned j;
 
     record_gc_time(GCTimeStart);
+    globalStats.incCount(PSC_GC_FULLGC);
 
     if (debugOptions & DEBUG_GC)
         Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.nlSpaces);
@@ -511,6 +513,24 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                 lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                 ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
+        }
+    }
+
+    // Compute values for statistics
+    globalStats.setSize(PSS_AFTER_LAST_GC, 0);
+    globalStats.setSize(PSS_AFTER_LAST_FULLGC, 0);
+    globalStats.setSize(PSS_ALLOCATION, 0);
+    globalStats.setSize(PSS_ALLOCATION_UNRESERVED, 0);
+    for (j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        POLYUNSIGNED free = space->freeSpace();
+        globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
+        globalStats.incSize(PSS_AFTER_LAST_FULLGC, free*sizeof(PolyWord));
+        if (space->allocationSpace)
+        {
+            globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
+            globalStats.incSize(PSS_ALLOCATION_UNRESERVED, free*sizeof(PolyWord));
         }
     }
 
@@ -741,6 +761,8 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
         POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
 
         // Allocate one allocation space plus one immutable and one mutable space per thread
+        globalStats.setSize(PSS_ALLOCATION, 0);
+        globalStats.setSize(PSS_ALLOCATION_UNRESERVED, 0);
         if (! allocationFailed)
             allocationFailed = gMem.CreateAllocationSpace(allocSegSize) == 0;
         for(unsigned j = 0; j < userOptions.gcthreads; j++)
@@ -764,7 +786,13 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
             mutableSegSize = mutableSegSize/2;
             allocSegSize = allocSegSize/2;
         }
-        else break; // Succeeded.
+        else // Succeeded.
+        {
+            // Record the space as though we'd had a GC
+            globalStats.setSize(PSS_AFTER_LAST_GC, globalStats.getSize(PSS_TOTAL_HEAP));
+            globalStats.setSize(PSS_AFTER_LAST_FULLGC, globalStats.getSize(PSS_TOTAL_HEAP));
+            break;
+        }
     }
 
     // Heap allocation has succeeded.

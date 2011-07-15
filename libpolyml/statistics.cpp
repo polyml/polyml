@@ -78,6 +78,13 @@
 #endif
 #endif
 
+#ifdef HAVE_ASSERT_H
+#include <assert.h>
+#define ASSERT(x)   assert(x)
+#else
+#define ASSERT(x)
+#endif
+
 #include "rts_module.h"
 #include "statistics.h"
 #include "../polystatistics.h"
@@ -94,8 +101,7 @@ Statistics::Statistics()
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
     char shmName[MAX_PATH];
-    if (_snprintf(shmName, sizeof(shmName), "poly-%lu", pid) >= sizeof(shmName))
-        return;
+    sprintf(shmName, POLY_STATS_NAME "%lu", pid);
 
     // Create a piece of shared memory
     hFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
@@ -126,8 +132,7 @@ Statistics::Statistics()
     mapFileName[0] = 0;
     int pageSize = getpagesize();
     memSize = (sizeof(polystatistics) + pageSize-1) & ~(pageSize-1);
-    if (snprintf(mapFileName, sizeof(mapFileName), "/tmp/poly-%d", getpid()) >= (int)sizeof(mapFileName))
-        return;
+    sprintf(mapFileName, "/tmp/" POLY_STATS_NAME "%d", getpid());
     mapFd = open(mapFileName, O_RDWR|O_CREAT|O_EXCL, 0444);
     if (mapFd == -1) return;
     // Write enough of the file to fill the space.
@@ -157,22 +162,145 @@ Statistics::~Statistics()
 #endif
 }
 
+// Counters.  These are used for thread state so need interlocks
+void Statistics::incCount(int which)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        statMemory->psCounters[which]++;
+    }
+}
+
+void Statistics::decCount(int which)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        statMemory->psCounters[which]--;
+    }
+}
+
+// Sizes.  Some of these are only set during GC so may not need interlocks
+void Statistics::setSize(int which, size_t s)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        statMemory->psSizes[which] = s;
+    }
+}
+
+void Statistics::incSize(int which, size_t s)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        statMemory->psSizes[which] += s;
+    }
+}
+
+void Statistics::decSize(int which, size_t s)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        ASSERT(s <= statMemory->psSizes[which]);
+        statMemory->psSizes[which] -= s;
+    }
+}
+
+size_t Statistics::getSize(int which)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        return statMemory->psSizes[which];
+    }
+    else return 0;
+}
+
+
+#ifdef WINDOWS_PC
+// Native Windows
+void Statistics::copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        statMemory->psTimers[PST_GC_UTIME] = gcUtime;
+        statMemory->psTimers[PST_GC_STIME] = gcStime;
+    }
+}
+#elif defined(HAVE_WINDOWS_H)
+// Cygwin.  The statistics are held in the Windows format so that they can be accessed
+// by the performance monitor.
+void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime)
+{
+    if (statMemory)
+    {
+        FILETIME ftU, ftS;
+        ULARGE_INTEGER lU, lS;
+        lU.QuadPart = (ULONGLONG)gcUtime.tv_sec * 10000000 + (ULONGLONG)gcUtime.tv_usec * 10;
+        ftU.dwHighDateTime = lU.HighPart;
+        ftU.dwLowDateTime = lU.LowPart;
+        lS.QuadPart = (ULONGLONG)gcStime.tv_sec * 10000000 + (ULONGLONG)gcStime.tv_usec * 10;
+        ftS.dwHighDateTime = lS.HighPart;
+        ftS.dwLowDateTime = lS.LowPart;
+        PLocker lock(&accessLock);
+        statMemory->psTimers[PST_GC_UTIME] = ftU;
+        statMemory->psTimers[PST_GC_STIME] = ftS;
+    }
+}
+#else
+// Unix
+void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+        statMemory->psTimers[PST_GC_UTIME] = gcUtime;
+        statMemory->psTimers[PST_GC_STIME] = gcStime;
+    }
+}
+#endif
+
+// Update the statistics that are not otherwise copied.  Called from the
+// root thread every second.
+void Statistics::updatePeriodicStats(void)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock);
+#ifdef HAVE_WINDOWS_H
+        FILETIME ct, et;
+        GetProcessTimes(GetCurrentProcess(), &ct, &et,
+            &statMemory->psTimers[PST_TOTAL_STIME], &statMemory->psTimers[PST_TOTAL_UTIME]);
+#elif HAVE_GETRUSAGE
+        struct rusage usage;
+        getrusage(RUSAGE_SELF, &usage);
+        statMemory->psTimers[PST_TOTAL_UTIME] = usage.ru_utime;
+        statMemory->psTimers[PST_TOTAL_STIME] = usage.ru_stime;
+#endif
+    }
+}
+
 // Copy the local statistics into the buffer
 bool Statistics::getLocalsStatistics(struct polystatistics *statCopy)
 {
     if (statMemory == 0) return false;
+    PLocker lock(&accessLock);
     // We don't have to check the sizes because we created it
     memcpy(statCopy, statMemory, sizeof(polystatistics));
     return true;
 }
 
-// Get statistics for a remote instance
+// Get statistics for a remote instance.  We don't do any locking 
 bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *statCopy)
 {
 #ifdef HAVE_WINDOWS_H
     char shmName[MAX_PATH];
-    if (_snprintf(shmName, sizeof(shmName), "poly-%" POLYUFMT, pid) >= sizeof(shmName))
-        return false;
+    sprintf(shmName, POLY_STATS_NAME "%" POLYUFMT, pid);
     HANDLE hRemMemory = OpenFileMapping(FILE_MAP_READ, FALSE, shmName);
     if (hRemMemory == NULL) return false;
 
@@ -196,8 +324,7 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     int remMapFd = -1;
     char remMapFileName[40];
     remMapFileName[0] = 0;
-    if (snprintf(remMapFileName, sizeof(remMapFileName), "/tmp/poly-%d", pid) >= (int)sizeof(remMapFileName))
-        return false;
+    sprintf(remMapFileName, "/tmp/" POLY_STATS_NAME "%lu", pid);
     remMapFd = open(remMapFileName, O_RDONLY);
     if (remMapFd == -1) return false;
     polystatistics *sMem = (polystatistics*)mmap(0, memSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);
@@ -220,5 +347,5 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
 
 
 // Create the global statistics object.
-static Statistics globalStats;
-Statistics *gStats = &globalStats;
+Statistics globalStats;
+

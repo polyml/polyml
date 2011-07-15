@@ -139,6 +139,7 @@
 #include "save_vec.h"
 #include "rts_module.h"
 #include "memmgr.h"
+#include "statistics.h"
 
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
@@ -1009,8 +1010,12 @@ Handle EnterPolyCode(TaskData *taskData)
     while (1)
     {
         taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
+
         // Run the ML code and return with the function to call.
+        globalStats.incCount(PSC_THREADS_IN_ML);
         int ioFunction = machineDependent->SwitchToPoly(taskData);
+        globalStats.decCount(PSC_THREADS_IN_ML);
+
 	    try {
             switch (ioFunction)
             {
