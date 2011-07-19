@@ -63,6 +63,18 @@ Package=<4>
 
 ###############################################################################
 
+Project: "PolyPerf"=".\PolyPerf\PolyPerf.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
+}}}
+
+###############################################################################
+
 Project: "polyicon"=".\wininstall\polyicon\polyicon.dsp" - Package Owner=<4>
 
 Package=<5>
@@ -85,6 +97,15 @@ Package=<4>
 {{{
     Begin Project Dependency
     Project_Dep_Name polyicon
+    End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name PolyLib
+    End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name PolyML
+    End Project Dependency
+    Begin Project Dependency
+    Project_Dep_Name PolyPerf
     End Project Dependency
 }}}
 

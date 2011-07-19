@@ -1,17 +1,18 @@
 <?xml version='1.0' encoding='windows-1252'?>
-  <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'> 
-    <Product Name='PolyML 5.4' Id='*'
+  <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
+       xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"> 
+    <Product Name='PolyML 5.4.2' Id='*'
 	  	UpgradeCode='D7A17500-0FF5-4FC3-BC36-DD799D57071A'
-		Language='2057' Codepage='1252' Version='5.4.0' Manufacturer='Poly/ML'> 
+		Language='2057' Codepage='1252' Version='5.4.2' Manufacturer='Poly/ML'> 
 
-      <Package Id='*' Keywords='Installer' Description="Poly/ML 5.4.0 Installer"
+      <Package Id='*' Keywords='Installer' Description="Poly/ML 5.4.2 Installer"
 			  InstallerVersion='100' Languages='2057' Compressed='yes' SummaryCodepage='1252' />
       <WixVariable Id="WixUILicenseRtf" Value="Licence.rtf" />
       <Media Id='1' Cabinet='Sample.cab' EmbedCab='yes' DiskPrompt="CD-ROM #1" />
 
       <Upgrade Id="D7A17500-0FF5-4FC3-BC36-DD799D57071A">  
 		   <UpgradeVersion
-			  Minimum="0.0.0.0" Maximum="5.4.0"
+			  Minimum="0.0.0.0" Maximum="5.4.2"
 			  Property="PREVIOUSVERSIONSINSTALLED"
 			  IncludeMinimum="yes" IncludeMaximum="no" />
       </Upgrade> 
@@ -20,7 +21,7 @@
           <RemoveExistingProducts After="InstallFinalize"></RemoveExistingProducts>
 	  </InstallExecuteSequence>
 
-      <Property Id='DiskPrompt' Value="Poly/ML 5.4.0 Installation [1]" />
+      <Property Id='DiskPrompt' Value="Poly/ML 5.4.2 Installation [1]" />
 
       <Directory Id='TARGETDIR' Name='SourceDir'> 
         <Directory Id='ProgramFilesFolder' Name='PFiles'> 
@@ -28,10 +29,10 @@
 
 
 			<!-- Poly/ML -->
-            <Component Id='PolyLib.dll' Guid='165913D6-076E-43F1-8348-49626CDCA452'> 
+            <Component Id='PolyLib.dll' Guid='F890E0BF-B138-436B-801B-A12B90C5752E'> 
               <File Id='PolyLibDLL' Name='PolyLib.dll' DiskId='1' Source='..\Release\PolyLib.dll' />
             </Component>
-            <Component Id='PolyML.exe' Guid='E341AC0B-5739-4510-AC68-7F0B269B06C6'> 
+            <Component Id='PolyML.exe' Guid='C9714C4B-5394-4CC9-A82B-EFBB8119D5A6'> 
               <File Id='PolyML.exe' Name='PolyML.exe' DiskId='1' Source='..\Release\PolyML.exe' KeyPath="yes"> 
                 <Shortcut Id="startmenuPolyML" Directory="ProgramMenuDir" Name="PolyML" 
 								Advertise="yes"
@@ -48,12 +49,77 @@
 				  <RegistryValue Id='Path' Name='Path' Type='string' Value='[$PolyML.exe]' Action='write' />
 			  </RegistryKey>
             </Component>
+
+			<!-- Poly/ML Performance monitor -->
+			<Component Id='PolyPerf.dll' Guid='B9271705-B543-4676-B426-FD6AE2778F16'>
+			  <File Id='PolyPerf.dll' Name='PolyPerf.dll' DiskId='1' Source='..\PolyPerf\Release\PolyPerf.dll' />
+
+			  <!-- Registry entries for Poly/ML in the services key -->
+			  <!-- This is used in place of the old form which required an ini file and header -->
+			  <util:PerformanceCategory Id='PerfCat' Name='PolyML' MultiInstance='yes'
+			      Help='Poly/ML run-time statistics'
+			      Open='OpenPolyPerfMon' Close='ClosePolyPerfMon' Collect='CollectPolyPerfMon' 
+			      DefaultLanguage='english' Library='[#PolyPerf.dll]'>
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Threads total'
+					  Help='Total number of ML threads.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Threads ML'
+					  Help='Number of threads currently running ML code.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Threads IO'
+					  Help='Number of threads currently waiting for IO.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Threads Mutex'
+					  Help='Number of threads waiting for a mutex.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Threads CondVar'
+					  Help='Number of threads waiting for a condition variable.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Threads Signal'
+					  Help='Number of threads waiting for a signal.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Full GCs'
+					  Help='Number of full garbage collections.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Partial GCs'
+					  Help='Number of partial garbage collections.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Heap Size'
+					  Help='Total size of the local heap.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Free after GC'
+					  Help='The space in the heap free after the last garbage collection.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Free after Full GC'
+					  Help='The space in the heap free after the last full garbage collection.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Alloc Space'
+					  Help='The size of the space available for allocation in the heap.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='Alloc unreserved'
+					  Help='The free space available in the allocation area.' />
+				  <util:PerformanceCounter Type='timer100Ns'
+				      Name='User time'
+					  Help='The total time the program has been running in user space including garbage collection.' />
+				  <util:PerformanceCounter Type='timer100Ns'
+				      Name='System time'
+					  Help='The total time the program has been running in the system including garbage collection.' />
+				  <util:PerformanceCounter Type='timer100Ns'
+				      Name='GC User time'
+					  Help='The time the program has spent in user space when garbage collecting.' />
+				  <util:PerformanceCounter Type='timer100Ns'
+				      Name='GC System time'
+					  Help='The time the program has spent in the system when garbage collecting.' />
+			  </util:PerformanceCategory>
+
+			</Component>
           </Directory>
         </Directory>
 
         <Directory Id="ProgramMenuFolder" Name="Programs"> 
           <Directory Id="ProgramMenuDir" Name='Poly ML' > 
-            <Component Id='IDProgramGroup' Guid='1642CC1A-4BF7-4FF1-AF53-91913EC3D4B1'> 
+            <Component Id='IDProgramGroup' Guid='FD8895A3-648F-470D-AAB9-1C2D4011AB84'> 
               <RemoveFolder Id='IDProgramGroup' On='uninstall'/>
               <RegistryValue Root='HKCU' Key='SOFTWARE\PolyML\PolyML'  Type='string' Value='Poly ML'  KeyPath='yes' />
             </Component>
@@ -62,15 +128,18 @@
         <Directory Id="DesktopFolder" Name="Desktop"/>
       </Directory>
 
-      <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML" Display='expand' AllowAdvertise="yes"> 
+      <Feature Id='Complete' Title='Poly ML' Level='1' Description="Poly/ML" Display='expand' AllowAdvertise="no"> 
         <Feature Id='PolyML' Title='Poly ML' Description='The Poly/ML Program' Level='1'> 
           <ComponentRef Id='PolyLib.dll' />
           <ComponentRef Id='PolyML.exe' />
         </Feature>
+        <Feature Id='PolyPerf' Title='PerfMon plug-in' Description='Perfomance monitor plug-in for Poly/ML' Level='1'> 
+          <ComponentRef Id='PolyPerf.dll' />
+        </Feature>
         <ComponentRef Id='IDProgramGroup' />
       </Feature>
 
-      <UIRef Id="WixUI_Minimal" />
+      <UIRef Id="WixUI_FeatureTree" />
       <UIRef Id="WixUI_ErrorProgressText" />
       <Icon Id="polyicon.exe" SourceFile="polyicon\Release\polyicon.exe" />
   	  <Property Id="ARPPRODUCTICON" Value="polyicon.exe" />

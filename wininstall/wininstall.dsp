@@ -50,8 +50,8 @@ USERDEP__POLYM="Licence.rtf"
 InputPath=.\PolyML.wxs
 
 "Release\PolyML.msi" : $(SOURCE) "$(INTDIR)" "$(OUTDIR)"
-	candle.exe PolyML.wxs -o Release\PolyML.wixobj 
-	light.exe Release\PolyML.wixobj -out Release\PolyML.msi -ext WixUIExtension -cultures:en-us 
+	candle.exe PolyML.wxs -o Release\PolyML.wixobj  -ext WixUtilExtension 
+	light.exe Release\PolyML.wixobj -out Release\PolyML.msi -ext WixUIExtension -cultures:en-us -ext WixUtilExtension 
 	
 # End Custom Build
 # End Source File

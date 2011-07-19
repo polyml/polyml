@@ -171,6 +171,7 @@ Statistics::Statistics()
 Statistics::~Statistics()
 {
 #ifdef HAVE_WINDOWS_H
+    if (statMemory != NULL) ::UnmapViewOfFile(statMemory);
     if (hFileMap != NULL) ::CloseHandle(hFileMap);
 #elif HAVE_MMAP
     if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
@@ -334,6 +335,7 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     if ((size_t)sMem->psSize < bytes) bytes = (size_t)sMem->psSize;
     memcpy(statCopy, sMem, sizeof(polystatistics));
 
+    ::UnmapViewOfFile(sMem);
     CloseHandle(hRemMemory);
     return true;
 #elif HAVE_MMAP
