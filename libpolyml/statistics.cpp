@@ -83,6 +83,10 @@
 #include <sys/resource.h>
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
 #if defined(HAVE_MMAP)
 // How do we get the page size?
 #ifndef HAVE_GETPAGESIZE
@@ -145,13 +149,21 @@ Statistics::Statistics()
     statMemory->psSize = sizeof(polystatistics);
 
 #elif HAVE_MMAP
-    // Create the shared memory in the /tmp directory
+    // Create the shared memory in the user's .polyml directory
     mapFd = -1;
-    mapFileName[0] = 0;
+    mapFileName = 0;
     int pageSize = getpagesize();
     memSize = (sizeof(polystatistics) + pageSize-1) & ~(pageSize-1);
-    sprintf(mapFileName, "/tmp/" POLY_STATS_NAME "%d", getpid());
-    mapFd = open(mapFileName, O_RDWR|O_CREAT|O_EXCL, 0444);
+    char *homeDir = getenv("HOME");
+    if (homeDir == NULL) return;
+    mapFileName = (char*)malloc(strlen(homeDir) + 100);
+    strcpy(mapFileName, homeDir);
+    strcat(mapFileName, "/.polyml");
+    mkdir(mapFileName, 0777); // Make the directory to ensure it exists
+    sprintf(mapFileName + strlen(mapFileName), "/" POLY_STATS_NAME "%d", getpid());
+    // Open the file.  Truncates it if it already exists.  That should only happen
+    // if a previous run with the same process id crashed.
+    mapFd = open(mapFileName, O_RDWR|O_CREAT, 0444);
     if (mapFd == -1) return;
     // Write enough of the file to fill the space.
     char ch = 0;
@@ -178,7 +190,8 @@ Statistics::~Statistics()
 #elif HAVE_MMAP
     if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
     if (mapFd != -1) close(mapFd);
-    if (mapFileName[0] != 0) unlink(mapFileName);
+    if (mapFileName != 0) unlink(mapFileName);
+    free(mapFileName);
 #endif
 }
 
@@ -303,7 +316,7 @@ void Statistics::updatePeriodicStats(void)
         statMemory->psTimers[PST_NONGC_STIME] = st;
         statMemory->psTimers[PST_NONGC_UTIME] = ut;
 #elif HAVE_GETRUSAGE
-        struct rusage usage, gcUsage;
+        struct rusage usage;
         getrusage(RUSAGE_SELF, &usage);
         subTimes(&usage.ru_stime, &statMemory->psTimers[PST_GC_STIME]);
         subTimes(&usage.ru_utime, &statMemory->psTimers[PST_GC_UTIME]);
@@ -361,11 +374,13 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     UnmapViewOfFile(sMem);
     return true;
 #elif HAVE_MMAP
-    // Find the shared memory in the /tmp directory
+    // Find the shared memory in the user's home directory
     int remMapFd = -1;
-    char remMapFileName[40];
+    char remMapFileName[MAXPATHLEN];
     remMapFileName[0] = 0;
-    sprintf(remMapFileName, "/tmp/" POLY_STATS_NAME "%" POLYUFMT, pid);
+    char *homeDir = getenv("HOME");
+    if (homeDir == NULL) return false;
+    sprintf(remMapFileName, "%s/.polyml/" POLY_STATS_NAME "%" POLYUFMT, homeDir, pid);
     remMapFd = open(remMapFileName, O_RDONLY);
     if (remMapFd == -1) return false;
     polystatistics *sMem = (polystatistics*)mmap(0, memSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);

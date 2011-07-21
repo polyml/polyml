@@ -65,7 +65,7 @@ private:
     // File mapping handle
     HANDLE hFileMap;
 #else
-    char mapFileName[40];
+    char *mapFileName;
     int mapFd;
     size_t memSize;
 #endif
