@@ -47,6 +47,8 @@ public:
     void decSize(int which, size_t s);
     size_t getSize(int which);
 
+    void setUserCounter(int which, long value);
+
 #ifdef WINDOWS_PC
     // Native Windows
     void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime);

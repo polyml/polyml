@@ -1569,7 +1569,8 @@ in
             local
                 open Vector
                 infix sub
-                fun convStats(counters: int vector, sizes: int vector, timers: Time.time vector) =
+                fun convStats(counters: int vector, sizes: int vector,
+                              timers: Time.time vector, users: int vector) =
                     {
                         threadsTotal = counters sub 0,
                         threadsInML = counters sub 1,
@@ -1584,16 +1585,21 @@ in
                         sizeHeapFreeLastFullGC = sizes sub 2,
                         sizeAllocation = sizes sub 3,
                         sizeAllocationUnreserved = sizes sub 4,
-                        timeTotalUser = timers sub 0,
-                        timeTotalSystem = timers sub 1,
+                        timeNonGCUser = timers sub 0,
+                        timeNonGCSystem = timers sub 1,
                         timeGCUser = timers sub 2,
-                        timeGCSystem = timers sub 3
+                        timeGCSystem = timers sub 3,
+                        userCounters = users
                     }
             in
                 fun getLocalStats() =
                     convStats(RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (25, ()))
                 and getRemoteStats(pid: int) =
                     convStats(RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (26, pid))
+                and numUserCounters(): int =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (27, ())
+                and setUserCounter(which: int, value: int): unit =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (28, (which, value))
             end
         end;
 

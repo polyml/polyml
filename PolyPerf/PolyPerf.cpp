@@ -30,32 +30,6 @@
 
 #include "../polystatistics.h"
 
-// String entries.  These are the values chosen by the Wix installer based
-// on the order of the entries in PolyML.wxs.
-
-// We just have one performance object
-#define POLYPERF_OBJECT                     0
-
-// Counters
-#define POLYPERFC_THREADS                   2       // Total number of threads
-#define POLYPERFC_THREADS_IN_ML             4       // Threads running ML code
-#define POLYPERFC_THREADS_WAIT_IO           6       // Threads waiting for IO
-#define POLYPERFC_THREADS_WAIT_MUTEX        8       // Threads waiting for a mutex
-#define POLYPERFC_THREADS_WAIT_CONDVAR      10      // Threads waiting for a condition var
-#define POLYPERFC_THREADS_WAIT_SIGNAL       12      // Special case - signal handling thread
-#define POLYPERFC_GC_FULLGC                 14      // Number of full garbage collections
-#define POLYPERFC_GC_PARTIALGC              16      // Number of partial GCs
-#define POLYPERFS_TOTAL_HEAP                18      // Total size of the local heap
-#define POLYPERFS_AFTER_LAST_GC             20      // Space free after last GC
-#define POLYPERFS_AFTER_LAST_FULLGC         22      // Space free after the last full GC
-#define POLYPERFS_ALLOCATION                24      // Size of allocation space
-#define POLYPERFS_ALLOCATION_UNRESERVED     26      // Space available in allocation area
-#define POLYPERFT_TOTAL_UTIME               28
-#define POLYPERFT_TOTAL_STIME               30
-#define POLYPERFT_GC_UTIME                  32
-#define POLYPERFT_GC_STIME                  34
-
-
 /*
 This DLL is a plug-in for Windows performance monitoring.  The whole
 interface is extremely messy and seems to have remained unchanged
@@ -124,7 +98,7 @@ PolyProcess *PolyProcess::CreateProcessEntry(DWORD pId)
     CloseHandle(hRemMemory); // We don't need this whether it succeeded or not
     if (sMem == NULL)
         return NULL;
-    if (sMem->psSize < sizeof(polystatistics))
+    if (sMem->magic != POLY_STATS_MAGIC || sMem->psSize < sizeof(polystatistics))
     {
         UnmapViewOfFile(sMem);
         return NULL;
@@ -287,15 +261,18 @@ DWORD APIENTRY CollectPolyPerfMon(
     }
     RegCloseKey(hkPerform);
 
+    // The actual strings are inserted by the installer.  See PolyML.wxs.
+    unsigned stringCount = 0;
+
     // Object header.  Just one object.
     PERF_OBJECT_TYPE *pObjectType = 
         (PERF_OBJECT_TYPE*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable, sizeof(PERF_OBJECT_TYPE));
     if (pObjectType == NULL) return ERROR_MORE_DATA;
     pObjectType->HeaderLength = sizeof(PERF_OBJECT_TYPE);
-    pObjectType->ObjectNameTitleIndex = dwFirstCounter + POLYPERF_OBJECT;
-    pObjectType->ObjectHelpTitleIndex = dwFirstHelp + POLYPERF_OBJECT;
+    pObjectType->ObjectNameTitleIndex = dwFirstCounter + stringCount*2; // First string is the name of the object
+    pObjectType->ObjectHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pObjectType->DetailLevel = PERF_DETAIL_NOVICE;
-    pObjectType->NumCounters = N_PS_COUNTERS + N_PS_SIZES + N_PS_TIMES;
+    pObjectType->NumCounters = N_PS_COUNTERS + N_PS_SIZES + N_PS_TIMES + N_PS_USER;
     pObjectType->DefaultCounter = -1;
     pObjectType->NumInstances = numProcesses;
 
@@ -308,8 +285,8 @@ DWORD APIENTRY CollectPolyPerfMon(
     for (unsigned i = 0; i < N_PS_COUNTERS; i++)
     {
         pCounters[i].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
-        pCounters[i].CounterNameTitleIndex = dwFirstCounter + POLYPERFC_THREADS + i*2;
-        pCounters[i].CounterHelpTitleIndex = dwFirstHelp + POLYPERFC_THREADS + i*2;
+        pCounters[i].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+        pCounters[i].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
         pCounters[i].DetailLevel = PERF_DETAIL_NOVICE;
         pCounters[i].CounterType = PERF_COUNTER_RAWCOUNT;
         pCounters[i].CounterOffset =
@@ -324,8 +301,8 @@ DWORD APIENTRY CollectPolyPerfMon(
     for (unsigned j = 0; j < N_PS_SIZES; j++)
     {
         pSizes[j].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
-        pSizes[j].CounterNameTitleIndex = dwFirstCounter + POLYPERFS_TOTAL_HEAP + j*2;
-        pSizes[j].CounterHelpTitleIndex = dwFirstHelp + POLYPERFS_TOTAL_HEAP + j*2;
+        pSizes[j].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+        pSizes[j].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
         pSizes[j].DetailLevel = PERF_DETAIL_NOVICE;
         pSizes[j].CounterType = PERF_COUNTER_RAWCOUNT;
         pSizes[j].CounterOffset =
@@ -340,12 +317,28 @@ DWORD APIENTRY CollectPolyPerfMon(
     for (unsigned k = 0; k < N_PS_TIMES; k++)
     {
         pTimes[k].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
-        pTimes[k].CounterNameTitleIndex = dwFirstCounter + POLYPERFT_TOTAL_UTIME + k*2;
-        pTimes[k].CounterHelpTitleIndex = dwFirstHelp + POLYPERFT_TOTAL_UTIME + k*2;
+        pTimes[k].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+        pTimes[k].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
         pTimes[k].DetailLevel = PERF_DETAIL_NOVICE;
         pTimes[k].CounterType = PERF_100NSEC_TIMER;
         pTimes[k].CounterOffset =
             sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psTimers)+k*sizeof(FILETIME);
+    }
+
+    // Finally the user counters
+    PERF_COUNTER_DEFINITION *pUsers =
+        (PERF_COUNTER_DEFINITION*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable,
+            sizeof(PERF_COUNTER_DEFINITION) * N_PS_USER);
+    if (pUsers == NULL) return ERROR_MORE_DATA;
+    for (unsigned l = 0; l < N_PS_USER; l++)
+    {
+        pUsers[l].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+        pUsers[l].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+        pUsers[l].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+        pUsers[l].DetailLevel = PERF_DETAIL_NOVICE;
+        pUsers[l].CounterType = PERF_COUNTER_RAWCOUNT;
+        pUsers[l].CounterOffset =
+            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psUser)+l*sizeof(long);
     }
 
     pObjectType->DefinitionLength = *lpcbTotalBytes; // End of definitions; start of instance data

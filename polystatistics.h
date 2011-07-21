@@ -47,15 +47,22 @@ enum {
 };
 
 enum {
-    PST_TOTAL_UTIME,
-    PST_TOTAL_STIME,
+    PST_NONGC_UTIME,
+    PST_NONGC_STIME,
     PST_GC_UTIME,
     PST_GC_STIME,
     N_PS_TIMES
 };
 
+// A few counters that can be used by the application
+#define N_PS_USER   8
+
+// A random number to help identify a valid shared memory block.
+#define POLY_STATS_MAGIC    0x8022E96B
+
 typedef struct polystatistics {
     unsigned psSize; // Size of the data structure
+    unsigned magic; // Magic number
     unsigned long psCounters[N_PS_COUNTERS];
     size_t psSizes[N_PS_SIZES];
 #if defined(HAVE_WINDOWS_H)
@@ -65,6 +72,7 @@ typedef struct polystatistics {
 #else
     int psTimers[N_PS_TIMES];
 #endif
+    long psUser[N_PS_USER];
 } polystatistics;
 
 #endif // POLY_STATISTICS_INCLUDED

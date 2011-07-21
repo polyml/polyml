@@ -1,4 +1,15 @@
 <?xml version='1.0' encoding='windows-1252'?>
+   <!-- These defines allow the paths to the sources to be given on the command line. -->
+   <?ifndef POLYLIBSRC ?>
+       <?define POLYLIBSRC = '..\Release\PolyLib.dll' ?>
+   <?endif?>
+   <?ifndef POLYEXESRC ?>
+       <?define POLYEXESRC = '..\Release\PolyML.exe' ?>
+   <?endif?>
+   <?ifndef POLYPERFSRC ?>
+       <?define POLYPERFSRC = '..\PolyPerf\Release\PolyPerf.dll' ?>
+   <?endif?>
+
   <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
        xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"> 
     <Product Name='PolyML 5.4.2' Id='*'
@@ -30,10 +41,10 @@
 
 			<!-- Poly/ML -->
             <Component Id='PolyLib.dll' Guid='F890E0BF-B138-436B-801B-A12B90C5752E'> 
-              <File Id='PolyLibDLL' Name='PolyLib.dll' DiskId='1' Source='..\Release\PolyLib.dll' />
+              <File Id='PolyLibDLL' Name='PolyLib.dll' DiskId='1' Source='$(var.POLYLIBSRC)' />
             </Component>
             <Component Id='PolyML.exe' Guid='C9714C4B-5394-4CC9-A82B-EFBB8119D5A6'> 
-              <File Id='PolyML.exe' Name='PolyML.exe' DiskId='1' Source='..\Release\PolyML.exe' KeyPath="yes"> 
+              <File Id='PolyML.exe' Name='PolyML.exe' DiskId='1' Source='$(var.POLYEXESRC)' KeyPath="yes"> 
                 <Shortcut Id="startmenuPolyML" Directory="ProgramMenuDir" Name="PolyML" 
 								Advertise="yes"
 								  WorkingDirectory='POLYMLDIR' Icon="polyicon.exe" />
@@ -52,7 +63,7 @@
 
 			<!-- Poly/ML Performance monitor -->
 			<Component Id='PolyPerf.dll' Guid='B9271705-B543-4676-B426-FD6AE2778F16'>
-			  <File Id='PolyPerf.dll' Name='PolyPerf.dll' DiskId='1' Source='..\PolyPerf\Release\PolyPerf.dll' />
+			  <File Id='PolyPerf.dll' Name='PolyPerf.dll' DiskId='1' Source='$(var.POLYPERFSRC)' />
 
 			  <!-- Registry entries for Poly/ML in the services key -->
 			  <!-- This is used in place of the old form which required an ini file and header -->
@@ -100,17 +111,41 @@
 				      Name='Alloc unreserved'
 					  Help='The free space available in the allocation area.' />
 				  <util:PerformanceCounter Type='timer100Ns'
-				      Name='User time'
-					  Help='The total time the program has been running in user space including garbage collection.' />
+				      Name='NonGC User time'
+					  Help='The total time the program has been running in user space excluding garbage collection.' />
 				  <util:PerformanceCounter Type='timer100Ns'
-				      Name='System time'
-					  Help='The total time the program has been running in the system including garbage collection.' />
+				      Name='NonGC System time'
+					  Help='The total time the program has been running in the system excluding garbage collection.' />
 				  <util:PerformanceCounter Type='timer100Ns'
 				      Name='GC User time'
 					  Help='The time the program has spent in user space when garbage collecting.' />
 				  <util:PerformanceCounter Type='timer100Ns'
 				      Name='GC System time'
 					  Help='The time the program has spent in the system when garbage collecting.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 0'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 1'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 2'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 3'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 4'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 5'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 6'
+					  Help='The value of this counter is set by the ML application.' />
+				  <util:PerformanceCounter Type='numberOfItems32'
+				      Name='User 7'
+					  Help='The value of this counter is set by the ML application.' />
 			  </util:PerformanceCategory>
 
 			</Component>

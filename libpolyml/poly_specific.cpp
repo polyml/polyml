@@ -231,7 +231,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
 
     // Vector for the times.
     Handle times = alloc_and_save(taskData, N_PS_TIMES, F_MUTABLE_BIT);
-    for (unsigned k = 0; k < N_PS_SIZES; k++)
+    for (unsigned k = 0; k < N_PS_TIMES; k++)
     {
         Handle mark = taskData->saveVec.mark();
 #ifdef HAVE_WINDOWS_H
@@ -246,11 +246,23 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     }
     times->WordP()->SetLengthWord(N_PS_TIMES);
 
+    // Vector for the user stats
+    Handle users = alloc_and_save(taskData, N_PS_USER, F_MUTABLE_BIT);
+    for (unsigned l = 0; l < N_PS_USER; l++)
+    {
+        Handle mark = taskData->saveVec.mark();
+        Handle userValue = Make_arbitrary_precision(taskData, stats->psUser[l]);
+        users->WordP()->Set(l, userValue->Word());
+        taskData->saveVec.reset(mark);
+    }
+    users->WordP()->SetLengthWord(N_PS_USER);
+
     // Result vector
-    Handle resultVec = alloc_and_save(taskData, 3);
+    Handle resultVec = alloc_and_save(taskData, 4);
     resultVec->WordP()->Set(0, counts->Word());
     resultVec->WordP()->Set(1, sizes->Word());
     resultVec->WordP()->Set(2, times->Word());
+    resultVec->WordP()->Set(3, users->Word());
     return resultVec;
 }
 
@@ -351,6 +363,19 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (! globalStats.getRemoteStatistics(get_C_ulong(taskData, DEREFHANDLE(args)), &localStats))
                 raise_exception_string(taskData, EXC_Fail, "No statistics available");
             return unpackStats(taskData, &localStats);
+        }
+
+    case 27: // Get number of user statistics available
+        return Make_arbitrary_precision(taskData, N_PS_USER);
+
+    case 28: // Set an entry in the user stats table.
+        {
+            POLYSIGNED index = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
+            if (index < 0 || index >= N_PS_USER)
+                raise_exception0(taskData, EXC_subscript);
+            POLYSIGNED value = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+            globalStats.setUserCounter(index, value);
+            Make_arbitrary_precision(taskData, 0);
         }
 
         // These next ones were originally in process_env and have now been moved here,

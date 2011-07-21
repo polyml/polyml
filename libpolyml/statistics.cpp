@@ -103,6 +103,7 @@
 #endif
 
 #include "rts_module.h"
+#include "timing.h"
 #include "statistics.h"
 #include "../polystatistics.h"
 
@@ -166,6 +167,7 @@ Statistics::Statistics()
 #endif
     memset(statMemory, 0, sizeof(polystatistics)); // Zero the memory - probably unnecessary
     statMemory->psSize = sizeof(polystatistics);
+    statMemory->magic = POLY_STATS_MAGIC;
 }
 
 Statistics::~Statistics()
@@ -291,15 +293,32 @@ void Statistics::updatePeriodicStats(void)
     {
         PLocker lock(&accessLock);
 #ifdef HAVE_WINDOWS_H
-        FILETIME ct, et;
-        GetProcessTimes(GetCurrentProcess(), &ct, &et,
-            &statMemory->psTimers[PST_TOTAL_STIME], &statMemory->psTimers[PST_TOTAL_UTIME]);
+        FILETIME ct, et, st, ut;
+        GetProcessTimes(GetCurrentProcess(), &ct, &et, &st, &ut);
+        // Subtract the GC times and then write it into the shared memory.
+        // Since we don't interlock reads from the shared memory this extra
+        // step reduces the chances of glitches.
+        subTimes(&st, &statMemory->psTimers[PST_GC_STIME]);
+        subTimes(&ut, &statMemory->psTimers[PST_GC_UTIME]);
+        statMemory->psTimers[PST_NONGC_STIME] = st;
+        statMemory->psTimers[PST_NONGC_UTIME] = ut;
 #elif HAVE_GETRUSAGE
-        struct rusage usage;
+        struct rusage usage, gcUsage;
         getrusage(RUSAGE_SELF, &usage);
-        statMemory->psTimers[PST_TOTAL_UTIME] = usage.ru_utime;
-        statMemory->psTimers[PST_TOTAL_STIME] = usage.ru_stime;
+        subTimes(&usage.ru_stime, &statMemory->psTimers[PST_GC_STIME]);
+        subTimes(&usage.ru_utime, &statMemory->psTimers[PST_GC_UTIME]);
+        statMemory->psTimers[PST_NONGC_UTIME] = usage.ru_utime;
+        statMemory->psTimers[PST_NONGC_STIME] = usage.ru_stime;
 #endif
+    }
+}
+
+void Statistics::setUserCounter(int which, long value)
+{
+    if (statMemory)
+    {
+        PLocker lock(&accessLock); // Not really needed
+        statMemory->psUser[which] = value;
     }
 }
 
@@ -308,7 +327,7 @@ bool Statistics::getLocalsStatistics(struct polystatistics *statCopy)
 {
     if (statMemory == 0) return false;
     PLocker lock(&accessLock);
-    // We don't have to check the sizes because we created it
+    // We don't have to check the magic number because we created it
     memcpy(statCopy, statMemory, sizeof(polystatistics));
     return true;
 }
@@ -323,9 +342,13 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     if (hRemMemory == NULL) return false;
 
     polystatistics *sMem = (polystatistics*)MapViewOfFile(hRemMemory, FILE_MAP_READ, 0, 0, sizeof(polystatistics));
-    if (sMem == NULL)
+    CloseHandle(hRemMemory);
+
+    if (sMem == NULL) return false;
+    // Check the magic number.
+    if (sMem->magic != POLY_STATS_MAGIC)
     {
-        CloseHandle(hRemMemory);
+        UnmapViewOfFile(sMem);
         return false;
     }
     // It's possible that the remote is using a different version so we
@@ -335,8 +358,7 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     if ((size_t)sMem->psSize < bytes) bytes = (size_t)sMem->psSize;
     memcpy(statCopy, sMem, sizeof(polystatistics));
 
-    ::UnmapViewOfFile(sMem);
-    CloseHandle(hRemMemory);
+    UnmapViewOfFile(sMem);
     return true;
 #elif HAVE_MMAP
     // Find the shared memory in the /tmp directory
@@ -349,6 +371,13 @@ bool Statistics::getRemoteStatistics(POLYUNSIGNED pid, struct polystatistics *st
     polystatistics *sMem = (polystatistics*)mmap(0, memSize, PROT_READ, MAP_PRIVATE, remMapFd, 0);
     if (sMem == MAP_FAILED)
     {
+        close(remMapFd);
+        return false;
+    }
+    // Check the magic number.
+    if (sMem->magic != POLY_STATS_MAGIC)
+    {
+        munmap(sMem, memSize);
         close(remMapFd);
         return false;
     }
