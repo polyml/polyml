@@ -1594,11 +1594,10 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     case 19: /* Seek to position on stream. */
         {
             long position = get_C_long(taskData, DEREFWORD(args));
-            long newpos;
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
-            newpos = seekStream(taskData, str, position, SEEK_SET);
+            (void)seekStream(taskData, str, position, SEEK_SET);
             return Make_arbitrary_precision(taskData, 0);
         }
 

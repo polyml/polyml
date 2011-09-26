@@ -284,13 +284,12 @@ struct sk_tab_struct {
     { "DGRAM",      SOCK_DGRAM },
     { "RAW",        SOCK_RAW },
     { "RDM",        SOCK_RDM },
-    { "SEQPACKET",      SOCK_SEQPACKET }
+    { "SEQPACKET",  SOCK_SEQPACKET }
 };
 
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
 static Handle makeServEntry(TaskData *taskData, struct servent *proto);
-static Handle makeNetEntry(TaskData *taskData, struct netent *net);
 static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
                        Handle (mkEntry)(TaskData *, void*, char*));
 static Handle mkAftab(TaskData *taskData, void*, char *p);
@@ -1396,34 +1395,6 @@ static Handle makeServEntry(TaskData *taskData, struct servent *serv)
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(aliases));
     DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(port));
     DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(protocol));
-    return result;
-}
-
-static Handle makeNetEntry(TaskData *taskData, struct netent *net)
-{
-    int i;
-    char **p;
-    Handle aliases, name, addrType, result, network;
-
-    /* Canonical name. */
-    name = SAVE(C_string_to_Poly(taskData, net->n_name));
-
-    /* Aliases. */
-    for (i=0, p = net->n_aliases; *p != NULL; p++, i++);
-    aliases = convert_string_list(taskData, i, net->n_aliases);
-
-    /* Address type. */
-    addrType = Make_unsigned(taskData, net->n_addrtype);
-
-    /* Protocol name. */
-    network = Make_unsigned(taskData, ntohl(net->n_net));
-
-    /* Make the result structure. */
-    result = ALLOC(4);
-    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
-    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(aliases));
-    DEREFHANDLE(result)->Set(2, DEREFWORDHANDLE(addrType));
-    DEREFHANDLE(result)->Set(3, DEREFWORDHANDLE(network));
     return result;
 }
 
