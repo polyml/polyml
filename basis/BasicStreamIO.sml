@@ -203,7 +203,7 @@ struct
                     ([VectorSlice.vector(VectorSlice.slice(vec, offset, NONE))], rest)
                 else (* Have to get the next item *)
                 let
-                    val (nextVecs, nextStream) = inputNList (rest, n - vecLength)
+                    val (nextVecs, nextStream) = inputNList (rest, n - (vecLength - offset))
                 in
                     (VectorSlice.vector(VectorSlice.slice(vec, offset, NONE)) :: nextVecs,
                      nextStream)
@@ -642,9 +642,8 @@ struct
                 if !buffType = IO.NO_BUF
                 then (* Write it directly *) writeVec(f, v, start, vecLen)
                 else (* Block or line buffering - add it to the buffer.
-                        We can't actually do line buffering at this level
-                        since it doesn't make sense when we don't know
-                        what constitutes a line separator. *)
+                        Line buffering is treated as block buffering on binary
+                        streams and handled at the higher level for text streams. *)
                     addVecToBuff()
         end (* outputVec *)
     
