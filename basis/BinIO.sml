@@ -40,8 +40,7 @@ struct
     open IO
     
     structure StreamIO =
-    struct
-        structure SIO = BasicStreamIO(
+        BasicStreamIO(
             structure PrimIO = BinPrimIO
             structure Vector = Word8Vector
             structure Array = Word8Array
@@ -49,47 +48,9 @@ struct
             structure ArraySlice = Word8ArraySlice
             val someElem : PrimIO.elem = 0wx20
         );
-        open SIO
-        
-        (* StreamIO treats line buffering on output as block buffering
-           since it has no concept of a line separator. It's not clear whether
-           line buffering makes sense for binary IO either but at least there
-           is a value (0w12) which we can use. *)
-        fun output(f, v) =
-            case getBufferMode f of
-                LINE_BUF =>
-                let
-                    val vecLen = Word8Vector.length v
-                    (* Find the last newline character in the string. *)
-                    fun lastNewline 0 = 0
-                    |   lastNewline i =
-                            if Word8Vector.sub(v, i-1) = 0w12 then i
-                            else lastNewline(i-1)
-                    val newLinePos = lastNewline vecLen
-                in
-                    if newLinePos = 0
-                    then (* No newlines in it. *)
-                        SIO.output(f, v)
-                    else (* There's at least one newline. *)
-                        (
-                        SIO.outputVec(f, Word8VectorSlice.slice(v, 0, SOME(newLinePos-1)));
-                        flushOut f;
-                        SIO.outputVec(f, Word8VectorSlice.slice(v, newLinePos, NONE))
-                        )
-                end
+    (* For binary streams line-buffering is supposed to be treated as block
+       buffering so we don't need to do anything special. *)
 
-            |   _ => SIO.output(f, v) (* Not line buffering. *)
-
-        (* This could be defined in terms of output but the underlying
-           output1 function is likely to be more efficient. *)
-        fun output1(f, c) =
-            (
-            SIO.output1(f, c);
-            if c = 0w12 andalso getBufferMode f = LINE_BUF
-            then flushOut f else ()
-            )
-                
-    end;
     structure ImpIO = ImperativeIO(
         structure StreamIO = StreamIO
         structure Vector = Word8Vector
@@ -163,13 +124,8 @@ struct
             val f = 
                 sys_open_out_bin s
                     handle exn => raise mapToIo(exn, s, "BinIO.openOut")
-            (* Look at the stream to see what kind of buffering to use. *)
-            val k = OS.IO.kind f        
         in
-            wrapOutFileDescr (f, s,
-                if k = OS.IO.Kind.tty orelse k = OS.IO.Kind.pipe orelse k = OS.IO.Kind.device
-                then IO.LINE_BUF else IO.BLOCK_BUF,
-                false (* Not append *))
+            wrapOutFileDescr (f, s, IO.BLOCK_BUF, false (* Not append *))
         end
 
         fun openAppend s =
@@ -177,12 +133,8 @@ struct
             val f = 
                 sys_open_append_bin s
                     handle exn => raise mapToIo(exn, s, "BinIO.openAppend")
-            val k = OS.IO.kind f        
         in
-            wrapOutFileDescr (f, s,
-                if k = OS.IO.Kind.tty orelse k = OS.IO.Kind.pipe orelse k = OS.IO.Kind.device
-                then IO.LINE_BUF else IO.BLOCK_BUF,
-                true (* setPos will not work. *))
+            wrapOutFileDescr (f, s, IO.BLOCK_BUF, true (* setPos will not work. *))
         end
     end
 end;
