@@ -52,6 +52,7 @@ sig
     val sizeAsWord      : string -> word
     val stringAsAddress : string -> address
     val maxAllocation: word
+    val reraise: exn -> 'a
 end
 =
 struct
@@ -261,6 +262,12 @@ struct
             else System_loadb(s, i + wordSize);
 
     end
+
+    (* Re-raise an exception that has been handled preserving the location. *)
+    fun reraise exn =
+        case PolyML.exceptionLocation exn of
+            NONE => raise exn
+        |   SOME location => PolyML.raiseWithLocation (exn, location);
 
 end;
 

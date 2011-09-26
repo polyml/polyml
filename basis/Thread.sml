@@ -655,7 +655,12 @@ struct
         )
         val () = lock m
         val result = f a
-            handle exn => (unlock m; restoreAttrs(); raise exn)
+            handle exn =>
+            (
+                unlock m; restoreAttrs();
+                (* Reraise the exception preserving the location information. *)
+                LibrarySupport.reraise exn
+            )
     in
         unlock m;
         restoreAttrs();

@@ -246,29 +246,6 @@ local
         if ! useMarkupInOutput then prettyPrintWithIDEMarkup(stream, lineWidth)
         else PolyML.prettyPrint(stream, lineWidth)
 
-    fun exceptionLocation(exn: exn): PolyML.location option =
-    let
-        open RuntimeCalls
-        datatype RuntimeLocation =
-            NoLocation
-        |   SomeLocation of
-                (* file: *) string * 
-                (*startLine:*) int *  (*startPosition:*) int *
-                (*endLine:*) int * (*endPosition:*) int
-    in
-        (* If we get an exception in the compiler it may be code that was built using the
-           old exception packet format that didn't include a loction so we need to check the
-           length of the packet first.  This won't be needed once we can be sure we're using
-           5.3. *)
-        if RunCall.run_call1 POLY_SYS_get_length exn < 0w4
-        then NONE
-        else case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
-            NoLocation => NONE
-        |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
-                SOME { file=file, startLine=startLine, startPosition=startPosition,
-                       endLine=endLine, endPosition=endPosition }
-    end
-
     (* Top-level prompts. *)
     val prompt1 = ref "> " and prompt2 = ref "# ";
 
@@ -934,21 +911,14 @@ local
         let
             val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
                 handle exn =>
-                (
-                    TextIO.StreamIO.closeIn(!stream);
-                    case exceptionLocation exn of
-                        NONE => raise exn
-                    |   SOME ex => PolyML.raiseWithLocation(exn, ex)
-                )
+                    ( TextIO.StreamIO.closeIn(!stream); LibrarySupport.reraise exn )
         in
             code() handle exn =>
             (
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                 TextIO.StreamIO.input1 (! stream);
-                case exceptionLocation exn of
-                    NONE => raise exn
-                |   SOME ex => PolyML.raiseWithLocation(exn, ex)
+                LibrarySupport.reraise exn
             )
         end;
         (* Normal termination: close the stream. *)
@@ -1245,18 +1215,14 @@ local
                             |  exn =>
                             (
                                 print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                                case exceptionLocation exn of
-                                    NONE => raise exn
-                                |   SOME ex => PolyML.raiseWithLocation(exn, ex)
+                                LibrarySupport.reraise exn
                             )
                     end
                 end (* body of scope of inStream *)
                     handle exn => (* close inStream if an error occurs *)
                     (
                         TextIO.closeIn inStream;
-                        case exceptionLocation exn of
-                            NONE => raise exn
-                        |   SOME ex => PolyML.raiseWithLocation(exn, ex)
+                        LibrarySupport.reraise exn
                     )
             in (* remake normal termination *)
                 TextIO.closeIn inStream 
@@ -1381,7 +1347,6 @@ in
         val suffixes = suffixes
         val compiler = polyCompiler
 
-        val exceptionLocation = exceptionLocation
         val prettyPrintWithIDEMarkup = prettyPrintWithIDEMarkup
 
         structure Compiler =
