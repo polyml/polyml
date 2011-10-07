@@ -69,6 +69,7 @@
 #include "gctaskfarm.h"
 #include "mpoly.h"
 #include "statistics.h"
+#include "profiling.h"
 
 // The immutable and mutable segment sizes are the default units of allocation
 // for new address spaces.
@@ -550,6 +551,8 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
                 if (debugOptions & DEBUG_GC)
                     Log("GC: Completed - insufficient space in buffer(s): %s%s\n",
                         iFull ? "immutable " : "", mFull ? "mutable " : "");
+                if (profileMode == kProfileAllocatingFunctions)
+                    printprofile();
                 return false;
             }
         }
@@ -583,6 +586,9 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             Log("GC: Completed successfully\n");
         else Log("GC: Completed with insufficient space\n");
     }
+
+    if (profileMode == kProfileAllocatingFunctions)
+        printprofile();
 
     return haveSpace; // Completed
 }

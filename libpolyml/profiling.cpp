@@ -119,6 +119,26 @@ static const char* mainThreadText[MTP_MAXENTRY] =
     "Setting signal handler"
 };
 
+// Entries for store profiling
+enum _extraStore {
+    EST_CODE = 0,
+    EST_STRING,
+    EST_BYTE,
+    EST_WORD,
+    EST_MUTABLE,
+    EST_MAX_ENTRY
+};
+
+static POLYUNSIGNED extraStoreCounts[EST_MAX_ENTRY];
+static const char * extraStoreText[EST_MAX_ENTRY] =
+{
+    "Function code",
+    "Strings",
+    "Byte data (long precision ints etc)",
+    "Unidentified word data",
+    "Mutable data"
+};
+
 static POLYUNSIGNED total_count = 0;
 
 /* This type is coercible to PolyString *. We can use static "pstrings"
@@ -126,14 +146,9 @@ static POLYUNSIGNED total_count = 0;
    the profiling information. */
 static struct {
     POLYUNSIGNED length; char chars[40];
-} psStrings[MTP_MAXENTRY], psGCTotal;
+} psStrings[MTP_MAXENTRY+EST_MAX_ENTRY], psGCTotal;
 
 ProfileMode profileMode;
-
-/* If Accumulated is added to one of the above profiling is only turned off
-   by the next call with PROF_ACCUMULATED+PROF_OFF.  This allows us to profile
-   the compiler. */
-#define PROF_ACCUMULATED    4
 
 /******************************************************************************/
 /*                                                                            */
@@ -345,7 +360,7 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
     } /* while */
 }
 
-static void printprofile(void)
+void printprofile(void)
 /* Print profiling information and reset profile counts.    */
 /* Profile counts are also reset by commit so that objects  */
 /* written to the persistent store always have zero counts. */
@@ -390,8 +405,7 @@ static void printprofile(void)
             pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psGCTotal);
         }
     }
-        
- 
+
     for (unsigned k = 0; k < MTP_MAXENTRY; k++)
     {
         if (mainThreadCounts[k])
@@ -406,7 +420,22 @@ static void printprofile(void)
             mainThreadCounts[k] = 0;
         }
     }
-    
+
+    for (unsigned l = 0; l < EST_MAX_ENTRY; l++)
+    {
+        if (extraStoreCounts[l])
+        {
+            P.total     += extraStoreCounts[l];
+            total_count += extraStoreCounts[l];
+            pEnt = newProfileEntry();
+            strcpy(psStrings[MTP_MAXENTRY+l].chars, extraStoreText[l]);
+            psStrings[MTP_MAXENTRY+l].length = strlen(psStrings[MTP_MAXENTRY+l].chars);
+            pEnt->count = extraStoreCounts[l];
+            pEnt->functionName = PolyWord::FromUnsigned((POLYUNSIGNED)&psStrings[MTP_MAXENTRY+l]);
+            extraStoreCounts[l] = 0;
+        }
+    }
+
     writeProfileResults();
     
     if (total_count)
@@ -444,6 +473,60 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
     else mainThreadCounts[mainThreadPhase]++;
 }
 
+// Called from the GC when allocation profiling is on.
+void AddObjectProfile(PolyObject *obj)
+{
+    ASSERT(obj->ContainsNormalLengthWord());
+    POLYUNSIGNED length = obj->Length();
+
+    if (obj->IsWordObject() && OBJ_HAS_PROFILE(obj->LengthWord()))
+    {
+        // It has a profile pointer.  The last word should point to the
+        // closure or code of the allocating function.  Add the size of this to the count.
+        ASSERT(length != 0);
+        PolyWord codeWord = obj->Get(length-1);
+        ASSERT(codeWord.IsDataPtr());
+        // Sometimes the value is the code itself, sometimes the closure
+        if (! codeWord.AsObjPtr()->IsCodeObject())
+            codeWord = codeWord.AsObjPtr()->Get(0);
+        ASSERT(codeWord.IsDataPtr());
+        PolyObject *codePtr = codeWord.AsObjPtr();
+        ASSERT(codePtr->IsCodeObject());
+        PolyWord *consts = codePtr->ConstPtrForCode();
+        ((POLYUNSIGNED*)consts)[-1] += length;
+        total_count += length;
+    }
+    // If it doesn't have a profile pointer add it to the appropriate count.
+    else if (obj->IsMutable())
+        extraStoreCounts[EST_MUTABLE] += length;
+    else if (obj->IsCodeObject())
+        extraStoreCounts[EST_CODE] += length;
+    else if (obj->IsByteObject())
+    {
+        // Try to separate strings from other byte data.  This is only
+        // approximate.
+        if (OBJ_IS_NEGATIVE(obj->LengthWord()))
+            extraStoreCounts[EST_BYTE] += length;
+        else
+        {
+            PolyStringObject *possString = (PolyStringObject*)obj;
+            POLYUNSIGNED bytes = length * sizeof(PolyWord);
+            // If the length of the string as given in the first word is sufficient
+            // to fit in the exact number of words then it's probably a string.
+            if (length >= 2 &&
+                possString->length <= bytes - sizeof(POLYUNSIGNED) &&
+                possString->length > bytes - 2 * sizeof(POLYUNSIGNED))
+                    extraStoreCounts[EST_STRING] += length;
+            else
+            {
+                extraStoreCounts[EST_BYTE] += length;
+            }
+        }
+    }
+    else extraStoreCounts[EST_WORD] += length;
+}
+
+
 class ProfileRequest: public MainThreadRequest
 {
 public:
@@ -475,11 +558,6 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
         if (mode == profile_mode) // No change in mode = no-op
             return taskData->saveVec.push(TAGGED(0));
     
-        /* profiling 0 turns off profiling and prints results,
-           but is ignored for profile_modes > 4. To get the
-           accumulated results of these, set profiling to 4. */
-        if (mode == 0 && profile_mode > PROF_ACCUMULATED)
-            return taskData->saveVec.push(TAGGED(0));
         profile_mode = mode;
     }
     // All these actions are performed by the root thread.  Only profile
@@ -493,7 +571,7 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
 // This is called from the root thread when all the ML threads have been paused.
 void ProfileRequest::Perform()
 {
-    switch (mode & ~PROF_ACCUMULATED)
+    switch (mode)
     {
     case kProfileOff:
         // Turn off old profiling mechanism and print out accumulated results 
@@ -513,6 +591,10 @@ void ProfileRequest::Perform()
         
     case kProfileEmulation:
         profileMode = kProfileEmulation;
+        break;
+
+    case kProfileAllocatingFunctions:
+        profileMode = kProfileAllocatingFunctions;
         break;
         
     default: /* do nothing */

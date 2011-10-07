@@ -32,7 +32,8 @@ typedef enum {
     kProfileOff = 0,
     kProfileTime,
     kProfileStoreAllocation,
-    kProfileEmulation
+    kProfileEmulation,
+    kProfileAllocatingFunctions
 } ProfileMode;
 
 extern ProfileMode profileMode;
@@ -42,5 +43,7 @@ extern ProfileMode profileMode;
 extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
 extern Handle profilerc(TaskData *taskData, Handle mode_handle);
 extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, int incr);
+extern void AddObjectProfile(PolyObject *obj);
+extern void printprofile();
 
 #endif /* _PROFILING_H_DEFINED */

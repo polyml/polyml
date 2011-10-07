@@ -57,6 +57,7 @@ recursive and only the main thread has enough stack space for some data structur
 #include "bitmap.h"
 #include "memmgr.h"
 #include "diagnostics.h"
+#include "profiling.h"
 
 inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
 
@@ -93,6 +94,10 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
         return 0; // Already marked
 
     PolyObject *obj = val.AsObjPtr();
+
+    if (profileMode == kProfileAllocatingFunctions)
+        AddObjectProfile(obj);
+
     POLYUNSIGNED L = obj->LengthWord();
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
 
@@ -141,6 +146,9 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 
     POLYUNSIGNED bitno = BITNO(space, val.AsStackAddr());
     if (space->bitmap.TestBit(bitno)) return obj; /* Already marked */
+
+    if (profileMode == kProfileAllocatingFunctions)
+        AddObjectProfile(obj);
 
     if ((PolyWord*)obj <= space->fullGCLowerLimit)
         space->fullGCLowerLimit = (PolyWord*)obj-1;

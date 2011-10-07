@@ -206,7 +206,11 @@ SPF 24/1/95
 #define F_BYTE_OBJ                  0x01  /* byte object (contains no pointers) */
 #define F_CODE_OBJ                  0x02  /* code object (mixed bytes and words) */
 #define F_NO_OVERWRITE              0x08  /* don't overwrite when loading - mutables only. */
-#define F_NEGATIVE_BIT              0x10  /* sign bit for arbitrary precision ints */
+// The same bit is used for the sign bit for arbitrary precision ints, which are always
+// byte objects and for the "has profile" flag.  The "has profile" flag indicates that
+// the word object has an extra word and that contains a pointer to profile data.
+#define F_NEGATIVE_BIT              0x10  // Sign bit for arbitrary precision ints (byte segs only)
+#define F_PROFILE_BIT               0x10  // Object has a profile pointer (word segs only)
 #define F_WEAK_BIT                  0x20  /* object contains weak references to option values. */
 #define F_MUTABLE_BIT               0x40  /* object is mutable */
 #define F_PRIVATE_GC_BIT            0x80  /* object is (pointer or depth) tombstone */
@@ -217,6 +221,7 @@ SPF 24/1/95
 
 #define _OBJ_NO_OVERWRITE            _TOP_BYTE(0x08)  /* don't overwrite when loading - mutables only. */
 #define _OBJ_NEGATIVE_BIT            _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
+#define _OBJ_PROFILE_BIT             _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
 #define _OBJ_WEAK_BIT                _TOP_BYTE(0x20)
 #define _OBJ_MUTABLE_BIT             _TOP_BYTE(0x40)  /* object is mutable */
 #define _OBJ_PRIVATE_GC_BIT          _TOP_BYTE(0x80)  /* object is (pointer or depth) tombstone */
@@ -238,6 +243,7 @@ inline bool OBJ_IS_BYTE_OBJECT(POLYUNSIGNED L)          { return (GetTypeBits(L)
 inline bool OBJ_IS_CODE_OBJECT(POLYUNSIGNED L)          { return (GetTypeBits(L) == F_CODE_OBJ); }
 inline bool OBJ_IS_NO_OVERWRITE(POLYUNSIGNED L)         { return ((L & _OBJ_NO_OVERWRITE) != 0); }
 inline bool OBJ_IS_NEGATIVE(POLYUNSIGNED L)             { return ((L & _OBJ_NEGATIVE_BIT) != 0); }
+inline bool OBJ_HAS_PROFILE(POLYUNSIGNED L)             { return ((L & _OBJ_PROFILE_BIT) != 0); }
 inline bool OBJ_IS_MUTABLE_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_MUTABLE_BIT) != 0); }
 inline bool OBJ_IS_WEAKREF_OBJECT(POLYUNSIGNED L)       { return ((L & _OBJ_WEAK_BIT) != 0); }
 
