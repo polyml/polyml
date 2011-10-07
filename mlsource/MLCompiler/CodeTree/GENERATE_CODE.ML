@@ -28,6 +28,13 @@ functor GENERATE_CODE (
     structure CODEGEN_TABLE : CODEGEN_TABLESIG where type machineWord = Address.machineWord
     structure BASECODETREE: BaseCodeTreeSig
 
+    structure DEBUG :
+    sig
+        val profileAllocationTag : int Universal.tag
+        val getParameter :
+           'a Universal.tag -> Universal.universal list -> 'a
+    end
+
     sharing CODECONS.Sharing = CODEGEN_TABLE.Sharing = BASECODETREE.Sharing
 ) :  
   
@@ -101,6 +108,7 @@ struct
         argLifetimes     : int list,
         resultType       : argumentType,
         localCount       : int,
+        functionCode     : code,
         debugSwitches    : Universal.universal list) : operations * int * regSet * bool =
     let
         val numOfArgs = List.length argTypes
@@ -117,6 +125,10 @@ struct
         (* Indicates if a declaration location is a static-link function and contains
            a function to free the static link entries if it is. *)
         val staticLinkEntries: (unit->operation list) option array = Array.array (localCount, NONE)
+
+        (* If this is set to one add the allocating function to each tuple. *)
+        val addAllocatingFunction =
+            DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
 
         fun localDeclaration(index, locn, lifeTime, slRelease) =
         (
@@ -227,15 +239,23 @@ struct
         end
 
         (* Allocate a segment of the required size. *)
-        fun callgetvec (csize, flag : Word8.word, whereto) : stackIndex * operations =
+        fun callgetvec (csize, flag, whereto, transtable) : stackIndex * operations =
         let
             (* Get a register for the result. *)
             val (resultReg, regCode) =
                 getRegisterInSet(transtable, case whereto of UseReg rr => rr | _ => generalRegisters)
         
-            val resAddr = pushReg (transtable, resultReg);
+            val resAddr = pushReg (transtable, resultReg)
         in
-            (resAddr, allocStore {size=csize, flags=flag, output=resultReg} @ regCode)
+            if addAllocatingFunction
+            then
+            let
+               val moveCode = moveToVec (resAddr, pushCodeRef(transtable, functionCode), csize, transtable)
+            in
+                (resAddr, moveCode @
+                             allocStore {size=csize+1, flags=Word8.orb(flag, F_profile), output=resultReg} @ regCode)
+            end
+            else (resAddr, allocStore {size=csize, flags=flag, output=resultReg} @ regCode)
         end;
 
         (*infix 9 sub;*)
@@ -1097,7 +1117,8 @@ struct
                 if List.exists(fn NotConst => true | _ => false) asConstants
                 then
                 let
-                    fun loadSmallVector ([], _) = callgetvec (vecsize, F_words, whereto)
+                    fun loadSmallVector ([], _) = callgetvec (vecsize, F_words, whereto, transtable)
+
                     |   loadSmallVector (v::t, wordOffset) =
                         let
                             val (vec, vecCode) = loadSmallVector (t, wordOffset + 1)
@@ -1209,7 +1230,8 @@ struct
             (* Create a tuple from the contents of a container. *)
             let
                 val vec = genToStack (container, matchFailFn);
-                val (tup, tupleCode) = callgetvec (size, F_words, whereto);
+                val (tup, tupleCode) = callgetvec (size, F_words, whereto, transtable)
+
                 val () = codeGenerate(tupleCode, cvec)
 
                 fun copy n =
@@ -1551,7 +1573,7 @@ struct
             val _ = closureRefs = 0 andalso raise InternalError "Static link but unreferenced cp"
             val (ops, maxStack, regList, callsAFunction) = 
               codegen(lambdaBody, previous, isSl, loadSl, slRegSet, closureRefs,
-                    argTypes, argLifetimes, resultType, localCount, debugSwitches)
+                    argTypes, argLifetimes, resultType, localCount, newCode, debugSwitches)
             val _ = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
             result
@@ -1600,7 +1622,8 @@ struct
                         codegen (lambdaBody, previous, fn _ => false,
                             fn _ => raise InternalError "Not static link",
                             fn _ => raise InternalError "Not static link",
-                            0, (* Discard regClosure *) argTypes, argLifetimes, resultType, localCount, debugSwitches)
+                            0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
+                            localCount, newCode, debugSwitches)
                 
                 val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
                 val result = pushConst (transtable, toMachineWord closureAddr);
@@ -1644,7 +1667,8 @@ struct
                     codegen (lambdaBody, previous, fn _ => false,
                         fn _ => raise InternalError "Not static link",
                         fn _ => raise InternalError "Not static link",
-                        closureRefs, argTypes, argLifetimes, resultType, localCount, debugSwitches)
+                        closureRefs, argTypes, argLifetimes, resultType, localCount,
+                        newCode, debugSwitches)
 
                 val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         
@@ -1654,7 +1678,7 @@ struct
                    can't complete it until we've done the other mutually recursive entries.  *)
                 val incomplete = List.exists(fn i => i = noIndex) initialLocs
                 val (vector, vecCode) =
-                    callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto)
+                    callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
                 val () = codeGenerate(vecCode, cvec)
                 (* First word is the address of the code. *)
                 val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
@@ -3089,7 +3113,7 @@ struct
                     fn (_,  _, _) => raise InternalError "Not static link",
                     fn _ => raise InternalError "Not static link",
                     0, (* Discard regClosure *)
-                    argTypes, argLifetimes, resultType, localCount, debugSwitches)
+                    argTypes, argLifetimes, resultType, localCount, newCode, debugSwitches)
 
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
@@ -3112,6 +3136,7 @@ struct
                     0,  (* Discard regClosure *)
                     [], [], (* No args. *) GeneralType, (* General result (if any?) *)
                     localCount,
+                    newCode,
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in (* Result is a procedure to execute the code. *)

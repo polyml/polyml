@@ -182,6 +182,9 @@ local
         (* This can be used to provide a parent for parse trees created by the
            compiler.  This appears as a PTparent property in the tree.
            The default is NONE which does not to provide a parent.  *)
+    |   CPAllocationProfiling of int
+        (* Controls whether to add profiling information to each allocation.  Currently
+           zero means no profiling and one means add the allocating function. *)
 
     (* References for control and debugging. *)
     val profiling = ref 0
@@ -189,6 +192,7 @@ local
     and printDepth = ref 0
     and errorDepth = ref 6
     and lineLength = ref 77
+    and allocationProfiling = ref 0
     
     val assemblyCode = ref false
     and codetree = ref false
@@ -548,6 +552,7 @@ local
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
+            val allocProfiling = find(fn CPAllocationProfiling l  => SOME l | _ => NONE) (!allocationProfiling) parameters
             local
                 (* Default is to filter the parse tree argument. *)
                 fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
@@ -586,6 +591,7 @@ local
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
                     tagInject timingTag timing,
                     tagInject profilingTag profiling,
+                    tagInject profileAllocationTag allocProfiling,
                     tagInject errorDepthTag (! errorDepth),
                     tagInject printDepthFunTag printDepth,
                     tagInject lineLengthTag (! lineLength),
@@ -1373,6 +1379,7 @@ in
             val prompt1 = prompt1 and prompt2 = prompt2 and profiling = profiling
             and timing = timing and printDepth = printDepth
             and errorDepth = errorDepth and lineLength = lineLength
+            and allocationProfiling = allocationProfiling
             
             val assemblyCode = assemblyCode and codetree = codetree
             and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace

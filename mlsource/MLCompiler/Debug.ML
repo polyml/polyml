@@ -60,6 +60,10 @@ struct
         val inlineFunctorsTag: bool tag              = tag()
         (* Control how big functions should be before they're not inlined. *)
         val maxInlineSizeTag: int tag                = tag()
+        (* Add profile information to each allocation?  default zero.
+           At the moment this is effectively a bool but having an int allows
+           for the possibility of recording different information. *)
+        val profileAllocationTag: int tag            = tag()
 
         (* Compiler debugging. *)
         (* Trace exceptions generated within the compiler? default false. *)
@@ -99,6 +103,7 @@ struct
             tagInject fileNameTag "",
             tagInject inlineFunctorsTag true,
             tagInject maxInlineSizeTag 80,
+            tagInject profileAllocationTag 0,
             tagInject parsetreeTag false,
             tagInject codetreeTag false,
             tagInject pstackTraceTag false,

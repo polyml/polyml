@@ -109,6 +109,7 @@ sig
   val printDepthFunTag : (unit->int) Universal.tag;
   val errorDepthTag : int Universal.tag;
   val lineLengthTag : int Universal.tag;
+  val profileAllocationTag : int Universal.tag
   
   val assemblyCodeTag        : bool Universal.tag;
   val parsetreeTag           : bool Universal.tag;
@@ -1216,6 +1217,7 @@ struct
                 ("printDepthFunTag",       toMachineWord DEBUG.printDepthFunTag, Tag (Unit->>Int)),
                 ("errorDepthTag",          toMachineWord DEBUG.errorDepthTag,    Tag Int),
                 ("lineLengthTag",          toMachineWord DEBUG.lineLengthTag,    Tag Int),
+                ("profileAllocationTag",   toMachineWord DEBUG.profileAllocationTag, Tag Int),
                 ("debuggerTag",            toMachineWord DEBUGGER.debuggerFunTag, Tag debuggerType),
                 ("printOutputTag",         toMachineWord PRETTY.printOutputTag,  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),

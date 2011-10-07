@@ -24,5 +24,6 @@ structure GCode =
     structure CODECONS      = CodeCons
     structure CODEGEN_TABLE = CodeGenTable
     structure BASECODETREE  = BaseCodeTree
+    structure DEBUG = Debug
   );
          

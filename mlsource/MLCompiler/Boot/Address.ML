@@ -64,17 +64,16 @@ sig
     val F_words        : Word8.word
     val F_bytes        : Word8.word
     val F_code         : Word8.word
-    val F_stack        : Word8.word
     val F_negative     : Word8.word
     val F_mutable      : Word8.word
     val F_gc           : Word8.word
     val F_noOverwrite  : Word8.word
     val F_weak         : Word8.word
+    val F_profile      : Word8.word
 
   val isWords : address -> bool;
   val isBytes : address -> bool;
   val isCode  : address -> bool;
-  val isStack : address -> bool;
   val isMutable:address -> bool;
 
   val call: (address * machineWord) -> machineWord
@@ -199,9 +198,9 @@ struct
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
     val F_code         : Word8.word = 0wx02 (* code object (mixed bytes and words) *)
-    val F_stack        : Word8.word = 0wx03 (* stack object - may contain internal pointers *)
     val F_noOverwrite  : Word8.word = 0wx08 (* don't overwrite when loading - mutables only. *)
-    val F_negative     : Word8.word = 0wx10 (* sign bit for arbitrary precision ints *)
+    val F_negative     : Word8.word = 0wx10 (* sign bit for arbitrary precision ints (byte objects) *)
+    val F_profile      : Word8.word = 0wx10 (* object has a profile pointer (word objects) *)
     val F_weak         : Word8.word = 0wx20 (* object contains weak references to option values. *)
     val F_mutable      : Word8.word = 0wx40 (* object is mutable *)
     val F_gc           : Word8.word = 0wx80 (* object is (pointer or depth) tombstone *)
@@ -229,7 +228,6 @@ struct
     val isWords = isType F_words;
     val isBytes = isType F_bytes;
     val isCode  = isType F_code;
-    val isStack = isType F_stack;
 
     (* The mutable flag may be used with any of the others. *)
     fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
