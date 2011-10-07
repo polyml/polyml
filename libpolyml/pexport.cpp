@@ -171,8 +171,10 @@ void PExport::printObject(PolyObject *p)
            represented by the character. */
         /* This is not infallible but it seems to be good enough
            to detect the strings. */
-        if (ps->length > 1 &&
-            (POLYUNSIGNED)((ps->length + sizeof(PolyWord) -1) / sizeof(PolyWord)) == length-1)
+        POLYUNSIGNED bytes = length * sizeof(PolyWord);
+        if (length >= 2 &&
+            ps->length <= bytes - sizeof(POLYUNSIGNED) &&
+            ps->length > bytes - 2 * sizeof(POLYUNSIGNED))
         {
             /* Looks like a string. */
             fprintf(exportFile, "S%" POLYUFMT "|", ps->length);
