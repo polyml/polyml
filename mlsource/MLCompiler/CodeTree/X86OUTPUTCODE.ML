@@ -51,7 +51,7 @@ structure PRETTY: PRETTYSIG (* for compilerOutTag *)
 struct
     open CODE_ARRAY
     open DEBUG;
-    open Address;
+    open Address
     open Misc;
 
     val isX64 = wordSize = 8 (* Generate X64 instructions if the word length is 8. *)
@@ -188,7 +188,8 @@ struct
                                          in for security.  DCJM 19/1/01. *)
       printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
       printStream:    string->unit,   (* The stream to use *)
-      lowLevelOptimise: bool          (* Whether to do the low-level optimisation pass *)
+      lowLevelOptimise: bool,         (* Whether to do the low-level optimisation pass *)
+      profileObject   : machineWord   (* The profile object for this code. *)
     }
 
     (* Exported functions *)
@@ -233,7 +234,7 @@ struct
     fun sameCode(Code{ic=a, ...}, Code{ic=b, ...}) = a=b;
   
     (* create and initialise a code segment *)
-    fun codeCreate (noClosure : bool, name : string, parameters) : code =
+    fun codeCreate (noClosure : bool, name : string, profObj, parameters) : code =
     let
         val printStream = PRETTY.getSimplePrinter parameters;
     in
@@ -257,7 +258,8 @@ struct
             branchCheck    = ref addrZero,
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
-            lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters
+            lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
+            profileObject  = profObj
           }
     end
            
@@ -3937,7 +3939,7 @@ Calling conventions:
         (* After code generation get the final values of some refs. *)
         val Code{codeVec, noClosure,
                  numOfConsts, ic, constVec = ref constVec, nonInlineConsts = ref constsInConstArea,
-                 resultSeg, procName, printAssemblyCode, printStream, ...} = cvec
+                 resultSeg, procName, printAssemblyCode, printStream, profileObject, ...} = cvec
     
         (* This aligns ic onto a fullword boundary. *)
         val ()   = while Word.toInt (!ic) mod wordSize <> 0 do genop(NOP, NONE, cvec)
@@ -3972,7 +3974,7 @@ Calling conventions:
             val () = List.app putNonAddrConst constVec
         end
 
-        (* +4 for code size, profile count, function name and register mask. *)
+        (* +4 for code size, function name, register mask and profile object. *)
         val segSize = !ic div Word.fromInt wordSize + Word.fromInt constsInConstArea + 0w4
 
         (* Now make the byte segment that we'll turn into the code segment *)
@@ -3992,28 +3994,16 @@ Calling conventions:
             local
                 val addr = wordsToBytes(endOfCode + 0w3 + Word.fromInt constsInConstArea)
             in
-                val () = setWordU(2 + constsInConstArea, addr, seg)
+                val () = setWordU(3 + constsInConstArea, addr, seg)
             end;
-      
-            (* Next the profile count. *)
-            local
-                val addr = wordsToBytes endOfCode
-            in
-                val () = setWordU(0, addr, seg) 
-            end;
-      
-            (* Now we've filled in all the C integers; now we need to convert the segment
-               into a proper code segment before it's safe to put in any ML values. *)
-            val () = csegConvertToCode seg;
 
-            local
-                (* This is so that profiling can print "<anon>". Note that a
-                   tagged zero *is* a legal string (it's "\000"). *)
-                val nameWord : machineWord = if procName = "" then toMachineWord 0 else toMachineWord procName;
-            in
-                val _ = csegPutWord (seg, endOfCode + 0w1, nameWord);
-            end
-            val () = csegPutWord (seg, endOfCode + 0w2, toMachineWord(encodeRegSet registerSet))
+             (* Now we've filled in all the C integers; now we need to convert the segment
+               into a proper code segment before it's safe to put in any ML values. *)
+            val () = csegConvertToCode seg
+            val () = csegPutWord (seg, endOfCode, toMachineWord procName)
+            val () = csegPutWord (seg, endOfCode + 0w1, toMachineWord(encodeRegSet registerSet))
+            (* Next the profile object. *)
+            val () = csegPutWord (seg, endOfCode + 0w2, profileObject)
         end
     in 
         let

@@ -206,9 +206,12 @@ SPF 24/1/95
 #define F_BYTE_OBJ                  0x01  /* byte object (contains no pointers) */
 #define F_CODE_OBJ                  0x02  /* code object (mixed bytes and words) */
 #define F_NO_OVERWRITE              0x08  /* don't overwrite when loading - mutables only. */
-// The same bit is used for the sign bit for arbitrary precision ints, which are always
-// byte objects and for the "has profile" flag.  The "has profile" flag indicates that
-// the word object has an extra word and that contains a pointer to profile data.
+// This bit is overloaded and has different meanings depending on what other bits are set.
+// For byte objects it is the sign bit for arbitrary precision ints.
+// For mutable word objects it indicates that the object is a profile block containing a
+// profile count, a name and a location.
+// For immutable word objects it indicates that the object has an extra word containing a
+// pointer to the allocating profile object.
 #define F_NEGATIVE_BIT              0x10  // Sign bit for arbitrary precision ints (byte segs only)
 #define F_PROFILE_BIT               0x10  // Object has a profile pointer (word segs only)
 #define F_WEAK_BIT                  0x20  /* object contains weak references to option values. */

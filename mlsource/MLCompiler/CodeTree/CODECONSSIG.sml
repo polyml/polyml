@@ -233,7 +233,7 @@ sig
     val negotiateArguments: negotiation * regHint -> nextAction
     val negotiateTestArguments: negotiateTests -> nextAction * forwardLabel
 
-    val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
+    val codeCreate: bool * string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
     val copyCode: code * operations * int * RegSet.regSet * bool -> address
 

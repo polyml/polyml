@@ -181,6 +181,22 @@ static struct
 // running then.
 static PLock countLock;
 
+// Get the profile object associated with a piece of code.  Returns null if
+// there isn't one, in particular if this is in the old format.
+static PolyObject *getProfileObjectForCode(PolyObject *code)
+{
+    ASSERT(code->IsCodeObject());
+    PolyWord *consts;
+    POLYUNSIGNED constCount;
+    code->GetConstSegmentForCode(consts, constCount);
+    if (constCount < 3 || ! consts[2].IsDataPtr()) return 0;
+    PolyObject *profObject = consts[2].AsObjPtr();
+    if (profObject->IsMutable() && OBJ_HAS_PROFILE(profObject->LengthWord()) && profObject->Length() >= 2
+            && profObject->Get(0).IsTagged())
+        return profObject;
+    else return 0;
+}
+
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
 // This is called from a signal handler in the case of time profiling.
@@ -206,16 +222,12 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
             MemSpace *space = gMem.SpaceForAddress(pc.AsAddress());
             if (space != 0)
             {
-                PolyObject *ptr = ObjCodePtrToPtr(pc.AsCodePtr());
-                ASSERT(ptr->IsCodeObject());
-                PolyWord *consts = ptr->ConstPtrForCode();
-                if (consts[0] != TAGGED(0)) // Skip anonymous code.
-                {
-                    PLocker locker(&countLock);
-                    ((POLYUNSIGNED*)consts)[-1] += incr;
-                    total_count += incr;
-                    return;
-                }
+                PolyObject *profObject = getProfileObjectForCode(ObjCodePtrToPtr(pc.AsCodePtr()));
+                PLocker locker(&countLock);
+                if (profObject)
+                    profObject->Set(0, PolyWord::TaggedUnsigned(profObject->Get(0).UnTaggedUnsigned() + incr));
+                total_count += incr;
+                return;
             }
             /* else just fall through and try next candidate address */
         } /* OBJ_IS_CODEPTR(pc) */
@@ -332,16 +344,16 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
         else
         {
             ASSERT(obj->ContainsNormalLengthWord());
-            
-            if (obj->IsCodeObject())
+
+            if (obj->IsMutable() && OBJ_HAS_PROFILE(obj->LengthWord()) && obj->Length() >= 2
+                && obj->Get(0).IsTagged())
             {
-                PolyWord *firstConstant = obj->ConstPtrForCode();
-                PolyWord name = firstConstant[0];
                 // The word before is an untagged count
-                POLYUNSIGNED    count = firstConstant[-1].AsUnsigned();
+                POLYUNSIGNED    count = obj->Get(0).UnTaggedUnsigned();
                 
                 if (count != 0)
                 {
+                    PolyWord name = obj->Get(1);
                     if (name != TAGGED(0))
                     {
                         PPROFENTRY pEnt = newProfileEntry();
@@ -351,7 +363,7 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
                         pEnt->functionName = name;
                     }
                     
-                    firstConstant[-1] = PolyWord::FromUnsigned(0);
+                    obj->Set(0, PolyWord::TaggedUnsigned(0));
                     P.total += count;
                 } /* count != 0 */
             } /* code object */
@@ -378,15 +390,21 @@ void printprofile(void)
         for (j = 0; j < gMem.npSpaces; j++)
         {
             MemSpace *space = gMem.pSpaces[j];
-            // Permanent areas are filled with objects from the bottom.
-            PrintProfileCounts(space->bottom, space->top); // Bottom to top
+            if (space->isMutable)
+            {
+                // Permanent areas are filled with objects from the bottom.
+                PrintProfileCounts(space->bottom, space->top); // Bottom to top
+            }
         }
         for (j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *space = gMem.lSpaces[j];
-            // Local areas only have objects from the allocation pointer to the top.
-            PrintProfileCounts(space->bottom, space->lowerAllocPtr);
-            PrintProfileCounts(space->upperAllocPtr, space->top);
+            if (space->isMutable)
+            {
+                // Local areas only have objects from the allocation pointer to the top.
+                PrintProfileCounts(space->bottom, space->lowerAllocPtr);
+                PrintProfileCounts(space->upperAllocPtr, space->top);
+            }
         }
     } // else if we haven't actually had an interrupt avoid expensive scan of memory.
 
@@ -477,23 +495,18 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 void AddObjectProfile(PolyObject *obj)
 {
     ASSERT(obj->ContainsNormalLengthWord());
-    POLYUNSIGNED length = obj->Length();
+    POLYUNSIGNED length = obj->Length() + 1; // Add one for the length word.
 
-    if (obj->IsWordObject() && OBJ_HAS_PROFILE(obj->LengthWord()))
+    if (obj->IsWordObject() && !obj->IsMutable() && OBJ_HAS_PROFILE(obj->LengthWord()))
     {
         // It has a profile pointer.  The last word should point to the
         // closure or code of the allocating function.  Add the size of this to the count.
         ASSERT(length != 0);
-        PolyWord codeWord = obj->Get(length-1);
-        ASSERT(codeWord.IsDataPtr());
-        // Sometimes the value is the code itself, sometimes the closure
-        if (! codeWord.AsObjPtr()->IsCodeObject())
-            codeWord = codeWord.AsObjPtr()->Get(0);
-        ASSERT(codeWord.IsDataPtr());
-        PolyObject *codePtr = codeWord.AsObjPtr();
-        ASSERT(codePtr->IsCodeObject());
-        PolyWord *consts = codePtr->ConstPtrForCode();
-        ((POLYUNSIGNED*)consts)[-1] += length;
+        PolyWord profWord = obj->Get(length-1);
+        ASSERT(profWord.IsDataPtr());
+        PolyObject *profObject = profWord.AsObjPtr();
+        ASSERT(profObject->IsMutable() && profObject->Length() > 1);
+        profObject->Set(0, PolyWord::TaggedUnsigned(profObject->Get(0).UnTaggedUnsigned() + length));
         total_count += length;
     }
     // If it doesn't have a profile pointer add it to the appropriate count.

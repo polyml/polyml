@@ -172,7 +172,7 @@ sig
     type operations = operation list
     val printOperation: operation * (string -> unit) -> unit
 
-    val codeCreate: bool * string * Universal.universal list -> code  (* makes the initial segment. *)
+    val codeCreate: bool * string * machineWord * Universal.universal list -> code  (* makes the initial segment. *)
     (* Code generate operations and construct the final code. *)
     val createCodeSegment: operations * RegSet.regSet * code -> address
 

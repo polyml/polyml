@@ -95,6 +95,18 @@ struct
     |   chooseMergeRegister(whereto, _) = whereto
 
     fun codeToCgType GeneralType = ArgGeneral | codeToCgType FloatingPtType = ArgFP
+    
+    fun createProfileObject functionName =
+    let
+        (* The profile object is a three word mutable with the profile bit set. *)
+        open Address
+        val profileObject = alloc(0w3, Word8.orb(F_mutable, F_profile), toMachineWord 0w0);
+        (* The second word contains the function name. *)
+        val () = assignWord(profileObject, 0w1, toMachineWord functionName)
+        (* The third word is intended for the location but is currently unused. *)
+    in
+        toMachineWord profileObject
+    end
 
     (* Code generate a procedure or global declaration *)
     fun codegen
@@ -108,7 +120,7 @@ struct
         argLifetimes     : int list,
         resultType       : argumentType,
         localCount       : int,
-        functionCode     : code,
+        profileObject    : machineWord,
         debugSwitches    : Universal.universal list) : operations * int * regSet * bool =
     let
         val numOfArgs = List.length argTypes
@@ -250,7 +262,7 @@ struct
             if addAllocatingFunction
             then
             let
-               val moveCode = moveToVec (resAddr, pushCodeRef(transtable, functionCode), csize, transtable)
+               val moveCode = moveToVec (resAddr, pushConst(transtable, profileObject), csize, transtable)
             in
                 (resAddr, moveCode @
                              allocStore {size=csize+1, flags=Word8.orb(flag, F_profile), output=resultReg} @ regCode)
@@ -1396,7 +1408,8 @@ struct
                not decrement the use count so that the stack values remain on the
                stack to be referenced by the procedure, and are only removed when
                the containing block is removed. *)
-            val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches);
+            val profileObject = createProfileObject lambdaName
+            val newCode = codeCreate (true (* just the code *), lambdaName, profileObject, debugSwitches)
         
             (* Generates code for non-local references or recursive references. *)
             fun previous (prevloc, makeSl: unit->stackIndex * operations, newtab): stackIndex * operations =
@@ -1573,7 +1586,7 @@ struct
             val _ = closureRefs = 0 andalso raise InternalError "Static link but unreferenced cp"
             val (ops, maxStack, regList, callsAFunction) = 
               codegen(lambdaBody, previous, isSl, loadSl, slRegSet, closureRefs,
-                    argTypes, argLifetimes, resultType, localCount, newCode, debugSwitches)
+                    argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
             val _ = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
             result
@@ -1607,7 +1620,8 @@ struct
             let
                 (* Create a one word item for the closure.  This is returned for recursive references
                    and filled in with the address of the code when we've finished. *)
-                val newCode = codeCreate (false (* make a closure *), lambdaName, debugSwitches)
+                val profileObject = createProfileObject lambdaName
+                val newCode = codeCreate (false (* make a closure *), lambdaName, profileObject, debugSwitches)
 
                 fun previous (0, _, newtab) = (* load the address of the closure itself *)
                     (pushCodeRef(newtab, newCode), [])
@@ -1623,7 +1637,7 @@ struct
                             fn _ => raise InternalError "Not static link",
                             fn _ => raise InternalError "Not static link",
                             0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
-                            localCount, newCode, debugSwitches)
+                            localCount, profileObject, debugSwitches)
                 
                 val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
                 val result = pushConst (transtable, toMachineWord closureAddr);
@@ -1661,14 +1675,16 @@ struct
                                 (entry, indCode @ closureCode)
                             end
 
-                val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches)
+                val profileObject = createProfileObject lambdaName
+                val newCode =
+                    codeCreate (true (* just the code *), lambdaName, profileObject, debugSwitches)
         
                 val (ops, maxStack, regList, callsAFunction) = (* code-gen procedure *)
                     codegen (lambdaBody, previous, fn _ => false,
                         fn _ => raise InternalError "Not static link",
                         fn _ => raise InternalError "Not static link",
                         closureRefs, argTypes, argLifetimes, resultType, localCount,
-                        newCode, debugSwitches)
+                        profileObject, debugSwitches)
 
                 val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         
@@ -3095,7 +3111,8 @@ struct
              procedure. *)
        
             (* make the code buffer for the new procedure. *)
-            val newCode = codeCreate (false (* don't make a closure *), name, debugSwitches); 
+            val profileObject = createProfileObject name
+            val newCode = codeCreate (false (* don't make a closure *), name, profileObject, debugSwitches); 
 
          (* The only non-local references will be references to the
             closure itself. We have to fetch these from the constants
@@ -3113,7 +3130,7 @@ struct
                     fn (_,  _, _) => raise InternalError "Not static link",
                     fn _ => raise InternalError "Not static link",
                     0, (* Discard regClosure *)
-                    argTypes, argLifetimes, resultType, localCount, newCode, debugSwitches)
+                    argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
 
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
@@ -3123,7 +3140,8 @@ struct
  
     |   gencode (pt, debugSwitches, localCount) =
         let (* Compile a top-level expression. *)
-            val newCode = codeCreate (false (* make a closure *), "<top level>", debugSwitches);
+            val profileObject = createProfileObject "<top level>"
+            val newCode = codeCreate (false (* make a closure *), "<top level>", profileObject, debugSwitches);
 
             (* There should be *no* non-local references. *)
             val (ops, maxStack, regList, callsAFunction) =
@@ -3136,7 +3154,7 @@ struct
                     0,  (* Discard regClosure *)
                     [], [], (* No args. *) GeneralType, (* General result (if any?) *)
                     localCount,
-                    newCode,
+                    profileObject,
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in (* Result is a procedure to execute the code. *)
