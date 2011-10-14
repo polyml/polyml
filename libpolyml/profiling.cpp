@@ -501,8 +501,8 @@ void AddObjectProfile(PolyObject *obj)
     {
         // It has a profile pointer.  The last word should point to the
         // closure or code of the allocating function.  Add the size of this to the count.
-        ASSERT(length != 0);
-        PolyWord profWord = obj->Get(length-1);
+        ASSERT(length != 1);
+        PolyWord profWord = obj->Get(length-2);
         ASSERT(profWord.IsDataPtr());
         PolyObject *profObject = profWord.AsObjPtr();
         ASSERT(profObject->IsMutable() && profObject->Length() > 1);
