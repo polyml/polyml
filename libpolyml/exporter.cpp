@@ -87,6 +87,11 @@ have to go back over the memory and turn the tombstones back into length
 words.
 */
 
+GraveYard::~GraveYard()
+{
+    free(graves);
+}
+
 CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
 {
     defaultImmSize = defaultMutSize = 0;

@@ -86,7 +86,7 @@ public:
 class GraveYard {
 public:
     GraveYard() { graves = 0; }
-    ~GraveYard() { free(graves); }
+    ~GraveYard();
     PolyWord *graves;
     PolyWord *startAddr, *endAddr;
 };
