@@ -87,29 +87,51 @@ have to go back over the memory and turn the tombstones back into length
 words.
 */
 
-CopyScan::CopyScan(bool isExport/*=true*/, unsigned h/*=0*/): hierarchy(h)
+CopyScan::CopyScan(unsigned h/*=0*/): hierarchy(h)
+{
+    defaultImmSize = defaultMutSize = 0;
+    defaultNoOverSize = 4096; // This can be small.
+    tombs = 0;
+    graveYard = 0;
+}
+
+void CopyScan::initialise(bool isExport/*=true*/)
 {
     ASSERT(gMem.neSpaces == 0);
     // Set the space sizes to a proportion of the space currently in use.
     // Computing these sizes is not obvious because CopyScan is used both
     // for export and for saved states.  For saved states in particular we
     // want to use a smaller size because they are retained after we save
-    // the state and if we have many child saved states its important not
+    // the state and if we have many child saved states it's important not
     // to waste memory.
-    defaultImmSize = defaultMutSize = 0;
-    defaultNoOverSize = 4096; // This can be small.
+    if (hierarchy == 0)
+    {
+        graveYard = new GraveYard[gMem.npSpaces];
+        if (graveYard == 0)
+            throw MemoryException();
+    }
     unsigned i;
     for (i = 0; i < gMem.npSpaces; i++)
     {
         PermanentMemSpace *space = gMem.pSpaces[i];
-        if (space->hierarchy >= h) {
-            // Include this if we're exporting (h=0) or if we're saving a state
+        if (space->hierarchy >= hierarchy) {
+            // Include this if we're exporting (hierarchy=0) or if we're saving a state
             // and will include this in the new state.
             POLYUNSIGNED size = (space->top-space->bottom)/4;
             if (space->isMutable)
                 defaultMutSize += size;
             else
                 defaultImmSize += size;
+            if (space->hierarchy == 0 && ! space->isMutable)
+            {
+                // We need a separate area for the tombstones because this is read-only
+                graveYard[tombs].graves = (PolyWord*)calloc(space->spaceSize(), sizeof(PolyWord));
+                if (graveYard[tombs].graves == 0)
+                    throw MemoryException();
+                graveYard[tombs].startAddr = space->bottom;
+                graveYard[tombs].endAddr = space->top;
+                tombs++;
+            }
         }
     }
     for (i = 0; i < gMem.nlSpaces; i++)
@@ -140,6 +162,8 @@ CopyScan::CopyScan(bool isExport/*=true*/, unsigned h/*=0*/): hierarchy(h)
 CopyScan::~CopyScan()
 {
     gMem.DeleteExportSpaces();
+    if (graveYard)
+        delete[](graveYard);
 }
 
 
@@ -196,6 +220,26 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         *pt = newAddr;
         return 0; // No need to scan it again.
     }
+    else if (space->spaceType == ST_PERMANENT)
+    {
+        // See if we have this in the grave-yard.
+        for (unsigned i = 0; i < tombs; i++)
+        {
+            GraveYard *g = &graveYard[i];
+            if (val.AsStackAddr() >= g->startAddr && val.AsStackAddr() < g->endAddr)
+            {
+                PolyWord *tombAddr = g->graves + (val.AsStackAddr() - g->startAddr);
+                PolyObject *tombObject = (PolyObject*)tombAddr;
+                if (tombObject->ContainsForwardingPtr())
+                {
+                    *pt = tombObject->GetForwardingPtr();;
+                    return 0;
+                }
+                break; // No need to look further
+            }
+        }
+    }
+
     // No, we need to copy it.
     ASSERT(space->spaceType == ST_LOCAL || space->spaceType == ST_PERMANENT);
     POLYUNSIGNED lengthWord = obj->LengthWord();
@@ -245,7 +289,24 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
 
     memcpy(newObj, obj, words*sizeof(PolyWord));
 
-    obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
+    if (space->spaceType == ST_PERMANENT && !space->isMutable && ((PermanentMemSpace*)space)->hierarchy == 0)
+    {
+        // The immutable permanent areas are read-only.
+        unsigned m;
+        for (m = 0; m < tombs; m++)
+        {
+            GraveYard *g = &graveYard[m];
+            if (val.AsStackAddr() >= g->startAddr && val.AsStackAddr() < g->endAddr)
+            {
+                PolyWord *tombAddr = g->graves + (val.AsStackAddr() - g->startAddr);
+                PolyObject *tombObject = (PolyObject*)tombAddr;
+                tombObject->SetForwardingPtr(newObj);
+                break; // No need to look further
+            }
+        }
+        ASSERT(m < tombs); // Should be there.
+    }
+    else obj->SetForwardingPtr(newObj); // Put forwarding pointer in old object.
 
     if (OBJ_IS_CODE_OBJECT(lengthWord))
     {
@@ -354,11 +415,13 @@ static void exporter(TaskData *taskData, Handle args, const char *extension, Exp
 void Exporter::RunExport(PolyObject *rootFunction)
 {
     Exporter *exports = this;
-    // Copy the root and everything reachable from it into the temporary area.
-    CopyScan copyScan;
 
     PolyObject *copiedRoot = 0;
+    CopyScan copyScan;
+
     try {
+        copyScan.initialise();
+        // Copy the root and everything reachable from it into the temporary area.
         copiedRoot = copyScan.ScanObjectAddress(rootFunction);
     }
     catch (MemoryException)
@@ -398,7 +461,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     MemSpace *ioSpace = gMem.IoSpace();
     exports->memTable[0].mtAddr = ioSpace->bottom;
     exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
-    exports->memTable[0].mtFlags = 0;
+    exports->memTable[0].mtFlags = MTF_WRITEABLE; // Needs to be written during initialisation.
     exports->memTable[0].mtIndex = 0;
 
     for (unsigned i = 0; i < gMem.neSpaces; i++)

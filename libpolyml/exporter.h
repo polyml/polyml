@@ -81,10 +81,21 @@ public:
 
 #include "scanaddrs.h"
 
+// Because permanent immutable areas are read-only we need to
+// have somewhere else to hold the tomb-stones.
+class GraveYard {
+public:
+    GraveYard() { graves = 0; }
+    ~GraveYard() { free(graves); }
+    PolyWord *graves;
+    PolyWord *startAddr, *endAddr;
+};
+
 class CopyScan: public ScanAddress
 {
 public:
-    CopyScan(bool isExport=true, unsigned h=0);
+    CopyScan(unsigned h=0);
+    void initialise(bool isExport=true);
     ~CopyScan();
 protected:
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
@@ -94,6 +105,9 @@ public:
     // Default sizes of the segments.
     POLYUNSIGNED defaultImmSize, defaultMutSize, defaultNoOverSize;
     unsigned hierarchy;
+
+    GraveYard *graveYard;
+    unsigned tombs;
 };
 
 #endif
