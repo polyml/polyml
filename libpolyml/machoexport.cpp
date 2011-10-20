@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7 David C. J. Matthews
+    Copyright (c) 2006-7, 2011 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -79,9 +79,9 @@
 #include "version.h"
 #include "polystring.h"
 
-// The data section consists of one area beginning with the descriptors
-// and followed by each of the memory sections in turn.  We have to adjust
-// offsets to match that.
+
+// Mach-O seems to require each section to have a discrete virtual address range
+// so we have to adjust various offsets to fit.
 void MachoExport::adjustOffset(unsigned area, POLYUNSIGNED &offset)
 {
     // Add in the offset.  If sect is memTableEntries it's actually the
@@ -99,7 +99,6 @@ void MachoExport::setRelocationAddress(void *p, int32_t *reloc)
 {
     unsigned area = findArea(p);
     POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtAddr;
-    adjustOffset(area, offset);
     *reloc = offset;
 }
 
@@ -115,7 +114,7 @@ PolyWord MachoExport::createRelocation(PolyWord p, void *relocAddr)
     // with GENERIC_RELOC_VANILLA types.
     struct relocation_info relInfo;
     setRelocationAddress(relocAddr, &relInfo.r_address);
-    relInfo.r_symbolnum = 1; // Section numbers start at 1
+    relInfo.r_symbolnum = addrArea+1; // Section numbers start at 1
     relInfo.r_pcrel = 0;
 #if (SIZEOF_VOIDP == 8)
     relInfo.r_length = 3; // 8 bytes
@@ -154,7 +153,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
         {
             struct relocation_info reloc;
             setRelocationAddress(addr, &reloc.r_address);
-            reloc.r_symbolnum = 1; // Section numbers start at 1
+            reloc.r_symbolnum = aArea+1; // Section numbers start at 1
             reloc.r_pcrel = 0;
 #if (defined(HOSTARCHITECTURE_X86_64))
             reloc.r_length = 3; // 8 bytes
@@ -177,17 +176,30 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
 #if (defined(HOSTARCHITECTURE_X86))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            // We don't need a relocation since everything is in the same segment
-            // but we still need to recalculate the offset.
             unsigned addrArea = findArea(addr);
-            POLYUNSIGNED addrOffset = (char*)addr - (char*)memTable[addrArea].mtAddr;
-            adjustOffset(addrArea, addrOffset);
-            offset -= addrOffset + 4;
-
-            for (unsigned i = 0; i < sizeof(PolyWord); i++)
+            // If it's in the same area we don't need a relocation because the
+            // relative offset will be unchanged.
+            if (addrArea != aArea)
             {
-                addr[i] = (byte)(offset & 0xff);
-                offset >>= 8;
+                struct relocation_info reloc;
+                setRelocationAddress(addr, &reloc.r_address);
+                reloc.r_symbolnum = aArea+1; // Section numbers start at 1
+                reloc.r_pcrel = 1;
+                reloc.r_length = 2; // 4 bytes
+                reloc.r_type = GENERIC_RELOC_VANILLA;
+                reloc.r_extern = 0; // r_symbolnum is a section number.
+                fwrite(&reloc, sizeof(reloc), 1, exportFile);
+                relocationCount++;
+
+                POLYUNSIGNED addrOffset = (char*)addr - (char*)memTable[addrArea].mtAddr;
+                adjustOffset(addrArea, addrOffset);
+                offset -= addrOffset + 4;
+
+                for (unsigned i = 0; i < sizeof(PolyWord); i++)
+                {
+                    addr[i] = (byte)(offset & 0xff);
+                    offset >>= 8;
+                }
             }
         }
         break;
@@ -204,7 +216,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             // relocations for each.  It stores one half of the address in the instruction
             // itself and the other half is carried in a PPC_RELOC_PAIR relocation entry.
             // We need four relocations here in total.
-            reloc.r_symbolnum = 1; // Section numbers start at 1
+            reloc.r_symbolnum = aArea+1; // Section numbers start at 1
             reloc.r_extern = 0; // r_symbolnum is a section number.
             reloc.r_pcrel = 0;
             reloc.r_length = 2; // 4 bytes
@@ -223,7 +235,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
 
             // Now the low-order part.
             setRelocationAddress(addr+sizeof(PolyWord), &reloc.r_address);
-            reloc.r_symbolnum = 1; // Section numbers start at 1
+            reloc.r_symbolnum = aArea+1; // Section numbers start at 1
             reloc.r_extern = 0; // r_symbolnum is a section number.
             reloc.r_pcrel = 0;
             reloc.r_length = 2; // 4 bytes
@@ -263,7 +275,7 @@ void MachoExport::writeSymbol(const char *symbolName, unsigned char nType, unsig
     memset(&symbol, 0, sizeof(symbol)); // Zero unused fields
     symbol.n_un.n_strx = stringTable.makeEntry(symbolName);
     symbol.n_type = nType;
-    symbol.n_sect = 1; // Sections count from 1.
+    symbol.n_sect = nSect+1; // Sections count from 1.
     symbol.n_desc = REFERENCE_FLAG_DEFINED;
     adjustOffset(nSect, offset);
     symbol.n_value = offset;
@@ -285,7 +297,7 @@ void MachoExport::createStructsRelocation(unsigned sect, POLYUNSIGNED offset)
 {
     struct relocation_info reloc;
     reloc.r_address = offset;
-    reloc.r_symbolnum = 1; // Section numbers start at 1
+    reloc.r_symbolnum = sect+1; // Section numbers start at 1
     reloc.r_pcrel = 0;
 #if (SIZEOF_VOIDP == 8)
     reloc.r_length = 3; // 8 bytes
@@ -306,11 +318,13 @@ void MachoExport::exportStore(void)
 #if (SIZEOF_VOIDP == 8)
     struct mach_header_64 fhdr;
     struct segment_command_64 sHdr;
-    struct section_64 theSection;
+    struct section_64 *sections = new section_64[memTableEntries+1];
+    size_t sectionSize = sizeof(section_64);
 #else
     struct mach_header fhdr;
     struct segment_command sHdr;
-    struct section theSection;
+    struct section *sections = new section[memTableEntries+1];
+    size_t sectionSize = sizeof(section);
 #endif
     struct symtab_command symTab;
     unsigned i;
@@ -320,7 +334,7 @@ void MachoExport::exportStore(void)
     memset(&fhdr, 0, sizeof(fhdr));
     fhdr.filetype = MH_OBJECT;
     fhdr.ncmds = 2; // One for the segment and one for the symbol table.
-    fhdr.sizeofcmds = sizeof(sHdr) + sizeof(theSection) + sizeof(symTab);
+    fhdr.sizeofcmds = sizeof(sHdr) + sectionSize * (memTableEntries+1) + sizeof(symTab);
     fhdr.flags = 0;
     // The machine needs to match the machine we're compiling for
     // even if this is actually portable code.
@@ -350,8 +364,8 @@ void MachoExport::exportStore(void)
 #else
     sHdr.cmd = LC_SEGMENT;
 #endif
-    sHdr.nsects = 1;
-    sHdr.cmdsize = sizeof(sHdr) + sizeof(theSection) * sHdr.nsects;
+    sHdr.nsects = memTableEntries+1; // One for each entry plus one for the tables.
+    sHdr.cmdsize = sizeof(sHdr) + sectionSize * sHdr.nsects;
     // Add up the sections to give the file size
     sHdr.filesize = 0;
     for (i = 0; i < memTableEntries; i++)
@@ -366,19 +380,55 @@ void MachoExport::exportStore(void)
     // Write it initially.
     fwrite(&sHdr, sizeof(sHdr), 1, exportFile);
 
-    // Section header.
-    memset(&theSection, 0, sizeof(theSection));
-    sprintf(theSection.sectname, "poly");
-    sprintf(theSection.segname, "POLY");
-    //theSection.offset is set later
-    //theSection.reloff is set later
-    //theSection.nreloc is set later
-    theSection.align = 3; // 8 byte alignment
-    // theSection.size is set later
-    theSection.flags = S_ATTR_LOC_RELOC | S_ATTR_SOME_INSTRUCTIONS | S_REGULAR; // 
+    // Section header for each entry in the table
+    POLYUNSIGNED sectAddr = sizeof(exportDescription)+sizeof(memoryTableEntry)*memTableEntries;
+    for (i = 0; i < memTableEntries; i++)
+    {
+        memset(&(sections[i]), 0, sectionSize);
 
-    // Write it out for the moment.
-    fwrite(&theSection, sizeof(theSection), 1, exportFile);
+        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        {
+            // Mutable areas
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
+            sprintf(sections[i].sectname, "__data");
+            sprintf(sections[i].segname, "__DATA");
+            sections[i].flags = S_ATTR_LOC_RELOC | S_REGULAR;
+        }
+        else if (memTable[i].mtFlags & MTF_EXECUTABLE)
+        {
+            sprintf(sections[i].sectname, "__text");
+            sprintf(sections[i].segname, "__TEXT");
+            sections[i].flags = S_ATTR_LOC_RELOC | S_ATTR_SOME_INSTRUCTIONS | S_REGULAR;
+        }
+        else
+        {
+            sprintf(sections[i].sectname, "__const");
+            sprintf(sections[i].segname, "__DATA");
+            sections[i].flags = S_ATTR_LOC_RELOC | S_REGULAR;
+        }
+
+        sections[i].addr = sectAddr;
+        sections[i].size = memTable[i].mtLength;
+        sectAddr += memTable[i].mtLength;
+        //sections[i].offset is set later
+        //sections[i].reloff is set later
+        //sections[i].nreloc is set later
+        sections[i].align = 3; // 8 byte alignment
+        // theSection.size is set later
+
+    }
+    // For the tables.
+    memset(&(sections[memTableEntries]), 0, sectionSize);
+    sprintf(sections[memTableEntries].sectname, "__const");
+    sprintf(sections[memTableEntries].segname, "__DATA");
+    sections[memTableEntries].addr = 0;
+    sections[memTableEntries].size = sizeof(exportDescription)+sizeof(memoryTableEntry)*memTableEntries;
+    sections[memTableEntries].align = 3; // 8 byte alignment
+    // theSection.size is set later
+    sections[memTableEntries].flags = S_ATTR_LOC_RELOC | S_ATTR_SOME_INSTRUCTIONS | S_REGULAR;
+
+    // Write them out for the moment.
+    fwrite(sections, sectionSize * (memTableEntries+1), 1, exportFile);
 
     // Symbol table header.
     memset(&symTab, 0, sizeof(symTab));
@@ -429,10 +479,10 @@ void MachoExport::exportStore(void)
     symTab.nsyms = symbolCount;
 
     // Create and write out the relocations.
-    theSection.reloff = ftell(exportFile);
-    relocationCount = 0;
     for (i = 0; i < memTableEntries; i++)
     {
+        sections[i].reloff = ftell(exportFile);
+        relocationCount = 0;
         if (i != ioMemEntry) // Don't relocate the IO area
         {
             // Create the relocation table and turn all addresses into offsets.
@@ -449,9 +499,12 @@ void MachoExport::exportStore(void)
                 p += length;
             }
         }
+        sections[i].nreloc = relocationCount;
     }
 
     // Additional relocations for the descriptors.
+    sections[memTableEntries].reloff = ftell(exportFile);
+    relocationCount = 0;
 
     // Address of "memTable" within "exports". We can't use createRelocation because
     // the position of the relocation is not in either the mutable or the immutable area.
@@ -469,7 +522,7 @@ void MachoExport::exportStore(void)
         createStructsRelocation(i,
             sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr));
     }
-    theSection.nreloc = relocationCount;
+    sections[memTableEntries].nreloc = relocationCount;
 
     // The symbol name table
     symTab.stroff = ftell(exportFile);
@@ -492,7 +545,7 @@ void MachoExport::exportStore(void)
     exports.architecture = machineDependent->MachineArchitecture();
     exports.rtsVersion = POLY_version_number;
 
-    theSection.offset = ftell(exportFile);
+    sections[memTableEntries].offset = ftell(exportFile);
     fwrite(&exports, sizeof(exports), 1, exportFile);
     POLYUNSIGNED addrOffset = sizeof(exports)+sizeof(memoryTableEntry)*memTableEntries;
     for (i = 0; i < memTableEntries; i++)
@@ -503,18 +556,21 @@ void MachoExport::exportStore(void)
         fwrite(&memTable[i], sizeof(memoryTableEntry), 1, exportFile);
         memTable[i].mtAddr = save;
     }
-    theSection.size = addrOffset;
 
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
+        alignFile(4);
+        sections[i].offset = ftell(exportFile);
         fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
     }
     // Rewind to rewrite the headers with the actual offsets.
     rewind(exportFile);
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // File header
     fwrite(&sHdr, sizeof(sHdr), 1, exportFile); // Segment header
-    fwrite(&theSection, sizeof(theSection), 1, exportFile); // Section headers
+    fwrite(sections, sectionSize * (memTableEntries+1), 1, exportFile); // Section headers
     fwrite(&symTab, sizeof(symTab), 1, exportFile); // Symbol table header
     fclose(exportFile); exportFile = NULL;
+
+    delete[](sections);
 }

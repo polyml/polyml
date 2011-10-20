@@ -2,7 +2,7 @@
     Title:     Write out a database as an ELF object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7 David C. J. Matthews
+    Copyright (c) 2006-7, 2011 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -95,10 +95,9 @@ enum {
     sect_initial = 0,
     sect_sectionnametable,
     sect_stringtable,
-    sect_data,
-    sect_relocation,
-    sect_symtab,
-    sect_Num_Sections
+    // Data and relocation entries come in here.
+    sect_data
+    // Finally the symbol table
 };
 
 // Generate the address relative to the start of the segment.
@@ -106,9 +105,6 @@ void ELFExport::setRelocationAddress(void *p, ElfXX_Addr *reloc)
 {
     unsigned area = findArea(p);
     POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtAddr;
-    // We have to add in the sizes of the areas preceding this one in the file.
-    for (unsigned i = 0; i < area; i++)
-        offset += memTable[i].mtLength;
     *reloc = offset;
 }
 
@@ -317,7 +313,11 @@ void ELFExport::exportStore(void)
 {
     PolyWord    *p;
     ElfXX_Ehdr fhdr;
-    ElfXX_Shdr sections[sect_Num_Sections];
+    ElfXX_Shdr *sections = 0;
+    unsigned numSections = 6 + 2*memTableEntries;
+    // The symbol table comes at the end.
+    unsigned sect_symtab = sect_data + 2*memTableEntries + 2;
+    
     unsigned i;
 
     // Both the string tables have an initial null entry.
@@ -387,12 +387,15 @@ void ELFExport::exportStore(void)
     fhdr.e_shoff = sizeof(fhdr); // Offset to section header - immediately follows
     fhdr.e_ehsize = sizeof(fhdr);
     fhdr.e_shentsize = sizeof(ElfXX_Shdr);
-    fhdr.e_shnum = sect_Num_Sections;
+    fhdr.e_shnum = numSections;
     fhdr.e_shstrndx = sect_sectionnametable; // Section name table section index;
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile); // Write it for the moment.
 
+    sections = new ElfXX_Shdr[numSections];
+    memset(sections, 0, sizeof(ElfXX_Shdr) * numSections); // Necessary?
+
     // Set up the section header but don't write it yet.
-    memset(sections, 0, sizeof(sections));
+
     // Section 0 - all zeros
     sections[sect_initial].sh_type = SHT_NULL;
     sections[sect_initial].sh_link = SHN_UNDEF;
@@ -411,26 +414,61 @@ void ELFExport::exportStore(void)
     // sections[sect_stringtable].sh_offset is set later
     // sections[sect_stringtable].sh_size is set later
 
-    // Main data section
-    // TODO: Replace this with separate sections for each of the memory areas.
-    // At the very least we want to distinguish mutable and immutable areas.
-    sections[sect_data].sh_name = makeStringTableEntry(".poly", &sectionStrings);
-    sections[sect_data].sh_type = SHT_PROGBITS;
-    sections[sect_data].sh_flags = SHF_WRITE | SHF_ALLOC | SHF_EXECINSTR;
-    sections[sect_data].sh_addralign = 8; // 8-byte alignment
-    // sections[sect_data].sh_size is set later
-    // sections[sect_data].sh_offset is set later.
-    // sections[sect_data].sh_size is set later.
+    unsigned long dataName = makeStringTableEntry(".data", &sectionStrings);
+    unsigned long dataRelName = makeStringTableEntry(useRela ? ".rela.data" : ".rel.data", &sectionStrings);
+    unsigned long textName = makeStringTableEntry(".text", &sectionStrings);
+    unsigned long textRelName = makeStringTableEntry(useRela ? ".rela.text" : ".rel.text", &sectionStrings);
 
-    // Relocation section
-    sections[sect_relocation].sh_name = makeStringTableEntry(useRela ? ".rela.poly" : ".rel.poly", &sectionStrings);
-    sections[sect_relocation].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
-    sections[sect_relocation].sh_link = sect_symtab; // Index to symbol table
-    sections[sect_relocation].sh_info = sect_data; // Applies to data section
-    sections[sect_relocation].sh_addralign = sizeof(long); // Align to a word
-    sections[sect_relocation].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
-    // sections[sect_relocation].sh_offset is set later.
-    // sections[sect_relocation].sh_size is set later.
+    // Main data sections.  Each one has a relocation section.
+    for (i=0; i < memTableEntries; i++)
+    {
+        unsigned s = sect_data + i*2;
+        sections[s].sh_type = SHT_PROGBITS;
+        sections[s].sh_addralign = 8; // 8-byte alignment
+
+        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        {
+            // Mutable areas
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
+            sections[s].sh_name = dataName;
+            sections[s].sh_flags = SHF_WRITE | SHF_ALLOC;
+            sections[s+1].sh_name = dataRelName; // Name of relocation section
+        }
+        else
+        {
+            // Immutable areas are marked as executable.
+            sections[s].sh_name = textName;
+            sections[s].sh_flags = SHF_ALLOC | SHF_EXECINSTR;
+            sections[s+1].sh_name = textRelName; // Name of relocation section
+        }
+        // sections[s].sh_size is set later
+        // sections[s].sh_offset is set later.
+        // sections[s].sh_size is set later.
+
+        // Relocation section
+        sections[s+1].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
+        sections[s+1].sh_link = sect_symtab; // Index to symbol table
+        sections[s+1].sh_info = s; // Applies to the data section
+        sections[s+1].sh_addralign = sizeof(long); // Align to a word
+        sections[s+1].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
+        // sections[s+1].sh_offset is set later.
+        // sections[s+1].sh_size is set later.
+    }
+
+    // Table data - Poly tables that describe the memory layout.
+    unsigned sect_table_data = sect_data+2*memTableEntries;
+
+    sections[sect_table_data].sh_name = dataName;
+    sections[sect_table_data].sh_type = SHT_PROGBITS;
+    sections[sect_table_data].sh_flags = SHF_WRITE | SHF_ALLOC;
+    sections[sect_table_data].sh_addralign = 8; // 8-byte alignment
+    // Table relocation
+    sections[sect_table_data+1].sh_name = dataRelName;
+    sections[sect_table_data+1].sh_type = useRela ? SHT_RELA : SHT_REL; // Contains relocation with/out explicit addends (ElfXX_Rel)
+    sections[sect_table_data+1].sh_link = sect_symtab; // Index to symbol table
+    sections[sect_table_data+1].sh_info = sect_table_data; // Applies to table section
+    sections[sect_table_data+1].sh_addralign = sizeof(long); // Align to a word
+    sections[sect_table_data+1].sh_entsize = useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel);
 
     // Symbol table.
     sections[sect_symtab].sh_name = makeStringTableEntry(".symtab", &sectionStrings);
@@ -448,23 +486,20 @@ void ELFExport::exportStore(void)
     writeSymbol("", 0, 0, 0, 0, 0); // Initial symbol
     // Write the local symbols first.
     writeSymbol("", 0, 0, STB_LOCAL, STT_SECTION, sect_data); // .data section
-    POLYUNSIGNED areaSpace = 0;
 
     // Create symbols for the address areas.  AreaToSym assumes these come first.
     for (i = 0; i < memTableEntries; i++)
     {
         if (i == ioMemEntry)
-            writeSymbol("ioarea", areaSpace, 0, STB_LOCAL, STT_OBJECT, sect_data);
+            writeSymbol("ioarea", 0, 0, STB_LOCAL, STT_OBJECT, sect_data+i*2);
         else {
             char buff[50];
             sprintf(buff, "area%1u", i);
-            writeSymbol(buff, areaSpace, 0, STB_LOCAL, STT_OBJECT, sect_data);
+            writeSymbol(buff, 0, 0, STB_LOCAL, STT_OBJECT, sect_data+i*2);
         }
-        areaSpace += memTable[i].mtLength;
     }
 
     // Extra symbols to help debugging.
-    areaSpace = 0;
     for (i = 0; i < memTableEntries; i++)
     {
         if (i != ioMemEntry)
@@ -485,29 +520,29 @@ void ELFExport::exportStore(void)
                     // Copy as much of the name as will fit and ignore any extra.
                     // Do we need to worry about duplicates?
                     (void)Poly_string_to_C(*name, buff, sizeof(buff));
-                    writeSymbol(buff, areaSpace + ((char*)p - start), 0, STB_LOCAL, STT_OBJECT, sect_data);
+                    writeSymbol(buff, ((char*)p - start), 0, STB_LOCAL, STT_OBJECT, sect_data+i*2);
                 }
                 p += length;
             }
         }
-        areaSpace += memTable[i].mtLength;
     }
 
     // Global symbols - Just one: poly_exports
-    writeSymbol("poly_exports", areaSpace, 
+    writeSymbol("poly_exports", 0, 
         sizeof(exportDescription)+sizeof(memoryTableEntry)*memTableEntries,
-        STB_GLOBAL, STT_OBJECT, sect_data);
+        STB_GLOBAL, STT_OBJECT, sect_table_data);
 
     sections[sect_symtab].sh_info = symbolCount-1; // One more than last local sym
     sections[sect_symtab].sh_size = sizeof(ElfXX_Sym) * symbolCount;
 
     // Write the relocations.
-    alignFile(sections[sect_relocation].sh_addralign);
-    sections[sect_relocation].sh_offset = ftell(exportFile);
-    relocationCount = 0;
 
     for (i = 0; i < memTableEntries; i++)
     {
+        unsigned relocSection = sect_data+i*2+1;
+        alignFile(sections[relocSection].sh_addralign);
+        sections[relocSection].sh_offset = ftell(exportFile);
+        relocationCount = 0;
         if (i != ioMemEntry) // Don't relocate the IO area
         {
             // Create the relocation table and turn all addresses into offsets.
@@ -524,46 +559,49 @@ void ELFExport::exportStore(void)
                 p += length;
             }
         }
+        sections[relocSection].sh_size =
+            relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
     }
 
     // Relocations for "exports" and "memTable";
+    alignFile(sections[sect_table_data+1].sh_addralign);
+    sections[sect_table_data+1].sh_offset = ftell(exportFile);
+    relocationCount = 0;
     // TODO: This won't be needed if we put these in a separate section.
-    areaSpace = 0;
+    POLYUNSIGNED areaSpace = 0;
     for (i = 0; i < memTableEntries; i++)
         areaSpace += memTable[i].mtLength;
 
     // Address of "memTable" within "exports". We can't use createRelocation because
     // the position of the relocation is not in either the mutable or the immutable area.
     POLYSIGNED memTableOffset = (POLYSIGNED)sizeof(exportDescription); // It follows immediately after this.
-    createStructsRelocation(symbolCount-1 /* Last symbol */, areaSpace+offsetof(exportDescription, memTable), memTableOffset);
+    createStructsRelocation(symbolCount-1 /* Last symbol */, offsetof(exportDescription, memTable), memTableOffset);
 
     // Address of "rootFunction" within "exports"
     unsigned rootAddrArea = findArea(rootFunction);
     POLYSIGNED rootOffset = (char*)rootFunction - (char*)memTable[rootAddrArea].mtAddr;
-    createStructsRelocation(AreaToSym(rootAddrArea), areaSpace+offsetof(exportDescription, rootFunction), rootOffset);
+    createStructsRelocation(AreaToSym(rootAddrArea), offsetof(exportDescription, rootFunction), rootOffset);
 
     // Addresses of the areas within memtable.
     for (i = 0; i < memTableEntries; i++)
     {
         createStructsRelocation(AreaToSym(i),
-            areaSpace + sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr),
+            sizeof(exportDescription) + i * sizeof(memoryTableEntry) + offsetof(memoryTableEntry, mtAddr),
             0 /* No offset relative to base symbol*/);
     }
 
-    if (useRela)
-        sections[sect_relocation].sh_size = relocationCount * sizeof(ElfXX_Rela);
-    else
-        sections[sect_relocation].sh_size = relocationCount * sizeof(ElfXX_Rel);
+    sections[sect_table_data+1].sh_size =
+        relocationCount * (useRela ? sizeof(ElfXX_Rela) : sizeof(ElfXX_Rel));
 
     // Now the binary data.
-    alignFile(sections[sect_data].sh_addralign);
-    sections[sect_data].sh_offset = ftell(exportFile);
-    sections[sect_data].sh_size =
-        areaSpace + sizeof(exportDescription) + memTableEntries*sizeof(memoryTableEntry);
 
     // Now the binary data.
     for (i = 0; i < memTableEntries; i++)
     {
+        unsigned dataSection = sect_data+i*2;
+        alignFile(sections[dataSection].sh_addralign);
+        sections[dataSection].sh_offset = ftell(exportFile);
+        sections[dataSection].sh_size = memTable[i].mtLength;
         fwrite(memTable[i].mtAddr, 1, memTable[i].mtLength, exportFile);
     }
 
@@ -588,6 +626,11 @@ void ELFExport::exportStore(void)
     for (i = 0; i < memTableEntries; i++)
         memTable[i].mtAddr = 0;
 
+    // Now the binary data.
+    alignFile(sections[sect_table_data].sh_addralign);
+    sections[sect_table_data].sh_offset = ftell(exportFile);
+    sections[sect_table_data].sh_size = sizeof(exportDescription) + memTableEntries*sizeof(memoryTableEntry);
+
     fwrite(&exports, sizeof(exports), 1, exportFile);
     fwrite(memTable, sizeof(memoryTableEntry), memTableEntries, exportFile);
 
@@ -604,10 +647,12 @@ void ELFExport::exportStore(void)
     // Finally the section headers.
     alignFile(4);
     fhdr.e_shoff = ftell(exportFile);
-    fwrite(sections, sizeof(sections), 1, exportFile);
+    fwrite(sections, sizeof(ElfXX_Shdr) * numSections, 1, exportFile);
 
     // Rewind to rewrite the file header with the offset of the section headers.
     rewind(exportFile);
     fwrite(&fhdr, sizeof(fhdr), 1, exportFile);
     fclose(exportFile); exportFile = NULL;
+
+    delete[]sections;
 }

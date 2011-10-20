@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006, 2011 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -205,22 +205,30 @@ void PECOFFExport::exportStore(void)
     for (i = 0; i < memTableEntries; i++)
     {
         memset(&sections[i], 0, sizeof(IMAGE_SECTION_HEADER));
-        sprintf((char*)sections[i].Name, "poly%1u", i);
         sections[i].SizeOfRawData = memTable[i].mtLength;
-        // We always include write access at the moment.
-        sections[i].Characteristics = 
-            IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_READ | 
-            IMAGE_SCN_ALIGN_8BYTES | IMAGE_SCN_CNT_INITIALIZED_DATA;
-        if (memTable[i].mtFlags & MTF_EXECUTABLE)
-            sections[i].Characteristics |= IMAGE_SCN_MEM_EXECUTE;
+        sections[i].Characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES;
+
+        if (memTable[i].mtFlags & MTF_WRITEABLE)
+        {
+            // Mutable data
+            ASSERT(!(memTable[i].mtFlags & MTF_EXECUTABLE)); // Executable areas can't be writable.
+            strcpy((char*)sections[i].Name, ".data");
+            sections[i].Characteristics |= IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_INITIALIZED_DATA;
+        }
+        else
+        {
+            // Immutable data areas are marked as executable.
+            strcpy((char*)sections[i].Name, ".text");
+            sections[i].Characteristics |= IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE;
+        }
     }
     // Extra section for the tables.
     memset(&sections[memTableEntries], 0, sizeof(IMAGE_SECTION_HEADER));
-    sprintf((char*)sections[memTableEntries].Name, "polyT");
+    sprintf((char*)sections[memTableEntries].Name, ".data");
     sections[memTableEntries].SizeOfRawData = sizeof(exports) + (memTableEntries+1)*sizeof(memoryTableEntry);
-    // Don't need write or execute access here
+    // Don't need write access here but keep it for consistency with other .data sections
     sections[memTableEntries].Characteristics = 
-        IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES | IMAGE_SCN_CNT_INITIALIZED_DATA;
+        IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES | IMAGE_SCN_MEM_WRITE | IMAGE_SCN_CNT_INITIALIZED_DATA;
 
     fwrite(sections, sizeof(IMAGE_SECTION_HEADER), memTableEntries+1, exportFile); // Write it for the moment.
 
