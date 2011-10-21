@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010
+    and David C. J. Matthews 2006, 2010, 2011
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -127,40 +127,46 @@ typedef struct
 } Item;
 
 // The DepthVector type contains all the items of a particular depth.
-typedef struct
-{
-    POLYUNSIGNED    depth;
-    POLYUNSIGNED    nitems;
-    POLYUNSIGNED    vsize;
-    Item            *vector;
-} DepthVector;
-/*
-class Vector
-{
+class DepthVector {
 public:
-    static Vector *AddDepth(POLYUNSIGNED depth);
-
-    Vector(POLYUNSIGNED d): depth(d), nitems(0), vsize(0), vector(0), next(0) {}
-    ~Vector() { free(vector); }
+    POLYUNSIGNED MergeSameItems(void);
 
     POLYUNSIGNED    depth;
     POLYUNSIGNED    nitems;
     POLYUNSIGNED    vsize;
     Item            *vector;
-    Vector          *next;
-};*/
+};
 
-static DepthVector *depthVectors = 0;
-static POLYUNSIGNED depthVectorSize = 0;
+class ShareData {
+public:
+    ShareData() { depthVectors = 0; depthVectorSize = 0; bitmaps = 0; nBitmaps = 0; }
+    ~ShareData();
 
-// Returns true if this is an address into either the permanent or temporary areas.
-inline bool IsDataAddress(PolyWord p)
+    bool RunShareData(PolyObject *root);
+
+    DepthVector *AddDepth(POLYUNSIGNED depth);
+    void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt);
+    VisitBitmap *FindBitmap(PolyWord p);
+
+private:
+    DepthVector *depthVectors;
+    POLYUNSIGNED depthVectorSize;
+
+    VisitBitmap  **bitmaps;
+    unsigned   nBitmaps;
+};
+
+ShareData::~ShareData()
 {
-    MemSpace *space = gMem.SpaceForAddress(p.AsAddress());
-    return space != 0 && space->spaceType != ST_IO;
+    if (bitmaps)
+    {
+        for (unsigned i = 0; i < nBitmaps; i++)
+            delete(bitmaps[i]);
+        delete[](bitmaps);
+    }
 }
 
-DepthVector *AddDepth(POLYUNSIGNED depth)
+DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
 {
     if (depth >= depthVectorSize) {
         POLYUNSIGNED newDepth = depth+1;
@@ -178,12 +184,24 @@ DepthVector *AddDepth(POLYUNSIGNED depth)
     return &depthVectors[depth];
 }
 
+
+// Return the bitmap corresponding to the address or NULL if it isn't there.
+VisitBitmap *ShareData::FindBitmap(PolyWord p)
+{
+    for (unsigned i = 0; i < nBitmaps; i++)
+    {
+        VisitBitmap *bm = bitmaps[i];
+        if (bm->InRange(p.AsStackAddr())) return bm;
+    }
+    return 0;
+}
+
 /******************************************************************************/
 /*                                                                            */
 /*      AddToVector                                                           */
 /*                                                                            */
 /******************************************************************************/
-static void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
+void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 {
     DepthVector *v = AddDepth (depth);
     
@@ -248,8 +266,10 @@ static int CompareItems(const void *arg_a, const void *arg_b)
 /*      MergeSameItems                                                        */
 /*                                                                            */
 /******************************************************************************/
-static POLYUNSIGNED MergeSameItems(DepthVector *v)
+POLYUNSIGNED DepthVector::MergeSameItems()
 {
+    DepthVector *v = this;
+
     POLYUNSIGNED  N = v->nitems;
     Item *itemVec = v->vector;
     POLYUNSIGNED  n = 0;
@@ -355,8 +375,6 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
     }
 
     ASSERT(old.IsDataPtr());
-         
-    ASSERT(IsDataAddress(old));
 
     PolyObject *obj = old.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
@@ -393,22 +411,27 @@ void ProcessFixupAddress::FixupItems (DepthVector *v)
 class ProcessAddToVector: public ScanAddress
 {
 public:
-    ProcessAddToVector() {}
+    ProcessAddToVector(ShareData *p): m_parent(p) {}
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt)
         { (void)AddObjectsToDepthVectors(*pt); return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { (void)AddObjectsToDepthVectors(base); return base; }
 protected:
     POLYUNSIGNED AddObjectsToDepthVectors(PolyWord old);
+
+    ShareData *m_parent;
 };
 
 POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
 {
     // If this is a tagged integer or an IO pointer that's simply a constant.
-    if (old.IsTagged() || old == PolyWord::FromUnsigned(0) || gMem.IsIOPointer(old.AsAddress()))
+    if (old.IsTagged() || old == PolyWord::FromUnsigned(0))
         return 0;
 
-    ASSERT(IsDataAddress(old));
+    MemSpace *space = gMem.SpaceForAddress(old.AsAddress());
+    if (space == 0 || space->spaceType == ST_IO)
+        return 0;
+
     PolyObject *obj = old.AsObjPtr();
     POLYUNSIGNED L = obj->LengthWord();
 
@@ -417,31 +440,36 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
 
     ASSERT (OBJ_IS_LENGTH(L));
 
-    // Byte objects always have depth 1 and can't contain addresses.
-    if (obj->IsByteObject())
-    {
-        obj->SetLengthWord(OBJ_SET_DEPTH(1));
-        AddToVector (1, L, old.AsObjPtr());// add to vector at correct depth
-        return 1;
-    }
-
-    // set initial depth to 0 (to cope with loops)
-    obj->SetLengthWord(OBJ_SET_DEPTH(0));
+    // Find the bitmap for this address.
+    VisitBitmap *bm = m_parent->FindBitmap(old);
+    ASSERT(bm != 0);
+    // If it's already visited but doesn't have a tombstone its depth is zero.
+    if (bm->AlreadyVisited(obj))
+        return 0;
+    bm->SetVisited(obj);
 
     /* There's a problem sharing code objects if they have relative calls/jumps
        in them to other code.  The code of two functions may be identical (e.g.
        they both call functions 100 bytes ahead) and so they will appear the
        same but if the functions they jump to are different they are actually
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
-    if (OBJ_IS_MUTABLE_OBJECT(L) || OBJ_IS_CODE_OBJECT(L))
+
+    // If this is in the permanent immutable area we can't put in a tombstone because it's
+    // read-only.  That means we can't share local data with values in the permanent area.
+    // The mutable area can be written so we could put a tombstone there but there's no point.
+    if (OBJ_IS_MUTABLE_OBJECT(L) || OBJ_IS_CODE_OBJECT(L) || space->spaceType == ST_PERMANENT)
     {
-        // Add these at depth zero.  This allows us to restore the length words.
-        // N.B.  We need to add this BEFORE scanning it in case scanning raises
-        // an exception and we need to restore the length words.
-        AddToVector (0, L, old.AsObjPtr());
         // These always have depth 0.  We still have to process any addresses within them.
         ScanAddressesInObject(obj, L);
         return 0;
+    }
+
+    // Byte objects always have depth 1 and can't contain addresses.
+    if (obj->IsByteObject())
+    {
+        obj->SetLengthWord(OBJ_SET_DEPTH(1));
+        m_parent->AddToVector (1, L, old.AsObjPtr());// add to vector at correct depth
+        return 1;
     }
 
     ASSERT(OBJ_IS_WORD_OBJECT(L)); // That leaves immutable data objects.
@@ -459,7 +487,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         }
         depth++; // Plus one for this object.
         obj->SetLengthWord(OBJ_SET_DEPTH(depth));// set genuine depth.
-        AddToVector (depth, L, old.AsObjPtr());// add to vector at correct depth
+        m_parent->AddToVector (depth, L, old.AsObjPtr());// add to vector at correct depth
     } catch (...) {
         // We haven't added it to the depth vector yet or adding failed.
         // Restore the length field now.
@@ -486,8 +514,27 @@ static unsigned verbose = 0;
 
 
 // This is called by the root thread to do the work.
-bool RunShareData(PolyObject *root)
+bool ShareData::RunShareData(PolyObject *root)
 {
+    // We use a bitmap to indicate when we've visited an object to avoid
+    // infinite recursion in cycles in the data.
+    nBitmaps = gMem.nlSpaces+gMem.npSpaces;
+    bitmaps = new VisitBitmap*[nBitmaps];
+    unsigned bm = 0;
+    unsigned j;
+    for (j = 0; j < gMem.npSpaces; j++)
+    {
+        MemSpace *space = gMem.pSpaces[j];
+        // Permanent areas are filled with objects from the bottom.
+        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
+    }
+    for (j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
+    }
+    ASSERT(bm == nBitmaps);
+
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
     
@@ -495,7 +542,7 @@ bool RunShareData(PolyObject *root)
     depthVectorSize = 0;
 
     // Build the vectors from the immutable objects.
-    ProcessAddToVector addToVector;
+    ProcessAddToVector addToVector(this);
     try {
         (void)addToVector.ScanObjectAddress(root);
     }
@@ -522,7 +569,7 @@ bool RunShareData(PolyObject *root)
         fixup.FixupItems(vec);
         qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
     
-        POLYUNSIGNED n = MergeSameItems (vec);
+        POLYUNSIGNED n = vec->MergeSameItems();
     
         if (n && verbose)
         {
@@ -597,7 +644,7 @@ class ShareRequest: public MainThreadRequest
 public:
     ShareRequest(Handle root): MainThreadRequest(MTP_SHARING), shareRoot(root), result(false) {}
 
-    virtual void Perform() { result = RunShareData(shareRoot->WordP()); }
+    virtual void Perform() { ShareData s; result = s.RunShareData(shareRoot->WordP()); }
     Handle shareRoot;
     bool result;
 };

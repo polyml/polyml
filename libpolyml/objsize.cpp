@@ -64,21 +64,6 @@
 
 #define MAX_PROF_LEN 100 // Profile lengths between 1 and this
 
-class VisitBitmap
-{
-public:
-    VisitBitmap(PolyWord *bottom, PolyWord *top):
-        m_bitmap(top - bottom),
-        m_bottom(bottom), m_top(top) {}
-
-    bool AlreadyVisited(PolyObject *p)   { return m_bitmap.TestBit((PolyWord*)p - m_bottom); }
-    void SetVisited(PolyObject *p)       { m_bitmap.SetBit((PolyWord*)p - m_bottom); }
-
-    Bitmap     m_bitmap;
-    PolyWord  *m_bottom;
-    PolyWord  *m_top;
-};
-
 class ProcessVisitAddresses: public ScanAddress
 {
 public:
@@ -155,7 +140,7 @@ VisitBitmap *ProcessVisitAddresses::FindBitmap(PolyWord p)
     for (unsigned i = 0; i < nBitmaps; i++)
     {
         VisitBitmap *bm = bitmaps[i];
-        if (p.AsAddress() > bm->m_bottom && p.AsAddress() <= bm->m_top) return bm;
+        if (bm->InRange(p.AsStackAddr())) return bm;
     }
     return 0;
 }
