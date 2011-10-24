@@ -24,3 +24,5 @@ provide that to the IDE.
 Add structures to the debug environment.
 
 Add PrettyLineBreak to pretty datatype.
+
+Option to check flexible records using a much smaller context than the default option.
