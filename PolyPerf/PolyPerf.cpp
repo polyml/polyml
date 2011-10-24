@@ -272,7 +272,7 @@ DWORD APIENTRY CollectPolyPerfMon(
     pObjectType->ObjectNameTitleIndex = dwFirstCounter + stringCount*2; // First string is the name of the object
     pObjectType->ObjectHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pObjectType->DetailLevel = PERF_DETAIL_NOVICE;
-    pObjectType->NumCounters = N_PS_COUNTERS + N_PS_SIZES + N_PS_TIMES + N_PS_USER;
+    pObjectType->NumCounters = 0;
     pObjectType->DefaultCounter = -1;
     pObjectType->NumInstances = numProcesses;
 
@@ -291,23 +291,66 @@ DWORD APIENTRY CollectPolyPerfMon(
         pCounters[i].CounterType = PERF_COUNTER_RAWCOUNT;
         pCounters[i].CounterOffset =
             sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psCounters)+i*sizeof(unsigned long);
+        pObjectType->NumCounters++;
     }
 
-    // Then the sizes
+    // The sizes are dealt with specially.  We need to divide the values and express
+    // them as percentages.  Each displayed value is followed by a base value.
     PERF_COUNTER_DEFINITION *pSizes =
         (PERF_COUNTER_DEFINITION*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable,
-            sizeof(PERF_COUNTER_DEFINITION) * N_PS_SIZES);
+            sizeof(PERF_COUNTER_DEFINITION) * 6);
     if (pSizes == NULL) return ERROR_MORE_DATA;
-    for (unsigned j = 0; j < N_PS_SIZES; j++)
-    {
-        pSizes[j].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
-        pSizes[j].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
-        pSizes[j].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
-        pSizes[j].DetailLevel = PERF_DETAIL_NOVICE;
-        pSizes[j].CounterType = PERF_COUNTER_RAWCOUNT;
-        pSizes[j].CounterOffset =
-            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+j*sizeof(size_t);
-    }
+    // First - Heap usage after last GC
+    pSizes[0].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+    pSizes[0].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+    pSizes[0].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+    pSizes[0].DetailLevel = PERF_DETAIL_NOVICE;
+    pSizes[0].CounterType = PERF_RAW_FRACTION;
+    pSizes[0].CounterOffset =
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_AFTER_LAST_GC*sizeof(size_t);
+    pObjectType->NumCounters++;
+    pSizes[1].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+    pSizes[1].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+    pSizes[1].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+    pSizes[1].DetailLevel = PERF_DETAIL_NOVICE;
+    pSizes[1].CounterType = PERF_RAW_BASE;
+    pSizes[1].CounterOffset =
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_TOTAL_HEAP*sizeof(size_t);
+    pObjectType->NumCounters++;
+    // Second - Heap usage after last full GC
+    pSizes[2].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+    pSizes[2].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+    pSizes[2].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+    pSizes[2].DetailLevel = PERF_DETAIL_NOVICE;
+    pSizes[2].CounterType = PERF_RAW_FRACTION;
+    pSizes[2].CounterOffset =
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_AFTER_LAST_FULLGC*sizeof(size_t);
+    pObjectType->NumCounters++;
+    pSizes[3].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+    pSizes[3].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+    pSizes[3].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+    pSizes[3].DetailLevel = PERF_DETAIL_NOVICE;
+    pSizes[3].CounterType = PERF_RAW_BASE;
+    pSizes[3].CounterOffset =
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_TOTAL_HEAP*sizeof(size_t);
+    pObjectType->NumCounters++;
+    // Third - Unreserved space in allocation area
+    pSizes[4].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+    pSizes[4].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+    pSizes[4].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+    pSizes[4].DetailLevel = PERF_DETAIL_NOVICE;
+    pSizes[4].CounterType = PERF_RAW_FRACTION;
+    pSizes[4].CounterOffset =
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_ALLOCATION_UNRESERVED*sizeof(size_t);
+    pObjectType->NumCounters++;
+    pSizes[5].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
+    pSizes[5].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
+    pSizes[5].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
+    pSizes[5].DetailLevel = PERF_DETAIL_NOVICE;
+    pSizes[5].CounterType = PERF_RAW_BASE;
+    pSizes[5].CounterOffset =
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_ALLOCATION*sizeof(size_t);
+    pObjectType->NumCounters++;
 
     // Then the times
     PERF_COUNTER_DEFINITION *pTimes =
@@ -323,6 +366,7 @@ DWORD APIENTRY CollectPolyPerfMon(
         pTimes[k].CounterType = PERF_100NSEC_TIMER;
         pTimes[k].CounterOffset =
             sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psTimers)+k*sizeof(FILETIME);
+        pObjectType->NumCounters++;
     }
 
     // Finally the user counters
@@ -339,6 +383,7 @@ DWORD APIENTRY CollectPolyPerfMon(
         pUsers[l].CounterType = PERF_COUNTER_RAWCOUNT;
         pUsers[l].CounterOffset =
             sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psUser)+l*sizeof(long);
+        pObjectType->NumCounters++;
     }
 
     pObjectType->DefinitionLength = *lpcbTotalBytes; // End of definitions; start of instance data

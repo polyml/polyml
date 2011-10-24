@@ -236,6 +236,9 @@ public:
     // objects.  This fills unused memory with one or more "byte" objects.
     void FillUnusedSpace(PolyWord *base, POLYUNSIGNED words);
 
+    // Return number of words of free space for stats.
+    POLYUNSIGNED GetFreeAllocSpace();
+
     MemSpace *IoSpace() { return &ioSpace; } // Return pointer to the IO space.
 
     MemSpace ioSpace; // The IO space

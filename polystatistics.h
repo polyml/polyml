@@ -42,7 +42,7 @@ enum {
     PSS_AFTER_LAST_GC,              // Space free after last GC
     PSS_AFTER_LAST_FULLGC,          // Space free after the last full GC
     PSS_ALLOCATION,                 // Size of allocation space
-    PSS_ALLOCATION_UNRESERVED,      // Space available in allocation area
+    PSS_ALLOCATION_FREE,            // Space available in allocation area
     N_PS_SIZES
 };
 

@@ -1290,9 +1290,31 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // Now release schedLock and wait for a thread
         // to wake us up.  Use a timed wait to avoid the race with
         // setting exitRequest.
-        initialThreadWait.WaitFor(&schedLock, 1000);
+        initialThreadWait.WaitFor(&schedLock, 400);
         // Update the periodic stats.
-        globalStats.updatePeriodicStats();
+        // Calculate the free memory.  We have to be careful here because although
+        // we have the schedLock we don't have any lock that prevents a thread
+        // from allocating a new segment.  Since these statistics are only
+        // very rough it doesn't matter if there's a glitch.
+        // One possibility would be see if the value of
+        // gMem.GetFreeAllocSpace() has changed from what it was at the
+        // start and recalculate if it has.
+        POLYUNSIGNED freeSpace = 0;
+        for (unsigned j = 0; j < taskArraySize; j++)
+        {
+            ProcessTaskData *taskData = taskArray[j];
+            if (taskData)
+            {
+                // This gets the values last time it was in the RTS.
+                PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
+                if (limit < ptr && ptr-limit < taskData->allocSize)
+                    freeSpace += ptr-limit;
+            }
+        }
+        // Add the space in the allocation areas after calculating the sizes for the
+        // threads in case a thread has allocated some more.
+        freeSpace += gMem.GetFreeAllocSpace();
+        globalStats.updatePeriodicStats(freeSpace);
     }
     schedLock.Unlock();
     // We are about to return normally.  Stop any crowbar function

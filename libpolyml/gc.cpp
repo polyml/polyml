@@ -521,7 +521,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     globalStats.setSize(PSS_AFTER_LAST_GC, 0);
     globalStats.setSize(PSS_AFTER_LAST_FULLGC, 0);
     globalStats.setSize(PSS_ALLOCATION, 0);
-    globalStats.setSize(PSS_ALLOCATION_UNRESERVED, 0);
+    globalStats.setSize(PSS_ALLOCATION_FREE, 0);
     for (j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
@@ -531,7 +531,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         if (space->allocationSpace)
         {
             globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
-            globalStats.incSize(PSS_ALLOCATION_UNRESERVED, free*sizeof(PolyWord));
+            globalStats.incSize(PSS_ALLOCATION_FREE, free*sizeof(PolyWord));
         }
     }
 
@@ -768,7 +768,7 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
 
         // Allocate one allocation space plus one immutable and one mutable space per thread
         globalStats.setSize(PSS_ALLOCATION, 0);
-        globalStats.setSize(PSS_ALLOCATION_UNRESERVED, 0);
+        globalStats.setSize(PSS_ALLOCATION_FREE, 0);
         if (! allocationFailed)
             allocationFailed = gMem.CreateAllocationSpace(allocSegSize) == 0;
         for(unsigned j = 0; j < userOptions.gcthreads; j++)

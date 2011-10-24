@@ -1556,7 +1556,7 @@ in
                         sizeHeapFreeLastGC = sizes sub 1,
                         sizeHeapFreeLastFullGC = sizes sub 2,
                         sizeAllocation = sizes sub 3,
-                        sizeAllocationUnreserved = sizes sub 4,
+                        sizeAllocationFree = sizes sub 4,
                         timeNonGCUser = timers sub 0,
                         timeNonGCSystem = timers sub 1,
                         timeGCUser = timers sub 2,

@@ -382,7 +382,7 @@ bool RunQuickGC(void)
     {
         globalStats.setSize(PSS_AFTER_LAST_GC, 0);
         globalStats.setSize(PSS_ALLOCATION, 0);
-        globalStats.setSize(PSS_ALLOCATION_UNRESERVED, 0);
+        globalStats.setSize(PSS_ALLOCATION_FREE, 0);
         // If it succeeded the allocation areas are now empty.
         for(unsigned l = 0; l < gMem.nlSpaces; l++)
         {
@@ -397,7 +397,7 @@ bool RunQuickGC(void)
                 memset(lSpace->bottom, 0xaa, (char*)lSpace->upperAllocPtr - (char*)lSpace->bottom);
 #endif
                 globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
-                globalStats.incSize(PSS_ALLOCATION_UNRESERVED, free*sizeof(PolyWord));
+                globalStats.incSize(PSS_ALLOCATION_FREE, free*sizeof(PolyWord));
             }
             else free = lSpace->freeSpace();
             if (debugOptions & DEBUG_GC)

@@ -95,21 +95,28 @@
 				  <util:PerformanceCounter Type='numberOfItems32'
 				      Name='Partial GCs'
 					  Help='Number of partial garbage collections.' />
-				  <util:PerformanceCounter Type='numberOfItems32'
-				      Name='Heap Size'
-					  Help='Total size of the local heap.' />
-				  <util:PerformanceCounter Type='numberOfItems32'
-				      Name='Free after GC'
-					  Help='The space in the heap free after the last garbage collection.' />
-				  <util:PerformanceCounter Type='numberOfItems32'
-				      Name='Free after Full GC'
-					  Help='The space in the heap free after the last full garbage collection.' />
-				  <util:PerformanceCounter Type='numberOfItems32'
-				      Name='Alloc Space'
-					  Help='The size of the space available for allocation in the heap.' />
-				  <util:PerformanceCounter Type='numberOfItems32'
-				      Name='Alloc unreserved'
-					  Help='The free space available in the allocation area.' />
+
+                  <!-- The space values are displayed as percentages.  The numerator is the first
+				       counter, the denominator is the second. -->
+				  <util:PerformanceCounter Type='rawFraction'
+				      Name='Last GC%'
+					  Help='The proportion of the total heap free after the last full or partial GC.' />
+				  <util:PerformanceCounter Type='rawBase'
+				      Name='Last GC base'
+					  Help='Base counter - not displayed.' />
+				  <util:PerformanceCounter Type='rawFraction'
+				      Name='Last Full GC%'
+					  Help='The proportion of the total heap free after the last full GC.  Measures the amount of live data.' />
+				  <util:PerformanceCounter Type='rawBase'
+				      Name='Last Full GC base'
+					  Help='Base counter - not displayed.' />
+				  <util:PerformanceCounter Type='rawFraction'
+				      Name='Alloc Free%'
+					  Help='The proportion of the allocation area currently free.  When this space is empty Poly/ML will start a garbage collection.' />
+				  <util:PerformanceCounter Type='rawBase'
+				      Name='Unreserved base'
+					  Help='Base counter - not displayed.' />
+
 				  <util:PerformanceCounter Type='timer100Ns'
 				      Name='NonGC User time'
 					  Help='The total time the program has been running in user space excluding garbage collection.' />
@@ -122,6 +129,7 @@
 				  <util:PerformanceCounter Type='timer100Ns'
 				      Name='GC System time'
 					  Help='The time the program has spent in the system when garbage collecting.' />
+
 				  <util:PerformanceCounter Type='numberOfItems32'
 				      Name='User 0'
 					  Help='The value of this counter is set by the ML application.' />

@@ -300,11 +300,12 @@ void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval
 
 // Update the statistics that are not otherwise copied.  Called from the
 // root thread every second.
-void Statistics::updatePeriodicStats(void)
+void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords)
 {
     if (statMemory)
     {
         PLocker lock(&accessLock);
+        statMemory->psSizes[PSS_ALLOCATION_FREE] = freeWords*sizeof(PolyWord);
 #ifdef HAVE_WINDOWS_H
         FILETIME ct, et, st, ut;
         GetProcessTimes(GetCurrentProcess(), &ct, &et, &st, &ut);

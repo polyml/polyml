@@ -184,7 +184,7 @@ LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
     {
         result->allocationSpace = true;
         globalStats.incSize(PSS_ALLOCATION, result->freeSpace()*sizeof(PolyWord));
-        globalStats.incSize(PSS_ALLOCATION_UNRESERVED, result->freeSpace()*sizeof(PolyWord));
+        globalStats.incSize(PSS_ALLOCATION_FREE, result->freeSpace()*sizeof(PolyWord));
     }
     return result;
 }
@@ -556,13 +556,26 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 space->lowerAllocPtr += maxWords; // Allocate it.
                 allocLock.Unlock();
-                globalStats.decSize(PSS_ALLOCATION_UNRESERVED, maxWords*sizeof(PolyWord));
                 return result;
             }
         }
     }
     allocLock.Unlock();
     return 0; // There isn't space even for the minimum.
+}
+
+// Return number of words free in all allocation spaces.
+POLYUNSIGNED MemMgr::GetFreeAllocSpace()
+{
+    POLYUNSIGNED freeSpace = 0;
+    PLocker lock(&allocLock);
+    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        if (space->allocationSpace)
+            freeSpace += space->freeSpace();
+    }
+    return freeSpace;
 }
 
 StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
