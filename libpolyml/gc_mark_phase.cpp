@@ -95,7 +95,7 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 
     PolyObject *obj = val.AsObjPtr();
 
-    if (profileMode == kProfileAllocatingFunctions)
+    if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables && obj->IsMutable())
         AddObjectProfile(obj);
 
     POLYUNSIGNED L = obj->LengthWord();
@@ -147,7 +147,7 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     POLYUNSIGNED bitno = BITNO(space, val.AsStackAddr());
     if (space->bitmap.TestBit(bitno)) return obj; /* Already marked */
 
-    if (profileMode == kProfileAllocatingFunctions)
+    if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables && obj->IsMutable())
         AddObjectProfile(obj);
 
     if ((PolyWord*)obj <= space->fullGCLowerLimit)

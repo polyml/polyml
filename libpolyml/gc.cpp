@@ -551,7 +551,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
                 if (debugOptions & DEBUG_GC)
                     Log("GC: Completed - insufficient space in buffer(s): %s%s\n",
                         iFull ? "immutable " : "", mFull ? "mutable " : "");
-                if (profileMode == kProfileAllocatingFunctions)
+                if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
                     printprofile();
                 return false;
             }
@@ -587,7 +587,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         else Log("GC: Completed with insufficient space\n");
     }
 
-    if (profileMode == kProfileAllocatingFunctions)
+    if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
         printprofile();
 
     return haveSpace; // Completed

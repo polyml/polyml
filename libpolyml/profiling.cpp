@@ -4,6 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
+    Further development copyright (c) David C.J. Matthews 2011
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -126,6 +127,7 @@ enum _extraStore {
     EST_BYTE,
     EST_WORD,
     EST_MUTABLE,
+    EST_MUTABLEBYTE,
     EST_MAX_ENTRY
 };
 
@@ -136,7 +138,8 @@ static const char * extraStoreText[EST_MAX_ENTRY] =
     "Strings",
     "Byte data (long precision ints etc)",
     "Unidentified word data",
-    "Mutable data"
+    "Unidentified mutable data",
+    "Mutable byte data (profiling counts)"
 };
 
 static POLYUNSIGNED total_count = 0;
@@ -191,8 +194,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
     code->GetConstSegmentForCode(consts, constCount);
     if (constCount < 3 || ! consts[2].IsDataPtr()) return 0;
     PolyObject *profObject = consts[2].AsObjPtr();
-    if (profObject->IsMutable() && OBJ_HAS_PROFILE(profObject->LengthWord()) && profObject->Length() >= 2
-            && profObject->Get(0).IsTagged())
+    if (profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1)
         return profObject;
     else return 0;
 }
@@ -225,7 +227,7 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
                 PolyObject *profObject = getProfileObjectForCode(ObjCodePtrToPtr(pc.AsCodePtr()));
                 PLocker locker(&countLock);
                 if (profObject)
-                    profObject->Set(0, PolyWord::TaggedUnsigned(profObject->Get(0).UnTaggedUnsigned() + incr));
+                    profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
                 total_count += incr;
                 return;
             }
@@ -345,27 +347,30 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
         {
             ASSERT(obj->ContainsNormalLengthWord());
 
-            if (obj->IsMutable() && OBJ_HAS_PROFILE(obj->LengthWord()) && obj->Length() >= 2
-                && obj->Get(0).IsTagged())
+            if (obj->IsCodeObject())
             {
-                // The word before is an untagged count
-                POLYUNSIGNED    count = obj->Get(0).UnTaggedUnsigned();
-                
-                if (count != 0)
+                PolyWord *firstConstant = obj->ConstPtrForCode();
+                PolyWord name = firstConstant[0];
+                PolyObject *profCount = getProfileObjectForCode(obj);
+                if (profCount)
                 {
-                    PolyWord name = obj->Get(1);
-                    if (name != TAGGED(0))
+                    POLYUNSIGNED count = profCount->Get(0).AsUnsigned();
+                
+                    if (count != 0)
                     {
-                        PPROFENTRY pEnt = newProfileEntry();
-                        pEnt->count = count;
-                        // This should be a valid string which may be a single character.
-                        ASSERT(name.IsTagged() || name.AsObjPtr()->IsByteObject());
-                        pEnt->functionName = name;
-                    }
+                        if (name != TAGGED(0))
+                        {
+                            PPROFENTRY pEnt = newProfileEntry();
+                            pEnt->count = count;
+                            // This should be a valid string which may be a single character.
+                            ASSERT(name.IsTagged() || name.AsObjPtr()->IsByteObject());
+                            pEnt->functionName = name;
+                        }
                     
-                    obj->Set(0, PolyWord::TaggedUnsigned(0));
-                    P.total += count;
-                } /* count != 0 */
+                        profCount->Set(0, PolyWord::FromUnsigned(0));
+                        P.total += count;
+                    }
+                }
             } /* code object */
             ptr += obj->Length();
         } /* else */
@@ -390,21 +395,15 @@ void printprofile(void)
         for (j = 0; j < gMem.npSpaces; j++)
         {
             MemSpace *space = gMem.pSpaces[j];
-            if (space->isMutable)
-            {
-                // Permanent areas are filled with objects from the bottom.
-                PrintProfileCounts(space->bottom, space->top); // Bottom to top
-            }
+            // Permanent areas are filled with objects from the bottom.
+            PrintProfileCounts(space->bottom, space->top); // Bottom to top
         }
         for (j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *space = gMem.lSpaces[j];
-            if (space->isMutable)
-            {
-                // Local areas only have objects from the allocation pointer to the top.
-                PrintProfileCounts(space->bottom, space->lowerAllocPtr);
-                PrintProfileCounts(space->upperAllocPtr, space->top);
-            }
+            // Local areas only have objects from the allocation pointer to the top.
+            PrintProfileCounts(space->bottom, space->lowerAllocPtr);
+            PrintProfileCounts(space->upperAllocPtr, space->top);
         }
     } // else if we haven't actually had an interrupt avoid expensive scan of memory.
 
@@ -495,31 +494,35 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 void AddObjectProfile(PolyObject *obj)
 {
     ASSERT(obj->ContainsNormalLengthWord());
-    POLYUNSIGNED length = obj->Length() + 1; // Add one for the length word.
+    POLYUNSIGNED length = obj->Length();
 
-    if (obj->IsWordObject() && !obj->IsMutable() && OBJ_HAS_PROFILE(obj->LengthWord()))
+    if (obj->IsWordObject() && OBJ_HAS_PROFILE(obj->LengthWord()))
     {
         // It has a profile pointer.  The last word should point to the
         // closure or code of the allocating function.  Add the size of this to the count.
-        ASSERT(length != 1);
-        PolyWord profWord = obj->Get(length-2);
+        ASSERT(length != 0);
+        PolyWord profWord = obj->Get(length-1);
         ASSERT(profWord.IsDataPtr());
         PolyObject *profObject = profWord.AsObjPtr();
-        ASSERT(profObject->IsMutable() && profObject->Length() > 1);
-        profObject->Set(0, PolyWord::TaggedUnsigned(profObject->Get(0).UnTaggedUnsigned() + length));
-        total_count += length;
+        ASSERT(profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1);
+        profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + length + 1));
+        total_count += length+1;
     }
     // If it doesn't have a profile pointer add it to the appropriate count.
     else if (obj->IsMutable())
-        extraStoreCounts[EST_MUTABLE] += length;
+    {
+        if (obj->IsByteObject())
+            extraStoreCounts[EST_MUTABLEBYTE] += length+1;
+        else extraStoreCounts[EST_MUTABLE] += length+1;
+    }
     else if (obj->IsCodeObject())
-        extraStoreCounts[EST_CODE] += length;
+        extraStoreCounts[EST_CODE] += length+1;
     else if (obj->IsByteObject())
     {
         // Try to separate strings from other byte data.  This is only
         // approximate.
         if (OBJ_IS_NEGATIVE(obj->LengthWord()))
-            extraStoreCounts[EST_BYTE] += length;
+            extraStoreCounts[EST_BYTE] += length+1;
         else
         {
             PolyStringObject *possString = (PolyStringObject*)obj;
@@ -529,14 +532,14 @@ void AddObjectProfile(PolyObject *obj)
             if (length >= 2 &&
                 possString->length <= bytes - sizeof(POLYUNSIGNED) &&
                 possString->length > bytes - 2 * sizeof(POLYUNSIGNED))
-                    extraStoreCounts[EST_STRING] += length;
+                    extraStoreCounts[EST_STRING] += length+1;
             else
             {
-                extraStoreCounts[EST_BYTE] += length;
+                extraStoreCounts[EST_BYTE] += length+1;
             }
         }
     }
-    else extraStoreCounts[EST_WORD] += length;
+    else extraStoreCounts[EST_WORD] += length+1;
 }
 
 
@@ -606,10 +609,14 @@ void ProfileRequest::Perform()
         profileMode = kProfileEmulation;
         break;
 
-    case kProfileAllocatingFunctions:
-        profileMode = kProfileAllocatingFunctions;
+    case kProfileLiveData:
+        profileMode = kProfileLiveData;
         break;
-        
+ 
+    case kProfileLiveMutables:
+        profileMode = kProfileLiveMutables;
+        break;
+       
     default: /* do nothing */
         break;
     }

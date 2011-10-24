@@ -96,14 +96,11 @@ struct
 
     fun codeToCgType GeneralType = ArgGeneral | codeToCgType FloatingPtType = ArgFP
     
-    fun createProfileObject functionName =
+    fun createProfileObject _ (*functionName*) =
     let
-        (* The profile object is a three word mutable with the profile bit set. *)
+        (* The profile object is a single mutable with the F_bytes bit set. *)
         open Address
-        val profileObject = alloc(0w3, Word8.orb(F_mutable, F_profile), toMachineWord 0w0);
-        (* The second word contains the function name. *)
-        val () = assignWord(profileObject, 0w1, toMachineWord functionName)
-        (* The third word is intended for the location but is currently unused. *)
+        val profileObject = alloc(0w1, Word8.orb(F_mutable, F_bytes), toMachineWord 0w0);
     in
         toMachineWord profileObject
     end
@@ -2847,7 +2844,33 @@ struct
                         then codeRTSFunction(instrAtomicDecr, args, whereto)
 
                         else if wordEq (oper,ioOp POLY_SYS_alloc_store)
-                        then codeRTSFunction(instrAllocStore, args, whereto)
+                        then
+                        let
+                            (* This is used to allocate all memory apart from tuples and
+                               closures.  We particularly want to be able to profile the
+                               allocation of refs so we consider them specially. *)
+                        in
+                            case args of
+                                [Constnt len, Constnt flag, initValArg] =>
+                                    if isShort len andalso toShort len = 0w1
+                                       andalso isShort flag
+                                       andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
+                                    then
+                                    let
+                                        val initLoc = genToStack (initValArg, matchFailFn)
+                                        val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
+                                        val () = codeGenerate(vecCode, cvec)
+                                        val moveCode = moveToVec (vec, initLoc, 0, transtable)
+                                        val () = codeGenerate(moveCode, cvec)
+                                    in
+                                        case whereto of
+                                            NoResult => NoMerge (* Unused. *)
+                                        |   _ => MergeIndex vec
+                                    end
+                                    else codeRTSFunction(instrAllocStore, args, whereto)
+
+                            |   _ => codeRTSFunction(instrAllocStore, args, whereto)
+                        end
 
                         else if wordEq (oper,ioOp POLY_SYS_assign_word)
                         then codeRTSFunction(instrStoreW, args, whereto)
