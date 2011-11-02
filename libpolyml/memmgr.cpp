@@ -232,15 +232,16 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 
 // Create an entry for a permanent space.
 PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
-                                             bool mut, bool noOv, unsigned index, unsigned hierarchy /*= 0*/)
+                                             unsigned flags, unsigned index, unsigned hierarchy /*= 0*/)
 {
     try {
         PermanentMemSpace *space = new PermanentMemSpace;
         space->bottom = base;
         space->topPointer = space->top = space->bottom + words;
         space->spaceType = ST_PERMANENT;
-        space->isMutable = mut;
-        space->noOverwrite = noOv;
+        space->isMutable = flags & MTF_WRITEABLE ? true : false;
+        space->noOverwrite = flags & MTF_NO_OVERWRITE ? true : false;
+        space->byteOnly = flags & MTF_BYTES ? true : false;
         space->index = index;
         space->hierarchy = hierarchy;
         if (index >= nextIndex) nextIndex = index+1;

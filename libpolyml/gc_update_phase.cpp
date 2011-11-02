@@ -322,8 +322,8 @@ void GCUpdatePhase()
     // Scan the permanent mutable areas.
     for (j = 0; j < gMem.npSpaces; j++)
     {
-        MemSpace *space = gMem.pSpaces[j];
-        if (space->isMutable)
+        PermanentMemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable && ! space->byteOnly)
             gpTaskFarm->AddWorkOrRunNow(&updateNonLocalMutableArea, &processUpdate, space);
     }
     // Update addresses in RTS modules.

@@ -1,7 +1,7 @@
 /*
-    Title:  standalone.h 
+    Title:  polyexports.h 
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2011 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -43,6 +43,7 @@ typedef struct _memTableEntry {
 #define MTF_WRITEABLE         0x00000001  // The area is writeable by ML code
 #define MTF_EXECUTABLE        0x00000002  // The area contains executable code
 #define MTF_NO_OVERWRITE      0x00000004  // With MTF_WRITEABLE: Don't load over the top
+#define MTF_BYTES             0x00000008  // Contains only byte data and no addresses
 
 typedef struct _exportDescription {
     unsigned structLength;         // The length of this structure

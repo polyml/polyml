@@ -253,12 +253,19 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
     PolyObject *newObj = 0;
     bool isMutableObj = obj->IsMutable();
     bool isNoOverwrite = false;
-    if (isMutableObj) isNoOverwrite = obj->IsNoOverwriteObject();
+    bool isByteObj = false;
+    if (isMutableObj)
+    {
+        isNoOverwrite = obj->IsNoOverwriteObject();
+        isByteObj = obj->IsByteObject();
+    }
     // Allocate a new address for the object.
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
         PermanentMemSpace *space = gMem.eSpaces[i];
-        if (isMutableObj == space->isMutable && isNoOverwrite == space->noOverwrite)
+        if (isMutableObj == space->isMutable &&
+            isNoOverwrite == space->noOverwrite &&
+            isByteObj == space->byteOnly)
         {
             ASSERT(space->topPointer <= space->top && space->topPointer >= space->bottom);
             POLYUNSIGNED spaceLeft = space->top - space->topPointer;
@@ -280,6 +287,7 @@ POLYUNSIGNED CopyScan::ScanAddressAt(PolyWord *pt)
         if (spaceWords <= words)
             spaceWords = words+1; // Make sure there's space for this object.
         PermanentMemSpace *space = gMem.NewExportSpace(spaceWords, isMutableObj, isNoOverwrite);
+        if (isByteObj) space->byteOnly = true;
         if (space == 0)
         {
             // Unable to allocate this.
@@ -483,6 +491,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         }
         else
             entry->mtFlags = MTF_EXECUTABLE;
+        if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
     }
 
     exports->memTableEntries = gMem.neSpaces+1;

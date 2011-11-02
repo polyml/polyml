@@ -160,6 +160,7 @@ typedef struct _savedStateSegmentDescr
 #define SSF_WRITABLE    1               // The segment contains mutable data
 #define SSF_OVERWRITE   2               // The segment overwrites the data (mutable) in a parent.
 #define SSF_NOOVERWRITE 4               // The segment must not be further overwritten
+#define SSF_BYTES       8               // The segment containing only byte data
 
 typedef struct _relocationEntry
 {
@@ -419,7 +420,7 @@ void SaveRequest::Perform()
         for (unsigned i = 0; i < gMem.npSpaces; i++)
         {
             PermanentMemSpace *space = gMem.pSpaces[i];
-            if (space->isMutable && ! space->noOverwrite)
+            if (space->isMutable && ! space->noOverwrite && ! space->byteOnly)
                 copyScan.ScanAddressesInRegion(space->bottom, space->top);
         }
     }
@@ -456,6 +457,7 @@ void SaveRequest::Perform()
             {
                 entry->mtFlags = MTF_WRITEABLE;
                 if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+                if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
             }
             else
                 entry->mtFlags = MTF_EXECUTABLE;
@@ -475,6 +477,7 @@ void SaveRequest::Perform()
         {
             entry->mtFlags = MTF_WRITEABLE;
             if (space->noOverwrite) entry->mtFlags |= MTF_NO_OVERWRITE;
+            if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
         }
         else
             entry->mtFlags = MTF_EXECUTABLE;
@@ -551,6 +554,8 @@ void SaveRequest::Perform()
                 descrs[j].segmentFlags |= SSF_NOOVERWRITE;
             if (j < permanentEntries && (entry->mtFlags & MTF_NO_OVERWRITE) == 0)
                 descrs[j].segmentFlags |= SSF_OVERWRITE;
+            if (entry->mtFlags & MTF_BYTES)
+                descrs[j].segmentFlags |= SSF_BYTES;
         }
     }
     // Write out temporarily. Will be overwritten at the end.
@@ -887,9 +892,11 @@ bool StateLoader::LoadFile(bool isInitial, UNSIGNEDADDR requiredStamp)
             gMem.FillUnusedSpace(mem+descr->segmentSize/sizeof(PolyWord),
                 (actualSize-descr->segmentSize)/sizeof(PolyWord));
             // At the moment we leave all segments with write access.
-            space = gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord),
-                        (descr->segmentFlags & SSF_WRITABLE) != 0,
-                        (descr->segmentFlags & SSF_NOOVERWRITE) != 0,
+            unsigned mFlags =
+                (descr->segmentFlags & SSF_WRITABLE ? MTF_WRITEABLE : 0) |
+                (descr->segmentFlags & SSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
+                (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0);
+            space = gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord), mFlags,
                         descr->segmentIndex, hierarchyDepth+1);
         }
     }

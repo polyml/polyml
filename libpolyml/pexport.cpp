@@ -415,7 +415,7 @@ bool SpaceAlloc::AddToTable(void)
     if (base != 0)
     {
         // Add the new space to the permanent memory table.
-        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable, false, spaceIndex++);
+        MemSpace* space = gMem.NewPermanentSpace(base, used, isMutable ? MTF_WRITEABLE : 0, spaceIndex++);
         if (space == 0)
         {
             fprintf(stderr, "Insufficient memory\n");

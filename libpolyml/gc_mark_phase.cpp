@@ -243,8 +243,8 @@ void GCMarkPhase(void)
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
-        MemSpace *space = gMem.pSpaces[j];
-        if (space->isMutable)
+        PermanentMemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable && ! space->byteOnly)
             marker.ScanAddressesInRegion(space->bottom, space->top);
     }
 
