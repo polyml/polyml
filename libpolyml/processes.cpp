@@ -1307,7 +1307,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             {
                 // This gets the values last time it was in the RTS.
                 PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
-                if (limit < ptr && ptr-limit < taskData->allocSize)
+                if (limit < ptr && (POLYUNSIGNED)(ptr-limit) < taskData->allocSize)
                     freeSpace += ptr-limit;
             }
         }
