@@ -235,13 +235,19 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         RETRY:
 //      sprintf(buff, "PC=%x, i=%x\n", pc, li);
 //      OutputDebugString(buff);
-        /* Check for stack overflow and interrupts. These can be done less
-           frequently than every instruction. */
-        if (sp < sl) {
+        // Check for stack overflow and interrupts. These can be done less
+        // frequently than every instruction.
+        // Don't do this if we're raising an exception: we may be raising
+        // it because we can't grow the stack.  Once we've processed the
+        // exception and produced any exception trace the stack will have been
+        // reset to the last handler.
+        if (sp < sl && li != INSTR_raise_ex) {
             taskData->stack->stack()->p_sp = sp;
             taskData->stack->stack()->p_pc = pc;
             taskData->stack->stack()->p_reg[1] = TAGGED(li);
+            Handle marker = taskData->saveVec.mark();
             CheckAndGrowStack(taskData, sp);
+            taskData->saveVec.reset(marker);
             goto RESTART;
         }
 
