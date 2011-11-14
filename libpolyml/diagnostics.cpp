@@ -124,16 +124,16 @@ void Crash(const char *msg, ...)
 
 void ExitWithError(const char *msg, int err)
 {
-    printf("\n");
-    printf(msg);
+    puts("\n");
+    puts(msg);
     for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++) {
         if (errortable[i].errorNum == err) {
-            printf(errortable[i].errorString);
+            puts(errortable[i].errorString);
             break;
         }
     }
 
-    printf("\n");
+    puts("\n");
     fflush(stdout);
     #if defined(WINDOWS_PC)
     if (useConsole)
