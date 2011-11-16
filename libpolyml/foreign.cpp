@@ -1033,7 +1033,7 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
                   b7,b8,b9,b10,b11,b12,b13,b14);
               
             case Cdouble: /* Double is two words -- pass them separately */
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
                 // This won't work on X86_64.  Floating point arguments are not passed
                 // on the stack.
                 RAISE_EXN("Floating point arguments are not supported on 64-bit platform");
@@ -1044,7 +1044,7 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
                   b7,b8,b9,b10,b11,b12,b13);
               
             case Cfloat:
-#ifdef X86_64
+#ifdef HOSTARCHITECTURE_X86_64
                 RAISE_EXN("Floating point arguments are not supported on 64-bit platform");
 #endif
               return apply_rec(taskData, iter-1, fun, conv, ret_conv, args, *(void**)arg,  
