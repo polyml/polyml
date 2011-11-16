@@ -4,6 +4,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
+    Further development Copyright David C.J. Matthews 2008-2011.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -604,11 +605,38 @@ effect on Pass 3.
 class Foreign: public RtsModule
 {
 public:
+    virtual void Init(void);
+    virtual void Start(void);
+    virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
 };
 
 // Declare this.  It will be automatically added to the table.
 static Foreign foreignModule;
+
+
+void Foreign::Init()
+{
+    vols = (Volatile*)malloc(sizeof(Volatile)*INITIAL_NUM_VOLS);
+    ASSERT(vols != 0); // If this fails we won't be able to allocate the NULL.
+    num_vols = INITIAL_NUM_VOLS;
+}
+
+void Foreign::Start()
+{
+    static void *nullValue = 0;
+    PolyVolData *nullV = (PolyVolData*)IoEntry(POLY_SYS_foreign_null);
+    V_INDEX(nullV) = next_vol++;
+    MakeVolMagic(nullV);
+    ML_POINTER(nullV) = nullV;
+    C_POINTER(nullV) = &nullValue;
+    OWN_C_SPACE(nullV) = 0; // Not freed
+    FINALISER(nullV) = 0; // No finaliser
+}
+
+void Foreign::Stop()
+{
+}
 
 void Foreign::GarbageCollect(ScanAddress *process)
 { TRACE; {
@@ -1840,6 +1868,11 @@ static Handle set_final (TaskData *taskData, Handle pair)
     return SAVE(TAGGED(0));
 }
 
+// Return the NULL vol.  This is a persistent vol which always contains null.
+static Handle getNull(TaskData *taskData, Handle)
+{
+    return SAVE((PolyObject*)IoEntry(POLY_SYS_foreign_null));
+}
 
 /**********************************************************************
  *
@@ -1897,7 +1930,9 @@ static type_hh_fun handlers[] =
   toCfunction,      /* Added DCJM 7/4/04. */
   toPascalfunction, /* Added DCJM 7/4/04. */
 
-  set_final /* Added DCJM 2/8/09. */
+  set_final, /* Added DCJM 2/8/09. */
+
+  getNull // Added DCJM 16/11/11.
 };
     
 #define NUM_HANDLERS ((int)(sizeof(handlers)/sizeof(type_hh_fun)))

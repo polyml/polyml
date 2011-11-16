@@ -351,5 +351,7 @@ struct
     val toPascalfunction    = next(three);(* Added DCJM 7/4/04 *)
     
     val setFinal            = next(two);  (* Added DCJM 2/8/09. *)
+    
+    val null                = next(one) () (* Added DCJM 16/11/11. *)
 
 end (* struct *)

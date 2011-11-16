@@ -81,5 +81,7 @@ sig
     val toPascalfunction : RawCtype list -> RawCtype -> (rawvol list -> rawvol) -> rawvol
     
     val setFinal     : rawvol -> rawvol -> unit
+    
+    val null         : rawvol
 
 end;

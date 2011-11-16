@@ -52,6 +52,8 @@ signature CInterfaceSig = sig
     val deref        : vol -> vol
     val offset       : int -> Ctype -> vol -> vol
     val assign       : Ctype -> vol -> vol -> unit
+    
+    val null         : vol
 
     val max_volatile_creation_info_depth : int ref;
     val inform_about_symbol_reload : bool ref;

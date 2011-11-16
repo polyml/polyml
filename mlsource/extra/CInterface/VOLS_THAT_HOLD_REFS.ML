@@ -305,5 +305,6 @@ fun setFinal f v = Underlying.setFinal (thevol f) (thevol v)
         val () = PolyML.addPrettyPrinter prettyVol
     end
 
+val null = vol (Underlying.null, None)
 
 end (* struct *)

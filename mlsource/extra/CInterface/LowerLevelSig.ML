@@ -75,6 +75,8 @@ sig
     val get_sym  : string -> string -> sym
     
     val setFinal     : sym -> vol -> unit
+    
+    val null         : vol
 
     val set_libPath  : dylib -> string -> unit
     val get_libPath  : dylib -> string
