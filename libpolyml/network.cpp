@@ -1591,7 +1591,7 @@ class Networking: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Uninit(void);
+    virtual void Stop(void);
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -1620,7 +1620,7 @@ void Networking::Init(void)
 #endif
 }
 
-void Networking::Uninit(void)
+void Networking::Stop(void)
 {
 #ifdef WINDOWS_PC
     if (winsock_init) WSACleanup();

@@ -1913,8 +1913,8 @@ class BasicIO: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Uninit(void);
-    virtual void Reinit(void);
+    virtual void Start(void);
+    virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
 };
 
@@ -1928,7 +1928,7 @@ void BasicIO::Init(void)
     basic_io_vector = (PIOSTRUCT)calloc(max_streams, sizeof(IOSTRUCT));
 }
 
-void BasicIO::Reinit(void)
+void BasicIO::Start(void)
 {
     basic_io_vector[0].token  = (PolyObject*)IoEntry(POLY_SYS_stdin);
     basic_io_vector[0].device.ioDesc = 0;
@@ -1961,7 +1961,7 @@ void BasicIO::Reinit(void)
 
 /* Release all resources.  Not strictly necessary since the OS should
    do this but probably a good idea. */
-void BasicIO::Uninit(void)
+void BasicIO::Stop(void)
 {
     if (basic_io_vector)
     {

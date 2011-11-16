@@ -244,8 +244,8 @@ int polymain(int argc, char **argv, exportDescription *exports)
         // threads as there are processors by a thread count of zero.
         userOptions.gcthreads = NumberOfProcessors();
    
-    /* initialise the run-time system before opening the database */
-    init_run_time_system();
+    // Initialise the run-time system before creating the heap.
+    InitModules();
 
     CreateHeap(hsize, isize, msize, asize, rsize);
     
@@ -282,7 +282,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
     add_word_to_io_area(POLY_SYS_stdout, PolyWord::FromUnsigned(1));
     add_word_to_io_area(POLY_SYS_stderr, PolyWord::FromUnsigned(2));
     
-    re_init_run_time_system();
+    StartModules();
     
     // Set up the initial process to run the root function.
     processes->BeginRootThread(rootFunction);
@@ -296,7 +296,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
 void Uninitialise(void)
 // Close down everything and free all resources.  Stop any threads or timers.
 {
-    uninit_run_time_system();
+    StopModules();
 }
 
 void finish (int n)

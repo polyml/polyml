@@ -451,7 +451,7 @@ class SigHandler: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Uninit(void);
+    virtual void Stop(void);
     virtual void GarbageCollect(ScanAddress * /*process*/);
 
 #ifdef USE_PTHREAD_SIGNALS
@@ -537,7 +537,7 @@ void SigHandler::Init(void)
 
 // Wait for the signal thread to finish before the semaphore is deleted in the
 // final clean-up.  Failing to do this causes a hang in Mac OS X.
-void SigHandler::Uninit(void)
+void SigHandler::Stop(void)
 {
 #ifdef USE_PTHREAD_SIGNALS
     terminate = true;

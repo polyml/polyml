@@ -79,13 +79,9 @@ NORETURNFN(extern void raiseSyscallMessage(TaskData *taskData, const char *errms
 // This was the previous version.  The errmsg argument is ignored unless err is zero.
 NORETURNFN(extern void raise_syscall(TaskData *taskData, const char *errmsg, int err));
 
-extern void re_init_run_time_system(void);
-extern void init_run_time_system(void);
 extern Handle EnterPolyCode(TaskData *taskData);
 
 extern void give_stack_trace(TaskData *taskData, PolyWord *stackPtr, PolyWord *finish);
-
-extern void uninit_run_time_system(void);
 
 Handle make_exn(TaskData *taskData, int id, Handle arg);
 

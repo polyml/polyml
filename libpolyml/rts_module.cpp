@@ -50,16 +50,16 @@ void InitModules(void)
         module_table[i]->Init();
 }
 
-void ReinitModules(void)
+void StartModules(void)
 {
     for(unsigned i = 0; i < modCount; i++)
-        module_table[i]->Reinit();
+        module_table[i]->Start();
 }
 
-void UninitModules(void)
+void StopModules(void)
 {
     for(unsigned i = 0; i < modCount; i++)
-        module_table[i]->Uninit();
+        module_table[i]->Stop();
 }
 
 void GCModules(ScanAddress *process)

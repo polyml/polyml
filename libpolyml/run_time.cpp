@@ -527,52 +527,6 @@ Handle io_operation_c(TaskData *taskData, Handle entry)
     return SAVE((PolyObject*)IoEntry(entryNo));
 }
 
-
-/******************************************************************************/
-/*                                                                            */
-/*      INITIALISATION                                                         */
-/*                                                                            */
-/******************************************************************************/
-
-/******************************************************************************/
-/*                                                                            */
-/*      re_init_run_time_system - called from mpoly.c                         */
-/*                                                                            */
-/******************************************************************************/
-void re_init_run_time_system(void)
-{
-    ReinitModules();
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      init_run_time_system - called from mpoly.c                            */
-/*                                                                            */
-/******************************************************************************/
-void init_run_time_system(void)
-{
-    InitModules(); // Initialise other modules.
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      uninit_run_time_system - called from ???                            */
-/*                                                                            */
-/******************************************************************************/
-
-/* Release all resources.
-   This is really only needed with Windows when running as a DLL within
-   the address space of another process. */
-void uninit_run_time_system(void)
-{
-    UninitModules();
-
-#if (0)
-    uninit_xwindow_system(); /* Probably needs to be done. */
-#endif
-}
-
-
 /******************************************************************************/
 /*                                                                            */
 /*      get_flags_c - called from machine_assembly.s                          */

@@ -1255,7 +1255,7 @@ class WindowsModule: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Uninit(void);
+    virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
 };
 
@@ -1291,7 +1291,7 @@ void WindowsModule::GarbageCollect(ScanAddress *process)
     }
 }
 
-void WindowsModule::Uninit(void)
+void WindowsModule::Stop(void)
 {
     if (handleTable)
     {

@@ -190,8 +190,7 @@ class Processes: public ProcessExternal, public RtsModule
 public:
     Processes();
     virtual void Init(void);
-    virtual void Uninit(void);
-    virtual void Reinit(void);
+    virtual void Stop(void);
     void GarbageCollect(ScanAddress *process);
 public:
     void BroadcastInterrupt(void);
@@ -1858,11 +1857,7 @@ void Processes::StartProfilingTimer(void)
 }
 #endif
 
-void Processes::Reinit(void)
-{
-}
-
-void Processes::Uninit(void)
+void Processes::Stop(void)
 {     
 #ifdef HAVE_WINDOWS_H
     if (Waiter::hWakeupEvent) SetEvent(Waiter::hWakeupEvent);
