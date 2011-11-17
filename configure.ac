@@ -237,15 +237,15 @@ if test "x$with_libffi" != "xno"; then
          AC_CHECK_HEADER([ffi.h],
              [AC_DEFINE([HAVE_FFI_H], [1],
                   [Define to 1 if you have the ffi.h header file])],
-             [if test "x$with_ffi" != "xcheck"; then
+             [if test "x$with_libffi" != "xcheck"; then
                   AC_MSG_FAILURE(
-                      [--with-ffi was given, but ffi.h header file is not installed])
+                      [--with-libffi was given, but ffi.h header file is not installed])
               fi
              ])
         ],
-        [if test "x$with_ffi" != "xcheck"; then
+        [if test "x$with_libffi" != "xcheck"; then
             AC_MSG_FAILURE(
-                [--with-ffi was given, but the ffi library  is not installed])
+                [--with-libffi was given, but the ffi library  is not installed])
          fi
         ])
 fi
