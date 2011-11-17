@@ -42,8 +42,7 @@ typedef enum {
   Clong    = 5,
   Cpointer = 6,
   Cshort   = 7,
-  Cstruct  = 8,  /* should never occur, since boxed value is untagged */
-  Cuint    = 9
+  Cuint    = 8
 } Ctype;
   
 #endif

@@ -31,7 +31,7 @@ sig
     val Clong     : RawCtype
     val Cpointer  : RawCtype
     val Cshort    : RawCtype
-    val Cstruct   : int -> RawCtype
+    val Cstruct   : RawCtype list -> RawCtype
     val Cuint     : RawCtype
     
     val get_foreign_debug  : unit -> int

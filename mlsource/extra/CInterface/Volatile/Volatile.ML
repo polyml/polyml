@@ -95,7 +95,7 @@ signature RAW_CTYPE_SIG =
 sig
     datatype RawCtype =
     Cchar | Cdouble | Cfloat | Cint | Clong | Cpointer | Cshort | Cuint
-      | Cstruct of int
+      | Cstruct of RawCtype list
 end;    
 
 signature CTYPE_SIG =
@@ -110,7 +110,6 @@ sig
       | Cuint
       | Cpointer of Ctype
       | Cstruct of Ctype list
-    (*| Cfunction of Ctype list * Ctype *)
       | Cvoid
 
     val sizeof : Ctype -> int
@@ -298,8 +297,7 @@ fun convertRawCtype Cchar             = RawCtype.Cchar
   | convertRawCtype Cshort            = RawCtype.Cshort
   | convertRawCtype Cuint             = RawCtype.Cuint
   | convertRawCtype (Cpointer _)      = RawCtype.Cpointer
-(*| convertRawCtype (Cfunction _)     = RawCtype.Cpointer*) (*hmm?*)
-  | convertRawCtype (Cstruct ts)      = RawCtype.Cstruct (sizeof (Cstruct ts))
+  | convertRawCtype (Cstruct ts)      = RawCtype.Cstruct (map convertRawCtype ts)
   | convertRawCtype Cvoid             = RawCtype.Cint (*hack*)
 
 

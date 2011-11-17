@@ -38,7 +38,7 @@ local
     val (unMakeStruct, mkStruct, structType) = breakConversion TREENODE;
 in
 (* The following function builds a C data structure from an ML datatype. *)
-    fun tree2vol NullTree: vol = toCint 0
+    fun tree2vol NullTree: vol = null
      |  tree2vol (Node{left, right, valu}) =
          let
              (* Construct a struct from the values. *)
@@ -54,7 +54,7 @@ in
              
 (* The inverse of tree2vol. We don't actually use this in this example. *)
     fun vol2tree v =
-        if fromCint v = 0
+        if fromClong v = 0
         then NullTree
         else
         let

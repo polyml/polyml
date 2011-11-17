@@ -88,6 +88,11 @@ typedef char TCHAR;
 #define _T(x) x
 #endif
 
+#ifdef HAVE_FFI_H
+#include <ffi.h>
+#define USE_FFI 1
+#endif
+
 #include "globals.h"
 #include "arb.h"
 #include "reals.h"
@@ -207,7 +212,6 @@ static const char *stringOfCtype(Ctype c)
   case Clong    : return "Clong";
   case Cpointer : return "Cpointer";
   case Cshort   : return "Cshort";
-  case Cstruct  : return "Cstruct";
   case Cuint    : return "Cuint";
   default       : {
     static char buf[100];
@@ -781,6 +785,154 @@ static Handle load_sym (TaskData *taskData, Handle h)
 }
 
 
+static POLYUNSIGNED length_list (PolyWord p)
+{
+  TRACE; {
+      return ML_Cons_Cell::IsNull(p) ? 0 : 1 + length_list (Tail(p));
+  }
+}
+
+#ifdef USE_FFI
+static ffi_type *ctypeToFfiType(TaskData *taskData, PolyWord conv)
+{
+    if (IS_INT(conv))
+    {
+        Ctype ctype = (Ctype)UNTAGGED(conv);
+        info(("<%s>\n", stringOfCtype(ctype)));
+        switch (ctype) {
+            case Cchar: return &ffi_type_schar;
+            case Cdouble: return &ffi_type_double;
+            case Cfloat: return &ffi_type_float;
+            case Cint: return &ffi_type_sint;
+            case Clong: return &ffi_type_slong;
+            case Cpointer: return &ffi_type_pointer;
+            case Cshort: return &ffi_type_sshort;
+            case Cuint: return &ffi_type_uint;
+        }
+        RAISE_EXN("Unknown ctype");
+    }
+    else
+    {
+        // Structure: this is a vector of ctypes.  This must be allocated dynamically.
+        PolyObject *vec = conv.AsObjPtr();
+        POLYUNSIGNED length = vec->Length();
+        ffi_type **str = (ffi_type **)malloc((length+1)*sizeof(ffi_type *));
+        if (str == NULL)
+            RAISE_EXN("Insufficient memory");
+        for (POLYUNSIGNED i = 0; i < length; i++)
+            str[i] = ctypeToFfiType(taskData, vec->Get(i));
+        str[length] = 0;
+        ffi_type *result = (ffi_type *)malloc(sizeof(ffi_type));
+        if (result == NULL)
+            RAISE_EXN("Insufficient memory");
+        result->size = 0;
+        result->alignment = 0;
+        result->type = FFI_TYPE_STRUCT;
+        result->elements = str;
+        return result;
+    }
+    return 0; // Suppress warning
+}
+
+// Free the structure elements of the type vectors.
+static void freeTypeVec(ffi_type **vec, unsigned elements)
+{
+    for (unsigned i = 0; i < elements; i++)
+    {
+        ffi_type *t = vec[i];
+        if (t->elements != 0)
+        {
+            unsigned elems = 0;
+            while (t->elements[elems] != 0) elems++;
+            freeTypeVec(t->elements, elems);
+            free(t->elements);
+        }
+    }
+}
+
+typedef void (*ftype)(void);
+
+static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle retCtypeH)
+{
+    TRACE;
+    ftype sym               = *(ftype*)DEREFVOL(taskData, symH->Word());
+    PolyWord arg_list       = argsH->Word();
+    POLYUNSIGNED num_args   = length_list(arg_list);
+    ffi_cif cif;
+
+    // Initialise the error vars to "no error".  If we have multiple worker
+    // threads the previous value will depend on whatever that worker
+    // did last and not necessarily on what this ML thread did.
+#ifdef HAVE_ERRNO_H
+    errno = 0;
+#endif
+#ifdef WINDOWS_PC
+    SetLastError(0);
+#endif
+
+    ffi_type **arg_types = (ffi_type**)alloca(num_args * sizeof(ffi_type*));
+    void **arg_values = (void**)alloca(num_args * sizeof(void*));
+    
+//    PolyWord* arg_tuple = (PolyWord*)alloca(num_args * sizeof(PolyWord));
+//    PolyWord* conv      = (PolyWord*)alloca(num_args * sizeof(PolyWord));
+    
+    // The argument list is a list of pairs.
+    PolyWord p = arg_list;
+    for (POLYUNSIGNED i=0; i<num_args; i++,p=Tail(p))
+    {
+        arg_values[i] = DEREFVOL(taskData, Head(p).AsObjPtr()->Get(1));
+        arg_types[i] = ctypeToFfiType(taskData, Head(p).AsObjPtr()->Get(0));
+    }
+
+    ffi_type *result_type = ctypeToFfiType(taskData, retCtypeH->Word());
+
+#ifdef WINDOWS_PC
+#ifdef __GNUC__
+    const ffi_abi abi = FFI_DEFAULT_ABI;
+#else
+    const ffi_abi abi = FFI_STDCALL;
+#endif
+#else
+    const ffi_abi abi = FFI_DEFAULT_ABI;
+#endif
+
+    if (ffi_prep_cif(&cif, abi, num_args, result_type, arg_types) != FFI_OK)
+        RAISE_EXN("libffi error: ffi_prep_cif failed");
+
+    void *result;
+    Vmalloc(result, result_type->size);
+
+    processes->ThreadReleaseMLMemory(taskData);
+    ffi_call(&cif, sym, result, arg_values);
+    processes->ThreadUseMLMemory(taskData);
+
+    // Allocate a vol for the result.  Don't do this before the
+    // call in case we have a call-back and recursion.
+    Handle res = vol_alloc(taskData);
+    C_POINTER(UNVOLHANDLE(res)) = result;
+    OWN_C_SPACE(UNVOLHANDLE(res)) = result_type->size;
+
+    freeTypeVec(arg_types, num_args); // Free any structure entries
+    freeTypeVec(&result_type, 1);
+
+    // Record the last error result.  If this is Windows and
+    // GetLastError returned a failure set that otherwise use
+    // the value of errno.
+#ifdef WINDOWS_PC
+    int err = GetLastError();
+    if (err != 0)
+        taskData->lastError = -err;
+    else
+#endif
+#ifdef HAVE_ERRNO_H
+        taskData->lastError = errno;
+#endif
+
+    return res;
+}
+#else
+// Old version
+
 /**********************************************************************
  *
  *  Call a symbol with a list of conversion/argument pairs
@@ -906,85 +1058,8 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
             b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,b13,b14,b15);
         
         if (!(IS_INT(ret_conv)))
-        {
-            /* Structs as results.  Now that I've removed structs as arguments
-            I'm strongly tempted to forbid structs as results as well.  I guess
-            there's more of a case for allowing structs as results because it's
-            not possible to return more than one result any other way.
-            DCJM 14/4/04. */
-            typedef struct { int x0;  } small_struct1;
-            typedef struct { int x0; int x1; } small_struct2;
-            typedef struct { int x0; int x1; int x2; } small_struct3;
-            typedef struct { int x0; int x1; int x2; int x3; } small_struct4;
-            
-            POLYSIGNED size = get_C_long(taskData, ret_conv.AsObjPtr()->Get(0));
-            info(("Expecting return type Cstruct, size <%" POLYUFMT ">\n", size));
-            
-            /* We have to treat small structures specially, because GCC does.
-            It would be nice to insist that the library we are calling
-            should be compiled with "-fpcc-struct-return" but that's
-            not practical at the moment for the Siemens BDD libraries,
-            which we need to access. Hopefully, these special cases
-            should give us a minor performance boost too.
-            SPF 31/3/1998
-            */
-            /* It seems that two-word structures, at least, are implemented
-            using registers in Visual C++ V5 so some of these special
-            cases are needed in the Windows version.  There's no harm
-            in treating several other of the cases specially as well.
-            DCJM 8/10/1999
-            */
-            
-            if (size == sizeof(small_struct1)) CALL_TYPED(small_struct1);
-            else if (size == sizeof(small_struct2)) CALL_TYPED(small_struct2);
-            else if (size == sizeof(small_struct3)) CALL_TYPED(small_struct3);
-            else if (size == sizeof(small_struct4)) CALL_TYPED(small_struct4);
-            
-            else if (size > (int)sizeof(STRUCT_MAX))
-            {
-                char buf[100];
-                sprintf(buf, "Required size of return structure <%" POLYUFMT "> is too large", size);
-                raise_exception_string(taskData, EXC_foreign, buf);
-            }
-            else
-            {
-                /* We call the function saying that it will return a STRUCT_MAX.
-                It's OK that the function probably returns something smaller,
-                because space is allocated by the caller, not the callee.
-                Then we have to copy the result into a STRUCT_MAX.
-                Finally, we have to extract the part we're really interested
-                in and copy that into the volatile. 
-            
-                  Note that
-              
-                (1) We copy the result twice - yeuch.
-                (2) The whole scheme falls over completely if the
-                callee passes the result back in registers
-                rather than using the pre-allocated space.
-                (3) Compiling the callee with -fpcc-struct-return
-                would solve this problem (for GCC) but wouldn't
-                work if the callee needs to call some other code
-                that is compiled use -freg-struct-return. This
-                is currently an issue for the HP version of the
-                makefsm libraries.
-                (4) That's why we treat small structures specially!
-                
-                  SPF 31/3/1998
-                */
-
-                Handle res = vol_alloc_with_c_space(taskData, size);
-                
-                STRUCT_MAX temp = 
-                    ((STRUCT_MAX(*)(...))fun)
-                    (a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,
-                    b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11,b12,b13,b14,b15);
-                
-                memcpy(DEREFVOL(taskData, UNHANDLE(res)), &temp, size);                
-                
-                mes(("Returning from foreign function\n"));
-                return res;
-            }
-        }
+            // Remove this.  We can do this properly in libffi.
+            RAISE_EXN("Structs as function arguments are not supported");
         else {
             Ctype ctype = (Ctype)UNTAGGED(ret_conv);
             
@@ -1090,14 +1165,6 @@ static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv
     /* Keep -Wall happy */ return (Handle)0;
 }
 
-
-static POLYUNSIGNED length_list (PolyWord p)
-{
-  TRACE; {
-      return ML_Cons_Cell::IsNull(p) ? 0 : 1 + length_list (Tail(p));
-  }
-}
-
 static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle retCtypeH)
 {
     TRACE;
@@ -1150,6 +1217,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 
     return res;
 }
+#endif
 
 
 /**********************************************************************
@@ -1699,6 +1767,111 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
               map(taskData, choice_and_vol2union,rets));
 }
 
+#ifdef USE_FFI
+// Just provide this temporarily - it's used in the machineDep parts
+void *CCallbackFunction(unsigned cbNo, void **args)
+{
+    ASSERT(FALSE);
+    return 0;
+}
+// This is the C function that will get control when any callback is made.  cbEntryNo is
+// the entry number for the particular call-back.
+static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
+{
+    struct _cbStructEntry *cbEntry = (struct _cbStructEntry *)data;
+    // We should get the task data for the thread that is running this code.
+    TaskData *taskData = processes->GetTaskDataForThread();
+    Handle mark = taskData->saveVec.mark();
+    processes->ThreadUseMLMemory(taskData);
+
+    if (cbEntry->mlFunction == NULL) {
+        /* The entry has never been set or more likely it's been GCed away. */
+        Crash("Attempt to call back to an ML function that no longer exists.");
+    }
+    Handle h = SAVE(cbEntry->mlFunction);
+
+    // Construct an ML argument list from the arguments.
+    Handle saved = taskData->saveVec.mark();
+    Handle mlArgs = SAVE(ListNull);
+    for (unsigned i = cif->nargs; i > 0; i--)
+    {
+        ffi_type *argType = cif->arg_types[i-1];
+        Handle value = vol_alloc_with_c_space(taskData, argType->size);
+        memcpy(DEREFVOL(taskData, UNHANDLE(value)), args[i-1], argType->size);
+        ASSERT(argType->elements == 0); // TODO: We don't currently handle structs here
+
+        Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
+        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
+        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(mlArgs);
+
+        taskData->saveVec.reset(saved);
+        mlArgs = SAVE(DEREFHANDLE(next));
+    }
+
+    // Callbacks previously involved forking a new ML process.  They are
+    // now handled on the caller's stack.
+    machineDependent->SetCallbackFunction(taskData, h, mlArgs);
+
+    Handle resultHandle = EnterPolyCode(taskData);
+
+    processes->ThreadReleaseMLMemory(taskData);
+    PolyWord resultWord = UNHANDLE(resultHandle);
+    taskData->saveVec.reset(mark);
+    memcpy(ret, DEREFVOL(taskData, resultWord), cif->rtype->size);
+    ASSERT(cif->rtype->elements == 0); // TODO: We don't currently handle structs here
+}
+
+// Creates a call-back entry.  Callbacks are never GCd because we don't know when
+// the C code will be finished with them.
+static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isPascal)
+{
+    TRACE;
+    Handle argTypeList = TUPLE_GET1(triple);
+    Handle cResultType = TUPLE_GET2(triple);
+    Handle mlFunction = TUPLE_GET3(triple);
+
+    // Make a new entry in the callback table.
+    struct _cbStructEntry *newTable =
+        (struct _cbStructEntry*)realloc(callbackTable, (callBackEntries+1)*sizeof(struct _cbStructEntry));
+    if (newTable == 0)
+        RAISE_EXN("Unable to allocate memory for callback table");
+    callbackTable = newTable;
+    callbackTable[callBackEntries].argType = UNHANDLE(argTypeList);
+    callbackTable[callBackEntries].mlFunction = UNHANDLE(mlFunction);
+    callbackTable[callBackEntries].cFunction = 0;
+
+    void *resultFunction;
+    ffi_closure *closure = (ffi_closure *)ffi_closure_alloc(sizeof(ffi_closure), &resultFunction);
+    if (closure == 0)
+        RAISE_EXN("Callbacks not implemented or insufficient memory");
+
+    POLYUNSIGNED num_args = length_list(argTypeList->Word());
+    ffi_type **arg_types = (ffi_type**)malloc(num_args * sizeof(ffi_type*));
+    PolyWord p = argTypeList->Word();
+    for (POLYUNSIGNED i=0; i<num_args; i++,p=Tail(p))
+        arg_types[i] = ctypeToFfiType(taskData, Head(p));
+
+    const ffi_abi abi = isPascal ? FFI_STDCALL : FFI_DEFAULT_ABI;
+    ffi_type *result_type = ctypeToFfiType(taskData, cResultType->Word());
+
+    // The cif needs to be on the heap so that it is available in the callback.
+    ffi_cif *cif = (ffi_cif *)malloc(sizeof(cif));
+    if (ffi_prep_cif(cif, abi, num_args, result_type, arg_types) != FFI_OK)
+        RAISE_EXN("libffi error: ffi_prep_cif failed");
+
+    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, &callbackTable[callBackEntries], closure) != FFI_OK)
+        RAISE_EXN("libffi error: ffi_prep_closure_loc failed");
+
+    callbackTable[callBackEntries].cFunction = (unsigned char*)resultFunction;
+    /* Construct a "vol" containing the pointer to the C function. */
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    PLocker plocker(&volLock);
+    *(unsigned char **)C_POINTER(UNVOLHANDLE(res)) = callbackTable[callBackEntries].cFunction;
+    callBackEntries++;
+    return res;
+}
+#else
+// Old version
 /*
 DCJM 7/4/04.  This function creates a vol containing a pointer to a function that can
 be used as a callback.  
@@ -1728,7 +1901,6 @@ static int computeArgSpace(TaskData *taskData, Handle argTypeList)
             case Clong: nSize = sizeof(long); break;
             case Cpointer: nSize = sizeof(void*); break;
             case Cuint: nSize = sizeof(unsigned); break;
-            case Cstruct: break; /* To avoid a warning */
             }
             sum += nSize;
             argPtr = argP->t;
@@ -1737,14 +1909,14 @@ static int computeArgSpace(TaskData *taskData, Handle argTypeList)
     return sum;
 }
 
-static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isPascal, Handle argTypeList)
+static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isPascal)
 {
     TRACE;
     int nArgSpace;
+    Handle argTypeList = TUPLE_GET1(triple);
     if (isPascal) nArgSpace = computeArgSpace(taskData, argTypeList);
     else nArgSpace = 0;
 
-    Handle cArgTypeList = TUPLE_GET1(triple);
     Handle cResultType = TUPLE_GET2(triple);
     Handle mlFunction = TUPLE_GET3(triple);
     // Make a new entry in the callback table.
@@ -1753,7 +1925,7 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     if (newTable == 0)
         RAISE_EXN("Unable to allocate memory for callback table");
     callbackTable = newTable;
-    callbackTable[callBackEntries].argType = UNHANDLE(cArgTypeList);
+    callbackTable[callBackEntries].argType = UNHANDLE(argTypeList);
     callbackTable[callBackEntries].mlFunction = UNHANDLE(mlFunction);
     callbackTable[callBackEntries].cFunction =
         machineDependent->BuildCallback(taskData, callBackEntries, cResultType, nArgSpace);
@@ -1765,20 +1937,6 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     *(unsigned char **)C_POINTER(UNVOLHANDLE(res)) = callbackTable[callBackEntries].cFunction;
     callBackEntries++;
     return res;
-}
-
-/* Create a callback using C calling conventions.  The calling function removes the
-   arguments from the stack. */
-static Handle toCfunction (TaskData *taskData, Handle triple)
-{
-    return createCallbackFunction(taskData, triple, false, TUPLE_GET1(triple));
-}
-
-/* Create a callback using Pascal/WINAPI/CALLBACK/__stdcall calling conventions.
-   The CALLED function must remove the arguments from the stack before returning. */
-static Handle toPascalfunction (TaskData *taskData, Handle triple)
-{
-    return createCallbackFunction(taskData, triple, true, TUPLE_GET1(triple));
 }
 
 /* Create the ML argument list from the C arguments. */
@@ -1812,7 +1970,6 @@ static Handle buildArgList(TaskData *taskData, Handle argTypeList, void ** argPt
                 case Cpointer: nSize = sizeof(void*); break;
                 case Cshort: nSize = sizeof(short); break;
                 case Cuint: nSize = sizeof(unsigned); break;
-                case Cstruct: break; /* To avoid a warning */
                 }
                 argValue = vol_alloc_with_c_space(taskData, nSize);
                 machineDependent->GetCallbackArg(argPtr, DEREFVOL(taskData, UNHANDLE(argValue)), nSize);
@@ -1852,6 +2009,21 @@ void *CCallbackFunction(unsigned cbNo, void **args)
     /* Return the address of the vol.  The stub function then has to extract the
        appropriate result depending on how it was compiled. */
     return DEREFVOL(taskData, resultWord);
+}
+#endif
+
+/* Create a callback using C calling conventions.  The calling function removes the
+   arguments from the stack. */
+static Handle toCfunction (TaskData *taskData, Handle triple)
+{
+    return createCallbackFunction(taskData, triple, false);
+}
+
+/* Create a callback using Pascal/WINAPI/CALLBACK/__stdcall calling conventions.
+   The CALLED function must remove the arguments from the stack before returning. */
+static Handle toPascalfunction (TaskData *taskData, Handle triple)
+{
+    return createCallbackFunction(taskData, triple, true);
 }
 
 typedef void   (*finalType)(void*);

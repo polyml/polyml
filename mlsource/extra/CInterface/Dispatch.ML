@@ -245,16 +245,11 @@ struct
     val Clong     = toWord 5;
     val Cpointer  = toWord 6;
     val Cshort    = toWord 7;
-    (* 8 was previously "struct". *)
-    val Cuint     = toWord 9;
-    (* DCJM 8/10/99.  This originally said simply {1=n} presumably
-       with the intention of creating a single boxed object. That
-       doesn't work any longer.  Add an extra field to ensure that
-       it's boxed.  (We may be able to get the effect we want using
-       datatype 'a t = A | B of 'a ) *)
-    (* For a structure "n" is the size.  *)
-    val Cstruct   = fn (n : int) => toWord {1 = n, 2=999};
-    
+    val Cuint     = toWord 8;
+    (* The above are all tagged values.  A struct is represented by an untagged value
+       which is a vector of types. *)
+    fun Cstruct (elements: RawCtype list) = toWord(Vector.fromList elements)
+
     abstype rawvol = rawvol with end; (* Purely abstract type. *)
 
     local
