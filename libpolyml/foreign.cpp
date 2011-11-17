@@ -1771,7 +1771,7 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
 // Just provide this temporarily - it's used in the machineDep parts
 void *CCallbackFunction(unsigned cbNo, void **args)
 {
-    ASSERT(FALSE);
+    ASSERT(0);
     return 0;
 }
 // This is the C function that will get control when any callback is made.  cbEntryNo is
@@ -1851,11 +1851,15 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     for (POLYUNSIGNED i=0; i<num_args; i++,p=Tail(p))
         arg_types[i] = ctypeToFfiType(taskData, Head(p));
 
+#ifdef FFI_STDCALL
     const ffi_abi abi = isPascal ? FFI_STDCALL : FFI_DEFAULT_ABI;
+#else
+    const ffi_abi abi = FFI_DEFAULT_ABI;
+#endif
     ffi_type *result_type = ctypeToFfiType(taskData, cResultType->Word());
 
     // The cif needs to be on the heap so that it is available in the callback.
-    ffi_cif *cif = (ffi_cif *)malloc(sizeof(cif));
+    ffi_cif *cif = (ffi_cif *)malloc(sizeof(ffi_cif));
     if (ffi_prep_cif(cif, abi, num_args, result_type, arg_types) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_cif failed");
 

@@ -78,6 +78,9 @@
 /* Define to 1 if you have the <fenv.h> header file. */
 #undef HAVE_FENV_H
 
+/* Define to 1 if you have the ffi.h header file */
+#undef HAVE_FFI_H
+
 /* Define to 1 if you have the <float.h> header file. */
 #undef HAVE_FLOAT_H
 
@@ -140,6 +143,9 @@
 
 /* Define to 1 if you have the `dl' library (-ldl). */
 #undef HAVE_LIBDL
+
+/* Define to 1 if you have libffi */
+#undef HAVE_LIBFFI
 
 /* Define to 1 if you have the `gcc' library (-lgcc). */
 #undef HAVE_LIBGCC

@@ -220,6 +220,37 @@ if test "x$with_gmp" != "xno"; then
         ])
 fi
 
+# Check for LibFFI
+AC_ARG_WITH([libffi],
+            [AS_HELP_STRING([--with-libffi],
+              [use libffi for the foreign function interface (CInterface) @<:@default=check@:>@])],
+            [],
+            [with_libffi=check])
+
+# If we want libffi check that the library and headers are installed.
+if test "x$with_libffi" != "xno"; then
+    AC_CHECK_LIB([ffi], [ffi_prep_closure_loc],
+        [AC_DEFINE([HAVE_LIBFFI], [1],
+              [Define to 1 if you have libffi])
+         [LIBS="-lffi $LIBS"
+         ]
+         AC_CHECK_HEADER([ffi.h],
+             [AC_DEFINE([HAVE_FFI_H], [1],
+                  [Define to 1 if you have the ffi.h header file])],
+             [if test "x$with_ffi" != "xcheck"; then
+                  AC_MSG_FAILURE(
+                      [--with-ffi was given, but ffi.h header file is not installed])
+              fi
+             ])
+        ],
+        [if test "x$with_ffi" != "xcheck"; then
+            AC_MSG_FAILURE(
+                [--with-ffi was given, but the ffi library  is not installed])
+         fi
+        ])
+fi
+
+
 # Check for pthreads.  Mainly, this allows a single-threaded build on OSes such as Mac OS X
 # that don't have proper multi-threaded profiling.
 AC_ARG_WITH([threads],
