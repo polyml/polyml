@@ -201,6 +201,17 @@ static Handle set_foreign_debug (TaskData *taskData, Handle h)
 #define RAISE_EXN(string) raise_exception_string(taskData, EXC_foreign,(string))
 
 
+typedef enum {
+  Cchar    = 1,
+  Cdouble  = 2,
+  Cfloat   = 3,
+  Cint     = 4,
+  Clong    = 5,
+  Cpointer = 6,
+  Cshort   = 7,
+  Cuint    = 8
+} Ctype;
+
 
 static const char *stringOfCtype(Ctype c)
 {
@@ -233,10 +244,10 @@ static const char *stringOfCtype(Ctype c)
 class PolyVolData;
 
 typedef struct {
-    PolyVolData* ML_pointer;     /* Pointer to ML token object. */
-    void* C_pointer;      /* Pointer to C storage. */
-    POLYUNSIGNED Own_C_space;     /* Size if this is the owner of storage. */
-    void (*C_finaliser)(void*);    // Pointer to finalisation function.
+    PolyVolData* ML_pointer;    // Pointer to ML token object.
+    void* C_pointer;            // Pointer to C storage.
+    bool Own_C_space;           // True if this is the owner of storage.
+    void (*C_finaliser)(void*); // Pointer to finalisation function.
 } Volatile;
 
 
@@ -332,7 +343,7 @@ static Handle vol_alloc (TaskData *taskData)
     MakeVolMagic(v);
     ML_POINTER(v) = v;
     C_POINTER(v) = NULL;
-    OWN_C_SPACE(v) = 0; /* Does not own it. */
+    OWN_C_SPACE(v) = false; /* Does not own it. */
     FINALISER(v) = 0; /* None installed yet. */
     
     return result;
@@ -345,7 +356,7 @@ static Handle vol_alloc_with_c_space (TaskData *taskData, POLYUNSIGNED size)
     Handle res = vol_alloc(taskData);
     trace(("size= %" POLYUFMT "\n",size));
     Vmalloc( C_POINTER(UNVOLHANDLE(res)), size );
-    OWN_C_SPACE(UNVOLHANDLE(res)) = size; /* Size of owned space. */
+    OWN_C_SPACE(UNVOLHANDLE(res)) = true;
     return res;
 }
 
@@ -634,7 +645,7 @@ void Foreign::Start()
     MakeVolMagic(nullV);
     ML_POINTER(nullV) = nullV;
     C_POINTER(nullV) = &nullValue;
-    OWN_C_SPACE(nullV) = 0; // Not freed
+    OWN_C_SPACE(nullV) = false; // Not freed
     FINALISER(nullV) = 0; // No finaliser
 }
 
@@ -643,34 +654,53 @@ void Foreign::Stop()
 }
 
 void Foreign::GarbageCollect(ScanAddress *process)
-{ TRACE; {
+{ TRACE;
+    // First pass: GC and relocate the ML pointers and detect unreferenced
+    // entries.  Call any finalisers on them.  We have to do that before freeing
+    // any "own" spaces because we may have set a finaliser on the contents of
+    // something that is owned by an earlier vol (i.e. 2 vols have the same
+    // C_pointer value).  The higher levels will ensure that we won't GC the
+    // original value until the copy is also GCd.
+    for (POLYUNSIGNED k = FIRST_VOL; k < next_vol; k++)
+    {
+        if (vols[k].ML_pointer != NULL)
+        {
+            PolyObject *p = vols[k].ML_pointer;
+            process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_WEAK);
+            vols[k].ML_pointer = (PolyVolData*)p;
+
+            if (vols[k].ML_pointer == NULL && vols[k].C_finaliser)
+            {
+                trace(("Calling finaliser on <%" POLYUFMT ">\n", k));
+                vols[k].C_finaliser(*(void**)vols[k].C_pointer);
+            }
+        }
+    }
+
+    // Then compact the table and free any "own" references.
     POLYUNSIGNED to,from;
-    
-    for (from=FIRST_VOL, to=FIRST_VOL; from < next_vol; from++) {
+    for (from=FIRST_VOL, to=FIRST_VOL; from < next_vol; from++)
+    {
         mes(("to=<%" POLYUFMT "> from=<%" POLYUFMT ">\n",to,from));
         
-        if (vols[from].ML_pointer != NULL) {
-            PolyObject *p = vols[from].ML_pointer;
-            process->ScanRuntimeAddress(&p, ScanAddress::STRENGTH_WEAK);
-            vols[from].ML_pointer = (PolyVolData*)p;
+        if (vols[from].ML_pointer == NULL)
+        {
+            if (vols[from].Own_C_space)
+            {
+                // Can now free this.
+                mes(("Trashing malloc space of <%" POLYUFMT ">\n",from));
+                memset(vols[from].C_pointer, 0, vols[from].Own_C_space);
             
-            if (vols[from].ML_pointer == NULL) { /* It's no longer reachable. */
-                if (vols[from].C_finaliser) {
-                    trace(("Calling finaliser on <%" POLYUFMT ">\n",from));
-                    vols[from].C_finaliser(*(void**)vols[from].C_pointer);
-                }
-
-                if (vols[from].Own_C_space) {
-                    
-                    mes(("Trashing malloc space of <%" POLYUFMT ">\n",from));
-                    memset(vols[from].C_pointer, 0, vols[from].Own_C_space);
-                    
-                    trace(("Freeing malloc space of <%" POLYUFMT ">\n",from));
-                    Vfree(vols[from].C_pointer);
-                }
+                trace(("Freeing malloc space of <%" POLYUFMT ">\n",from));
+                Vfree(vols[from].C_pointer);
+                vols[from].C_pointer = 0;
+                vols[from].Own_C_space = false;
             }
-            
-            if (from>to) {
+        }
+        else
+        {
+            if (from>to)
+            {
                 trace(("Shifting volatile <%" POLYUFMT "> ---> <%" POLYUFMT ">\n",from,to));
                 vols[to] = vols[from];
                 V_INDEX(vols[to].ML_pointer) = to;
@@ -696,7 +726,7 @@ void Foreign::GarbageCollect(ScanAddress *process)
     // Recursive call stack
     for (unsigned j = 0; j < recursiveCallStackPtr; j++)
         process->ScanRuntimeAddress (&(recursiveCallStack[j]), ScanAddress::STRENGTH_STRONG);
-}}
+}
 
 
 /**********************************************************************
@@ -873,9 +903,6 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
     ffi_type **arg_types = (ffi_type**)alloca(num_args * sizeof(ffi_type*));
     void **arg_values = (void**)alloca(num_args * sizeof(void*));
     
-//    PolyWord* arg_tuple = (PolyWord*)alloca(num_args * sizeof(PolyWord));
-//    PolyWord* conv      = (PolyWord*)alloca(num_args * sizeof(PolyWord));
-    
     // The argument list is a list of pairs.
     PolyWord p = arg_list;
     for (POLYUNSIGNED i=0; i<num_args; i++,p=Tail(p))
@@ -910,7 +937,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
     // call in case we have a call-back and recursion.
     Handle res = vol_alloc(taskData);
     C_POINTER(UNVOLHANDLE(res)) = result;
-    OWN_C_SPACE(UNVOLHANDLE(res)) = result_type->size;
+    OWN_C_SPACE(UNVOLHANDLE(res)) = true;
 
     freeTypeVec(arg_types, num_args); // Free any structure entries
     freeTypeVec(&result_type, 1);
@@ -933,20 +960,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 #else
 // Old version
 
-/**********************************************************************
- *
- *  Call a symbol with a list of conversion/argument pairs
- *   
- **********************************************************************/
-
-
 typedef void*   (*ftype)(...);
-
-
-#define STRUCT(n) struct {char xyz[n];}
-
-#define MAX_STRUCT_SIZE 1024
-typedef STRUCT(MAX_STRUCT_SIZE) STRUCT_MAX;
 
 static void print_call
 (
@@ -1031,11 +1045,6 @@ static void print_call
     } while (0)
 #endif
 
-/* current version - all platforms */
-// TODO: For 64-bit platforms this won't necessarily work.  It all depends on the relative
-// sizes of the various arguments and the size of void *.  The only safe way is probably
-// to get "configure" to give us some idea of the space used on the stack to pass various
-// arguments. 
 static Handle apply_rec (TaskData *taskData, int iter, ftype fun, PolyWord* conv,PolyWord ret_conv, PolyWord *args,
                          void *a1,void *a2,void *a3,void *a4,void *a5,
                          void *a6,void *a7,void *a8,void *a9,void *a10,
@@ -1768,14 +1777,8 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
 }
 
 #ifdef USE_FFI
-// Just provide this temporarily - it's used in the machineDep parts
-void *CCallbackFunction(unsigned cbNo, void **args)
-{
-    ASSERT(0);
-    return 0;
-}
-// This is the C function that will get control when any callback is made.  cbEntryNo is
-// the entry number for the particular call-back.
+// This is the C function that will get control when any callback is made.  The "data"
+// argument is the entry in the callback table for this callback.
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
     struct _cbStructEntry *cbEntry = (struct _cbStructEntry *)data;
@@ -1874,7 +1877,8 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     callBackEntries++;
     return res;
 }
-#else
+
+#elif defined(HOSTARCHITECTURE_X86)
 // Old version
 /*
 DCJM 7/4/04.  This function creates a vol containing a pointer to a function that can
@@ -1913,6 +1917,124 @@ static int computeArgSpace(TaskData *taskData, Handle argTypeList)
     return sum;
 }
 
+
+// This will only work on the i386.  The X86_64 uses different conventions with some arguments
+// in registers.
+
+/* We have to compile the callback function dynamically.  This code mallocs the store for it.
+   At least at the moment, the store is never freed.  If we decide to garbage collect it
+   we could store it in a vol. */
+static unsigned char *BuildCallback(TaskData *taskData, int cbEntryNo, Handle cResultType, int nArgsToRemove)
+{
+    int max_callback_size = 36; /* Sufficient for the largest callback (actually 33 I think).*/
+    unsigned char *result = (unsigned char*)malloc(max_callback_size);
+    /* TODO: This does not allocate memory with execute permissions and that could cause problems
+       in newer operating systems such as Windows XP SP2. DCJM 19/8/04. */
+    unsigned char *p = result;
+    long cbAddr = (long)&CCallbackFunction;
+    /* This code creates a variable on the stack which is initialised to point to the first arg,
+       then calls "CCallbackFunction" with the address of this variable and the callback reference number.
+       When "CCallbackFunction" returns with the ADDRESS of the result this code extracts the result in
+       the appropriate form and returns with it. */
+    // We only need one word on the stack but Mac OS X requires the stack to be aligned
+    // on a 16-byte boundary,  With the return address, the saved EBP pushed by ENTER and
+    // the two words we push as arguments that means we need 16 bytes here.
+    *p++ = 0xC8;    /* enter 16, 0 */
+    *p++ = 0x10;
+    *p++ = 0x00;
+    *p++ = 0x00;
+    *p++ = 0x8D;    /* lea eax,[ebp+8] */ /* Address of first arg. */
+    *p++ = 0x45;
+    *p++ = 0x08;
+    *p++ = 0x89;    /* mov dword ptr [ebp-4],eax */ /* Store it in the variable. */
+    *p++ = 0x45;
+    *p++ = 0xFC;
+    *p++ = 0x8D;    /* lea ecx,[ebp-4] */ /* Get the address of the variable. */
+    *p++ = 0x4D;
+    *p++ = 0xFC;
+    *p++ = 0x51;    /* push ecx */
+    *p++ = 0x68;    /* push cbEntryNo */
+    *p++ = cbEntryNo & 0xff;
+    cbEntryNo = cbEntryNo >> 8;
+    *p++ = cbEntryNo & 0xff;
+    cbEntryNo = cbEntryNo >> 8;
+    *p++ = cbEntryNo & 0xff;
+    cbEntryNo = cbEntryNo >> 8;
+    *p++ = cbEntryNo & 0xff;
+    /* The call is PC relative so we have to subtract the address of the END of the call instruction. */
+    cbAddr -= (long)p + 5; /* The instruction is 5 bytes long. */
+    *p++ = 0xE8;    /* call cbAddr */
+    *p++ = cbAddr & 0xff;
+    cbAddr = cbAddr >> 8;
+    *p++ = cbAddr & 0xff;
+    cbAddr = cbAddr >> 8;
+    *p++ = cbAddr & 0xff;
+    cbAddr = cbAddr >> 8;
+    *p++ = cbAddr & 0xff;
+    *p++ = 0x83;    /* add esp,8 */ /* Probably not needed since we're about to leave. */
+    *p++ = 0xC4;
+    *p++ = 0x08;
+    /* Put in the return sequence.  eax points to the C_pointer for the result. */
+    if (! IS_INT(DEREFWORD(cResultType))) {
+        /* We might be able to get this to work but it's probably too much effort. */
+        raise_exception_string(taskData, EXC_foreign, "Structure results from callbacks are not supported\n");
+    }
+    else {
+        switch (UNTAGGED(DEREFWORD(cResultType))) {
+        case Cchar: /* movsbl eax, [eax] */
+            *p++ = 0x0f;
+            *p++ = 0xbe;
+            *p++ = 0x00;
+            break;
+        case Cshort: /* movswl eax, [eax] */
+            *p++ = 0x0f;
+            *p++ = 0xbf;
+            *p++ = 0x00;
+            break;
+        case Cfloat: /* flds [eax] */
+            *p++ = 0xD9;
+            *p++ = 0x00;
+            break;
+        case Cdouble: /* fldl [eax] */
+            *p++ = 0xDD;
+            *p++ = 0x00;
+            break;
+        case Cint: case Cuint: case Clong: case Cpointer:
+            *p++ = 0x8B;    /* mov eax,dword ptr [eax] */
+            *p++ = 0x00;
+            break;
+        default: Crash("Unknown C type"); /* This shouldn't happen */
+        }
+    }
+    *p++ = 0xC9;    /* leave */
+    // We use a simple "ret" instruction if this is a C function and "ret n" if it's Pascal.
+    if (nArgsToRemove == 0) *p++ = 0xC3; /* Usual case for C functions */
+    else { /* Pascal calling convention - remove arguments. */
+        *p++ = 0xC2;    /* ret n */
+        *p++ = nArgsToRemove & 0xff;
+        nArgsToRemove = nArgsToRemove >> 8;
+        *p++ = nArgsToRemove & 0xff;
+    }
+    ASSERT(p - result <= max_callback_size);
+    return result;
+}
+
+/* This function retrieves the callback arguments.  How the arguments to the
+   function are stored is likely to be machine-dependent since some arguments are
+   likely to be passed in registers and others on the stack. On the i386 it's
+   easy - all arguments are on the stack. */
+static void GetCallbackArg(void **args, void *argLoc, int nSize)
+{
+    /* nSize is the size of the result when we copy it into the vol.  char and short
+       arguments are always expanded to int.  This code will work for little-endians
+       but NOT for big-endian machines. */
+    memcpy(argLoc, *args, nSize);
+    /* Go on to the next argument. */
+    nSize += sizeof(int)-1;
+    nSize &= -(int)sizeof(int);
+    *args = (void*) (*(char**)args + nSize);
+}
+
 static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isPascal)
 {
     TRACE;
@@ -1933,8 +2055,6 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     callbackTable[callBackEntries].mlFunction = UNHANDLE(mlFunction);
     callbackTable[callBackEntries].cFunction =
         machineDependent->BuildCallback(taskData, callBackEntries, cResultType, nArgSpace);
-    if (callbackTable[callBackEntries].cFunction == 0)
-            RAISE_EXN("Callback functions are currently only implemented for the i386");
     /* Construct a "vol" containing the pointer to the C function. */
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
     PLocker plocker(&volLock);
@@ -1983,7 +2103,7 @@ static Handle buildArgList(TaskData *taskData, Handle argTypeList, void ** argPt
     }
 }
 
-void *CCallbackFunction(unsigned cbNo, void **args)
+static void *CCallbackFunction(unsigned cbNo, void **args)
 {
     // We should get the task data for the thread that is running this code.
     TaskData *taskData = processes->GetTaskDataForThread();
@@ -2013,6 +2133,11 @@ void *CCallbackFunction(unsigned cbNo, void **args)
     /* Return the address of the vol.  The stub function then has to extract the
        appropriate result depending on how it was compiled. */
     return DEREFVOL(taskData, resultWord);
+}
+#else
+static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isPascal)
+{
+    RAISE_EXN("You need to install the libffi package to use callbacks on this architecture");
 }
 #endif
 

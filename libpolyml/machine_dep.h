@@ -87,9 +87,6 @@ public:
     // This is machine-dependent but not always required.  It is used in the code-generator.
     virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base) {}
 
-    virtual unsigned char *BuildCallback(TaskData *taskData, int cbEntryNo, Handle cResultType, int nArgsToRemove) { return 0; }
-    virtual void GetCallbackArg(void **args, void *argLoc, int nSize) {}
-
     // Switch to Poly and return with the io function to call.
     virtual int SwitchToPoly(TaskData *taskData) = 0;
 

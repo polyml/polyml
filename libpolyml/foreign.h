@@ -30,19 +30,5 @@ class TaskData;
 class ScanAddress;
 
 extern Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h);
-
-extern void *CCallbackFunction(unsigned cbNo, void **args);
-
-// This is needed when compiling a callback.
-typedef enum {
-  Cchar    = 1,
-  Cdouble  = 2,
-  Cfloat   = 3,
-  Cint     = 4,
-  Clong    = 5,
-  Cpointer = 6,
-  Cshort   = 7,
-  Cuint    = 8
-} Ctype;
   
 #endif

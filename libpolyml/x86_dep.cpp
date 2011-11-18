@@ -71,7 +71,6 @@
 #include "check_objects.h"
 #include "save_vec.h"
 #include "memmgr.h"
-#include "foreign.h"
 
 #ifndef HAVE_SIGALTSTACK
 // If we can't handle signals on a separate stack make sure there's space
@@ -182,10 +181,6 @@ public:
          { return MA_X86_64; }
 #endif /* HOSTARCHITECTURE_X86_64 */
     virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
-#ifndef HOSTARCHITECTURE_X86_64
-    virtual unsigned char *BuildCallback(TaskData *taskData, int cbEntryNo, Handle cResultType, int nArgsToRemove);
-    virtual void GetCallbackArg(void **args, void *argLoc, int nSize);
-#endif
 
     virtual int SwitchToPoly(TaskData *taskData);
     virtual void SetForRetry(TaskData *taskData, int ioCall);
@@ -2386,125 +2381,6 @@ void X86Dependent::SetCodeConstant(TaskData *taskData, Handle data, Handle const
         c >>= 8;
     }
 }
-
-#ifndef HOSTARCHITECTURE_X86_64
-// This will only work on the i386.  The X86_64 uses different conventions with some arguments
-// in registers.
-
-/* We have to compile the callback function dynamically.  This code mallocs the store for it.
-   At least at the moment, the store is never freed.  If we decide to garbage collect it
-   we could store it in a vol. */
-unsigned char *X86Dependent::BuildCallback(TaskData *taskData, int cbEntryNo, Handle cResultType, int nArgsToRemove)
-{
-    int max_callback_size = 36; /* Sufficient for the largest callback (actually 33 I think).*/
-    unsigned char *result = (unsigned char*)malloc(max_callback_size);
-    /* TODO: This does not allocate memory with execute permissions and that could cause problems
-       in newer operating systems such as Windows XP SP2. DCJM 19/8/04. */
-    unsigned char *p = result;
-    long cbAddr = (long)&CCallbackFunction;
-    /* This code creates a variable on the stack which is initialised to point to the first arg,
-       then calls "CCallbackFunction" with the address of this variable and the callback reference number.
-       When "CCallbackFunction" returns with the ADDRESS of the result this code extracts the result in
-       the appropriate form and returns with it. */
-    // We only need one word on the stack but Mac OS X requires the stack to be aligned
-    // on a 16-byte boundary,  With the return address, the saved EBP pushed by ENTER and
-    // the two words we push as arguments that means we need 16 bytes here.
-    *p++ = 0xC8;    /* enter 16, 0 */
-    *p++ = 0x10;
-    *p++ = 0x00;
-    *p++ = 0x00;
-    *p++ = 0x8D;    /* lea eax,[ebp+8] */ /* Address of first arg. */
-    *p++ = 0x45;
-    *p++ = 0x08;
-    *p++ = 0x89;    /* mov dword ptr [ebp-4],eax */ /* Store it in the variable. */
-    *p++ = 0x45;
-    *p++ = 0xFC;
-    *p++ = 0x8D;    /* lea ecx,[ebp-4] */ /* Get the address of the variable. */
-    *p++ = 0x4D;
-    *p++ = 0xFC;
-    *p++ = 0x51;    /* push ecx */
-    *p++ = 0x68;    /* push cbEntryNo */
-    *p++ = cbEntryNo & 0xff;
-    cbEntryNo = cbEntryNo >> 8;
-    *p++ = cbEntryNo & 0xff;
-    cbEntryNo = cbEntryNo >> 8;
-    *p++ = cbEntryNo & 0xff;
-    cbEntryNo = cbEntryNo >> 8;
-    *p++ = cbEntryNo & 0xff;
-    /* The call is PC relative so we have to subtract the address of the END of the call instruction. */
-    cbAddr -= (long)p + 5; /* The instruction is 5 bytes long. */
-    *p++ = 0xE8;    /* call cbAddr */
-    *p++ = cbAddr & 0xff;
-    cbAddr = cbAddr >> 8;
-    *p++ = cbAddr & 0xff;
-    cbAddr = cbAddr >> 8;
-    *p++ = cbAddr & 0xff;
-    cbAddr = cbAddr >> 8;
-    *p++ = cbAddr & 0xff;
-    *p++ = 0x83;    /* add esp,8 */ /* Probably not needed since we're about to leave. */
-    *p++ = 0xC4;
-    *p++ = 0x08;
-    /* Put in the return sequence.  eax points to the C_pointer for the result. */
-    if (! IS_INT(DEREFWORD(cResultType))) {
-        /* We might be able to get this to work but it's probably too much effort. */
-        raise_exception_string(taskData, EXC_foreign, "Structure results from callbacks are not supported\n");
-    }
-    else {
-        switch (UNTAGGED(DEREFWORD(cResultType))) {
-        case Cchar: /* movsbl eax, [eax] */
-            *p++ = 0x0f;
-            *p++ = 0xbe;
-            *p++ = 0x00;
-            break;
-        case Cshort: /* movswl eax, [eax] */
-            *p++ = 0x0f;
-            *p++ = 0xbf;
-            *p++ = 0x00;
-            break;
-        case Cfloat: /* flds [eax] */
-            *p++ = 0xD9;
-            *p++ = 0x00;
-            break;
-        case Cdouble: /* fldl [eax] */
-            *p++ = 0xDD;
-            *p++ = 0x00;
-            break;
-        case Cint: case Cuint: case Clong: case Cpointer:
-            *p++ = 0x8B;    /* mov eax,dword ptr [eax] */
-            *p++ = 0x00;
-            break;
-        default: Crash("Unknown C type"); /* This shouldn't happen */
-        }
-    }
-    *p++ = 0xC9;    /* leave */
-    // We use a simple "ret" instruction if this is a C function and "ret n" if it's Pascal.
-    if (nArgsToRemove == 0) *p++ = 0xC3; /* Usual case for C functions */
-    else { /* Pascal calling convention - remove arguments. */
-        *p++ = 0xC2;    /* ret n */
-        *p++ = nArgsToRemove & 0xff;
-        nArgsToRemove = nArgsToRemove >> 8;
-        *p++ = nArgsToRemove & 0xff;
-    }
-    ASSERT(p - result <= max_callback_size);
-    return result;
-}
-
-/* This function retrieves the callback arguments.  How the arguments to the
-   function are stored is likely to be machine-dependent since some arguments are
-   likely to be passed in registers and others on the stack. On the i386 it's
-   easy - all arguments are on the stack. */
-void X86Dependent::GetCallbackArg(void **args, void *argLoc, int nSize)
-{
-    /* nSize is the size of the result when we copy it into the vol.  char and short
-       arguments are always expanded to int.  This code will work for little-endians
-       but NOT for big-endian machines. */
-    memcpy(argLoc, *args, nSize);
-    /* Go on to the next argument. */
-    nSize += sizeof(int)-1;
-    nSize &= -(int)sizeof(int);
-    *args = (void*) (*(char**)args + nSize);
-}
-#endif
 
 // Atomic addition.  Returns the new value 
 static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
