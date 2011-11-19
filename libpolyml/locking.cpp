@@ -207,7 +207,7 @@ bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
     if (gettimeofday(&tv, NULL) != 0)
         return false;
     waitTime.tv_sec = tv.tv_sec + milliseconds / 1000;
-    waitTime.tv_nsec = tv.tv_usec * 1000 + milliseconds % 1000;
+    waitTime.tv_nsec = (tv.tv_usec + (milliseconds % 1000) * 1000) * 1000;
     if (waitTime.tv_nsec >= 1000*1000*1000)
     {
         waitTime.tv_nsec -= 1000*1000*1000;
