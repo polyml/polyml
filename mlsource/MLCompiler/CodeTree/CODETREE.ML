@@ -232,7 +232,7 @@ struct
       {
         body          = lval,
         isInline      = NonInline,
-        name          = name,
+        name          = if name = "" then "<anon>" else name,
         closure       = [],
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
@@ -249,7 +249,7 @@ struct
       {
         body          = lval,
         isInline      = MaybeInline,
-        name          = name,
+        name          = if name = "" then "<anon>" else name,
         closure       = [],
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
@@ -266,7 +266,7 @@ struct
       {
         body          = lval,
         isInline      = OnlyInline,
-        name          = name,
+        name          = if name = "" then "<anon>" else name,
         closure       = [],
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
@@ -290,7 +290,7 @@ struct
       {
         body          = body,
         isInline      = NonInline,
-        name          = name,
+        name          = if name = "" then "<anon>" else name,
         closure       = [],
         argTypes      = argsAndTypes,
         resultType    = resultType,
@@ -306,7 +306,7 @@ struct
       {
         body          = body,
         isInline      = MaybeInline,
-        name          = name,
+        name          = if name = "" then "<anon>" else name,
         closure       = [],
         argTypes      = argsAndTypes,
         resultType    = resultType,
