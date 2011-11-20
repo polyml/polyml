@@ -494,80 +494,76 @@ static Handle assign (TaskData *taskData, Handle h)
 
 
 static Handle c_sizeof (TaskData *taskData, Handle h)
-{ TRACE; {
+{
+    TRACE;
     PolyWord v = UNHANDLE(h);
     
-    if (!(IS_INT(v))) {
-        int size = get_C_long(taskData, v.AsObjPtr()->Get(0));
-        trace(("Cstruct, size <%d>\n", size));
-        return Make_arbitrary_precision(taskData, size);
-    }
-    else {
-        Ctype ctype = (Ctype)UNTAGGED(v);
-        trace(("<%s>\n", stringOfCtype(ctype)));
-        switch (ctype) {
-        case Cchar    : return Make_arbitrary_precision(taskData, sizeof(char));
-        case Cdouble  : return Make_arbitrary_precision(taskData, sizeof(double));
-        case Cfloat   : return Make_arbitrary_precision(taskData, sizeof(float));
-        case Cint     : return Make_arbitrary_precision(taskData, sizeof(int));
-        case Clong    : return Make_arbitrary_precision(taskData, sizeof(long));
-        case Cpointer : return Make_arbitrary_precision(taskData, sizeof(void*));
-        case Cshort   : return Make_arbitrary_precision(taskData, sizeof(short));
-        case Cuint    : return Make_arbitrary_precision(taskData, sizeof(unsigned));
-        default: {
-            char buf[100];
-            sprintf(buf, "Unknown ctype <%s>", stringOfCtype(ctype));
-            RAISE_EXN(buf);
-            /*NOTREACHED*/
-            /* Keep -Wall happy */ return (Handle)0;
-                 }
+    if (!(IS_INT(v))) // This should be handled within ML
+        RAISE_EXN("sizeof for struct");
+
+    Ctype ctype = (Ctype)UNTAGGED(v);
+    trace(("<%s>\n", stringOfCtype(ctype)));
+    switch (ctype) {
+    case Cchar    : return Make_arbitrary_precision(taskData, sizeof(char));
+    case Cdouble  : return Make_arbitrary_precision(taskData, sizeof(double));
+    case Cfloat   : return Make_arbitrary_precision(taskData, sizeof(float));
+    case Cint     : return Make_arbitrary_precision(taskData, sizeof(int));
+    case Clong    : return Make_arbitrary_precision(taskData, sizeof(long));
+    case Cpointer : return Make_arbitrary_precision(taskData, sizeof(void*));
+    case Cshort   : return Make_arbitrary_precision(taskData, sizeof(short));
+    case Cuint    : return Make_arbitrary_precision(taskData, sizeof(unsigned));
+    default: {
+        char buf[100];
+        sprintf(buf, "Unknown ctype <%s>", stringOfCtype(ctype));
+        RAISE_EXN(buf);
+        /*NOTREACHED*/
+        /* Keep -Wall happy */ return (Handle)0;
         }
     }
-}}
+}
 
 
 static Handle alignment (TaskData *taskData, Handle h)
-{ TRACE; {
+{  
+    TRACE;
     PolyWord v = UNHANDLE(h);
     
-    if (!(IS_INT(v))) {
+    if (!(IS_INT(v)))
         RAISE_EXN("alignment of structure"); 
-    }
-    else {
-        Ctype ctype = (Ctype)UNTAGGED(v);
-        trace(("<%s>\n", stringOfCtype(ctype)));
-        switch (ctype) {
+
+    Ctype ctype = (Ctype)UNTAGGED(v);
+    trace(("<%s>\n", stringOfCtype(ctype)));
+    switch (ctype) {
 #ifdef __GNUC__ 
-        case Cchar    : return Make_arbitrary_precision(taskData, __alignof__(char));
-        case Cdouble  : return Make_arbitrary_precision(taskData, __alignof__(double));
-        case Cfloat   : return Make_arbitrary_precision(taskData, __alignof__(float));
-        case Cint     : return Make_arbitrary_precision(taskData, __alignof__(int));
-        case Clong    : return Make_arbitrary_precision(taskData, __alignof__(long));
-        case Cpointer : return Make_arbitrary_precision(taskData, __alignof__(void*));
-        case Cshort   : return Make_arbitrary_precision(taskData, __alignof__(short));
-        case Cuint    : return Make_arbitrary_precision(taskData, __alignof__(unsigned));
+    case Cchar    : return Make_arbitrary_precision(taskData, __alignof__(char));
+    case Cdouble  : return Make_arbitrary_precision(taskData, __alignof__(double));
+    case Cfloat   : return Make_arbitrary_precision(taskData, __alignof__(float));
+    case Cint     : return Make_arbitrary_precision(taskData, __alignof__(int));
+    case Clong    : return Make_arbitrary_precision(taskData, __alignof__(long));
+    case Cpointer : return Make_arbitrary_precision(taskData, __alignof__(void*));
+    case Cshort   : return Make_arbitrary_precision(taskData, __alignof__(short));
+    case Cuint    : return Make_arbitrary_precision(taskData, __alignof__(unsigned));
 #else
-            /* Take a guess... */
-            /* Use "sizeof" here.  DCJM 19/4/01. */
-        case Cchar    : return Make_arbitrary_precision(taskData, sizeof(char));
-        case Cdouble  : return Make_arbitrary_precision(taskData, sizeof(double));
-        case Cfloat   : return Make_arbitrary_precision(taskData, sizeof(float));
-        case Cint     : return Make_arbitrary_precision(taskData, sizeof(int));
-        case Clong    : return Make_arbitrary_precision(taskData, sizeof(long));
-        case Cpointer : return Make_arbitrary_precision(taskData, sizeof(void*));
-        case Cshort   : return Make_arbitrary_precision(taskData, sizeof(short));
-        case Cuint    : return Make_arbitrary_precision(taskData, sizeof(unsigned));
+        /* Take a guess... */
+        /* Use "sizeof" here.  DCJM 19/4/01. */
+    case Cchar    : return Make_arbitrary_precision(taskData, sizeof(char));
+    case Cdouble  : return Make_arbitrary_precision(taskData, sizeof(double));
+    case Cfloat   : return Make_arbitrary_precision(taskData, sizeof(float));
+    case Cint     : return Make_arbitrary_precision(taskData, sizeof(int));
+    case Clong    : return Make_arbitrary_precision(taskData, sizeof(long));
+    case Cpointer : return Make_arbitrary_precision(taskData, sizeof(void*));
+    case Cshort   : return Make_arbitrary_precision(taskData, sizeof(short));
+    case Cuint    : return Make_arbitrary_precision(taskData, sizeof(unsigned));
 #endif  
-        default: {
-            char buf[100];
-            sprintf(buf, "Unknown ctype <%s>", stringOfCtype(ctype));
-            RAISE_EXN(buf);
-                 }
+    default: {
+        char buf[100];
+        sprintf(buf, "Unknown ctype <%s>", stringOfCtype(ctype));
+        RAISE_EXN(buf);
         }
     }
     /*NOTREACHED*/
     /* Keep -Wall happy */ return (Handle)0;
-}}
+}
 
 
 /**********************************************************************
@@ -1801,7 +1797,6 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
         ffi_type *argType = cif->arg_types[i-1];
         Handle value = vol_alloc_with_c_space(taskData, argType->size);
         memcpy(DEREFVOL(taskData, UNHANDLE(value)), args[i-1], argType->size);
-        ASSERT(argType->elements == 0); // TODO: We don't currently handle structs here
 
         Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
@@ -1821,7 +1816,6 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     PolyWord resultWord = UNHANDLE(resultHandle);
     taskData->saveVec.reset(mark);
     memcpy(ret, DEREFVOL(taskData, resultWord), cif->rtype->size);
-    ASSERT(cif->rtype->elements == 0); // TODO: We don't currently handle structs here
 }
 
 // Creates a call-back entry.  Callbacks are never GCd because we don't know when
