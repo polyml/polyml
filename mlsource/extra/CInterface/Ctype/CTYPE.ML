@@ -2,6 +2,8 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further development copyright David C.J. Matthews 2011
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -18,97 +20,102 @@
 *)
 
 
+functor CTYPE (structure Dispatch : DispatchSig) : CtypeSig  =
+struct
+    exception IllegalUseOfVoid
 
-(**********************************************************************
- *  Functor Definition
- **********************************************************************)
+    datatype Ctype =
+        Cchar
+      | Cdouble
+      | Cfloat
+      | Cint
+      | Clong
+      | Cshort
+      | Cuint
+      | Cpointer of Ctype
+      | Cstruct of Ctype list
+      | Cfunction of Ctype list * Ctype
+      | Cvoid
 
-functor CTYPE
-    (structure Dispatch : DispatchSig) : CtypeSig  =
-struct    
+    (* generally useful definition *)
+    val voidStar = Cpointer Cvoid
 
+    local
+        (* These are constants for a particular architecture so only
+           need to be evaluated once. *)
+        val alignCchar          = Dispatch.alignment Dispatch.Cchar
+        and alignCdouble        = Dispatch.alignment Dispatch.Cdouble
+        and alignCfloat         = Dispatch.alignment Dispatch.Cfloat
+        and alignCint           = Dispatch.alignment Dispatch.Cint
+        and alignClong          = Dispatch.alignment Dispatch.Clong
+        and alignCshort         = Dispatch.alignment Dispatch.Cshort
+        and alignCuint          = Dispatch.alignment Dispatch.Cuint
+        and alignCpointer       = Dispatch.alignment Dispatch.Cpointer
 
-exception IllegalUseOfVoid;
+        val sizeofCchar         = Dispatch.sizeof Dispatch.Cchar
+        and sizeofCdouble       = Dispatch.sizeof Dispatch.Cdouble
+        and sizeofCfloat        = Dispatch.sizeof Dispatch.Cfloat
+        and sizeofCint          = Dispatch.sizeof Dispatch.Cint
+        and sizeofClong         = Dispatch.sizeof Dispatch.Clong
+        and sizeofCshort        = Dispatch.sizeof Dispatch.Cshort
+        and sizeofCuint         = Dispatch.sizeof Dispatch.Cuint
+        and sizeofCpointer      = Dispatch.sizeof Dispatch.Cpointer
 
-datatype Ctype =
-    Cchar
-  | Cdouble
-  | Cfloat
-  | Cint
-  | Clong
-  | Cshort
-  | Cuint
-  | Cpointer of Ctype
-  | Cstruct of Ctype list
-  | Cfunction of Ctype list * Ctype
-  | Cvoid
+    in
+        fun alignment Cchar            = alignCchar
+          | alignment Cdouble          = alignCdouble
+          | alignment Cfloat           = alignCfloat
+          | alignment Cint             = alignCint
+          | alignment Clong            = alignClong
+          | alignment Cshort           = alignCshort
+          | alignment Cuint            = alignCuint
+          | alignment (Cpointer _)     = alignCpointer
+          | alignment (Cfunction _)    = alignCpointer
+          | alignment (Cstruct ts)     = List.foldl(fn (t, n) => Int.max(alignment t, n)) 1 ts
+          | alignment Cvoid            = raise IllegalUseOfVoid
 
-(* generally usefull definition *)
-val voidStar = Cpointer Cvoid;
+        fun align n t =
+        (******
+         * returns first integer >= n
+         * that satisfies alignment restrictions of the ctype t
+         ******)
+        let
+            val a = alignment t
+        in 
+            a*((n-1) div a + 1)
+        end
 
-
-
-fun max x y = if (x:int) >= y then x else y
-
-fun maxlist [] acc = acc
-  | maxlist (x::xs) acc = maxlist xs (max x acc)
-    
-
-fun alignment Cchar            = Dispatch.alignment Dispatch.Cchar
-  | alignment Cdouble          = Dispatch.alignment Dispatch.Cdouble
-  | alignment Cfloat           = Dispatch.alignment Dispatch.Cfloat
-  | alignment Cint             = Dispatch.alignment Dispatch.Cint
-  | alignment Clong            = Dispatch.alignment Dispatch.Clong
-  | alignment Cshort           = Dispatch.alignment Dispatch.Cshort
-  | alignment Cuint            = Dispatch.alignment Dispatch.Cuint
-  | alignment (Cpointer _)     = Dispatch.alignment Dispatch.Cpointer
-  | alignment (Cfunction _)    = Dispatch.alignment Dispatch.Cpointer
-  | alignment (Cstruct ts)     = maxlist (map alignment ts) 1
-  | alignment Cvoid            = raise IllegalUseOfVoid
-    
-
-fun align n t =
-    (******
-     * returns first integer >= n
-     * that satisfies alignment restructions of the ctype t
-     ******)
-    let val a = alignment t
-    in a*((n-1) div a+1)
+        fun sizeof Cchar            = sizeofCchar
+          | sizeof Cdouble          = sizeofCdouble
+          | sizeof Cfloat           = sizeofCfloat
+          | sizeof Cint             = sizeofCint
+          | sizeof Clong            = sizeofClong
+          | sizeof Cshort           = sizeofCshort
+          | sizeof (Cpointer _)     = sizeofCpointer
+          | sizeof Cuint            = sizeofCuint
+          | sizeof (Cfunction _)    = sizeofCpointer
+          | sizeof (Cstruct ts)     =
+                (* The size of a structure is the sum of the sizes of each element with
+                   padding added before each so that it is correctly aligned.  Then the
+                   structure is padded so that its size is a multiple of alignment. *)
+                align (List.foldl(fn(t, n) => align n t + sizeof t) 0 ts) (Cstruct ts)
+          | sizeof Cvoid            = raise IllegalUseOfVoid
+ 
     end
 
-   
-fun sizeof Cchar            = Dispatch.sizeof Dispatch.Cchar
-  | sizeof Cdouble          = Dispatch.sizeof Dispatch.Cdouble
-  | sizeof Cfloat           = Dispatch.sizeof Dispatch.Cfloat
-  | sizeof Cint             = Dispatch.sizeof Dispatch.Cint
-  | sizeof Clong            = Dispatch.sizeof Dispatch.Clong
-  | sizeof Cshort           = Dispatch.sizeof Dispatch.Cshort
-  | sizeof (Cpointer _)     = Dispatch.sizeof Dispatch.Cpointer
-  | sizeof Cuint            = Dispatch.sizeof Dispatch.Cuint
-  | sizeof (Cfunction _)    = Dispatch.sizeof Dispatch.Cpointer
-  | sizeof (Cstruct ts)     = align (sizes 0 ts) (Cstruct ts)
-  | sizeof Cvoid            = raise IllegalUseOfVoid
-    
+    type RawCtype = Dispatch.RawCtype;
 
-and sizes acc []            = acc
-  | sizes acc (t::ts)       = sizes (align acc t + sizeof t) ts
-
-
-
-type RawCtype = Dispatch.RawCtype;
-
-
-fun makeRaw Cchar             = Dispatch.Cchar 
-  | makeRaw Cdouble           = Dispatch.Cdouble
-  | makeRaw Cfloat            = Dispatch.Cfloat
-  | makeRaw Cint              = Dispatch.Cint
-  | makeRaw Clong             = Dispatch.Clong
-  | makeRaw Cshort            = Dispatch.Cshort
-  | makeRaw Cuint             = Dispatch.Cuint
-  | makeRaw (Cpointer _)      = Dispatch.Cpointer
-  | makeRaw (Cfunction _)     = Dispatch.Cpointer (*Always the same as a pointer?*)
-  | makeRaw (Cstruct l)       = Dispatch.Cstruct(map makeRaw l)
-  | makeRaw Cvoid             = Dispatch.Cint (*hack*)
+    fun makeRaw Cchar             = Dispatch.Cchar 
+      | makeRaw Cdouble           = Dispatch.Cdouble
+      | makeRaw Cfloat            = Dispatch.Cfloat
+      | makeRaw Cint              = Dispatch.Cint
+      | makeRaw Clong             = Dispatch.Clong
+      | makeRaw Cshort            = Dispatch.Cshort
+      | makeRaw Cuint             = Dispatch.Cuint
+      | makeRaw (Cpointer _)      = Dispatch.Cpointer
+      | makeRaw (Cfunction _)     = Dispatch.Cpointer (*Always the same as a pointer?*)
+      | makeRaw (Cstruct l)       = Dispatch.Cstruct(map makeRaw l)
+      | makeRaw Cvoid             = Dispatch.Cint (*hack*)
 
     
 end; (* struct *)
