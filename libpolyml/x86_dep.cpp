@@ -747,10 +747,10 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
     codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(0)); // Marker word
     codeHandle->WordP()->Set(codeWords, PolyWord::FromUnsigned(codeWords*sizeof(PolyWord))); // Bytes to the start
     codeWords++;
-    codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(0)); // Profile count
     codeHandle->WordP()->Set(codeWords++, TAGGED(functionName)); // Name of function 
     codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // Register set
-    codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(2)); // Number of constants
+    codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // No profile counter
+    codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(3)); // Number of constants
     CodeSegmentFlags(taskData, taskData->saveVec.push(TAGGED(F_CODE_OBJ)), codeHandle);
     return codeHandle;
 }
