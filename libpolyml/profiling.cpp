@@ -362,8 +362,6 @@ static void PrintProfileCounts(PolyWord *bottom, PolyWord *top)
                         {
                             PPROFENTRY pEnt = newProfileEntry();
                             pEnt->count = count;
-                            // This should be a valid string which may be a single character.
-                            ASSERT(name.IsTagged() || name.AsObjPtr()->IsByteObject());
                             pEnt->functionName = name;
                         }
                     
