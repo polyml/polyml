@@ -190,6 +190,8 @@ if test "${with_x+set}" = set; then
     AC_CHECK_HEADERS([X11/Xlib.h Xm/Xm.h])
 fi
 
+PKG_PROG_PKG_CONFIG
+
 # Check for GMP
 AC_ARG_WITH([gmp],
             [AS_HELP_STRING([--with-gmp],
@@ -227,13 +229,11 @@ AC_ARG_WITH([libffi],
             [],
             [with_libffi=check])
 
-# If we want libffi check that the library and headers are installed.
+# Libffi uses pkg-config.
 if test "x$with_libffi" != "xno"; then
-    AC_CHECK_LIB([ffi], [ffi_prep_closure_loc],
+    PKG_CHECK_MODULES([libffi], [libffi],
         [AC_DEFINE([HAVE_LIBFFI], [1],
               [Define to 1 if you have libffi])
-         [LIBS="-lffi $LIBS"
-         ]
          AC_CHECK_HEADER([ffi.h],
              [AC_DEFINE([HAVE_FFI_H], [1],
                   [Define to 1 if you have the ffi.h header file])],
