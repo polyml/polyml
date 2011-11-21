@@ -639,8 +639,8 @@ EXPELF_FALSE
 EXPELF_TRUE
 EXPPECOFF_FALSE
 EXPPECOFF_TRUE
-libffi_LIBS
-libffi_CFLAGS
+FFI_LIBS
+FFI_CFLAGS
 PKG_CONFIG_LIBDIR
 PKG_CONFIG_PATH
 PKG_CONFIG
@@ -808,8 +808,8 @@ XMKMF
 PKG_CONFIG
 PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
-libffi_CFLAGS
-libffi_LIBS'
+FFI_CFLAGS
+FFI_LIBS'
 
 
 # Initialize some variables set by options.
@@ -1483,9 +1483,8 @@ Some influential environment variables:
               directories to add to pkg-config's search path
   PKG_CONFIG_LIBDIR
               path overriding pkg-config's built-in search path
-  libffi_CFLAGS
-              C compiler flags for libffi, overriding pkg-config
-  libffi_LIBS linker flags for libffi, overriding pkg-config
+  FFI_CFLAGS  C compiler flags for FFI, overriding pkg-config
+  FFI_LIBS    linker flags for FFI, overriding pkg-config
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -18598,11 +18597,11 @@ fi
 if test "x$with_libffi" != "xno"; then
 
 pkg_failed=no
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for libffi" >&5
-$as_echo_n "checking for libffi... " >&6; }
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for FFI" >&5
+$as_echo_n "checking for FFI... " >&6; }
 
-if test -n "$libffi_CFLAGS"; then
-    pkg_cv_libffi_CFLAGS="$libffi_CFLAGS"
+if test -n "$FFI_CFLAGS"; then
+    pkg_cv_FFI_CFLAGS="$FFI_CFLAGS"
  elif test -n "$PKG_CONFIG"; then
     if test -n "$PKG_CONFIG" && \
     { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libffi\""; } >&5
@@ -18610,7 +18609,7 @@ if test -n "$libffi_CFLAGS"; then
   ac_status=$?
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; then
-  pkg_cv_libffi_CFLAGS=`$PKG_CONFIG --cflags "libffi" 2>/dev/null`
+  pkg_cv_FFI_CFLAGS=`$PKG_CONFIG --cflags "libffi" 2>/dev/null`
 		      test "x$?" != "x0" && pkg_failed=yes
 else
   pkg_failed=yes
@@ -18618,8 +18617,8 @@ fi
  else
     pkg_failed=untried
 fi
-if test -n "$libffi_LIBS"; then
-    pkg_cv_libffi_LIBS="$libffi_LIBS"
+if test -n "$FFI_LIBS"; then
+    pkg_cv_FFI_LIBS="$FFI_LIBS"
  elif test -n "$PKG_CONFIG"; then
     if test -n "$PKG_CONFIG" && \
     { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libffi\""; } >&5
@@ -18627,7 +18626,7 @@ if test -n "$libffi_LIBS"; then
   ac_status=$?
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; then
-  pkg_cv_libffi_LIBS=`$PKG_CONFIG --libs "libffi" 2>/dev/null`
+  pkg_cv_FFI_LIBS=`$PKG_CONFIG --libs "libffi" 2>/dev/null`
 		      test "x$?" != "x0" && pkg_failed=yes
 else
   pkg_failed=yes
@@ -18648,12 +18647,12 @@ else
         _pkg_short_errors_supported=no
 fi
         if test $_pkg_short_errors_supported = yes; then
-	        libffi_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "libffi" 2>&1`
+	        FFI_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "libffi" 2>&1`
         else
-	        libffi_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "libffi" 2>&1`
+	        FFI_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "libffi" 2>&1`
         fi
 	# Put the nasty error message in config.log where it belongs
-	echo "$libffi_PKG_ERRORS" >&5
+	echo "$FFI_PKG_ERRORS" >&5
 
 	if test "x$with_libffi" != "xcheck"; then
             { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
@@ -18673,29 +18672,12 @@ See \`config.log' for more details" "$LINENO" 5; }
          fi
 
 else
-	libffi_CFLAGS=$pkg_cv_libffi_CFLAGS
-	libffi_LIBS=$pkg_cv_libffi_LIBS
+	FFI_CFLAGS=$pkg_cv_FFI_CFLAGS
+	FFI_LIBS=$pkg_cv_FFI_LIBS
         { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
 
 $as_echo "#define HAVE_LIBFFI 1" >>confdefs.h
-
-         ac_fn_c_check_header_mongrel "$LINENO" "ffi.h" "ac_cv_header_ffi_h" "$ac_includes_default"
-if test "x$ac_cv_header_ffi_h" = xyes; then :
-
-$as_echo "#define HAVE_FFI_H 1" >>confdefs.h
-
-else
-  if test "x$with_libffi" != "xcheck"; then
-                  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "--with-libffi was given, but ffi.h header file is not installed
-See \`config.log' for more details" "$LINENO" 5; }
-              fi
-
-fi
-
-
 
 fi
 fi

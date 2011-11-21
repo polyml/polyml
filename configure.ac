@@ -231,18 +231,8 @@ AC_ARG_WITH([libffi],
 
 # Libffi uses pkg-config.
 if test "x$with_libffi" != "xno"; then
-    PKG_CHECK_MODULES([libffi], [libffi],
-        [AC_DEFINE([HAVE_LIBFFI], [1],
-              [Define to 1 if you have libffi])
-         AC_CHECK_HEADER([ffi.h],
-             [AC_DEFINE([HAVE_FFI_H], [1],
-                  [Define to 1 if you have the ffi.h header file])],
-             [if test "x$with_libffi" != "xcheck"; then
-                  AC_MSG_FAILURE(
-                      [--with-libffi was given, but ffi.h header file is not installed])
-              fi
-             ])
-        ],
+    PKG_CHECK_MODULES([FFI], [libffi],
+        [AC_DEFINE([HAVE_LIBFFI], [1], [Define to 1 if you have libffi])],
         [if test "x$with_libffi" != "xcheck"; then
             AC_MSG_FAILURE(
                 [--with-libffi was given, but the ffi library  is not installed])

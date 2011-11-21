@@ -88,7 +88,7 @@ typedef char TCHAR;
 #define _T(x) x
 #endif
 
-#ifdef HAVE_FFI_H
+#ifdef HAVE_LIBFFI
 #include <ffi.h>
 #define USE_FFI 1
 #endif

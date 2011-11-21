@@ -1,12 +1,13 @@
 AUTOMAKE_OPTIONS=foreign
 
-AM_CPPFLAGS = $(OSFLAG) -Wall
-AM_CFLAGS = $(OSFLAG) -Wall -fno-strict-aliasing
+AM_CPPFLAGS = $(FFI_CFLAGS) $(OSFLAG) -Wall
+AM_CFLAGS = $(FFI_CFLAGS) $(OSFLAG) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 3:1:0
+libpolyml_la_LIBADD = $(FFI_LIBS)
 
 if NO_UNDEFINED
 # Force all references to be defined to build the DLL.
