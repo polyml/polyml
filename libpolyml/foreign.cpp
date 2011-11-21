@@ -1911,6 +1911,7 @@ static int computeArgSpace(TaskData *taskData, Handle argTypeList)
     return sum;
 }
 
+static void *CCallbackFunction(unsigned cbNo, void **args);
 
 // This will only work on the i386.  The X86_64 uses different conventions with some arguments
 // in registers.
@@ -2048,7 +2049,7 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     callbackTable[callBackEntries].argType = UNHANDLE(argTypeList);
     callbackTable[callBackEntries].mlFunction = UNHANDLE(mlFunction);
     callbackTable[callBackEntries].cFunction =
-        machineDependent->BuildCallback(taskData, callBackEntries, cResultType, nArgSpace);
+        BuildCallback(taskData, callBackEntries, cResultType, nArgSpace);
     /* Construct a "vol" containing the pointer to the C function. */
     Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
     PLocker plocker(&volLock);
@@ -2090,7 +2091,7 @@ static Handle buildArgList(TaskData *taskData, Handle argTypeList, void ** argPt
                 case Cuint: nSize = sizeof(unsigned); break;
                 }
                 argValue = vol_alloc_with_c_space(taskData, nSize);
-                machineDependent->GetCallbackArg(argPtr, DEREFVOL(taskData, UNHANDLE(argValue)), nSize);
+                GetCallbackArg(argPtr, DEREFVOL(taskData, UNHANDLE(argValue)), nSize);
             }
             return LIST_CONS(taskData, argValue, buildArgList(taskData, LIST_TAIL(argTypeList), argPtr));
         }
