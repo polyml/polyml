@@ -1,4 +1,4 @@
-/* config.h.in.  Generated from configure.ac by autoheader.  */
+/* Hand-generated config file for Windows.  */
 
 
 #ifndef CONF_H_INCLUDED
@@ -43,6 +43,10 @@
 /* Define to 1 if you have the <ctype.h> header file. */
 #undef HAVE_CTYPE_H
 #define HAVE_CTYPE_H 1
+
+/* Define to 1 if you have the declaration of `fpsetmask', and to 0 if you
+   don't. */
+#undef HAVE_DECL_FPSETMASK
 
 /* Define to 1 if you have the <direct.h> header file. */
 #undef HAVE_DIRECT_H
@@ -117,12 +121,6 @@
 #undef HAVE_GETHOSTNAME
 #define HAVE_GETHOSTNAME 1
 
-/* Define to 1 if you have the `getnetbyaddr' function. */
-#undef HAVE_GETNETBYADDR
-
-/* Define to 1 if you have the `getnetbyname' function. */
-#undef HAVE_GETNETBYNAME
-
 /* Define to 1 if you have the `getpagesize' function. */
 #undef HAVE_GETPAGESIZE
 
@@ -131,6 +129,12 @@
 
 /* Define to 1 if you have the `gettimeofday' function. */
 #undef HAVE_GETTIMEOFDAY
+
+/* Define to 1 if you have the gmp.h header file */
+#undef HAVE_GMP_H
+
+/* Define to 1 if you have the `gmtime_r' function. */
+#undef HAVE_GMTIME_R
 
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
@@ -142,6 +146,9 @@
 #undef HAVE_IMAGE_FILE_HEADER
 #define HAVE_IMAGE_FILE_HEADER 1
 
+/* Define to 1 if the system has the type `intptr_t'. */
+#undef HAVE_INTPTR_T
+
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
@@ -152,11 +159,21 @@
 /* Define to 1 if you have the `dl' library (-ldl). */
 #undef HAVE_LIBDL
 
+/* Define to 1 if you have libffi */
+#undef HAVE_LIBFFI
+
 /* Define to 1 if you have the `gcc' library (-lgcc). */
 #undef HAVE_LIBGCC
 
 /* Define to 1 if you have the `gcc_s' library (-lgcc_s). */
 #undef HAVE_LIBGCC_S
+
+/* Define to 1 if you have the `gdi32' library (-lgdi32). */
+#undef HAVE_LIBGDI32
+#define HAVE_LIBGDI32 1
+
+/* Define to 1 if you have libgmp */
+#undef HAVE_LIBGMP
 
 /* Define to 1 if you have the `m' library (-lm). */
 #undef HAVE_LIBM
@@ -167,11 +184,18 @@
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
 
+/* Define to 1 if you have the `rt' library (-lrt). */
+#undef HAVE_LIBRT
+
 /* Define to 1 if you have the `socket' library (-lsocket). */
 #undef HAVE_LIBSOCKET
 
 /* Define to 1 if you have the `stdc++' library (-lstdc++). */
 #undef HAVE_LIBSTDC__
+
+/* Define to 1 if you have the `wsock32' library (-lwsock32). */
+#undef HAVE_LIBWSOCK32
+#define HAVE_LIBWSOCK32 1
 
 /* Define to 1 if you have the `X11' library (-lX11). */
 #undef HAVE_LIBX11
@@ -192,6 +216,9 @@
 #undef HAVE_LOCALE_H
 #define HAVE_LOCALE_H 1
 
+/* Define to 1 if you have the `localtime_r' function. */
+#undef HAVE_LOCALTIME_R
+
 /* Define to 1 if the system has the type `long long'. */
 #undef HAVE_LONG_LONG
 
@@ -210,13 +237,13 @@
 #undef HAVE_MATH_H
 #define HAVE_MATH_H 1
 
-/* Define to 1 if `gregs' is member of `mcontext_t'. */
+/* Define to 1 if `gregs' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_GREGS
 
-/* Define to 1 if `mc_esp' is member of `mcontext_t'. */
+/* Define to 1 if `mc_esp' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_MC_ESP
 
-/* Define to 1 if `regs' is member of `mcontext_t'. */
+/* Define to 1 if `regs' is a member of `mcontext_t'. */
 #undef HAVE_MCONTEXT_T_REGS
 
 /* Define to 1 if you have the `memmove' function. */
@@ -240,7 +267,7 @@
 /* Define to 1 if you have the `mkstemp' function. */
 #undef HAVE_MKSTEMP
 
-/* Define to 1 if you have a working `mmap' system call. */
+/* Define to 1 if you have the `mmap' function. */
 #undef HAVE_MMAP
 
 /* Define to 1 if you have the `mprotect' function. */
@@ -293,6 +320,9 @@
 /* Define to 1 if you have the `select' function. */
 #undef HAVE_SELECT
 #define HAVE_SELECT 1
+
+/* Define to 1 if you have the <semaphore.h> header file. */
+#undef HAVE_SEMAPHORE_H
 
 /* Define to 1 if you have the `setlocale' function. */
 #undef HAVE_SETLOCALE
@@ -379,11 +409,32 @@
 #undef HAVE_STRTOD
 #define HAVE_STRTOD 1
 
-/* Define to 1 if the system has the type `struct ppc_thread_state'. */
-#undef HAVE_STRUCT_PPC_THREAD_STATE
+/* Define to 1 if `ss' is a member of `struct mcontext'. */
+#undef HAVE_STRUCT_MCONTEXT_SS
 
 /* Define to 1 if the system has the type `struct sigcontext'. */
 #undef HAVE_STRUCT_SIGCONTEXT
+
+/* Define to 1 if `sun_len' is a member of `struct sockaddr_un'. */
+#undef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
+
+/* Define to 1 if `ss' is a member of `struct __darwin_mcontext32'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT32_SS
+
+/* Define to 1 if `__ss' is a member of `struct __darwin_mcontext32'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT32___SS
+
+/* Define to 1 if `ss' is a member of `struct __darwin_mcontext64'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT64_SS
+
+/* Define to 1 if `__ss' is a member of `struct __darwin_mcontext64'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT64___SS
+
+/* Define to 1 if `ss' is a member of `struct __darwin_mcontext'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT_SS
+
+/* Define to 1 if `__ss' is a member of `struct __darwin_mcontext'. */
+#undef HAVE_STRUCT___DARWIN_MCONTEXT___SS
 
 /* Define to 1 if you have the `sysctl' function. */
 #undef HAVE_SYSCTL
@@ -474,6 +525,9 @@
 #undef HAVE_TCHAR_H
 #define HAVE_TCHAR_H 1
 
+/* Define to 1 if you have the <termios.h> header file. */
+#undef HAVE_TERMIOS_H
+
 /* Define to 1 if you have the <time.h> header file. */
 #undef HAVE_TIME_H
 #define HAVE_TIME_H 1
@@ -483,6 +537,9 @@
 
 /* Define to 1 if the system has the type `ucontext_t'. */
 #undef HAVE_UCONTEXT_T
+
+/* Define to 1 if the system has the type `uintptr_t'. */
+#undef HAVE_UINTPTR_T
 
 /* Define to 1 if you have the `uname' function. */
 #undef HAVE_UNAME
@@ -515,21 +572,40 @@
 /* Define to 1 if you have the <X11/Xlib.h> header file. */
 #undef HAVE_X11_XLIB_H
 
-/* Define to 1 if the system has the type `x86_thread_state32_t'. */
-#undef HAVE_X86_THREAD_STATE32_T
-
-/* Define to 1 if the system has the type `x86_thread_state64_t'. */
-#undef HAVE_X86_THREAD_STATE64_T
-
 /* Define to 1 if you have the <Xm/Xm.h> header file. */
 #undef HAVE_XM_XM_H
 
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
 
+/* Define if the host is an ARM (32 bit) */
+/*#undef HOSTARCHITECTURE_ARM*/
+
+/* Define if the host is Itanium */
+/*#undef HOSTARCHITECTURE_IA64*/
+
+/* Define if the host is a Power PC (32 bit) */
+/*#undef HOSTARCHITECTURE_PPC*/
+
+/* Define if the host is a Sparc (32 bit) */
+/*#undef HOSTARCHITECTURE_SPARC*/
+
+/* Define if the host is an X86 (32 bit) */
+/*#undef HOSTARCHITECTURE_X86*/
+
+/* Define if the host is an X86 (64 bit) */
+/*#undef HOSTARCHITECTURE_X86_64*/
+
+/* Define if using the interpreter */
+/*#undef INTERPRETED*/
+
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
+
+/* Define to the sub-directory in which libtool stores uninstalled libraries.
+   */
+#undef LT_OBJDIR
 
 /* Name of package */
 #undef PACKAGE
@@ -546,14 +622,14 @@
 /* Define to the one symbol short name of this package. */
 #undef PACKAGE_TARNAME
 
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
-/* Define to 1 if the C compiler supports function prototypes. */
-#undef PROTOTYPES
-
-/* Define as the return type of signal handlers (`int' or `void'). */
-#undef RETSIGTYPE
+/* Define prefix of external names */
+#undef POLY_LINKAGE_PREFIX
 
 /* Define to the type of arg 1 for `select'. */
 #undef SELECT_TYPE_ARG1
@@ -563,11 +639,6 @@
 
 /* Define to the type of arg 5 for `select'. */
 #undef SELECT_TYPE_ARG5
-
-/* Define to 1 if the `setvbuf' function takes the buffering type as its
-   second argument and the buffer pointer as the third, as on System V before
-   release 3. */
-#undef SETVBUF_REVERSED
 
 /* The size of `long', as computed by sizeof. */
 #undef SIZEOF_LONG
@@ -597,22 +668,25 @@
 /* Version number of package */
 #undef VERSION
 
-/* Define like PROTOTYPES; this can be used by system headers. */
-#undef __PROTOTYPES
+/* Define if the X-Windows interface should be built */
+#undef WITH_XWINDOWS
 
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const
 
 /* Define to `int' if <sys/types.h> doesn't define. */
+#undef gid_t
 #define gid_t int
 
-/* Define to rpl_malloc if the replacement function should be used. */
-#undef malloc
+/* Define to the type of a signed integer type wide enough to hold a pointer,
+   if such a type exists, and if the system does not define it. */
+#undef intptr_t
 
 /* Define to `int' if <sys/types.h> does not define. */
+#undef mode_t
 #define mode_t int
 
-/* Define to `long' if <sys/types.h> does not define. */
+/* Define to `long int' if <sys/types.h> does not define. */
 #undef off_t
 
 /* Define to `int' if <sys/types.h> does not define. */
@@ -621,14 +695,17 @@
 /* Define to rpl_realloc if the replacement function should be used. */
 #undef realloc
 
-/* Define to `unsigned' if <sys/types.h> does not define. */
+/* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
 
 /* Define to `int' if <sys/types.h> doesn't define. */
 #define uid_t int
 
+/* Define to the type of an unsigned integer type wide enough to hold a
+   pointer, if such a type exists, and if the system does not define it. */
+#undef uintptr_t
+
 /* Define as `fork' if `vfork' does not work. */
 #undef vfork
-
 
 #endif

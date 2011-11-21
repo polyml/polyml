@@ -44,7 +44,7 @@ RSC=rc.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_CONSOLE" /D "_MBCS" /YX /FD /c
-# ADD CPP /nologo /MT /W3 /GX /O2 /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "WINDOWS_PC" /D "i386" /YX /FD /Zm500 /c
+# ADD CPP /nologo /MT /W3 /GX /O2 /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "WINDOWS_PC" /D "HOSTARCHITECTURE_X86" /YX /FD /Zm500 /c
 # ADD BASE RSC /l 0x809 /d "NDEBUG"
 # ADD RSC /l 0x809 /d "NDEBUG"
 BSC32=bscmake.exe
@@ -69,7 +69,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /W3 /Gm /GX /Zi /Od /D "WIN32" /D "_DEBUG" /D "_CONSOLE" /D "_MBCS" /YX /FD /c
-# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "_DEBUG" /D "WIN32" /D "_MBCS" /D "WINDOWS_PC" /D "i386" /YX /FD /Zm500 /c
+# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "_DEBUG" /D "WIN32" /D "_MBCS" /D "WINDOWS_PC" /D "HOSTARCHITECTURE_X86" /YX /FD /Zm500 /c
 # ADD BASE RSC /l 0x809 /d "_DEBUG"
 # ADD RSC /l 0x809 /d "_DEBUG"
 BSC32=bscmake.exe
@@ -104,7 +104,7 @@ BSC32=bscmake.exe
 LINK32=link.exe
 # ADD BASE LINK32 libcmtd.lib kernel32.lib user32.lib wsock32.lib gdi32.lib comdlg32.lib advapi32.lib shell32.lib /nologo /subsystem:windows /debug /machine:I386 /pdbtype:sept /libpath:"llibpolyml\Debug libpolymain\Debug"
 # SUBTRACT BASE LINK32 /pdb:none
-# ADD LINK32 libcmtd.lib kernel32.lib user32.lib wsock32.lib gdi32.lib comdlg32.lib advapi32.lib shell32.lib /nologo /subsystem:windows /debug /machine:I386 /pdbtype:sept /libpath:"llibpolyml\Debug libpolymain\Debug"
+# ADD LINK32 libcmtd.lib /nologo /subsystem:windows /debug /machine:I386 /pdbtype:sept /libpath:"llibpolyml\Debug libpolymain\Debug"
 # SUBTRACT LINK32 /pdb:none
 
 !ELSEIF  "$(CFG)" == "PolyML - Win32 IntRelease"
@@ -131,7 +131,7 @@ BSC32=bscmake.exe
 LINK32=link.exe
 # ADD BASE LINK32 libcmt.lib kernel32.lib user32.lib wsock32.lib gdi32.lib comdlg32.lib advapi32.lib shell32.lib /nologo /subsystem:windows /incremental:yes /map /machine:I386
 # SUBTRACT BASE LINK32 /pdb:none
-# ADD LINK32 libcmt.lib kernel32.lib user32.lib wsock32.lib gdi32.lib comdlg32.lib advapi32.lib shell32.lib /nologo /subsystem:windows /incremental:yes /map /machine:I386
+# ADD LINK32 libcmt.lib /nologo /subsystem:windows /incremental:yes /map /machine:I386
 # SUBTRACT LINK32 /pdb:none
 
 !ENDIF 
