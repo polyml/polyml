@@ -1860,7 +1860,7 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     if (ffi_prep_cif(cif, abi, num_args, result_type, arg_types) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_cif failed");
 
-    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, &callbackTable[callBackEntries], closure) != FFI_OK)
+    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, &callbackTable[callBackEntries], resultFunction) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_closure_loc failed");
 
     callbackTable[callBackEntries].cFunction = (unsigned char*)resultFunction;
