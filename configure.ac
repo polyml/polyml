@@ -204,8 +204,7 @@ if test "x$with_gmp" != "xno"; then
     AC_CHECK_LIB([gmp], [__gmpn_tdiv_qr],
         [AC_DEFINE([HAVE_LIBGMP], [1],
               [Define to 1 if you have libgmp])
-         [LIBS="-lgmp $LIBS"
-         ]
+         [LIBS="-lgmp $LIBS"]
          AC_CHECK_HEADER([gmp.h],
              [AC_DEFINE([HAVE_GMP_H], [1],
                   [Define to 1 if you have the gmp.h header file])],
@@ -222,23 +221,36 @@ if test "x$with_gmp" != "xno"; then
         ])
 fi
 
-# Check for LibFFI
-AC_ARG_WITH([libffi],
-            [AS_HELP_STRING([--with-libffi],
-              [use libffi for the foreign function interface (CInterface) @<:@default=check@:>@])],
+# libffi
+# libffi must be configured even if we are not building with it so that things like "make dist" work.
+AC_CONFIG_SUBDIRS([libffi])
+# Use the internal version unless --with-system-libffi is given.
+AC_ARG_WITH([system-libffi],
+            [AS_HELP_STRING([--with-system-libffi],
+              [use the version of libffi installed on your system rather than the version supplied with poly @<:@default=no@:>@])],
             [],
-            [with_libffi=check])
+            [with_system_libffi=no])
 
 # Libffi uses pkg-config.
-if test "x$with_libffi" != "xno"; then
-    PKG_CHECK_MODULES([FFI], [libffi],
-        [AC_DEFINE([HAVE_LIBFFI], [1], [Define to 1 if you have libffi])],
-        [if test "x$with_libffi" != "xcheck"; then
-            AC_MSG_FAILURE(
-                [--with-libffi was given, but the ffi library  is not installed])
-         fi
-        ])
+if test "x$with_system_libffi" = "xyes"; then
+    PKG_CHECK_MODULES([FFI], [libffi], [],
+        [AC_CHECK_LIB([ffi], [ffi_prep_closure_loc],
+             [
+                 [LIBS="-lffi $LIBS"]
+                 AC_CHECK_HEADER([ffi.h], [],
+                     [ AC_MSG_FAILURE([--with-system-libffi was given, but ffi.h header file cannot be found]) ])
+             ],
+             [AC_MSG_FAILURE([--with-system-libffi was given, but the ffi library is not installed])]
+       ) 
+       ] 
+    )
+else
+# Use internal libffi
+    CFLAGS="$CFLAGS -I../libffi/include"
+    CXXFLAGS="$CXXFLAGS -I../libffi/include"
 fi
+
+AM_CONDITIONAL([INTERNAL_LIBFFI], [test "x$with_system_libffi" != "xyes"])
 
 
 # Check for pthreads.  Mainly, this allows a single-threaded build on OSes such as Mac OS X

@@ -612,6 +612,7 @@ ac_includes_default="\
 #endif"
 
 ac_unique_file="polyexports.h"
+enable_option_checking=no
 ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
@@ -639,8 +640,11 @@ EXPELF_FALSE
 EXPELF_TRUE
 EXPPECOFF_FALSE
 EXPPECOFF_TRUE
+INTERNAL_LIBFFI_FALSE
+INTERNAL_LIBFFI_TRUE
 FFI_LIBS
 FFI_CFLAGS
+subdirs
 PKG_CONFIG_LIBDIR
 PKG_CONFIG_PATH
 PKG_CONFIG
@@ -785,7 +789,7 @@ enable_libtool_lock
 enable_maintainer_mode
 with_x
 with_gmp
-with_libffi
+with_system_libffi
 with_threads
 with_portable
 '
@@ -810,7 +814,7 @@ PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
 FFI_CFLAGS
 FFI_LIBS'
-
+ac_subdirs_all='libffi'
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -1456,8 +1460,9 @@ Optional Packages:
   --with-x                use the X Window System
   --with-gmp              use the GMP library for arbitrary precision
                           arithmetic [default=check]
-  --with-libffi           use libffi for the foreign function interface
-                          (CInterface) [default=check]
+  --with-system-libffi    use the version of libffi installed on your system
+                          rather than the version supplied with poly
+                          [default=no]
   --with-threads          use the pthread library for multi-threading
                           [default=check]
   --with-portable         Build the portable interpreter version of Poly/ML
@@ -8561,10 +8566,6 @@ _lt_linker_boilerplate=`cat conftest.err`
 $RM -r conftest*
 
 
-## CAVEAT EMPTOR:
-## There is no encapsulation within the following macros, do not change
-## the running order or otherwise move them around unless you know exactly
-## what you are doing...
 if test -n "$compiler"; then
 
 lt_prog_compiler_no_builtin_flag=
@@ -18553,7 +18554,6 @@ if test "x$ac_cv_lib_gmp___gmpn_tdiv_qr" = xyes; then :
 $as_echo "#define HAVE_LIBGMP 1" >>confdefs.h
 
          LIBS="-lgmp $LIBS"
-
          ac_fn_c_check_header_mongrel "$LINENO" "gmp.h" "ac_cv_header_gmp_h" "$ac_includes_default"
 if test "x$ac_cv_header_gmp_h" = xyes; then :
 
@@ -18583,18 +18583,24 @@ fi
 
 fi
 
-# Check for LibFFI
+# libffi
+# libffi must be configured even if we are not building with it so that things like "make dist" work.
 
-# Check whether --with-libffi was given.
-if test "${with_libffi+set}" = set; then :
-  withval=$with_libffi;
+
+subdirs="$subdirs libffi"
+
+# Use the internal version unless --with-system-libffi is given.
+
+# Check whether --with-system-libffi was given.
+if test "${with_system_libffi+set}" = set; then :
+  withval=$with_system_libffi;
 else
-  with_libffi=check
+  with_system_libffi=no
 fi
 
 
 # Libffi uses pkg-config.
-if test "x$with_libffi" != "xno"; then
+if test "x$with_system_libffi" = "xyes"; then
 
 pkg_failed=no
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for FFI" >&5
@@ -18654,22 +18660,130 @@ fi
 	# Put the nasty error message in config.log where it belongs
 	echo "$FFI_PKG_ERRORS" >&5
 
-	if test "x$with_libffi" != "xcheck"; then
-            { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for ffi_prep_closure_loc in -lffi" >&5
+$as_echo_n "checking for ffi_prep_closure_loc in -lffi... " >&6; }
+if ${ac_cv_lib_ffi_ffi_prep_closure_loc+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lffi  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char ffi_prep_closure_loc ();
+int
+main ()
+{
+return ffi_prep_closure_loc ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_ffi_ffi_prep_closure_loc=yes
+else
+  ac_cv_lib_ffi_ffi_prep_closure_loc=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ffi_ffi_prep_closure_loc" >&5
+$as_echo "$ac_cv_lib_ffi_ffi_prep_closure_loc" >&6; }
+if test "x$ac_cv_lib_ffi_ffi_prep_closure_loc" = xyes; then :
+
+                 LIBS="-lffi $LIBS"
+                 ac_fn_c_check_header_mongrel "$LINENO" "ffi.h" "ac_cv_header_ffi_h" "$ac_includes_default"
+if test "x$ac_cv_header_ffi_h" = xyes; then :
+
+else
+   { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
 $as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "--with-libffi was given, but the ffi library  is not installed
+as_fn_error $? "--with-system-libffi was given, but ffi.h header file cannot be found
 See \`config.log' for more details" "$LINENO" 5; }
-         fi
+fi
+
+
+
+else
+  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error $? "--with-system-libffi was given, but the ffi library is not installed
+See \`config.log' for more details" "$LINENO" 5; }
+
+fi
+
+
 
 elif test $pkg_failed = untried; then
      	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
 $as_echo "no" >&6; }
-	if test "x$with_libffi" != "xcheck"; then
-            { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for ffi_prep_closure_loc in -lffi" >&5
+$as_echo_n "checking for ffi_prep_closure_loc in -lffi... " >&6; }
+if ${ac_cv_lib_ffi_ffi_prep_closure_loc+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lffi  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char ffi_prep_closure_loc ();
+int
+main ()
+{
+return ffi_prep_closure_loc ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_ffi_ffi_prep_closure_loc=yes
+else
+  ac_cv_lib_ffi_ffi_prep_closure_loc=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ffi_ffi_prep_closure_loc" >&5
+$as_echo "$ac_cv_lib_ffi_ffi_prep_closure_loc" >&6; }
+if test "x$ac_cv_lib_ffi_ffi_prep_closure_loc" = xyes; then :
+
+                 LIBS="-lffi $LIBS"
+                 ac_fn_c_check_header_mongrel "$LINENO" "ffi.h" "ac_cv_header_ffi_h" "$ac_includes_default"
+if test "x$ac_cv_header_ffi_h" = xyes; then :
+
+else
+   { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
 $as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "--with-libffi was given, but the ffi library  is not installed
+as_fn_error $? "--with-system-libffi was given, but ffi.h header file cannot be found
 See \`config.log' for more details" "$LINENO" 5; }
-         fi
+fi
+
+
+
+else
+  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error $? "--with-system-libffi was given, but the ffi library is not installed
+See \`config.log' for more details" "$LINENO" 5; }
+
+fi
+
+
 
 else
 	FFI_CFLAGS=$pkg_cv_FFI_CFLAGS
@@ -18677,10 +18791,21 @@ else
         { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
 
-$as_echo "#define HAVE_LIBFFI 1" >>confdefs.h
+fi
+else
+# Use internal libffi
+    CFLAGS="$CFLAGS -I../libffi/include"
+    CXXFLAGS="$CXXFLAGS -I../libffi/include"
+fi
 
+ if test "x$with_system_libffi" != "xyes"; then
+  INTERNAL_LIBFFI_TRUE=
+  INTERNAL_LIBFFI_FALSE='#'
+else
+  INTERNAL_LIBFFI_TRUE='#'
+  INTERNAL_LIBFFI_FALSE=
 fi
-fi
+
 
 
 # Check for pthreads.  Mainly, this allows a single-threaded build on OSes such as Mac OS X
@@ -20948,6 +21073,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${am__fastdepCCAS_TRUE}" && test -z "${am__fastdepCCAS_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCCAS\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${INTERNAL_LIBFFI_TRUE}" && test -z "${INTERNAL_LIBFFI_FALSE}"; then
+  as_fn_error $? "conditional \"INTERNAL_LIBFFI\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${EXPPECOFF_TRUE}" && test -z "${EXPPECOFF_FALSE}"; then
@@ -23514,6 +23643,151 @@ if test "$no_create" != yes; then
   # Use ||, not &&, to avoid exiting from the if with $? = 1, which
   # would make configure fail if this is the last instruction.
   $ac_cs_success || as_fn_exit 1
+fi
+
+#
+# CONFIG_SUBDIRS section.
+#
+if test "$no_recursion" != yes; then
+
+  # Remove --cache-file, --srcdir, and --disable-option-checking arguments
+  # so they do not pile up.
+  ac_sub_configure_args=
+  ac_prev=
+  eval "set x $ac_configure_args"
+  shift
+  for ac_arg
+  do
+    if test -n "$ac_prev"; then
+      ac_prev=
+      continue
+    fi
+    case $ac_arg in
+    -cache-file | --cache-file | --cache-fil | --cache-fi \
+    | --cache-f | --cache- | --cache | --cach | --cac | --ca | --c)
+      ac_prev=cache_file ;;
+    -cache-file=* | --cache-file=* | --cache-fil=* | --cache-fi=* \
+    | --cache-f=* | --cache-=* | --cache=* | --cach=* | --cac=* | --ca=* \
+    | --c=*)
+      ;;
+    --config-cache | -C)
+      ;;
+    -srcdir | --srcdir | --srcdi | --srcd | --src | --sr)
+      ac_prev=srcdir ;;
+    -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=*)
+      ;;
+    -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+      ac_prev=prefix ;;
+    -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+      ;;
+    --disable-option-checking)
+      ;;
+    *)
+      case $ac_arg in
+      *\'*) ac_arg=`$as_echo "$ac_arg" | sed "s/'/'\\\\\\\\''/g"` ;;
+      esac
+      as_fn_append ac_sub_configure_args " '$ac_arg'" ;;
+    esac
+  done
+
+  # Always prepend --prefix to ensure using the same prefix
+  # in subdir configurations.
+  ac_arg="--prefix=$prefix"
+  case $ac_arg in
+  *\'*) ac_arg=`$as_echo "$ac_arg" | sed "s/'/'\\\\\\\\''/g"` ;;
+  esac
+  ac_sub_configure_args="'$ac_arg' $ac_sub_configure_args"
+
+  # Pass --silent
+  if test "$silent" = yes; then
+    ac_sub_configure_args="--silent $ac_sub_configure_args"
+  fi
+
+  # Always prepend --disable-option-checking to silence warnings, since
+  # different subdirs can have different --enable and --with options.
+  ac_sub_configure_args="--disable-option-checking $ac_sub_configure_args"
+
+  ac_popdir=`pwd`
+  for ac_dir in : $subdirs; do test "x$ac_dir" = x: && continue
+
+    # Do not complain, so a configure script can configure whichever
+    # parts of a large source tree are present.
+    test -d "$srcdir/$ac_dir" || continue
+
+    ac_msg="=== configuring in $ac_dir (`pwd`/$ac_dir)"
+    $as_echo "$as_me:${as_lineno-$LINENO}: $ac_msg" >&5
+    $as_echo "$ac_msg" >&6
+    as_dir="$ac_dir"; as_fn_mkdir_p
+    ac_builddir=.
+
+case "$ac_dir" in
+.) ac_dir_suffix= ac_top_builddir_sub=. ac_top_build_prefix= ;;
+*)
+  ac_dir_suffix=/`$as_echo "$ac_dir" | sed 's|^\.[\\/]||'`
+  # A ".." for each directory in $ac_dir_suffix.
+  ac_top_builddir_sub=`$as_echo "$ac_dir_suffix" | sed 's|/[^\\/]*|/..|g;s|/||'`
+  case $ac_top_builddir_sub in
+  "") ac_top_builddir_sub=. ac_top_build_prefix= ;;
+  *)  ac_top_build_prefix=$ac_top_builddir_sub/ ;;
+  esac ;;
+esac
+ac_abs_top_builddir=$ac_pwd
+ac_abs_builddir=$ac_pwd$ac_dir_suffix
+# for backward compatibility:
+ac_top_builddir=$ac_top_build_prefix
+
+case $srcdir in
+  .)  # We are building in place.
+    ac_srcdir=.
+    ac_top_srcdir=$ac_top_builddir_sub
+    ac_abs_top_srcdir=$ac_pwd ;;
+  [\\/]* | ?:[\\/]* )  # Absolute name.
+    ac_srcdir=$srcdir$ac_dir_suffix;
+    ac_top_srcdir=$srcdir
+    ac_abs_top_srcdir=$srcdir ;;
+  *) # Relative name.
+    ac_srcdir=$ac_top_build_prefix$srcdir$ac_dir_suffix
+    ac_top_srcdir=$ac_top_build_prefix$srcdir
+    ac_abs_top_srcdir=$ac_pwd/$srcdir ;;
+esac
+ac_abs_srcdir=$ac_abs_top_srcdir$ac_dir_suffix
+
+
+    cd "$ac_dir"
+
+    # Check for guested configure; otherwise get Cygnus style configure.
+    if test -f "$ac_srcdir/configure.gnu"; then
+      ac_sub_configure=$ac_srcdir/configure.gnu
+    elif test -f "$ac_srcdir/configure"; then
+      ac_sub_configure=$ac_srcdir/configure
+    elif test -f "$ac_srcdir/configure.in"; then
+      # This should be Cygnus configure.
+      ac_sub_configure=$ac_aux_dir/configure
+    else
+      { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: no configuration information is in $ac_dir" >&5
+$as_echo "$as_me: WARNING: no configuration information is in $ac_dir" >&2;}
+      ac_sub_configure=
+    fi
+
+    # The recursion is here.
+    if test -n "$ac_sub_configure"; then
+      # Make the cache file name correct relative to the subdirectory.
+      case $cache_file in
+      [\\/]* | ?:[\\/]* ) ac_sub_cache_file=$cache_file ;;
+      *) # Relative name.
+	ac_sub_cache_file=$ac_top_build_prefix$cache_file ;;
+      esac
+
+      { $as_echo "$as_me:${as_lineno-$LINENO}: running $SHELL $ac_sub_configure $ac_sub_configure_args --cache-file=$ac_sub_cache_file --srcdir=$ac_srcdir" >&5
+$as_echo "$as_me: running $SHELL $ac_sub_configure $ac_sub_configure_args --cache-file=$ac_sub_cache_file --srcdir=$ac_srcdir" >&6;}
+      # The eval makes quoting arguments work.
+      eval "\$SHELL \"\$ac_sub_configure\" $ac_sub_configure_args \
+	   --cache-file=\"\$ac_sub_cache_file\" --srcdir=\"\$ac_srcdir\"" ||
+	as_fn_error $? "$ac_sub_configure failed for $ac_dir" "$LINENO" 5
+    fi
+
+    cd "$ac_popdir"
+  done
 fi
 if test -n "$ac_unrecognized_opts" && test "$enable_option_checking" != no; then
   { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: unrecognized options: $ac_unrecognized_opts" >&5

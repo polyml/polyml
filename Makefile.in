@@ -45,10 +45,7 @@ DIST_COMMON = $(am__configure_deps) $(noinst_HEADERS) \
 	$(srcdir)/config.h.in $(top_srcdir)/configure COPYING \
 	config.guess config.sub depcomp install-sh ltmain.sh missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
-	$(top_srcdir)/m4/ltoptions.m4 $(top_srcdir)/m4/ltsugar.m4 \
-	$(top_srcdir)/m4/ltversion.m4 $(top_srcdir)/m4/lt~obsolete.m4 \
-	$(top_srcdir)/m4/pkg.m4 $(top_srcdir)/configure.ac
+am__aclocal_m4_deps = $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
@@ -126,7 +123,6 @@ AM_RECURSIVE_TARGETS = $(RECURSIVE_TARGETS:-recursive=) \
 	distdir dist dist-all distcheck
 ETAGS = etags
 CTAGS = ctags
-DIST_SUBDIRS = $(SUBDIRS)
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 distdir = $(PACKAGE)-$(VERSION)
 top_distdir = $(distdir)
@@ -290,6 +286,7 @@ psdir = @psdir@
 sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
+subdirs = @subdirs@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
@@ -301,7 +298,9 @@ AM_CPPFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall
 AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
 POLYIMPORT_OPTIONS = -H 50
 BOOTSTRAP_OPTIONS = -H 50
-SUBDIRS = libpolyml libpolymain
+DIST_SUBDIRS = libpolyml libpolymain libffi
+@INTERNAL_LIBFFI_FALSE@SUBDIRS = libpolyml libpolymain
+@INTERNAL_LIBFFI_TRUE@SUBDIRS = libffi libpolyml libpolymain
 man_MANS = poly.1 polyimport.1
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt

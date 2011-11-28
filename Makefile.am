@@ -7,7 +7,13 @@ AM_CFLAGS = $(ARCHFLAG) $(OSFLAG) -Wall -fno-strict-aliasing
 POLYIMPORT_OPTIONS = -H 50
 BOOTSTRAP_OPTIONS = -H 50
 
+DIST_SUBDIRS = libpolyml libpolymain libffi
+
+if INTERNAL_LIBFFI
+SUBDIRS = libffi libpolyml libpolymain
+else
 SUBDIRS = libpolyml libpolymain
+endif
 
 bin_PROGRAMS = polyimport poly
 
