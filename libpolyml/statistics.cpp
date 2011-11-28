@@ -312,15 +312,15 @@ void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords)
         // Subtract the GC times and then write it into the shared memory.
         // Since we don't interlock reads from the shared memory this extra
         // step reduces the chances of glitches.
-        subTimes(&st, &statMemory->psTimers[PST_GC_STIME]);
-        subTimes(&ut, &statMemory->psTimers[PST_GC_UTIME]);
+        subFiletimes(&st, &statMemory->psTimers[PST_GC_STIME]);
+        subFiletimes(&ut, &statMemory->psTimers[PST_GC_UTIME]);
         statMemory->psTimers[PST_NONGC_STIME] = st;
         statMemory->psTimers[PST_NONGC_UTIME] = ut;
 #elif HAVE_GETRUSAGE
         struct rusage usage;
         getrusage(RUSAGE_SELF, &usage);
-        subTimes(&usage.ru_stime, &statMemory->psTimers[PST_GC_STIME]);
-        subTimes(&usage.ru_utime, &statMemory->psTimers[PST_GC_UTIME]);
+        subTimevals(&usage.ru_stime, &statMemory->psTimers[PST_GC_STIME]);
+        subTimevals(&usage.ru_utime, &statMemory->psTimers[PST_GC_UTIME]);
         statMemory->psTimers[PST_NONGC_UTIME] = usage.ru_utime;
         statMemory->psTimers[PST_NONGC_STIME] = usage.ru_stime;
 #endif

@@ -178,7 +178,7 @@ void GCTaskFarm::ThreadFunction()
 #else
                 struct timeval endTime;
                 gettimeofday(&endTime, NULL);
-                subTimes(&endTime, &startTime);
+                subTimevals(&endTime, &startTime);
                 Log("GCTask: Thread %p blocking after %0.4f seconds\n", &myTaskId,
                     (float)endTime.tv_sec + (float)endTime.tv_usec / 1.0E6);
 #endif
@@ -238,7 +238,7 @@ void GCTaskFarm::WaitForCompletion(void)
 #else
         struct timeval endWait;
         gettimeofday(&endWait, NULL);
-        subTimes(&endWait, &startWait);
+        subTimevals(&endWait, &startWait);
         Log("GCTask: Threads completed after %0.4f seconds\n",
             (float)endWait.tv_sec + (float)endWait.tv_usec / 1.0E6);
 #endif

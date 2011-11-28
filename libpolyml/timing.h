@@ -3,6 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
+    Further development Copyright David C.J. Matthews 2011.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -40,14 +41,17 @@ typedef enum __gcTime {
 } gcTime;
 
 extern void record_gc_time(gcTime isEnd, const char *stage = "");
-#ifdef WINDOWS_PC
-extern void addTimes(FILETIME *result, const FILETIME *x);
-extern void subTimes(FILETIME *result, const FILETIME *x);
-extern float timeToSeconds(const FILETIME *x);
-#else
-extern void addTimes(struct timeval *result, const struct timeval *x);
-extern void subTimes(struct timeval *result, const struct timeval *x);
-extern float timeToSeconds(const struct timeval *x);
+
+#ifdef HAVE_WINDOWS_H
+extern void addFiletimes(FILETIME *result, const FILETIME *x);
+extern void subFiletimes(FILETIME *result, const FILETIME *x);
+extern float filetimeToSeconds(const FILETIME *x);
+#endif
+
+#ifdef HAVE_SYS_TIME_H
+extern void addTimevals(struct timeval *result, const struct timeval *x);
+extern void subTimevals(struct timeval *result, const struct timeval *x);
+extern float timevalToSeconds(const struct timeval *x);
 #endif
 
 #endif
