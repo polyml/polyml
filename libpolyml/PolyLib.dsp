@@ -45,7 +45,7 @@ RSC=rc.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MT /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /Yu"stdafx.h" /FD /c
-# ADD CPP /nologo /MT /W3 /GX /O2 /I ".." /D "NDEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D "HOSTARCHITECTURE_X86" /FD /c
+# ADD CPP /nologo /MT /W3 /GX /O2 /I ".." /I "..\libffi\include" /I "..\libffi\msvc32include" /I "..\libffi\src\x86" /D "NDEBUG" /D "HOSTARCHITECTURE_X86" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D LONG_LONG_MAX=_I64_MAX /FD /c
 # SUBTRACT CPP /YX /Yc /Yu
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32
@@ -72,7 +72,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /D "WIN32" /D "_DEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /Yu"stdafx.h" /FD /GZ /c
-# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /I ".." /D "_DEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D "HOSTARCHITECTURE_X86" /FD /c
+# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /I ".." /I "..\libffi\include" /I "..\libffi\msvc32include" /I "..\libffi\src\x86" /D "_DEBUG" /D "HOSTARCHITECTURE_X86" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D LONG_LONG_MAX=_I64_MAX /FD /c
 # ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x809 /d "_DEBUG"
@@ -99,7 +99,7 @@ LINK32=link.exe
 # PROP Ignore_Export_Lib 0
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /I ".." /D "_DEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D "i386" /FD /GZ /c
-# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /I ".." /D "_DEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D "INTERPRETED" /FD /GZ /c
+# ADD CPP /nologo /MTd /W3 /Gm /GX /ZI /Od /I ".." /I "..\libffi\include" /I "..\libffi\msvc32include" /I "..\libffi\src\x86" /D "_DEBUG" /D "INTERPRETED" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D LONG_LONG_MAX=_I64_MAX /FD /GZ /c
 # ADD BASE MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "_DEBUG" /mktyplib203 /win32
 # ADD BASE RSC /l 0x809 /d "_DEBUG"
@@ -127,7 +127,7 @@ LINK32=link.exe
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /MT /W3 /GX /O2 /I ".." /D "NDEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D "i386" /FD /c
 # SUBTRACT BASE CPP /YX /Yc /Yu
-# ADD CPP /nologo /MT /W3 /GX /O2 /I ".." /D "NDEBUG" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D "INTERPRTED" /FD /c
+# ADD CPP /nologo /MT /W3 /GX /O2 /I ".." /I "..\libffi\include" /I "..\libffi\msvc32include" /I "..\libffi\src\x86" /D "NDEBUG" /D "INTERPRTED" /D "WIN32" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "POLYLIB_EXPORTS" /D "WINDOWS_PC" /D LONG_LONG_MAX=_I64_MAX /FD /c
 # SUBTRACT CPP /YX /Yc /Yu
 # ADD BASE MTL /nologo /D "NDEBUG" /mktyplib203 /win32
 # ADD MTL /nologo /D "NDEBUG" /mktyplib203 /win32

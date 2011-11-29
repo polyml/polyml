@@ -26,6 +26,9 @@ Package=<5>
 
 Package=<4>
 {{{
+    Begin Project Dependency
+    Project_Dep_Name libffi
+    End Project Dependency
 }}}
 
 ###############################################################################
@@ -64,6 +67,18 @@ Package=<4>
 ###############################################################################
 
 Project: "PolyPerf"=".\PolyPerf\PolyPerf.dsp" - Package Owner=<4>
+
+Package=<5>
+{{{
+}}}
+
+Package=<4>
+{{{
+}}}
+
+###############################################################################
+
+Project: "libffi"=".\libffi\libffi.dsp" - Package Owner=<4>
 
 Package=<5>
 {{{
