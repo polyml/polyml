@@ -43,8 +43,7 @@ RSC=rc.exe
 # PROP Intermediate_Dir "Release"
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_MBCS" /D "_LIB" /YX /FD /c
-# ADD CPP /nologo /W3 /GX /O2 /I "msvc32include" /I "src\x86" /I "include" /I "." /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "_LIB" /D LONG_LONG_MAX=_I64_MAX /FD /c
-# SUBTRACT CPP /YX
+# ADD CPP /nologo /MT /W3 /GX /O2 /I "msvc32include" /I "src\x86" /I "include" /I "." /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "_LIB" /D LONG_LONG_MAX=_I64_MAX /FD /c
 # ADD BASE RSC /l 0x809 /d "NDEBUG"
 # ADD RSC /l 0x809 /d "NDEBUG"
 BSC32=bscmake.exe
@@ -117,8 +116,7 @@ LIB32=link.exe -lib
 # PROP Target_Dir ""
 # ADD BASE CPP /nologo /W3 /GX /O2 /I "include" /I "." /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "_LIB" /D LONG_LONG_MAX=_I64_MAX /FD /c
 # SUBTRACT BASE CPP /YX
-# ADD CPP /nologo /W3 /GX /O2 /I "msvc32include" /I "src\x86" /I "include" /I "." /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "_LIB" /D LONG_LONG_MAX=_I64_MAX /FD /c
-# SUBTRACT CPP /YX
+# ADD CPP /nologo /MT /W3 /GX /O2 /I "msvc32include" /I "src\x86" /I "include" /I "." /D "NDEBUG" /D "WIN32" /D "_MBCS" /D "_LIB" /D LONG_LONG_MAX=_I64_MAX /FD /c
 # ADD BASE RSC /l 0x809 /d "NDEBUG"
 # ADD RSC /l 0x809 /d "NDEBUG"
 BSC32=bscmake.exe
