@@ -265,6 +265,7 @@ static struct _cbStructEntry {
     unsigned char *cFunction;       /* The C function "stub" code. */
 } *callbackTable;
 static unsigned callBackEntries = 0;
+static PLock callbackTableLock; // Mutex to protect table.
 
 
 // Recursive call stack.  This is needed to handle callbacks.
@@ -1501,7 +1502,9 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
 // argument is the entry in the callback table for this callback.
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
-    struct _cbStructEntry *cbEntry = (struct _cbStructEntry *)data;
+    unsigned cbIndex = (unsigned)data;
+    ASSERT(cbIndex >= 0 && cbIndex < callBackEntries);
+    struct _cbStructEntry *cbEntry = &callbackTable[cbIndex];
     // We should get the task data for the thread that is running this code.
     TaskData *taskData = processes->GetTaskDataForThread();
     Handle mark = taskData->saveVec.mark();
@@ -1544,12 +1547,14 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 
 // Creates a call-back entry.  Callbacks are never GCd because we don't know when
 // the C code will be finished with them.
-static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isPascal)
+static Handle createCallbackFunction(TaskData *taskData, Handle triple, ffi_abi abi)
 {
     TRACE;
     Handle argTypeList = TUPLE_GET1(triple);
     Handle cResultType = TUPLE_GET2(triple);
     Handle mlFunction = TUPLE_GET3(triple);
+
+    PLocker pLocker(&callbackTableLock);
 
     // Make a new entry in the callback table.
     struct _cbStructEntry *newTable =
@@ -1571,12 +1576,6 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     PolyWord p = argTypeList->Word();
     for (POLYUNSIGNED i=0; i<num_args; i++,p=Tail(p))
         arg_types[i] = ctypeToFfiType(taskData, Head(p));
-
-#ifdef FFI_STDCALL
-    const ffi_abi abi = isPascal ? FFI_STDCALL : FFI_DEFAULT_ABI;
-#else
-    const ffi_abi abi = FFI_DEFAULT_ABI;
-#endif
     ffi_type *result_type = ctypeToFfiType(taskData, cResultType->Word());
 
     // The cif needs to be on the heap so that it is available in the callback.
@@ -1584,7 +1583,9 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
     if (ffi_prep_cif(cif, abi, num_args, result_type, arg_types) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_cif failed");
 
-    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, &callbackTable[callBackEntries], resultFunction) != FFI_OK)
+    // Pass the index into the callback table here rather than the address of the entry
+    // because the table may move if we realloc.
+    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, (void*)(callBackEntries), resultFunction) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_closure_loc failed");
 
     callbackTable[callBackEntries].cFunction = (unsigned char*)resultFunction;
@@ -1600,14 +1601,20 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, bool isP
    arguments from the stack. */
 static Handle toCfunction (TaskData *taskData, Handle triple)
 {
-    return createCallbackFunction(taskData, triple, false);
+    return createCallbackFunction(taskData, triple, FFI_DEFAULT_ABI);
 }
 
 /* Create a callback using Pascal/WINAPI/CALLBACK/__stdcall calling conventions.
    The CALLED function must remove the arguments from the stack before returning. */
 static Handle toPascalfunction (TaskData *taskData, Handle triple)
 {
-    return createCallbackFunction(taskData, triple, true);
+#ifdef WINDOWS_PC
+    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
+    return createCallbackFunction(taskData, triple, FFI_STDCALL);
+#else
+    RAISE_EXN("Pascal (stdcall) calling conventions are not supported on this platform");
+    return (Handle)0;
+#endif
 }
 
 typedef void   (*finalType)(void*);
