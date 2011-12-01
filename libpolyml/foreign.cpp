@@ -1502,7 +1502,7 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
 // argument is the entry in the callback table for this callback.
 static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 {
-    unsigned cbIndex = (unsigned)data;
+    uintptr_t cbIndex = (uintptr_t)data;
     ASSERT(cbIndex >= 0 && cbIndex < callBackEntries);
     struct _cbStructEntry *cbEntry = &callbackTable[cbIndex];
     // We should get the task data for the thread that is running this code.
@@ -1585,7 +1585,7 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, ffi_abi 
 
     // Pass the index into the callback table here rather than the address of the entry
     // because the table may move if we realloc.
-    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, (void*)(callBackEntries), resultFunction) != FFI_OK)
+    if (ffi_prep_closure_loc(closure, cif, callbackEntryPt, (void*)((uintptr_t)callBackEntries), resultFunction) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_closure_loc failed");
 
     callbackTable[callBackEntries].cFunction = (unsigned char*)resultFunction;
