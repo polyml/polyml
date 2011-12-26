@@ -283,8 +283,13 @@ struct
         |   reverse((r as FreeRegisters _) :: (f as FPArithMemory _) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
 
+(*  This isn't right.  The register may be being freed because its last use was in the
+    test associated with the conditional but it could be because the register contains a
+    value that is not used in the "fall through" branch but IS used in the branch we're
+    going to.
         |   reverse((r as FreeRegisters _) :: (f as ConditionalBranch _) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
+*)
 
         |   reverse((r as FreeRegisters _) :: (f as MakeSafe _) :: tl, list, _) =
                 reverse(f :: r :: tl, list, true) (* Push it back *)
