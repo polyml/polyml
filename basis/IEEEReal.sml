@@ -73,7 +73,7 @@ struct
     in
         fun toString {class, sign=true, digits, exp} = (* Sign bit set *)
                 "~" ^ toString {class=class, sign=false, digits=digits, exp=exp}
-          | toString {class=NAN, digits, ...} = "nan(" ^ dodigits digits ^")"
+          | toString {class=NAN, ...} = "nan"
           | toString {class=INF, ...} = "inf"
           | toString {class=ZERO, ...} = "0.0"
           | toString {digits, exp, ...} = (* NORMAL or SUBNORMAL *)
