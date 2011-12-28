@@ -238,6 +238,7 @@ struct
             (POLY_SYS_Sub_real,"POLY_SYS_Sub_real"),
             (POLY_SYS_Mul_real,"POLY_SYS_Mul_real"),
             (POLY_SYS_Div_real,"POLY_SYS_Div_real"),
+            (POLY_SYS_Abs_real,"POLY_SYS_Abs_real"),
             (POLY_SYS_Neg_real,"POLY_SYS_Neg_real"),
             (POLY_SYS_Repr_real,"POLY_SYS_Repr_real"),
             (POLY_SYS_conv_real,"POLY_SYS_conv_real"),

@@ -83,6 +83,7 @@ struct
   val POLY_SYS_Sub_real            = 126
   val POLY_SYS_Mul_real            = 127
   val POLY_SYS_Div_real            = 128
+  val POLY_SYS_Abs_real            = 129 (* DCJM 26/12/11 *)
   val POLY_SYS_Neg_real            = 130
   val POLY_SYS_Repr_real           = 132
   val POLY_SYS_conv_real           = 133

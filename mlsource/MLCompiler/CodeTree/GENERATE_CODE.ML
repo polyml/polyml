@@ -2893,6 +2893,9 @@ struct
                         else if wordEq (oper,ioOp POLY_SYS_Div_real)
                         then codeRTSFunction(instrDivFP, args, whereto)
 
+                        else if wordEq (oper,ioOp POLY_SYS_Abs_real)
+                        then codeRTSFunction(instrAbsFP, args, whereto)
+
                         else if wordEq (oper,ioOp POLY_SYS_Neg_real)
                         then codeRTSFunction(instrNegFP, args, whereto)
 

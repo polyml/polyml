@@ -388,7 +388,7 @@ extern "C" {
     extern int word_geq(), word_leq(), word_gtr(), word_lss();
     extern int raisex();
     extern int thread_self(), atomic_increment(), atomic_decrement();
-    extern int real_add(), real_sub(), real_mul(), real_div(), real_neg();
+    extern int real_add(), real_sub(), real_mul(), real_div(), real_abs(), real_neg();
     extern int real_geq(), real_leq(), real_gtr(), real_lss(), real_eq(), real_neq();
     extern int real_from_int();
 };
@@ -1783,6 +1783,7 @@ void X86Dependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_Sub_real, real_sub);
     add_function_to_io_area(POLY_SYS_Mul_real, real_mul);
     add_function_to_io_area(POLY_SYS_Div_real, real_div);
+    add_function_to_io_area(POLY_SYS_Abs_real, real_abs);
     add_function_to_io_area(POLY_SYS_Neg_real, real_neg);
 
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Repr_real, codeAddr);

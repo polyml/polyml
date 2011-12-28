@@ -670,9 +670,9 @@ struct
     and *- (x: real, y: real, z: real): real = x*y-z
 
     val ~ : real -> real = RunCall.run_call1 POLY_SYS_Neg_real
-    (* Absolute value.  N.B.  Since the comparison returns false on NaN
-       this function returns its argument on NaN. *)
-    fun abs (x : real) : real = if x < 0.0 then ~ x else x;
+    (* This was previously done by a test and negation but it's difficult
+       to get that right for +/- NaN *)
+    and abs : real -> real = RunCall.run_call1 POLY_SYS_Abs_real
     
     fun rem (x, y) =
         if not (isFinite y) andalso not (isNan y) then x

@@ -2070,7 +2070,8 @@ struct
             and instrMulFP(args, _) = SOME(getFP(genBinaryFP(FMUL, FMUL)), args)
             and instrDivFP(args, _) = SOME(getFP(genBinaryFP(FDIV, FDIVR)), args)
 
-            fun instrNegFP(args, _) = SOME(getUnaryFP(genUnaryFP FCHS), args)
+            fun instrAbsFP(args, _) = SOME(getUnaryFP(genUnaryFP FABS), args)
+            and instrNegFP(args, _) = SOME(getUnaryFP(genUnaryFP FCHS), args)
             and instrSqrtFP(args, _)= SOME(getUnaryFP(genUnaryFP FSQRT), args)
             and instrSinFP(args, _) = SOME(getUnaryFP(genUnaryFP FSIN), args)
             and instrCosFP(args, _) = SOME(getUnaryFP(genUnaryFP FCOS), args)

@@ -135,7 +135,7 @@ infix  0  before
 
   fun it (i: int): int = if i >= 0 then i else ~ i;
   RunCall.addOverload it "abs";
-  fun it (x: real): real = if x >= 0.0 then x else ~ x;
+  val it: real->real = RunCall.run_call1 RuntimeCalls.POLY_SYS_Abs_real;
   RunCall.addOverload it "abs";
   local
     val zero: word = RunCall.unsafeCast 0

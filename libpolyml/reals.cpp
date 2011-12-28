@@ -5,6 +5,8 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further work copyright David C.J. Matthews 2011
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -98,6 +100,7 @@
     DCJM: March 2000.
 */
 
+// Positive and negative infinities and (positive) NaN.
 double posInf, negInf, notANumber;
 
 /* Real numbers are represented by the address of the value. */
@@ -161,6 +164,16 @@ Handle Real_divc(TaskData *mdTaskData, Handle y, Handle x)
     double dx = real_arg(x);
     double dy = real_arg(y);
     return real_result(mdTaskData, dx/dy);
+}
+
+/* CALL_IO1(Real_abs, REF, NOIND) */
+// This handles +/- NaN correctly.
+// TODO: That assumes that notANumber is positive which may not be true.
+Handle Real_absc(TaskData *mdTaskData, Handle x)
+{
+    double dx = real_arg(x);
+    if (isnan(dx)) return real_result(mdTaskData, notANumber);
+    else return real_result(mdTaskData, fabs(real_arg(x)));
 }
 
 /* CALL_IO1(Real_neg, REF, NOIND) */
@@ -762,7 +775,23 @@ void RealArithmetic::Init(void)
     // N.B.  fpsetmask is defined in the headers on Cygwin but there's no function!
     fpsetmask(0);
 #endif
+    // NAN and INFINITY are defined in GCC but not in Visual C++.
+#if (defined(INFINITY))
+    posInf = INFINITY;
+    negInf = -(INFINITY);
+#else
     posInf = 1.0 / zero;
     negInf = -1.0 / zero;
+#endif
+#if (defined(NAN))
+    notANumber = NAN;
+#else
     notANumber = zero / zero;
+#endif
+    // Make sure this is a positive NaN since we return it from "abs".
+    // "Positive" in this context is copysign(1.0, x) > 0.0 because that's
+    // how we test the sign so we test it first and then try to change the
+    // sign if it's wrong.
+    if (copysign(1.0, notANumber) < 0)
+        notANumber = copysign(notANumber, 1.0);
 }

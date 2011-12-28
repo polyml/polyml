@@ -287,6 +287,7 @@ gbla(name): \
     CALL_IO(Real_sub, POLY_SYS_Sub_real)
     CALL_IO(Real_mul, POLY_SYS_Mul_real)
     CALL_IO(Real_div, POLY_SYS_Div_real)
+    CALL_IO(Real_abs, POLY_SYS_Abs_real)
     CALL_IO(Real_neg, POLY_SYS_Neg_real)
     CALL_IO(Real_int, POLY_SYS_real_to_int)
     CALL_IO(Real_float, POLY_SYS_int_to_real)
@@ -1370,7 +1371,7 @@ globldec(registerMaskVector)
     .long   Mask_Real_sub            /* 126 */
     .long   Mask_Real_mul            /* 127 */
     .long   Mask_Real_div            /* 128 */
-    .long   Mask_all                 /* 129 is unused */
+    .long   Mask_Real_abs            /* 129 */
     .long   Mask_Real_neg            /* 130 */
     .long   Mask_all                 /* 131 is unused */
     .long   Mask_Real_repr           /* 132 */

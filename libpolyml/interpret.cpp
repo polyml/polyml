@@ -1272,7 +1272,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_Sub_real, TAGGED(POLY_SYS_Sub_real));
     add_word_to_io_area(POLY_SYS_Mul_real, TAGGED(POLY_SYS_Mul_real));
     add_word_to_io_area(POLY_SYS_Div_real, TAGGED(POLY_SYS_Div_real));
-//    add_word_to_io_area(POLY_SYS_Comp_real, TAGGED(POLY_SYS_Comp_real));
+    add_word_to_io_area(POLY_SYS_Abs_real, TAGGED(POLY_SYS_Abs_real));
     add_word_to_io_area(POLY_SYS_Neg_real, TAGGED(POLY_SYS_Neg_real));
     add_word_to_io_area(POLY_SYS_Repr_real, TAGGED(POLY_SYS_Repr_real));
     add_word_to_io_area(POLY_SYS_conv_real, TAGGED(POLY_SYS_conv_real));

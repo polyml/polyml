@@ -230,6 +230,7 @@ extern int Real_adda();
 extern int Real_suba();
 extern int Real_mula();
 extern int Real_diva();
+extern int Real_absa();
 extern int Real_nega();
 extern int Real_repra();
 extern int Real_conva();
@@ -1131,6 +1132,7 @@ void SparcDependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_Sub_real, &Real_suba);
     add_function_to_io_area(POLY_SYS_Mul_real, &Real_mula);
     add_function_to_io_area(POLY_SYS_Div_real, &Real_diva);
+    add_function_to_io_area(POLY_SYS_Abs_real, &Real_absa);
     add_function_to_io_area(POLY_SYS_Neg_real, &Real_nega);
     add_function_to_io_area(POLY_SYS_Repr_real, &Real_repra);
     add_function_to_io_area(POLY_SYS_conv_real, &Real_conva);

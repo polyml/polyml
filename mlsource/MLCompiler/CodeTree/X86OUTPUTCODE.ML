@@ -750,9 +750,10 @@ struct
     |   fpOpRepr FDIV  = "FPDivide"
     |   fpOpRepr FDIVR = "FPReverseDivide"
 
-    datatype fpUnaryOps = FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
+    datatype fpUnaryOps = FCHS | FABS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
     
     fun fpUnaryToWords FCHS   = {rm=0w0:Word8.word, nnn=0w4: Word8.word}
+    |   fpUnaryToWords FABS   = {rm=0w1, nnn=0w4}
     |   fpUnaryToWords FSQRT  = {rm=0w2, nnn=0w7}
     |   fpUnaryToWords FSIN   = {rm=0w6, nnn=0w7}
     |   fpUnaryToWords FCOS   = {rm=0w7, nnn=0w7}
@@ -761,6 +762,7 @@ struct
     |   fpUnaryToWords FLDZ   = {rm=0w6, nnn=0w5}
 
     fun fpUnaryRepr FCHS   = "FPChangeSign"
+    |   fpUnaryRepr FABS   = "FPAbs"
     |   fpUnaryRepr FSQRT  = "FPSquareRoot"
     |   fpUnaryRepr FSIN   = "FPSin"
     |   fpUnaryRepr FCOS   = "FPCos"

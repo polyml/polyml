@@ -73,7 +73,7 @@ sig
     and      shiftType = SLL | SRL | SRA
     and      repOps = CMPSB | MOVSB | MOVSL | STOSB | STOSL
     and      fpOps = FADD | FMUL | FCOM | FCOMP | FSUB | FSUBR | FDIV | FDIVR
-    and      fpUnaryOps = FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
+    and      fpUnaryOps = FABS | FCHS | FSQRT | FSIN | FCOS | FPATAN | FLD1 | FLDZ
     and      group3Ops = NOT | NEG | MUL | IMUL | DIV | IDIV
 
     datatype branchOps = JO | JNO | JE | JNE | JL | JGE | JLE | JG | JB | JNB | JNA | JA

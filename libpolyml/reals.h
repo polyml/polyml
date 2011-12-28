@@ -35,6 +35,7 @@ extern Handle Real_addc (TaskData *mdTaskData, Handle, Handle);
 extern Handle Real_subc (TaskData *mdTaskData, Handle, Handle);
 extern Handle Real_mulc (TaskData *mdTaskData, Handle, Handle);
 extern Handle Real_divc (TaskData *mdTaskData, Handle, Handle);
+extern Handle Real_absc (TaskData *mdTaskData, Handle);
 extern Handle Real_negc (TaskData *mdTaskData, Handle);
 extern Handle Real_convc (TaskData *mdTaskData, Handle);
 extern Handle Real_intc (TaskData *mdTaskData, Handle);

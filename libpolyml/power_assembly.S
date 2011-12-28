@@ -1600,14 +1600,14 @@ globldec(registerMaskVector)
     dd  Mask_all            /* 119 */
     dd  Mask_all            /* 120 */
     dd  Mask_all            /* 121 */
-    dd  Mask_all             /* 122 */
+    dd  Mask_all            /* 122 */
     dd  Mask_all            /* 123 */
-    dd  Mask_all       /* 124 */
+    dd  Mask_all            /* 124 */
     dd  Mask_all            /* 125 */
     dd  Mask_all            /* 126 */
     dd  Mask_all            /* 127 */
     dd  Mask_all            /* 128 */
-    dd  Mask_all                 /* 129 is unused */
+    dd  Mask_all            /* 129 */
     dd  Mask_all            /* 130 */
     dd  Mask_all                 /* 131 is unused */
     dd  Mask_all           /* 132 */

@@ -570,7 +570,7 @@ struct
      POLY_SYS_Real_str, POLY_SYS_Real_geq, POLY_SYS_Real_leq,
      POLY_SYS_Real_gtr, POLY_SYS_Real_lss, POLY_SYS_Real_eq,
      POLY_SYS_Real_neq, POLY_SYS_Add_real, POLY_SYS_Sub_real,
-     POLY_SYS_Mul_real, POLY_SYS_Div_real, POLY_SYS_Neg_real,
+     POLY_SYS_Mul_real, POLY_SYS_Div_real, POLY_SYS_Abs_real, POLY_SYS_Neg_real,
      POLY_SYS_sqrt_real, POLY_SYS_sin_real, POLY_SYS_cos_real,
      POLY_SYS_arctan_real, POLY_SYS_exp_real, POLY_SYS_ln_real,
      POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,

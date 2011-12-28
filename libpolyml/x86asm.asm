@@ -540,6 +540,7 @@ POLY_SYS_Add_real           EQU 125
 POLY_SYS_Sub_real           EQU 126
 POLY_SYS_Mul_real           EQU 127
 POLY_SYS_Div_real           EQU 128
+POLY_SYS_Abs_real           EQU 129
 POLY_SYS_Neg_real           EQU 130
 POLY_SYS_real_to_int        EQU 134
 POLY_SYS_int_to_real        EQU 135
@@ -2284,6 +2285,33 @@ real_div_1:
 CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
+;# For all values except NaN it's possible to do this by a test such as
+;# "if x < 0.0 then ~ x else x" but the test always fails for NaNs
+
+CALLMACRO INLINE_ROUTINE real_abs
+    call    mem_for_real
+	jb      real_abs_1     ;# Not enough space - call RTS.
+;# Do the operation and put the result in the allocated
+;# space.
+;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
+IFDEF WINDOWS
+	FLD     qword ptr [Reax]
+	FABS
+	FSTP    qword ptr [Recx]
+ELSE
+	FLDL    [Reax]
+	FABS
+	FSTPL   [Recx]
+ENDIF
+	MOVL    Recx,Reax
+	ret
+
+real_abs_1:
+	CALLMACRO   CALL_IO    POLY_SYS_Abs_real
+
+CALLMACRO   RegMask real_abs,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+
+
 CALLMACRO INLINE_ROUTINE real_neg
         call    mem_for_real
 	jb      real_neg_1     ;# Not enough space - call RTS.
@@ -2588,7 +2616,7 @@ ENDIF
     dd  Mask_real_sub            ;# 126
     dd  Mask_real_mul            ;# 127
     dd  Mask_real_div            ;# 128
-    dd  Mask_all                 ;# 129 is unused
+    dd  Mask_real_abs            ;# 129
     dd  Mask_real_neg            ;# 130
     dd  Mask_all                 ;# 131 is unused
     dd  Mask_all                 ;# 132

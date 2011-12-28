@@ -1147,6 +1147,10 @@ Handle EnterPolyCode(TaskData *taskData)
                 machineDependent->CallIO2(taskData, &Real_divc);
                 break;
 
+            case POLY_SYS_Abs_real:
+                machineDependent->CallIO1(taskData, &Real_absc);
+                break;
+
             case POLY_SYS_Neg_real:
                 machineDependent->CallIO1(taskData, &Real_negc);
                 break;

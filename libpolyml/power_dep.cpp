@@ -1238,6 +1238,8 @@ void PowerPCDependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_Mul_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Div_real, codeAddr);
     add_word_to_io_area(POLY_SYS_Div_real, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Abs_real, codeAddr);
+    add_word_to_io_area(POLY_SYS_Abs_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Neg_real, codeAddr);
     add_word_to_io_area(POLY_SYS_Neg_real, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_Repr_real, codeAddr);

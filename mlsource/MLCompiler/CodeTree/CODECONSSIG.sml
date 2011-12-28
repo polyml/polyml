@@ -106,6 +106,7 @@ sig
     and instrSubFP: 'a instrs
     and instrMulFP: 'a instrs
     and instrDivFP: 'a instrs
+    and instrAbsFP: 'a instrs
     and instrNegFP: 'a instrs
     and instrIntToRealFP: 'a instrs
     and instrRealToIntFP: 'a instrs
