@@ -475,6 +475,7 @@ void record_gc_time(gcTime isEnd, const char *stage)
             subFiletimes(&kt, &startUsageS);
             addFiletimes(&gcUTime, &ut);
             addFiletimes(&gcSTime, &kt);
+            subFiletimes(&rt, &startRTime);
 
             if (debugOptions & DEBUG_GC)
             {
