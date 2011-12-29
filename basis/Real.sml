@@ -202,9 +202,12 @@ struct
     (* We only implement this sort of real. *)
     fun toLarge (x: real) : (*LargeReal.*)real =x
     fun fromLarge (_ : IEEEReal.rounding_mode) (x: (*LargeReal.*)real): real = x
+
+    (* NAN values fail any test including equality with themselves. *)
+    fun isNan x = x != x
+    (* NAN values do not match and infinities when multiplied by 0 produce NAN. *)
+    fun isFinite x = x * 0.0 == 0.0
     
-    val isFinite : real -> bool = callRealToBool 15
-    val isNan : real -> bool = callRealToBool 16
     val signBit : real -> bool = callRealToBool 17
     val copySign : (real * real) -> real = callRealReal 18
 
@@ -366,8 +369,9 @@ struct
             if n <= 0 then "" else "0" ^ addZeros (n-1)
 
         fun fixFmt ndigs r =
-        if not (isFinite r)
-        then (if signBit r then "~" else "") ^ (if isNan r then "nan" else "inf")
+        if isNan r then "nan"
+        else if not (isFinite r)
+        then if r < 0.0 then "~inf" else "inf"
         else
         let
             (* Try to get ndigs past the decimal point. *)
@@ -401,8 +405,9 @@ struct
         end
         
         fun sciFmt ndigs r =
-        if not (isFinite r)
-        then (if signBit r then "~" else "") ^ (if isNan r then "nan" else "inf")
+        if isNan r then "nan"
+        else if not (isFinite r)
+        then if r < 0.0 then "~inf" else "inf"
         else
         let
             (* Try to get ndigs+1 digits.  1 before the decimal point and ndigs after. *)
@@ -424,8 +429,9 @@ struct
         end
 
         fun genFmt ndigs r =
-        if not (isFinite r)
-        then (if signBit r then "~" else "") ^ (if isNan r then "nan" else "inf")
+        if isNan r then "nan"
+        else if not (isFinite r)
+        then if r < 0.0 then "~inf" else "inf"
         else
         let
             (* Try to get ndigs digits. *)
@@ -494,20 +500,24 @@ struct
         (* Note: The definition says, reasonably, that negative values
            for the number of digits raises Size.  The tests also check
            for a very large value for the number of digits and seem to
-           expect Size to be raised in that case. *)
-        fun fmt (SCI NONE) r = sciFmt 6 r
-          | fmt (SCI (SOME d) ) r =
+           expect Size to be raised in that case.  Note that the exception
+           is raised when fmt spec is evaluated and before it is applied
+           to an actual real argument.
+           In all cases, even EXACT format, this should produce "nan" for a NaN
+           and ignore the sign bit. *)
+        fun fmt (SCI NONE) = sciFmt 6
+          | fmt (SCI (SOME d) ) =
                 if d < 0 orelse d > 200 then raise General.Size
-                else sciFmt d r
-          | fmt (FIX NONE) r = fixFmt 6 r
-          | fmt (FIX (SOME d) ) r =
+                else sciFmt d
+          | fmt (FIX NONE) = fixFmt 6
+          | fmt (FIX (SOME d) ) =
                 if d < 0 orelse d > 200 then raise General.Size
-                else fixFmt d r
-          | fmt (GEN NONE) r = genFmt 12 r
-          | fmt (GEN (SOME d) ) r =
+                else fixFmt d
+          | fmt (GEN NONE) = genFmt 12
+          | fmt (GEN (SOME d) ) =
                 if d < 1 orelse d > 200 then raise General.Size
-                else genFmt d r
-          | fmt EXACT r = IEEEReal.toString(toDecimal r)
+                else genFmt d
+          | fmt EXACT = (fn r => if isNan r then "nan" else IEEEReal.toString(toDecimal r))
           
         val toString = fmt (GEN NONE)
     end
