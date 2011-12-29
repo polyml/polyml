@@ -840,7 +840,12 @@ public:
 
     virtual void Perform()
     {
-        result = RunQuickGC() || doGC (wordsRequired);
+        result =
+#ifndef DEBUG_ONLY_FULL_GC
+// If DEBUG_ONLY_FULL_GC is defined then we skip the partial GC.
+            RunQuickGC() ||
+#endif
+            doGC (wordsRequired);
     }
 
     bool result;
