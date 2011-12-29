@@ -5,6 +5,8 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further development copyright David C.J. Matthews 2011
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -443,9 +445,24 @@ void record_gc_time(gcTime isEnd, const char *stage)
     {
     case GCTimeStart:
         // Start of GC
-        startUsageU = lastUsageU = ut;
-        startUsageS = lastUsageS = kt;
-        if (debugOptions & DEBUG_GC) startRTime = lastRTime = rt;
+        lastUsageU = ut;
+        lastUsageS = kt;
+        if (debugOptions & DEBUG_GC)
+        {
+            lastRTime = rt;
+            subFiletimes(&ut, &startUsageU);
+            subFiletimes(&kt, &startUsageS);
+            addFiletimes(&gcUTime, &ut);
+            addFiletimes(&gcSTime, &kt);
+            subFiletimes(&rt, &startRTime);
+            float userTime = filetimeToSeconds(&ut);
+            float systemTime = filetimeToSeconds(&kt);
+            float realTime = filetimeToSeconds(&rt);
+            Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n", userTime, systemTime, realTime);
+            startRTime = lastRTime;
+        }
+        startUsageU = lastUsageU;
+        startUsageS = lastUsageS;
         break;
 
     case GCTimeIntermediate:
@@ -471,20 +488,26 @@ void record_gc_time(gcTime isEnd, const char *stage)
 
     case GCTimeEnd: // End of GC.
         {
+            lastUsageU = ut;
+            lastUsageS = kt;
             subFiletimes(&ut, &startUsageU);
             subFiletimes(&kt, &startUsageS);
             addFiletimes(&gcUTime, &ut);
             addFiletimes(&gcSTime, &kt);
-            subFiletimes(&rt, &startRTime);
 
             if (debugOptions & DEBUG_GC)
             {
+                lastRTime = rt;
+                subFiletimes(&rt, &startRTime);
                 float userTime = filetimeToSeconds(&ut);
                 float systemTime = filetimeToSeconds(&kt);
                 float realTime = filetimeToSeconds(&rt);
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
                     systemTime, realTime, (userTime + systemTime) / realTime);
+                startRTime = lastRTime;
             }
+            startUsageU = lastUsageU;
+            startUsageS = lastUsageS;
             globalStats.copyGCTimes(gcUTime, gcSTime);
         }
         break;
