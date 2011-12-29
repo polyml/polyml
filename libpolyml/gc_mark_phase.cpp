@@ -102,7 +102,7 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
 
     if (debugOptions & DEBUG_GC_DETAIL)
-        Log("GC: Mark: %p %lu %u\n", obj, n, GetTypeBits(L));
+        Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
 
     /* Add up the objects to be moved into the mutable area. */
     if (OBJ_IS_MUTABLE_OBJECT(L))
@@ -160,7 +160,7 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     ASSERT (n != 0);
 
     if (debugOptions & DEBUG_GC_DETAIL)
-        Log("GC: Mark: %p %lu %u\n", obj, n, GetTypeBits(L));
+        Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
 
     /* Mark the segment including the length word. */
     space->bitmap.SetBits (bitno - 1, n + 1);
@@ -254,13 +254,17 @@ void GCMarkPhase(void)
     
     // Mutable areas can contain mutable or immutable objects.  Immutable areas
     // should only contain immutable objects.  Verify this.
+    POLYUNSIGNED totalLive = 0;
     for(unsigned l = 0; l < gMem.nlSpaces; l++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[l];
         if (! lSpace->isMutable) ASSERT(lSpace->m_marked == 0);
+        totalLive += lSpace->m_marked + lSpace->i_marked;
         if (debugOptions & DEBUG_GC)
-            Log("GC: Mark: %s space %p: %u immutable words marked, %u mutable words marked\n",
+            Log("GC: Mark: %s space %p: %" POLYUFMT " immutable words marked, %" POLYUFMT " mutable words marked\n",
                                 lSpace->spaceTypeString(), lSpace,
                                 lSpace->i_marked, lSpace->m_marked);
     }
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Mark: Total live data %" POLYUFMT " words\n", totalLive);
 }
