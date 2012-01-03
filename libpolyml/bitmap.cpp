@@ -1,7 +1,7 @@
 /*
     Title:  Bitmap.  Generally used by the garbage collector to indicate allocated words
 
-    Copyright (c) 2006  David C.J. Matthews
+    Copyright (c) 2006, 2012  David C.J. Matthews
        Based on original code in garbage_collect.c.
 
     This library is free software; you can redistribute it and/or
@@ -49,6 +49,9 @@
 #include <malloc.h>
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
 
 #include "bitmap.h"
 #include "globals.h"
