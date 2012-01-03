@@ -53,17 +53,12 @@
 #include "bitmap.h"
 #include "globals.h"
 
-Bitmap::Bitmap(POLYUNSIGNED bits)
-{
-    POLYUNSIGNED words = (bits+BITS_PER_WORD-1) / BITS_PER_WORD;
-    m_bits = (POLYUNSIGNED *)calloc(words, sizeof(POLYUNSIGNED));
-}
-
 bool Bitmap::Create(POLYUNSIGNED bits)
 {
-    free(m_bits);
-    POLYUNSIGNED words = (bits+BITS_PER_WORD-1) / BITS_PER_WORD;
-    m_bits = (POLYUNSIGNED *)calloc(words, sizeof(POLYUNSIGNED));
+    free(m_bits); // Any previous data
+    size_t bytes = (bits+7) >> 3;
+    m_bits = (unsigned char*)malloc(bytes);
+    if (m_bits != 0) memset(m_bits, 0, bytes);
     return m_bits != 0;
 }
 
@@ -75,162 +70,110 @@ Bitmap::~Bitmap()
 // Set a range of bits in a bitmap.  This checks that the bits are not already set.
 void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
 {
-    POLYUNSIGNED word_index = bitno / BITS_PER_WORD;
+    POLYUNSIGNED byte_index = bitno >> 3;
     
-    ASSERT (0 < length);
+    ASSERT (0 < length); // Strictly positive
     
-    /* Set the first part word */
-    POLYUNSIGNED start_bit_index = bitno % BITS_PER_WORD;
+    /* Set the first part byte */
+    POLYUNSIGNED start_bit_index = bitno & 7;
     POLYUNSIGNED stop_bit_index  = start_bit_index + length;
-    /* Do we need to change more than one word? */
-    if (stop_bit_index < BITS_PER_WORD)
+    /* Do we need to change more than one byte? */
+    if (stop_bit_index < 8)
     {
-        /* N.B.  On some machines shifts of the number of bits per word can mean
-           no shift at all. */
-        const POLYUNSIGNED mask1 = ((~ (POLYUNSIGNED)0)) << start_bit_index;
-        const POLYUNSIGNED mask2 = ((~ (POLYUNSIGNED)0)) << stop_bit_index;
-        const POLYUNSIGNED mask  = mask1 & ~mask2;
+        const unsigned mask1 = 0xff << start_bit_index;
+        const unsigned mask2 = 0xff << stop_bit_index;
+        const unsigned mask  = mask1 & ~mask2;
         
-        ASSERT((m_bits[word_index] & mask) == 0);
-        m_bits[word_index] |= mask;
+        ASSERT((m_bits[byte_index] & mask) == 0);
+        m_bits[byte_index] |= mask;
         return;
     }
-    else /* Set all the bits we can in the first word */
+    else /* Set all the bits we can in the first byte */
     {
-        const POLYUNSIGNED mask  = ((POLYUNSIGNED)(~ 0)) << start_bit_index;
+        const unsigned mask  = 0xff << start_bit_index;
         
-        ASSERT((m_bits[word_index] & mask) == 0);
-        m_bits[word_index] |= mask;
+        ASSERT((m_bits[byte_index] & mask) == 0);
+        m_bits[byte_index] |= mask;
         
-        /* length = length - (BITS_PER_WORD - start_bit_index); */
-        length = stop_bit_index - BITS_PER_WORD;
+        /* length = length - (8 - start_bit_index); */
+        length = stop_bit_index - 8;
     }
     
     /* Invariant: 0 <= length */
+    ASSERT(length >= 0);
     
-    /* Set as many full words as possible */
-    while (BITS_PER_WORD <= length)
+    /* Set as many full bytes as possible */
+    while (8 <= length)
     {
-        /* Invariant: BITS_PER_WORD <= length */
-        word_index ++;
-        ASSERT(m_bits[word_index] == 0);
-        m_bits[word_index] = ~ (POLYUNSIGNED)0;
-        length -= BITS_PER_WORD;
+        /* Invariant: 8 <= length */
+        byte_index ++;
+        ASSERT(m_bits[byte_index] == 0);
+        m_bits[byte_index] = 0xff;
+        length -= 8;
         /* Invariant: 0 <= length */
     }
     
-    /* Invariant: 0 <= length < BITS_PER_WORD */
+    /* Invariant: 0 <= length < 8 */
+    ASSERT(length >= 0 && length < 8);
     if (length == 0) return;
     
-    /* Invariant: 0 < length < BITS_PER_WORD */
+    /* Invariant: 0 < length < 8 */
     
-    /* Set the final part word */
-    word_index ++;
-
-    const POLYUNSIGNED mask1 = (~ (POLYUNSIGNED)0) << 0;
-    const POLYUNSIGNED mask2 = (~ (POLYUNSIGNED)0) << length;
-    const POLYUNSIGNED mask  = mask1 & ~mask2;
-        
-    ASSERT((m_bits[word_index] & mask) == 0);
-    m_bits[word_index] |= mask;
+    /* Set the final part byte */
+    byte_index ++;
+    const unsigned mask  = 0xff & ~(0xff << length);
+    ASSERT((m_bits[byte_index] & mask) == 0);
+    m_bits[byte_index] |= mask;
 }
 
+// Clear a range of bits.  This is only used to clear the bitmap so
+// it does not need to be exact so long as at least the range specified
+// is zero.
 void Bitmap::ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
 {
-    POLYUNSIGNED word_index = bitno / BITS_PER_WORD;
-    
-    if (length == 0)
-        return;
-    
-    // Clear the first part word
-    POLYUNSIGNED start_bit_index = bitno % BITS_PER_WORD;
-    POLYUNSIGNED stop_bit_index  = start_bit_index + length;
-    /* Do we need to change more than one word? */
-    if (stop_bit_index < BITS_PER_WORD)
-    {
-        const POLYUNSIGNED mask1 = ((~ (POLYUNSIGNED)0)) << start_bit_index;
-        const POLYUNSIGNED mask2 = ((~ (POLYUNSIGNED)0)) << stop_bit_index;
-        const POLYUNSIGNED mask  = mask1 & ~mask2;
-        m_bits[word_index] &= ~mask;
-        return;
-    }
-    else /* Clear all the bits we can in the first word */
-    {
-        const POLYUNSIGNED mask  = ((POLYUNSIGNED)(~ 0)) << start_bit_index; 
-        m_bits[word_index] &= ~mask;
-        length = stop_bit_index - BITS_PER_WORD;
-    }
-    
-    /* Invariant: 0 <= length */
-    
-    // Clear as many full words as possible.
-    while (BITS_PER_WORD <= length)
-    {
-        /* Invariant: BITS_PER_WORD <= length */
-        word_index ++;
-        m_bits[word_index] = 0;
-        length -= BITS_PER_WORD;
-        /* Invariant: 0 <= length */
-    }
-    
-    /* Invariant: 0 <= length < BITS_PER_WORD */
-    if (length == 0)
-        return;
-    
-    /* Invariant: 0 < length < BITS_PER_WORD */
-    
-    // Clear the final part word
-    word_index ++;
-
-    const POLYUNSIGNED mask1 = (~ (POLYUNSIGNED)0) << 0;
-    const POLYUNSIGNED mask2 = (~ (POLYUNSIGNED)0) << length;
-    const POLYUNSIGNED mask  = mask1 & ~mask2;
-    m_bits[word_index] &= ~mask;
+    POLYUNSIGNED byte_index = bitno >> 3;
+    length += bitno & 7;
+    size_t bytes = length >> 3;
+    if (length & 7) bytes++;
+    memset(m_bits+byte_index, 0, bytes);
 }
-
 
 // How many zero bits (maximum n) are there in the bitmap, starting at location start? */
 POLYUNSIGNED Bitmap::CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n)
 {
-    POLYUNSIGNED *bitmap = m_bits;
-    /* Less naive version */
-    POLYUNSIGNED word_index = bitno / BITS_PER_WORD;
-    POLYUNSIGNED bit_index  = bitno % BITS_PER_WORD;
-    POLYUNSIGNED bits  = bitmap[word_index];
-    POLYUNSIGNED mask  = (POLYUNSIGNED)1 << bit_index;
+    POLYUNSIGNED byte_index = bitno >> 3;
+    unsigned bit_index  = bitno & 7;
+    unsigned mask  = 1 << bit_index;
     POLYUNSIGNED zero_bits  = 0;
-    ASSERT (0 < n);
+    ASSERT (0 < n); // Strictly positive
     
-    /* Check the first part word */
+    /* Check the first part byte */
     while (mask != 0)
     {
         /* zero_bits < n */
-        if ((bits & mask) != 0) return zero_bits;
+        if ((m_bits[byte_index] & mask) != 0) return zero_bits;
         zero_bits ++;
         if (zero_bits == n) return zero_bits;
-        mask <<= 1;
+        mask = (mask << 1) & 0xff;
         /* zero_bits < n */
     }
     
     /* zero_bits < n */
     
-    /* Check as many full words as possible */
-    word_index ++;
-    bits = bitmap[word_index];
-    while (zero_bits < n && bits == 0)
+    /* Check as many bytes as possible */
+    byte_index ++;
+    while (zero_bits < n && m_bits[byte_index] == 0)
     {
-        zero_bits += BITS_PER_WORD;
-        word_index ++;
-        if (zero_bits < n) // Be careful not to go over the end
-            bits = bitmap[word_index];
+        zero_bits += 8;
+        byte_index ++;
     }
     
-    /* Check the final part word */
+    /* Check the final part byte */
     mask = 1;
-    while (zero_bits < n && ((bits & mask) == 0))
+    while (zero_bits < n && (m_bits[byte_index] & mask) == 0)
     {
         zero_bits ++;
-        mask <<= 1;
+        mask = (mask << 1) & 0xff;
     }
     
     return zero_bits;
