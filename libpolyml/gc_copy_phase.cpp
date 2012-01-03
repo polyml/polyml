@@ -356,11 +356,17 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
             // on the next GC.  Normally full GCs are infrequent so the chances are
             // that at the next GC other data will have been freed.  Just stop at
             // this point.
-            break;
+            // However if we're compressing a mutable area and there is immutable
+            // data in it we should move those out because the mutable area is scanned
+            // on every partial GC.
+            if (! src->isMutable || src->i_marked == 0)
+                break;
         }
-
-        obj->SetForwardingPtr((PolyObject*)(newp+1));
-        CopyObjectToNewAddress(obj, (PolyObject*)(newp+1), L);
+        else
+        {
+            obj->SetForwardingPtr((PolyObject*)(newp+1));
+            CopyObjectToNewAddress(obj, (PolyObject*)(newp+1), L);
+        }
     }
 
     {
@@ -497,7 +503,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         // markedMut is the amount of mutable data in the mutable area
         // copiedToI is the amount of immutable data added to the immutable area
         // copiedToM is the amount of mutable data copied
-        unsigned markedImmut = 0, markedMut = 0, copiedToI = 0, copiedToM = 0;
+        POLYUNSIGNED markedImmut = 0, markedMut = 0, copiedToI = 0, copiedToM = 0;
         for(j = 0; j < gMem.nlSpaces; j++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[j];
