@@ -515,19 +515,38 @@ void record_gc_time(gcTime isEnd, const char *stage)
 #else
     static struct rusage startUsage, lastUsage;
     static struct timeval startTime, lastTime;
+    static long startPF;
 
     switch (isEnd)
     {
     case GCTimeStart:
-        // Start of GC
-        proper_getrusage(RUSAGE_SELF, &startUsage);
-        lastUsage = startUsage;
-        if (debugOptions & DEBUG_GC)
-        {
-            gettimeofday(&startTime, NULL);
-            lastTime = startTime;
-        }
-        break;
+        {            
+            // Start of GC
+            struct rusage rusage;
+            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
+                return;
+            lastUsage = rusage;
+            subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
+            subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
+
+            if (debugOptions & DEBUG_GC)
+            {
+                struct timeval tv;
+                if (gettimeofday(&tv, NULL) != 0)
+                    return;
+                lastTime = tv;
+                subTimevals(&tv, &startTime);
+                float userTime = timevalToSeconds(&rusage.ru_utime);
+                float systemTime = timevalToSeconds(&rusage.ru_stime);
+                float realTime = timevalToSeconds(&tv);
+                Log("GC: Non-GC Time user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
+                    systemTime, realTime, rusage.ru_majflt - startPF);
+                startTime = lastTime;
+                startPF = rusage.ru_majflt;
+              }
+            startUsage = lastUsage;
+            break;
+         }
 
     case GCTimeIntermediate:
         // Report intermediate GC time for debugging
@@ -558,6 +577,7 @@ void record_gc_time(gcTime isEnd, const char *stage)
             struct rusage rusage;
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
                 return;
+            lastUsage = rusage;
             subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
             subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
             addTimevals(&gcUTime, &rusage.ru_utime);
@@ -568,13 +588,17 @@ void record_gc_time(gcTime isEnd, const char *stage)
                 struct timeval tv;
                 if (gettimeofday(&tv, NULL) != 0)
                     return;
+                lastTime = tv;
                 subTimevals(&tv, &startTime);
                 float userTime = timevalToSeconds(&rusage.ru_utime);
                 float systemTime = timevalToSeconds(&rusage.ru_stime);
                 float realTime = timevalToSeconds(&tv);
-                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
-                    systemTime, realTime, (userTime + systemTime) / realTime);
+                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
+                    systemTime, realTime, (userTime + systemTime) / realTime, rusage.ru_majflt-startPF);
+                startTime = lastTime;
+                startPF = rusage.ru_majflt;
             }
+            startUsage = lastUsage;
             globalStats.copyGCTimes(gcUTime, gcSTime);
         }
     }
