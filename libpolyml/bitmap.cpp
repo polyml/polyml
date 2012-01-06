@@ -87,7 +87,7 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
         const unsigned mask2 = 0xff << stop_bit_index;
         const unsigned mask  = mask1 & ~mask2;
         
-        ASSERT((m_bits[byte_index] & mask) == 0);
+//        ASSERT((m_bits[byte_index] & mask) == 0);
         m_bits[byte_index] |= mask;
         return;
     }
@@ -95,7 +95,7 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
     {
         const unsigned mask  = 0xff << start_bit_index;
         
-        ASSERT((m_bits[byte_index] & mask) == 0);
+//        ASSERT((m_bits[byte_index] & mask) == 0);
         m_bits[byte_index] |= mask;
         
         /* length = length - (8 - start_bit_index); */
@@ -110,7 +110,7 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
     {
         /* Invariant: 8 <= length */
         byte_index ++;
-        ASSERT(m_bits[byte_index] == 0);
+//        ASSERT(m_bits[byte_index] == 0);
         m_bits[byte_index] = 0xff;
         length -= 8;
         /* Invariant: 0 <= length */
@@ -125,7 +125,7 @@ void Bitmap::SetBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
     /* Set the final part byte */
     byte_index ++;
     const unsigned mask  = 0xff & ~(0xff << length);
-    ASSERT((m_bits[byte_index] & mask) == 0);
+//    ASSERT((m_bits[byte_index] & mask) == 0);
     m_bits[byte_index] |= mask;
 }
 
@@ -142,7 +142,7 @@ void Bitmap::ClearBits(POLYUNSIGNED bitno, POLYUNSIGNED length)
 }
 
 // How many zero bits (maximum n) are there in the bitmap, starting at location start? */
-POLYUNSIGNED Bitmap::CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n)
+POLYUNSIGNED Bitmap::CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n) const
 {
     POLYUNSIGNED byte_index = bitno >> 3;
     unsigned bit_index  = bitno & 7;
@@ -189,7 +189,7 @@ POLYUNSIGNED Bitmap::FindFree
   POLYUNSIGNED   limit,  /* The highest numbered bit that's too small to use */
   POLYUNSIGNED   bitno,  /* The lowest numbered bit that's too large to use */
   POLYUNSIGNED   n       /* The number of consecutive zero bits required */
-)
+) const
 {
     if (limit + n >= bitno)
         return 0;
@@ -210,3 +210,27 @@ POLYUNSIGNED Bitmap::FindFree
         candidate -= (n - bits_free);
     }
 }
+
+// Count the number of set bits in the bitmap.
+POLYUNSIGNED Bitmap::CountSetBits(POLYUNSIGNED size) const
+{
+    size_t bytes = (size+7) >> 3;
+    POLYUNSIGNED count = 0;
+    for (size_t i = 0; i < bytes; i++)
+    {
+        unsigned char byte = m_bits[i];
+        if (byte == 0xff) // Common case
+            count += 8;
+        else
+        {
+            while (byte != 0)
+            {
+                unsigned char b = byte & (-byte);
+                count++;
+                byte -= b;
+            }
+        }
+    }
+    return count;
+}
+

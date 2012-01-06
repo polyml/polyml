@@ -254,16 +254,6 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
             } /* !OBJ_IS_WORD_OBJECT(L) */
         }  /* !OBJ_IS_POINTER(L) */
     } /* for loop */
-
-    // Clear the bitmaps ready for the next collection.  Doing it now
-    // means we can avoid clearing more than we really need.
-    if (area->i_marked != 0 || area->m_marked != 0)
-        // We've marked something so we may have set a bit below the current pointer
-        area->bitmap.ClearBits(0, area->top - area->bottom);
-    else // Otherwise we only need to clear in the area we've newly allocated.  This is
-        // the case when we're doing a partial collection and copying into the
-        // immutable area.
-        area->bitmap.ClearBits(area->upperAllocPtr - area->bottom, area->top - area->upperAllocPtr);
 }
 
 // Task to update addresses in a local area.

@@ -100,6 +100,7 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 
     POLYUNSIGNED L = obj->LengthWord();
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+    ASSERT(obj+n <= (PolyObject*)space->top); // Check the length is sensible
 
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
@@ -161,6 +162,8 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
+
+    ASSERT(obj+n <= (PolyObject*)space->top); // Check the length is sensible
 
     /* Mark the segment including the length word. */
     space->bitmap.SetBits (bitno - 1, n + 1);

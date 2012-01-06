@@ -410,10 +410,6 @@ static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
 
 static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
-    /* Invariant: the bitmaps are completely clean. */
-    /* Note: this version of doGC does NOT clean the store
-    - that's now the user's resposibility SPF 22/10/96
-    */
     unsigned j;
 
     record_gc_time(GCTimeStart);
@@ -421,34 +417,70 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     if (debugOptions & DEBUG_GC)
         Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.nlSpaces);
-    /* Invariant: the bitmaps are completely clean. */
 
-    for(j = 0; j < gMem.nlSpaces; j++)
+/*
+ * There is a really weird bug somewhere.  An extra bit may be set in the bitmap during
+ * the mark phase.  It seems to be related to heavy swapping activity.  Duplicating the
+ * bitmap causes it to occur only in one copy and write-protecting the bitmap apart from
+ * when it is actually being updated does not result in a seg-fault.  So far I've only
+ * seen it on 64-bit Linux but it may be responsible for other crashes.  The work-around
+ * is to check the number of bits set in the bitmap and repeat the mark phase if it does
+ * not match.
+ */
+    
+    for (unsigned p = 3; p > 0; p--)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        ASSERT (lSpace->top >= lSpace->upperAllocPtr);
-        ASSERT (lSpace->upperAllocPtr >= lSpace->lowerAllocPtr);
-        ASSERT (lSpace->lowerAllocPtr >= lSpace->bottom);
-        // Set upper and lower limits of weak refs.
-        lSpace->highestWeak = lSpace->bottom;
-        lSpace->lowestWeak = lSpace->top;
-        lSpace->fullGCLowerLimit = lSpace->top;
-        // Reset the allocation pointers.  They will be set to the
-        // limits of the retained data.
-        lSpace->lowerAllocPtr = lSpace->bottom;
-        lSpace->upperAllocPtr = lSpace->top;
-    }
+        for(j = 0; j < gMem.nlSpaces; j++)
+        {
+            LocalMemSpace *lSpace = gMem.lSpaces[j];
+            ASSERT (lSpace->top >= lSpace->upperAllocPtr);
+            ASSERT (lSpace->upperAllocPtr >= lSpace->lowerAllocPtr);
+            ASSERT (lSpace->lowerAllocPtr >= lSpace->bottom);
+            // Set upper and lower limits of weak refs.
+            lSpace->highestWeak = lSpace->bottom;
+            lSpace->lowestWeak = lSpace->top;
+            lSpace->fullGCLowerLimit = lSpace->top;
+            // Reset the allocation pointers.  They will be set to the
+            // limits of the retained data.
+            lSpace->lowerAllocPtr = lSpace->bottom;
+            lSpace->upperAllocPtr = lSpace->top;
 
-    // Set limits of weak refs.
-    for (j = 0; j < gMem.npSpaces; j++)
-    {
-        PermanentMemSpace *pSpace = gMem.pSpaces[j];
-        pSpace->highestWeak = pSpace->bottom;
-        pSpace->lowestWeak = pSpace->top;
-    }
+            // Clear the bitmaps.  TODO: This could be parellelised.
+            lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
+        }
 
-    /* Mark phase */
-    GCMarkPhase();
+        // Set limits of weak refs.
+        for (j = 0; j < gMem.npSpaces; j++)
+        {
+            PermanentMemSpace *pSpace = gMem.pSpaces[j];
+            pSpace->highestWeak = pSpace->bottom;
+            pSpace->lowestWeak = pSpace->top;
+        }
+
+        /* Mark phase */
+        GCMarkPhase();
+        
+        POLYUNSIGNED bitCount = 0, markCount = 0;
+        
+        for (j = 0; j < gMem.nlSpaces; j++)
+        {
+            LocalMemSpace *lSpace = gMem.lSpaces[j]; 
+            markCount += lSpace->i_marked + lSpace->m_marked;
+            bitCount += lSpace->bitmap.CountSetBits(lSpace->spaceSize());
+        }
+        
+        if (markCount == bitCount)
+            break;
+        else
+        {
+            // Report an error.  If this happens again we crash.
+            Log("GC: Count error for space %u - mark count %lu, bitCount %lu\n", j, markCount, bitCount);
+            if (p == 1)
+            {
+                ASSERT(markCount == bitCount);
+            }
+        }
+    }
 
     if (debugOptions & DEBUG_GC) Log("GC: Check weak refs\n");
     /* Detect unreferenced streams, windows etc. */
@@ -494,7 +526,6 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         ASSERT(iUpdated == iMarked - immutable_overflow);
         ASSERT(mUpdated == mMarked + immutable_overflow);
     }
-    /* Invariant: the bitmaps are completely clean */
 
     {
         /* If we've had an immutable overflow, allow for this when we grow the heap */

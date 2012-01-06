@@ -44,9 +44,11 @@ public:
     // Test a bit
     bool TestBit(POLYUNSIGNED n) const { return (m_bits[n >> 3] & BitN(n)) != 0; }
     // How many zero bits (maximum n) are there in the bitmap, starting at location start?
-    POLYUNSIGNED CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n);
+    POLYUNSIGNED CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n) const;
     //* search the bitmap from the high end down looking for n contiguous zeros
-    POLYUNSIGNED FindFree(POLYUNSIGNED limit, POLYUNSIGNED bitno, POLYUNSIGNED n);
+    POLYUNSIGNED FindFree(POLYUNSIGNED limit, POLYUNSIGNED bitno, POLYUNSIGNED n) const;
+    // How many set bits are there in the bitmap?
+    POLYUNSIGNED CountSetBits(POLYUNSIGNED size) const;
 private:
 
     unsigned char *m_bits;
