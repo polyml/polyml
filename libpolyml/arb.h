@@ -53,6 +53,7 @@ extern Handle le_longc(TaskData *taskData, Handle y, Handle x);
 extern Handle int_to_word_c(TaskData *taskData, Handle x);
 
 extern Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
+extern Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 
 extern POLYUNSIGNED     get_C_ulong(TaskData *taskData, PolyWord);
 extern unsigned short   get_C_ushort(TaskData *taskData, PolyWord);

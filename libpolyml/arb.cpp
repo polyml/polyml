@@ -1696,3 +1696,13 @@ Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
     else return gxd(taskData, x, y);
 }
 #endif
+
+// This is provided as an adjunct to GCD.  Using this saves the RTS
+// calls necessary for the division and multiplication.
+Handle lcm_arbitrary(TaskData *taskData, Handle x, Handle y)
+{
+    Handle g = gcd_arbitrary(taskData, x, y);
+    return mult_longc(taskData, x, div_longc(taskData, g, y));
+}
+
+
