@@ -205,6 +205,9 @@ in
     
         exception XWindows = RunCall.XWindows
         and       Foreign  = RunCall.Foreign
+
+        fun gcd(args: int * int): int =
+            RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (50, args)
     end
 
 end;

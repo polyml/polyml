@@ -2,7 +2,7 @@
     Title:      Arbitrary Precision Package.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Further modification Copyright 2010 David C. J. Matthews
+    Further modification Copyright 2010, 2012 David C. J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -62,6 +62,14 @@ Thanks are due to D. Knuth for the long division algorithm.
 
 #ifdef HAVE_STRING_H
 #include <string.h>
+#endif
+
+#ifdef HAVE_ALLOCA_H
+#include <alloca.h>
+#endif
+
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
 #endif
 
 #ifdef HAVE_ASSERT_H
@@ -1528,4 +1536,163 @@ Handle int_to_word_c(TaskData *taskData, Handle x)
     return taskData->saveVec.push(TAGGED(r));
 }
 
+/*  Arbitrary precision GCD function.  This is really included to make
+    use of GMP's GCD function that selects an algorithm based on the
+    length of the arguments. */
 
+#ifdef USE_GMP
+Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
+{
+    /* mpn_gcd requires that each argument is odd and its first argument must be
+       no longer than its second.  This requires shifting before the call and after
+       the result has been returned.  This code is modelled roughly on the high level
+       mpz_gcd call in GMP. */
+    PolyWord    x_extend[1+WORDS(sizeof(mp_limb_t))];
+    PolyWord    y_extend[1+WORDS(sizeof(mp_limb_t))];
+    SaveVecEntry x_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(x_extend[1])));
+    Handle x_ehandle = &x_extend_addr;
+    SaveVecEntry y_extend_addr = SaveVecEntry(PolyWord::FromStackAddr(&(y_extend[1])));
+    Handle y_ehandle = &y_extend_addr;
+    int sign_x, sign_y; // Signs are ignored - the result is always positive.
+    Handle long_x = get_long(x, x_ehandle, &sign_x);
+    Handle long_y = get_long(y, y_ehandle, &sign_y);
+
+    mp_size_t lx = numLimbs(DEREFWORD(long_x));
+    mp_size_t ly = numLimbs(DEREFWORD(long_y));
+
+    // Test for zero length and therefore zero argument
+    if (lx == 0)
+    {
+        // GCD(0,y) = abs(y)
+        if (sign_y)
+            return neg_longc(taskData, y);
+        else return y;
+    }
+    if (ly == 0)
+    {
+        // GCD(x,0 = abs(x)
+        if (sign_x)
+            return neg_longc(taskData, x);
+        else return x;
+    }
+    // If one of the arguments is a single limb we can use the special case.
+    // This doesn't require shifting.  It also doesn't say that it could
+    // overwrite the arguments.
+    if (lx == 1 || ly == 1)
+    {
+        mp_limb_t g =
+            (lx == 1) ? mpn_gcd_1(DEREFLIMBHANDLE(long_y), ly, *DEREFLIMBHANDLE(long_x)) :
+                mpn_gcd_1(DEREFLIMBHANDLE(long_x), lx, *DEREFLIMBHANDLE(long_y));
+        if (g <= MAXTAGGED)
+            return taskData->saveVec.push(TAGGED(g));
+        // Need to allocate space.
+        Handle r = alloc_and_save(taskData, WORDS(sizeof(mp_limb_t)), F_BYTE_OBJ);
+        *(DEREFLIMBHANDLE(r)) = g;
+        return r;
+    }
+
+    // Memory for result.  This can be up to the shorter of the two.
+    // We rely on this zero the memory because we may not set every word here.
+    Handle r = alloc_and_save(taskData, WORDS((lx < ly ? lx : ly)*sizeof(mp_limb_t)), F_BYTE_OBJ|F_MUTABLE_BIT);
+    // Can now dereference the handles.
+    mp_limb_t *xl = DEREFLIMBHANDLE(long_x);
+    mp_limb_t *yl = DEREFLIMBHANDLE(long_y);
+    mp_limb_t *rl = DEREFLIMBHANDLE(r);
+
+    unsigned xZeroLimbs = 0, xZeroBits = 0;
+    // Remove whole limbs of zeros.  There must be a word which is non-zero.
+    while (*xl == 0) { xl++; xZeroLimbs++; lx--; }
+    // Count the low-order bits and shift by that amount.
+    mp_limb_t t = *xl;
+    while ((t & 1) == 0) { t = t >> 1; xZeroBits++; }
+    // Copy the non-zero limbs into a temporary, shifting if necessary.
+    mp_limb_t *xC = (mp_limb_t*)alloca(lx * sizeof(mp_limb_t));
+    if (xZeroBits != 0)
+    {
+        mpn_rshift(xC, xl, lx, xZeroBits);
+        if (xC[lx-1] == 0) lx--;
+    }
+    else memcpy(xC, xl, lx * sizeof(mp_limb_t));
+
+    unsigned yZeroLimbs = 0, yZeroBits = 0;
+    while (*yl == 0) { yl++; yZeroLimbs++; ly--; }
+    t = *yl;
+    while ((t & 1) == 0) { t = t >> 1; yZeroBits++; }
+    mp_limb_t *yC = (mp_limb_t*)alloca(ly * sizeof(mp_limb_t));
+    if (yZeroBits != 0)
+    {
+        mpn_rshift(yC, yl, ly, yZeroBits);
+        if (yC[ly-1] == 0) ly--;
+    }
+    else memcpy(yC, yl, ly * sizeof(mp_limb_t));
+
+    // The result length and shift is the smaller of these
+    unsigned rZeroLimbs, rZeroBits;
+    if (xZeroLimbs < yZeroLimbs || (xZeroLimbs == yZeroLimbs && xZeroBits < yZeroBits))
+    {
+        rZeroLimbs = xZeroLimbs;
+        rZeroBits = xZeroBits;
+    }
+    else
+    {
+        rZeroLimbs = yZeroLimbs;
+        rZeroBits = yZeroBits;
+    }
+    // Now actually compute the GCD
+    if (lx < ly || (lx == ly && xC[lx-1] < yC[ly-1]))
+        lx = mpn_gcd(xC, yC, ly, xC, lx);
+    else
+        lx = mpn_gcd(xC, xC, lx, yC, ly);
+    // Shift the temporary result into the final area.
+    if (rZeroBits != 0)
+    {
+        t = mpn_lshift(rl+rZeroLimbs, xC, lx, rZeroBits);
+        if (t != 0)
+            rl[rZeroLimbs+lx] = t;
+    }
+    else memcpy(rl+rZeroLimbs, xC, lx);
+
+    return make_canonical(taskData, r, false);
+}
+
+#else
+// Fallback version for when GMP is not defined.
+static Handle gxd(TaskData *taskData, Handle x, Handle y)
+{
+    Handle marker = taskData->saveVec.mark();
+    while (1)
+    {
+        if (DEREFWORD(y) == TAGGED(0))
+            return x;
+
+        Handle res = rem_longc(taskData, y, x);
+        PolyWord newY = res->Word();
+        PolyWord newX = y->Word();
+        taskData->saveVec.reset(marker);
+        y = taskData->saveVec.push(newY);
+        x = taskData->saveVec.push(newX);
+    }
+}
+
+static Handle absValue(TaskData *taskData, Handle x)
+{
+    if (IS_INT(DEREFWORD(x)))
+    {
+        if (UNTAGGED(DEREFWORD(x)) < 0)
+            return neg_longc(taskData, x);
+    }
+    else if (OBJ_IS_NEGATIVE(GetLengthWord(DEREFWORD(x))))
+        return neg_longc(taskData, x);
+    return x;
+}
+
+Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
+{
+    x = absValue(taskData, x);
+    y = absValue(taskData, y);
+
+    if (compareLong(taskData, y, x) < 0)
+        return gxd(taskData, y, x);
+    else return gxd(taskData, x, y);
+}
+#endif

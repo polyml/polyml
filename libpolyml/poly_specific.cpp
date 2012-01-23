@@ -379,6 +379,9 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             Make_arbitrary_precision(taskData, 0);
         }
 
+    case 50: // GCD
+        return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));
+
         // These next ones were originally in process_env and have now been moved here,
     case 100: /* Return the maximum word segment size. */
             return Make_arbitrary_precision(taskData, MAX_OBJECT_SIZE);
