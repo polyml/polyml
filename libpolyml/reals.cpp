@@ -767,7 +767,6 @@ void RealArithmetic::Init(void)
 {
     /* Some compilers object to overflow in constants so
        we compute the values here. */
-    double zero = 0.0;
 #if (HAVE_DECL_FPSETMASK && ! defined(__CYGWIN__))
     /* In FreeBSD 3.4 at least, we sometimes get floating point
        exceptions if we don't clear the mask.  Maybe need to do
@@ -780,13 +779,19 @@ void RealArithmetic::Init(void)
     posInf = INFINITY;
     negInf = -(INFINITY);
 #else
-    posInf = 1.0 / zero;
-    negInf = -1.0 / zero;
+    {
+        double zero = 0.0;
+        posInf = 1.0 / zero;
+        negInf = -1.0 / zero;
+    }
 #endif
 #if (defined(NAN))
     notANumber = NAN;
 #else
-    notANumber = zero / zero;
+    {
+        double zero = 0.0;
+        notANumber = zero / zero;
+    }
 #endif
     // Make sure this is a positive NaN since we return it from "abs".
     // "Positive" in this context is copysign(1.0, x) > 0.0 because that's
