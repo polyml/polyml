@@ -76,12 +76,7 @@ sig
             result: types
         }
 
-    |   LabelledType  of
-        { 
-            recList: { name: string, typeof: types } list,
-            frozen: bool,
-            genericInstance: typeVarForm list
-        }
+    |   LabelledType  of labelledRec
 
     |   OverloadSet   of
         {
@@ -101,6 +96,10 @@ sig
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
+
+    and labelFieldList =
+        FieldList of string list * bool (* True if this is frozen *)
+    |   FlexibleList of labelFieldList ref
 
     and valAccess =
         Global   of codetree
@@ -170,6 +169,16 @@ sig
     |   OpenedAt of location
     |   StructureAt of location
 
+    withtype labelledRec =
+    {
+        (* Fields actually present in this record.  If this was flexible at some
+           stage there may be extra fields listed in the full field list. *)
+        recList: { name: string, typeof: types } list,
+        (* The names of all the fields including extra fields. *)
+        fullList: labelFieldList
+    }
+
+
     (* type identifiers. *)
     val isFreeId:     typeId -> bool
     val isBoundId:    typeId -> bool
@@ -193,6 +202,9 @@ sig
 
     val isBad:     types -> bool
     val isEmpty:   types -> bool
+
+    val recordFields   : labelledRec -> string list
+    val recordIsFrozen : labelledRec -> bool
 
     val tcName:            typeConstrs -> string
     val tcArity:           typeConstrs -> int

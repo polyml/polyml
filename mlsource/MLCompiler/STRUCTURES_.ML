@@ -913,7 +913,7 @@ struct
 
     (* Check that two types match.  Returns either an error result or the set
        of polymorphic variables for the source and the target. *)
-    fun matchTypes (candidate, target, targMap: int -> typeId option) =
+    fun matchTypes (candidate, target, targMap: int -> typeId option, _) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = targMap offset
         |   copyId _ = NONE
@@ -956,7 +956,7 @@ struct
                 that the sharing constraints have been satisfied. *)
         case matchTypes (mkTypeConstruction (candidName, candid, tvars, []),
                          mkTypeConstruction (targetName, target, tvars, []), 
-                         targTypeMap) of
+                         targTypeMap, lex) of
                 MatchError error => (* Report the error. *)
                     errorInDatatype(candidSet, targetSet, matchErrorReport(lex, typeEnv, typeEnv) error)
             |   MatchSuccess _ =>
@@ -1247,7 +1247,7 @@ struct
                                         matches
                                     )
                             |   IsOK coercion =>
-                                case matchTypes (sourceTypeOf, destTypeOf, lookupType) of
+                                case matchTypes (sourceTypeOf, destTypeOf, lookupType, lex) of
                                     MatchSuccess instanceType =>
                                     (
                                         (* If it matches an entry in the signature it counts as being exported

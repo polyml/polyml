@@ -306,11 +306,12 @@ struct
 
     fun getTupleKind t =
       case t of
-        LabelledType {recList = [{typeof=t', ...}], frozen = true, ...} =>
+        (* We cannot have flexible records here.   All the fields must be listed. *)
+        LabelledType {recList = [{typeof=t', ...}], ...} =>
             (* Singleton records are always represented simply by the value. *)
           getTupleKind t'
       
-      | LabelledType {recList, frozen = true, ...} =>
+      | LabelledType {recList, ...} =>
           UnaryTupled (length recList)
       
       | FunctionType _ => 

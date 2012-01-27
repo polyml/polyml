@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009.
+    Modified David C. J. Matthews 2009, 2012.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -132,12 +132,7 @@ struct
             result: types
         }
 
-    |   LabelledType  of
-        { 
-            recList: { name: string, typeof: types } list,
-            frozen: bool,
-            genericInstance: typeVarForm list
-        }
+    |   LabelledType  of labelledRec
 
     |   OverloadSet   of
         {
@@ -160,6 +155,10 @@ struct
 
     and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
+
+    and labelFieldList =
+        FieldList of string list * bool (* True if this is frozen *)
+    |   FlexibleList of labelFieldList ref
 
     (* Access to a value, structure or functor. *)
     and valAccess =
@@ -246,6 +245,16 @@ struct
         value:    types ref,
         encoding: Word.word
     }
+
+    and labelledRec =
+    {
+        (* Fields actually present in this record.  If this was flexible at some
+           stage there may be extra fields listed in the full field list. *)
+        recList: { name: string, typeof: types } list,
+        (* The names of all the fields including extra fields. *)
+        fullList: labelFieldList
+    }
+
     
   (* A set of type contructors.  This is used only during the
      compilation process and represents the set of possible types
@@ -414,11 +423,19 @@ struct
         fun tvPrintity ({encoding, ...} : typeVarForm)     = encoding andb 0w1 <> 0w0
     end
 
+    local
+        fun follow (FlexibleList(ref r)) = follow r
+        |   follow (FieldList c) = c
+    in
+        fun recordIsFrozen { fullList, ...} =
+            #2 (follow fullList)
+        and recordFields {fullList, ...} =
+            #1 (follow fullList)
+    end
+
   (* Type constructors are identifiers which take zero or more types and yield a
      type as result. Their main property is that two type constructors can be 
-     unified iff they are the same constructor. We use a "struct" so that we can 
-     test for equivalence, and so we have a "nil" value for Unset type identifiers.
-     In this case we will have a list of constructors for the type. Another use for
+     unified iff they are the same constructor. Another use for
      constructors is for aliasing types. In this case "typeVars" points to a list 
      of type variables which are used in the "equivalent" type. ``equality'' is a 
      flag indicating if the values can be tested for equality. *)

@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9 David C.J. Matthews
+    Copyright (c) 2000-9, 2012 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -123,8 +123,11 @@ struct
                 {name=Int.toString i, typeof=H} :: maptoRecord (T,i+1)
     in
         fun mkProductType (typel: types list) =
-            LabelledType {recList = maptoRecord (typel, 1), frozen = true,
-                          genericInstance = []}
+        let
+            val fields = maptoRecord (typel, 1)
+        in
+            LabelledType {recList = fields, fullList = FieldList(List.map #name fields, true)}
+        end
     end
 
   fun mkFunctionType (arg, result) = 
@@ -145,22 +148,29 @@ struct
         var
     end
 
-  fun mkLabelled (l, frozen) = 
-  let
-    val lab = LabelledType {recList = l, frozen = frozen, genericInstance = []};
-  in
-    if frozen
-    then lab
-    else let (* Use a type variable so that the record can be expanded. *)
-      val var = mkTypeVar (generalisable, false, false, false)
-      val () =
-        if isTypeVar var
-        then tvSetValue (typesTypeVar var, lab)
-        else ();
+    fun mkLabelled (l, frozen) = 
+    let
+        val final = FieldList(map #name l, frozen)
+        val lab =
+            LabelledType {recList = l,
+                          fullList = if frozen then final else FlexibleList(ref final) }
     in
-      var
+        if frozen
+        then lab
+        else
+        let
+           (* Use a type variable so that the record can be expanded.
+              This also provides a model (equality etc). for any fields that
+              are added later. *)
+            val var = mkTypeVar (generalisable, false, false, false)
+            val () =
+                if isTypeVar var
+                then tvSetValue (typesTypeVar var, lab)
+                else ();
+        in
+            var
+        end
     end
-  end;
 
     (* Must remove leading zeros because the labels are compared by
        string comparison. *)
@@ -389,7 +399,7 @@ struct
     val unitConstr   =
         makeTypeConstructor ("unit", [],
             makeTypeFunction({ location = inBasis, description = "unit", name = "unit" },
-            ([], LabelledType {recList = [], frozen = true, genericInstance = []})),
+            ([], LabelledType {recList = [], fullList = FieldList([], true)})),
             [DeclaredAt inBasis]);
 
 
@@ -434,7 +444,7 @@ struct
         end;
     in  
         enter s (#name s) (sortLabels rest)
-    end;        
+    end
 
   (* Chains down a list of type variables returning the type they are
      bound to. As a side-effect it also points all the type variables
@@ -445,139 +455,110 @@ struct
      variables which pointed to the first and which cannot be found and
      redirected at the second until they themselves are examined. *)
      
-  fun eventual (t as (TypeVar tv)) : types =
+    fun eventual (t as (TypeVar tv)) : types =
     let
-      (* Note - don't change the level/copy information - the only type
-         variable with this correct is the one at the end of the list. *)
-      val oldVal = tvValue tv
-      val newVal = eventual oldVal;   (* Search that *)
+        (* Note - don't change the level/copy information - the only type
+           variable with this correct is the one at the end of the list. *)
+        val oldVal = tvValue tv
+        val newVal = eventual oldVal;   (* Search that *)
     in
-      (* Update the type variable to point to the last in the chain.
+        (* Update the type variable to point to the last in the chain.
          We don't do this if the value hasn't changed.  The reason for
          that was that assignment to refs in the database in the old
          persistent store system was very expensive and we wanted to avoid
          unnecessary assignments.  This special case could probably be removed. *)
-      if PolyML.pointerEq(oldVal, newVal)
-      then ()
-      else tvSetValue (tv, newVal); (* Put it on *)
-      case newVal of
-        EmptyType => (* Not bound to anything - return the type variable *)
-          t
-      
-      | LabelledType {frozen = false, recList = instanceList,
-                      genericInstance = genericInstance as generic :: _} =>
-        (* Flexible record type.  We need to add any fields which have been
-           added to the generic since we extracted this instance.  In particular
-           the generic might have been frozen. *)
-        let
-        fun createNewField{name, typeof = TypeVar gtv} =
-            (
-            (*print(concat[
-                "createNewField:",
-                "Generic - equality=", Bool.toString(tvEquality gtv),
-                " level=", Int.toString(tvLevel gtv),
-                " Instance - equality=", Bool.toString(tvEquality tv),
-                " level=", Int.toString(tvLevel tv),
-                "\n"
-            ]);*)
-            { name = name,
-              (* The new type variable has to be created with the same properties
-                 as if we had first generalised it from the generic and then
-                 unified with this instance.
-                 The level is inherited from the instance since the generic
-                 will always have level = generalisable.  Nonunifiable must be false. *)
-              typeof = mkTypeVar (tvLevel tv, tvEquality tv orelse tvEquality gtv, false,
-                                  tvPrintity tv orelse tvPrintity gtv)
-            }
-            )
-        |   createNewField _ =  raise InternalError "createNewField: New field is not a type var"
+        if PolyML.pointerEq(oldVal, newVal)
+        then ()
+        else tvSetValue (tv, newVal); (* Put it on *)
+        case newVal of
+            EmptyType => t (* Not bound to anything - return the type variable *)
+        |   LabelledType (r as { recList, fullList }) =>
+            if List.length recList = List.length(recordFields r)
+            then (* All the generic fields are present so we don't need to do anything. *)
+                if recordIsFrozen r then newVal else t
+            else (* We need to add fields from the generic. *)
+            let
+                (* Add any fields from the generic that aren't present in this instance. *)
+                fun createNewField name =
+                        { name = name,
+                          (* The new type variable has to be created with the same properties
+                             as if we had first generalised it from the generic and then
+                             unified with this instance.
+                             The level is inherited from the instance since the generic
+                             will always have level = generalisable.  Nonunifiable must be false. *)
+                            typeof = mkTypeVar (tvLevel tv, tvEquality tv, false, tvPrintity tv)}
 
-        fun addToInstance([], []) = []
-         |  addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
-         |  addToInstance([], _) =
-                raise InternalError "addToInstance: Entry in instance but not in generic"
-         |  addToInstance((generic as {name=gName, ...}):: geRest, inst as instance :: iRest) =
-                let
-                    val order = compareLabels (gName, #name instance);
-                in
-                    if order = 0 (* Equal *)
-                    then instance :: addToInstance(geRest, iRest)
-                    else if order < 0 (* generic name < instance name *)
-                    then createNewField generic :: addToInstance(geRest, inst)
-                    else raise InternalError "addToInstance: Entry in instance but not in generic"
-                end
+                fun addToInstance([], []) = []
+                |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
+                |   addToInstance([], _) =
+                        raise InternalError "addToInstance: Entry in instance but not in generic"
+                |   addToInstance(generic :: geRest, inst as instance :: iRest) =
+                    let
+                        val order = compareLabels (generic, #name instance);
+                    in
+                        if order = 0 (* Equal *)
+                        then instance :: addToInstance(geRest, iRest)
+                        else if order < 0 (* generic name < instance name *)
+                        then createNewField generic :: addToInstance(geRest, inst)
+                        else raise InternalError "addToInstance: Entry in instance but not in generic"
+                    end
 
-        val (newList, nowFrozen) = 
-            case tvValue generic of
-                LabelledType { recList, frozen, ... } =>
-                    (addToInstance(recList, instanceList), frozen)
-            |   _ => raise InternalError "unifyRecords: Not a labelled record"
-        val newRecord =
-            LabelledType {frozen = nowFrozen, genericInstance = genericInstance, recList = newList}
-        in
-            tvSetValue(tv, newRecord);
-            if nowFrozen then newRecord else t
-        end
+                val newList = addToInstance(recordFields r, recList)
+                val newRecord =
+                    LabelledType {recList = newList, fullList = fullList}
+            in
+                tvSetValue(tv, newRecord);
+                if recordIsFrozen r then newRecord else t
+            end
+ 
+        |   OverloadSet _ => t (* Return the set of types. *)
 
-      | LabelledType {frozen = false, ...} => t
-        (* Flexible record with no generic instances - return the variable. *)
-
-      | OverloadSet _ => (* Return the set of types. *)
-          t
-
-      | _ => 
-          newVal (* Return the type it is bound to *)
+        |   _ => newVal (* Return the type it is bound to *)
     end
     
-   | eventual t (* not a type variable *) = t;
+    | eventual t (* not a type variable *) = t;
 
 
-  (* Apply a function to every element of a type. *)
-  (* rewritten using pattern-matching SPF 17/11/94 *)
-  fun foldType f =
-  let
-    fun foldT typ v =
+    (* Apply a function to every element of a type. *)
+    fun foldType f =
     let
-      val t   = eventual typ;
-      val res = f t v; (* Process this entry. *)
-    in
-      case t of
-        TypeVar tv =>
-          foldT (tvValue tv) res
+        fun foldT typ v =
+        let
+            val t   = eventual typ;
+            val res = f t v; (* Process this entry. *)
+        in
+            case t of
+                TypeVar tv => foldT (tvValue tv) res
 
-       | TypeConstruction {args, ...} =>
-           (* Then process the arguments. *)
-           List.foldr (fn (t, v) => foldT t v) res args
+            |   TypeConstruction {args, ...} => (* Then process the arguments. *)
+                    List.foldr (fn (t, v) => foldT t v) res args
            
-      | FunctionType {arg, result} =>
-           foldT arg (foldT result res)
+            |   FunctionType {arg, result} => foldT arg (foldT result res)
     
-      | LabelledType {recList,...} =>
-           List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
+            |   LabelledType {recList,...} =>
+                    List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
 
-      | BadType =>
-          res
+            |   BadType => res
          
-      | EmptyType =>
-          res
+            |   EmptyType => res
           
-      | OverloadSet _ => res
+            |   OverloadSet _ => res
+        end
+    in
+        foldT
     end;
-  in
-    foldT
-  end;
 
-  (* Checks to see whether a labelled record is in the form of
+    (* Checks to see whether a labelled record is in the form of
      a product i.e. 1=, 2=   We only need this for prettyprinting.
      Zero-length records (i.e. unit) and singleton records are not
      considered as tuples. *)
-  fun isProductType(LabelledType{recList=recList as _::_::_, frozen=true, ...}) =
+    fun isProductType(LabelledType(r as {recList=recList as _::_::_, ...})) =
     let
         fun isRec [] _ = true
          |  isRec ({name, ...} :: l) n =
                 name = Int.toString n andalso isRec l (n+1)
     in
-        isRec recList 1
+        recordIsFrozen r andalso isRec recList 1
     end
     | isProductType _ = false;
 
@@ -616,7 +597,7 @@ struct
             equalTypes (#result x, #result y)
                  
         | equalTypes (LabelledType x, LabelledType y) =
-            #frozen x andalso #frozen y andalso  
+            recordIsFrozen x andalso recordIsFrozen y andalso  
             equalRecordLists (#recList x, #recList y)
 
         | equalTypes (TypeVar x, TypeVar y)  = sameTv (x, y)
@@ -722,14 +703,14 @@ struct
                 else FunctionType {arg = copiedArg, result = copiedRes}
             end 
               
-        |   LabelledType {recList, frozen, ...} =>
+        |   LabelledType {recList, fullList} =>
                 (* Rigid labelled records only.  Flexible ones are treated as type vars. *)
             let
-                val copiedList = copyRecordList recList;
+                val copiedList = copyRecordList recList
             in
                 if identicalList (copiedList, recList)
                 then atyp 
-                else LabelledType {recList = copiedList, frozen = frozen, genericInstance = []}
+                else LabelledType {recList = copiedList, fullList = fullList}
             end
                         
         |   EmptyType =>
@@ -1036,7 +1017,7 @@ struct
                         ])
                 end
                      
-            |   LabelledType {recList, frozen, ...} =>
+            |   LabelledType (r as {recList, ...}) =>
                 if depth <= 0
                 then PrettyString "..."
                 else if isProductType typ
@@ -1069,7 +1050,7 @@ struct
                     in
                         pRec recList (depth - 1)
                     end) @
-                    [ PrettyString (if frozen then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
+                    [ PrettyString (if recordIsFrozen r then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
                     )
 
             |   OverloadSet {typeset = []} => PrettyString "no type"
@@ -1345,14 +1326,14 @@ struct
         ParseTypeConstruction{
             name = constrName, nameLoc = nameLoc, args = args, argLoc = argLoc, location = location }
 
-    fun makeParseTypeProduct(fieldList, location) =
-        ParseTypeProduct{ fields = fieldList, location = location }
+    fun makeParseTypeProduct(recList, location) =
+        ParseTypeProduct{ fields = recList, location = location }
 
     fun makeParseTypeFunction(arg, result, location) =
         ParseTypeFunction{ argType = arg, resultType = result, location = location }
 
-    fun makeParseTypeLabelled(fieldList, frozen, location) =
-        ParseTypeLabelled{ fields = fieldList, frozen = frozen, location = location }
+    fun makeParseTypeLabelled(recList, frozen, location) =
+        ParseTypeLabelled{ fields = recList, frozen = frozen, location = location }
 
     fun makeParseTypeId(types, location) =
         ParseTypeId{ types = types, location = location }
@@ -1503,7 +1484,7 @@ struct
     (* When we have finished processing a list of patterns we need to check
        that the record is now frozen. *)
     fun recordNotFrozen (TypeVar t) : bool = (* Follow the chain *) recordNotFrozen (tvValue t)
-    |   recordNotFrozen (LabelledType { frozen, ... }) = not frozen
+    |   recordNotFrozen (LabelledType r) = not(recordIsFrozen r)
     |   recordNotFrozen _ = false (* record or type alias *);
 
     datatype generalMatch = Matched of {old: typeVarForm, new: types};
@@ -1546,21 +1527,11 @@ struct
             let
                 val newTv = tvs atyp
             in
-                (* If we have a type variable pointing to a generic flexible record we have
-                   to retain a reference to the original so that we can add fields as necessary.
-                   We also have to generalise the fields since that won't have been done.
-                   The generic instance includes any generic instances used in the original
-                   type. *)
+                (* If we have a type variable pointing to a flexible record we have to
+                   copy the type pointed at by the variable. *)
                 case tvValue tyVar of
-                    valu as LabelledType{genericInstance, ...} =>
-                    (
-                    case copyType (valu, copyTypeVar, fn t => t)  of
-                        LabelledType{recList, frozen, ... } =>
-                            tvSetValue (typesTypeVar newTv,
-                                LabelledType{recList = recList, frozen = frozen,
-                                    genericInstance = tyVar :: genericInstance})
-                    |   _ => raise InternalError "Copy of labelled record is not a labelled record"
-                    )
+                    valu as LabelledType _ =>
+                        tvSetValue (typesTypeVar newTv, copyType (valu, copyTypeVar, fn t => t))
                 |   _ => ();
                 newTv
             end
@@ -1693,21 +1664,21 @@ struct
      type variable they  will be unified to new equality type variables.
      Otherwise equality is not allowed. *)
     
-  fun equality (ty, search, lookupTypeVar) : tri =
-  let
-    (* Can't use foldT because it is not monotonic
-       (equality on ref 'a is allowed). *)
-    (* Returns Yes only if equality testing is allowed for all types
-       in the list. *)
-    fun eqForList ([],    soFar) = soFar
-      | eqForList (x::xs, soFar) = 
-        case equality (x, search, lookupTypeVar) of
-           No    => No
-         | Maybe => eqForList (xs, Maybe)
-         | Yes   => eqForList (xs, soFar);
-  in
-    case eventual ty of
-      TypeVar tyVar => (* The type variable may point to a flexible record or
+    fun equality (ty, search, lookupTypeVar) : tri =
+    let
+        (* Can't use foldT because it is not monotonic
+           (equality on ref 'a is allowed). *)
+        (* Returns Yes only if equality testing is allowed for all types
+           in the list. *)
+        fun eqForList ([],    soFar) = soFar
+          | eqForList (x::xs, soFar) = 
+            case equality (x, search, lookupTypeVar) of
+               No    => No
+             | Maybe => eqForList (xs, Maybe)
+             | Yes   => eqForList (xs, soFar);
+    in
+        case eventual ty of
+            TypeVar tyVar => (* The type variable may point to a flexible record or
                           an overload set or it may be the end of the chain.
                           If this is a labelled record we have to make sure that
                           any fields we add also admit equality.
@@ -1715,23 +1686,22 @@ struct
                           so that any new fields are checked for equality but
                           we also have to call "equality" to check the existing
                           fields. *)
-        if tvEquality tyVar then Yes
-        else
-            (
-            case tvValue tyVar of
-                lab as LabelledType _ =>
+                if tvEquality tyVar then Yes
+                else
                     (
-                    case lookupTypeVar tyVar of
-                        No => No
-                      | _ => equality (lab, search, lookupTypeVar)
+                    case tvValue tyVar of
+                        lab as LabelledType _ =>
+                            (
+                            case lookupTypeVar tyVar of
+                                No => No
+                              | _ => equality (lab, search, lookupTypeVar)
+                            )
+                     | _ => lookupTypeVar tyVar
                     )
-             | _ => lookupTypeVar tyVar
-            )
    
-   | FunctionType {...} =>
-       No  (* No equality on function types! *)
+        |   FunctionType {...} => No  (* No equality on function types! *)
     
-   | TypeConstruction {constr, args, ...} =>
+        |   TypeConstruction {constr, args, ...} =>
             if isUndefined constr
             then No
 
@@ -1758,21 +1728,19 @@ struct
                 if s = No then No else eqForList (args, s)
             end (* TypeConstruction *)
          
-   | LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
-        (* TODO: Avoid copying the list? *)
-       eqForList (map (fn{typeof, ...}=>typeof) recList, Yes)
+        |   LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
+                (* TODO: Avoid copying the list? *)
+                eqForList (map (fn{typeof, ...}=>typeof) recList, Yes)
 
-   | OverloadSet _ =>
-        (* This should not happen because all overload sets should be pointed
-           to by type variables and so should be handled in the TypeVar case. *)
-        raise InternalError "equality - Overloadset found"
+        |   OverloadSet _ =>
+                (* This should not happen because all overload sets should be pointed
+                   to by type variables and so should be handled in the TypeVar case. *)
+                raise InternalError "equality - Overloadset found"
 
-   | BadType =>
-      No
+        |   BadType => No
 
-   | EmptyType => (* shouldn't occur *)
-      No
-  end;
+        |   EmptyType => No (* shouldn't occur *)
+    end
 
   (* When a datatype is declared we test to see if equality is allowed. The
      types are mutually recursive so value constructors of one type may
@@ -1929,132 +1897,55 @@ struct
   
     fun match (Atype : types, Btype : types) : unit =
     let (* Check two records/tuples and return the combined type. *)
-      fun unifyRecords ({frozen=typAFrozen, recList=typAlist, genericInstance = gA},
-                        {frozen=typBFrozen, recList=typBlist, genericInstance = gB},
+      fun unifyRecords (rA as {recList=typAlist, fullList = gA},
+                        rB as {recList=typBlist, fullList = gB},
                         typA : types, typB : types) : types =
-      let
-        (* If we add a field to the instance we have to add a corresponding type variable to
-           the generic. *)
-        fun addFieldToGeneric field generic =
-        let
-            (* The new entry is just a type variable. *)
-            val newEntry =
-                (
-                (*print(concat[
-                    "newEntry:",
-                    "equality=", Bool.toString(tvEquality generic),
-                    " level=", Int.toString(tvLevel generic),
-                    "\n"
-                ]);*)
-                { name = field,
-                  (* The entry must at least inherit the equality attribute.
-                     We should have tvLevel generic = generalisable and tvNonUnifiable generic
-                     = false. *)
-                  typeof = mkTypeVar(tvLevel generic, tvEquality generic,
-                                tvNonUnifiable generic, tvPrintity generic)}
-                )
-            fun addEntry [] = [newEntry]
-             |  addEntry ((ge as {name, typeof = _}) :: geRest) =
-                    let
-                        val order = compareLabels (name, field)
-                    in
-                        if order = 0
-                        then ge :: geRest (* Already there - this may be a duplicate. *)
-                        else if order < 0
-                        then ge :: addEntry geRest
-                        else newEntry :: ge :: geRest
-                    end
-        in
-            case tvValue generic of
-                LabelledType { recList, frozen = false, ...} =>
-                    tvSetValue(generic,
-                        LabelledType { recList = addEntry recList, frozen = false,
-                                genericInstance = []})
-            |   LabelledType { recList, frozen = true, ...} =>
-                    let
-                        (* It seems that in obscure circumstances (see regression file
-                           p073) we can have a generic that is already frozen.  In that
-                           case all the field we want to add should already be in the
-                           frozen record otherwise it's an error.
-                           I don't really understand this and I don't know whether it's
-                           actually possible to have a missing field at this point. *)
-                        fun checkEntries [] = ()
-                        |   checkEntries (({name, typeof = _}) :: geRest) =
-                            let
-                                val order = compareLabels (name, field)
-                            in
-                                if order = 0 (* It's there *)
-                                then ()
-                                else if order < 0
-                                then checkEntries geRest
-                                else cantMatch (typA, typB, "(Field " ^ name ^ " missing)")
-                            end
-                    in
-                        checkEntries recList
-                    end
-            |   _ => raise InternalError "addFieldToGeneric: Not a labelled record"
-        end
-
-        fun freezeGeneric generic =
-            case tvValue generic of
-                LabelledType { recList, ...} =>
-                    tvSetValue(generic,
-                        LabelledType { recList = recList, frozen = true, genericInstance = []})
-            |   _ => raise InternalError "freezeGeneric: Not a labelled record"
+      let        
+        val typAFrozen = recordIsFrozen rA
+        and typBFrozen = recordIsFrozen rB
 
         fun matchLabelled ([], []) = []
           
              (* Something left in bList - this is fine if typeA is not frozen.
                 e.g.  (a: s, b: t) will match (a: s, ...) but not just (a:s). *)
-          | matchLabelled ([], bList as {name=bName, ...} :: _) =
-           ( 
-            if typAFrozen
-            then cantMatch (typA, typB, "(Field " ^ bName ^ " missing)")
-            else (* Add all the extra fields in bList to all the generics for A. *)
-                List.app(fn {name, ...} => List.app (addFieldToGeneric name) gA) bList;
-            bList (* return the remainder of the list *)
-           )
-
-          | matchLabelled (aList as {name=aName, ...} :: _, []) = (* Something left in bList *)
+        |   matchLabelled ([], bList as {name=bName, ...} :: _) =
             ( 
-             if typBFrozen
-             then cantMatch (typA, typB, "(Field " ^ aName ^ " missing)")
-             else List.app(fn {name, ...} => List.app (addFieldToGeneric name) gB) aList;
-             aList (* the rest of aList *)
+                if typAFrozen
+                then cantMatch (typA, typB, "(Field " ^ bName ^ " missing)")
+                else ();
+                bList (* return the remainder of the list *)
+            )
+
+        |   matchLabelled (aList as {name=aName, ...} :: _, []) = (* Something left in bList *)
+            ( 
+                if typBFrozen
+                then cantMatch (typA, typB, "(Field " ^ aName ^ " missing)")
+                else ();
+                aList (* the rest of aList *)
             )
         
-          | matchLabelled (aList as ((aVal as {name=aName,typeof=aType})::aRest),
+        |   matchLabelled (aList as ((aVal as {name=aName,typeof=aType})::aRest),
                            bList as ((bVal as {name=bName,typeof=bType})::bRest)) =
-             (* both not nil - look at the names. *)
-             let
-               val order = compareLabels (aName, bName);
-             in
-               if order = 0 (* equal *)
-               then (* same name - must be unifiable types *)
-               ( (* The result is (either) one of these with the rest of the list. *)
-                 match (aType, bType);
-                 aVal :: matchLabelled (aRest, bRest)
-               )
-               else if order < 0 (* aName < bName *)
-                then 
-                ( (* The entries in each list are in order so this means that this
-                     entry is not in bList. If the typeB is frozen this is an error. *)
-                  if typBFrozen (* Continue with the entry removed. *)
-                  then (cantMatch (typA, typB, "(Field " ^ aName ^ " missing)"); aList)
-                  else
-                     (
-                     List.app (addFieldToGeneric aName) gB;
-                     aVal :: matchLabelled (aRest, bList)
-                     )
+            (* both not nil - look at the names. *)
+            let
+                val order = compareLabels (aName, bName);
+            in
+                if order = 0 (* equal *)
+                then (* same name - must be unifiable types *)
+                ( (* The result is (either) one of these with the rest of the list. *)
+                    match (aType, bType);
+                    aVal :: matchLabelled (aRest, bRest)
                 )
+                else if order < 0 (* aName < bName *)
+                then (* The entries in each list are in order so this means that this
+                       entry is not in bList. If the typeB is frozen this is an error. *)
+                    if typBFrozen (* Continue with the entry removed. *)
+                then (cantMatch (typA, typB, "(Field " ^ aName ^ " missing)"); aList)
+                else aVal :: matchLabelled (aRest, bList)
                 else (* aName > bName *)
-                  if typAFrozen
-                  then (cantMatch (typA, typB, "(Field " ^ bName ^ " missing)"); bList)
-                  else
-                     (
-                     List.app (addFieldToGeneric bName) gA;
-                     bVal :: matchLabelled (aList, bRest)
-                     )
+                    if typAFrozen
+                then (cantMatch (typA, typB, "(Field " ^ bName ^ " missing)"); bList)
+                else bVal :: matchLabelled (aList, bRest)
              end (* not nil *);
  
         (* Return the combined list. Only actually used if both are flexible. *)
@@ -2066,14 +1957,34 @@ struct
                     errors on fields that don't match. *)
                (cantMatch (typA, typB, "(Different number of fields)"); [])
             else matchLabelled (typAlist, typBlist)
-        (* We append the generic instances.  This may create duplicates if, for example,
-           we are unifying a record with itself. *)
+
+        fun lastFlex(FlexibleList(ref(r as FlexibleList _))) = lastFlex r
+        |   lastFlex(FlexibleList r) = SOME r
+        |   lastFlex(FieldList _) = NONE
+
       in
         if typAFrozen
-        then (if typBFrozen then () else List.app freezeGeneric gB; typA)
+        then (if typBFrozen then () else valOf(lastFlex gB) := gA; typA)
         else if typBFrozen
-        then (if typAFrozen then () else List.app freezeGeneric gA; typB)
-        else LabelledType {recList = result, frozen = false, genericInstance = gA @ gB}
+        then (valOf(lastFlex gA) := gB; typB)
+        else
+        let
+            (* We may have these linked already in which case we shouldn't do anything. *)
+            val lastA = valOf(lastFlex gA) and lastB = valOf(lastFlex gB)
+        in
+            if lastA = lastB
+            then ()
+            else
+            let
+                val genericFields = FieldList(map #name result, false)
+            in
+                (* If these are both flexible we have link all the generics together
+                   so that if we freeze any one of them they all get frozen. *)
+                lastA := genericFields;
+                lastB := FlexibleList lastA
+            end;
+            LabelledType {recList = result, fullList = gA}
+        end
       end (* unifyRecords *);
 
     (* Sets a type variable to a value. - Checks that the type variable
@@ -3069,7 +2980,9 @@ struct
                     mkTypeVar(generalisable, false, false, false)
             end
   
-        |   LabelledType {recList=firstRec, frozen=true, ...} =>
+        |   LabelledType (r as {recList=firstRec, fullList}) =>
+            if recordIsFrozen r
+            then
             let
                 (* This matches if all the field names are the same.  Extract the types. *)
                 fun nameMatch({name=name1: string, ...}, {name=name2, ...}) = name1 = name2
@@ -3088,11 +3001,15 @@ struct
                     fun recreateRecord({name, ...}, types) = {name=name, typeof=types}
                     val newList = ListPair.map recreateRecord(firstRec, argTypes)
                 in
-                    LabelledType{recList=newList, frozen=true, genericInstance=[] }
+                    LabelledType{recList=newList, fullList=fullList }
                 end
                 else (* At least one of these wasn't a record. *)
                     mkTypeVar(generalisable, false, false, false)
             end
+            else (* At this stage the record should be frozen if the program is
+                    correct but if it isn't we could have a flexible record which
+                    we report elsewhere. *)
+                mkTypeVar(generalisable, false, false, false)
 
         |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false, false)
     end
