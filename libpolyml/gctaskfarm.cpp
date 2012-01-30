@@ -203,16 +203,21 @@ void GCTaskFarm::ThreadFunction()
     }
 }
 
-#ifdef HAVE_PTHREAD_H
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
 void *GCTaskFarm::WorkerThreadFunction(void *parameter)
-#else
-DWORD WINAPI GCTaskFarm::WorkerThreadFunction(void *parameter)
-#endif
 {
     GCTaskFarm *t = (GCTaskFarm *)parameter;
     t->ThreadFunction();
     return 0;
 }
+#elif defined(HAVE_WINDOWS_H)
+DWORD WINAPI GCTaskFarm::WorkerThreadFunction(void *parameter)
+{
+    GCTaskFarm *t = (GCTaskFarm *)parameter;
+    t->ThreadFunction();
+    return 0;
+}
+#endif
 
 // Wait until the queue is empty.
 void GCTaskFarm::WaitForCompletion(void)
