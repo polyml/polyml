@@ -533,7 +533,7 @@ bool PImport::GetValue(PolyWord *result)
         POLYUNSIGNED j;
         fscanf(f, "%" POLYUFMT, &j);
         ASSERT(j >= 0 && j < POLY_SYS_vecsize);
-        *result = (PolyObject*)&gMem.ioSpace.bottom[j * IO_SPACING];
+        *result = (PolyObject*)&gMem.ioSpace->bottom[j * IO_SPACING];
     }
     else if (ch == 'J')
     {
@@ -541,7 +541,7 @@ bool PImport::GetValue(PolyWord *result)
         POLYUNSIGNED j, offset;
         fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &j, &offset);
         ASSERT(j >= 0 && j < POLY_SYS_vecsize);
-        PolyWord base = (PolyObject*)&gMem.ioSpace.bottom[j * IO_SPACING];
+        PolyWord base = (PolyObject*)&gMem.ioSpace->bottom[j * IO_SPACING];
         *result = PolyWord::FromCodePtr(base.AsCodePtr() + offset);
     }
     else
@@ -571,7 +571,7 @@ bool PImport::DoImport()
 
     ASSERT(gMem.npSpaces == 0);
     ASSERT(gMem.neSpaces == 0);
-    ASSERT(gMem.ioSpace.bottom == 0);
+    ASSERT(gMem.ioSpace->bottom == 0);
     PolyWord *ioSpace = (PolyWord*)calloc(POLY_SYS_vecsize*IO_SPACING, sizeof(PolyWord));
     if (ioSpace == 0)
     {

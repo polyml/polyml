@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.h   Memory segment manager
 
-    Copyright (c) 2006-8, 2010-11 David C. J. Matthews
+    Copyright (c) 2006-8, 2010-12 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,8 +37,29 @@ typedef enum {
     ST_STACK        // ML Stack for a thread
 } SpaceType;
 
+
+// B-tree used in SpaceForAddress.  Leaves are MemSpaces.
+class SpaceTree
+{
+public:
+    SpaceTree(bool is): isSpace(is) { }
+    virtual ~SpaceTree() {}
+
+    bool isSpace;
+};
+
+// A non-leaf node in the B-tree
+class SpaceTreeTree: public SpaceTree
+{
+public:
+    SpaceTreeTree();
+    virtual ~SpaceTreeTree();
+
+    SpaceTree *tree[256];
+};
+
 // Base class for the various memory spaces.
-class MemSpace
+class MemSpace: public SpaceTree
 {
 protected:
     MemSpace();
@@ -208,28 +229,38 @@ public:
     bool PromoteExportSpaces(unsigned hierarchy); // Turn export spaces into permanent spaces.
     bool DemoteImportSpaces(void); // Turn previously imported spaces into local.
 
-    MemSpace *SpaceForAddress(const void *pt); // Return the space the address is in or NULL if none.
-    PermanentMemSpace *SpaceForIndex(unsigned index); // Return the space for a given index
+    PermanentMemSpace *SpaceForIndex(unsigned index) const; // Return the space for a given index
 
-    // See if the address is in a local space.  This is used in the GC and
-    // needs to be fast.
-    LocalMemSpace *LocalSpaceForAddress(const void *pt)
+    // Find a space that contains a given address.  This is called for every cell
+    // during a GC so needs to be fast.,
+    MemSpace *SpaceForAddress(const void *pt) const
     {
-        if (pt >= minLocal && pt <= maxLocal)
+        uintptr_t t = (uintptr_t)pt;
+        SpaceTree *tr = localTree;
+
+        // Each level of the tree is either a leaf or a vector of trees.
+        unsigned j = sizeof(void *)*8;
+        for (;;)
         {
-            for (unsigned i = 0; i < nlSpaces; i++)
-            {
-                LocalMemSpace *space = lSpaces[i];
-                if (pt >= space->bottom && pt < space->top)
-                    return space;
-            }
+            if (tr == 0 || tr->isSpace)
+                return (MemSpace*)tr;
+            j -= 8;
+            tr = ((SpaceTreeTree*)tr)->tree[(t >> j) & 0xff];
         }
         return 0;
     }
 
-    bool IsIOPointer(const void *pt) { return pt >= ioSpace.bottom && pt < ioSpace.top; }
-    bool IsPermanentMemoryPointer(const void *pt);
-    bool IsLocalMutable(const void *pt)
+    // Find a local address for a space.
+    LocalMemSpace *LocalSpaceForAddress(const void *pt) const
+    {
+        MemSpace *s = SpaceForAddress(pt);
+        if (s != 0 && s->spaceType == ST_LOCAL)
+            return (LocalMemSpace*)s;
+        else return 0;
+    }
+
+    bool IsIOPointer(const void *pt) const { return pt >= ioSpace->bottom && pt < ioSpace->top; }
+    bool IsLocalMutable(const void *pt) const
     { LocalMemSpace *space = LocalSpaceForAddress(pt); return space != 0 && space->isMutable; }
 
     void SetReservation(POLYUNSIGNED words) { reservedSpace = words; }
@@ -241,9 +272,9 @@ public:
     // Return number of words of free space for stats.
     POLYUNSIGNED GetFreeAllocSpace();
 
-    MemSpace *IoSpace() { return &ioSpace; } // Return pointer to the IO space.
+    MemSpace *IoSpace() { return ioSpace; } // Return pointer to the IO space.
 
-    MemSpace ioSpace; // The IO space
+    MemSpace *ioSpace; // The IO space
 
     // Table for permanent spaces
     PermanentMemSpace **pSpaces;
@@ -262,19 +293,35 @@ public:
     unsigned nsSpaces;
     PLock stackSpaceLock;
 
-    // Used for quick check for local addresses.
-    PolyWord *minLocal, *maxLocal;
 
     // Storage manager lock.
     PLock allocLock;
 
     unsigned nextIndex; // Used when allocating new permanent spaces.
 
+    POLYUNSIGNED SpaceBeforeMinorGC() const { return spaceBeforeMinorGC; }
+    POLYUNSIGNED SpaceBeforeMajorGC() const { return spaceBeforeMajorGC; }
+    void SetSpaceSizes(POLYUNSIGNED minorSize, POLYUNSIGNED majorSize)
+    { spaceBeforeMinorGC = minorSize; spaceBeforeMajorGC = majorSize; }
+
+    POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
+
 private:
     bool AddLocalSpace(LocalMemSpace *space);
 
     POLYUNSIGNED reservedSpace;
     unsigned nextAllocator;
+    // The default size in words when creating new segments.
+    POLYUNSIGNED defaultSpaceSize;
+    // The number of words that can be used for initial allocation.
+    POLYUNSIGNED spaceBeforeMinorGC;
+    // The number of words that can accumulate in
+    // the mutable and immutable areas before a major (full) GC is needed.
+    POLYUNSIGNED spaceBeforeMajorGC;
+    // LocalSpaceForAddress is a hot-spot so we use a B-tree to convert addresses;
+    SpaceTree *localTree;
+    void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
+    void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
 };
 
 extern MemMgr gMem;

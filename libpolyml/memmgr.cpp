@@ -1,7 +1,7 @@
 /*
     Title:  memmgr.cpp   Memory segment manager
 
-    Copyright (c) 2006-7, 2011 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-12 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -44,7 +44,7 @@
 #include "diagnostics.h"
 #include "statistics.h"
 
-MemSpace::MemSpace()
+MemSpace::MemSpace(): SpaceTree(true)
 {
     spaceType = ST_PERMANENT;
     isMutable = false;
@@ -103,7 +103,6 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
 MemMgr::MemMgr()
 {
     npSpaces = nlSpaces = nsSpaces = 0;
-    minLocal = maxLocal = 0;
     pSpaces = 0;
     lSpaces = 0;
     eSpaces = 0;
@@ -111,10 +110,17 @@ MemMgr::MemMgr()
     nextIndex = 0;
     reservedSpace = 0;
     nextAllocator = 0;
+    defaultSpaceSize = 0;
+    spaceBeforeMinorGC = 0;
+    spaceBeforeMajorGC = 0;
+    defaultSpaceSize = 1024 * 1024 / sizeof(PolyWord); // 1Mbyte segments.
+    localTree = new SpaceTreeTree;
+    ioSpace = new MemSpace;
 }
 
 MemMgr::~MemMgr()
 {
+    delete(localTree); // Have to do this before we delete the spaces.
     unsigned i;
     for (i = 0; i < npSpaces; i++)
         delete(pSpaces[i]);
@@ -128,6 +134,7 @@ MemMgr::~MemMgr()
     for (i = 0; i < nsSpaces; i++)
         delete(sSpaces[i]);
     free(sSpaces);
+    delete ioSpace;
 }
 
 // Create and initialise a new local space and add it to the table.
@@ -192,23 +199,6 @@ LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
 // Add a local memory space to the table.
 bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 {
-    // Compute the maximum and minimum local addresses.  The idea
-    // is to speed up LocalSpaceForAddress which is likely to be a hot-spot
-    // in the GC.
-    if (nlSpaces == 0)
-    {
-        // First space
-        minLocal = space->bottom;
-        maxLocal = space->top;
-    }
-    else
-    {
-        if (space->bottom < minLocal)
-            minLocal = space->bottom;
-        if (space->top > maxLocal)
-            maxLocal = space->top;
-    }
-
     // Add to the table.
     LocalMemSpace **table = (LocalMemSpace **)realloc(lSpaces, (nlSpaces+1) * sizeof(LocalMemSpace *));
     if (table == 0) return false;
@@ -226,6 +216,9 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
         lSpaces[s] = space;
         nlSpaces++;
     }
+
+    // Update the B-tree.
+    AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
     return true;
 }
 
@@ -256,6 +249,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         }
         pSpaces = table;
         pSpaces[npSpaces++] = space;
+        AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
         return space;
     }
     catch (std::bad_alloc a) {
@@ -273,6 +267,7 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
             globalStats.decSize(PSS_TOTAL_HEAP, sp->spaceSize() * sizeof(PolyWord));
+            RemoveTreeRange(&localTree, sp, (uintptr_t)sp->bottom, (uintptr_t)sp->top);
             delete sp;
             nlSpaces--;
             while (i < nlSpaces)
@@ -290,11 +285,12 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
 // Create an entry for the IO space.
 MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
 {
-    ioSpace.bottom = base;
-    ioSpace.top = ioSpace.bottom + words;
-    ioSpace.spaceType = ST_IO;
-    ioSpace.isMutable = false;
-    return &ioSpace;
+    ioSpace->bottom = base;
+    ioSpace->top = ioSpace->bottom + words;
+    ioSpace->spaceType = ST_IO;
+    ioSpace->isMutable = false;
+    AddTreeRange(&localTree, ioSpace, (uintptr_t)ioSpace->bottom, (uintptr_t)ioSpace->top);
+    return ioSpace;
 }
 
 
@@ -333,6 +329,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         }
         eSpaces = table;
         eSpaces[neSpaces++] = space;
+        AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
         return space;
     }
     catch (std::bad_alloc a) {
@@ -343,7 +340,11 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
 void MemMgr::DeleteExportSpaces(void)
 {
     while (neSpaces > 0)
-        delete(eSpaces[--neSpaces]);
+    {
+        PermanentMemSpace *space = eSpaces[--neSpaces];
+        RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        delete(space);
+    }
 }
 
 // If we have saved the state rather than exported a function we turn the exported
@@ -368,6 +369,8 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
         {
             try {
                 // Turn this into a local space.
+                // Remove this from the tree - AddLocalSpace will make an entry for the local version.
+                RemoveTreeRange(&localTree, pSpace, (uintptr_t)pSpace->bottom, (uintptr_t)pSpace->top);
                 LocalMemSpace *space = new LocalMemSpace;
                 space->top = space->fullGCLowerLimit = pSpace->top;
                 space->bottom = space->upperAllocPtr = space->lowerAllocPtr = pSpace->bottom;
@@ -420,6 +423,8 @@ bool MemMgr::DemoteImportSpaces()
         {
             try {
                 // Turn this into a local space.
+                // Remove this from the tree - AddLocalSpace will make an entry for the local version.
+                RemoveTreeRange(&localTree, pSpace, (uintptr_t)pSpace->bottom, (uintptr_t)pSpace->top);
                 LocalMemSpace *space = new LocalMemSpace;
                 space->top = pSpace->top;
                 // Space is allocated in local areas from the top down.  This area is full and
@@ -453,53 +458,8 @@ bool MemMgr::DemoteImportSpaces()
     return true;
 }
 
-// Return the space the address is in or NULL if none.
-// We have to check here against the bottom of the area rather
-// than the allocation because, when called from CopyObject,
-// the "pointer" field points to the top of the area.
-// N.B.  By checking for pt < space->top we are assuming that we don't have
-// zero length objects.  A zero length object at the top of the space would
-// have its length word as the last word in the space and the address of the
-// object would be == space->top.
-MemSpace *MemMgr::SpaceForAddress(const void *pt)
-{
-    unsigned i;
-    for (i = 0; i < nlSpaces; i++)
-    {
-        MemSpace *space = lSpaces[i];
-        if (pt >= space->bottom && pt < space->top)
-            return space;
-    }
-    for (i = 0; i < npSpaces; i++)
-    {
-        MemSpace *space = pSpaces[i];
-        if (pt >= space->bottom && pt < space->top)
-            return space;
-    }
-    for (i = 0; i < neSpaces; i++)
-    {
-        MemSpace *space = eSpaces[i];
-        if (pt >= space->bottom && pt < space->top)
-            return space;
-    }
-    if (pt >= ioSpace.bottom && pt < ioSpace.top)
-        return &ioSpace;
-    return 0; // Not in any space
-}
-
-bool MemMgr::IsPermanentMemoryPointer(const void *pt)
-{
-    for (unsigned i = 0; i < npSpaces; i++)
-    {
-        MemSpace *space = pSpaces[i];
-        if (pt >= space->bottom && pt < space->top)
-            return true;
-    }
-    return false;
-}
-
 // Return the space for a given index
-PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index)
+PermanentMemSpace *MemMgr::SpaceForIndex(unsigned index) const
 {
     for (unsigned i = 0; i < npSpaces; i++)
     {
@@ -535,7 +495,7 @@ void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
 // space to satisfy the minimum it will return 0.
 PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
 {
-    allocLock.Lock();
+    PLocker locker(&allocLock);
     // We try to distribute the allocations between the memory spaces
     // so that at the next GC we don't have all the most recent cells in
     // one space.  The most recent cells will be more likely to survive a
@@ -543,6 +503,7 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
     nextAllocator++;
     if (nextAllocator > gMem.nlSpaces) nextAllocator = 0;
 
+    POLYUNSIGNED spaceInAllocs = 0;
     for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[(j + nextAllocator) % gMem.nlSpaces];
@@ -556,12 +517,27 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
                     maxWords = available;
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
                 space->lowerAllocPtr += maxWords; // Allocate it.
-                allocLock.Unlock();
                 return result;
             }
+            spaceInAllocs += space->spaceSize();
         }
     }
-    allocLock.Unlock();
+    // There isn't space in the existing areas - can we create a new area?
+    if (spaceInAllocs < spaceBeforeMinorGC && minWords < spaceBeforeMinorGC - spaceInAllocs)
+    {
+        POLYUNSIGNED spaceSize = defaultSpaceSize;
+        if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
+        LocalMemSpace *space = CreateAllocationSpace(spaceSize);
+        if (space == 0) return 0; // Can't allocate it
+        // Allocate our space in this new area.
+        POLYUNSIGNED available = space->freeSpace();
+        ASSERT(available >= minWords);
+        if (available < maxWords)
+            maxWords = available;
+        PolyWord *result = space->lowerAllocPtr; // Return the address.
+        space->lowerAllocPtr += maxWords; // Allocate it.
+        return result;
+    }
     return 0; // There isn't space even for the minimum.
 }
 
@@ -751,6 +727,98 @@ bool MemMgr::DeleteStackSpace(StackSpace *space)
     }
     ASSERT(false); // It should always be in the table.
     return false;
+}
+
+SpaceTreeTree::SpaceTreeTree(): SpaceTree(false)
+{
+    for (unsigned i = 0; i < 256; i++)
+        tree[i] = 0;
+}
+
+SpaceTreeTree::~SpaceTreeTree()
+{
+    for (unsigned i = 0; i < 256; i++)
+    {
+        if (tree[i] && ! tree[i]->isSpace)
+            delete(tree[i]);
+    }
+}
+
+void MemMgr::AddTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, uintptr_t endS)
+{
+    if (*tt == 0)
+        *tt = new SpaceTreeTree;
+    ASSERT(! (*tt)->isSpace);
+    SpaceTreeTree *t = (SpaceTreeTree*)*tt;
+
+    const unsigned shift = (sizeof(void*)-1) * 8; // Takes the high-order byte
+    uintptr_t r = startS >> shift;
+    ASSERT(r >= 0 && r < 256);
+    const uintptr_t s = endS == 0 ? 256 : endS >> shift;
+    ASSERT(s >= r && s <= 256);
+
+    if (r == s) // Wholly within this entry
+        AddTreeRange(&(t->tree[r]), space, startS << 8, endS << 8);
+    else
+    {
+        // Deal with any remainder at the start.
+        if ((r << shift) != startS)
+        {
+            AddTreeRange(&(t->tree[r]), space, startS << 8, 0 /*End of range*/);
+            r++;
+        }
+        // Whole entries.
+        while (r < s)
+        {
+            ASSERT(t->tree[r] == 0);
+            t->tree[r] = space;
+            r++;
+        }
+        // Remainder at the end.
+        if ((s << shift) != endS)
+            AddTreeRange(&(t->tree[r]), space, 0, endS << 8);
+    }
+}
+
+// Remove an entry from the tree for a range.  Strictly speaking we don't need the
+// space argument here but it's useful as a check.
+void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, uintptr_t endS)
+{
+    SpaceTreeTree *t = (SpaceTreeTree*)*tt;
+    ASSERT(! t->isSpace);
+    const unsigned shift = (sizeof(void*)-1) * 8;
+    uintptr_t r = startS >> shift;
+    const uintptr_t s = endS == 0 ? 256 : endS >> shift;
+
+    if (r == s)
+        RemoveTreeRange(&(t->tree[r]), space, startS << 8, endS << 8);
+    else
+    {
+        // Deal with any remainder at the start.
+        if ((r << shift) != startS)
+        {
+            RemoveTreeRange(&(t->tree[r]), space, startS << 8, 0);
+            r++;
+        }
+        // Whole entries.
+        while (r < s)
+        {
+            ASSERT(t->tree[r] == space);
+            t->tree[r] = 0;
+            r++;
+        }
+        // Remainder at the end.
+        if ((s << shift) != endS)
+            RemoveTreeRange(&(t->tree[r]), space, 0, endS << 8);
+    }
+    // See if the whole vector is now empty.
+    for (unsigned j = 0; j < 256; j++)
+    {
+        if (t->tree[j])
+            return; // It's not empty - we're done.
+    }
+    delete(t);
+    *tt = 0;
 }
 
 MemMgr gMem; // The one and only memory manager object
