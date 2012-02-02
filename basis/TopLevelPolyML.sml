@@ -1121,6 +1121,7 @@ in
                 print "--help         Print this message and exit\n";
                 print "-q             Suppress the start-up message\n";
                 print "--use FILE     Executes 'use \"FILE\";' before the ML shell starts\n";
+                print "--error-exit   Exit shell on unhandled exception\n";
                 print "--with-markup  Include extra mark-up information when printing\n";
                 print "--ideprotocol  Run the IDE communications protocol\n";
                 print "\nRun time system arguments:\n";

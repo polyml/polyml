@@ -996,7 +996,7 @@ polytemp.txt: $(POLYIMPORT)
 # This builds the compiler but does not update the files in the imports directory.
 # It then builds a version of poly containing the new compiler.
 compiler: all
-	./poly $(BOOTSTRAP_OPTIONS) < mlsource/BuildExport.sml
+	./poly $(BOOTSTRAP_OPTIONS) --error-exit < mlsource/BuildExport.sml
 	$(MAKE)
 
 reboot: compiler

@@ -250,6 +250,8 @@ local
         if ! useMarkupInOutput then prettyPrintWithIDEMarkup(stream, lineWidth)
         else PolyML.prettyPrint(stream, lineWidth)
 
+    val exitOnError = ref false
+
     (* Top-level prompts. *)
     val prompt1 = ref "> " and prompt2 = ref "# ";
 
@@ -706,7 +708,10 @@ local
             fun handledLoop () : unit =
             (
                 (* Process a single top-level command. *)
-                readEvalPrint() handle _ => ();
+                readEvalPrint() handle _ =>
+                                      if !exitOnError
+                                      then OS.Process.exit OS.Process.failure
+                                      else ();
                 (* Exit if we've seen end-of-file or we're in the debugger
                    and we've run "continue". *)
                 if !endOfFile orelse exitLoop() then ()
@@ -873,6 +878,7 @@ local
             (* Generate mark-up in IDE code when printing if the option has been given
                on the command line. *)
             useMarkupInOutput := List.exists(fn s => s = "--with-markup") (CommandLine.arguments());
+            exitOnError := List.exists(fn s => s = "--error-exit") (CommandLine.arguments());
             topLevel false (globalNameSpace, fn _ => false)
         )
     end
