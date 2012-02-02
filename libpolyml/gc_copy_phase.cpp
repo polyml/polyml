@@ -265,7 +265,12 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
         if (immutableDest == 0)
         {
             if (! FindNextSpace(src, &immutableDest, false, id))
-                return;
+            {
+                // If we have a mutable area we can use that if there's
+                // nothing else.
+                if (mutableDest == 0)
+                    return;
+            }
         }
         // If this is a mutable area we may also need a mutable space
         if (src->isMutable && mutableDest == 0)
@@ -330,7 +335,7 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
         // saved state segments into local areas.  It's much better to delete them
         // if possible.
         bool isMutable = OBJ_IS_MUTABLE_OBJECT(L);
-        LocalMemSpace *destSpace = isMutable ? mutableDest : immutableDest;
+        LocalMemSpace *destSpace = isMutable || immutableDest == 0 ? mutableDest : immutableDest;
         PolyWord *newp = FindFreeAndAllocate(destSpace, (src == destSpace) ? bitno : 0, n);
         if (newp == 0 && src != destSpace)
         {
