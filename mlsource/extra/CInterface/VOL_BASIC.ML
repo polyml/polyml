@@ -46,17 +46,15 @@ struct
         v
         (map (mapDirectedArg makeRaw ID) args)
         (mapUnionChoice makeRaw rt)
-        
-    fun toCfunction argType resType f =
-    let
-    in
-        Dispatch.toCfunction (map makeRaw argType) (makeRaw resType) f
-    end
+
+    (* These both take an ML function and create a vol.  They can and should
+       be applied to the type information before they are applied to the ML
+       function.  It actually doesn't help much because
+       VOLS_THAT_HOLD_REFS().toCfunction etc sapply them to all the arguments. *)
+    fun toCfunction argType resType =
+        Dispatch.toCfunction (map makeRaw argType) (makeRaw resType)
     
-    fun toPascalfunction argType resType f =
-    let
-    in
-        Dispatch.toPascalfunction (map makeRaw argType) (makeRaw resType) f
-    end
-    
+    fun toPascalfunction argType resType =
+        Dispatch.toPascalfunction (map makeRaw argType) (makeRaw resType)
+
 end;
