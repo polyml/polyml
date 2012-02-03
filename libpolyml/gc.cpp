@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010, 2011 David C. J. Matthews
+    Copyright (c) 2010-12 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -73,9 +73,9 @@
 
 // The immutable and mutable segment sizes are the default units of allocation
 // for new address spaces.
-static POLYUNSIGNED    immutableSegSize, mutableSegSize;
-static POLYUNSIGNED    immutableFreeSpace, mutableFreeSpace;
-static POLYUNSIGNED    immutableMinFree, mutableMinFree; // Probably remove
+//static POLYUNSIGNED    immutableSegSize, mutableSegSize;
+//static POLYUNSIGNED    immutableFreeSpace, mutableFreeSpace;
+//static POLYUNSIGNED    immutableMinFree, mutableMinFree; // Probably remove
 
 static GCTaskFarm gTaskFarm; // Global task farm.
 GCTaskFarm *gpTaskFarm = &gTaskFarm;
@@ -87,20 +87,16 @@ bool convertedWeak = false;
 
 /*
     How the garbage collector works.
-    The GC is generational.  There are two modes: minor and full.  Most of the
-    code is the same for both.  There are two types of local heap: mutable and
-    immutable.  ML and RTS code always allocate new objects in a mutable heap.
-    Note allocation is from the top of the area down.
-    Originally, there were just two areas but now there may be multiple
-    heap segments of each type.  The GC has three phases:
+    The GC has two phases.  The minor (quick) GC is a copying collector that
+    copies data from the allocation area into the mutable and immutable area.
+    The major collector is started when either the mutable or the immutable
+    area is full.  The major collector uses a mark/sweep scheme.
+    The GC has three phases:
 
     1.  Mark phase.
-    Working from the roots; which are the the permanent mutable segments, the RTS
-    roots (e.g. thread stacks) and, if this is a minor collection, mutable objects
-    collected in previous collections ("gen_top" to "top"), mark all reachable cells.
-    Marking involves setting bits in the bitmap for reachable words.  If this is a
-    minor collection we only follow cells that are in the current generation
-    ("gen_bottom" to "gen_top").
+    Working from the roots; which are the the permanent mutable segments and
+    the RTS roots (e.g. thread stacks), mark all reachable cells.
+    Marking involves setting bits in the bitmap for reachable words.
 
     2. Compact phase.
     Marked objects are copied to try to compact, upwards, the heap segments.  When
@@ -116,296 +112,35 @@ bool convertedWeak = false;
     addresses for moved objects are updated.  The lowest address used in the area
     then becomes the base of the area for future allocations.
 
-    Typically, a minor GC moves immutable data into the immutable area and leaves
-    mutable data behind.  The immutable data moved is considered "old" and not
-    scanned until a major collection.  However, if a collection finds that there
-    are significant holes in the heap (these holes must be in the mutable area)
-    it is better to try to recollect the current generation.  In this case the
-    immutable data moved during this collection are considered as "new" in the
-    next minor collection.  Even though we're only concerned there with compacting
-    the mutable area we have to process immutable objects that may contain their
-    addresses.
-    DCJM 27/6/09
-*/
+    Updated DCJM 02/02/12
 
-/*
-  The comments below may still be relevant.  I've left them in because they
-  contain notes about optimisations that were tried in the past and no longer
-  apply.
-
-  How the garbage collector works.
-
-  Phase 1: Starting from the roots in the old mutable area, and
-           any pointers kept by the runtime system, we mark all
-           objects that are found within the two GC areas.
-           The GC areas extend from the allocation pointer
-           to the top of the area.
-
-  Phase 2: Then we scan the immutable object bitmap. When we find
-           a mutable object we try to find space for it in the mutable
-           area, if we find an immutable object we try to find space
-           for it further up the immutable area. We may have to extend
-           the mutable area to make room for objects since we must not commit
-           and leave mutable objects in the immutable area.
-
-           Then we do the same for the mutable area, copying immutable objects
-           out into the immutable area, and moving mutable objects up.
-
-           We keep track of the lowest object that could not be moved.
-           The allocation pointers will be reset to the lowest kept objects,
-           and the area below is taken to be free.
-
-  Phase 3: Then we start from the roots and runtime system objects and
-           look for pointers into the GC areas that point to tombstones.
-           These pointers are changed to point to the new position of
-           the objects. Then we process all the objects in the areas
-           doing the same thing.
-
-Further notes:
-
-  The order of processing the immutable and mutable area has been changed
-  since the above comment was written (by Dave Matthews?).
-
-  It would be nice to combine phases 2 and 3 - we could traverse the
-  reachable data-structures, starting at the roots, adjusting pointers
-  as we go (rather like copyGC). We would only use the bitmap created
-  in phase 1 to tell us where to find space to move the new objects.
-
-  The main advantage of this approach is that is likely to be
-  quicker - we only have to traverse the new (small?) data-structure
-  rather than scanning the (large) mutable buffer.
-
-  The disadvantage is that it would leave part of the heap dirty,
-  and I think parts of the RTS may depend on any unused heap
-  word containing zeroes. I'll have to look at this very closely!
-  Note that this is a different issue from the compiler requiring
-  the area below the allocation area to be zeroed. (Should we
-  fix this?) Here we are talking about the area *above* the
-  allocation pointer, which may contain objects, tombstones
-  and zero words only.
-
-  A second disadvantage is that the "compress" pass may not give
-  as good compression as currently, because it wouldn't explicitly
-  start at the bottom and work up. In recompense, we would be able
-  to recycle all but the length word of a tombstone, so our
-  actual space usage might improve.
-
-  SPF 21/10/96
-
-  I've now deleted all that carefully optimised code that used to zero the
-  heap - it's now the responsibility of the compiler (and alloc) to ensure
-  that the store is correctly initialised whenever a GC might occur.
-
-  SPF 22/10/96
-
-  The GC is required to "clean" each area of the heap between pointer and top;
-  this area may only contain objects, tombstones and zero words. The GC
-  currently does this for the benefit of OpMutableBlock, but this behaviour
-  is also required for the PrintLocalProfileCounts in run_time.c to avoid
-  core dumps.
-
-  SPF 23/10/96
-
-  Let's try to improve the design of the garbage collector, by doing partial GCs
-  in 5 phases:
-
-     (1) Mark
-     (2) CopyImmutables
-     (3) FixupImmutable
-     (4) CopyMutables
-     (5) FixupMutables
-
-   What are the advantages/disadvantages of the new approach?
-
-       Advantage:
-
-           We can copy mutables into the holes left by copying-out immutables,
-           which gives better compaction of the mutable area. The inability
-           to do this is currently a problem for some applications because
-           it triggers far too many full GCs.
-
-       Disadvantage:
-
-           We have to run the copy and fix-up phases twice. This may be expensive.
-
-   Can we get the advantage without the disadvantage by only splitting the Copy
-   and Fixup phases when this looks like a win?
-
-   Note: we have to separate the Mark and Copy phases, as otherwise we won't be
-   able to handle weak pointers. Shame!
-
-   SPF 17/12/1997
 */
 
 #define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
-// Try to allocate another heap segment.  It tries to allocate the requested size
 
-// but if that fails it allocates what it can.
-static bool TryMoreHeap(POLYUNSIGNED size, bool mut)
+// For the current, crude heap allocation strategy this is the heap
+// size (less the allocation area) given on the command line.
+static POLYUNSIGNED majorGCFree;
+
+// Called at the end of collection.  This is where we should do the
+// fine adjustment of the heap size to minimise the GC time.
+// Growing the heap is just a matter of adjusting the limits.  We
+// don't actually need to allocate the space here.
+// See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
+static void adjustHeapSize()
 {
-    do {
-        if (gMem.NewLocalSpace(size, mut))
-            return true;
-        // Otherwise try with half the size and stop when
-        // it's less than 64k words.
-        size = size / 2;
-    } while (size > 64*1024);
-
-    return false;
-}
-
-/* The problem with this version of PossiblyExpandArea is that it doesn't always expand
-   it enough for the subsequent compaction phase to actually liberate wordsRequiredToAllocate
-   of free space. SPF 31/7/96
-*/
-
-// This function is called after the mark phase of a FULL garbage collection to
-// expand the immutable area if necessary.  wordsNeeded is the amount of immutable
-// data detected during the mark phase.
-static void PossiblyExpandImmutableArea(const POLYUNSIGNED wordsNeeded)
-{
-    POLYUNSIGNED currentSize = 0;
-    unsigned nISpaces = 0; // Number of immutable spaces already
-    for (unsigned j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        if (! space->isMutable)
-        {
-            currentSize += space->top - space->bottom;
-            nISpaces++;
-        }
-    }
-
-    if (immutableFreeSpace + wordsNeeded > currentSize) // need to get some more space
-    {
-        // We want to ensure that we have immutableFreeSpace free after this
-        // collection.  We allocate in units of immutableSegSize so as not to
-        // have too many small segments.
-        POLYUNSIGNED requestedGrowth = immutableFreeSpace + wordsNeeded - currentSize;
-        if (requestedGrowth < immutableSegSize)
-            requestedGrowth = immutableSegSize;
-        // Make the segments larger if we have already allocated several.
-        // The factors here are a guess.  Maybe tune them more carefully
-        unsigned spaceFactor = nISpaces / (3 * userOptions.gcthreads);
-        while (spaceFactor > 0) { requestedGrowth += immutableSegSize; spaceFactor--; }
-
-        POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
-        POLYUNSIGNED words   = chunks * BITSPERWORD;
-
-        // Allocate a new space for each GC thread
-        for (unsigned i = 0; i < userOptions.gcthreads; i++)
-            (void)TryMoreHeap(words, false); // If this fails just carry on with what we have.
-    }
-}
-
-
-/* This function CHECKS whether we have enough space AFTER the compaction phase.
-   Returns the number of spaces we need to create. */
-static unsigned BufferIsReallyFull(bool mutableRegion, POLYUNSIGNED wordsNeeded, const bool fullGC)
-{
-    // This is the space we need to be free.  If this is a mutable area wordsNeeded is the
-    // space needed to allocate the object whose attempted allocation triggered this collection.
-    // It needs to be available in at least one mutable area.  If this is an immutable area
-    // wordsNeeded is the amount of space needed for immutable objects that couldn't be copied
-    // out of the mutable area so doesn't need to be contiguous.
-    POLYUNSIGNED requiredFree;
-    if (mutableRegion)
-        requiredFree = fullGC ? mutableFreeSpace: mutableMinFree;
-    else
-    {
-        requiredFree = fullGC ? immutableFreeSpace: immutableMinFree;
-        requiredFree += wordsNeeded / userOptions.gcthreads;
-        wordsNeeded = 0;
-    }
-    // We need the minimum free space in as many spaces as we have GC threads.
-    // Because we allocate in the spaces in a fixed order if we are short of
-    // space that will be because all but the last few spaces are completely full.
-    unsigned spaceAvailableIn = 0;
-
+    // A very crude adjustment at this stage:
+    // Keep the allocation area the same,
+    // Set the major GC size (mutable+immutable area) so
+    // that there is a fixed amount free.
+    POLYUNSIGNED spaceUsed = 0;
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
-        LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable == mutableRegion)
-        {
-            POLYUNSIGNED currentlyFree = space->freeSpace();
-            if (currentlyFree >= wordsNeeded)
-            {
-                currentlyFree -= wordsNeeded;
-                wordsNeeded = 0;
-            }
-            if (currentlyFree >= requiredFree)
-                spaceAvailableIn++;
-        }
+        spaceUsed += gMem.lSpaces[i]->allocatedSpace();
     }
-    if (spaceAvailableIn < userOptions.gcthreads) // Insufficient space
-        return userOptions.gcthreads - spaceAvailableIn;
-    else if (wordsNeeded != 0)
-        return 1; // We need a space to allocate the new object
-    else
-        return 0;
-}
-
-// AFTER a full GC, make sure we have a full buffer's worth of free space available.
-static void AdjustHeapSize(bool isMutableSpace, POLYUNSIGNED wordsRequired)
-{
-    // Do we need any new spaces?
-    unsigned newSpaces = BufferIsReallyFull(isMutableSpace, wordsRequired, true);
-    const POLYUNSIGNED segSize =
-        isMutableSpace ? mutableSegSize : immutableSegSize;
-
-    if (newSpaces > 0)
-    {
-        // We need some more space
-        for (unsigned j = 0; j < newSpaces; j++)
-        {    // expand the heap.
-            POLYUNSIGNED requestedGrowth = wordsRequired;
-            wordsRequired = 0; // We don't need to include this in any other spaces.
-            if (requestedGrowth < segSize)
-                requestedGrowth = segSize;
-            POLYUNSIGNED chunks  = ROUNDUP_UNITS(requestedGrowth, BITSPERWORD);
-            POLYUNSIGNED words   = chunks * BITSPERWORD;
-            (void)TryMoreHeap(words, isMutableSpace); // If this fails just carry on with what we have.
-        }
-    }
-    else
-    {
-        // The reason for shrinking the heap is to reduce the swap space and
-        // possibly the address space requirements.  This may be necessary if
-        // we have finished building a large data structure and now want to
-        // export it.  The export code requires buffer space and may need the
-        // space we're using.
-        // Another reason is to get rid of old saved state areas that have been
-        // converted into local areas.  These are likely to be small compared with the
-        // heap and result in fragmentation of the address space.
-        // Count the number of empty spaces.  We don't allow this to get below the number
-        // of GC threads.
-        unsigned nSpaces = 0;
-        POLYUNSIGNED allocSpace = 0, freeSpace = 0;
-        for (unsigned j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *space = gMem.lSpaces[j];
-            if (space->isMutable == isMutableSpace)
-            {
-                if (space->allocatedSpace() == 0) nSpaces++;
-                else allocSpace += space->allocatedSpace();
-                freeSpace += space->freeSpace();
-            }
-        }
-        // Delete spaces provided we have at least one for each thread.  A space can be deleted if
-        // it is small or if the available free space is at least a fifth of the allocated space.
-        // Don't delete allocation spaces.  We need at least one of these.
-        for (unsigned k = gMem.nlSpaces; k > 0 && nSpaces > userOptions.gcthreads; k--)
-        {
-            LocalMemSpace *space = gMem.lSpaces[k-1];
-            if (space->isMutable == isMutableSpace && space->allocatedSpace() == 0 /* It's completely empty */
-                && (space->spaceSize() < segSize || freeSpace > allocSpace/5) && ! space->allocationSpace)
-            {
-                freeSpace -= space->freeSpace();
-                gMem.DeleteLocalSpace(space);
-                nSpaces--;
-            }
-        }
-    }
+    // Set the sizes.
+    gMem.SetSpaceSizes(
+        gMem.SpaceBeforeMinorGC()/* i.e. unchanged*/, majorGCFree+spaceUsed);
 }
 
 static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
@@ -488,15 +223,30 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     record_gc_time(GCTimeIntermediate, "Mark");
 
-    /* If we are doing a full GC we expand the immutable area now, so that there's
-       enough room to copy the immutables that are currently in the mutable buffer.
-       There's no point expanding the mutable buffer now - we'll do that later
-       when we know *exactly* how large we want it to be. */
+    // Check that the heap is not overfull.  We make sure the marked
+    // mutable and immutable data is no more than 90% of the
+    // corresponding areas.  This is a very coarse adjustment.
     {
-        POLYUNSIGNED immutableData = 0;
-        for(j = 0; j < gMem.nlSpaces; j++)
-            immutableData += gMem.lSpaces[j]->i_marked;
-        PossiblyExpandImmutableArea(immutableData);
+        POLYUNSIGNED iMarked = 0, mMarked = 0;
+        POLYUNSIGNED iSpace = 0, mSpace = 0;
+        for (unsigned i = 0; i < gMem.nlSpaces; i++)
+        {
+            LocalMemSpace *lSpace = gMem.lSpaces[i];
+            iMarked += lSpace->i_marked;
+            mMarked += lSpace->m_marked;
+            if (! lSpace->allocationSpace)
+            {
+                if (lSpace->isMutable)
+                    mSpace += lSpace->spaceSize();
+                else
+                    iSpace += lSpace->spaceSize();
+            }
+        }
+        // Add space if necessary and possible.
+        while (iMarked > iSpace - iSpace/10 && gMem.NewLocalSpace(gMem.DefaultSpaceSize(), false) != 0)
+            iSpace += gMem.DefaultSpaceSize();
+        while (mMarked > mSpace - mSpace/10 && gMem.NewLocalSpace(gMem.DefaultSpaceSize(), true) != 0)
+            mSpace += gMem.DefaultSpaceSize();
     }
 
     /* Compact phase */
@@ -527,14 +277,43 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         ASSERT(mUpdated == mMarked + immutable_overflow);
     }
 
-    {
-        /* If we've had an immutable overflow, allow for this when we grow the heap */
-        AdjustHeapSize(false /* immutable space*/, immutable_overflow);
-        bool iFull = BufferIsReallyFull(false /* immutable area */, immutable_overflow, true) != 0;
-        bool mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, true) != 0;
+    // Delete empty spaces.
+    gMem.RemoveEmptyLocals();
 
-        if (iFull || ! mFull)
-            AdjustHeapSize(true /* mutable space */, wordsRequiredToAllocate);
+    {
+        // Make sure there is at least one mutable and one immutable area
+        // for each thread so that the minor GC has something to copy into.
+        unsigned nMutable = 0, nImmutable = 0;
+        for (unsigned s = gMem.nlSpaces; s > 0; s--)
+        {
+            LocalMemSpace *space = gMem.lSpaces[s-1];
+            if (space->freeSpace() > 1000)
+            {
+                // Some useful free space in the area.
+                if (space->isMutable)
+                    nMutable++;
+                else nImmutable++;
+            }
+        }
+        while (nImmutable < userOptions.gcthreads &&
+               gMem.NewLocalSpace(gMem.DefaultSpaceSize(), false) != 0)
+            nImmutable++;
+        while (nMutable < userOptions.gcthreads &&
+               gMem.NewLocalSpace(gMem.DefaultSpaceSize(), true) != 0)
+            nMutable++;
+    }
+
+    // The allocation areas should have been emptied and deallocated.  We
+    // want to create one that is big enough for the required data
+    // to check that it's possible.  If it isn't then we've run out of
+    // memory.
+    bool haveSpace = true;
+    if (wordsRequiredToAllocate != 0)
+    {
+        POLYUNSIGNED needed = gMem.DefaultSpaceSize();
+        if (wordsRequiredToAllocate > needed)
+            needed = wordsRequiredToAllocate;
+        haveSpace = gMem.CreateAllocationSpace(needed) != 0;
     }
 
     if (debugOptions & DEBUG_GC)
@@ -553,6 +332,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     globalStats.setSize(PSS_AFTER_LAST_FULLGC, 0);
     globalStats.setSize(PSS_ALLOCATION, 0);
     globalStats.setSize(PSS_ALLOCATION_FREE, 0);
+
     for (j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[j];
@@ -564,53 +344,18 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
             globalStats.incSize(PSS_ALLOCATION_FREE, free*sizeof(PolyWord));
         }
-    }
-
-    /* Have we cleared enough space? */
-    {
-        bool iFull = BufferIsReallyFull(false /* immutable area */, immutable_overflow, true) != 0;
-        bool mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, true) != 0;
-
-        if (iFull || mFull)
-        {
-            iFull = BufferIsReallyFull(false /* immutable area */, 0, false) != 0;
-            mFull = BufferIsReallyFull(true /* mutable area */, wordsRequiredToAllocate, false) != 0;
-            if (iFull || mFull)
-            {
-                // No we don't even have that - interrupt console processes and end GC here.
-                record_gc_time(GCTimeEnd);
-                if (debugOptions & DEBUG_GC)
-                    Log("GC: Completed - insufficient space in buffer(s): %s%s\n",
-                        iFull ? "immutable " : "", mFull ? "mutable " : "");
-                if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
-                    printprofile();
-                return false;
-            }
-        }
-    }
-
-    // Do we have enough space for the original allocation request?
-    bool haveSpace = false;
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        if (space->allocationSpace)
-        {
-            if (space->freeSpace() >= wordsRequiredToAllocate)
-            {
-                haveSpace = true;
-                break;
-            }
-        }
 #ifdef FILL_UNUSED_MEMORY
         memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);
 #endif
     }
 
-    /* End of garbage collection */
+    // End of garbage collection
     record_gc_time(GCTimeEnd);
 
-    /* Invariant: the bitmaps are completely clean */
+    // Now we've finished we can adjust the heap sizes.
+    adjustHeapSize();
+
+    // Invariant: the bitmaps are completely clean.
     if (debugOptions & DEBUG_GC)
     {
         if (haveSpace)
@@ -764,90 +509,35 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
             memsize = 64 * 1024 * 1024;
         hsize = memsize / 2 / 1024;
     }
+    isize += msize; msize = 0;
+    if (hsize < isize+asize) hsize = isize+asize;
 
-    if (hsize < isize+msize+asize) hsize = isize+msize+asize;
-
-    // The space is divided between the threads so that the total
-    // is the value given in the option.
-    hsize = hsize / userOptions.gcthreads;
-    msize = msize / userOptions.gcthreads;
-    isize = isize / userOptions.gcthreads;
-    asize = asize / userOptions.gcthreads;
-    // Defaults are half the heap for the immutable buffer, 5% for mutable and 45% for allocation
-    if (msize == 0) msize = hsize / 20;  /* set default mutable buffer size */
+    // Defaults are half the heap for the immutable buffer, half for allocation
     if (isize == 0) isize = hsize / 2;  /* set default immutable buffer size */
-    if (asize == 0) asize = (hsize / 2 - hsize / 20) * userOptions.gcthreads;
+    if (asize == 0) asize = hsize - isize;
 
-    // Set the segment sizes.  We allocate in units of this size,
-    immutableSegSize   = K_to_words(isize);
-    mutableSegSize     = K_to_words(msize);
-    POLYUNSIGNED allocSegSize = K_to_words(asize);
+    majorGCFree = K_to_words(isize);
+
+    gMem.SetSpaceSizes(K_to_words(asize), majorGCFree);
     gMem.SetReservation(K_to_words(rsize));
 
-    // Try allocating the space.  If it fails try something smaller.
-    for(;;) {
-        bool allocationFailed = false;
-        // Delete any partially allocated spaces.
-        while (gMem.nlSpaces > 0) gMem.DeleteLocalSpace(gMem.lSpaces[gMem.nlSpaces-1]);
-        // Allocate the reservation space.
+    // Create an initial allocation space.
+    if (gMem.CreateAllocationSpace(gMem.DefaultSpaceSize()) == 0)
+        Exit("Insufficient memory to allocate the heap");
 
-        // Allocate as many segments as we have threads running the GC.
-        ASSERT(userOptions.gcthreads >= 1);
-        // Immutable space
-        POLYUNSIGNED immutSize = ROUNDDOWN(immutableSegSize, BITSPERWORD);
-        POLYUNSIGNED mutSize = ROUNDDOWN(mutableSegSize, BITSPERWORD);
-
-        // Allocate one allocation space plus one immutable and one mutable space per thread
-        globalStats.setSize(PSS_ALLOCATION, 0);
-        globalStats.setSize(PSS_ALLOCATION_FREE, 0);
-        if (! allocationFailed)
-            allocationFailed = gMem.CreateAllocationSpace(allocSegSize) == 0;
-        for(unsigned j = 0; j < userOptions.gcthreads; j++)
-        {
-            if (gMem.NewLocalSpace(immutSize, false) == 0 ||
-                gMem.NewLocalSpace(mutSize, true) == 0)
-            {
-                allocationFailed = true;
-                break;
-            }
-        }
-
-        if (allocationFailed)
-        {
-            if (immutableSegSize < 1024 || mutableSegSize < 512 || allocSegSize < 1024) {
-                // Too small to be able to run.
-                Exit("Insufficient memory to allocate the heap");
-            }
-            // Make spaces smaller.  It may be that there's space for some but not all.
-            immutableSegSize = immutableSegSize/2;
-            mutableSegSize = mutableSegSize/2;
-            allocSegSize = allocSegSize/2;
-        }
-        else // Succeeded.
-        {
-            // Record the space as though we'd had a GC
-            globalStats.setSize(PSS_AFTER_LAST_GC, globalStats.getSize(PSS_TOTAL_HEAP));
-            globalStats.setSize(PSS_AFTER_LAST_FULLGC, globalStats.getSize(PSS_TOTAL_HEAP));
+    // Try to create one mutable and one immutable area for each GC thread.
+    // This is not essential but allows the minor GC to distibute work for
+    // the GC threads.  Additional areas up to the maximum will be
+    // allocated by the minor GC.  Leaving it to there means that the
+    // proportion of mutable and immutable areas will depend on the
+    // application.
+    for (unsigned i = 0; i < userOptions.gcthreads; i++)
+    {
+        if (gMem.NewLocalSpace(gMem.DefaultSpaceSize(), false) == 0)
             break;
-        }
+        if (gMem.NewLocalSpace(gMem.DefaultSpaceSize(), true) == 0)
+            break;
     }
-
-    // Heap allocation has succeeded.
-    // The space we need to have free at the end of a partial collection.  If we have less
-    // than this we do a full GC.
-    // For an immutable area this is zero.  For the mutable area, though, this is 80% of the
-    // mutable segment size since we allocate new objects in the mutable area and this
-    // determines how soon we will need to do another GC.
-    immutableMinFree = mutableSegSize = 0;
-
-    // This is the space we try to have free at the end of a major collection.  If
-    // we have less than this we allocate another segment.
-    immutableFreeSpace = immutableSegSize/2; // 50% full
-    if (immutableFreeSpace < immutableMinFree)
-        immutableFreeSpace = immutableMinFree;
-    mutableFreeSpace   = mutableSegSize/2;
-    if (mutableFreeSpace < mutableMinFree)
-        mutableFreeSpace = mutableMinFree;
 
     // Create the task farm if required
     if (userOptions.gcthreads != 1)

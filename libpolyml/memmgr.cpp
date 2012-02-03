@@ -282,6 +282,18 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
     return false;
 }
 
+// Remove local areas that are now empty after a GC.
+// It isn't clear if we always want to do this.
+void MemMgr::RemoveEmptyLocals()
+{
+    for (unsigned s = gMem.nlSpaces; s > 0; s--)
+    {
+        LocalMemSpace *space = gMem.lSpaces[s-1];
+        if (space->allocatedSpace() == 0)
+            gMem.DeleteLocalSpace(space);
+    }
+}
+
 // Create an entry for the IO space.
 MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
 {

@@ -272,6 +272,9 @@ public:
     // Return number of words of free space for stats.
     POLYUNSIGNED GetFreeAllocSpace();
 
+    // Remove unused local areas.
+    void RemoveEmptyLocals();
+
     MemSpace *IoSpace() { return ioSpace; } // Return pointer to the IO space.
 
     MemSpace *ioSpace; // The IO space
