@@ -286,11 +286,11 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
 // It isn't clear if we always want to do this.
 void MemMgr::RemoveEmptyLocals()
 {
-    for (unsigned s = gMem.nlSpaces; s > 0; s--)
+    for (unsigned s = nlSpaces; s > 0; s--)
     {
-        LocalMemSpace *space = gMem.lSpaces[s-1];
+        LocalMemSpace *space = lSpaces[s-1];
         if (space->allocatedSpace() == 0)
-            gMem.DeleteLocalSpace(space);
+            DeleteLocalSpace(space);
     }
 }
 
@@ -508,6 +508,16 @@ void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
 PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
 {
     PLocker locker(&allocLock);
+    // If we want to allocate an object that is larger than the default space
+    // there probably won't be an area large enough.  We will need a large area
+    // but to make space we'll have to delete some other spaces.
+    if (minWords > defaultSpaceSize)
+    {
+        if (minWords < spaceBeforeMinorGC)
+            RemoveExcessAllocation(spaceBeforeMinorGC - minWords);
+        else
+            RemoveExcessAllocation(0);
+    }
     // We try to distribute the allocations between the memory spaces
     // so that at the next GC we don't have all the most recent cells in
     // one space.  The most recent cells will be more likely to survive a
@@ -551,6 +561,39 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
         return result;
     }
     return 0; // There isn't space even for the minimum.
+}
+
+// Adjust the allocation area by removing free areas so that the total
+// size of the allocation area is less than the required value.  This
+// is used after the quick GC and also if we need to allocate a large
+// object.
+void MemMgr::RemoveExcessAllocation(POLYUNSIGNED words)
+{
+    // First remove any non-standard allocation areas.
+    unsigned i;
+    for (i = nlSpaces; i > 0; i--)
+    {
+        LocalMemSpace *space = lSpaces[i-1];
+        if (space->allocationSpace && space->allocatedSpace() == 0 &&
+                space->spaceSize() != defaultSpaceSize)
+            DeleteLocalSpace(space);
+    }
+    POLYUNSIGNED totalAlloc = 0;
+    for (i = 0; i < nlSpaces; i++)
+    {
+        LocalMemSpace *space = lSpaces[i];
+        if (space->allocationSpace)
+            totalAlloc += space->spaceSize();
+    }
+    for (i = nlSpaces; totalAlloc > words && i > 0; i--)
+    {
+        LocalMemSpace *space = lSpaces[i-1];
+        if (space->allocationSpace && space->allocatedSpace() == 0)
+        {
+            totalAlloc -= space->spaceSize();
+            DeleteLocalSpace(space);
+        }
+    }
 }
 
 // Return number of words free in all allocation spaces.

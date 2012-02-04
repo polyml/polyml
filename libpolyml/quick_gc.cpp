@@ -497,7 +497,6 @@ bool RunQuickGC(void)
 
     if (rootScan.succeeded)
     {
-        gMem.RemoveEmptyLocals(); // Experimental - release the memory.
         adjustHeapSizeAfterMinorGC(); // Adjust the allocation size.
 
         globalStats.setSize(PSS_AFTER_LAST_GC, 0);
@@ -526,6 +525,9 @@ bool RunQuickGC(void)
                     ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
             globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
         }
+        // Remove allocation spaces that are larger than the default
+        // and any excess over the current size of the allocation area.
+        gMem.RemoveExcessAllocation();
     }
     else
     {

@@ -275,6 +275,10 @@ public:
     // Remove unused local areas.
     void RemoveEmptyLocals();
 
+    // Remove unused allocation areas to reduce the space below the limit.
+    void RemoveExcessAllocation(POLYUNSIGNED words);
+    void RemoveExcessAllocation() { RemoveExcessAllocation(spaceBeforeMinorGC); }
+
     MemSpace *IoSpace() { return ioSpace; } // Return pointer to the IO space.
 
     MemSpace *ioSpace; // The IO space
