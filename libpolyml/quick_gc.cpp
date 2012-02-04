@@ -50,7 +50,8 @@ these has filled up it fails and a full garbage collection must be done.
 #include "gctaskfarm.h"
 #include "statistics.h"
 
-static PLock copyLock;
+// This protects access to the gMem.lSpace table.
+static PLock localTableLock;
 
 class QuickGCScanner: public ScanAddress
 {
@@ -177,7 +178,9 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         if (lSpace->freeSpace() > n /* At least n+1*/)
             return lSpace;
     }
-
+    PLocker l(&localTableLock);
+    // Another thread may allocate a new area, reallocating gMem.lSpaces so we
+    // we need a lock here.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         lSpace = gMem.lSpaces[i];
@@ -196,9 +199,7 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
 
     if (taskID != 0)
     {
-        // See if we can take a space that is currently unused.  We need to take
-        // the lock here because another thread may try to do the same.
-        PLocker lock(&copyLock);
+        // See if we can take a space that is currently unused.
         for (unsigned i = 0; i < gMem.nlSpaces; i++)
         {
             lSpace = gMem.lSpaces[i];
@@ -224,7 +225,6 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
 
     if (spaceAllocated < gMem.SpaceBeforeMajorGC())
     {
-        PLocker lock(&copyLock); // Need the lock here.
         // Allocate a new space for this.
         POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
         if (n+1 > spaceSize) spaceSize = n+1;
@@ -343,7 +343,7 @@ static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
     ThreadScanner marker(id);
     LocalMemSpace *initialSpace = (LocalMemSpace *)arg1;
     {
-        PLocker lock(&copyLock);
+        PLocker lock(&localTableLock);
         // Take ownership of this space unless another thread
         // is already copying into it.  In that case that thread
         // will be responsible for it.
@@ -359,42 +359,51 @@ static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
     {
         bool allDone = true;
         // We're finished when there is no unscanned data in any space we own.
-        for (unsigned k = 0; k < gMem.nlSpaces && allDone; k++)
         {
-            LocalMemSpace *space = gMem.lSpaces[k];
-            if (space->spaceOwner == id)
-                allDone = space->partialGCScan == space->lowerAllocPtr;
+            PLocker l(&localTableLock);
+            for (unsigned k = 0; k < gMem.nlSpaces && allDone; k++)
+            {
+                LocalMemSpace *space = gMem.lSpaces[k];
+                if (space->spaceOwner == id)
+                    allDone = space->partialGCScan == space->lowerAllocPtr;
+            }
         }
         if (allDone) break;
 
         // Scan each area that has had data added to it.
-        for (unsigned l = 0; l < gMem.nlSpaces; l++)
+        unsigned l = 0;
+        while (true)
         {
-            LocalMemSpace *space = gMem.lSpaces[l];
-            if (space->spaceOwner == id)
+            LocalMemSpace *space = 0;
             {
+                PLocker lock(&localTableLock);
+                if (l >= gMem.nlSpaces)
+                    break;
+                space = gMem.lSpaces[l++];
+                if (space->spaceOwner != id)
+                    continue;
+            }
+            // Scan the area.  This may well result in more data being added
+            while (space->partialGCScan != space->lowerAllocPtr)
+            {
+                PolyWord *lastAllocPtr = space->lowerAllocPtr;
                 // Scan the area.  This may well result in more data being added
-                while (space->partialGCScan != space->lowerAllocPtr)
+                marker.ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
+                // If we ran out of space stop here.  We need to rescan any objects
+                // that contain addresses we couldn't move because another thread
+                // may have done.
+                if (! marker.succeeded)
                 {
-                    PolyWord *lastAllocPtr = space->lowerAllocPtr;
-                    // Scan the area.  This may well result in more data being added
-                    marker.ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
-                    // If we ran out of space stop here.  We need to rescan any objects
-                    // that contain addresses we couldn't move because another thread
-                    // may have done.
-                    if (! marker.succeeded)
-                    {
-                        if (debugOptions & DEBUG_GC)
-                            Log("GC: Quick: Thread %p has insufficient space\n", id);
-                        return;
-                    }
-                    space->partialGCScan = lastAllocPtr;
+                    if (debugOptions & DEBUG_GC)
+                        Log("GC: Quick: Thread %p has insufficient space\n", id);
+                    return;
                 }
+                space->partialGCScan = lastAllocPtr;
             }
         }
     }
     // Release the spaces we're holding in case another thread wants to use them.
-    PLocker lock(&copyLock);
+    PLocker lock(&localTableLock);
     for (unsigned m = 0; m < gMem.nlSpaces; m++)
     {
         LocalMemSpace *space = gMem.lSpaces[m];
