@@ -203,6 +203,14 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     LocalMemSpace **table = (LocalMemSpace **)realloc(lSpaces, (nlSpaces+1) * sizeof(LocalMemSpace *));
     if (table == 0) return false;
     lSpaces = table;
+    // Update the B-tree.
+    try {
+        AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+    }
+    catch (std::bad_alloc a) {
+        RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        return false;
+    }
     // We need to make sure that any allocation spaces are inserted after any other
     // mutable spaces.  That's because the copy phase of the full GC copies into earlier
     // spaces and we want to try to empty the allocation area as far as possible.
@@ -216,9 +224,6 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
         lSpaces[s] = space;
         nlSpaces++;
     }
-
-    // Update the B-tree.
-    AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
     return true;
 }
 
@@ -248,8 +253,15 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
             return 0;
         }
         pSpaces = table;
+        try {
+            AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        }
+        catch (std::bad_alloc a) {
+            RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+            delete space;
+            return 0;
+        }
         pSpaces[npSpaces++] = space;
-        AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
         return space;
     }
     catch (std::bad_alloc a) {
@@ -340,8 +352,15 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
             return 0;
         }
         eSpaces = table;
+        try {
+            AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        }
+        catch (std::bad_alloc a) {
+            RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+            delete space;
+            return 0;
+        }
         eSpaces[neSpaces++] = space;
-        AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
         return space;
     }
     catch (std::bad_alloc a) {
@@ -837,9 +856,13 @@ void MemMgr::AddTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, uin
 
 // Remove an entry from the tree for a range.  Strictly speaking we don't need the
 // space argument here but it's useful as a check.
+// This may be called to remove a partially installed structure if we have
+// run out of space in AddTreeRange.
 void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, uintptr_t endS)
 {
     SpaceTreeTree *t = (SpaceTreeTree*)*tt;
+    if (t == 0)
+        return; // This can only occur if we're recovering.
     ASSERT(! t->isSpace);
     const unsigned shift = (sizeof(void*)-1) * 8;
     uintptr_t r = startS >> shift;
@@ -858,7 +881,7 @@ void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, 
         // Whole entries.
         while (r < s)
         {
-            ASSERT(t->tree[r] == space);
+            ASSERT(t->tree[r] == space || t->tree[r] == 0 /* Recovery only */);
             t->tree[r] = 0;
             r++;
         }
