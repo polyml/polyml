@@ -45,6 +45,7 @@ struct
     type real_timer = Time.time
 
     local
+        open Time
         val doCall: int*unit -> Time.time
              = RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch
         fun getUserTime() = doCall(7, ())

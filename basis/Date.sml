@@ -265,6 +265,7 @@ struct
                 case offset of
                     SOME tz =>
                         let
+                            open Time
                             val excess = Int.quot(Time.toSeconds tz, secsPerDay)*secsPerDay;
                         in
                             (excess, SOME(tz-Time.fromSeconds excess))

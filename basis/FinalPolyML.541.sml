@@ -965,8 +965,12 @@ local
 
     end (* use *)
  
-    fun maxTime (x : Time.time, y : Time.time) : Time.time = 
-        if x < y then y else x;
+    local
+        open Time
+    in
+        fun maxTime (x : time, y : time): time = 
+            if x < y then y else x
+    end
 
     exception ObjNotFile;
     
@@ -1299,6 +1303,7 @@ local
                     |  Checked => () (* do nothing *)
                     
                 
+                open Time
                 (* Process each entry and return true if
                    any is newer than the target. *)
                 val processChildren =

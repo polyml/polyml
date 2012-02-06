@@ -501,6 +501,7 @@ struct
                        up.  We've either timed out, been interrupted or simply returned
                        because the RTS needed to process some asynchronous results.  *)
                     val stillThere = doFind(!threads)
+                    open Time (* For >= *)
                 in
                     if not stillThere
                     then (* We're done. *)

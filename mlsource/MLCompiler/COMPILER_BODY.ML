@@ -169,6 +169,7 @@ struct
 
     fun printTimes printOut (parseTime,pass2Time,treeTime,codeTime,endRunTime) : unit =
     let
+        open Time
         val message =
             PrettyBlock(3, false, [],
                 [
@@ -239,6 +240,7 @@ struct
     (* Return the total user+system time since the start. *)
     fun cpuTime start =
     let
+        open Time
         val {usr, sys} = Timer.checkCPUTimer start
     in
         usr+sys

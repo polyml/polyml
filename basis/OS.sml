@@ -1043,6 +1043,9 @@ struct
                 case t of
                     NONE => sys_poll_block(ioVector, bitVector)
                 |   SOME tt =>
+                    let
+                        open Time
+                    in
                         if tt = Time.zeroTime
                         then sys_poll_poll(ioVector, bitVector)
                         else if tt < Time.zeroTime
@@ -1055,6 +1058,7 @@ struct
                            time because the RTS may retry this call if the
                            polled events haven't happened. *)
                         else sys_poll_wait(ioVector, bitVector, tt + Time.now())
+                    end
             (* Process the original list to see which items are present, retaining the
                original order. *)
             fun testResults(request as (bits, iod), tl) =

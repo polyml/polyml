@@ -199,6 +199,9 @@ local
 in
     val () = PolyML.addPrettyPrinter pretty
     (* Add overloads for +, -, <= etc *)
+    (* This is actually non-standard.  The basis library documentation does
+       not include Time.time among the types for which these operators are
+       overloaded. *)
     val () = RunCall.addOverload Time.+ "+";
     val () = RunCall.addOverload Time.- "-";
     val () = RunCall.addOverload Time.< "<";

@@ -616,6 +616,7 @@ struct
         val rdVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc rds)
         val wrVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc wrs)
         val exVec: OS.IO.iodesc Vector.vector = Vector.fromList(map sockDescToDesc exs)
+        open Time
         val (rdResult, wrResult, exResult) =
             (* Do the approriate select. *)
             case timeOut of
