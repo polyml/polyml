@@ -1,8 +1,10 @@
 /*
     Title:      Main program
 
-    Copyright (c) 2000-7
+    Copyright (c) 2000
         Cambridge University Technical Services Limited
+
+    Further development copyright David C.J. Matthews 2001-12
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -122,6 +124,7 @@ struct __debugOpts {
     { "memmgr",             "Memory manager information",                       DEBUG_MEMMGR },
     { "threads",            "Thread related information",                       DEBUG_THREADS },
     { "gctasks",            "Log multi-thread GC information",                  DEBUG_GCTASKS },
+    { "heapsize",           "Log heap resizing data",                           DEBUG_HEAPSIZE },
     { "x",                  "Log X-windows information",                        DEBUG_X}
 };
 

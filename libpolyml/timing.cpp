@@ -5,7 +5,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2011
+    Further development copyright David C.J. Matthews 2011,12
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -146,8 +146,9 @@ static FILETIME gcUTime, gcSTime;
 #else
 static struct timeval startTime;
 static struct timeval gcUTime, gcSTime;
-
 #endif
+
+GcTimeData gcTimeData; 
 
 #if(!(defined(HAVE_GMTIME_R) && defined(HAVE_LOCALTIME_R)))
 // gmtime and localtime are not re-entrant so if we don't have the
@@ -447,22 +448,29 @@ void record_gc_time(gcTime isEnd, const char *stage)
         // Start of GC
         lastUsageU = ut;
         lastUsageS = kt;
+        lastRTime = rt;
+        subFiletimes(&ut, &startUsageU);
+        subFiletimes(&kt, &startUsageS);
+        addFiletimes(&gcUTime, &ut);
+        addFiletimes(&gcSTime, &kt);
+        subFiletimes(&rt, &startRTime);
         if (debugOptions & DEBUG_GC)
         {
-            lastRTime = rt;
-            subFiletimes(&ut, &startUsageU);
-            subFiletimes(&kt, &startUsageS);
-            addFiletimes(&gcUTime, &ut);
-            addFiletimes(&gcSTime, &kt);
-            subFiletimes(&rt, &startRTime);
-            float userTime = filetimeToSeconds(&ut);
+           float userTime = filetimeToSeconds(&ut);
             float systemTime = filetimeToSeconds(&kt);
             float realTime = filetimeToSeconds(&rt);
             Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n", userTime, systemTime, realTime);
-            startRTime = lastRTime;
+            // Add to the statistics.
         }
+        gcTimeData.minorNonGCUserCPU.add(ut);
+        gcTimeData.majorNonGCUserCPU.add(ut);
+        gcTimeData.minorNonGCSystemCPU.add(kt);
+        gcTimeData.majorNonGCSystemCPU.add(kt);
+        gcTimeData.minorNonGCReal.add(rt);
+        gcTimeData.majorNonGCReal.add(rt);
         startUsageU = lastUsageU;
         startUsageS = lastUsageS;
+        startRTime = lastRTime;
         break;
 
     case GCTimeIntermediate:
@@ -494,20 +502,26 @@ void record_gc_time(gcTime isEnd, const char *stage)
             subFiletimes(&kt, &startUsageS);
             addFiletimes(&gcUTime, &ut);
             addFiletimes(&gcSTime, &kt);
+            lastRTime = rt;
+            subFiletimes(&rt, &startRTime);
 
             if (debugOptions & DEBUG_GC)
             {
-                lastRTime = rt;
-                subFiletimes(&rt, &startRTime);
                 float userTime = filetimeToSeconds(&ut);
                 float systemTime = filetimeToSeconds(&kt);
                 float realTime = filetimeToSeconds(&rt);
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
                     systemTime, realTime, (userTime + systemTime) / realTime);
-                startRTime = lastRTime;
             }
+            gcTimeData.minorGCUserCPU.add(ut);
+            gcTimeData.majorGCUserCPU.add(ut);
+            gcTimeData.minorGCSystemCPU.add(kt);
+            gcTimeData.majorGCSystemCPU.add(kt);
+            gcTimeData.minorGCReal.add(rt);
+            gcTimeData.majorGCReal.add(rt);
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
+            startRTime = lastRTime;
             globalStats.copyGCTimes(gcUTime, gcSTime);
         }
         break;
@@ -528,23 +542,29 @@ void record_gc_time(gcTime isEnd, const char *stage)
             lastUsage = rusage;
             subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
             subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
+            struct timeval tv;
+            if (gettimeofday(&tv, NULL) != 0)
+                return;
+            lastTime = tv;
+            subTimevals(&tv, &startTime);
 
             if (debugOptions & DEBUG_GC)
             {
-                struct timeval tv;
-                if (gettimeofday(&tv, NULL) != 0)
-                    return;
-                lastTime = tv;
-                subTimevals(&tv, &startTime);
                 float userTime = timevalToSeconds(&rusage.ru_utime);
                 float systemTime = timevalToSeconds(&rusage.ru_stime);
                 float realTime = timevalToSeconds(&tv);
                 Log("GC: Non-GC Time user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
                     systemTime, realTime, rusage.ru_majflt - startPF);
-                startTime = lastTime;
-                startPF = rusage.ru_majflt;
-              }
+            }
+            gcTimeData.minorNonGCUserCPU.add(rusage.ru_utime);
+            gcTimeData.majorNonGCUserCPU.add(rusage.ru_utime);
+            gcTimeData.minorNonGCSystemCPU.add(rusage.ru_stime);
+            gcTimeData.majorNonGCSystemCPU.add(rusage.ru_stime);
+            gcTimeData.minorNonGCReal.add(tv);
+            gcTimeData.majorNonGCReal.add(tv);
             startUsage = lastUsage;
+            startTime = lastTime;
+            startPF = rusage.ru_majflt;
             break;
          }
 
@@ -582,22 +602,28 @@ void record_gc_time(gcTime isEnd, const char *stage)
             subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
             addTimevals(&gcUTime, &rusage.ru_utime);
             addTimevals(&gcSTime, &rusage.ru_stime);
+            struct timeval tv;
+            if (gettimeofday(&tv, NULL) != 0)
+                return;
+            lastTime = tv;
+            subTimevals(&tv, &startTime);
 
             if (debugOptions & DEBUG_GC)
             {
-                struct timeval tv;
-                if (gettimeofday(&tv, NULL) != 0)
-                    return;
-                lastTime = tv;
-                subTimevals(&tv, &startTime);
                 float userTime = timevalToSeconds(&rusage.ru_utime);
                 float systemTime = timevalToSeconds(&rusage.ru_stime);
                 float realTime = timevalToSeconds(&tv);
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
                     systemTime, realTime, (userTime + systemTime) / realTime, rusage.ru_majflt-startPF);
-                startTime = lastTime;
-                startPF = rusage.ru_majflt;
             }
+            gcTimeData.minorGCUserCPU.add(rusage.ru_utime);
+            gcTimeData.majorGCUserCPU.add(rusage.ru_utime);
+            gcTimeData.minorGCSystemCPU.add(rusage.ru_stime);
+            gcTimeData.majorGCSystemCPU.add(rusage.ru_stime);
+            gcTimeData.minorGCReal.add(tv);
+            gcTimeData.majorGCReal.add(tv);
+            startTime = lastTime;
+            startPF = rusage.ru_majflt;
             startUsage = lastUsage;
             globalStats.copyGCTimes(gcUTime, gcSTime);
         }
@@ -637,6 +663,30 @@ float filetimeToSeconds(const FILETIME *x)
     ul.HighPart = x->dwHighDateTime;
     return (float)ul.QuadPart / (float)1.0E7;
 }
+
+void FileTimeTime::fromSeconds(unsigned u)
+{
+    ULARGE_INTEGER li;
+    li.QuadPart = (ULONGLONG)u * TICKS_PER_MICROSECOND * 1000000;
+    t.dwLowDateTime = li.LowPart;
+    t.dwHighDateTime = li.HighPart;
+}
+
+void FileTimeTime::add(const FileTimeTime &f)
+{
+    addFiletimes(&t, &f.t);
+}
+
+void FileTimeTime::sub(const FileTimeTime &f)
+{
+    subFiletimes(&t, &f.t);
+}
+
+float FileTimeTime::toSeconds(void)
+{
+    return filetimeToSeconds(&t);
+}
+
 #endif
 
 #ifdef HAVE_SYS_TIME_H
@@ -660,7 +710,45 @@ float timevalToSeconds(const struct timeval *x)
 {
     return (float)x->tv_sec + (float)x->tv_usec / 1.0E6;
 }
+
+void TimeValTime::add(const TimeValTime &f)
+{
+    addTimevals(&t, &f.t);
+}
+
+void TimeValTime::sub(const TimeValTime &f)
+{
+    subTimevals(&t, &f.t);
+}
+
 #endif
+
+void GcTimeData::resetMinorTimingData(void)
+{
+    minorNonGCUserCPU.fromSeconds(0);
+    minorNonGCSystemCPU.fromSeconds(0);
+    minorNonGCReal.fromSeconds(0);
+    minorGCUserCPU.fromSeconds(0);
+    minorGCSystemCPU.fromSeconds(0);
+    minorGCReal.fromSeconds(0);
+}
+
+void GcTimeData::resetMajorTimingData(void)
+{
+    minorNonGCUserCPU.fromSeconds(0);
+    minorNonGCSystemCPU.fromSeconds(0);
+    minorNonGCReal.fromSeconds(0);
+    minorGCUserCPU.fromSeconds(0);
+    minorGCSystemCPU.fromSeconds(0);
+    minorGCReal.fromSeconds(0);
+    majorNonGCUserCPU.fromSeconds(0);
+    majorNonGCSystemCPU.fromSeconds(0);
+    majorNonGCReal.fromSeconds(0);
+    majorGCUserCPU.fromSeconds(0);
+    majorGCSystemCPU.fromSeconds(0);
+    majorGCReal.fromSeconds(0);
+}
+
 
 class Timing: public RtsModule
 {

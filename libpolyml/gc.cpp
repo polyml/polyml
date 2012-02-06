@@ -129,6 +129,13 @@ static POLYUNSIGNED majorGCFree;
 // See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
 static void adjustHeapSize()
 {
+    TIMEDATA gc, total;
+    gc.add(gcTimeData.majorGCSystemCPU);
+    gc.add(gcTimeData.majorGCUserCPU);
+    total.add(gc);
+    total.add(gcTimeData.majorNonGCSystemCPU);
+    total.add(gcTimeData.majorNonGCUserCPU);
+    float g = gc.toSeconds() / total.toSeconds();
     // A very crude adjustment at this stage:
     // Keep the allocation area the same,
     // Set the major GC size (mutable+immutable area) so
@@ -137,6 +144,12 @@ static void adjustHeapSize()
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         spaceUsed += gMem.lSpaces[i]->allocatedSpace();
+    }
+    float l = (float)spaceUsed / (float)gMem.SpaceBeforeMajorGC();
+    if (debugOptions & DEBUG_HEAPSIZE)
+    {
+        Log("Heap: Major resizing factors g = %f, l = %f\n", g, l);
+        Log("Heap: Resizing from %"POLYUFMT" to %"POLYUFMT"\n", gMem.SpaceBeforeMajorGC(), majorGCFree+spaceUsed);
     }
     // Set the sizes.
     gMem.SetSpaceSizes(
@@ -354,6 +367,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     // Now we've finished we can adjust the heap sizes.
     adjustHeapSize();
+    gcTimeData.resetMajorTimingData();
 
     // Invariant: the bitmaps are completely clean.
     if (debugOptions & DEBUG_GC)

@@ -414,8 +414,21 @@ static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
 
 // Called after a minor GC.  Currently does nothing.
 // See also adjustHeapSize for adjustments after a major GC.
-static void adjustHeapSizeAfterMinorGC()
+static void adjustHeapSizeAfterMinorGC(POLYUNSIGNED spaceCopiedOut)
 {
+    TIMEDATA gc, total;
+    gc.add(gcTimeData.minorGCSystemCPU);
+    gc.add(gcTimeData.minorGCUserCPU);
+    total.add(gc);
+    total.add(gcTimeData.minorNonGCSystemCPU);
+    total.add(gcTimeData.minorNonGCUserCPU);
+    float g = gc.toSeconds() / total.toSeconds();
+    // In this case we compute l as the live memory in the allocation area
+    // divided by the size of the allocation area.
+    float l = (float)spaceCopiedOut / (float)gMem.SpaceBeforeMinorGC();
+    if (debugOptions & DEBUG_HEAPSIZE)
+        Log("Heap: Minor resizing factors g = %f, l = %f\n", g, l);
+
 }
 
 
@@ -427,6 +440,8 @@ bool RunQuickGC(void)
 
     if (debugOptions & DEBUG_GC)
         Log("GC: Beginning quick GC\n");
+
+    POLYUNSIGNED spaceBeforeGC = 0;
 
     for(unsigned k = 0; k < gMem.nlSpaces; k++)
     {
@@ -442,6 +457,9 @@ bool RunQuickGC(void)
         // If we're scanning a space this is where we start.
         lSpace->partialGCScan = lSpace->lowerAllocPtr;
         lSpace->spaceOwner = 0; // Not currently owned
+        // Add up the space in the mutable and immutable areas
+        if (! lSpace->allocationSpace)
+            spaceBeforeGC += lSpace->allocatedSpace();
     }
 
     // First scan the roots, copying the data into the mutable and immutable areas.
@@ -497,12 +515,12 @@ bool RunQuickGC(void)
 
     if (rootScan.succeeded)
     {
-        adjustHeapSizeAfterMinorGC(); // Adjust the allocation size.
 
         globalStats.setSize(PSS_AFTER_LAST_GC, 0);
         globalStats.setSize(PSS_ALLOCATION, 0);
         globalStats.setSize(PSS_ALLOCATION_FREE, 0);
         // If it succeeded the allocation areas are now empty.
+        POLYUNSIGNED spaceAfterGC = 0;
         for(unsigned l = 0; l < gMem.nlSpaces; l++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
@@ -524,7 +542,10 @@ bool RunQuickGC(void)
                     lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
                     ((float)lSpace->allocatedSpace()) * 100 / (float)lSpace->spaceSize());
             globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
+            spaceAfterGC += lSpace->allocatedSpace();
         }
+        adjustHeapSizeAfterMinorGC(spaceAfterGC-spaceBeforeGC); // Adjust the allocation size.
+        gcTimeData.resetMinorTimingData();
         // Remove allocation spaces that are larger than the default
         // and any excess over the current size of the allocation area.
         gMem.RemoveExcessAllocation();

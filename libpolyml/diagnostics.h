@@ -1,7 +1,7 @@
 /*
     Title:  Header for diagnostics.c
 
-    Copyright (c) 2011 David C.J. Matthews
+    Copyright (c) 2011,12 David C.J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
@@ -43,6 +43,7 @@ extern unsigned    debugOptions; // debugging  flags
 #define DEBUG_GC_DETAIL     0x008       // Detailed GC debugging output
 #define DEBUG_THREADS       0x010       // Thread-related output
 #define DEBUG_GCTASKS       0x020       // GC task farm
+#define DEBUG_HEAPSIZE      0x040       // Heap resizing
 #define DEBUG_X             0x080       // X-Windows debugging
 
 #endif
