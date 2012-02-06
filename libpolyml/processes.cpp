@@ -909,6 +909,20 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 }
             }
 
+            // It's possible that another thread has requested a GC in which case
+            // we will have memory when that happens.  We don't want to start
+            // another GC.
+            if (! singleThreaded)
+            {
+                PLocker locker(&schedLock);
+                if (threadRequest != 0)
+                {
+                    ThreadReleaseMLMemoryWithSchedLock(taskData);
+                    ThreadUseMLMemoryWithSchedLock(taskData);
+                    continue; // Try again
+                }
+            }
+
             // Try garbage-collecting.  If this failed return 0.
             if (! QuickGC(taskData, words))
             {
