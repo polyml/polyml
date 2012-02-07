@@ -434,7 +434,7 @@ static void adjustHeapSizeAfterMinorGC(POLYUNSIGNED spaceCopiedOut)
 
 bool RunQuickGC(void)
 {
-    record_gc_time(GCTimeStart);
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeStart);
     globalStats.incCount(PSC_GC_PARTIALGC);
     mainThreadPhase = MTP_GCQUICK;
 
@@ -511,7 +511,7 @@ bool RunQuickGC(void)
             rootScan.succeeded = false;
     }
 
-    record_gc_time(GCTimeEnd);
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
 
     if (rootScan.succeeded)
     {

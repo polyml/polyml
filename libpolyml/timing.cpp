@@ -426,18 +426,34 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
     }
 }
 
+GcTimeData::GcTimeData()
+{
+    resetMajorTimingData();
+#ifdef WINDOWS_PC
+    memset(&startUsageU, 0, sizeof(startUsageU));
+    memset(&startUsageS, 0, sizeof(startUsageS));
+    memset(&lastUsageU, 0, sizeof(lastUsageU));
+    memset(&lastUsageS, 0, sizeof(lastUsageS));
+    memset(&startRTime, 0, sizeof(startRTime));
+    memset(&lastRTime, 0, sizeof(lastRTime));
+#else
+    memset(&startUsage, 0, sizeof(startUsage));
+    memset(&lastUsage, 0, sizeof(lastUsage));
+    memset(&startTime, 0, sizeof(startTime));
+    memset(&lastTime, 0, sizeof(lastTime));
+    startPF = 0;
+#endif
+}
+
 // This function is called at the beginning and end of garbage
 // collection to record the time used.
 // This also reports the GC time if GC debugging is enabled.
-void record_gc_time(gcTime isEnd, const char *stage)
+void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
 {
 #ifdef WINDOWS_PC
     FILETIME kt, ut;
     FILETIME ct, et; // Unused
     FILETIME rt;
-
-    static FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
-    static FILETIME startRTime, lastRTime;
 
     GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
     if (debugOptions & DEBUG_GC) GetSystemTimeAsFileTime(&rt);
@@ -462,12 +478,12 @@ void record_gc_time(gcTime isEnd, const char *stage)
             Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n", userTime, systemTime, realTime);
             // Add to the statistics.
         }
-        gcTimeData.minorNonGCUserCPU.add(ut);
-        gcTimeData.majorNonGCUserCPU.add(ut);
-        gcTimeData.minorNonGCSystemCPU.add(kt);
-        gcTimeData.majorNonGCSystemCPU.add(kt);
-        gcTimeData.minorNonGCReal.add(rt);
-        gcTimeData.majorNonGCReal.add(rt);
+        minorNonGCUserCPU.add(ut);
+        majorNonGCUserCPU.add(ut);
+        minorNonGCSystemCPU.add(kt);
+        majorNonGCSystemCPU.add(kt);
+        minorNonGCReal.add(rt);
+        majorNonGCReal.add(rt);
         startUsageU = lastUsageU;
         startUsageS = lastUsageS;
         startRTime = lastRTime;
@@ -513,12 +529,12 @@ void record_gc_time(gcTime isEnd, const char *stage)
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
                     systemTime, realTime, (userTime + systemTime) / realTime);
             }
-            gcTimeData.minorGCUserCPU.add(ut);
-            gcTimeData.majorGCUserCPU.add(ut);
-            gcTimeData.minorGCSystemCPU.add(kt);
-            gcTimeData.majorGCSystemCPU.add(kt);
-            gcTimeData.minorGCReal.add(rt);
-            gcTimeData.majorGCReal.add(rt);
+            minorGCUserCPU.add(ut);
+            majorGCUserCPU.add(ut);
+            minorGCSystemCPU.add(kt);
+            majorGCSystemCPU.add(kt);
+            minorGCReal.add(rt);
+            majorGCReal.add(rt);
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
             startRTime = lastRTime;
@@ -527,10 +543,6 @@ void record_gc_time(gcTime isEnd, const char *stage)
         break;
     }
 #else
-    static struct rusage startUsage, lastUsage;
-    static struct timeval startTime, lastTime;
-    static long startPF;
-
     switch (isEnd)
     {
     case GCTimeStart:
@@ -556,12 +568,12 @@ void record_gc_time(gcTime isEnd, const char *stage)
                 Log("GC: Non-GC Time user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
                     systemTime, realTime, rusage.ru_majflt - startPF);
             }
-            gcTimeData.minorNonGCUserCPU.add(rusage.ru_utime);
-            gcTimeData.majorNonGCUserCPU.add(rusage.ru_utime);
-            gcTimeData.minorNonGCSystemCPU.add(rusage.ru_stime);
-            gcTimeData.majorNonGCSystemCPU.add(rusage.ru_stime);
-            gcTimeData.minorNonGCReal.add(tv);
-            gcTimeData.majorNonGCReal.add(tv);
+            minorNonGCUserCPU.add(rusage.ru_utime);
+            majorNonGCUserCPU.add(rusage.ru_utime);
+            minorNonGCSystemCPU.add(rusage.ru_stime);
+            majorNonGCSystemCPU.add(rusage.ru_stime);
+            minorNonGCReal.add(tv);
+            majorNonGCReal.add(tv);
             startUsage = lastUsage;
             startTime = lastTime;
             startPF = rusage.ru_majflt;
@@ -616,12 +628,12 @@ void record_gc_time(gcTime isEnd, const char *stage)
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
                     systemTime, realTime, (userTime + systemTime) / realTime, rusage.ru_majflt-startPF);
             }
-            gcTimeData.minorGCUserCPU.add(rusage.ru_utime);
-            gcTimeData.majorGCUserCPU.add(rusage.ru_utime);
-            gcTimeData.minorGCSystemCPU.add(rusage.ru_stime);
-            gcTimeData.majorGCSystemCPU.add(rusage.ru_stime);
-            gcTimeData.minorGCReal.add(tv);
-            gcTimeData.majorGCReal.add(tv);
+            minorGCUserCPU.add(rusage.ru_utime);
+            majorGCUserCPU.add(rusage.ru_utime);
+            minorGCSystemCPU.add(rusage.ru_stime);
+            majorGCSystemCPU.add(rusage.ru_stime);
+            minorGCReal.add(tv);
+            majorGCReal.add(tv);
             startTime = lastTime;
             startPF = rusage.ru_majflt;
             startUsage = lastUsage;
@@ -629,6 +641,16 @@ void record_gc_time(gcTime isEnd, const char *stage)
         }
     }
 #endif
+}
+
+void GcTimeData::Init()
+{
+#ifdef WINDOWS_PC
+	GetSystemTimeAsFileTime(&startRTime);
+#else
+    gettimeofday(&startTime, NULL);
+#endif
+
 }
 
 #ifdef HAVE_WINDOWS_H
@@ -767,4 +789,5 @@ void Timing::Init(void)
 #else
     gettimeofday(&startTime, NULL);
 #endif
+    gcTimeData.Init();
 }

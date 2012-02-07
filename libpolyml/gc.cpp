@@ -160,7 +160,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
     unsigned j;
 
-    record_gc_time(GCTimeStart);
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeStart);
     globalStats.incCount(PSC_GC_FULLGC);
 
     if (debugOptions & DEBUG_GC)
@@ -234,7 +234,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
 
-    record_gc_time(GCTimeIntermediate, "Mark");
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Mark");
 
     // Check that the heap is not overfull.  We make sure the marked
     // mutable and immutable data is no more than 90% of the
@@ -266,13 +266,13 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
     GCCopyPhase(immutable_overflow);
 
-    record_gc_time(GCTimeIntermediate, "Copy");
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Copy");
 
     // Update Phase.
     if (debugOptions & DEBUG_GC) Log("GC: Update\n");
     GCUpdatePhase();
 
-    record_gc_time(GCTimeIntermediate, "Update");
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Update");
 
     {
         POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
@@ -363,7 +363,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     }
 
     // End of garbage collection
-    record_gc_time(GCTimeEnd);
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
 
     // Now we've finished we can adjust the heap sizes.
     adjustHeapSize();

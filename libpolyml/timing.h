@@ -24,6 +24,22 @@
 #ifndef _TIMING_H_DEFINED
 #define _TIMING_H_DEFINED 1
 
+#ifdef HAVE_TIME_H
+#include <time.h>
+#endif
+
+#ifdef HAVE_SYS_TIMES_H
+#include <sys/times.h>
+#endif
+
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+
+#ifdef HAVE_SYS_RESOURCE_H
+#include <sys/resource.h>
+#endif
+
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
@@ -31,16 +47,6 @@ class TaskData;
 /* time functions etc */
 
 extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
-
-/* Called by the garbage collector at the beginning and
-   end of garbage collection. */
-typedef enum __gcTime {
-    GCTimeStart,
-    GCTimeIntermediate,
-    GCTimeEnd
-} gcTime;
-
-extern void record_gc_time(gcTime isEnd, const char *stage = "");
 
 /* This contains the information about the time used for GC and
    non-gc time to allow the heap resizing code to make a decision.
@@ -86,6 +92,8 @@ protected:
 
 class GcTimeData {
 public:
+    GcTimeData();
+
     TIMEDATA minorNonGCUserCPU;
     TIMEDATA minorNonGCSystemCPU;
     TIMEDATA minorNonGCReal;
@@ -102,6 +110,27 @@ public:
 
     void resetMinorTimingData(void);
     void resetMajorTimingData(void);
+
+    /* Called by the garbage collector at the beginning and
+       end of garbage collection. */
+    typedef enum __gcTime {
+        GCTimeStart,
+        GCTimeIntermediate,
+        GCTimeEnd
+    } gcTime;
+
+    void RecordGCTime(gcTime isEnd, const char *stage = "");
+    void Init(void);
+
+private:
+#ifdef WINDOWS_PC
+    FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
+    FILETIME startRTime, lastRTime;
+#else
+    struct rusage startUsage, lastUsage;
+    struct timeval startTime, lastTime;
+    long startPF;
+#endif
 };
 
 extern GcTimeData gcTimeData;
