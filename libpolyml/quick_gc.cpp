@@ -31,6 +31,10 @@ these has filled up it fails and a full garbage collection must be done.
 #error "No configuration file"
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -57,6 +61,7 @@ class QuickGCScanner: public ScanAddress
 {
 public:
     QuickGCScanner(bool r): rootScan(r), succeeded(true) {}
+    virtual ~QuickGCScanner() {}
 
     // Overrides for ScanAddress class
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt);
@@ -83,12 +88,19 @@ private:
 class ThreadScanner: public QuickGCScanner
 {
 public:
-    ThreadScanner(GCTaskId* id): QuickGCScanner(false), taskID(id), mutableSpace(0), immutableSpace(0) {}
+    ThreadScanner(GCTaskId* id): QuickGCScanner(false), taskID(id), mutableSpace(0), immutableSpace(0),
+        spaceTable(0), nOwnedSpaces(0) {}
+    virtual ~ThreadScanner() { free(spaceTable); }
+
+    void ScanCopiedArea(LocalMemSpace *initialSpace);
 private:
     virtual LocalMemSpace *FindSpace(POLYUNSIGNED length, bool isMutable);
+    void TakeOwnerShip(LocalMemSpace *space);
 
     GCTaskId *taskID;
     LocalMemSpace *mutableSpace, *immutableSpace;
+    LocalMemSpace **spaceTable;
+    unsigned nOwnedSpaces;
 };
 
 PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, LocalMemSpace *srcSpace)
@@ -178,13 +190,11 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         if (lSpace->freeSpace() > n /* At least n+1*/)
             return lSpace;
     }
-    PLocker l(&localTableLock);
-    // Another thread may allocate a new area, reallocating gMem.lSpaces so we
-    // we need a lock here.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+
+    for (unsigned i = 0; i < nOwnedSpaces; i++)
     {
-        lSpace = gMem.lSpaces[i];
-        if (lSpace->spaceOwner == taskID && lSpace->isMutable == isMutable &&
+        lSpace = spaceTable[i];
+        if (lSpace->isMutable == isMutable &&
             ! lSpace->allocationSpace && lSpace->freeSpace() > n /* At least n+1*/)
         {
             if (n < 10)
@@ -197,6 +207,9 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         }
     }
 
+    PLocker l(&localTableLock);
+    // Another thread may allocate a new area, reallocating gMem.lSpaces so we
+    // we need a lock here.
     if (taskID != 0)
     {
         // See if we can take a space that is currently unused.
@@ -208,8 +221,7 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
             {
                 if (debugOptions & DEBUG_GC)
                     Log("GC: Quick: Thread %p is taking ownership of space %p\n", taskID, lSpace);
-                lSpace->spaceOwner = taskID; // Take ownership of this space.
-
+                TakeOwnerShip(lSpace);
                 return lSpace;
             }
         }
@@ -233,7 +245,8 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
             return 0; // Couldn't allocate it.
         lSpace->partialGCTop = lSpace->upperAllocPtr;
         lSpace->partialGCScan = lSpace->lowerAllocPtr;
-        lSpace->spaceOwner = taskID; // Take ownership
+        lSpace->spaceOwner = 0;
+        TakeOwnerShip(lSpace);
         return lSpace;
     }
 
@@ -338,10 +351,21 @@ PolyObject *QuickGCRecovery::ScanObjectAddress(PolyObject *base)
     else return base;
 }
 
-static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
+void ThreadScanner::TakeOwnerShip(LocalMemSpace *space)
 {
-    ThreadScanner marker(id);
-    LocalMemSpace *initialSpace = (LocalMemSpace *)arg1;
+    ASSERT(space->spaceOwner == 0);
+    LocalMemSpace **v = (LocalMemSpace**)realloc(spaceTable, (nOwnedSpaces+1)*sizeof(LocalMemSpace*));
+    if (v == 0)
+    {
+        ASSERT(false); // ???
+    }
+    spaceTable = v;
+    space->spaceOwner = taskID;
+    spaceTable[nOwnedSpaces++] = space;
+}
+
+void ThreadScanner::ScanCopiedArea(LocalMemSpace *initialSpace)
+{
     {
         PLocker lock(&localTableLock);
         // Take ownership of this space unless another thread
@@ -349,53 +373,47 @@ static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
         // will be responsible for it.
         if (initialSpace->spaceOwner != 0)
             return;
-        initialSpace->spaceOwner = id;
+        TakeOwnerShip(initialSpace);
     }
 
     if (debugOptions & DEBUG_GC)
-        Log("GC: Quick: Thread %p is processing space %p\n", id, initialSpace);
+        Log("GC: Quick: Thread %p is processing space %p\n", taskID, initialSpace);
 
     while (true)
     {
         bool allDone = true;
         // We're finished when there is no unscanned data in any space we own.
+        for (unsigned k = 0; k < nOwnedSpaces && allDone; k++)
         {
-            PLocker l(&localTableLock);
-            for (unsigned k = 0; k < gMem.nlSpaces && allDone; k++)
-            {
-                LocalMemSpace *space = gMem.lSpaces[k];
-                if (space->spaceOwner == id)
-                    allDone = space->partialGCScan == space->lowerAllocPtr;
-            }
+            LocalMemSpace *space = spaceTable[k];
+            allDone = space->partialGCScan == space->lowerAllocPtr &&
+                      space->partialGCTop == space->top;
         }
         if (allDone) break;
 
         // Scan each area that has had data added to it.
-        unsigned l = 0;
-        while (true)
+        for (unsigned l = 0; l < nOwnedSpaces; l++)
         {
-            LocalMemSpace *space = 0;
+            LocalMemSpace *space = spaceTable[l];
+            // Scan the old mutable area if it's a mutable space
+            if (space->partialGCTop != space->top)
             {
-                PLocker lock(&localTableLock);
-                if (l >= gMem.nlSpaces)
-                    break;
-                space = gMem.lSpaces[l++];
-                if (space->spaceOwner != id)
-                    continue;
+                ScanAddressesInRegion(space->partialGCTop, space->top);
+                space->partialGCTop = space->top;
             }
             // Scan the area.  This may well result in more data being added
             while (space->partialGCScan != space->lowerAllocPtr)
             {
                 PolyWord *lastAllocPtr = space->lowerAllocPtr;
                 // Scan the area.  This may well result in more data being added
-                marker.ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
+                ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
                 // If we ran out of space stop here.  We need to rescan any objects
                 // that contain addresses we couldn't move because another thread
                 // may have done.
-                if (! marker.succeeded)
+                if (! succeeded)
                 {
                     if (debugOptions & DEBUG_GC)
-                        Log("GC: Quick: Thread %p has insufficient space\n", id);
+                        Log("GC: Quick: Thread %p has insufficient space\n", taskID);
                     return;
                 }
                 space->partialGCScan = lastAllocPtr;
@@ -403,13 +421,18 @@ static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
         }
     }
     // Release the spaces we're holding in case another thread wants to use them.
-    PLocker lock(&localTableLock);
-    for (unsigned m = 0; m < gMem.nlSpaces; m++)
+    for (unsigned m = 0; m < nOwnedSpaces; m++)
     {
-        LocalMemSpace *space = gMem.lSpaces[m];
-        if (space->spaceOwner == id)
-            space->spaceOwner = 0;
+        LocalMemSpace *space = spaceTable[m];
+        space->spaceOwner = 0;
     }
+    nOwnedSpaces = 0;
+}
+
+static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
+{
+    ThreadScanner marker(id);
+    marker.ScanCopiedArea((LocalMemSpace *)arg1);
 }
 
 // Called after a minor GC.  Currently does nothing.
@@ -453,9 +476,16 @@ bool RunQuickGC(void)
         // only relevant for mutable areas.  It avoids us rescanning
         // objects that may have been added to the space as a result of
         // scanning another space.
-        lSpace->partialGCTop = lSpace->upperAllocPtr;
+        if (lSpace->isMutable)
+            lSpace->partialGCTop = lSpace->upperAllocPtr;
+        else lSpace->partialGCTop = lSpace->top;
         // If we're scanning a space this is where we start.
-        lSpace->partialGCScan = lSpace->lowerAllocPtr;
+        // For immutable areas this only includes newly added
+        // data but for mutable areas we have to scan data added
+        // by previous GCs.
+        if (lSpace->isMutable && ! lSpace->allocationSpace)
+            lSpace->partialGCScan = lSpace->bottom;
+        else lSpace->partialGCScan = lSpace->lowerAllocPtr;
         lSpace->spaceOwner = 0; // Not currently owned
         // Add up the space in the mutable and immutable areas
         if (! lSpace->allocationSpace)
@@ -464,20 +494,6 @@ bool RunQuickGC(void)
 
     // First scan the roots, copying the data into the mutable and immutable areas.
     RootScanner rootScan;
-
-    // Scan the local mutable including any overflow area in the allocation areas.
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->isMutable)
-        {
-            // The upper area contains data copied by the last major GC.
-            rootScan.ScanAddressesInRegion(space->partialGCTop, space->top);
-            // The lower area contains data copied by previous minor GCs.
-            if (! space->allocationSpace)
-                rootScan.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
-        }
-    }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
@@ -497,7 +513,7 @@ bool RunQuickGC(void)
     for (unsigned l = 0; l < gMem.nlSpaces; l++)
     {
         LocalMemSpace *space = gMem.lSpaces[l];
-        if (space->partialGCScan != space->lowerAllocPtr)
+        if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
             gpTaskFarm->AddWorkOrRunNow(&scanCopiedArea, space, 0);
     }
 
@@ -507,7 +523,7 @@ bool RunQuickGC(void)
     for (unsigned m = 0; m < gMem.nlSpaces; m++)
     {
         LocalMemSpace *space = gMem.lSpaces[m];
-        if (space->partialGCScan != space->lowerAllocPtr)
+        if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
             rootScan.succeeded = false;
     }
 
@@ -557,14 +573,17 @@ bool RunQuickGC(void)
         // been moved i.e. containing forwarding pointers.  There's also the case where one thread
         // has run out of space and so it leaves pointers into the allocation area in its objects
         // only for another thread to copy them later.
+        // We need to scan all the mutable data because we may not have completed that.
         QuickGCRecovery recovery;
         for (unsigned l = 0; l < gMem.nlSpaces; l++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
-            if (lSpace->allocationSpace)
+            if (lSpace->isMutable)
+            {
+                recovery.ScanAddressesInRegion(lSpace->upperAllocPtr, lSpace->top);
                 recovery.ScanAddressesInRegion(lSpace->bottom, lSpace->lowerAllocPtr);
-            else
-                recovery.ScanAddressesInRegion(lSpace->partialGCScan, lSpace->lowerAllocPtr);
+            }
+            else recovery.ScanAddressesInRegion(lSpace->partialGCScan, lSpace->lowerAllocPtr);
         }
     }
 
