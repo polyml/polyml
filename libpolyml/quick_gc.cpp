@@ -95,7 +95,7 @@ public:
     void ScanCopiedArea(LocalMemSpace *initialSpace);
 private:
     virtual LocalMemSpace *FindSpace(POLYUNSIGNED length, bool isMutable);
-    void TakeOwnerShip(LocalMemSpace *space);
+    bool TakeOwnership(LocalMemSpace *space);
 
     GCTaskId *taskID;
     LocalMemSpace *mutableSpace, *immutableSpace;
@@ -221,7 +221,8 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
             {
                 if (debugOptions & DEBUG_GC)
                     Log("GC: Quick: Thread %p is taking ownership of space %p\n", taskID, lSpace);
-                TakeOwnerShip(lSpace);
+                if (! TakeOwnership(lSpace))
+                    return 0;
                 return lSpace;
             }
         }
@@ -246,7 +247,8 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         lSpace->partialGCTop = lSpace->upperAllocPtr;
         lSpace->partialGCScan = lSpace->lowerAllocPtr;
         lSpace->spaceOwner = 0;
-        TakeOwnerShip(lSpace);
+        if (! TakeOwnership(lSpace))
+            return 0;
         return lSpace;
     }
 
@@ -351,17 +353,16 @@ PolyObject *QuickGCRecovery::ScanObjectAddress(PolyObject *base)
     else return base;
 }
 
-void ThreadScanner::TakeOwnerShip(LocalMemSpace *space)
+bool ThreadScanner::TakeOwnership(LocalMemSpace *space)
 {
     ASSERT(space->spaceOwner == 0);
     LocalMemSpace **v = (LocalMemSpace**)realloc(spaceTable, (nOwnedSpaces+1)*sizeof(LocalMemSpace*));
     if (v == 0)
-    {
-        ASSERT(false); // ???
-    }
+        return false;
     spaceTable = v;
     space->spaceOwner = taskID;
     spaceTable[nOwnedSpaces++] = space;
+    return true;
 }
 
 void ThreadScanner::ScanCopiedArea(LocalMemSpace *initialSpace)
@@ -373,7 +374,11 @@ void ThreadScanner::ScanCopiedArea(LocalMemSpace *initialSpace)
         // will be responsible for it.
         if (initialSpace->spaceOwner != 0)
             return;
-        TakeOwnerShip(initialSpace);
+        if (! TakeOwnership(initialSpace))
+        {
+            succeeded = false;
+            return;
+        }
     }
 
     if (debugOptions & DEBUG_GC)
