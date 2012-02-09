@@ -77,23 +77,28 @@ private:
 // Mark all pointers in the heap.
 POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 {
-    PolyWord val = *pt;
-    CheckPointer (val);
-    
-    if (val.IsTagged())
+    if ((*pt).IsTagged())
         return 0;
 
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
+    LocalMemSpace *space = gMem.LocalSpaceForAddress((*pt).AsAddress());
     if (space == 0)
         return 0; // Ignore it if it points to a permanent area
 
+    // This could contain a forwarding pointer if it points into an
+    // allocation area and has been moved by the minor GC.
+    PolyObject *obj = (*pt).AsObjPtr();
+    if (obj->ContainsForwardingPtr())
+    {
+        *pt = obj->GetForwardingPtr();
+        space = gMem.LocalSpaceForAddress((*pt).AsAddress());
+        obj = (*pt).AsObjPtr();
+    }
+
     // We shouldn't get code addresses since we handle stacks and code
     // segments separately so if this isn't an integer it must be an object address.
-    POLYUNSIGNED new_bitno = BITNO(space, val.AsStackAddr());
+    POLYUNSIGNED new_bitno = BITNO(space, (*pt).AsStackAddr());
     if (space->bitmap.TestBit(new_bitno))
         return 0; // Already marked
-
-    PolyObject *obj = val.AsObjPtr();
 
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
@@ -140,6 +145,15 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
     if (space == 0)
         return obj; // Ignore it if it points to a permanent area
+
+    // We may have a forwarding pointer if this has been moved by the
+    // minor GC.
+    if (obj->ContainsForwardingPtr())
+    {
+        obj = obj->GetForwardingPtr();
+        val = obj;
+        space = gMem.LocalSpaceForAddress(val.AsAddress());
+    }
 
     ASSERT(obj->ContainsNormalLengthWord());
 

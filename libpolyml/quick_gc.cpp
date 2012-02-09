@@ -340,19 +340,6 @@ PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
-class QuickGCRecovery: public ScanAddress
-{
-public:
-    virtual PolyObject *ScanObjectAddress(PolyObject *base);
-};
-
-PolyObject *QuickGCRecovery::ScanObjectAddress(PolyObject *base)
-{
-    if (base->ContainsForwardingPtr())
-        return base->GetForwardingPtr();
-    else return base;
-}
-
 bool ThreadScanner::TakeOwnership(LocalMemSpace *space)
 {
     ASSERT(space->spaceOwner == 0);
@@ -499,7 +486,8 @@ bool RunQuickGC(void)
 
     // First scan the roots, copying the data into the mutable and immutable areas.
     RootScanner rootScan;
-    // Scan the permanent mutable areas.
+    // Scan the permanent mutable areas.  This could be parallelised but it doesn't
+    // appear to be worthwhile at the moment.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
@@ -515,11 +503,26 @@ bool RunQuickGC(void)
     // lowerAllocPtr.  These will contain the addresses of objects in the allocation
     // areas.  We need to scan these root objects and then any new objects we copy
     // until there are no objects left to scan.
-    for (unsigned l = 0; l < gMem.nlSpaces; l++)
+    // We also need to scan local mutable areas since these are roots as well.
+    // They have data between partialGCTop and top.  Parallelising this appears
+    // to be a significant gain.
     {
-        LocalMemSpace *space = gMem.lSpaces[l];
-        if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
-            gpTaskFarm->AddWorkOrRunNow(&scanCopiedArea, space, 0);
+        unsigned l = 0;
+        while (true)
+        {
+            LocalMemSpace *space;
+            {
+                // There is a chance that a thread that has already been forked may
+                // allocate a new space and realloc gMem.lSpaces.  We have to drop
+                // the lock before calling AddWorkOrRunNow in case we "run now".
+                PLocker lock(&localTableLock);
+                if (l >= gMem.nlSpaces)
+                    break;
+                space = gMem.lSpaces[l++];
+            }
+            if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
+                gpTaskFarm->AddWorkOrRunNow(&scanCopiedArea, space, 0);
+        }
     }
 
     gpTaskFarm->WaitForCompletion();
@@ -531,8 +534,6 @@ bool RunQuickGC(void)
         if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
             rootScan.succeeded = false;
     }
-
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
 
     if (rootScan.succeeded)
     {
@@ -565,37 +566,25 @@ bool RunQuickGC(void)
             globalStats.incSize(PSS_AFTER_LAST_GC, free*sizeof(PolyWord));
             spaceAfterGC += lSpace->allocatedSpace();
         }
+
+        gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
+
         adjustHeapSizeAfterMinorGC(spaceAfterGC-spaceBeforeGC); // Adjust the allocation size.
         gcTimeData.resetMinorTimingData();
         // Remove allocation spaces that are larger than the default
         // and any excess over the current size of the allocation area.
         gMem.RemoveExcessAllocation();
+
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Completed successfully\n");
     }
     else
     {
-        // Else: if we failed to find space we have data in the allocation areas that have not been
-        // moved.  Since they are not scanned they may contain the addresses of objects that have
-        // been moved i.e. containing forwarding pointers.  There's also the case where one thread
-        // has run out of space and so it leaves pointers into the allocation area in its objects
-        // only for another thread to copy them later.
-        // We need to scan all the mutable data because we may not have completed that.
-        QuickGCRecovery recovery;
-        for (unsigned l = 0; l < gMem.nlSpaces; l++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[l];
-            if (lSpace->isMutable)
-            {
-                recovery.ScanAddressesInRegion(lSpace->upperAllocPtr, lSpace->top);
-                recovery.ScanAddressesInRegion(lSpace->bottom, lSpace->lowerAllocPtr);
-            }
-            else recovery.ScanAddressesInRegion(lSpace->partialGCScan, lSpace->lowerAllocPtr);
-        }
-    }
-
-    if (debugOptions & DEBUG_GC)
-    {
-        if (rootScan.succeeded) Log("GC: Completed successfully\n");
-        else Log("GC: Quick GC failed\n");
+        // There was insufficient room to copy everything.  We will need to
+        // run a full GC.
+        gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Quick GC failed\n");
     }
 
     return rootScan.succeeded;
