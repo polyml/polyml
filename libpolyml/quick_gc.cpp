@@ -79,10 +79,10 @@ public:
 class RootScanner: public QuickGCScanner
 {
 public:
-    RootScanner(): QuickGCScanner(true), startPosn(0) {}
+    RootScanner(): QuickGCScanner(true), mutableSpace(0), immutableSpace(0) {}
 private:
     virtual LocalMemSpace *FindSpace(POLYUNSIGNED length, bool isMutable);
-    unsigned startPosn; // Used to distribute data between spaces.
+    LocalMemSpace *mutableSpace, *immutableSpace;
 };
 
 class ThreadScanner: public QuickGCScanner
@@ -103,6 +103,53 @@ private:
     unsigned nOwnedSpaces;
 };
 
+// This uses the conditional exchange instruction to check and update
+// the forwarding pointer.  It uses a lock prefix so that if another
+// thread has updated it in the meantime it will not set it.
+// Using the assembly code provides a very small speed-up so may not
+// be worth-while. 
+static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
+                                  POLYUNSIGNED testVal, POLYUNSIGNED update)
+{
+#if(defined(HOSTARCHITECTURE_X86))
+    POLYUNSIGNED result;
+#ifdef __GNUC__
+    __asm__ __volatile__ (
+        "lock; cmpxchgl %1,%2"
+        :"=a"(result)
+        :"r"(update),"m"(pt[-1]),"0"(testVal)
+        :"memory", "cc"
+    );
+#else
+    __asm {
+        mov eax,testVal
+        mov ebx,pt
+        mov ecx,update
+        lock cmpxchg [ebx-4],ecx
+        mov result,eax
+    }
+#endif
+    return result == testVal;
+#elif(defined(HOSTARCHITECTURE_X86_64) && __GNUC__)
+    POLYUNSIGNED result;
+    __asm__ __volatile__ (
+        "lock; cmpxchgq %1,%2"
+        :"=a"(result)
+        :"r"(update),"m"(pt[-1]),"0"(testVal)
+        :"memory", "cc"
+    );
+    return result == testVal;
+#else
+    PLocker lock(&space->spaceLock);
+    if (pt[-1] == testVal)
+    {
+        pt[-1] = update;
+        return true;
+    }
+    return false;
+#endif
+}
+
 PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, LocalMemSpace *srcSpace)
 {
     bool isMutable = OBJ_IS_MUTABLE_OBJECT(L);
@@ -122,20 +169,31 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     // are rare. Updating the addresses in code objects is complicated and
     // it's possible that there are assumptions somewhere that there's only one
     // copy.
-    bool requireLock = isMutable || OBJ_IS_CODE_OBJECT(L);
-
-    if (requireLock) srcSpace->spaceLock.Lock();
-    if (obj->ContainsForwardingPtr())
+    // Avoiding locking for immutables provides only a small speed-up so may not
+    // be worth-while.
+    if (isMutable || OBJ_IS_CODE_OBJECT(L))
     {
-        newObject = obj->GetForwardingPtr();
-        if (requireLock) srcSpace->spaceLock.Unlock();
-        if (debugOptions & DEBUG_GC_DETAIL)
-            Log("GC: Quick: %p %lu %u has already moved to %p\n", obj, n, GetTypeBits(L), newObject);
-        objectCopied = false;
-        return obj->GetForwardingPtr();
+        if (! atomiclySetForwarding(srcSpace, (POLYUNSIGNED*)obj, L, OBJ_SET_POINTER(newObject)))
+        {
+            newObject = obj->GetForwardingPtr();
+            if (debugOptions & DEBUG_GC_DETAIL)
+                Log("GC: Quick: %p %lu %u has already moved to %p\n", obj, n, GetTypeBits(L), newObject);
+            objectCopied = false;
+            return newObject;
+        }
     }
-    obj->SetForwardingPtr(newObject);
-    if (requireLock) srcSpace->spaceLock.Unlock();
+    else
+    {
+        if (obj->ContainsForwardingPtr())
+        {
+            newObject = obj->GetForwardingPtr();
+            if (debugOptions & DEBUG_GC_DETAIL)
+                Log("GC: Quick: %p %lu %u has already moved to %p\n", obj, n, GetTypeBits(L), newObject);
+            objectCopied = false;
+            return newObject;
+        }
+        else obj->SetForwardingPtr(newObject);
+    }
 
     lSpace->lowerAllocPtr += n+1;
     CopyObjectToNewAddress(obj, newObject, L);
@@ -147,20 +205,29 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
 // so that the work is distributed for the scanning threads.
 LocalMemSpace *RootScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
 {
-    startPosn++;
-    if (startPosn >= gMem.nlSpaces) startPosn = 0;
-
     POLYUNSIGNED spaceAllocated = 0;
+    LocalMemSpace *lSpace = isMutable ? mutableSpace : immutableSpace;
 
+    if (lSpace != 0)
+    {
+        // See if there's space in the existing area.
+        if (lSpace->freeSpace() > n /* At least n+1*/)
+            return lSpace;
+    }
+
+    // Find the space with the largest free area.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
-        LocalMemSpace *lSpace = gMem.lSpaces[(i + startPosn) % gMem.nlSpaces];
-        if (lSpace->isMutable == isMutable &&
-            ! lSpace->allocationSpace && lSpace->freeSpace() > n /* At least n+1*/)
-            return lSpace; // Can use this
+        LocalMemSpace *sp = gMem.lSpaces[i];
+        if (sp->isMutable == isMutable && !sp->allocationSpace &&
+                (lSpace == 0 || sp->freeSpace() > lSpace->freeSpace()))
+            lSpace = sp;
+    }
 
-        if (! lSpace->allocationSpace)
-            spaceAllocated += lSpace->spaceSize();
+    if (lSpace != 0 && lSpace->freeSpace() > n)
+    {
+        if (isMutable) mutableSpace = lSpace; else immutableSpace = lSpace;
+        return lSpace;
     }
 
     if (spaceAllocated < gMem.SpaceBeforeMajorGC())
