@@ -51,8 +51,6 @@ that are no longer reachable.  It is performed after the first, mark, phase.
 #include "memmgr.h"
 //#include "gctaskfarm.h"
 
-inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
-
 class MTGCCheckWeakRef: public ScanAddress {
 public:
     void ScanAreas(void);
@@ -82,7 +80,7 @@ void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
     if (space == 0)
         return; // Not in local area
     // If it hasn't been marked set it to zero.
-    if (! space->bitmap.TestBit(BITNO(space, w.AsStackAddr())))
+    if (! space->bitmap.TestBit(space->wordNo(w.AsStackAddr())))
          *pt = 0;
 }
 
@@ -113,7 +111,7 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                 if (space != 0)
                     // If the ref is permanent it's always there.
                 {
-                    POLYUNSIGNED new_bitno = BITNO(space, refAddress.AsStackAddr());
+                    POLYUNSIGNED new_bitno = space->wordNo(refAddress.AsStackAddr());
                     if (! space->bitmap.TestBit(new_bitno))
                     {
                         // It wasn't marked so it's otherwise unreferenced.

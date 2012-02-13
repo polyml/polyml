@@ -54,8 +54,6 @@ tomb-stone that contains its new location.
 #include "gctaskfarm.h"
 #include "diagnostics.h"
 
-inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
-
 class MTGCProcessUpdate: public ScanAddress
 {
 public:
@@ -145,8 +143,8 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
 void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 {
     PolyWord *pt      = area->upperAllocPtr;
-    POLYUNSIGNED   bitno   = BITNO(area, pt);
-    POLYUNSIGNED   highest = BITNO(area, area->top);
+    POLYUNSIGNED   bitno   = area->wordNo(pt);
+    POLYUNSIGNED   highest = area->wordNo(area->top);
 
     for (;;)
     {

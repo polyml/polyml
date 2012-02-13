@@ -150,6 +150,11 @@ public:
     virtual const char *spaceTypeString()
         { return allocationSpace ? "allocation" : MemSpace::spaceTypeString(); }
 
+    // Used when converting to and from bit positions in the bitmap
+    POLYUNSIGNED wordNo(PolyWord *pt) { return pt - bottom; }
+    PolyWord *wordAddr(POLYUNSIGNED bitno) { return bottom + bitno; }
+
+
     friend class MemMgr;
 };
 

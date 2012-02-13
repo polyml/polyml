@@ -64,8 +64,6 @@ large stack.
 #include "gctaskfarm.h"
 #include "profiling.h"
 
-inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
-
 class MTGCProcessMarkPointers: public ScanAddress
 {
 public:
@@ -258,7 +256,7 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
             if (L & _OBJ_GC_MARK)
             {
                 obj->SetLengthWord(L & ~(_OBJ_GC_MARK));
-                POLYUNSIGNED bitno = BITNO(space, pt);
+                POLYUNSIGNED bitno = space->wordNo(pt);
                 space->bitmap.SetBits(bitno - 1, n + 1);
 
                 if (OBJ_IS_MUTABLE_OBJECT(L))

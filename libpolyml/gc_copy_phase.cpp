@@ -73,9 +73,6 @@ It can copy cells
 
 static PLock copyLock;
 
-inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
-inline PolyWord *BIT_ADDR(LocalMemSpace *area, POLYUNSIGNED bitno) { return area->bottom + bitno; }
-
 /* start <= val <= end */
 #define INSOFTRANGE(val,start,end) ((start) <= (val) && (val) <= (end))
 
@@ -155,7 +152,7 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     // Allocate the space.
     dst->bitmap.SetBits(free, n);
 
-    PolyWord *newp = BIT_ADDR(dst, free); /* New object address */
+    PolyWord *newp = dst->wordAddr(free); /* New object address */
         
     // Update dst->upperAllocPtr, so the new object doesn't get trampled.
     if (newp < dst->upperAllocPtr)
@@ -290,19 +287,14 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
         src->copiedOut = true;
     }
 
-    /* Start scanning the bitmap from the very bottom since it is    */
-    /* likely that very recently created objects need copying.       */
-    /* Skip whole words of zeroes since these may be quite common if */
-    /* the objects to be copied are sparsely separated.              */
-
     /* Invariant: at this point there are no objects below src->fullGCLowerLimit */
     // We start at fullGCLowerLimit which is the lowest marked object in the heap
     // N.B.  It's essential that the first set bit at or above this corresponds
     // to the length word of a real object.
-    POLYUNSIGNED  bitno   = BITNO(src, src->fullGCLowerLimit);
+    POLYUNSIGNED  bitno   = src->wordNo(src->fullGCLowerLimit);
     // src->highest is the bit position that corresponds to the top of
     // generation we're copying.
-    POLYUNSIGNED  highest = BITNO(src, src->top);
+    POLYUNSIGNED  highest = src->wordNo(src->top);
 
     for (;;)
     {
@@ -313,10 +305,8 @@ static void CopyObjects(LocalMemSpace *src, LocalMemSpace *mutableDest, LocalMem
 
         if (bitno >= highest) break;
 
-        ASSERT (src->bitmap.TestBit(bitno));
-
         /* first set bit corresponds to the length word */
-        PolyWord *old = BIT_ADDR(src, bitno); /* Old object address */
+        PolyWord *old = src->wordAddr(bitno); /* Old object address */
 
         PolyObject *obj = (PolyObject*)(old+1);
         
@@ -439,7 +429,7 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
     for(j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[j];
-        POLYUNSIGNED highest = BITNO(lSpace, lSpace->top);
+        POLYUNSIGNED highest = lSpace->wordNo(lSpace->top);
         for (unsigned i = 0; i < NSTARTS; i++)
             lSpace->start[i] = highest;
         lSpace->start_index = NSTARTS - 1;
