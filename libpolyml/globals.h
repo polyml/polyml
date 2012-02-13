@@ -205,6 +205,7 @@ SPF 24/1/95
 // Zero bits mean ordinary word object containing addresses or tagged integers.
 #define F_BYTE_OBJ                  0x01  /* byte object (contains no pointers) */
 #define F_CODE_OBJ                  0x02  /* code object (mixed bytes and words) */
+#define F_GC_MARK                   0x04  // Used during the GC marking phase
 #define F_NO_OVERWRITE              0x08  /* don't overwrite when loading - mutables only. */
 // This bit is overloaded and has different meanings depending on what other bits are set.
 // For byte objects it is the sign bit for arbitrary precision ints.
@@ -219,7 +220,7 @@ SPF 24/1/95
 
 #define _OBJ_BYTE_OBJ                _TOP_BYTE(0x01)  /* byte object (contains no pointers) */
 #define _OBJ_CODE_OBJ                _TOP_BYTE(0x02)  /* code object (mixed bytes and words) */
-
+#define _OBJ_GC_MARK                 _TOP_BYTE(0x04)  // Mark bit
 #define _OBJ_NO_OVERWRITE            _TOP_BYTE(0x08)  /* don't overwrite when loading - mutables only. */
 #define _OBJ_NEGATIVE_BIT            _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */
 #define _OBJ_PROFILE_BIT             _TOP_BYTE(0x10)  /* sign bit for arbitrary precision ints */

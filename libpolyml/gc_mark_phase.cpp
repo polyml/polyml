@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Mark phase
 
-    Copyright (c) 2010, 2011 David C. J. Matthews
+    Copyright (c) 2010-12 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -28,11 +28,15 @@ reachable cells in the area being collected.  At the end of the phase the
 bit-maps associated with the areas will have ones for words belonging to cells
 that must be retained and zeros for words that can be reused.
 
-Currently this phase of the GC is not multi-threaded.  There are two reasons for
-this.  The mark phase doesn't divide nicely into separate regions so the effect is
-that there needs to be a mutex to protect access to the bitmap for each region and
-access to this results in a lot of contention.  Also, the mark phase can be highly
-recursive and only the main thread has enough stack space for some data structures.
+This is now multi-threaded.  The mark phase involves setting a bit in the header
+of each live cell and then a pass over the memory building the bitmaps and clearing
+this bit.  It is unfortunate that we cannot use the GC-bit that is used in
+forwarding pointers but we may well have forwarded pointers left over from a
+partially completed minor GC.  Using a bit in the header avoids the need for
+locking since at worst it may involve two threads duplicating some marking.
+There is a potential problem with this code: the mark phase can recurse very
+deeply and on some systems, Mac OS particularly, only the main thread has a
+large stack.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -57,6 +61,7 @@ recursive and only the main thread has enough stack space for some data structur
 #include "bitmap.h"
 #include "memmgr.h"
 #include "diagnostics.h"
+#include "gctaskfarm.h"
 #include "profiling.h"
 
 inline POLYUNSIGNED BITNO(LocalMemSpace *area, PolyWord *pt) { return pt - area->bottom; }
@@ -72,7 +77,29 @@ private:
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
     // Have to redefine this for some reason.
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
+
+public:
+    static void MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *arg2);
+
+    static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
 };
+
+// Task to mark pointers in a permanent mutable area.
+void MTGCProcessMarkPointers::MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *arg2)
+{
+    MTGCProcessMarkPointers *processMark = (MTGCProcessMarkPointers *)arg1;
+    MemSpace *space = (MemSpace *)arg2;
+    processMark->ScanAddressesInRegion(space->bottom, space->top);
+}
+
+// Task to mark pointers.
+void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
+{
+    MTGCProcessMarkPointers *processMark = (MTGCProcessMarkPointers *)arg1;
+    PolyObject *obj = (PolyObject *)arg2;
+    processMark->ScanAddressesInObject(obj);
+}
+
 
 // Mark all pointers in the heap.
 POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
@@ -96,31 +123,16 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
 
     // We shouldn't get code addresses since we handle stacks and code
     // segments separately so if this isn't an integer it must be an object address.
-    POLYUNSIGNED new_bitno = BITNO(space, (*pt).AsStackAddr());
-    if (space->bitmap.TestBit(new_bitno))
-        return 0; // Already marked
-
-    if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
-        AddObjectProfile(obj);
-
     POLYUNSIGNED L = obj->LengthWord();
+    if (L & _OBJ_GC_MARK)
+        return 0; // Already marked
+    obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
     ASSERT(obj+n <= (PolyObject*)space->top); // Check the length is sensible
 
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
-
-    /* Add up the objects to be moved into the mutable area. */
-    if (OBJ_IS_MUTABLE_OBJECT(L))
-        space->m_marked += n + 1;
-    else
-        space->i_marked += n + 1;
-
-    if ((PolyWord*)obj <= space->fullGCLowerLimit)
-        space->fullGCLowerLimit = (PolyWord*)obj-1;
-
-    /* Mark the segment including the length word. */
-    space->bitmap.SetBits(new_bitno - 1, n + 1);
 
     if (isWeak) // This is a SOME within a weak reference.
         return 0;
@@ -130,9 +142,10 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
     {
         // Have to handle these specially.
-        (void)ScanAddressesInObject(obj, L);
+        gpTaskFarm->AddWorkOrRunNow(&MarkPointersTask, this, obj);
         return 0; // Already done it.
     }
+    // For the moment don't attempt to process anything else in parallel.
     else
         return L;
 }
@@ -159,8 +172,10 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 
     CheckObject (obj);
 
-    POLYUNSIGNED bitno = BITNO(space, val.AsStackAddr());
-    if (space->bitmap.TestBit(bitno)) return obj; /* Already marked */
+    POLYUNSIGNED L = obj->LengthWord();
+    if (L & _TOP_BYTE(0x04))
+        return obj; // Already marked
+    obj->SetLengthWord(L | _TOP_BYTE(0x04)); // Mark it
 
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
@@ -168,25 +183,9 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     if ((PolyWord*)obj <= space->fullGCLowerLimit)
         space->fullGCLowerLimit = (PolyWord*)obj-1;
 
-    POLYUNSIGNED L = obj->LengthWord();
-    ASSERT (OBJ_IS_LENGTH(L));
-
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-    ASSERT (n != 0);
-
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
-
-    ASSERT(obj+n <= (PolyObject*)space->top); // Check the length is sensible
-
-    /* Mark the segment including the length word. */
-    space->bitmap.SetBits (bitno - 1, n + 1);
-
-    /* Add up the objects to be moved into the mutable area. */
-    if (OBJ_IS_MUTABLE_OBJECT(L))
-        space->m_marked += n + 1;
-    else
-        space->i_marked += n + 1;
 
     // Process the addresses in this object.  We could short-circuit things
     // for word objects by calling ScanAddressesAt directly.
@@ -205,15 +204,19 @@ void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength we
     PolyObject *val = *pt;
     CheckPointer (val);
     if (weak == STRENGTH_WEAK) return;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val);
+    *pt = ScanObjectAddress(*pt);
+/*    LocalMemSpace *space = gMem.LocalSpaceForAddress(val);
     if (space != 0)
     {
         PolyWord w = val;
-        POLYUNSIGNED lengthWord = ScanAddressAt(&w);
-        if (lengthWord)
-            ScanAddressesInObject(val, lengthWord);
-        *pt = w.AsObjPtr();
-    }
+        if (INRANGE(w.AsStackAddr(), space->gen_bottom, space->gen_top))
+        {
+            POLYUNSIGNED lengthWord = ScanAddressAt(&w);
+            if (lengthWord)
+                ScanAddressesInObject(val, lengthWord);
+            *pt = w.AsObjPtr();
+        }
+    }*/
 }
 
 // This is called both for objects in the local heap and also for mutables
@@ -240,21 +243,57 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGN
     else ScanAddress::ScanAddressesInObject(base, L);
 }
 
+static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
+{
+    while (pt < top)
+    {
+        PolyObject *obj = (PolyObject*)++pt;
+        // If it has been copied by a minor collection skip it
+        if (obj->ContainsForwardingPtr())
+            pt += obj->GetForwardingPtr()->Length();
+        else
+        {
+            POLYUNSIGNED L = obj->LengthWord();
+            POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+            if (L & _OBJ_GC_MARK)
+            {
+                obj->SetLengthWord(L & ~(_OBJ_GC_MARK));
+                POLYUNSIGNED bitno = BITNO(space, pt);
+                space->bitmap.SetBits(bitno - 1, n + 1);
+
+                if (OBJ_IS_MUTABLE_OBJECT(L))
+                    space->m_marked += n + 1;
+                else
+                    space->i_marked += n + 1;
+
+                if ((PolyWord*)obj <= space->fullGCLowerLimit)
+                    space->fullGCLowerLimit = (PolyWord*)obj-1;
+            }
+            pt += n;
+        }
+    }
+}
+
+static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
+{
+    LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
+    lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
+    SetBitmaps(lSpace, lSpace->bottom, lSpace->lowerAllocPtr);
+    SetBitmaps(lSpace, lSpace->upperAllocPtr, lSpace->top);
+}
+
 void GCMarkPhase(void)
 {
     mainThreadPhase = MTP_GCPHASEMARK;
-        
-    /* Bitmaps are allocated in InitialiseGC and are zeroed
-       at the END of each GC, because that way we know how much
-       of each bitmap (not all!) we need to touch.
-       SPF 3/10/96 */
+
+    // Clear the mark counters.
     for(unsigned k = 0; k < gMem.nlSpaces; k++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[k];
         lSpace->i_marked = lSpace->m_marked = 0;
     }
     
-    /* Do the actual marking */
+    // Do the actual marking
     MTGCProcessMarkPointers marker;
 
     // Scan the permanent mutable areas.
@@ -262,15 +301,19 @@ void GCMarkPhase(void)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
         if (space->isMutable && ! space->byteOnly)
-            marker.ScanAddressesInRegion(space->bottom, space->top);
+            gpTaskFarm->AddWorkOrRunNow(&MTGCProcessMarkPointers::MarkPermanentMutableAreaTask, &marker, space);
     }
 
     GCModules(&marker);
 
-    /* Invariant: at most the first (gen_top - bottom) bits of the each bitmap can be dirty here. */
-    
-    // Mutable areas can contain mutable or immutable objects.  Immutable areas
-    // should only contain immutable objects.  Verify this.
+    gpTaskFarm->WaitForCompletion();
+
+    // Turn the marks into bitmap entries.
+    for (unsigned i = 0; i < gMem.nlSpaces; i++)
+        gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, gMem.lSpaces[i], 0);
+
+    gpTaskFarm->WaitForCompletion();
+
     POLYUNSIGNED totalLive = 0;
     for(unsigned l = 0; l < gMem.nlSpaces; l++)
     {

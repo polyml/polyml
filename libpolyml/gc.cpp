@@ -188,13 +188,6 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             lSpace->highestWeak = lSpace->bottom;
             lSpace->lowestWeak = lSpace->top;
             lSpace->fullGCLowerLimit = lSpace->top;
-            // Reset the allocation pointers.  They will be set to the
-            // limits of the retained data.
-            lSpace->lowerAllocPtr = lSpace->bottom;
-            lSpace->upperAllocPtr = lSpace->top;
-
-            // Clear the bitmaps.  TODO: This could be parellelised.
-            lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
         }
 
         // Set limits of weak refs.
@@ -228,6 +221,14 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
                 ASSERT(markCount == bitCount);
             }
         }
+    }
+    for(j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *lSpace = gMem.lSpaces[j];
+        // Reset the allocation pointers.  They will be set to the
+        // limits of the retained data.
+        lSpace->lowerAllocPtr = lSpace->bottom;
+        lSpace->upperAllocPtr = lSpace->top;
     }
 
     if (debugOptions & DEBUG_GC) Log("GC: Check weak refs\n");
