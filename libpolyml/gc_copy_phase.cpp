@@ -533,52 +533,17 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
         immutable_overflow = markedImmut - copiedToI;
     }
 
-    /* If we've copied an object from the mutable area below the previous
-       limit of the immutable area using a "non-compressing" copy,
-       it would be unsafe to attempt to compress the immutable area (we
-       might get a double indirection).
-    
-       However, it *is* safe if we've used a "compressing" copy from
-       the mutables buffer. We won't move anything twice, because each
-       object goes into the first "big enough" hole on each pass. If
-       the second pass finds a "big enough" hole above the object, the
-       first pass would have found this hole too, and used it.
-     
-       This is slightly tricky reasoning, so be careful!
-      
-       SPF 19/12/1997
-    */
-
-    /* Reclaim the genuine data from the immutable buffer. */
     for(j = 0; j < gMem.nlSpaces; j++)
         gMem.lSpaces[j]->copied = 0;
-
-    POLYUNSIGNED immutable_space = 0, immutable_used = 0, immutable_needed = 0;
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        if (! lSpace->isMutable)
-        {
-            immutable_space  += lSpace->top - lSpace->fullGCLowerLimit;
-            immutable_used   += lSpace->i_marked + lSpace->copied;
-            immutable_needed += lSpace->i_marked;
-        }
-    }
-
-    POLYUNSIGNED immutable_free = immutable_space - immutable_used;
-    bool compressImmutables = immutable_needed / 4 < immutable_free ; /* Needs tuning!!! */
 
     // Process any immutable areas that have not yet received any data.  If they
     // have received data or receive it as a result of copying from another immutable
     // space they won't be processed at this stage.
-    if (compressImmutables)
+    for(j = gMem.nlSpaces; j > 0; j--)
     {
-        for(j = gMem.nlSpaces; j > 0; j--)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[j-1];
-            if (! lSpace->isMutable)
-                gpTaskFarm->AddWorkOrRunNow(&copyImmutableAreaToNewArea, lSpace, 0);
-        }
+        LocalMemSpace *lSpace = gMem.lSpaces[j-1];
+        if (! lSpace->isMutable)
+            gpTaskFarm->AddWorkOrRunNow(&copyImmutableAreaToNewArea, lSpace, 0);
     }
     gpTaskFarm->WaitForCompletion();
 
@@ -595,14 +560,9 @@ void GCCopyPhase(POLYUNSIGNED &immutable_overflow)
             // GC to recover something.
             if (lSpace->fullGCLowerLimit <= lSpace->upperAllocPtr)
             {
-                if (compressImmutables)
-                {
-                    /* Invariant: there are no objects below lSpace->fullGCLowerLimit. */
-                    if (! lSpace->copiedOut)
-                        gpTaskFarm->AddWorkOrRunNow(&copyImmutableArea, lSpace, 0);
-                }
-                else // simply reclaim the immutable data (with its embedded garbage)
-                    lSpace->upperAllocPtr = lSpace->fullGCLowerLimit;
+                /* Invariant: there are no objects below lSpace->fullGCLowerLimit. */
+                if (! lSpace->copiedOut)
+                    gpTaskFarm->AddWorkOrRunNow(&copyImmutableArea, lSpace, 0);
             }
         }
     }
