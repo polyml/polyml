@@ -125,6 +125,8 @@ public:
     PolyWord    *lowerAllocPtr;   // Allocation pointer. Objects are allocated BEFORE this.
 
     PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
+    PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
+    PolyWord    *fullGCRescanEnd;
     PolyWord    *partialGCTop;    // Value of lowerAllocPtr before the current partial GC.
     PolyWord    *partialGCScan;   // Scan pointer used in minor GC
     PLock       spaceLock;        // Lock used to protect forwarding pointers

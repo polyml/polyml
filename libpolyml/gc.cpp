@@ -188,6 +188,10 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             lSpace->highestWeak = lSpace->bottom;
             lSpace->lowestWeak = lSpace->top;
             lSpace->fullGCLowerLimit = lSpace->top;
+            // Put dummy objects in the unused space.  This allows
+            // us to scan over the whole of the space.
+            gMem.FillUnusedSpace(lSpace->lowerAllocPtr,
+                lSpace->upperAllocPtr-lSpace->lowerAllocPtr);
         }
 
         // Set limits of weak refs.

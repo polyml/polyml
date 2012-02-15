@@ -34,9 +34,11 @@ this bit.  It is unfortunate that we cannot use the GC-bit that is used in
 forwarding pointers but we may well have forwarded pointers left over from a
 partially completed minor GC.  Using a bit in the header avoids the need for
 locking since at worst it may involve two threads duplicating some marking.
-There is a potential problem with this code: the mark phase can recurse very
-deeply and on some systems, Mac OS particularly, only the main thread has a
-large stack.
+
+Marking can potentially recurse as deeply as the data structure.  Scanaddrs
+uses tail recursion on the last pointer in a cell which works well for lists
+but does not deal with trees.  This code keeps a recursion count and triggers
+a rescan on the range of addresses that could not be fully marked. 
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -64,40 +66,51 @@ large stack.
 #include "gctaskfarm.h"
 #include "profiling.h"
 
+
+// Recursion limit.  This needs to be chosen so that the stack will not
+// overflow on any platform.
+#define RECURSION_LIMIT 5000
+
 class MTGCProcessMarkPointers: public ScanAddress
 {
 public:
+    MTGCProcessMarkPointers(uintptr_t depth = 0): recursion(depth) {}
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return DoScanAddressAt(pt, false); }
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
-private:
+
     POLYUNSIGNED DoScanAddressAt(PolyWord *pt, bool isWeak);
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
     // Have to redefine this for some reason.
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
 public:
-    static void MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *arg2);
+    static void MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *);
 
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
+
+private:
+    uintptr_t recursion;
 };
 
 // Task to mark pointers in a permanent mutable area.
-void MTGCProcessMarkPointers::MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *arg2)
+void MTGCProcessMarkPointers::MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *)
 {
-    MTGCProcessMarkPointers *processMark = (MTGCProcessMarkPointers *)arg1;
-    MemSpace *space = (MemSpace *)arg2;
-    processMark->ScanAddressesInRegion(space->bottom, space->top);
+    MemSpace *space = (MemSpace *)arg1;
+    MTGCProcessMarkPointers marker;
+    marker.ScanAddressesInRegion(space->bottom, space->top);
 }
 
 // Task to mark pointers.
 void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
 {
-    MTGCProcessMarkPointers *processMark = (MTGCProcessMarkPointers *)arg1;
-    PolyObject *obj = (PolyObject *)arg2;
-    processMark->ScanAddressesInObject(obj);
+    PolyObject *obj = (PolyObject *)arg1;
+    // This may be a new task or it may be called recursively from
+    // DoScanAddressAt.  For safety assume that it's recursive.
+    uintptr_t depth = (uintptr_t)arg2;
+    MTGCProcessMarkPointers marker(depth+1);
+    marker.ScanAddressesInObject(obj);
 }
-
 
 // Mark all pointers in the heap.
 POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
@@ -140,12 +153,11 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
     {
         // Have to handle these specially.
-        gpTaskFarm->AddWorkOrRunNow(&MarkPointersTask, this, obj);
+        gpTaskFarm->AddWorkOrRunNow(&MarkPointersTask, obj, (void*)recursion);
         return 0; // Already done it.
     }
-    // For the moment don't attempt to process anything else in parallel.
     else
-        return L;
+        return L | _OBJ_GC_MARK;
 }
 
 // The initial entry to process the roots.  Also used when processing the addresses
@@ -203,24 +215,29 @@ void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength we
     CheckPointer (val);
     if (weak == STRENGTH_WEAK) return;
     *pt = ScanObjectAddress(*pt);
-/*    LocalMemSpace *space = gMem.LocalSpaceForAddress(val);
-    if (space != 0)
-    {
-        PolyWord w = val;
-        if (INRANGE(w.AsStackAddr(), space->gen_bottom, space->gen_top))
-        {
-            POLYUNSIGNED lengthWord = ScanAddressAt(&w);
-            if (lengthWord)
-                ScanAddressesInObject(val, lengthWord);
-            *pt = w.AsObjPtr();
-        }
-    }*/
 }
 
 // This is called both for objects in the local heap and also for mutables
 // in the permanent area and, for partial GCs, for mutables in other areas.
 void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L)
 {
+    if (recursion >= RECURSION_LIMIT)
+    {
+        LocalMemSpace *space = gMem.LocalSpaceForAddress(base);
+        ASSERT(space != 0);
+        PLocker lock(&space->spaceLock);
+        // Have to include this in the range to rescan.
+        if (space->fullGCRescanStart > ((PolyWord*)base) - 1)
+            space->fullGCRescanStart = ((PolyWord*)base) - 1;
+        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
+        if (space->fullGCRescanEnd < ((PolyWord*)base) + n)
+            space->fullGCRescanEnd = ((PolyWord*)base) + n;
+        ASSERT(base->LengthWord() & _OBJ_GC_MARK); // Should have been marked.
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Mark: Recursion limit reached.  Rescan for %p\n", base);
+        return;
+    }
+    recursion ++;
     if (OBJ_IS_WEAKREF_OBJECT(L))
     {
         ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
@@ -239,6 +256,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGN
         if (endObject > space->highestWeak) space->highestWeak = endObject;
     }
     else ScanAddress::ScanAddressesInObject(base, L);
+    recursion--;
 }
 
 static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
@@ -276,35 +294,76 @@ static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
 {
     LocalMemSpace *lSpace = (LocalMemSpace *)arg1;
     lSpace->bitmap.ClearBits(0, lSpace->spaceSize());
-    SetBitmaps(lSpace, lSpace->bottom, lSpace->lowerAllocPtr);
-    SetBitmaps(lSpace, lSpace->upperAllocPtr, lSpace->top);
+    SetBitmaps(lSpace, lSpace->bottom, lSpace->top);
+}
+
+class RescanMarked: public MTGCProcessMarkPointers
+{
+private:
+    virtual void ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord);
+};
+
+// Called to rescan objects that have already been marked
+// before but are within the range of those that were
+// skipped because of the recursion limit.  We process them
+// again in case there are unmarked addresses in them.
+void RescanMarked::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
+{
+    if (lengthWord &_OBJ_GC_MARK)
+        MTGCProcessMarkPointers::ScanAddressesInObject(obj, lengthWord);
 }
 
 void GCMarkPhase(void)
 {
     mainThreadPhase = MTP_GCPHASEMARK;
 
-    // Clear the mark counters.
+    // Clear the mark counters and set the rescan limits.
     for(unsigned k = 0; k < gMem.nlSpaces; k++)
     {
         LocalMemSpace *lSpace = gMem.lSpaces[k];
         lSpace->i_marked = lSpace->m_marked = 0;
+        lSpace->fullGCRescanStart = lSpace->top;
+        lSpace->fullGCRescanEnd = lSpace->bottom;
     }
     
     // Do the actual marking
-    MTGCProcessMarkPointers marker;
 
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
         if (space->isMutable && ! space->byteOnly)
-            gpTaskFarm->AddWorkOrRunNow(&MTGCProcessMarkPointers::MarkPermanentMutableAreaTask, &marker, space);
+            gpTaskFarm->AddWorkOrRunNow(&MTGCProcessMarkPointers::MarkPermanentMutableAreaTask, space, 0);
     }
 
+    MTGCProcessMarkPointers marker;
     GCModules(&marker);
 
     gpTaskFarm->WaitForCompletion();
+
+    // Do we have to recan?
+    while (true)
+    {
+        bool rescan = false;
+        RescanMarked rescanner;
+        for (unsigned m = 0; m < gMem.nlSpaces; m++)
+        {
+            LocalMemSpace *lSpace = gMem.lSpaces[m];
+            if (lSpace->fullGCRescanStart < lSpace->fullGCRescanEnd)
+            {
+                PolyWord *start = lSpace->fullGCRescanStart;
+                PolyWord *end = lSpace->fullGCRescanEnd;
+                lSpace->fullGCRescanStart = lSpace->top;
+                lSpace->fullGCRescanEnd = lSpace->bottom;
+                rescan = true;
+                if (debugOptions & DEBUG_GC)
+                    Log("GC: Mark: Rescanning from %p to %p\n", start, end);
+                rescanner.ScanAddressesInRegion(start, end);
+            }
+        }
+        if (! rescan)
+            break;
+    }
 
     // Turn the marks into bitmap entries.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)

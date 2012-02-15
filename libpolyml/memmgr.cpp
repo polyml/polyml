@@ -93,6 +93,8 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     upperAllocPtr = top;
     lowerAllocPtr = bottom;
     fullGCLowerLimit = top;
+    fullGCRescanEnd = bottom;
+    fullGCRescanStart = top;
 
     allocationSpace = false;
     
