@@ -44,10 +44,19 @@
 #define INRANGE(val,start,end)\
   (start <= val && val < end)
 
-static void CheckAddress(const void *pt)
+static void CheckAddress(PolyWord *pt)
 {
-    if (gMem.SpaceForAddress(pt) == 0)
+    MemSpace *space = gMem.SpaceForAddress(pt);
+    if (space == 0)
         Crash ("Bad pointer 0x%08x found", pt);
+    PolyObject *obj = (PolyObject*)pt;
+    POLYUNSIGNED length;
+    // At the start of a full GC we can have forwarding
+    // pointers left over.
+    if (obj->ContainsForwardingPtr())
+        length = obj->GetForwardingPtr()->Length();
+    else length = obj->Length();
+    ASSERT(pt+length <= space->top);
 }
 
 void DoCheck (const PolyWord pt)
@@ -56,10 +65,8 @@ void DoCheck (const PolyWord pt)
 
     if (pt.IsTagged()) return;
 
-    /* Test corrected 20/2/95 - the stack contains code pointers 
-     (for return addresses) as well as simple data pointers */
-    ASSERT (pt.IsCodePtr() || pt.IsDataPtr());
-    CheckAddress(pt.AsAddress());
+    ASSERT (pt.IsDataPtr());
+    CheckAddress(pt.AsStackAddr());
 } 
 
 class ScanCheckAddress: public ScanAddress
@@ -72,7 +79,10 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
 {
 
     PolyWord *pt  = (PolyWord*)base;
-    CheckAddress(pt-1);
+    CheckAddress(pt);
+    MemSpace *space = gMem.SpaceForAddress(pt);
+    if (space == 0)
+        Crash ("Bad pointer 0x%08x found", pt);
 
     ASSERT (OBJ_IS_LENGTH(L));
 
@@ -80,10 +90,7 @@ void DoCheckObject (const PolyObject *base, POLYUNSIGNED L)
     if (n == 0) return;
 
     ASSERT (n > 0);
-
-    PolyWord *end = pt + n;
-
-    CheckAddress (end-1);
+    ASSERT(pt-1 >= space->bottom && pt+n <= space->top);
 
     byte flags = GetTypeBits(L);  /* discards GC flag and mutable bit */
 
