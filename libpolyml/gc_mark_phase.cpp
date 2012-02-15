@@ -69,7 +69,7 @@ a rescan on the range of addresses that could not be fully marked.
 
 // Recursion limit.  This needs to be chosen so that the stack will not
 // overflow on any platform.
-#define RECURSION_LIMIT 5000
+#define RECURSION_LIMIT 3000
 
 class MTGCProcessMarkPointers: public ScanAddress
 {
