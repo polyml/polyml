@@ -2,7 +2,7 @@
     Title:     Write out a database as a Mach object file
     Author:    David Matthews.
 
-    Copyright (c) 2006-7, 2011 David C. J. Matthews
+    Copyright (c) 2006-7, 2011-2 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -456,7 +456,10 @@ void MachoExport::exportStore(void)
             char buff[50];
             sprintf(buff, "area%0d", i);
             writeSymbol(buff, N_SECT, i, 0);
+#if (SIZEOF_VOIDP == 8)
             // See if we can find the names of any functions.
+            // This seems to break on 32-bit Mac OS X.  It seems to align
+            // some relocations onto an 8-byte boundary so we just disable it.
             char *start = (char*)memTable[i].mtAddr;
             char *end = start + memTable[i].mtLength;
             for (p = (PolyWord*)start; p < (PolyWord*)end; )
@@ -474,6 +477,7 @@ void MachoExport::exportStore(void)
                 }
                 p += length;
             }
+#endif
         }
     }
     symTab.nsyms = symbolCount;
