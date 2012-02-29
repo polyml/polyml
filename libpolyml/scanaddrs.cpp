@@ -44,6 +44,7 @@
 POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
 {
     PolyWord val = *pt;
+    PolyWord newVal = val;
     if (IS_INT(val) || val == PolyWord::FromUnsigned(0))
     {
         // We can get zeros in the constant area if we garbage collect
@@ -62,15 +63,17 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
         // Mustn't use ScanAddressAt here.  That's only valid if the value points
         // into the area being updated.
         PolyObject *newObject = ScanObjectAddress(oldObject);
-        *pt = PolyWord::FromCodePtr((byte*)newObject + offset);
+        newVal = PolyWord::FromCodePtr((byte*)newObject + offset);
     }
     else
     {
         ASSERT(OBJ_IS_DATAPTR(val));
         // Database pointer, local pointer or IO pointer.
         // We need to include IO area pointers when we produce an object module.
-        *pt = ScanObjectAddress(val.AsObjPtr());
+        newVal = ScanObjectAddress(val.AsObjPtr());
     }
+    if (newVal != val) // Only update if we need to.
+        *pt = newVal;
     return 0;
 }
 
