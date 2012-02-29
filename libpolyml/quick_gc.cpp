@@ -35,6 +35,10 @@ these has filled up it fails and a full garbage collection must be done.
 #include <stdlib.h>
 #endif
 
+#ifdef HAVE_STRING_H 
+#include <string.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -57,10 +61,12 @@ these has filled up it fails and a full garbage collection must be done.
 // This protects access to the gMem.lSpace table.
 static PLock localTableLock;
 
+static bool succeeded = true;
+
 class QuickGCScanner: public ScanAddress
 {
 public:
-    QuickGCScanner(bool r): rootScan(r), succeeded(true) {}
+    QuickGCScanner(bool r): rootScan(r) {}
     virtual ~QuickGCScanner() {}
 
     // Overrides for ScanAddress class
@@ -72,8 +78,6 @@ private:
 protected:
     bool objectCopied;
     bool rootScan;
-public:
-    bool succeeded;
 };
 
 class RootScanner: public QuickGCScanner
@@ -92,7 +96,7 @@ public:
         spaceTable(0), nOwnedSpaces(0) {}
     virtual ~ThreadScanner() { free(spaceTable); }
 
-    void ScanCopiedArea(LocalMemSpace *initialSpace);
+    void ScanOwnedAreas(void);
 private:
     virtual LocalMemSpace *FindSpace(POLYUNSIGNED length, bool isMutable);
     bool TakeOwnership(LocalMemSpace *space);
@@ -407,6 +411,8 @@ PolyObject *QuickGCScanner::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
+// Add this to the set of spaces we own.  Must be called with the
+// localTableLock held.
 bool ThreadScanner::TakeOwnership(LocalMemSpace *space)
 {
     ASSERT(space->spaceOwner == 0);
@@ -419,25 +425,19 @@ bool ThreadScanner::TakeOwnership(LocalMemSpace *space)
     return true;
 }
 
-void ThreadScanner::ScanCopiedArea(LocalMemSpace *initialSpace)
+// Thread function to scan an area.  It scans the addresses in the region
+// copying any objects from the allocation area into mutable or immutable
+// areas it owns.  It then processes all the areas it owns until there
+// are no further addresses to scan.
+static void scanArea(GCTaskId *id, void *arg1, void *arg2)
 {
-    {
-        PLocker lock(&localTableLock);
-        // Take ownership of this space unless another thread
-        // is already copying into it.  In that case that thread
-        // will be responsible for it.
-        if (initialSpace->spaceOwner != 0)
-            return;
-        if (! TakeOwnership(initialSpace))
-        {
-            succeeded = false;
-            return;
-        }
-    }
+    ThreadScanner marker(id);
+    marker.ScanAddressesInRegion((PolyWord*)arg1, (PolyWord*)arg2);
+    marker.ScanOwnedAreas();
+}
 
-    if (debugOptions & DEBUG_GC)
-        Log("GC: Quick: Thread %p is processing space %p\n", taskID, initialSpace);
-
+void ThreadScanner::ScanOwnedAreas()
+{
     while (true)
     {
         bool allDone = true;
@@ -445,37 +445,53 @@ void ThreadScanner::ScanCopiedArea(LocalMemSpace *initialSpace)
         for (unsigned k = 0; k < nOwnedSpaces && allDone; k++)
         {
             LocalMemSpace *space = spaceTable[k];
-            allDone = space->partialGCScan == space->lowerAllocPtr &&
-                      space->partialGCTop == space->top;
+            allDone = space->partialGCScan == space->lowerAllocPtr;
         }
-        if (allDone) break;
+        if (allDone)
+            break;
 
         // Scan each area that has had data added to it.
         for (unsigned l = 0; l < nOwnedSpaces; l++)
         {
             LocalMemSpace *space = spaceTable[l];
-            // Scan the old mutable area if it's a mutable space
-            if (space->partialGCTop != space->top)
-            {
-                ScanAddressesInRegion(space->partialGCTop, space->top);
-                space->partialGCTop = space->top;
-            }
             // Scan the area.  This may well result in more data being added
-            while (space->partialGCScan != space->lowerAllocPtr)
+            while (space->partialGCScan < space->lowerAllocPtr)
             {
-                PolyWord *lastAllocPtr = space->lowerAllocPtr;
-                // Scan the area.  This may well result in more data being added
-                ScanAddressesInRegion(space->partialGCScan, lastAllocPtr);
-                // If we ran out of space stop here.  We need to rescan any objects
-                // that contain addresses we couldn't move because another thread
-                // may have done.
-                if (! succeeded)
+                // Is the queue draining?  If so it's probably worth creating
+                // some spare work.
+                if (gpTaskFarm->Draining())
                 {
-                    if (debugOptions & DEBUG_GC)
-                        Log("GC: Quick: Thread %p has insufficient space\n", taskID);
-                    return;
+                    PolyWord *mid =
+                        space->partialGCScan + (space->lowerAllocPtr - space->partialGCScan)/2;
+                    // Split the space in two.
+                    PolyWord *p = space->partialGCScan;
+                    while (p < mid)
+                    {
+                        PolyObject *o = (PolyObject*)(p+1);
+                        ASSERT(o->ContainsNormalLengthWord());
+                        p += o->Length()+1;
+                    }
+                    // Start a new task to scan the area up to the half-way point.
+                    // Because we round up to the end of the next object we may
+                    // include the whole area but that's probably better because
+                    // we may have other areas to scan.
+                    if (gpTaskFarm->AddWork(scanArea, space->partialGCScan, p))
+                    {
+                        space->partialGCScan = p;
+                        if (space->lowerAllocPtr == space->partialGCScan)
+                            break;
+                    }
                 }
-                space->partialGCScan = lastAllocPtr;
+                PolyObject *obj = (PolyObject*)(space->partialGCScan+1);
+                ASSERT(obj->ContainsNormalLengthWord());
+                POLYUNSIGNED length = obj->Length();
+                ASSERT(space->partialGCScan+length+1 <= space->lowerAllocPtr);
+                space->partialGCScan += length+1;
+                if (length != 0)
+                    ScanAddressesInObject(obj);
+                // If any thread has run out of space we should stop.
+                if (! succeeded)
+                    return;
             }
         }
     }
@@ -486,12 +502,6 @@ void ThreadScanner::ScanCopiedArea(LocalMemSpace *initialSpace)
         space->spaceOwner = 0;
     }
     nOwnedSpaces = 0;
-}
-
-static void scanCopiedArea(GCTaskId *id, void *arg1, void *arg2)
-{
-    ThreadScanner marker(id);
-    marker.ScanCopiedArea((LocalMemSpace *)arg1);
 }
 
 // Called after a minor GC.  Currently does nothing.
@@ -519,6 +529,7 @@ bool RunQuickGC(void)
     gcTimeData.RecordGCTime(GcTimeData::GCTimeStart);
     globalStats.incCount(PSC_GC_PARTIALGC);
     mainThreadPhase = MTP_GCQUICK;
+    succeeded = true;
 
     if (debugOptions & DEBUG_GC)
         Log("GC: Beginning quick GC\n");
@@ -587,22 +598,16 @@ bool RunQuickGC(void)
                     break;
                 space = gMem.lSpaces[l++];
             }
-            if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
-                gpTaskFarm->AddWorkOrRunNow(&scanCopiedArea, space, 0);
+            if (space->partialGCScan != space->lowerAllocPtr)
+                gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCScan, space->lowerAllocPtr);
+            if (space->partialGCTop != space->top)
+                gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCTop, space->top);
         }
     }
 
     gpTaskFarm->WaitForCompletion();
 
-    // Did we manage to copy everything?
-    for (unsigned m = 0; m < gMem.nlSpaces; m++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[m];
-        if (space->partialGCScan != space->lowerAllocPtr || space->partialGCTop != space->top)
-            rootScan.succeeded = false;
-    }
-
-    if (rootScan.succeeded)
+    if (succeeded)
     {
 
         globalStats.setSize(PSS_AFTER_LAST_GC, 0);
@@ -654,5 +659,5 @@ bool RunQuickGC(void)
             Log("GC: Quick GC failed\n");
     }
 
-    return rootScan.succeeded;
+    return succeeded;
 }

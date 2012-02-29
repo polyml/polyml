@@ -1,7 +1,7 @@
 /*
     Title:      Task farm for Multi-Threaded Garbage Collector
 
-    Copyright (c) 2010,2011 David C. J. Matthews
+    Copyright (c) 2010-12 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -53,6 +53,9 @@ public:
     void AddWorkOrRunNow(gctask task, void *arg1, void *arg2);
     void WaitForCompletion(void);
     void Terminate(void);
+    // See if the queue is draining.  Used as a hint as to whether
+    // it's worth sparking off some new work.
+    bool Draining(void) const { return queuedItems < threadCount; }
 
 private:
     // The semaphore is zero if there is no work or some value up to
