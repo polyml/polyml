@@ -1,7 +1,7 @@
 /*
     Title:      Validate addresses in objects.
 
-    Copyright (c) 2006
+    Copyright (c) 2006, 2012
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -57,6 +57,12 @@ static void CheckAddress(PolyWord *pt)
         length = obj->GetForwardingPtr()->Length();
     else length = obj->Length();
     ASSERT(pt+length <= space->top);
+    if (space->spaceType == ST_LOCAL)
+    {
+        LocalMemSpace *lSpace = (LocalMemSpace*)space;
+        ASSERT((pt > lSpace->bottom && pt+length <= lSpace->lowerAllocPtr) ||
+            (pt > lSpace->upperAllocPtr && pt+length <= space->top));
+    }
 }
 
 void DoCheck (const PolyWord pt)
@@ -134,16 +140,12 @@ void DoCheckPointer (const PolyWord pt)
 void DoCheckMemory()
 {
     ScanCheckAddress memCheck;
-    // Scan the allocation areas.  This is where new objects are created.
-    // The other local areas are only modified by the GC.
+    // Scan the local areas.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
         LocalMemSpace *space = gMem.lSpaces[i];
-        if (space->allocationSpace)
-        {
-            memCheck.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
-            memCheck.ScanAddressesInRegion(space->upperAllocPtr, space->top);
-        }
+        memCheck.ScanAddressesInRegion(space->bottom, space->lowerAllocPtr);
+        memCheck.ScanAddressesInRegion(space->upperAllocPtr, space->top);
     }
     // Scan the permanent mutable areas.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
