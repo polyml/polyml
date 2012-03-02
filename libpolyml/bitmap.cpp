@@ -65,9 +65,15 @@ bool Bitmap::Create(POLYUNSIGNED bits)
     return m_bits != 0;
 }
 
-Bitmap::~Bitmap()
+void Bitmap::Destroy()
 {
     free(m_bits);
+    m_bits = 0;
+}
+
+Bitmap::~Bitmap()
+{
+    Destroy();
 }
 
 // Set a range of bits in a bitmap.  This checks that the bits are not already set.

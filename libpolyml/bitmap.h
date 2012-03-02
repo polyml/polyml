@@ -30,7 +30,11 @@ public:
     Bitmap(): m_bits(0) {}
     ~Bitmap();
 
+    // Allocate the bitmap bits
     bool Create(POLYUNSIGNED bits);
+
+    // Free the bitmap bits.
+    void Destroy();
 
 private:
     static unsigned char BitN(POLYUNSIGNED n) { return 1 << (n & 7); }
