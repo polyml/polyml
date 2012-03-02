@@ -45,5 +45,6 @@ extern unsigned    debugOptions; // debugging  flags
 #define DEBUG_GCTASKS       0x020       // GC task farm
 #define DEBUG_HEAPSIZE      0x040       // Heap resizing
 #define DEBUG_X             0x080       // X-Windows debugging
+#define DEBUG_SHARING       0x100       // Diagnostics for share-common-data
 
 #endif

@@ -29,10 +29,6 @@
 #error "No configuration file"
 #endif
 
-#ifdef HAVE_STDIO_H
-#include <stdio.h>
-#endif
-
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
 #endif
@@ -59,7 +55,7 @@
 #include "memmgr.h"
 #include "processes.h"
 #include "gctaskfarm.h"
-#include "timing.h"
+#include "diagnostics.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the the
@@ -527,18 +523,40 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     // If it's already visited but doesn't have a tombstone its depth is zero.
         return 0;
 
+
+    if (obj->IsMutable())
+    {
+        // Mutable data in the local or permanent areas
+        if (! obj->IsByteObject())
+        {
+            // Add it to the vector so we will update any addresses it contains.
+            m_parent->AddToVector(0, L, old.AsObjPtr());
+            // and follow any addresses to try to merge those.
+            ScanAddressesInObject(obj, L);
+        }
+        return 0; // Level is zero
+    }
+
+    if (space->spaceType == ST_PERMANENT)
+    {
+        // Immutable data in the permanent area can't be merged
+        // because it's read only.  We need to follow the addresses
+        // because they may point to mutable areas containing data
+        // that can be.  A typical case is the root function pointing
+        // at the global name table containing new declarations.
+        ScanAddressesInObject(obj, L);
+        return 0;
+    }
+
     /* There's a problem sharing code objects if they have relative calls/jumps
        in them to other code.  The code of two functions may be identical (e.g.
        they both call functions 100 bytes ahead) and so they will appear the
        same but if the functions they jump to are different they are actually
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
-
-    // If this is in the permanent immutable area we can't put in a tombstone because it's
-    // read-only.  That means we can't share local data with values in the permanent area.
-    // The mutable area can be written so we could put a tombstone there but there's no point.
-    if (OBJ_IS_MUTABLE_OBJECT(L) || OBJ_IS_CODE_OBJECT(L) || space->spaceType == ST_PERMANENT)
+    if (obj->IsCodeObject())
     {
-        // These always have depth 0.  We still have to process any addresses within them.
+        // We want to update addresses in the code segment.
+        m_parent->AddToVector(0, L, old.AsObjPtr());
         ScanAddressesInObject(obj, L);
         return 0;
     }
@@ -587,9 +605,6 @@ static void RestoreLengthWords(DepthVector *vec)
         ASSERT (OBJ_IS_LENGTH(itemVec[i].pt->LengthWord()));
     }
 }
-
-static unsigned verbose = 0;
-
 
 // This is called by the root thread to do the work.
 bool ShareData::RunShareData(PolyObject *root)
@@ -644,10 +659,8 @@ bool ShareData::RunShareData(PolyObject *root)
     
         POLYUNSIGNED n = vec->MergeSameItems();
     
-        if (n && verbose)
-        {
-            printf("Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT "\n", vec->depth, vec->nitems, n);
-        }
+        if ((debugOptions && DEBUG_SHARING) && n > 0)
+            Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT "\n", vec->depth, vec->nitems, n);
     
         totalObjects += vec->nitems;
         totalShared  += n;
@@ -704,11 +717,8 @@ bool ShareData::RunShareData(PolyObject *root)
     free(depthVectors);
     depthVectors = 0;
 
-    if (verbose)
-    {
-        printf ("Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT "\n", totalObjects, totalShared);
-        fflush(stdout); /* We need this for Windows at least. */
-    }
+    if (debugOptions & DEBUG_SHARING)
+        Log ("Sharing: Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT "\n", totalObjects, totalShared);
 
     return true; // Succeeded.
 }
@@ -732,9 +742,6 @@ void ShareData(TaskData *taskData, Handle root)
 {
     if (! root->Word().IsDataPtr())
         return; // Nothing to do.  We could do handle a code pointer but it shouldn't occur.
-
-    // Request a full GC  to reduce the size of fix-ups.
-    FullGC(taskData);
 
     // Request the main thread to do the sharing.
     ShareRequest request(root);
