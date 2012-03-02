@@ -102,6 +102,8 @@ public:
     // This area grows upwards unlike the local areas that grow down.
     PolyWord    *topPointer;
 
+    Bitmap      shareBitmap; // Used in sharedata
+
     friend class MemMgr;
 };
 
