@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010, 2011
+    and David C. J. Matthews 2006, 2010-12
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -58,6 +58,8 @@
 #include "rts_module.h"
 #include "memmgr.h"
 #include "processes.h"
+#include "gctaskfarm.h"
+#include "timing.h"
 
 /*
 This code was largely written by Simon Finn as a database improver for the the
@@ -109,17 +111,6 @@ loop (see SPF's comment below).
 DCJM 3/8/06
 */
 
-/******************************************************************************/
-/*                                                                            */
-/*      Data objects                                                          */
-/*                                                                            */
-/******************************************************************************/
-/* Meaning of length word:
-  (1) bit 31 (msbit) = 0, bits 0-23 = length, bits 24-30 = flags
-  (2) bit 31 = 1, bit 30 = 1, bits 0-30 = depth
-  (2) bit 31 = 1, bit 30 = 0, bits 0-30 = forwarding pointer>>2
-*/
-
 typedef struct
 {
     POLYUNSIGNED    L;
@@ -135,35 +126,41 @@ public:
     POLYUNSIGNED    nitems;
     POLYUNSIGNED    vsize;
     Item            *vector;
+
+    void Sort(void);
+private:
+    static void SortRange(Item *first, Item *last);
+
+    static int CompareItems(const Item *a, const Item *b);
+
+    static int qsCompare(const void *a, const void *b)
+        { return CompareItems((const Item*)a, (const Item*)b); }
+
+    static void sortTask(GCTaskId*, void *s, void *l)
+        { SortRange((Item*)s, (Item*)l); }
 };
 
 class ShareData {
 public:
-    ShareData() { depthVectors = 0; depthVectorSize = 0; bitmaps = 0; nBitmaps = 0; }
+    ShareData() { depthVectors = 0; depthVectorSize = 0; }
     ~ShareData();
 
     bool RunShareData(PolyObject *root);
 
     DepthVector *AddDepth(POLYUNSIGNED depth);
     void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt);
-    VisitBitmap *FindBitmap(PolyWord p);
+    bool TestAndMark(PolyObject *p);
 
 private:
     DepthVector *depthVectors;
     POLYUNSIGNED depthVectorSize;
-
-    VisitBitmap  **bitmaps;
-    unsigned   nBitmaps;
 };
 
 ShareData::~ShareData()
 {
-    if (bitmaps)
-    {
-        for (unsigned i = 0; i < nBitmaps; i++)
-            delete(bitmaps[i]);
-        delete[](bitmaps);
-    }
+    // Free the bitmaps associated with the permanent spaces.
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
+        gMem.pSpaces[j]->shareBitmap.Destroy();
 }
 
 DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
@@ -185,22 +182,25 @@ DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
 }
 
 
-// Return the bitmap corresponding to the address or NULL if it isn't there.
-VisitBitmap *ShareData::FindBitmap(PolyWord p)
+// Test whether this address has already been visited.
+bool ShareData::TestAndMark(PolyObject *obj)
 {
-    for (unsigned i = 0; i < nBitmaps; i++)
-    {
-        VisitBitmap *bm = bitmaps[i];
-        if (bm->InRange(p.AsStackAddr())) return bm;
-    }
-    return 0;
+    MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj);
+    ASSERT(space != 0);
+    Bitmap *bm = 0;
+    // Find the bitmap for this address.
+    if (space->spaceType == ST_PERMANENT)
+        bm = &((PermanentMemSpace*)space)->shareBitmap;
+    else if (space->spaceType == ST_LOCAL)
+        bm = &((LocalMemSpace*)space)->bitmap;
+    ASSERT(bm != 0);
+    if (bm->TestBit((PolyWord*)obj - space->bottom))
+        return true;
+    bm->SetBit((PolyWord*)obj - space->bottom);
+    return false;
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      AddToVector                                                           */
-/*                                                                            */
-/******************************************************************************/
+// Add an object to a depth vector
 void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 {
     DepthVector *v = AddDepth (depth);
@@ -232,40 +232,30 @@ void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
     ASSERT (v->nitems <= v->vsize);
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      CompareItems                                                          */
-/*                                                                            */
-/******************************************************************************/
-static int CompareItems(const void *arg_a, const void *arg_b)
-{
-    Item *a = (Item *)arg_a;
-    Item *b = (Item *)arg_b;
- 
+// Comparison function used for sorting and also to test whether
+// two cells can be merged.
+int DepthVector::CompareItems(const Item *a, const Item *b)
+{ 
     PolyObject *x = a->pt;
     PolyObject *y = b->pt;
-    POLYUNSIGNED  A = x->LengthWord();
-    POLYUNSIGNED  B = y->LengthWord();
+//    POLYUNSIGNED  A = x->LengthWord();
+//    POLYUNSIGNED  B = y->LengthWord();
     
-    ASSERT (OBJ_IS_DEPTH(A));
-    ASSERT (OBJ_IS_DEPTH(B));
-    ASSERT (A == B); // Should be the same depth.
+//    ASSERT (OBJ_IS_DEPTH(A));
+//    ASSERT (OBJ_IS_DEPTH(B));
+//    ASSERT (A == B); // Should be the same depth.
     
-    ASSERT (OBJ_IS_LENGTH(a->L));
-    ASSERT (OBJ_IS_LENGTH(b->L));
+//    ASSERT (OBJ_IS_LENGTH(a->L));
+//    ASSERT (OBJ_IS_LENGTH(b->L));
     
-    if (a->L > b->L) return  1;
+    if (a->L > b->L) return  1; // These tests include the flag bits
     if (a->L < b->L) return -1;
     
     // Return simple bitwise equality.
     return memcmp(x, y, OBJ_OBJECT_LENGTH(a->L)*sizeof(PolyWord));
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      MergeSameItems                                                        */
-/*                                                                            */
-/******************************************************************************/
+// Merge cells with the same contents.
 POLYUNSIGNED DepthVector::MergeSameItems()
 {
     DepthVector *v = this;
@@ -323,14 +313,112 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             {
                 itemVec[j].pt->SetForwardingPtr(toShare); /* an indirection */
                 ASSERT (itemVec[j].pt->ContainsForwardingPtr());
+                n++;
             }
-            n++;
         }
         ASSERT(! OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
         i = k;
     }
     
     return n;
+}
+
+// Sort this vector
+void DepthVector::Sort()
+{
+    SortRange(vector, vector+(nitems-1));
+    gpTaskFarm->WaitForCompletion();
+
+    // Check
+//    for (POLYUNSIGNED i = 0; i < nitems-1; i++)
+//       ASSERT(CompareItems(vector+i, vector+i+1) <= 0);
+}
+
+inline void swapItems(Item *i, Item *j)
+{
+    Item t = *i;
+    *i = *j;
+    *j = t;
+}
+
+// Simple parallel quick-sort.  "first" and "last" are the first
+// and last items (inclusive) in the vector.  
+void DepthVector::SortRange(Item *first, Item *last)
+{
+    while (first < last)
+    {
+        if (last-first <= 100)
+        {
+            // Use the standard library function for small ranges.
+            qsort(first, last-first+1, sizeof(Item), qsCompare);
+            return;
+        }
+        // Select the best pivot from the first, last and middle item
+        // by sorting these three items.  We use the middle item as
+        // the pivot and since the first and last items are sorted
+        // by this we can skip them when we start the partitioning.
+        Item *middle = first + (last-first)/2;
+        if (CompareItems(first, middle) > 0)
+            swapItems(first, middle);
+        if (CompareItems(middle, last) > 0)
+        {
+            swapItems(middle, last);
+            if (CompareItems(first, middle) > 0)
+                swapItems(first, middle);
+        }
+
+        // Partition the data about the pivot.  This divides the
+        // vector into two partitions with all items <= pivot to
+        // the left and all items >= pivot to the right.
+        // Note: items equal to the pivot could be in either partition.
+        Item *f = first+1;
+        Item *l = last-1;
+
+        do {
+            // Find an item we have to move.  These loops will always
+            // terminate because testing the middle with itself
+            // will return == 0.
+            while (CompareItems(f, middle/* pivot*/) < 0)
+                f++;
+            while (CompareItems(middle/* pivot*/, l) < 0)
+                l--;
+            // If we haven't finished we need to swap the items.
+            if (f < l)
+            {
+                swapItems(f, l);
+                // If one of these was the pivot item it will have moved to
+                // the other position.
+                if (middle == f)
+                    middle = l;
+                else if (middle == l)
+                    middle = f;
+                f++;
+                l--;
+            }
+            else if (f == l)
+            {
+                f++;
+                l--;
+                break;
+            }
+        } while (f <= l);
+ 
+        // Process the larger partition as a separate task or
+        // by recursion and do the smaller partition by tail
+        // recursion.
+        if (l-first > last-f)
+        {
+            // Lower part is larger
+            gpTaskFarm->AddWorkOrRunNow(sortTask, first, l);
+            first = f;
+        }
+        else
+        {
+            // Upper part is larger
+            gpTaskFarm->AddWorkOrRunNow(sortTask, f, last);
+            last = l;
+        }
+    }
 }
 
 class ProcessFixupAddress: public ScanAddress
@@ -347,11 +435,6 @@ protected:
 POLYUNSIGNED ProcessFixupAddress::ScanAddressAt(PolyWord *pt)
 {
     *pt = GetNewAddress(*pt);
-    // If we are updating an immutable object in the permanent memory we mustn't
-    // have it contain an address in the temporary heap.  Mutables are ok since the
-    // garbage collector always scans that area.
-//    ASSERT(!(H->i_space.bottom <= pt && pt < H->i_space.pointer) || (*pt).IsTagged() ||
-//            gMem.IsPermanentMemoryPointer((*pt).AsAddress()) || gMem.IsIOPointer((*pt).AsAddress()));
     return 0;
 }
 
@@ -440,13 +523,9 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
 
     ASSERT (OBJ_IS_LENGTH(L));
 
-    // Find the bitmap for this address.
-    VisitBitmap *bm = m_parent->FindBitmap(old);
-    ASSERT(bm != 0);
+    if (m_parent->TestAndMark(obj))
     // If it's already visited but doesn't have a tombstone its depth is zero.
-    if (bm->AlreadyVisited(obj))
         return 0;
-    bm->SetVisited(obj);
 
     /* There's a problem sharing code objects if they have relative calls/jumps
        in them to other code.  The code of two functions may be identical (e.g.
@@ -509,7 +588,6 @@ static void RestoreLengthWords(DepthVector *vec)
     }
 }
 
-
 static unsigned verbose = 0;
 
 
@@ -518,22 +596,17 @@ bool ShareData::RunShareData(PolyObject *root)
 {
     // We use a bitmap to indicate when we've visited an object to avoid
     // infinite recursion in cycles in the data.
-    nBitmaps = gMem.nlSpaces+gMem.npSpaces;
-    bitmaps = new VisitBitmap*[nBitmaps];
-    unsigned bm = 0;
-    unsigned j;
-    for (j = 0; j < gMem.npSpaces; j++)
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
-        MemSpace *space = gMem.pSpaces[j];
-        // Permanent areas are filled with objects from the bottom.
-        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
+        PermanentMemSpace *space = gMem.pSpaces[j];
+        if (! space->shareBitmap.Create(space->spaceSize()))
+            return false;
     }
-    for (j = 0; j < gMem.nlSpaces; j++)
+    for (unsigned k = 0; k < gMem.nlSpaces; k++)
     {
-        LocalMemSpace *space = gMem.lSpaces[j];
-        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
+        LocalMemSpace *space = gMem.lSpaces[k];
+        space->bitmap.ClearBits(0, space->spaceSize());
     }
-    ASSERT(bm == nBitmaps);
 
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
@@ -567,7 +640,7 @@ bool ShareData::RunShareData(PolyObject *root)
     {
         DepthVector *vec = &depthVectors[depth];
         fixup.FixupItems(vec);
-        qsort (vec->vector, vec->nitems, sizeof(Item), CompareItems);
+        vec->Sort();
     
         POLYUNSIGNED n = vec->MergeSameItems();
     
@@ -636,6 +709,7 @@ bool ShareData::RunShareData(PolyObject *root)
         printf ("Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT "\n", totalObjects, totalShared);
         fflush(stdout); /* We need this for Windows at least. */
     }
+
     return true; // Succeeded.
 }
 
