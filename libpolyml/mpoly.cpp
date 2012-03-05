@@ -388,11 +388,17 @@ void InitHeaderFromExport(exportDescription *exports)
     {
         // Construct a new space for each of the entries.
         if (i == exports->ioIndex)
-            (void)gMem.InitIOSpace((PolyWord*)memTable[i].mtAddr, memTable[i].mtLength/sizeof(PolyWord));
+        {
+            if (gMem.InitIOSpace((PolyWord*)memTable[i].mtAddr, memTable[i].mtLength/sizeof(PolyWord)) == 0)
+                Exit("Unable to initialise the memory space");
+        }
         else
-            (void)gMem.NewPermanentSpace(
-                (PolyWord*)memTable[i].mtAddr,
-                memTable[i].mtLength/sizeof(PolyWord), memTable[i].mtFlags,
-                memTable[i].mtIndex);
+        {
+            if (gMem.NewPermanentSpace(
+                    (PolyWord*)memTable[i].mtAddr,
+                    memTable[i].mtLength/sizeof(PolyWord), memTable[i].mtFlags,
+                    memTable[i].mtIndex) == 0)
+                Exit("Unable to initialise a permanent memory space");
+        }
     }
 }
