@@ -121,6 +121,7 @@ public:
 
     void RecordGCTime(gcTime isEnd, const char *stage = "");
     void Init(void);
+    void Final(void);
 
 private:
 #ifdef WINDOWS_PC
@@ -128,7 +129,7 @@ private:
     FILETIME startRTime, lastRTime;
 #else
     struct rusage startUsage, lastUsage;
-    struct timeval startTime, lastTime;
+    struct timeval startRTime, lastRTime;
     long startPF;
 #endif
 };

@@ -142,10 +142,10 @@
 
 #ifdef WINDOWS_PC
 static FILETIME startTime;
-static FILETIME gcUTime, gcSTime;
+static FILETIME gcUTime, gcSTime, gcRTime;
 #else
 static struct timeval startTime;
-static struct timeval gcUTime, gcSTime;
+static struct timeval gcUTime, gcSTime, gcRTime;
 #endif
 
 GcTimeData gcTimeData; 
@@ -428,21 +428,6 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
 GcTimeData::GcTimeData()
 {
-    resetMajorTimingData();
-#ifdef WINDOWS_PC
-    memset(&startUsageU, 0, sizeof(startUsageU));
-    memset(&startUsageS, 0, sizeof(startUsageS));
-    memset(&lastUsageU, 0, sizeof(lastUsageU));
-    memset(&lastUsageS, 0, sizeof(lastUsageS));
-    memset(&startRTime, 0, sizeof(startRTime));
-    memset(&lastRTime, 0, sizeof(lastRTime));
-#else
-    memset(&startUsage, 0, sizeof(startUsage));
-    memset(&lastUsage, 0, sizeof(lastUsage));
-    memset(&startTime, 0, sizeof(startTime));
-    memset(&lastTime, 0, sizeof(lastTime));
-    startPF = 0;
-#endif
 }
 
 // This function is called at the beginning and end of garbage
@@ -456,7 +441,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
     FILETIME rt;
 
     GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
-    if (debugOptions & DEBUG_GC) GetSystemTimeAsFileTime(&rt);
+    GetSystemTimeAsFileTime(&rt);
 
     switch (isEnd)
     {
@@ -467,12 +452,10 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
         lastRTime = rt;
         subFiletimes(&ut, &startUsageU);
         subFiletimes(&kt, &startUsageS);
-        addFiletimes(&gcUTime, &ut);
-        addFiletimes(&gcSTime, &kt);
         subFiletimes(&rt, &startRTime);
         if (debugOptions & DEBUG_GC)
         {
-           float userTime = filetimeToSeconds(&ut);
+            float userTime = filetimeToSeconds(&ut);
             float systemTime = filetimeToSeconds(&kt);
             float realTime = filetimeToSeconds(&rt);
             Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n", userTime, systemTime, realTime);
@@ -514,12 +497,13 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
         {
             lastUsageU = ut;
             lastUsageS = kt;
+            lastRTime = rt;
             subFiletimes(&ut, &startUsageU);
             subFiletimes(&kt, &startUsageS);
+            subFiletimes(&rt, &startRTime);
             addFiletimes(&gcUTime, &ut);
             addFiletimes(&gcSTime, &kt);
-            lastRTime = rt;
-            subFiletimes(&rt, &startRTime);
+            addFiletimes(&gcRTime, &rt);
 
             if (debugOptions & DEBUG_GC)
             {
@@ -557,7 +541,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)
                 return;
-            lastTime = tv;
+            lastRTime = tv;
             subTimevals(&tv, &startTime);
 
             if (debugOptions & DEBUG_GC)
@@ -575,7 +559,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             minorNonGCReal.add(tv);
             majorNonGCReal.add(tv);
             startUsage = lastUsage;
-            startTime = lastTime;
+            startRTime = lastRTime;
             startPF = rusage.ru_majflt;
             break;
          }
@@ -592,7 +576,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             struct timeval nextTime = tv;
             subTimevals(&rusage.ru_utime, &lastUsage.ru_utime);
             subTimevals(&rusage.ru_stime, &lastUsage.ru_stime);
-            subTimevals(&tv, &lastTime);
+            subTimevals(&tv, &lastRTime);
 
             float userTime = timevalToSeconds(&rusage.ru_utime);
             float systemTime = timevalToSeconds(&rusage.ru_stime);
@@ -600,7 +584,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
                 systemTime, realTime, (userTime + systemTime) / realTime);
             lastUsage = nextUsage;
-            lastTime = nextTime;
+            lastRTime = nextTime;
         }
         break;
 
@@ -617,8 +601,9 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)
                 return;
-            lastTime = tv;
-            subTimevals(&tv, &startTime);
+            lastRTime = tv;
+            subTimevals(&tv, &startRTime);
+            addTimevals(&gcRTime, &tv);
 
             if (debugOptions & DEBUG_GC)
             {
@@ -634,7 +619,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             majorGCSystemCPU.add(rusage.ru_stime);
             minorGCReal.add(tv);
             majorGCReal.add(tv);
-            startTime = lastTime;
+            startRTime = lastRTime;
             startPF = rusage.ru_majflt;
             startUsage = lastUsage;
             globalStats.copyGCTimes(gcUTime, gcSTime);
@@ -645,13 +630,59 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
 
 void GcTimeData::Init()
 {
+    resetMajorTimingData();
 #ifdef WINDOWS_PC
+    memset(&startUsageU, 0, sizeof(startUsageU));
+    memset(&startUsageS, 0, sizeof(startUsageS));
+    memset(&lastUsageU, 0, sizeof(lastUsageU));
+    memset(&lastUsageS, 0, sizeof(lastUsageS));
+    memset(&lastRTime, 0, sizeof(lastRTime));
 	GetSystemTimeAsFileTime(&startRTime);
 #else
-    gettimeofday(&startTime, NULL);
+    memset(&startUsage, 0, sizeof(startUsage));
+    memset(&lastUsage, 0, sizeof(lastUsage));
+    memset(&lastRTime, 0, sizeof(lastRTime));
+    gettimeofday(&startRTime, NULL);
+    startPF = 0;
 #endif
-
 }
+
+void GcTimeData::Final()
+{
+    // Print the overall statistics
+    if (debugOptions & DEBUG_GC)
+    {
+#ifdef WINDOWS_PC
+        FILETIME kt, ut;
+        FILETIME ct, et; // Unused
+        FILETIME rt;
+        GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
+        GetSystemTimeAsFileTime(&rt);
+        subFiletimes(&ut, &gcUTime);
+        subFiletimes(&kt, &gcSTime);
+        subFiletimes(&rt, &startTime);
+        subFiletimes(&rt, &gcRTime);
+        Log("GC (Total): Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
+            filetimeToSeconds(&ut), filetimeToSeconds(&kt), filetimeToSeconds(&rt));
+        Log("GC (Total): GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
+            filetimeToSeconds(&gcUTime), filetimeToSeconds(&gcSTime), filetimeToSeconds(&gcRTime));
+#else
+        struct rusage rusage;
+        struct timeval tv;
+        if (proper_getrusage(RUSAGE_SELF, &rusage) != 0 || gettimeofday(&tv, NULL) != 0)
+            return;
+        subTimevals(&rusage.ru_utime, &gcUTime);
+        subTimevals(&rusage.ru_stime, &gcSTime);
+        subTimevals(&tv, &startTime);
+        subTimevals(&tv, &gcRTime);
+        Log("GC (Total): Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
+            timevalToSeconds(&rusage.ru_utime), timevalToSeconds(&rusage.ru_stime), timevalToSeconds(&tv));
+        Log("GC (Total): GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
+            timevalToSeconds(&gcUTime), timevalToSeconds(&gcSTime), timevalToSeconds(&gcRTime));
+#endif
+    }
+}
+
 
 #ifdef HAVE_WINDOWS_H
 void addFiletimes(FILETIME *result, const FILETIME *x)
@@ -776,6 +807,7 @@ class Timing: public RtsModule
 {
 public:
     virtual void Init(void);
+    virtual void Stop(void);
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -790,4 +822,9 @@ void Timing::Init(void)
     gettimeofday(&startTime, NULL);
 #endif
     gcTimeData.Init();
+}
+
+void Timing::Stop()
+{
+    gcTimeData.Final();
 }
