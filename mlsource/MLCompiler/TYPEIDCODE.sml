@@ -930,7 +930,7 @@ struct
             else p (* String or Break *)
 
         fun printerForConstructors
-                (Value{name, typeOf, access, class = Constructor{nullary, ...}, ...} :: rest, depth) =
+                (Value{name, typeOf, access, class = Constructor{nullary, ...}, ...} :: rest) =
             let
                 (* The "value" for a value constructor is a tuple containing
                    the test code, the injection and the projection functions. *)
@@ -975,21 +975,21 @@ struct
                     end
             in
                 (* If this was the last or only constructor we don't need to test. *)
-                checkDepth(depthCode, depth,
+                checkDepth(depthCode, 1,
                     if null rest
                     then printCode
                     else
                     let
                         val testValue = mkEval(addPolymorphism(extractTest constructorCode), [argCode], true)
                     in
-                        mkIf(testValue, printCode, printerForConstructors(rest, depth+1))
+                        mkIf(testValue, printCode, printerForConstructors rest)
                     end,
                     codePrettyString "...")
             end
 
         |   printerForConstructors _ = raise InternalError ("No constructors:"^name)
             
-        val printerCode = printerForConstructors(vConstrs, 0)
+        val printerCode = printerForConstructors vConstrs
     in
         (* Wrap this in the functions for the base types. *)
         if null argTypes
