@@ -136,9 +136,6 @@ public:
 
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
-    bool         copiedOut;       // Copy phase of GC: true if we've copied out of this.
-    bool         copiedIn;        // Copy phase of GC: true if we've copied into this.
-    bool         spaceInUse;      // Copy phase of GC: true if a thread is copying into this.
     POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */
     POLYUNSIGNED start_index;     /* last index used to index start array              */
     POLYUNSIGNED i_marked;        /* count of immutable words marked.                  */

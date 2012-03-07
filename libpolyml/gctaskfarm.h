@@ -57,6 +57,8 @@ public:
     // it's worth sparking off some new work.
     bool Draining(void) const { return queuedItems < threadCount; }
 
+    unsigned ThreadCount(void) const { return threadCount; }
+
 private:
     // The semaphore is zero if there is no work or some value up to
     // the number of threads if there is work.

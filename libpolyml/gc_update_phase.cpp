@@ -62,6 +62,13 @@ public:
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
     void UpdateObjectsInArea(LocalMemSpace *area);
+
+private:
+    static void UpdateAddress(PolyObject *&obj)
+    {
+        while (obj->ContainsForwardingPtr())
+            obj = obj->GetForwardingPtr();
+    }
 };
 
 /*********************************************************************/
@@ -75,10 +82,8 @@ PolyObject *MTGCProcessUpdate::ScanObjectAddress(PolyObject *obj)
     LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr());
     if (space != 0)
     {
-        if (obj->ContainsForwardingPtr())
-            obj = obj->GetForwardingPtr();
-        else ASSERT(obj->ContainsNormalLengthWord());
-    
+        UpdateAddress(obj);
+        ASSERT(obj->ContainsNormalLengthWord());
         CheckObject (obj);
     }
     return obj;
@@ -92,11 +97,11 @@ void MTGCProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/
     if (space != 0)
     {
         PolyObject *obj = *pt;
-        
         if (obj->ContainsForwardingPtr())
-            *pt = obj->GetForwardingPtr();
-        else ASSERT(obj->ContainsNormalLengthWord()); /* SPF 24/1/95 */
-        
+        {
+            UpdateAddress(obj);
+            *pt = obj;
+        }
         CheckObject (*pt);
     }
 }  
@@ -122,18 +127,12 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
         return 0;
 
     PolyObject *obj = val.AsObjPtr();
-    
     if (obj->ContainsForwardingPtr())
     {
-        *pt = obj->GetForwardingPtr();
-        CheckObject (pt->AsObjPtr());
+        UpdateAddress(obj);
+        *pt = obj;
     }
-    else
-    {
-        ASSERT(obj->ContainsNormalLengthWord());
-        CheckObject(obj);
-    }
-
+    CheckObject (pt->AsObjPtr());
     return 0;
 }
 
@@ -188,13 +187,7 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
         {
             // Skip over moved objects.  We have to find the new location to find
             // its length.
-            // This previously allowed for only one level of forwarding i.e.
-            // an object will only have been moved once.
-            // Makarius reported that the assertion to that effect sometimes
-            // failed with multi-threading enabled so we'll allow for the
-            // possibility of more than one level.
-            while (obj->ContainsForwardingPtr())
-                obj = obj->GetForwardingPtr();
+            UpdateAddress(obj);
 
             CheckObject (obj);
             
@@ -226,14 +219,11 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
                         
                             if (obj->ContainsForwardingPtr())
                             {
-                                *pt = obj->GetForwardingPtr();
-                                CheckObject (pt->AsObjPtr());
+                                UpdateAddress(obj);
+                                *pt = obj;
                             }
-                            else
-                            {
-                                ASSERT(obj->ContainsNormalLengthWord());
-                                CheckObject(obj);
-                            }
+
+                            CheckObject (pt->AsObjPtr());
                         }
                     }
                     

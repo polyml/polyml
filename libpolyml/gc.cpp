@@ -239,8 +239,6 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     /* Detect unreferenced streams, windows etc. */
     GCheckWeakRefs();
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Mark");
-
     // Check that the heap is not overfull.  We make sure the marked
     // mutable and immutable data is no more than 90% of the
     // corresponding areas.  This is a very coarse adjustment.
@@ -269,7 +267,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     /* Compact phase */
     POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
-    GCCopyPhase(immutable_overflow);
+    GCCopyPhase();
 
     gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Copy");
 
@@ -291,8 +289,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             else
                 iUpdated += lSpace->updated;
         }
-        ASSERT(iUpdated == iMarked - immutable_overflow);
-        ASSERT(mUpdated == mMarked + immutable_overflow);
+        ASSERT(iUpdated+mUpdated == iMarked+mMarked);
     }
 
     // Delete empty spaces.
@@ -365,6 +362,10 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 #ifdef FILL_UNUSED_MEMORY
         memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);
 #endif
+        if (debugOptions & DEBUG_GC)
+            Log("GC: %s space %p %d free in %d words %2.1f%% full\n", space->spaceTypeString(),
+                space, space->freeSpace(), space->spaceSize(),
+                ((float)space->allocatedSpace()) * 100 / (float)space->spaceSize());
     }
 
     // End of garbage collection

@@ -67,9 +67,6 @@ LocalMemSpace::LocalMemSpace()
         start[i] = 0;
     start_index = 0;
     i_marked = m_marked = copied = updated = 0;
-    copiedOut = false;
-    copiedIn = false;
-    spaceInUse = false;
     allocationSpace = false;
 }
 
@@ -213,15 +210,25 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
         RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
         return false;
     }
-    // We need to make sure that any allocation spaces are inserted after any other
-    // mutable spaces.  That's because the copy phase of the full GC copies into earlier
-    // spaces and we want to try to empty the allocation area as far as possible.
+    // The entries in the local table are ordered so that the copy phase of the full
+    // GC simply has to copy to an entry earlier in the table.  Immutable spaces come
+    // first, followed by mutable spaces and finally allocation spaces.
     if (space->allocationSpace)
         lSpaces[nlSpaces++] = space; // Just add at the end
-    else
+    else if (space->isMutable)
     {
+        // Add before the allocation spaces
         unsigned s;
         for (s = nlSpaces; s > 0 && lSpaces[s-1]->allocationSpace; s--)
+            lSpaces[s] = lSpaces[s-1];
+        lSpaces[s] = space;
+        nlSpaces++;
+    }
+    else
+    {
+        // Immutable space: Add before the mutable spaces
+        unsigned s;
+        for (s = nlSpaces; s > 0 && lSpaces[s-1]->isMutable; s--)
             lSpaces[s] = lSpaces[s-1];
         lSpaces[s] = space;
         nlSpaces++;
