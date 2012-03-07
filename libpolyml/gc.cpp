@@ -266,7 +266,6 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     }
 
     /* Compact phase */
-    POLYUNSIGNED immutable_overflow = 0; // The immutable space we couldn't copy out.
     GCCopyPhase();
 
     gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Copy");
