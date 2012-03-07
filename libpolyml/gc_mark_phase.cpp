@@ -65,16 +65,17 @@ a rescan on the range of addresses that could not be fully marked.
 #include "diagnostics.h"
 #include "gctaskfarm.h"
 #include "profiling.h"
+#include "timing.h"
 
 
 // Recursion limit.  This needs to be chosen so that the stack will not
 // overflow on any platform.
-#define RECURSION_LIMIT 3000
+#define RECURSION_LIMIT 2500
 
 class MTGCProcessMarkPointers: public ScanAddress
 {
 public:
-    MTGCProcessMarkPointers(uintptr_t depth = 0): recursion(depth) {}
+    MTGCProcessMarkPointers(): recursion(0) {}
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return DoScanAddressAt(pt, false); }
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
@@ -90,7 +91,7 @@ public:
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
 
 private:
-    uintptr_t recursion;
+    unsigned recursion;
 };
 
 // Task to mark pointers in a permanent mutable area.
@@ -105,10 +106,7 @@ void MTGCProcessMarkPointers::MarkPermanentMutableAreaTask(GCTaskId *, void *arg
 void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
 {
     PolyObject *obj = (PolyObject *)arg1;
-    // This may be a new task or it may be called recursively from
-    // DoScanAddressAt.  For safety assume that it's recursive.
-    uintptr_t depth = (uintptr_t)arg2;
-    MTGCProcessMarkPointers marker(depth+1);
+    MTGCProcessMarkPointers marker;
     marker.ScanAddressesInObject(obj);
 }
 
@@ -152,8 +150,11 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
         return 0; // We've done as much as we need
     else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
     {
-        // Have to handle these specially.
-        gpTaskFarm->AddWorkOrRunNow(&MarkPointersTask, obj, (void*)recursion);
+        // Have to handle these specially.  If we can't add it to
+        // the task queue process it recursively using the current
+        // recursion count.
+        if (! gpTaskFarm->AddWork(&MarkPointersTask, obj, 0))
+            ScanAddressesInObject(obj);
         return 0; // Already done it.
     }
     else
@@ -365,11 +366,15 @@ void GCMarkPhase(void)
             break;
     }
 
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Mark");
+
     // Turn the marks into bitmap entries.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
         gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, gMem.lSpaces[i], 0);
 
     gpTaskFarm->WaitForCompletion();
+
+    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Bitmap");
 
     POLYUNSIGNED totalLive = 0;
     for(unsigned l = 0; l < gMem.nlSpaces; l++)
