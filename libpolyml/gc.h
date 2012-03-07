@@ -53,7 +53,7 @@ extern bool RunQuickGC(void);
 // GC Phases.
 extern void GCMarkPhase(void);
 extern void GCheckWeakRefs(void);
-extern void GCCopyPhase(POLYUNSIGNED &immutable_overflow);
+extern void GCCopyPhase(void);
 extern void GCUpdatePhase(void);
 
 #endif
