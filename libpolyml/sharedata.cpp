@@ -659,7 +659,7 @@ bool ShareData::RunShareData(PolyObject *root)
     
         POLYUNSIGNED n = vec->MergeSameItems();
     
-        if ((debugOptions && DEBUG_SHARING) && n > 0)
+        if ((debugOptions & DEBUG_SHARING) && n > 0)
             Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT "\n", vec->depth, vec->nitems, n);
     
         totalObjects += vec->nitems;
