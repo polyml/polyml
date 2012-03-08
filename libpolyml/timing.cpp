@@ -542,14 +542,14 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             if (gettimeofday(&tv, NULL) != 0)
                 return;
             lastRTime = tv;
-            subTimevals(&tv, &startTime);
+            subTimevals(&tv, &startRTime);
 
             if (debugOptions & DEBUG_GC)
             {
                 float userTime = timevalToSeconds(&rusage.ru_utime);
                 float systemTime = timevalToSeconds(&rusage.ru_stime);
                 float realTime = timevalToSeconds(&tv);
-                Log("GC: Non-GC Time user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
+                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
                     systemTime, realTime, rusage.ru_majflt - startPF);
             }
             minorNonGCUserCPU.add(rusage.ru_utime);
