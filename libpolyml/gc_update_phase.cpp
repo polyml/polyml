@@ -92,18 +92,13 @@ PolyObject *MTGCProcessUpdate::ScanObjectAddress(PolyObject *obj)
 void MTGCProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/)
 /* weak is not used, but needed so type of the function is correct */
 {
-    PolyWord w = *pt;
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(w.AsStackAddr());
-    if (space != 0)
+    PolyObject *obj = *pt;
+    if (obj->ContainsForwardingPtr())
     {
-        PolyObject *obj = *pt;
-        if (obj->ContainsForwardingPtr())
-        {
-            UpdateAddress(obj);
-            *pt = obj;
-        }
-        CheckObject (*pt);
+        UpdateAddress(obj);
+        *pt = obj;
     }
+    CheckObject (*pt);
 }  
 
 // Update the addresses in a group of words.
@@ -121,10 +116,6 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
     // ContainsForwardingPtr unnecessarily. I guess the reason is that
     // it actually accesses the memory referenced by the address and it
     // is unlikely to be in the cache.
-
-    LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsStackAddr());
-    if (space == 0)
-        return 0;
 
     PolyObject *obj = val.AsObjPtr();
     if (obj->ContainsForwardingPtr())
@@ -147,23 +138,14 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 
     for (;;)
     {
-        ASSERT(bitno <= highest); /* SPF */
-        
-       /* Zero freed space. This is necessary for OpMutableBlock,
-          which expects the old mutable area to contain only
-          genuine objects, tombstones and zero words. This is
-          all rather sad, since zeroing the mutable buffer in
-          this manner may well be one of the hot-spots of the GC.
-          At least we only start at area->pointer, so we shouldn't
-          normally have to zap *too* much store.
-          SPF 22/10/96
-        */
-        /*
-          The alternative, of making these dummy byte objects in which
-          case it is only the length word that needs to be set, didn't
-          seem to make any difference.  The CPU is probably writing back
-          whole cache lines so setting the length word probably means
-          the whole cache line has to be written anyway.  DCJM 2/6/06.
+        ASSERT(bitno <= highest);
+        /* Zero unused words.  This is necessary so that
+           ScanAddressesInRegion can work.  It requires the allocated
+           area of memory to contain either objects with a valid length
+           word or forwarding pointer or zeros.  We should only be
+           zeroing words that we couldn't fill with real data so it
+           shouldn't be too much.  Profiling showed that using dummy
+           byte objects here didn't make a measurable difference,
         */
         while (bitno < highest && !area->bitmap.TestBit(bitno))
         {
@@ -187,15 +169,12 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
         {
             // Skip over moved objects.  We have to find the new location to find
             // its length.
-            UpdateAddress(obj);
-
-            CheckObject (obj);
-            
+            UpdateAddress(obj);            
             POLYUNSIGNED length = obj->Length();
             pt    += length;
             bitno += length;
         }
-        else /* !OBJ_IS_POINTER(L) */
+        else // Contains real object
         {
             CheckObject (obj);
             
@@ -212,19 +191,15 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
 
                     if (! val.IsTagged() && val != PolyWord::FromUnsigned(0))
                     {
-                        LocalMemSpace *space = gMem.LocalSpaceForAddress(val.AsAddress());
-                        if (space != 0)
+                        PolyObject *obj = val.AsObjPtr();
+                    
+                        if (obj->ContainsForwardingPtr())
                         {
-                            PolyObject *obj = val.AsObjPtr();
-                        
-                            if (obj->ContainsForwardingPtr())
-                            {
-                                UpdateAddress(obj);
-                                *pt = obj;
-                            }
-
-                            CheckObject (pt->AsObjPtr());
+                            UpdateAddress(obj);
+                            *pt = obj;
                         }
+
+                        CheckObject (pt->AsObjPtr());
                     }
                     
                     pt++;

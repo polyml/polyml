@@ -140,7 +140,6 @@ public:
     POLYUNSIGNED start_index;     /* last index used to index start array              */
     POLYUNSIGNED i_marked;        /* count of immutable words marked.                  */
     POLYUNSIGNED m_marked;        /* count of mutable words marked.                    */
-    POLYUNSIGNED copied;          /* count of words copied into this area.             */
     POLYUNSIGNED updated;         /* count of words updated.                           */
     
     POLYUNSIGNED allocatedSpace(void)const // Words allocated

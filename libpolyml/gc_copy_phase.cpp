@@ -170,8 +170,6 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     if (newp < dst->upperAllocPtr)
         dst->upperAllocPtr = newp;
 
-    dst->copied += n;
-
     return newp;
 }
 
@@ -369,7 +367,6 @@ void GCCopyPhase()
         for (unsigned i = 0; i < NSTARTS; i++)
             lSpace->start[i] = highest;
         lSpace->start_index = NSTARTS - 1;
-        lSpace->copied = 0;
         lSpace->spaceOwner = 0;
         // Reset the allocation pointers. This puts garbage (and real data) below them.
         // At the end of the compaction the allocation pointer will point below the
@@ -387,25 +384,4 @@ void GCCopyPhase()
     }
 
     gpTaskFarm->WaitForCompletion();
-
-    // Calculate the amount copied.
-    // markedImmut is the amount of immutable data in the mutable area
-    // markedMut is the amount of mutable data in the mutable area
-    // copiedToI is the amount of immutable data added to the immutable area
-    // copiedToM is the amount of mutable data copied
-    POLYUNSIGNED markedImmut = 0, markedMut = 0, copiedToI = 0, copiedToM = 0;
-    for(j = 0; j < gMem.nlSpaces; j++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[j];
-        markedImmut += lSpace->i_marked;
-        markedMut += lSpace->m_marked;
-        if (lSpace->isMutable)
-            copiedToM += lSpace->copied;
-        else
-            copiedToI += lSpace->copied;
-    }
-    
-    ASSERT(copiedToM + copiedToI <= markedMut + markedImmut);
-    ASSERT(copiedToI <= markedImmut);
-    ASSERT(copiedToI != markedImmut || copiedToM <= markedMut);    
 }
