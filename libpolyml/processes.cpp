@@ -654,7 +654,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 }
 
 TaskData::TaskData(): mdTaskData(0), allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false)
+        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false), foreignStack(TAGGED(0))
 {
 }
 
@@ -1954,6 +1954,7 @@ void ProcessTaskData::GarbageCollect(ScanAddress *process)
         if (allocSize < MIN_HEAP_SIZE)
             allocSize = MIN_HEAP_SIZE;
     }
+    process->ScanRuntimeWord(&foreignStack);
 }
 
 // Return the number of processors.  Used when configuring multi-threaded GC.

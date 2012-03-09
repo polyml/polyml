@@ -2,7 +2,7 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,8 David C.J. Matthews
+    Copyright (c) 2007-8, 2012 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -89,6 +89,7 @@ public:
     int         lastError;      // Last error from foreign code.
     void        *signalStack;  // Stack to handle interrupts (Unix only)
     bool        pendingInterrupt; // The thread should trap into the RTS soon.
+    PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
 };
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));

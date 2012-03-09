@@ -260,19 +260,12 @@ static POLYUNSIGNED next_vol = FIRST_VOL;
 /* This table contains all the callback functions that have been created.  Once a callback
    has been set up it remains in existence for the rest of the session. */
 static struct _cbStructEntry {
-    PolyObject  *mlFunction;        /* The corresponding ML function. */
-    PolyObject  *argType;           /* The argument type information. */
+    PolyWord    mlFunction;        /* The corresponding ML function. */
+    PolyWord    argType;           /* The argument type information. */
     unsigned char *cFunction;       /* The C function "stub" code. */
 } *callbackTable;
 static unsigned callBackEntries = 0;
 static PLock callbackTableLock; // Mutex to protect table.
-
-
-// Recursive call stack.  This is needed to handle callbacks.
-#define RECURSIVECALLSTACKSIZE  40  // Unlikely to be more than 1 or 2
-static PolyObject *recursiveCallStack[RECURSIVECALLSTACKSIZE];
-static unsigned recursiveCallStackPtr = 0;
-
 
 
 /**********************************************************************
@@ -710,16 +703,9 @@ void Foreign::GarbageCollect(ScanAddress *process)
     callback is set up it cannot be garbage-collected. */
     for (unsigned i = 0; i < callBackEntries; i++)
     {
-        if (callbackTable[i].mlFunction != NULL)
-        {
-            process->ScanRuntimeAddress (&(callbackTable[i].mlFunction), ScanAddress::STRENGTH_STRONG);
-            process->ScanRuntimeAddress (&(callbackTable[i].argType), ScanAddress::STRENGTH_STRONG);
-        }
+        process->ScanRuntimeWord(&callbackTable[i].mlFunction);
+        process->ScanRuntimeWord(&callbackTable[i].argType);
     }
-
-    // Recursive call stack
-    for (unsigned j = 0; j < recursiveCallStackPtr; j++)
-        process->ScanRuntimeAddress (&(recursiveCallStack[j]), ScanAddress::STRENGTH_STRONG);
 }
 
 
@@ -1479,23 +1465,23 @@ static Handle call_sym_and_convert (TaskData *taskData, Handle triple)
     
     // If call_sym results in a callback the save vector will be reset and
     // all these handles will be overwritten.  We have to save them on a
-    // separate stack.  In addition it's essential to keep a reference to
-    // the "rets" otherwise they could be garbage collected away.
-    if (recursiveCallStackPtr+2 >= RECURSIVECALLSTACKSIZE)
-        RAISE_EXN ("Too many recursive calls to callback functions\n");
-
-    recursiveCallStack[recursiveCallStackPtr++] = retChoice->WordP();
-    recursiveCallStack[recursiveCallStackPtr++] = rets->WordP();
+    // separate stack per thread.
+    Handle newStack = alloc_and_save(taskData, 3, 0);
+    newStack->WordP()->Set(0, retChoice->Word());
+    newStack->WordP()->Set(1, rets->Word());
+    newStack->WordP()->Set(2, taskData->foreignStack);
+    taskData->foreignStack = newStack->Word();
    
     /*map(print_ctype_and_vol,args);*/
     Handle vol = call_sym(taskData, sym,args,retCtype);
 
     // Pop the old values and put them back on the save vector
-    rets = SAVE(recursiveCallStack[--recursiveCallStackPtr]);
-    retChoice = SAVE(recursiveCallStack[--recursiveCallStackPtr]);
+    retChoice = SAVE(taskData->foreignStack.AsObjPtr()->Get(0));
+    rets = SAVE(taskData->foreignStack.AsObjPtr()->Get(1));
+    taskData->foreignStack = taskData->foreignStack.AsObjPtr()->Get(2);
     
-    return TUPLE_MAKE2 (taskData, choice_and_vol2union(taskData, TUPLE_MAKE2(taskData, retChoice,vol)),
-              map(taskData, choice_and_vol2union,rets));
+    return TUPLE_MAKE2 (taskData, choice_and_vol2union(taskData, TUPLE_MAKE2(taskData, retChoice, vol)),
+              map(taskData, choice_and_vol2union, rets));
 }
 
 // This is the C function that will get control when any callback is made.  The "data"
@@ -1510,10 +1496,6 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     Handle mark = taskData->saveVec.mark();
     processes->ThreadUseMLMemory(taskData);
 
-    if (cbEntry->mlFunction == NULL) {
-        /* The entry has never been set or more likely it's been GCed away. */
-        Crash("Attempt to call back to an ML function that no longer exists.");
-    }
     Handle h = SAVE(cbEntry->mlFunction);
 
     // Construct an ML argument list from the arguments.
