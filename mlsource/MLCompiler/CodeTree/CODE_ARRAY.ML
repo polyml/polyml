@@ -167,7 +167,7 @@ struct
                 val newSize    = Word.max(expSize, minSize)
       
                 (* create temporary codeseg (with larger byte-vector) *)
-                val newVec = alloc (toShort newSize, F_bytes, toMachineWord 0w0)
+                val newVec = alloc (toShort newSize, F_mutable_bytes, toMachineWord 0w0)
                 val newSeg = (Bytes, newVec)
             in
                 (* copy the old code into the new codeseg *)
