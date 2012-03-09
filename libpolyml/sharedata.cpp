@@ -264,14 +264,16 @@ POLYUNSIGNED DepthVector::MergeSameItems()
     while (i < N)
     {
         ASSERT (OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
-        PolyObject *toShare = NULL; // Candidate to share.
-        unsigned minHierarchy = 0;
+
+        PolyObject *bestShare = 0; // Candidate to share.
+        MemSpace *bestSpace = 0;
 
         POLYUNSIGNED j;
         for (j = i; j < N; j++)
         {
             // Search for identical objects.  Don't bother to compare it with itself.
             if (i != j && CompareItems (& itemVec[i], & itemVec[j]) != 0) break;
+            // The order of sharing is significant.
             // Choose an object in the permanent memory if that is available.
             // This is necessary to retain the invariant that no object in
             // the permanent memory points to an object in the temporary heap.
@@ -280,34 +282,50 @@ POLYUNSIGNED DepthVector::MergeSameItems()
             // Choose the lowest hierarchy value for preference since that
             // may reduce the size of saved state when resaving already saved
             // data.
+            // If we can't find a permanent space choose a space that isn't
+            // an allocation space.  Otherwise we could break the invariant
+            // that immutable areas never point into the allocation area.
             MemSpace *space = gMem.SpaceForAddress(itemVec[j].pt);
-            if (space->spaceType == ST_PERMANENT)
+            if (bestSpace == 0)
             {
-                PermanentMemSpace *pSpace = (PermanentMemSpace *)space;
-                if (toShare == NULL || pSpace->hierarchy < minHierarchy)
+                bestShare = itemVec[j].pt;
+                bestSpace = space;
+            }
+            else if (bestSpace->spaceType == ST_PERMANENT)
+            {
+                // Only update if the current space is also permanent and a lower hierarchy
+                if (space->spaceType == ST_PERMANENT &&
+                        ((PermanentMemSpace *)space)->hierarchy < ((PermanentMemSpace *)bestSpace)->hierarchy)
                 {
-                    toShare = itemVec[j].pt;
-                    minHierarchy = pSpace->hierarchy;
+                    bestShare = itemVec[j].pt;
+                    bestSpace = space;
+                }
+            }
+            else if (bestSpace->spaceType == ST_LOCAL)
+            {
+                // Update if the current space is not an allocation space
+                if (space->spaceType != ST_LOCAL || ! ((LocalMemSpace*)space)->allocationSpace)
+                {
+                    bestShare = itemVec[j].pt;
+                    bestSpace = space;
                 }
             }
         }
-        // If there isn't a permanent object choose the first in the table.
-        if (toShare == NULL) toShare = itemVec[i].pt;
         POLYUNSIGNED k = j; // Remember the first object that didn't match.
         //.For each identical object set all but the one we want to point to
         // the shared object.
         for (j = i; j < k; j++)
         {
             ASSERT (OBJ_IS_DEPTH(itemVec[j].pt->LengthWord()));
-            if (itemVec[j].pt == toShare)
+            if (itemVec[j].pt == bestShare)
             {
                 // This is the common object.
-                toShare->SetLengthWord(itemVec[j].L); // restore genuine length word
-                ASSERT (OBJ_IS_LENGTH(toShare->LengthWord()));
+                bestShare->SetLengthWord(itemVec[j].L); // restore genuine length word
+                ASSERT (OBJ_IS_LENGTH(bestShare->LengthWord()));
             }
             else
             {
-                itemVec[j].pt->SetForwardingPtr(toShare); /* an indirection */
+                itemVec[j].pt->SetForwardingPtr(bestShare); /* an indirection */
                 ASSERT (itemVec[j].pt->ContainsForwardingPtr());
                 n++;
             }
