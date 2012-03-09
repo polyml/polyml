@@ -48,20 +48,27 @@ static void CheckAddress(PolyWord *pt)
 {
     MemSpace *space = gMem.SpaceForAddress(pt);
     if (space == 0)
-        Crash ("Bad pointer 0x%08x found", pt);
+    {
+        Log("Check: Bad pointer %p (no space found)\n", pt);
+        ASSERT(space != 0);
+    }
     PolyObject *obj = (PolyObject*)pt;
-    POLYUNSIGNED length;
-    // At the start of a full GC we can have forwarding
-    // pointers left over.
-    if (obj->ContainsForwardingPtr())
-        length = obj->GetForwardingPtr()->Length();
-    else length = obj->Length();
-    ASSERT(pt+length <= space->top);
+    POLYUNSIGNED length = obj->Length();
+    if (pt+length > space->top)
+    {
+        Log("Check: Bad pointer %p (space %p) length %"POLYUFMT"\n", pt, space, length);
+        ASSERT(pt+length <= space->top);
+    }
     if (space->spaceType == ST_LOCAL)
     {
         LocalMemSpace *lSpace = (LocalMemSpace*)space;
-        ASSERT((pt > lSpace->bottom && pt+length <= lSpace->lowerAllocPtr) ||
-            (pt > lSpace->upperAllocPtr && pt+length <= space->top));
+        if (!((pt > lSpace->bottom && pt+length <= lSpace->lowerAllocPtr) ||
+            (pt > lSpace->upperAllocPtr && pt+length <= space->top)))
+        {
+            Log("Check: Bad pointer %p (space %p) length %"POLYUFMT" outside allocated area\n", pt, space, length);
+            ASSERT((pt > lSpace->bottom && pt+length <= lSpace->lowerAllocPtr) ||
+                (pt > lSpace->upperAllocPtr && pt+length <= space->top));
+        }
     }
 }
 
@@ -71,8 +78,12 @@ void DoCheck (const PolyWord pt)
 
     if (pt.IsTagged()) return;
 
-    ASSERT (pt.IsDataPtr());
-    CheckAddress(pt.AsStackAddr());
+    // It's possible that this could be a code address.
+    // That can happen, at least when pushing a value onto the save vec
+    // in a call to set_code_constant on X86/64
+    if (pt.IsCodePtr())
+        CheckAddress((PolyWord*)ObjCodePtrToPtr(pt.AsCodePtr()));
+    else CheckAddress(pt.AsStackAddr());
 } 
 
 class ScanCheckAddress: public ScanAddress

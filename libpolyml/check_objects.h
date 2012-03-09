@@ -1,7 +1,7 @@
 /*
     Title:  check_objects.h - Validate addresses in objects.
 
-    Copyright (c) 2006
+    Copyright (c) 2006, 2012
         David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
@@ -36,5 +36,6 @@ extern void DoCheckMemory(void);
 #define CheckObject(pt)  {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, (pt)->LengthWord()); }
 #define CheckObjectL(pt, l)  {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckObject(pt, l); }
 #define CheckPointer(pt) {if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckPointer(pt); }
+#define CheckMemory() { if (debugOptions & DEBUG_CHECK_OBJECTS) DoCheckMemory(); }
 
 #endif

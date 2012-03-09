@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Update phase
 
-    Copyright (c) 2010, 2011 David C. J. Matthews
+    Copyright (c) 2010-12 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -84,7 +84,6 @@ PolyObject *MTGCProcessUpdate::ScanObjectAddress(PolyObject *obj)
     {
         UpdateAddress(obj);
         ASSERT(obj->ContainsNormalLengthWord());
-        CheckObject (obj);
     }
     return obj;
 }
@@ -98,14 +97,12 @@ void MTGCProcessUpdate::ScanRuntimeAddress(PolyObject **pt, RtsStrength/* weak*/
         UpdateAddress(obj);
         *pt = obj;
     }
-    CheckObject (*pt);
 }  
 
 // Update the addresses in a group of words.
 POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
 {
     PolyWord val = *pt;
-    Check (val);
 
     if (val.IsTagged())
         return 0;
@@ -123,7 +120,6 @@ POLYUNSIGNED MTGCProcessUpdate::ScanAddressAt(PolyWord *pt)
         UpdateAddress(obj);
         *pt = obj;
     }
-    CheckObject (pt->AsObjPtr());
     return 0;
 }
 
@@ -176,7 +172,6 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
         }
         else // Contains real object
         {
-            CheckObject (obj);
             
             if (OBJ_IS_WORD_OBJECT(L))
             {
@@ -187,7 +182,6 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
                 while (length--)
                 {
                     PolyWord val = *pt;
-                    Check (val);
 
                     if (! val.IsTagged() && val != PolyWord::FromUnsigned(0))
                     {
@@ -198,8 +192,6 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
                             UpdateAddress(obj);
                             *pt = obj;
                         }
-
-                        CheckObject (pt->AsObjPtr());
                     }
                     
                     pt++;
@@ -215,6 +207,8 @@ void MTGCProcessUpdate::UpdateObjectsInArea(LocalMemSpace *area)
                 pt    += length;
                 bitno += length;
             } /* !OBJ_IS_WORD_OBJECT(L) */
+
+            CheckObject(obj); // Can check it after it's been updated
         }  /* !OBJ_IS_POINTER(L) */
     } /* for loop */
 }

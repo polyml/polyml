@@ -118,7 +118,7 @@ struct __debugOpts {
     unsigned optKey;
 } debugOptTable[] =
 {
-    { "checkobjects",       "Perform additional debugging checks",              DEBUG_CHECK_OBJECTS },
+    { "checkmem",           "Perform additional debugging checks on memory",    DEBUG_CHECK_OBJECTS },
     { "gc",                 "Log summary garbage-collector information",        DEBUG_GC },
     { "gcdetail",           "Log detailed garbage-collector information",       DEBUG_GC_DETAIL },
     { "memmgr",             "Memory manager information",                       DEBUG_MEMMGR },

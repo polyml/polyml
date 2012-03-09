@@ -385,6 +385,8 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
         printprofile();
 
+    CheckMemory();
+
     return haveSpace; // Completed
 }
 

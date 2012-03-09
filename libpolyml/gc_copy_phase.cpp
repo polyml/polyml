@@ -74,7 +74,6 @@ avoids
 #include "processes.h"
 #include "gc.h"
 #include "scanaddrs.h"
-#include "check_objects.h"
 #include "bitmap.h"
 #include "memmgr.h"
 #include "gctaskfarm.h"
@@ -203,9 +202,6 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
         // We have to update any relative addresses in the code.
         machineDependent->ScanConstantsWithinCode(destAddress, srcAddress, OBJ_OBJECT_LENGTH(L), &identity);
     }
-
-    // We mustn't check the object until after we've adjusted any relative offsets.
-    CheckObject(destAddress);
 }
 
 // Find the next space in the sequence.  It may return with the space unchanged if it
@@ -297,7 +293,6 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
         
             POLYUNSIGNED L = obj->LengthWord();
             ASSERT (OBJ_IS_LENGTH(L));
-            CheckObject(obj);
         
             POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L) + 1 ;/* Length of allocation (including length word) */
             bitno += n;

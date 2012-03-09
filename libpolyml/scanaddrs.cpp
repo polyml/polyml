@@ -1,7 +1,7 @@
 /*
     Title:      Address scanner
 
-    Copyright (c) 2006-8 David C.J. Matthews
+    Copyright (c) 2006-8, 2012 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -119,8 +119,6 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
     {
         ASSERT (OBJ_IS_LENGTH(lengthWord));
     
-        CheckObjectL (obj, lengthWord);
-    
         if (OBJ_IS_BYTE_OBJECT(lengthWord))
             return; /* Nothing more to do */
     
@@ -139,7 +137,7 @@ void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord
 
         PolyWord *endWord = baseAddr + length;
 
-        // We want to minimise the actual recursion we preform so we try to
+        // We want to minimise the actual recursion we perform so we try to
         // use tail recursion if we can.  We first scan from the end and
         // remove any words that don't need recursion.
         POLYUNSIGNED lastLengthWord = 0;

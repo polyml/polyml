@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Check for weak references
 
-    Copyright (c) 2010 David C. J. Matthews
+    Copyright (c) 2010, 2012 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -42,14 +42,10 @@ that are no longer reachable.  It is performed after the first, mark, phase.
 #endif
 
 #include "globals.h"
-#include "processes.h"
 #include "gc.h"
 #include "scanaddrs.h"
-#include "check_objects.h"
-#include "bitmap.h"
 #include "rts_module.h"
 #include "memmgr.h"
-//#include "gctaskfarm.h"
 
 class MTGCCheckWeakRef: public ScanAddress {
 public:
@@ -70,8 +66,6 @@ void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
     
     PolyObject *val = *pt;
     PolyWord w = val;
-    
-    CheckPointer (val);
     
     if (weak == STRENGTH_STRONG)
         return;

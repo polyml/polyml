@@ -359,7 +359,6 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
                 else
                 {
                     // We need to copy this object.
-                    //CheckPointer (val); 
 
                     PolyObject *newObject = obj; // New address of object.
 
@@ -649,6 +648,8 @@ bool RunQuickGC(void)
 
         if (debugOptions & DEBUG_GC)
             Log("GC: Completed successfully\n");
+
+        CheckMemory();
     }
     else
     {
