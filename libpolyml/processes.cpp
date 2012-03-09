@@ -1280,7 +1280,9 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (allStopped && threadRequest != 0)
         {
             mainThreadPhase = threadRequest->mtp;
+            gMem.ProtectImmutable(false); // GC, sharing and export may all write to the immutable area
             threadRequest->Perform();
+            gMem.ProtectImmutable(true);
             mainThreadPhase = MTP_USER_CODE;
             threadRequest->completed = true;
             threadRequest = 0; // Allow a new request.

@@ -236,6 +236,9 @@ public:
 
     PermanentMemSpace *SpaceForIndex(unsigned index) const; // Return the space for a given index
 
+    // As a debugging check, write protect the immutable areas apart from during the GC.
+    void ProtectImmutable(bool on);
+
     // Find a space that contains a given address.  This is called for every cell
     // during a GC so needs to be fast.,
     MemSpace *SpaceForAddress(const void *pt) const
@@ -259,7 +262,7 @@ public:
     LocalMemSpace *LocalSpaceForAddress(const void *pt) const
     {
         MemSpace *s = SpaceForAddress(pt);
-        if (s != 0 && s->spaceType == ST_LOCAL)
+        if (s->spaceType == ST_LOCAL)
             return (LocalMemSpace*)s;
         else return 0;
     }

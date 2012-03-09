@@ -684,6 +684,21 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
     }
 }
 
+// If checkmem is given write protect the immutable areas except during a GC.
+void MemMgr::ProtectImmutable(bool on)
+{
+    if (debugOptions & DEBUG_CHECK_OBJECTS)
+    {
+        for (unsigned i = 0; i < nlSpaces; i++)
+        {
+            LocalMemSpace *space = lSpaces[i];
+            if (! space->isMutable)
+                osMemoryManager->SetPermissions(space->bottom, (char*)space->top - (char*)space->bottom,
+                    on ? PERMISSION_READ|PERMISSION_EXEC : PERMISSION_READ|PERMISSION_EXEC|PERMISSION_WRITE);
+        }
+    }
+}
+
 // Copy a stack
 static void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
 {
