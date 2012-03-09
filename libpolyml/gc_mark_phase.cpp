@@ -181,8 +181,6 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 
     ASSERT(obj->ContainsNormalLengthWord());
 
-    CheckObject (obj);
-
     POLYUNSIGNED L = obj->LengthWord();
     if (L & _TOP_BYTE(0x04))
         return obj; // Already marked
@@ -201,6 +199,11 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     // Process the addresses in this object.  We could short-circuit things
     // for word objects by calling ScanAddressesAt directly.
     ScanAddressesInObject(obj);
+
+    // We can only check after we've processed it because if we
+    // have addresses left over from an incomplete partial GC they
+    // may need to forwarded.
+    CheckObject (obj);
 
     return obj;
 }
@@ -285,8 +288,8 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
 
                 if ((PolyWord*)obj <= space->fullGCLowerLimit)
                     space->fullGCLowerLimit = (PolyWord*)obj-1;
+                pt += n;
             }
-            pt += n;
         }
     }
 }
