@@ -372,9 +372,10 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
 
                     if (debugOptions & DEBUG_GC_DETAIL)
                     {
+                        POLYUNSIGNED l = OBJ_OBJECT_LENGTH(L);
                         if (*pt == obj)
-                            Log("GC: Quick: Insufficient space to move %p %lu %u\n", obj, n, GetTypeBits(L));
-                        else Log("GC: Quick: %p %lu %u moved to %p\n", obj, n, GetTypeBits(L), newObject);
+                            Log("GC: Quick: Insufficient space to move %p %lu %u\n", obj, l, GetTypeBits(L));
+                        else Log("GC: Quick: %p %lu %u moved to %p\n", obj, l, GetTypeBits(L), newObject);
                     }
 
                     // Stop now unless this is a simple word object we have been able to move.

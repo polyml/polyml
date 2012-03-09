@@ -184,10 +184,6 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
 {
     destAddress->SetLengthWord(L); /* copy length word */
 
-    if (debugOptions & DEBUG_GC_DETAIL)
-        Log("GC: Copy: %p %lu %u -> %p\n", srcAddress, OBJ_OBJECT_LENGTH(L),
-                    GetTypeBits(L), destAddress);
-
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
 
     for (POLYUNSIGNED i = 0; i < n; i++)
@@ -343,8 +339,13 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
             }
             else
             {
-                obj->SetForwardingPtr((PolyObject*)(newp+1));
-                CopyObjectToNewAddress(obj, (PolyObject*)(newp+1), L);
+                PolyObject *destAddress = (PolyObject*)(newp+1);
+                obj->SetForwardingPtr(destAddress);
+                CopyObjectToNewAddress(obj, destAddress, L);
+
+                if (debugOptions & DEBUG_GC_DETAIL)
+                    Log("GC: Copy: %p %lu %u -> %p\n", obj, OBJ_OBJECT_LENGTH(L),
+                                GetTypeBits(L), destAddress);
             }
         }
 
