@@ -400,3 +400,22 @@ void ScanAddress::ScanConstant(byte *addressOfConstant, ScanRelocationKind code)
     }
 }
 
+void ScanAddress::ScanRuntimeWord(PolyWord *w)
+{
+    if (w->IsTagged()) {} // Don't need to do anything
+    else if (w->IsCodePtr())
+    {
+        // We can have code pointers in set_code_address.
+        // Find the start of the code segment
+        PolyObject *obj = ObjCodePtrToPtr(w->AsCodePtr());
+        // Calculate the byte offset of this value within the code object.
+        POLYUNSIGNED offset = w->AsCodePtr() - (byte*)obj;
+        obj = ScanObjectAddress(obj); 
+        *w = PolyWord::FromCodePtr((byte*)obj + offset);
+
+    }
+    else {
+        ASSERT(w->IsDataPtr());
+        *w = ScanObjectAddress(w->AsObjPtr()); 
+    }
+}

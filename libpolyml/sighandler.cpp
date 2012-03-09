@@ -550,11 +550,7 @@ void SigHandler::GarbageCollect(ScanAddress *process)
 {
     for (unsigned i = 0; i < NSIG; i++)
     {
-        if (sigData[i].handler != PolyWord::FromUnsigned(0) && sigData[i].handler.IsDataPtr())
-        {
-            PolyObject *obj = sigData[i].handler.AsObjPtr();
-            process->ScanRuntimeAddress(&obj, ScanAddress::STRENGTH_STRONG);
-            sigData[i].handler = obj;
-        }
+        if (sigData[i].handler != PolyWord::FromUnsigned(0))
+            process->ScanRuntimeWord(&sigData[i].handler);
     }
 }

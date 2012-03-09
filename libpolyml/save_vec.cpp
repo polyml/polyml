@@ -79,27 +79,7 @@ void SaveVec::gcScan(ScanAddress *process)
 /* Ensures that all the objects are retained and their addresses updated. */
 {
     for (Handle sv = save_vec; sv < save_vec_addr; sv++)
-    {
-        PolyWord *saved = &(sv->m_Handle);
-        if ((*saved).IsTagged()) {} // Don't need to do anything
-        else if ((*saved).IsCodePtr())
-        {
-            // We can have code pointers in set_code_address.
-            // Find the start of the code segment
-            PolyObject *obj = ObjCodePtrToPtr(saved->AsCodePtr());
-            // Calculate the byte offset of this value within the code object.
-            POLYUNSIGNED offset = saved->AsCodePtr() - (byte*)obj;
-            process->ScanRuntimeAddress(&obj, ScanAddress::STRENGTH_STRONG);
-            *saved = PolyWord::FromCodePtr((byte*)obj + offset);
-
-        }
-        else {
-            ASSERT((*saved).IsDataPtr());
-            PolyObject *obj = (*saved).AsObjPtr();
-            process->ScanRuntimeAddress(&obj, ScanAddress::STRENGTH_STRONG);
-            *saved = obj;
-        }
-    }
+        process->ScanRuntimeWord(&sv->m_Handle);
 }
 
 // We just have one of these.

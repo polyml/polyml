@@ -1,7 +1,7 @@
 /*
     Title:  scanaddrs.h - Scan addresses in objects
 
-    Copyright (c) 2006-8 David C.J. Matthews
+    Copyright (c) 2006-8, 2012 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -62,6 +62,10 @@ public:
     // but if this is a weak reference it can set *pt to NULL
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
         { *pt = ScanObjectAddress(*pt); }
+
+    // Scan a word in the run-time system.  This is the preferred call for non-weak
+    // references and deals with the general case of a word.
+    void ScanRuntimeWord(PolyWord *w);
 
     // Process a constant within the code.
     // The default action is to call the DEFAULT ScanAddressAt NOT the virtual which means that it calls
