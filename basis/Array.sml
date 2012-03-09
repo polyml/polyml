@@ -69,7 +69,7 @@ local
     open RuntimeCalls
     type 'a array = 'a array (* Predeclared in the basis with special equality props. *)
 
-    val System_alloc: int*int*int->word  = RunCall.run_call3 POLY_SYS_alloc_store;
+    val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store;
     val System_loadw: word*int->word = RunCall.run_call2 POLY_SYS_load_word;
     val System_setw: word * int * word -> unit   = RunCall.run_call3 POLY_SYS_assign_word;
     val System_lock: word -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
@@ -98,7 +98,7 @@ local
         else (* The size must have already been checked. *)
         let
             (* Make a vector initialised to zero. *)
-            val new_vec = System_alloc(length, 0, 0)
+            val new_vec = System_alloc(length, 0wx40, 0w0)
         in
             System_move_words(RunCall.unsafeCast v, start+1, new_vec, 0, length);
             System_lock new_vec;
@@ -119,7 +119,7 @@ struct
     fun alloc len =
         let
             val () = if len >= maxLen then raise General.Size else ()
-            val vec = System_alloc(len+1, 0x40, 0)
+            val vec = System_alloc(len+1, 0wx40, 0w0)
         in
             System_setw(vec, 0, RunCall.unsafeCast len);
             RunCall.unsafeCast vec
@@ -128,7 +128,7 @@ struct
     fun array(len, a) =
         let
             val () = if len >= maxLen then raise General.Size else ()
-            val vec = System_alloc(len+1, 0x40, RunCall.unsafeCast a)
+            val vec = System_alloc(len+1, 0wx40, RunCall.unsafeCast a)
         in
             System_setw(vec, 0, RunCall.unsafeCast len);
             RunCall.unsafeCast vec

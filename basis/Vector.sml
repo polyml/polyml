@@ -73,10 +73,10 @@ local
     and wordAsInt: word -> int = RunCall.unsafeCast
 
     local
-        val System_alloc: int*int*int->word  = RunCall.run_call3 POLY_SYS_alloc_store
+        val System_alloc: int*word*word->word  = RunCall.run_call3 POLY_SYS_alloc_store
     in
         (* All the arrays are initially created containing zeros and then initialised. *)
-        fun alloc len = System_alloc(len, 0, 0)
+        fun alloc len = System_alloc(len, 0wx40, 0w0)
     end
     
     fun unsafeSub(v: 'a vector, i: int): 'a = RunCall.unsafeCast(System_loadw (vecAsWord v, intAsWord i))
