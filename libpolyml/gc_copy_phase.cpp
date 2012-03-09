@@ -273,6 +273,11 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
         // N.B.  It's essential that the first set bit at or above this corresponds
         // to the length word of a real object.
         POLYUNSIGNED  bitno   = src->wordNo(src->fullGCLowerLimit);
+        // Set the limit to the top so we won't rescan this.  That can
+        // only happen if copying takes a very short time and the same
+        // thread runs multiple tasks.
+        src->fullGCLowerLimit = src->top;
+
         // src->highest is the bit position that corresponds to the top of
         // generation we're copying.
         POLYUNSIGNED  highest = src->wordNo(src->top);
@@ -374,6 +379,10 @@ void GCCopyPhase()
         copyAllData(globalTask, 0, 0);
     else
     {
+        // We start as many tasks as we have threads.  If the amount of work to
+        // be done is very small one thread could process more than one task.
+        // Have to be careful because we use the task ID to decide which space
+        // to scan.
         for (j = 0; j < gpTaskFarm->ThreadCount(); j++)
             gpTaskFarm->AddWorkOrRunNow(&copyAllData, 0, 0);
     }
