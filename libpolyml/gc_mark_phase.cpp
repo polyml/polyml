@@ -288,8 +288,8 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
 
                 if ((PolyWord*)obj <= space->fullGCLowerLimit)
                     space->fullGCLowerLimit = (PolyWord*)obj-1;
-                pt += n;
             }
+            pt += n;
         }
     }
 }
