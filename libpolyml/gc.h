@@ -40,7 +40,7 @@ extern bool convertedWeak;
 extern POLYUNSIGNED GetPhysicalMemorySize(void);
 
 // Multi-thread GC.
-extern void initialiseMultithreadGC(unsigned threads);
+extern void initialiseMarkerTables(unsigned threads);
 
 // The task farm for the GC.  The threads are left waiting for the GC,
 class GCTaskFarm;

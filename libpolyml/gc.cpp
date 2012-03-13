@@ -562,7 +562,12 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
 
     // Create the task farm if required
     if (userOptions.gcthreads != 1)
-        initialiseMultithreadGC(userOptions.gcthreads);
+    {
+        if (! gTaskFarm.Initialise(userOptions.gcthreads, 100))
+            Crash("Unable to initialise the GC task farm");
+    }
+    // Set up the stacks for the mark phase.
+    initialiseMarkerTables(userOptions.gcthreads);
 }
 
 class FullGCRequest: public MainThreadRequest
@@ -618,11 +623,5 @@ bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequiredToAllocate)
         processes->SignalArrived();
 
     return request.result;
-}
-
-void initialiseMultithreadGC(unsigned threads)
-{
-    if (! gTaskFarm.Initialise(threads, 100))
-        Crash("Unable to initialise the GC task farm");
 }
 

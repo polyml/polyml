@@ -35,10 +35,24 @@ forwarding pointers but we may well have forwarded pointers left over from a
 partially completed minor GC.  Using a bit in the header avoids the need for
 locking since at worst it may involve two threads duplicating some marking.
 
-Marking can potentially recurse as deeply as the data structure.  Scanaddrs
-uses tail recursion on the last pointer in a cell which works well for lists
-but does not deal with trees.  This code keeps a recursion count and triggers
-a rescan on the range of addresses that could not be fully marked. 
+The code ensures that each reachable cell is marked at least once but with
+multiple threads a cell may be marked by more than once cell if the
+memory is not fully up to date.  Each thread has a stack on which it
+remembers cells that have been marked but not fully scanned.  If a
+thread runs out of cells of its own to scan it can pick a pointer off
+the stack of another thread and scan that.  The original thread will
+still scan it some time later but it should find that the addresses
+in it have all been marked and it can simply pop this off.  This is
+all done without locking.  Stacks are only modified by the owning
+thread and when they pop anything they write zero in its place.
+Other threads only need to search for a zero to find if they are
+at the top and if they get a pointer that has already been scanned
+then this is safe.  The only assumption made about the memory is
+that all the bits of a word are updated together so that a thread
+will always read a value that is a valid pointer.
+
+Many of the ideas are drawn from Flood, Detlefs, Shavit and Zhang 2001
+"Parallel Garbage Collection for Shared Memory Multiprocessors".
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -82,9 +96,16 @@ public:
     void ScanAddressesInObject(PolyObject *base)
         { MTGCProcessMarkPointers::ScanAddressesInObject(base, base->LengthWord()); }
 
-    static void MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *);
-
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
+
+    static void InitStatics(unsigned threads)
+    {
+        markStacks = new MTGCProcessMarkPointers[threads];
+        nInUse = 0;
+        nThreads = threads;
+    }
+
+    static void MarkRoots(void);
 
 private:
     bool TestForScan(PolyWord *pt);
@@ -92,38 +113,39 @@ private:
 
     void PushToStack(PolyObject *obj)
     {
-        if (msp < MARK_STACK_SIZE)
-            markStack[msp++] = obj;
-        else StackOverflow(obj);
+        // If we don't have all the threads running we start a new one but
+        // only once we have several items on the stack.  Otherwise we
+        // can end up creating a task that terminates almost immediately.
+        if (nInUse >= nThreads || msp < 2 || ! ForkNew(obj))
+        {
+            if (msp < MARK_STACK_SIZE-1) // MARK_STACK_SIZE-1 here so the top is always zero
+                markStack[msp++] = obj;
+            else StackOverflow(obj);
+        }
     }
 
     static void StackOverflow(PolyObject *obj);
+    bool ForkNew(PolyObject *obj);    
 
     PolyObject *markStack[MARK_STACK_SIZE];
     unsigned msp;
+    bool active;
+
+    static MTGCProcessMarkPointers *markStacks;
+    static unsigned nThreads, nInUse;
+    static PLock stackLock;
 };
 
-MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0)
+MTGCProcessMarkPointers *MTGCProcessMarkPointers::markStacks;
+unsigned MTGCProcessMarkPointers::nThreads, MTGCProcessMarkPointers::nInUse;
+PLock MTGCProcessMarkPointers::stackLock("GC mark stack");
+
+
+MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0), active(false)
 {
     // Clear the mark stack
-//    for (unsigned i = 0; i < MARK_STACK_SIZE; i++)
-//        markStack[i] = 0;
-}
-
-// Task to mark pointers in a permanent mutable area.
-void MTGCProcessMarkPointers::MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *)
-{
-    MemSpace *space = (MemSpace *)arg1;
-    MTGCProcessMarkPointers marker;
-    marker.ScanAddressesInRegion(space->bottom, space->top);
-}
-
-// Task to mark pointers.
-void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
-{
-    PolyObject *obj = (PolyObject *)arg1;
-    MTGCProcessMarkPointers marker;
-    marker.ScanAddressesInObject(obj);
+    for (unsigned i = 0; i < MARK_STACK_SIZE; i++)
+        markStack[i] = 0;
 }
 
 // Called when the stack has overflowed.  We need to include this
@@ -142,6 +164,63 @@ void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
     ASSERT(obj->LengthWord() & _OBJ_GC_MARK); // Should have been marked.
     if (debugOptions & DEBUG_GC)
         Log("GC: Mark: Stack overflow.  Rescan for %p\n", obj);
+}
+
+// Fork a new task.  Because we've checked nInUse without taking the lock
+// we may find that we can no longer create a new task.
+bool MTGCProcessMarkPointers::ForkNew(PolyObject *obj)
+{
+    MTGCProcessMarkPointers *marker = 0;
+    {
+        PLocker lock(&stackLock);
+        if (nInUse == nThreads)
+            return false;
+        for (unsigned i = 0; i < nThreads; i++)
+        {
+            if (! markStacks[i].active)
+            {
+                marker = &markStacks[i];
+                break;
+            }
+        }
+        ASSERT(marker != 0);
+        marker->active = true;
+        nInUse++;
+    }
+    bool test = gpTaskFarm->AddWork(&MTGCProcessMarkPointers::MarkPointersTask, marker, obj);
+    ASSERT(test);
+    return true;
+}
+
+// Main marking task.  This is forked off initially to scan a specific object and
+// anything reachable from it but once that has finished it tries to find objects
+// on other stacks to scan.
+void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
+{
+    MTGCProcessMarkPointers *marker = (MTGCProcessMarkPointers*)arg1;
+    marker->ScanAddressesInObject((PolyObject*)arg2);
+
+    while (true)
+    {
+        // Look for a stack that has at least one item on it
+        MTGCProcessMarkPointers *steal = 0;
+        for (unsigned i = 0; i < nThreads && steal == 0; i++)
+        {
+            if (markStacks[i].markStack[0] != 0)
+                steal = &markStacks[i];
+        }
+        // We're finished if they're all done.
+        if (steal == 0)
+            break;
+        // Look for items on this stack
+        for (unsigned j = 0; steal->markStack[j] != 0; j++)
+            marker->ScanAddressesInObject(steal->markStack[j]);
+    }
+
+    PLocker lock(&stackLock);
+    marker->active = false; // It's finished
+    nInUse--;
+    ASSERT(marker->markStack[0] == 0);
 }
 
 // Tests if this needs to be scans.  It marks it if it has not been marked
@@ -389,10 +468,43 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         }
         else if (msp == 0)
             return;
-        else obj = markStack[--msp]; // Pop something.
+        else
+        {
+            obj = markStack[--msp]; // Pop something.
+            markStack[msp] = 0; // Show it's now empty
+        }
 
         lengthWord = obj->LengthWord();
     }
+}
+
+// Mark all the roots.  This is run in the main thread and has the effect
+// of starting new tasks as the scanning runs.
+void MTGCProcessMarkPointers::MarkRoots(void)
+{
+    ASSERT(nThreads >= 1);
+    ASSERT(nInUse == 0);
+    MTGCProcessMarkPointers *marker = &markStacks[0];
+    marker->active = true;
+    nInUse = 1;
+
+    // Scan the permanent mutable areas.
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
+    {
+        PermanentMemSpace *space = gMem.pSpaces[j];
+        if (space->isMutable && ! space->byteOnly)
+            marker->ScanAddressesInRegion(space->bottom, space->top);
+    }
+
+    // Scan the RTS roots.
+    GCModules(marker);
+
+    ASSERT(marker->markStack[0] == 0);
+
+    // When this has finished there may well be other tasks running.
+    PLocker lock(&stackLock);
+    marker->active = false;
+    nInUse--;
 }
 
 static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
@@ -462,18 +574,7 @@ void GCMarkPhase(void)
         lSpace->fullGCRescanEnd = lSpace->bottom;
     }
     
-    // Do the actual marking
-
-    // Scan the permanent mutable areas.
-    for (unsigned j = 0; j < gMem.npSpaces; j++)
-    {
-        PermanentMemSpace *space = gMem.pSpaces[j];
-        if (space->isMutable && ! space->byteOnly)
-            gpTaskFarm->AddWorkOrRunNow(&MTGCProcessMarkPointers::MarkPermanentMutableAreaTask, space, 0);
-    }
-
-    MTGCProcessMarkPointers marker;
-    GCModules(&marker);
+    MTGCProcessMarkPointers::MarkRoots();
 
     gpTaskFarm->WaitForCompletion();
 
@@ -524,4 +625,10 @@ void GCMarkPhase(void)
     }
     if (debugOptions & DEBUG_GC)
         Log("GC: Mark: Total live data %" POLYUFMT " words\n", totalLive);
+}
+
+// Set up the stacks.
+void initialiseMarkerTables(unsigned threads)
+{
+    MTGCProcessMarkPointers::InitStatics(threads);
 }
