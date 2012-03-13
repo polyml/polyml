@@ -67,32 +67,48 @@ a rescan on the range of addresses that could not be fully marked.
 #include "profiling.h"
 #include "timing.h"
 
-
-// Recursion limit.  This needs to be chosen so that the stack will not
-// overflow on any platform.
-#define RECURSION_LIMIT 2500
+#define MARK_STACK_SIZE 3000
 
 class MTGCProcessMarkPointers: public ScanAddress
 {
 public:
-    MTGCProcessMarkPointers(): recursion(0) {}
-    virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt) { return DoScanAddressAt(pt, false); }
+    MTGCProcessMarkPointers();
+
     virtual void ScanRuntimeAddress(PolyObject **pt, RtsStrength weak);
     virtual PolyObject *ScanObjectAddress(PolyObject *base);
 
-    POLYUNSIGNED DoScanAddressAt(PolyWord *pt, bool isWeak);
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
     // Have to redefine this for some reason.
-    void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
+    void ScanAddressesInObject(PolyObject *base)
+        { MTGCProcessMarkPointers::ScanAddressesInObject(base, base->LengthWord()); }
 
-public:
     static void MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *);
 
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
 
 private:
-    unsigned recursion;
+    bool TestForScan(PolyWord *pt);
+    void MarkAndTestForScan(PolyWord *pt);
+
+    void PushToStack(PolyObject *obj)
+    {
+        if (msp < MARK_STACK_SIZE)
+            markStack[msp++] = obj;
+        else StackOverflow(obj);
+    }
+
+    static void StackOverflow(PolyObject *obj);
+
+    PolyObject *markStack[MARK_STACK_SIZE];
+    unsigned msp;
 };
+
+MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0)
+{
+    // Clear the mark stack
+//    for (unsigned i = 0; i < MARK_STACK_SIZE; i++)
+//        markStack[i] = 0;
+}
 
 // Task to mark pointers in a permanent mutable area.
 void MTGCProcessMarkPointers::MarkPermanentMutableAreaTask(GCTaskId *, void *arg1, void *)
@@ -110,15 +126,34 @@ void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg
     marker.ScanAddressesInObject(obj);
 }
 
-// Mark all pointers in the heap.
-POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
+// Called when the stack has overflowed.  We need to include this
+// in the range to be rescanned.
+void MTGCProcessMarkPointers::StackOverflow(PolyObject *obj)
+{
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(obj);
+    ASSERT(space != 0);
+    PLocker lock(&space->spaceLock);
+    // Have to include this in the range to rescan.
+    if (space->fullGCRescanStart > ((PolyWord*)obj) - 1)
+        space->fullGCRescanStart = ((PolyWord*)obj) - 1;
+    POLYUNSIGNED n = obj->Length();
+    if (space->fullGCRescanEnd < ((PolyWord*)obj) + n)
+        space->fullGCRescanEnd = ((PolyWord*)obj) + n;
+    ASSERT(obj->LengthWord() & _OBJ_GC_MARK); // Should have been marked.
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Mark: Stack overflow.  Rescan for %p\n", obj);
+}
+
+// Tests if this needs to be scans.  It marks it if it has not been marked
+// unless it has to be scanned.
+bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
 {
     if ((*pt).IsTagged())
-        return 0;
+        return false;
 
     LocalMemSpace *space = gMem.LocalSpaceForAddress((*pt).AsAddress());
     if (space == 0)
-        return 0; // Ignore it if it points to a permanent area
+        return false; // Ignore it if it points to a permanent area
 
     // This could contain a forwarding pointer if it points into an
     // allocation area and has been moved by the minor GC.
@@ -130,12 +165,9 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
         obj = (*pt).AsObjPtr();
     }
 
-    // We shouldn't get code addresses since we handle stacks and code
-    // segments separately so if this isn't an integer it must be an object address.
     POLYUNSIGNED L = obj->LengthWord();
     if (L & _OBJ_GC_MARK)
-        return 0; // Already marked
-    obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+        return false; // Already marked
 
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
     ASSERT(obj+n <= (PolyObject*)space->top); // Check the length is sensible
@@ -143,26 +175,27 @@ POLYUNSIGNED MTGCProcessMarkPointers::DoScanAddressAt(PolyWord *pt, bool isWeak)
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
 
-    if (isWeak) // This is a SOME within a weak reference.
-        return 0;
-
     if (OBJ_IS_BYTE_OBJECT(L))
-        return 0; // We've done as much as we need
-    else if (OBJ_IS_CODE_OBJECT(L) || OBJ_IS_WEAKREF_OBJECT(L))
     {
-        // Have to handle these specially.  If we can't add it to
-        // the task queue process it recursively using the current
-        // recursion count.
-        if (! gpTaskFarm->AddWork(&MarkPointersTask, obj, 0))
-            ScanAddressesInObject(obj);
-        return 0; // Already done it.
+        obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
+        return false; // We've done as much as we need
     }
-    else
-        return L | _OBJ_GC_MARK;
+    return true;
 }
 
-// The initial entry to process the roots.  Also used when processing the addresses
-// in objects that can't be handled by ScanAddressAt.
+void MTGCProcessMarkPointers::MarkAndTestForScan(PolyWord *pt)
+{
+    if (TestForScan(pt))
+    {
+        PolyObject *obj = (*pt).AsObjPtr();
+        obj->SetLengthWord(obj->LengthWord() | _OBJ_GC_MARK);
+    }
+}
+
+// The initial entry to process the roots.  These may be RTS addresses or addresses in
+// a thread stack.  Also called recursively to process the addresses of constants in
+// code segments.  This is used in situations where a scanner may return the
+// updated address of an object.
 PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 {
     PolyWord val = obj;
@@ -182,9 +215,9 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     ASSERT(obj->ContainsNormalLengthWord());
 
     POLYUNSIGNED L = obj->LengthWord();
-    if (L & _TOP_BYTE(0x04))
+    if (L & _OBJ_GC_MARK)
         return obj; // Already marked
-    obj->SetLengthWord(L | _TOP_BYTE(0x04)); // Mark it
+    obj->SetLengthWord(L | _OBJ_GC_MARK); // Mark it
 
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
@@ -196,18 +229,26 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
 
-    // Process the addresses in this object.  We could short-circuit things
-    // for word objects by calling ScanAddressesAt directly.
-    ScanAddressesInObject(obj);
+    if (OBJ_IS_BYTE_OBJECT(L))
+        return obj;
 
-    // We can only check after we've processed it because if we
-    // have addresses left over from an incomplete partial GC they
-    // may need to forwarded.
-    CheckObject (obj);
+    // If we already have something on the stack we must being called
+    // recursively to process a constant in a code segment.  Just push
+    // it on the stack and let the caller deal with it.
+    if (msp != 0)
+        PushToStack(obj); // Can't check this because it may have forwarding ptrs.
+    else
+    {
+        MTGCProcessMarkPointers::ScanAddressesInObject(obj, L);
+
+        // We can only check after we've processed it because if we
+        // have addresses left over from an incomplete partial GC they
+        // may need to forwarded.
+        CheckObject (obj);
+    }
 
     return obj;
 }
-
 
 // These functions are only called with pointers held by the runtime system.
 // Weak references can occur in the runtime system, eg. streams and windows.
@@ -221,46 +262,137 @@ void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength we
     *pt = ScanObjectAddress(*pt);
 }
 
-// This is called both for objects in the local heap and also for mutables
-// in the permanent area and, for partial GCs, for mutables in other areas.
-void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED L)
+// This is called via ScanAddressesInRegion to process the permanent mutables.  It is
+// also called from ScanObjectAddress to process root addresses.
+// It processes all the addresses reachable from the object.
+void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
 {
-    if (recursion >= RECURSION_LIMIT)
-    {
-        LocalMemSpace *space = gMem.LocalSpaceForAddress(base);
-        ASSERT(space != 0);
-        PLocker lock(&space->spaceLock);
-        // Have to include this in the range to rescan.
-        if (space->fullGCRescanStart > ((PolyWord*)base) - 1)
-            space->fullGCRescanStart = ((PolyWord*)base) - 1;
-        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-        if (space->fullGCRescanEnd < ((PolyWord*)base) + n)
-            space->fullGCRescanEnd = ((PolyWord*)base) + n;
-        ASSERT(base->LengthWord() & _OBJ_GC_MARK); // Should have been marked.
-        if (debugOptions & DEBUG_GC)
-            Log("GC: Mark: Recursion limit reached.  Rescan for %p\n", base);
+    if (OBJ_IS_BYTE_OBJECT(lengthWord))
         return;
-    }
-    recursion ++;
-    if (OBJ_IS_WEAKREF_OBJECT(L))
+
+    while (true)
     {
-        ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
-        ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
-        // We need to mark the "SOME" values in this object but we don't mark
-        // the references contained within the "SOME".
-        POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-        PolyWord *baseAddr = (PolyWord*)base;
-        for (POLYUNSIGNED i = 0; i < n; i++)
-            DoScanAddressAt(baseAddr+i, true);
-        // Add this to the limits for the containing area.
-        MemSpace *space = gMem.SpaceForAddress(baseAddr);
-        PolyWord *startAddr = baseAddr-1; // Must point AT length word.
-        PolyWord *endObject = baseAddr + n;
-        if (startAddr < space->lowestWeak) space->lowestWeak = startAddr;
-        if (endObject > space->highestWeak) space->highestWeak = endObject;
+        ASSERT (OBJ_IS_LENGTH(lengthWord));
+
+        // Get the length and base address.  N.B.  If this is a code segment
+        // these will be side-effected by GetConstSegmentForCode.
+        POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
+        PolyWord *baseAddr = (PolyWord*)obj;
+
+        if (OBJ_IS_WEAKREF_OBJECT(lengthWord))
+        {
+            // Special case.  
+            ASSERT(OBJ_IS_MUTABLE_OBJECT(lengthWord)); // Should be a mutable.
+            ASSERT(OBJ_IS_WORD_OBJECT(lengthWord)); // Should be a plain object.
+            // We need to mark the "SOME" values in this object but we don't mark
+            // the references contained within the "SOME".
+            PolyWord *baseAddr = (PolyWord*)obj;
+            // Mark every word but ignore the result.
+            for (POLYUNSIGNED i = 0; i < length; i++)
+                (void)MarkAndTestForScan(baseAddr+i);
+            // Add this to the limits for the containing area.
+            MemSpace *space = gMem.SpaceForAddress(baseAddr);
+            PolyWord *startAddr = baseAddr-1; // Must point AT length word.
+            PolyWord *endObject = baseAddr + length;
+            if (startAddr < space->lowestWeak) space->lowestWeak = startAddr;
+            if (endObject > space->highestWeak) space->highestWeak = endObject;
+
+            // We've finished with this.
+            length = 0;
+        }
+
+        else if (OBJ_IS_CODE_OBJECT(lengthWord))
+        {
+            // Scan constants within the code.  Ultimately this calls ScanObjectAddress.
+            machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
+
+            // Skip to the constants and get ready to scan them.
+            // Updates length and baseAddr
+            obj->GetConstSegmentForCode(length, baseAddr, length);
+
+        }
+
+        // else it's a normal object,
+
+        // If there are only two addresses in this cell that need to be
+        // followed we follow them immediately and treat this cell as done.
+        // If there are more than two we push the address of this cell on
+        // the stack, follow the first address and then rescan it.  That way
+        // list cells are processed once only but we don't overflow the
+        // stack by pushing all the addresses in a very large vector.
+        PolyWord *endWord = baseAddr + length;
+        PolyObject *firstWord = 0;
+        PolyObject *secondWord = 0;
+
+        while (baseAddr != endWord)
+        {
+            PolyWord wordAt = *baseAddr;
+
+            if (wordAt.IsDataPtr() && wordAt != PolyWord::FromUnsigned(0))
+            {
+                // Normal address.  We can have words of all zeros at least in the
+                // situation where we have a partially constructed code segment where
+                // the constants at the end of the code have not yet been filled in.
+                if (TestForScan(baseAddr))
+                {
+                    if (firstWord == 0)
+                        firstWord = baseAddr->AsObjPtr();
+                    else if (secondWord == 0)
+                        secondWord = baseAddr->AsObjPtr();
+                    else break;  // More than two words.
+                }
+            }
+            else if (wordAt.IsCodePtr())
+            {
+                // If we're processing the constant area of a code segment this could
+                // be a code address.
+                PolyObject *oldObject = ObjCodePtrToPtr(wordAt.AsCodePtr());
+                // Calculate the byte offset of this value within the code object.
+                POLYUNSIGNED offset = wordAt.AsCodePtr() - (byte*)oldObject;
+                wordAt = oldObject;
+                bool test = TestForScan(&wordAt);
+                // If we've changed it because we had a left-over forwarding pointer
+                // we need to update the original.
+                PolyObject *newObject = wordAt.AsObjPtr();
+                wordAt = PolyWord::FromCodePtr((byte*)newObject + offset);
+                if (wordAt != *baseAddr)
+                    *baseAddr = wordAt;
+                if (test)
+                {
+                    if (firstWord == 0)
+                        firstWord = newObject;
+                    else if (secondWord == 0)
+                        secondWord = newObject;
+                    else break;
+                }
+            }
+            baseAddr++;
+        }
+
+        if (baseAddr != endWord)
+            // Put this back on the stack while we process the first word
+            PushToStack(obj);
+        else if (secondWord != 0)
+        {
+            // Mark it now because we will process it.
+            secondWord->SetLengthWord(secondWord->LengthWord() | _OBJ_GC_MARK);
+            // Put this on the stack.  If this is a list node we will be
+            // pushing the tail.
+            PushToStack(secondWord);
+        }
+
+        if (firstWord != 0)
+        {
+            // Mark it and process it immediately.
+            firstWord->SetLengthWord(firstWord->LengthWord() | _OBJ_GC_MARK);
+            obj = firstWord;
+        }
+        else if (msp == 0)
+            return;
+        else obj = markStack[--msp]; // Pop something.
+
+        lengthWord = obj->LengthWord();
     }
-    else ScanAddress::ScanAddressesInObject(base, L);
-    recursion--;
 }
 
 static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
