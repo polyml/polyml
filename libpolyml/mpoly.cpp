@@ -126,7 +126,8 @@ struct __debugOpts {
     { "gctasks",            "Log multi-thread GC information",                  DEBUG_GCTASKS },
     { "heapsize",           "Log heap resizing data",                           DEBUG_HEAPSIZE },
     { "x",                  "Log X-windows information",                        DEBUG_X},
-    { "sharing",            "Information from PolyML.shareCommonData",          DEBUG_SHARING}
+    { "sharing",            "Information from PolyML.shareCommonData",          DEBUG_SHARING},
+    { "locks",              "Information about contended locks",                DEBUG_CONTENTION}
 };
 
 /* In the Windows version this is called from WinMain in Console.c */

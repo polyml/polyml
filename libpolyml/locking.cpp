@@ -1,10 +1,7 @@
 /*
     Title:      Mutex and Condition Variable library.
 
-    Copyright (c) 2007 David C. J. Matthews
-
-    Portions of this code are derived from the original stream io
-    package copyright CUTS 1983-2000.
+    Copyright (c) 2007, 2012 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -78,8 +75,12 @@
 #endif
 
 #include "locking.h"
+#include "diagnostics.h"
 
-PLock::PLock()
+// Report contended locks after this many attempts
+#define LOCK_REPORT_COUNT   50
+
+PLock::PLock(const char *n): lockName(n), lockCount(0)
 {
 #ifdef HAVE_PTHREAD
     pthread_mutex_init(&lock, 0);
@@ -100,6 +101,21 @@ PLock::~PLock()
 
 void PLock::Lock(void)
 {
+    if (debugOptions & DEBUG_CONTENTION)
+    {
+        // Report a heavily contended lock.
+        if (Trylock())
+            return;
+        if (++lockCount > LOCK_REPORT_COUNT)
+        {
+            if (lockName != 0)
+                Log("Lock: contention on lock: %s\n", lockName);
+            else
+                Log("Lock: contention on lock at %p\n", &lock);
+            lockCount = 0;
+        }
+        // Drop through to a normal lock
+    }
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&lock);
 #elif defined(HAVE_WINDOWS_H)

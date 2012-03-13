@@ -46,5 +46,6 @@ extern unsigned    debugOptions; // debugging  flags
 #define DEBUG_HEAPSIZE      0x040       // Heap resizing
 #define DEBUG_X             0x080       // X-Windows debugging
 #define DEBUG_SHARING       0x100       // Diagnostics for share-common-data
+#define DEBUG_CONTENTION    0x200       // Information about contended locks
 
 #endif

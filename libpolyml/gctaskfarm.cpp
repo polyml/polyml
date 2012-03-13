@@ -53,7 +53,7 @@ static GCTaskId gTask;
 
 GCTaskId *globalTask = &gTask;
 
-GCTaskFarm::GCTaskFarm()
+GCTaskFarm::GCTaskFarm(): workLock("GC task farm work")
 {
     queueSize = queueIn = queuedItems = 0;
     workQueue = 0;
@@ -112,15 +112,19 @@ void GCTaskFarm::Terminate()
 // Add work to the queue.  Returns true if it succeeds.
 bool GCTaskFarm::AddWork(gctask work, void *arg1, void *arg2)
 {
-    PLocker l(&workLock);
-    if (queuedItems == queueSize) return false; // Queue is full
-    workQueue[queueIn].task = work;
-    workQueue[queueIn].arg1 = arg1;
-    workQueue[queueIn].arg2 = arg2;
-    queueIn++;
-    if (queueIn == queueSize) queueIn = 0;
-    queuedItems++;
-    if (queuedItems <= threadCount) waitForWork.Signal();
+    bool wantSignal = false;
+    {
+        PLocker l(&workLock);
+        if (queuedItems == queueSize) return false; // Queue is full
+        workQueue[queueIn].task = work;
+        workQueue[queueIn].arg1 = arg1;
+        workQueue[queueIn].arg2 = arg2;
+        queueIn++;
+        if (queueIn == queueSize) queueIn = 0;
+        queuedItems++;
+        wantSignal = queuedItems <= threadCount;
+    }
+    if (wantSignal) waitForWork.Signal();
     return true;
 }
 
@@ -165,10 +169,11 @@ void GCTaskFarm::ThreadFunction()
             activeThreadCount--; // We're no longer active
             // If there is no work and we're the last active thread signal the
             // main thread that the queue is empty
-            if (activeThreadCount == 0)
-                waitForCompletion.Signal();
+            bool wantSignal = activeThreadCount == 0;
             // Now release the lock.
             workLock.Unlock();
+            if (wantSignal)
+                waitForCompletion.Signal();
 
             if (debugOptions & DEBUG_GCTASKS)
             {

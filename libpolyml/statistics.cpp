@@ -115,7 +115,7 @@
 // Other processes only read the memory and at worst they may get a glitch in
 // the values.
 
-Statistics::Statistics()
+Statistics::Statistics(): accessLock("Statistics")
 {
     statMemory = 0;
 #ifdef HAVE_WINDOWS_H

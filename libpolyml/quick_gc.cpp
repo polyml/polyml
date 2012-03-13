@@ -59,7 +59,7 @@ these has filled up it fails and a full garbage collection must be done.
 #include "statistics.h"
 
 // This protects access to the gMem.lSpace table.
-static PLock localTableLock;
+static PLock localTableLock("Minor GC tables");
 
 static bool succeeded = true;
 

@@ -1,10 +1,7 @@
 /*
     Title:      Mutex and Condition Variable library.
 
-    Copyright (c) 2007 David C. J. Matthews
-
-    Portions of this code are derived from the original stream io
-    package copyright CUTS 1983-2000.
+    Copyright (c) 2007, 2012 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -49,7 +46,7 @@
 // Simple Mutex.
 class PLock {
 public:
-    PLock();
+    PLock(const char *n = 0);
     ~PLock();
     void Lock(void); // Lock the mutex
     void Unlock(void); // Unlock the mutex
@@ -61,6 +58,10 @@ private:
 #elif defined(HAVE_WINDOWS_H)
     CRITICAL_SECTION lock;
 #endif
+    // Debugging info.
+    const char *lockName;
+    unsigned lockCount;
+
     friend class PCondVar;
 };
 
