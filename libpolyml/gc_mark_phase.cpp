@@ -120,7 +120,7 @@ private:
         // can end up creating a task that terminates almost immediately.
         if (nInUse >= nThreads || msp < 2 || ! ForkNew(obj))
         {
-            if (msp < MARK_STACK_SIZE-1) // MARK_STACK_SIZE-1 here so the top is always zero
+            if (msp < MARK_STACK_SIZE)
                 markStack[msp++] = obj;
             else StackOverflow(obj);
         }
@@ -215,8 +215,15 @@ void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg
         if (steal == 0)
             break;
         // Look for items on this stack
-        for (unsigned j = 0; steal->markStack[j] != 0; j++)
-            marker->ScanAddressesInObject(steal->markStack[j]);
+        for (unsigned j = 0; j < MARK_STACK_SIZE; j++)
+        {
+            // Pick the item off the stack.
+            // N.B. The owning thread may update this is zero
+            // it at any time.
+            PolyObject *toSteal = steal->markStack[j];
+            if (toSteal == 0) break; // Nothing more on the stack
+            marker->ScanAddressesInObject(toSteal);
+        }
     }
 
     PLocker lock(&stackLock);
