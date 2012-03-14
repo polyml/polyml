@@ -59,7 +59,7 @@ MemSpace::~MemSpace()
         osMemoryManager->Free(bottom, (char*)top - (char*)bottom);
 }
 
-LocalMemSpace::LocalMemSpace()
+LocalMemSpace::LocalMemSpace(): spaceLock("Local space")
 {
     spaceType = ST_LOCAL;
     upperAllocPtr = lowerAllocPtr = 0;

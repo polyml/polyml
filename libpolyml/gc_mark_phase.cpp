@@ -96,6 +96,8 @@ public:
     void ScanAddressesInObject(PolyObject *base)
         { MTGCProcessMarkPointers::ScanAddressesInObject(base, base->LengthWord()); }
 
+    virtual void ScanConstant(byte *addressOfConstant, ScanRelocationKind code);
+
     static void MarkPointersTask(GCTaskId *, void *arg1, void *arg2);
 
     static void InitStatics(unsigned threads)
@@ -384,7 +386,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         {
             // Scan constants within the code.  Ultimately this calls ScanObjectAddress.
             machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
-
             // Skip to the constants and get ready to scan them.
             // Updates length and baseAddr
             obj->GetConstSegmentForCode(length, baseAddr, length);
@@ -475,6 +476,42 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         }
 
         lengthWord = obj->LengthWord();
+    }
+}
+
+// Process a constant within the code.  This is a direct copy of ScanAddress::ScanConstant
+// with the addition of the locking.
+void MTGCProcessMarkPointers::ScanConstant(byte *addressOfConstant, ScanRelocationKind code)
+{
+    // If this code is in the local area there's the possibility that
+    // ScanObjectAddress could return an updated address for a
+    // constant within the code.  This could happen if the code is
+    // in the allocation area or if it has been moved into the
+    // mutable/immutable area by the last incomplete partial GC.
+    // Constants can be aligned on any byte offset so another thread
+    // scanning the same code could see an invalid address if it read
+    // the constant while it was being updated.  We put a lock round
+    // this just in case.
+    LocalMemSpace *space = gMem.LocalSpaceForAddress(addressOfConstant);
+
+    if (space != 0)
+        space->spaceLock.Lock();
+    PolyWord p = GetConstantValue(addressOfConstant, code);
+    if (space != 0)
+        space->spaceLock.Unlock();
+
+    if (! IS_INT(p))
+    {
+        PolyWord oldValue = p;
+        ScanAddress::ScanAddressAt(&p);
+        if (p != oldValue) // Update it if it has changed.
+        {
+            if (space != 0)
+                space->spaceLock.Lock();
+            SetConstantValue(addressOfConstant, p, code);
+            if (space != 0)
+                space->spaceLock.Unlock();
+        }
     }
 }
 
