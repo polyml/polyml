@@ -145,7 +145,6 @@ public:
 
     DepthVector *AddDepth(POLYUNSIGNED depth);
     void AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt);
-    bool TestAndMark(PolyObject *p);
 
 private:
     DepthVector *depthVectors;
@@ -175,25 +174,6 @@ DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
         depthVectorSize = newDepth;
     }
     return &depthVectors[depth];
-}
-
-
-// Test whether this address has already been visited.
-bool ShareData::TestAndMark(PolyObject *obj)
-{
-    MemSpace *space = gMem.SpaceForAddress((PolyWord*)obj);
-    ASSERT(space != 0);
-    Bitmap *bm = 0;
-    // Find the bitmap for this address.
-    if (space->spaceType == ST_PERMANENT)
-        bm = &((PermanentMemSpace*)space)->shareBitmap;
-    else if (space->spaceType == ST_LOCAL)
-        bm = &((LocalMemSpace*)space)->bitmap;
-    ASSERT(bm != 0);
-    if (bm->TestBit((PolyWord*)obj - space->bottom))
-        return true;
-    bm->SetBit((PolyWord*)obj - space->bottom);
-    return false;
 }
 
 // Add an object to a depth vector
@@ -537,16 +517,12 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
 
     ASSERT (OBJ_IS_LENGTH(L));
 
-    if (m_parent->TestAndMark(obj))
-    // If it's already visited but doesn't have a tombstone its depth is zero.
-        return 0;
-
-
     if (obj->IsMutable())
     {
         // Mutable data in the local or permanent areas
         if (! obj->IsByteObject())
         {
+            obj->SetLengthWord(OBJ_SET_DEPTH(0)); // To prevent rescan
             // Add it to the vector so we will update any addresses it contains.
             m_parent->AddToVector(0, L, old.AsObjPtr());
             // and follow any addresses to try to merge those.
@@ -555,14 +531,20 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         return 0; // Level is zero
     }
 
-    if (space->spaceType == ST_PERMANENT)
+    if (space->spaceType == ST_PERMANENT &&
+             ((PermanentMemSpace*)space)->hierarchy == 0)
     {
         // Immutable data in the permanent area can't be merged
         // because it's read only.  We need to follow the addresses
         // because they may point to mutable areas containing data
         // that can be.  A typical case is the root function pointing
         // at the global name table containing new declarations.
-        ScanAddressesInObject(obj, L);
+        Bitmap *bm = &((PermanentMemSpace*)space)->shareBitmap;
+        if (! bm->TestBit((PolyWord*)obj - space->bottom))
+        {
+            bm->SetBit((PolyWord*)obj - space->bottom);
+            ScanAddressesInObject(obj, L);
+        }
         return 0;
     }
 
@@ -573,6 +555,7 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
     if (obj->IsCodeObject())
     {
+        obj->SetLengthWord(OBJ_SET_DEPTH(0)); // To prevent rescan
         // We want to update addresses in the code segment.
         m_parent->AddToVector(0, L, old.AsObjPtr());
         ScanAddressesInObject(obj, L);
@@ -588,11 +571,14 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     }
 
     ASSERT(OBJ_IS_WORD_OBJECT(L)); // That leaves immutable data objects.
+
+    obj->SetLengthWord(OBJ_SET_DEPTH(0));// Initial depth to prevent rescanning
+
     POLYUNSIGNED depth = 0;
-    POLYUNSIGNED n  = OBJ_OBJECT_LENGTH(L);
-    PolyWord     *pt = (PolyWord*)obj;
 
     try {
+        POLYUNSIGNED n  = OBJ_OBJECT_LENGTH(L);
+        PolyWord     *pt = (PolyWord*)obj;
         // Process all the values in this object and calculate the maximum depth.
         for(POLYUNSIGNED i = 0; i < n; i++)
         {
@@ -632,13 +618,11 @@ bool ShareData::RunShareData(PolyObject *root)
     for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
         PermanentMemSpace *space = gMem.pSpaces[j];
-        if (! space->shareBitmap.Create(space->spaceSize()))
-            return false;
-    }
-    for (unsigned k = 0; k < gMem.nlSpaces; k++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[k];
-        space->bitmap.ClearBits(0, space->spaceSize());
+        if (!space->isMutable && space->hierarchy == 0)
+        {
+            if (! space->shareBitmap.Create(space->spaceSize()))
+                return false;
+        }
     }
 
     POLYUNSIGNED totalObjects = 0;
