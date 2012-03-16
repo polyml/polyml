@@ -107,7 +107,7 @@ public:
     friend class MemMgr;
 };
 
-#define NSTARTS 1024
+#define NSTARTS 10
 
 // Local areas can be garbage collected.
 class LocalMemSpace: public MemSpace
@@ -137,7 +137,7 @@ public:
     Bitmap       bitmap;          /* bitmap with one bit for each word in the GC area. */
     bool         allocationSpace; // True if this is (mutable) space for initial allocation
     POLYUNSIGNED start[NSTARTS];  /* starting points for bit searches.                 */
-    POLYUNSIGNED start_index;     /* last index used to index start array              */
+    unsigned     start_index;     /* last index used to index start array              */
     POLYUNSIGNED i_marked;        /* count of immutable words marked.                  */
     POLYUNSIGNED m_marked;        /* count of mutable words marked.                    */
     POLYUNSIGNED updated;         /* count of words updated.                           */
@@ -153,7 +153,6 @@ public:
     // Used when converting to and from bit positions in the bitmap
     POLYUNSIGNED wordNo(PolyWord *pt) { return pt - bottom; }
     PolyWord *wordAddr(POLYUNSIGNED bitno) { return bottom + bitno; }
-
 
     friend class MemMgr;
 };

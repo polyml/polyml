@@ -189,19 +189,20 @@ POLYUNSIGNED Bitmap::CountZeroBits(POLYUNSIGNED bitno, POLYUNSIGNED n) const
 }
 
 
-/* search the bitmap from the high end down looking for n contiguous zeros */
+// Search the bitmap from the high end down looking for n contiguous zeros
+// Returns the value of "bitno" on failure. .
 POLYUNSIGNED Bitmap::FindFree
 (
   POLYUNSIGNED   limit,  /* The highest numbered bit that's too small to use */
-  POLYUNSIGNED   bitno,  /* The lowest numbered bit that's too large to use */
+  POLYUNSIGNED   start,  /* The lowest numbered bit that's too large to use */
   POLYUNSIGNED   n       /* The number of consecutive zero bits required */
 ) const
 {
-    if (limit + n >= bitno)
-        return 0;
+    if (limit + n >= start)
+        return start; // Failure
 
-    POLYUNSIGNED candidate = bitno - n;
-    ASSERT (bitno > limit);
+    POLYUNSIGNED candidate = start - n;
+    ASSERT (start > limit);
     
     while (1)
     {
@@ -211,7 +212,7 @@ POLYUNSIGNED Bitmap::FindFree
             return candidate;
 
         if (candidate < n - bits_free + limit)
-            return 0;
+            return start; // Failure
         
         candidate -= (n - bits_free);
     }

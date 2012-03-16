@@ -11,12 +11,12 @@
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
     version 2.1 of the License, or (at your option) any later version.
-    
+
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
     Lesser General Public License for more details.
-    
+
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
@@ -82,89 +82,54 @@ avoids
 
 static PLock copyLock;
 
-/* start <= val <= end */
-#define INSOFTRANGE(val,start,end) ((start) <= (val) && (val) <= (end))
-
-/* Search the area downwards looking for n consecutive free words.          */
-/* Return the bitmap index if successful or 0 (should we use -1?) on failure. */
+// Search the area downwards looking for n consecutive free words.
+// Return the address of the word if successful or 0 on failure.
+// "limit" is the bit position of the bottom of the area or, if we're compacting an area,
+// the bit position of the object we'd like to move to a higher address.
 static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED limit, POLYUNSIGNED n)
 {
     if (dst == 0) return 0; // No current space
 
     /* SPF's version of the start caching code. SPF 2/10/96 */
-    /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */
-    POLYUNSIGNED truncated_n = (n < NSTARTS) ? n : NSTARTS - 1;
-    
-    ASSERT(0 <= limit);
-    
-    /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */ 
-    
-    /* 
-    Update the starting array, so that the first few entries are valid.
-    The starting point for a given size of hole must be at least as
-    small (late) as the starting point for smaller holes.
-    We remember the start_index of our previous allocation, so
-    that if we have the same size object again, this loop becomes
-    trivial. SPF 2/10/96
-    */ 
-    for (POLYUNSIGNED i = dst->start_index; i < truncated_n; i ++)
+    // The idea of it is to avoid having to search over an area that is
+    // already known not to have any spaces large enough for an object of
+    // a given size.  Knowing that there is no space for an object of
+    // size n implies that there is no space for anything of size larger
+    // than n.  SPF's idea is that after finding the space in the bitmap
+    // we update only the element for the size we are looking for rather
+    // than everything larger.
+    POLYUNSIGNED truncated_n = n < NSTARTS ? n : NSTARTS - 1;
+
+    // If we're looking for something larger than last time update
+    // all the entries last time's size and this size.
+    for (unsigned i = dst->start_index; i < truncated_n; i ++)
     {
         if (dst->start[i] < dst->start[i+1])
-        {
             dst->start[i+1] = dst->start[i];
-        }
     }
-    
-    /* Invariant: dst->start[0] .. dst->start[truncated_n] is a descending sequence. */
-    dst->start_index = truncated_n;
-    /* Invariant: dst->start[0] .. dst->start[dst->start_index] is a descending sequence. */ 
-    
-    /* Start our search at the appropriate point. */
-    POLYUNSIGNED start = dst->start[truncated_n];
-    
-    /* If we can't copy UP, give up immediately. It's important that we DON'T
-    update dst->start[n], because that might INCREASE it, which isn't
-    allowed. SPF 19/11/1997
-    */
-    if (start <= limit)
-    {
-        return 0;
-    }
-    
-    POLYUNSIGNED free = dst->bitmap.FindFree(limit, start, n);
-    /* free == 0 || limit <= free && free < start */
-    
-    /* 
-    We DON'T update the array for big allocations, because this would cause
-    us to skip holes that are actually large enough for slightly smaller
-    (but still big) allocations. An allocation is "big" if it doesn't
-    have its own dedicated slot in the start array. This won't actually
-    cost us much, provided there's enough small allocations between
-    the big ones, as these will cause the pointer to be advanced.
-    SPF 2/10/96
-    */
-    /* dst->start[0] .. dst->start[dst->start_index] is a descending sequence */
-    if (n < NSTARTS)
-    {
-        /* free == 0 || limit <= free && free < start */
-        ASSERT(n == dst->start_index);
-        dst->start[n] = (free == 0) ? limit : free;
-        /* Writing "dst->start[n] = free;" is attractive but wrong. The problem
-           is that even if we can't compact the immutables much, we may still
-           be able to copy immutables from the mutable area into the immutable
-           area, but setting dst->start[n] to 0 would prevent this.
-           SPF 19/11/1997 */
-    }
-    /* dst->start[0] .. dst->start[dst->start_index] is still is a descending sequence */
 
-    if (free == 0)
+    dst->start_index = truncated_n;
+    POLYUNSIGNED start = dst->start[truncated_n];
+    if (start <= limit)
+        return 0;
+
+    // Look in the bitmap.  Returns "start" if it can't find space.
+    POLYUNSIGNED free = dst->bitmap.FindFree(limit, start, n);
+
+    // If we failed to allocate the space (free == start) we set this to
+    // zero to indicate that there is no space for anything of this size
+    // or larger.
+    if (n < NSTARTS)
+        dst->start[n] = free == start ? 0 : free;
+
+    if (free == start)
         return 0;
 
     // Allocate the space.
     dst->bitmap.SetBits(free, n);
 
     PolyWord *newp = dst->wordAddr(free); /* New object address */
-        
+
     // Update dst->upperAllocPtr, so the new object doesn't get trampled.
     if (newp < dst->upperAllocPtr)
         dst->upperAllocPtr = newp;
@@ -188,7 +153,7 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
 
     for (POLYUNSIGNED i = 0; i < n; i++)
         destAddress->Set(i, srcAddress->Get(i));
-    
+
     // If this is a code object flush out anything from the instruction cache
     // that might previously have been at this address
     if (OBJ_IS_CODE_OBJECT(L))
@@ -291,10 +256,10 @@ static void copyAllData(GCTaskId *id, void * /*arg1*/, void * /*arg2*/)
             PolyWord *old = src->wordAddr(bitno); /* Old object address */
 
             PolyObject *obj = (PolyObject*)(old+1);
-        
+
             POLYUNSIGNED L = obj->LengthWord();
             ASSERT (OBJ_IS_LENGTH(L));
-        
+
             POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L) + 1 ;/* Length of allocation (including length word) */
             bitno += n;
 
@@ -374,7 +339,7 @@ void GCCopyPhase()
         // lowest real data.
         lSpace->upperAllocPtr = lSpace->top;
     }
- 
+
     // Copy the mutable data into a lower area if possible.
     if (gpTaskFarm->ThreadCount() == 0)
         copyAllData(globalTask, 0, 0);
