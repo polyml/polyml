@@ -436,25 +436,6 @@ struct
          )
       else [] (* None at all. *)
    end; (* getTypeVars *)
-
-   fun getShortNonInfix opThere sys fsys lex {lookupFix, ...} =
-   let
-      (* op followed by a (short) constructor *)
-      val idLoc as (id, location) = getShortId (sys, fsys, lex);
-      
-      val isInfix =
-        case lookupFix id of SOME (Infix _) => true | SOME (InfixR _)  => true | _ => false
-           (* It is infix if we find it and it has been declared
-              as infix. If it hasn't been declared then it isn't infix.*)
-
-      val () =
-        if isInfix andalso not opThere
-        then warningMessage (lex, location,
-               "(" ^ id ^") has infix status but was not preceded by op.")
-        else ();
-   in
-      idLoc
-   end;
    
    fun getLongNonInfix opThere sys fsys lex {lookupFix,...} =
    let
@@ -572,12 +553,12 @@ struct
                 (* Process the rest of this binding. *)
                 val (db, dbLocn) = 
                     datatypeBind (fsys ++ withtypeSy ++ andSy,
-                        env, typeName, typeVars, newTVenv, idLocn, isSpecification);
+                        typeName, typeVars, newTVenv, idLocn, isSpecification);
                 (* Process any others *)
                 val (dbs, dbsLocn) =
                     if testfor (SYMBOLS.andSy, empty, lex)
                     then andBindings
-                            (fsys ++ withtypeSy, datatypeBinding(env, isSpecification))
+                            (fsys ++ withtypeSy, datatypeBinding isSpecification)
                     else ([], dbLocn)
                 val (withtypes, lastLocn) =
                    if testfor (SYMBOLS.withtypeSy, empty, lex)
@@ -589,7 +570,7 @@ struct
             end
     end
     
-    and datatypeBind (fsys, env, typeName, typeVars, newTVenv, idLocn, isSpecification) =
+    and datatypeBind (fsys, typeName, typeVars, newTVenv, idLocn, isSpecification) =
     (* Process the rest of a binding. *)
     let
         (* Followed by a type or a sequence of constructors *)
@@ -608,12 +589,19 @@ struct
 
         fun constrs fsys =
         let
-            val opThere = (sy lex) eq SYMBOLS.opSy;
-            val () = if opThere then insymbol lex else ();
+            val () =
+                if (sy lex) eq SYMBOLS.opSy
+                then
+                (
+                    if isSpecification
+                    then errorMessage (lex, location lex,
+                                     "``op'' may not appear before a constructor in a specification.")
+                    else ();
+                    insymbol lex
+                )
+                else ();
             (* Identifier - name of constructor *)
-            val (constrName, idLocn) =
-                getShortNonInfix (opThere orelse isSpecification) declarableVarSys
-                                          (fsys ++ ofVerticalBarSy) lex env;
+            val (constrName, idLocn) = getShortId (declarableVarSys, fsys ++ ofVerticalBarSy, lex)
               
             (* If there is an "of" after this then the constructor is
                 a function from the type following the "of" to the type
@@ -646,7 +634,7 @@ struct
         (mkDatatypeBinding (typeName, typeVars, constrs, idLocn, bindLocn), bindLocn)
     end
 
-    and datatypeBinding(env, isSpecification) fsys =
+    and datatypeBinding isSpecification fsys =
     (* Datatype and abstype declarations and datatype specifications. *)
     let
         val newTVenv = searchList ();
@@ -656,7 +644,7 @@ struct
 
         val () = getsym (SYMBOLS.equalsSign, lex);
     in
-        datatypeBind (fsys, env, typeName, typeVars, newTVenv, idLocn, isSpecification)
+        datatypeBind (fsys, typeName, typeVars, newTVenv, idLocn, isSpecification)
     end;
 
 
@@ -1576,7 +1564,7 @@ struct
             let
                 val ()         = insymbol lex;
                 val (tb, _) = 
-                    andBindings (fsys ++ withTypeWithSy, datatypeBinding(env, false));
+                    andBindings (fsys ++ withTypeWithSy, datatypeBinding false);
                 
                 val (withtypes, _) = 
                    if testfor (SYMBOLS.withtypeSy, empty, lex)
