@@ -1588,6 +1588,8 @@ struct
                 (* Get an exception binding. Qualified names prohibited. *)
                 fun exceptionBinding fsys =
                 let
+                    (* Allow an "op" here but don't produce a warning if it's absent. *)
+                    val () = if (sy lex) eq SYMBOLS.opSy then insymbol lex else ()
                     (* First the identifier. *)
                     val (iden, idLoc) = getShortId (variableSys, fsys ++ ofEqualsSignSy, lex);
                 in
@@ -1604,6 +1606,8 @@ struct
                     else if testfor (SYMBOLS.equalsSign, empty, lex)
                     then
                     let (* Must be   = excon' *)
+                        (* Allow an "op" here but don't produce a warning if it's absent. *)
+                        val () = if (sy lex) eq SYMBOLS.opSy then insymbol lex else ()
                         val (oldIden, oldIdenLoc) = getLongId (variableSys, fsys, lex);
                         val fullLoc = locSpan(idLoc, oldIdenLoc)
                     in
