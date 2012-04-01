@@ -594,7 +594,7 @@ struct
                 then
                 (
                     if isSpecification
-                    then errorMessage (lex, location lex,
+                    then warningMessage (lex, location lex,
                                      "``op'' may not appear before a constructor in a specification.")
                     else ();
                     insymbol lex
