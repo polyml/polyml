@@ -9,12 +9,12 @@
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
     version 2.1 of the License, or (at your option) any later version.
-    
+
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
     Lesser General Public License for more details.
-    
+
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
@@ -80,7 +80,7 @@ The basic algorithm works like this:
 3. We begin a loop starting at depth 1.
 4. The objects are sorted by their contents so bringing together objects
    with the same contents.  The contents are considered simply as
-   uninterpreted bits.  
+   uninterpreted bits.
 5. The sorted vector is processed to find those objects that are actually
    bitwise equal.  One object is selected to be retained and its length
    word is restored to be a normal length (phase 1 had set it to be a depth).
@@ -105,6 +105,11 @@ code objects to update the addresses but also have to scan the immutables
 because of the possibility of missing an update as a result of breaking a
 loop (see SPF's comment below).
 DCJM 3/8/06
+
+This has been substantially updated while retaining the basic algorithm.
+Sorting is now done in parallel by the GC task farm and the stack is
+now in dynamic memory.  That avoids a possible segfault if the normal
+C stack overflows.
 */
 
 typedef struct
@@ -180,9 +185,9 @@ DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
 void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 {
     DepthVector *v = AddDepth (depth);
-    
+
     ASSERT (v->nitems <= v->vsize);
-    
+
     if (v->nitems == v->vsize)
     {
         unsigned long new_vsize  = 2 * v->vsize + 1;
@@ -193,40 +198,40 @@ void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 
         if (new_vector == 0)
             throw MemoryException();
-        
+
         v->vector = new_vector;
         v->vsize  = new_vsize;
     }
-    
+
     ASSERT (v->nitems < v->vsize);
-    
+
     v->vector[v->nitems].L  = L;
     v->vector[v->nitems].pt = pt;
-    
+
     v->nitems++;
-    
+
     ASSERT (v->nitems <= v->vsize);
 }
 
 // Comparison function used for sorting and also to test whether
 // two cells can be merged.
 int DepthVector::CompareItems(const Item *a, const Item *b)
-{ 
+{
     PolyObject *x = a->pt;
     PolyObject *y = b->pt;
 //    POLYUNSIGNED  A = x->LengthWord();
 //    POLYUNSIGNED  B = y->LengthWord();
-    
+
 //    ASSERT (OBJ_IS_DEPTH(A));
 //    ASSERT (OBJ_IS_DEPTH(B));
 //    ASSERT (A == B); // Should be the same depth.
-    
+
 //    ASSERT (OBJ_IS_LENGTH(a->L));
 //    ASSERT (OBJ_IS_LENGTH(b->L));
-    
+
     if (a->L > b->L) return  1; // These tests include the flag bits
     if (a->L < b->L) return -1;
-    
+
     // Return simple bitwise equality.
     return memcmp(x, y, OBJ_OBJECT_LENGTH(a->L)*sizeof(PolyWord));
 }
@@ -240,17 +245,16 @@ POLYUNSIGNED DepthVector::MergeSameItems()
     Item *itemVec = v->vector;
     POLYUNSIGNED  n = 0;
     POLYUNSIGNED  i = 0;
-    
+
     while (i < N)
     {
-        ASSERT (OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
-
         PolyObject *bestShare = 0; // Candidate to share.
         MemSpace *bestSpace = 0;
 
         POLYUNSIGNED j;
         for (j = i; j < N; j++)
         {
+            ASSERT (OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
             // Search for identical objects.  Don't bother to compare it with itself.
             if (i != j && CompareItems (& itemVec[i], & itemVec[j]) != 0) break;
             // The order of sharing is significant.
@@ -313,7 +317,7 @@ POLYUNSIGNED DepthVector::MergeSameItems()
         ASSERT(! OBJ_IS_DEPTH(itemVec[i].pt->LengthWord()));
         i = k;
     }
-    
+
     return n;
 }
 
@@ -336,7 +340,7 @@ inline void swapItems(Item *i, Item *j)
 }
 
 // Simple parallel quick-sort.  "first" and "last" are the first
-// and last items (inclusive) in the vector.  
+// and last items (inclusive) in the vector.
 void DepthVector::SortRange(Item *first, Item *last)
 {
     while (first < last)
@@ -396,7 +400,7 @@ void DepthVector::SortRange(Item *first, Item *last)
                 break;
             }
         } while (f <= l);
- 
+
         // Process the larger partition as a separate task or
         // by recursion and do the smaller partition by tail
         // recursion.
@@ -462,15 +466,15 @@ PolyWord ProcessFixupAddress::GetNewAddress(PolyWord old)
     // N.B. We return the original address here but this could actually share
     // with something else and not be retained.
     if (OBJ_IS_DEPTH(L))
-        return old; 
-    
+        return old;
+
     if (obj->ContainsForwardingPtr()) // tombstone is a pointer to a shared object
     {
         PolyObject *newp = obj->GetForwardingPtr();
-        ASSERT (newp->ContainsNormalLengthWord());
+//        ASSERT (newp->ContainsNormalLengthWord());
         return newp;
     }
-    
+
     ASSERT (obj->ContainsNormalLengthWord()); // object is not shared
     return old;
 }
@@ -488,15 +492,26 @@ void ProcessFixupAddress::FixupItems (DepthVector *v)
 class ProcessAddToVector: public ScanAddress
 {
 public:
-    ProcessAddToVector(ShareData *p): m_parent(p) {}
+    ProcessAddToVector(ShareData *p): m_parent(p), addStack(0), stackSize(0), asp(0) {}
+
+    ~ProcessAddToVector() { free(addStack); }
+
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt)
         { (void)AddObjectsToDepthVectors(*pt); return 0; }
     virtual PolyObject *ScanObjectAddress(PolyObject *base)
         { (void)AddObjectsToDepthVectors(base); return base; }
+
+    void ProcessRoot(PolyObject *root);
+
 protected:
     POLYUNSIGNED AddObjectsToDepthVectors(PolyWord old);
 
+    void PushToStack(PolyObject *obj);
+
     ShareData *m_parent;
+    PolyObject **addStack;
+    unsigned stackSize;
+    unsigned asp;
 };
 
 POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
@@ -515,6 +530,9 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     if (OBJ_IS_DEPTH(L)) // tombstone contains genuine depth or 0.
         return OBJ_GET_DEPTH(L);
 
+    if (obj->LengthWord() & _OBJ_GC_MARK)
+        return 0; // Marked but not yet scanned. Circular structure.
+
     ASSERT (OBJ_IS_LENGTH(L));
 
     if (obj->IsMutable())
@@ -522,11 +540,11 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         // Mutable data in the local or permanent areas
         if (! obj->IsByteObject())
         {
-            obj->SetLengthWord(OBJ_SET_DEPTH(0)); // To prevent rescan
+            obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
             // Add it to the vector so we will update any addresses it contains.
             m_parent->AddToVector(0, L, old.AsObjPtr());
             // and follow any addresses to try to merge those.
-            ScanAddressesInObject(obj, L);
+            PushToStack(obj);
         }
         return 0; // Level is zero
     }
@@ -543,7 +561,8 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         if (! bm->TestBit((PolyWord*)obj - space->bottom))
         {
             bm->SetBit((PolyWord*)obj - space->bottom);
-            ScanAddressesInObject(obj, L);
+            if (! obj->IsByteObject())
+                PushToStack(obj);
         }
         return 0;
     }
@@ -555,10 +574,10 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
     if (obj->IsCodeObject())
     {
-        obj->SetLengthWord(OBJ_SET_DEPTH(0)); // To prevent rescan
+        obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
         // We want to update addresses in the code segment.
         m_parent->AddToVector(0, L, old.AsObjPtr());
-        ScanAddressesInObject(obj, L);
+        PushToStack(obj);
         return 0;
     }
 
@@ -571,32 +590,123 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
     }
 
     ASSERT(OBJ_IS_WORD_OBJECT(L)); // That leaves immutable data objects.
+    obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
+    PushToStack(obj);
 
-    obj->SetLengthWord(OBJ_SET_DEPTH(0));// Initial depth to prevent rescanning
+    return 0;
+}
 
-    POLYUNSIGNED depth = 0;
-
-    try {
-        POLYUNSIGNED n  = OBJ_OBJECT_LENGTH(L);
-        PolyWord     *pt = (PolyWord*)obj;
-        // Process all the values in this object and calculate the maximum depth.
-        for(POLYUNSIGNED i = 0; i < n; i++)
+void ProcessAddToVector::PushToStack(PolyObject *obj)
+{
+    if (asp == stackSize)
+    {
+        if (addStack == 0)
         {
-            POLYUNSIGNED d = AddObjectsToDepthVectors(*pt);
-            if (d > depth) depth = d;
-            pt++;
+            addStack = (PolyObject**)malloc(sizeof(PolyObject*) * 100);
+            if (addStack == 0) throw MemoryException();
+            stackSize = 100;
         }
-        depth++; // Plus one for this object.
-        obj->SetLengthWord(OBJ_SET_DEPTH(depth));// set genuine depth.
-        m_parent->AddToVector (depth, L, old.AsObjPtr());// add to vector at correct depth
-    } catch (...) {
-        // We haven't added it to the depth vector yet or adding failed.
-        // Restore the length field now.
-        obj->SetLengthWord(L);
-        throw;
+        else
+        {
+            unsigned newSize = stackSize+100;
+            PolyObject** newStack = (PolyObject**)realloc(addStack, sizeof(PolyObject*) * newSize);
+            if (newStack == 0) throw MemoryException();
+            stackSize = newSize;
+            addStack = newStack;
+        }
     }
 
-    return depth;
+    ASSERT(asp < stackSize);
+
+    addStack[asp++] = obj;
+}
+
+void ProcessAddToVector::ProcessRoot(PolyObject *root)
+{
+    // Mark the initial object
+    AddObjectsToDepthVectors(root);
+
+    // Process the stack until it's empty.
+    while (asp != 0)
+    {
+        // Pop it from the stack.
+        PolyObject *obj = addStack[asp-1];
+
+        if (obj->IsCodeObject())
+        {
+            /* There's a problem sharing code objects if they have relative calls/jumps
+               in them to other code.  The code of two functions may be identical (e.g.
+               they both call functions 100 bytes ahead) and so they will appear the
+               same but if the functions they jump to are different they are actually
+               different.  For that reason we don't share code segments.  DCJM 4/1/01 */
+            asp--; // Pop it because we'll process it completely
+            ScanAddressesInObject(obj);
+            // If it's local set the depth with the value zero.
+            if (obj->LengthWord() & _OBJ_GC_MARK)
+            {
+                m_parent->AddToVector(0, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
+                obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
+            }
+        }
+
+        else if ((obj->LengthWord() & _OBJ_GC_MARK) && ! obj->IsMutable())
+        {
+            POLYUNSIGNED depth = 0;
+            POLYUNSIGNED length = obj->Length();
+            PolyWord *pt = (PolyWord*)obj;
+            unsigned osp = asp;
+
+            while (length != 0 && osp == asp)
+            {
+                POLYUNSIGNED d = AddObjectsToDepthVectors(*pt);
+                if (d > depth) depth = d;
+                pt++;
+                length--;
+            }
+
+            if (osp == asp)
+            {
+                // We've finished it
+                asp--; // Pop this item.
+                depth++; // One more for this object
+                m_parent->AddToVector(depth, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
+                obj->SetLengthWord(OBJ_SET_DEPTH(depth));
+            }
+        }
+
+        else
+        {
+            POLYUNSIGNED length = obj->Length();
+            PolyWord *pt = (PolyWord*)obj;
+            unsigned osp = asp;
+
+            while (length != 0)
+            {
+                if (! (*pt).IsTagged())
+                {
+                    // If we've already pushed an address break now
+                    if (osp != asp) break;
+                    // Process the address and possibly push it
+                    AddObjectsToDepthVectors(*pt);
+                }
+                pt++;
+                length--;
+            }
+
+            if (length == 0)
+            {
+                // We've finished it
+                if (osp != asp)
+                {
+                    ASSERT(osp == asp-1);
+                    addStack[osp-1] = addStack[osp];
+                }
+                asp--; // Pop this item.
+                if (obj->LengthWord() & _OBJ_GC_MARK)
+                    obj->SetLengthWord(OBJ_SET_DEPTH(0));
+            }
+        }
+    }
 }
 
 static void RestoreLengthWords(DepthVector *vec)
@@ -627,28 +737,22 @@ bool ShareData::RunShareData(PolyObject *root)
 
     POLYUNSIGNED totalObjects = 0;
     POLYUNSIGNED totalShared  = 0;
-    
+
     depthVectors = 0;
     depthVectorSize = 0;
 
     // Build the vectors from the immutable objects.
-    ProcessAddToVector addToVector(this);
+    bool success = true;
+
     try {
-        (void)addToVector.ScanObjectAddress(root);
+        ProcessAddToVector addToVector(this);
+        addToVector.ProcessRoot(root);
     }
     catch (MemoryException)
     {
-        // If we run out of memory and raise an exception we have to clean up.
-        while (depthVectorSize > 0)
-        {
-            depthVectorSize--;
-            DepthVector *v = &depthVectors[depthVectorSize];
-            RestoreLengthWords(v);
-            free(v->vector);
-        }
-        free(depthVectors);
-        depthVectors = 0;
-        return false; // Run out of memory.
+        // If we ran out of memory we may still be able to process what we have.
+        // That will also do any clean-up.
+        success = false;
     }
 
     ProcessFixupAddress fixup;
@@ -658,37 +762,37 @@ bool ShareData::RunShareData(PolyObject *root)
         DepthVector *vec = &depthVectors[depth];
         fixup.FixupItems(vec);
         vec->Sort();
-    
+
         POLYUNSIGNED n = vec->MergeSameItems();
-    
+
         if ((debugOptions & DEBUG_SHARING) && n > 0)
             Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT "\n", vec->depth, vec->nitems, n);
-    
+
         totalObjects += vec->nitems;
         totalShared  += n;
-    }  
+    }
 
-      /* 
+      /*
        At this stage, we have fixed up most but not all of the forwarding
        pointers. The ones that we haven't fixed up arise from situations
        such as the following:
-   
+
                X -> Y <-> Z
-           
+
        i.e. Y and Z form a loop, and X is isomorphic to Z. When we assigned
        the depths, we have to arbitrarily break the loop between Y and Z.
        Suppose Y is assigned to level 1, and Z is assigned to level 2.
        When we process level 1 and fixup Y, there's nothing to do, since
-       Z is still an ordinary object. However when we process level 2, 
+       Z is still an ordinary object. However when we process level 2,
        we find that X and Z are isomorphic so we arbitrarily choose one
        of them and turn it into a "tombstone" pointing at the other. If
        we change Z into the tombstone, then Y now contains a pointer
        that needs fixing up. That's why we need the second fixup pass.
-   
+
        Note also that if we had broken the loop the other way, we would have
        assigned Z to level 1, Y to level 2 and X to level 3, so we would
        have missed the chance to share Z and X. Perhaps that's why running
-       the program repeatedly sometimes finds extra things to share? 
+       the program repeatedly sometimes finds extra things to share?
 
       SPF 26/1/95
     */
@@ -722,7 +826,7 @@ bool ShareData::RunShareData(PolyObject *root)
     if (debugOptions & DEBUG_SHARING)
         Log ("Sharing: Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT "\n", totalObjects, totalShared);
 
-    return true; // Succeeded.
+    return success; // Succeeded.
 }
 
 class ShareRequest: public MainThreadRequest
