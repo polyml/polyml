@@ -109,7 +109,7 @@ struct __argtab {
     { "--allocation",   "Size of allocation area(MB)",                          OPT_ALLOCATION },
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
-    { "--debug",        "Debug options: checkobjects, gc, x",                   OPT_DEBUGOPTS },
+    { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
     { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
 };
 
