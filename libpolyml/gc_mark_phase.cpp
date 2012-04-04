@@ -632,6 +632,7 @@ bool RescanMarked::RunRescan()
         }
     }
     nInUse--;
+    gpTaskFarm->WaitForCompletion();
     return rescan;
 }
 
