@@ -134,7 +134,9 @@ private:
     bool active;
 
     static MTGCProcessMarkPointers *markStacks;
+protected:
     static unsigned nThreads, nInUse;
+private:
     static PLock stackLock;
 };
 
@@ -591,6 +593,8 @@ static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
 
 class RescanMarked: public MTGCProcessMarkPointers
 {
+public:
+    bool RunRescan(void);
 private:
     virtual void ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord);
 };
@@ -603,6 +607,32 @@ void RescanMarked::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWor
 {
     if (lengthWord &_OBJ_GC_MARK)
         MTGCProcessMarkPointers::ScanAddressesInObject(obj, lengthWord);
+}
+
+// Check whether the stack has overflowed and rescan any words
+// in the overflow area.  Returns true if this has happened and
+// we need to try again.
+bool RescanMarked::RunRescan()
+{
+    nInUse = 1;
+    bool rescan = false;
+    for (unsigned m = 0; m < gMem.nlSpaces; m++)
+    {
+        LocalMemSpace *lSpace = gMem.lSpaces[m];
+        if (lSpace->fullGCRescanStart < lSpace->fullGCRescanEnd)
+        {
+            PolyWord *start = lSpace->fullGCRescanStart;
+            PolyWord *end = lSpace->fullGCRescanEnd;
+            lSpace->fullGCRescanStart = lSpace->top;
+            lSpace->fullGCRescanEnd = lSpace->bottom;
+            rescan = true;
+            if (debugOptions & DEBUG_GC)
+                Log("GC: Mark: Rescanning from %p to %p\n", start, end);
+            ScanAddressesInRegion(start, end);
+        }
+    }
+    nInUse--;
+    return rescan;
 }
 
 void GCMarkPhase(void)
@@ -623,28 +653,8 @@ void GCMarkPhase(void)
     gpTaskFarm->WaitForCompletion();
 
     // Do we have to recan?
-    while (true)
-    {
-        bool rescan = false;
-        RescanMarked rescanner;
-        for (unsigned m = 0; m < gMem.nlSpaces; m++)
-        {
-            LocalMemSpace *lSpace = gMem.lSpaces[m];
-            if (lSpace->fullGCRescanStart < lSpace->fullGCRescanEnd)
-            {
-                PolyWord *start = lSpace->fullGCRescanStart;
-                PolyWord *end = lSpace->fullGCRescanEnd;
-                lSpace->fullGCRescanStart = lSpace->top;
-                lSpace->fullGCRescanEnd = lSpace->bottom;
-                rescan = true;
-                if (debugOptions & DEBUG_GC)
-                    Log("GC: Mark: Rescanning from %p to %p\n", start, end);
-                rescanner.ScanAddressesInRegion(start, end);
-            }
-        }
-        if (! rescan)
-            break;
-    }
+    RescanMarked rescanner;
+    while (rescanner.RunRescan()) ;
 
     gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Mark");
 
