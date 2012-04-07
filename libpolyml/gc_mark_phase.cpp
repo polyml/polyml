@@ -144,6 +144,15 @@ MTGCProcessMarkPointers *MTGCProcessMarkPointers::markStacks;
 unsigned MTGCProcessMarkPointers::nThreads, MTGCProcessMarkPointers::nInUse;
 PLock MTGCProcessMarkPointers::stackLock("GC mark stack");
 
+// It is possible to have two levels of forwarding because
+// we could have a cell in the allocation area that has been moved
+// to the immutable area and then shared with another cell.
+inline PolyObject *FollowForwarding(PolyObject *obj)
+{
+    while (obj->ContainsForwardingPtr())
+        obj = obj->GetForwardingPtr();
+    return obj;
+}
 
 MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0), active(false)
 {
@@ -234,7 +243,7 @@ void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg
     ASSERT(marker->markStack[0] == 0);
 }
 
-// Tests if this needs to be scans.  It marks it if it has not been marked
+// Tests if this needs to be scanned.  It marks it if it has not been marked
 // unless it has to be scanned.
 bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
 {
@@ -250,10 +259,11 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
     PolyObject *obj = (*pt).AsObjPtr();
     if (obj->ContainsForwardingPtr())
     {
-        *pt = obj->GetForwardingPtr();
-        space = gMem.LocalSpaceForAddress((*pt).AsAddress());
-        obj = (*pt).AsObjPtr();
+        obj = FollowForwarding(obj);
+        *pt = obj;
+        space = gMem.LocalSpaceForAddress(obj);
     }
+    ASSERT(obj->ContainsNormalLengthWord());
 
     POLYUNSIGNED L = obj->LengthWord();
     if (L & _OBJ_GC_MARK)
@@ -297,7 +307,7 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     // minor GC.
     if (obj->ContainsForwardingPtr())
     {
-        obj = obj->GetForwardingPtr();
+        obj = FollowForwarding(obj);
         val = obj;
         space = gMem.LocalSpaceForAddress(val.AsAddress());
     }
@@ -393,12 +403,9 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         else if (OBJ_IS_CODE_OBJECT(lengthWord))
         {
-            // Scan constants within the code.  Ultimately this calls ScanObjectAddress.
-            machineDependent->ScanConstantsWithinCode(obj, obj, length, this);
-            // Skip to the constants and get ready to scan them.
-            // Updates length and baseAddr
-            obj->GetConstSegmentForCode(length, baseAddr, length);
-
+            // It's better to process the whole code object in one go.
+            ScanAddress::ScanAddressesInObject(obj, lengthWord);
+            length = 0; // Finished
         }
 
         // else it's a normal object,
@@ -560,7 +567,11 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
         PolyObject *obj = (PolyObject*)++pt;
         // If it has been copied by a minor collection skip it
         if (obj->ContainsForwardingPtr())
-            pt += obj->GetForwardingPtr()->Length();
+        {
+            obj = FollowForwarding(obj);
+            ASSERT(obj->ContainsNormalLengthWord());
+            pt += obj->Length();
+        }
         else
         {
             POLYUNSIGNED L = obj->LengthWord();
