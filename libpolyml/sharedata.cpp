@@ -766,7 +766,8 @@ bool ShareData::RunShareData(PolyObject *root)
         POLYUNSIGNED n = vec->MergeSameItems();
 
         if ((debugOptions & DEBUG_SHARING) && n > 0)
-            Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT "\n", vec->depth, vec->nitems, n);
+            Log("Sharing: Level %4" POLYUFMT ", Objects %6" POLYUFMT ", Shared %6" POLYUFMT " (%1.0f%%)\n",
+                vec->depth, vec->nitems, n, (float)n / (float)vec->nitems * 100.0);
 
         totalObjects += vec->nitems;
         totalShared  += n;
@@ -824,7 +825,8 @@ bool ShareData::RunShareData(PolyObject *root)
     depthVectors = 0;
 
     if (debugOptions & DEBUG_SHARING)
-        Log ("Sharing: Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT "\n", totalObjects, totalShared);
+        Log ("Sharing: Total Objects %6" POLYUFMT ", Total Shared %6" POLYUFMT " (%1.0f%%)\n",
+            totalObjects, totalShared, (float)totalShared / (float)totalObjects * 100.0);
 
     return success; // Succeeded.
 }
