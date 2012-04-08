@@ -69,6 +69,10 @@ avoids
 #define ASSERT(x)
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #include "globals.h"
 #include "machine_dep.h"
 #include "processes.h"
@@ -151,8 +155,21 @@ void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POL
 
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
 
-    for (POLYUNSIGNED i = 0; i < n; i++)
-        destAddress->Set(i, srcAddress->Get(i));
+    // Unroll loop for most common cases.
+    switch (n)
+    {
+    default:
+        memcpy(destAddress, srcAddress, n * sizeof(PolyWord));
+        break;
+    case 4:
+        destAddress->Set(3, srcAddress->Get(3));
+    case 3:
+        destAddress->Set(2, srcAddress->Get(2));
+    case 2:
+        destAddress->Set(1, srcAddress->Get(1));
+    case 1:
+        destAddress->Set(0, srcAddress->Get(0));
+    }
 
     // If this is a code object flush out anything from the instruction cache
     // that might previously have been at this address
