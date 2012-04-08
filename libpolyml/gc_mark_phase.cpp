@@ -322,9 +322,6 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
     if (profileMode == kProfileLiveData || (profileMode == kProfileLiveMutables && obj->IsMutable()))
         AddObjectProfile(obj);
 
-    if ((PolyWord*)obj <= space->fullGCLowerLimit)
-        space->fullGCLowerLimit = (PolyWord*)obj-1;
-
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
     if (debugOptions & DEBUG_GC_DETAIL)
         Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
