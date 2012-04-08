@@ -108,4 +108,51 @@ public:
     static void SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelocationKind code);
 };
 
+// Recursive scan over a data structure.
+class RecursiveScan: public ScanAddress
+{
+public:
+    virtual PolyObject *ScanObjectAddress(PolyObject *base);
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
+    // Have to redefine this for some reason.
+    void ScanAddressesInObject(PolyObject *base)
+        { RecursiveScan::ScanAddressesInObject(base, base->LengthWord()); }
+
+protected:
+    // The derived class must provide a stack.
+    virtual void PushToStack(PolyObject *obj) = 0;
+    virtual PolyObject *PopFromStack(void) = 0;
+    virtual bool StackIsEmpty(void) = 0;
+
+    // Test the word at the location to see if it points to
+    // something that may have to be scanned.  We pass in the
+    // pointer here because the called may side-effect it.
+    virtual bool TestForScan(PolyWord *) = 0;
+    // If we are definitely scanning the address we mark it.
+    virtual void MarkAsScanning(PolyObject *) = 0;
+    // Called when the object has been completed.
+    virtual void Completed(PolyObject *) {}
+};
+
+// Recursive scan with a dynamically allocated stack
+class RScanStack;
+
+class RecursiveScanWithStack: public RecursiveScan
+{
+public:
+    RecursiveScanWithStack(): stack(0) {}
+    ~RecursiveScanWithStack();
+
+protected:
+    // StackOverflow is called if allocating a new stack
+    // segment fails.
+    virtual void StackOverflow(void) = 0;
+
+    virtual void PushToStack(PolyObject *obj);
+    virtual PolyObject *PopFromStack(void);
+    virtual bool StackIsEmpty(void);
+
+    RScanStack *stack;
+};
+
 #endif
