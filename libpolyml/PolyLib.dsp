@@ -201,6 +201,10 @@ SOURCE=.\gc_mark_phase.cpp
 # End Source File
 # Begin Source File
 
+SOURCE=.\gc_share_phase.cpp
+# End Source File
+# Begin Source File
+
 SOURCE=.\gc_update_phase.cpp
 # End Source File
 # Begin Source File

@@ -105,6 +105,7 @@ class ScanAddress;
 // timer goes off.
 extern enum _mainThreadPhase {
     MTP_USER_CODE=0,
+    MTP_GCPHASESHARING,
     MTP_GCPHASEMARK,
     MTP_GCPHASECOMPACT,
     MTP_GCPHASEUPDATE,

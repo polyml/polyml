@@ -94,7 +94,8 @@ enum {
     OPT_RESERVE,
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
-    OPT_DEBUGFILE
+    OPT_DEBUGFILE,
+    OPT_GCSHARE
 };
 
 struct __argtab {
@@ -110,7 +111,8 @@ struct __argtab {
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
-    { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
+    { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE },
+    { "--gcshare",      "Perform a data sharing pass before each major GC",     OPT_GCSHARE }
 };
 
 struct __debugOpts {
@@ -226,6 +228,9 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         break;
                     case OPT_DEBUGFILE:
                         SetLogFile(p);
+                        break;
+                    case OPT_GCSHARE:
+                        userOptions.gcSharing = strtol(p, &endp, 10) != 0;
                         break;
                     }
                     argUsed = true;

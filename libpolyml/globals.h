@@ -288,6 +288,10 @@ inline POLYUNSIGNED OBJ_SET_POINTER(PolyObject *pt) { return ((POLYUNSIGNED)pt >
 inline bool OBJ_IS_DEPTH(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
 inline POLYUNSIGNED OBJ_GET_DEPTH(POLYUNSIGNED L) { return L & ~_OBJ_PRIVATE_DEPTH_MASK; }
 inline POLYUNSIGNED OBJ_SET_DEPTH(POLYUNSIGNED n) { return n | _OBJ_PRIVATE_DEPTH_MASK; }
+// or sharing chain
+inline bool OBJ_IS_CHAINED(POLYUNSIGNED L)  { return (L & _OBJ_PRIVATE_DEPTH_MASK) == _OBJ_PRIVATE_DEPTH_MASK; }
+inline PolyObject *OBJ_GET_CHAIN(POLYUNSIGNED L) { return (PolyObject*)(( L & ~_OBJ_PRIVATE_DEPTH_MASK) <<2); }
+inline POLYUNSIGNED OBJ_SET_CHAIN(PolyObject *pt) { return ((POLYUNSIGNED)pt >> 2) | _OBJ_PRIVATE_DEPTH_MASK; }
 
 // An object i.e. a piece of allocated memory in the heap.  In the simplest case this is a
 // tuple, a list cons cell, a string or a ref.  Every object has a length word in the word before
@@ -319,6 +323,10 @@ public:
     bool ContainsForwardingPtr(void) const { return OBJ_IS_POINTER(LengthWord()); }
     PolyObject *GetForwardingPtr(void) const { return OBJ_GET_POINTER(LengthWord()); }
     void SetForwardingPtr(PolyObject *newp) { ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(OBJ_SET_POINTER(newp)); }
+
+    bool ContainsShareChain(void) const { return OBJ_IS_CHAINED(LengthWord()); }
+    PolyObject *GetShareChain(void) const { return OBJ_GET_CHAIN(LengthWord()); }
+    void SetShareChain(PolyObject *newp) { ((PolyWord*)this)[-1] = PolyWord::FromUnsigned(OBJ_SET_CHAIN(newp)); }
 
     bool ContainsNormalLengthWord(void) const { return OBJ_IS_LENGTH(LengthWord()); }
 

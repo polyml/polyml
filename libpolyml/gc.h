@@ -51,6 +51,7 @@ extern void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddre
 extern bool RunQuickGC(void);
 
 // GC Phases.
+extern void GCSharingPhase(void);
 extern void GCMarkPhase(void);
 extern void GCheckWeakRefs(void);
 extern void GCCopyPhase(void);

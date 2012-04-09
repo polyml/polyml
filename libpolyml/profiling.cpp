@@ -108,6 +108,7 @@ static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
 static const char* mainThreadText[MTP_MAXENTRY] =
 {
     "UNKNOWN",
+    "GARBAGE COLLECTION (sharing phase)",
     "GARBAGE COLLECTION (mark phase)",
     "GARBAGE COLLECTION (copy phase)",
     "GARBAGE COLLECTION (update phase)",
@@ -407,6 +408,7 @@ void printprofile(void)
 
     {
         POLYUNSIGNED gc_count =
+            mainThreadCounts[MTP_GCPHASESHARING]+
             mainThreadCounts[MTP_GCPHASEMARK]+
             mainThreadCounts[MTP_GCPHASECOMPACT] +
             mainThreadCounts[MTP_GCPHASEUPDATE] +
