@@ -250,30 +250,27 @@ bool MTGCProcessMarkPointers::TestForScan(PolyWord *pt)
     if ((*pt).IsTagged())
         return false;
 
-    LocalMemSpace *space = gMem.LocalSpaceForAddress((*pt).AsAddress());
-    if (space == 0)
-        return false; // Ignore it if it points to a permanent area
-
     // This could contain a forwarding pointer if it points into an
     // allocation area and has been moved by the minor GC.
+    // We have to be a little careful.  Another thread could also
+    // be following any forwarding pointers here.  However it's safe
+    // because they will update it with the same value.
     PolyObject *obj = (*pt).AsObjPtr();
     if (obj->ContainsForwardingPtr())
     {
         obj = FollowForwarding(obj);
         *pt = obj;
-        space = gMem.LocalSpaceForAddress(obj);
     }
-    ASSERT(obj->ContainsNormalLengthWord());
+
+    if (gMem.LocalSpaceForAddress(obj) == 0)
+        return false; // Ignore it if it points to a permanent area
 
     POLYUNSIGNED L = obj->LengthWord();
     if (L & _OBJ_GC_MARK)
         return false; // Already marked
 
-    POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
-    ASSERT(obj+n <= (PolyObject*)space->top); // Check the length is sensible
-
     if (debugOptions & DEBUG_GC_DETAIL)
-        Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, n, GetTypeBits(L));
+        Log("GC: Mark: %p %" POLYUFMT " %u\n", obj, OBJ_OBJECT_LENGTH(L), GetTypeBits(L));
 
     if (OBJ_IS_BYTE_OBJECT(L))
     {
