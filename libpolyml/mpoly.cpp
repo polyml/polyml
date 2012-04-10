@@ -139,7 +139,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
 
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
-    userOptions.gcthreads = 1; // Single threaded
+    userOptions.gcthreads = 0; // Default multi-threaded
 
     // Get the program name for CommandLine.name.  This is allowed to be a full path or
     // just the last component so we return whatever the system provides.
