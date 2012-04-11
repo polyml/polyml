@@ -177,23 +177,24 @@ void GetSharing::MarkAsScanning(PolyObject *obj)
 
 void GetSharing::Completed(PolyObject *obj)
 {
-    if (obj->IsMutable() || obj->IsCodeObject())
-        return;
-
-    ASSERT(obj->ContainsNormalLengthWord());
-
-    POLYUNSIGNED length = obj->Length();
-    ASSERT(length != 0);
-
-    if (obj->IsByteObject())
+    POLYUNSIGNED L = obj->LengthWord();
+    // We have tables for word objects and byte objects
+    // We chain entries together using the length word so it
+    // is important that we only do this for objects that
+    // have no other bits in the header, such as the sign bit.
+    if ((L & _OBJ_PRIVATE_FLAGS_MASK) == 0)
     {
-        if (length <= NUM_BYTE_VECTORS)
-            byteVectors[length-1].AddToVector(obj);
-    }
-    else
-    {
+        POLYUNSIGNED length = obj->Length();
+        ASSERT(length != 0);
         if (length <= NUM_WORD_VECTORS)
             wordVectors[length-1].AddToVector(obj);
+    }
+    else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == F_BYTE_OBJ)
+    {
+        POLYUNSIGNED length = obj->Length();
+        ASSERT(length != 0);
+        if (length <= NUM_BYTE_VECTORS)
+            byteVectors[length-1].AddToVector(obj);
     }
 }
 
