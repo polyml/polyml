@@ -350,10 +350,9 @@ PolyObject *MTGCProcessMarkPointers::ScanObjectAddress(PolyObject *obj)
 // can be detected and closed.
 void MTGCProcessMarkPointers::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 {
-    PolyObject *val = *pt;
-    CheckPointer (val);
     if (weak == STRENGTH_WEAK) return;
     *pt = ScanObjectAddress(*pt);
+    CheckPointer (*pt); // Check it after any forwarding pointers have been followed.
 }
 
 // This is called via ScanAddressesInRegion to process the permanent mutables.  It is
