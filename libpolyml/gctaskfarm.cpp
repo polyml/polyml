@@ -59,12 +59,18 @@ GCTaskFarm::GCTaskFarm(): workLock("GC task farm work")
     workQueue = 0;
     terminate = false;
     threadCount = activeThreadCount = 0;
+#if (defined(HAVE_PTHREAD_H) || defined(HAVE_WINDOWS_H))
+    threadHandles = 0;
+#endif
 }
 
 GCTaskFarm::~GCTaskFarm()
 {
     Terminate();
     free(workQueue);
+#if (defined(HAVE_PTHREAD_H) || defined(HAVE_WINDOWS_H))
+    free(threadHandles);
+#endif
 }
 
 
@@ -74,29 +80,34 @@ bool GCTaskFarm::Initialise(unsigned thrdCount, unsigned qSize)
     if (!waitForWork.Init(0, thrdCount)) return false;
     workQueue = (queue_entry*)calloc(qSize, sizeof(queue_entry));
     if (workQueue == 0) return false;
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     queueSize = qSize;
-
+    threadHandles = (pthread_t*)calloc(thrdCount, sizeof(pthread_t));
+    if (threadHandles == 0) return false;
+#elif defined(HAVE_WINDOWS_H)
+    queueSize = qSize;
+    threadHandles = (HANDLE*)calloc(thrdCount, sizeof(HANDLE));
+    if (threadHandles == 0) return false;
+#else
+    queueSize = 0;
+#endif
     // Create the worker threads.
     for (unsigned i = 0; i < thrdCount; i++) {
         // Fork a thread
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
         // Create a thread that isn't joinable since we don't want to wait
         // for it to finish.
-        pthread_attr_t attrs;
-        pthread_attr_init(&attrs);
-        pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
         pthread_t pthreadId;
-        bool isError = pthread_create(&pthreadId, &attrs, WorkerThreadFunction, this) != 0;
-        pthread_attr_destroy(&attrs);
+        bool isError = pthread_create(&pthreadId, NULL, WorkerThreadFunction, this) != 0;
         if (isError) break;
+        threadHandles[threadCount++] = pthreadId;
 #elif defined(HAVE_WINDOWS_H)
         DWORD dwThrdId; // Have to provide this although we don't use it.
         HANDLE threadHandle =
             CreateThread(NULL, 0, WorkerThreadFunction, this, 0, &dwThrdId);
         if (threadHandle == NULL) break;
-        CloseHandle(threadHandle); // Not required
+        threadHandles[threadCount++] = threadHandle;
 #endif
-        threadCount++;
     }
 
     return true;
@@ -107,6 +118,17 @@ void GCTaskFarm::Terminate()
     terminate = true;
     // Increment the semaphore by the number of threads to release them all.
     for (unsigned i = 0; i < threadCount; i++) waitForWork.Signal();
+    // Wait for the threads to terminate.
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+    for (unsigned j = 0; j < threadCount; j++)
+    {
+        void *result;
+        pthread_join(threadHandles[j], &result);
+    }
+#elif defined(HAVE_WINDOWS_H)
+    if (threadCount != 0)
+        WaitForMultipleObjects(threadCount, threadHandles, TRUE, 10000);
+#endif
 }
 
 // Add work to the queue.  Returns true if it succeeds.
@@ -206,6 +228,8 @@ void GCTaskFarm::ThreadFunction()
             activeThreadCount++;
         }
     }
+    activeThreadCount--;
+    workLock.Unlock();
 }
 
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))

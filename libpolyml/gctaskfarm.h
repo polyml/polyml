@@ -79,8 +79,10 @@ private:
 
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     static void *WorkerThreadFunction(void *parameter);
+    pthread_t *threadHandles;
 #elif defined(HAVE_WINDOWS_H)
     static DWORD WINAPI WorkerThreadFunction(void *parameter);
+    HANDLE *threadHandles;
 #endif
 };
 
