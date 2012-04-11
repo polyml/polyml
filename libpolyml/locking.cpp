@@ -101,6 +101,7 @@ PLock::~PLock()
 
 void PLock::Lock(void)
 {
+#if (defined(HAVE_PTHREAD) || defined(HAVE_WINDOWS_H))
     if (debugOptions & DEBUG_CONTENTION)
     {
         // Report a heavily contended lock.
@@ -116,6 +117,7 @@ void PLock::Lock(void)
         }
         // Drop through to a normal lock
     }
+#endif
 #ifdef HAVE_PTHREAD
     pthread_mutex_lock(&lock);
 #elif defined(HAVE_WINDOWS_H)

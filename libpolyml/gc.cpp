@@ -570,7 +570,7 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
             Crash("Unable to initialise the GC task farm");
     }
     // Set up the stacks for the mark phase.
-    initialiseMarkerTables(userOptions.gcthreads);
+    initialiseMarkerTables();
 }
 
 class FullGCRequest: public MainThreadRequest

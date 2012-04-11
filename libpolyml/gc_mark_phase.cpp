@@ -688,7 +688,9 @@ void GCMarkPhase(void)
 }
 
 // Set up the stacks.
-void initialiseMarkerTables(unsigned threads)
+void initialiseMarkerTables()
 {
+    unsigned threads = gpTaskFarm->ThreadCount();
+    if (threads == 0) threads = 1;
     MTGCProcessMarkPointers::InitStatics(threads);
 }

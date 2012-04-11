@@ -835,7 +835,9 @@ void Processes::MakeRootRequest(TaskData *taskData, MainThreadRequest *request)
     if (singleThreaded)
     {
         mainThreadPhase = request->mtp;
+        ThreadReleaseMLMemoryWithSchedLock(taskData); // Primarily to call FillUnusedSpace
         request->Perform();
+        ThreadUseMLMemoryWithSchedLock(taskData);
         mainThreadPhase = MTP_USER_CODE;
     }
     else
