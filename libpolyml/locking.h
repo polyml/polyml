@@ -85,17 +85,20 @@ public:
     void Wait(PLock *pLock); // Wait indefinitely.  Drops the lock and reaquires it.
     // Wait for a signal or until the time.  The argument is an absolute time
     // represented as a struct timespec in Unix and a FILETIME in Windows.
-    void WaitUntil(PLock *pLock, const void *timeArg);
+#ifdef WINDOWS_PC
+    void WaitUntil(PLock *pLock, const FILETIME *timeArg);
+#else
+    void WaitUntil(PLock *pLock, const timespec *timeArg);
+#endif
     // Wait for a time.  This is used internally in the RTS.
     bool WaitFor(PLock *pLock, unsigned milliseconds);
+    // N.B.  Signal MUST be called only with the lock held.
     void Signal(void); // Wake up the waiting thread.
 private:
 #if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     pthread_cond_t cond;
-    pthread_mutex_t *plock;
 #elif defined(HAVE_WINDOWS_H)
     HANDLE cond;
-    CRITICAL_SECTION *plock;
 #endif
 };
 

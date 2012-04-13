@@ -31,10 +31,9 @@
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #elif (defined(HAVE_WINDOWS_H))
-// We need the next define since TryEnterCriticalSection is only
-// defined in Win NT.  This could mean that this code won't run under
-// Windows 95 or 98.
-#define _WIN32_WINNT 0x0400
+// We need the next define to get TryEnterCriticalSection and
+// InitializeCriticalSectionAndSpinCount.
+#define _WIN32_WINNT 0x0500
 #include <windows.h>
 #endif
 
@@ -85,10 +84,9 @@ PLock::PLock(const char *n): lockName(n), lockCount(0)
 #ifdef HAVE_PTHREAD
     pthread_mutex_init(&lock, 0);
 #elif defined(HAVE_WINDOWS_H)
-    InitializeCriticalSection(&lock);
+    InitializeCriticalSectionAndSpinCount(&lock, 12000);
 #endif
 }
-
 
 PLock::~PLock()
 {
@@ -193,13 +191,17 @@ void PCondVar::Wait(PLock *pLock)
 }
 
 // Wait until a specified absolute time.  Drops the lock and reaquires it.
-void PCondVar::WaitUntil(PLock *pLock, const void *timeArg)
+#ifdef WINDOWS_PC
+void PCondVar::WaitUntil(PLock *pLock, const FILETIME *time)
+#else
+void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
+#endif
 {
 #ifdef HAVE_PTHREAD
-    pthread_cond_timedwait(&cond, &pLock->lock, (const struct timespec *)timeArg);
-#elif defined(HAVE_WINDOWS_H)
+    pthread_cond_timedwait(&cond, &pLock->lock, time);
+#elif defined(WINDOWS_PC)
+    // Windows with Windows-style times
     FILETIME now;
-    FILETIME *time = (FILETIME *)timeArg;
     GetSystemTimeAsFileTime(&now);
     LARGE_INTEGER liNow, liTime;
     liNow.HighPart = now.dwHighDateTime;
@@ -209,10 +211,15 @@ void PCondVar::WaitUntil(PLock *pLock, const void *timeArg)
     if (liNow.QuadPart >= liTime.QuadPart) // Already past the time
         return;
     DWORD toWait = (DWORD)((liTime.QuadPart - liNow.QuadPart) / (LONGLONG)10000);
-    ResetEvent(cond); // Do this with the lock held.
-    LeaveCriticalSection(&pLock->lock);
-    WaitForSingleObject(cond, toWait);
-    EnterCriticalSection(&pLock->lock);
+    (void)WaitFor(pLock, toWait);
+#elif defined(HAVE_WINDOWS_H)
+    // This must be Cygwin but compiled with --without-threads
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0)
+        return;
+    if (tv.tv_sec > time->tv_sec || (tv.tv_sec == time->tv_sec && tv.tv_usec >= time->tv_nsec/1000))
+        return; // Already past the time
+    WaitFor(pLock, (time->tv_sec - tv.tv_sec) * 1000 + time->tv_nsec/1000000 - tv.tv_usec/1000);
 #endif
 }
 
@@ -249,6 +256,8 @@ void PCondVar::Signal(void)
 #ifdef HAVE_PTHREAD
     pthread_cond_broadcast(&cond);
 #elif defined(HAVE_WINDOWS_H)
+    // N.B.  This assumes that we have the same lock that is used
+    // in Wait and WaitFor otherwise we set the event before the reset.
     SetEvent(cond);
 #endif
 }
