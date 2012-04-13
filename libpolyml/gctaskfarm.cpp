@@ -192,10 +192,12 @@ void GCTaskFarm::ThreadFunction()
             // If there is no work and we're the last active thread signal the
             // main thread that the queue is empty
             bool wantSignal = activeThreadCount == 0;
-            // Now release the lock.
-            workLock.Unlock();
             if (wantSignal)
                 waitForCompletion.Signal();
+            // Now release the lock.  In our Windows partial implementation of
+            // condition vars we assume that signalling is done with the lock
+            // still held.
+            workLock.Unlock();
 
             if (debugOptions & DEBUG_GCTASKS)
             {
