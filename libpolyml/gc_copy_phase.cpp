@@ -84,7 +84,7 @@ avoids
 #include "locking.h"
 #include "diagnostics.h"
 
-static PLock copyLock;
+static PLock copyLock("Copy");
 
 // Search the area downwards looking for n consecutive free words.
 // Return the address of the word if successful or 0 on failure.

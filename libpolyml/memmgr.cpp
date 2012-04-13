@@ -99,7 +99,7 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     return bitmap.Create(size);
 }
 
-MemMgr::MemMgr()
+MemMgr::MemMgr(): allocLock("Memmgr alloc")
 {
     npSpaces = nlSpaces = nsSpaces = 0;
     pSpaces = 0;
