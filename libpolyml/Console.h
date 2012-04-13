@@ -42,7 +42,6 @@ extern HCONV StartDDEConversation(char *serviceName, char *topicName);
 extern void CloseDDEConversation(HCONV hConv);
 extern LRESULT ExecuteDDE(char *command, HCONV hConv);
 
-extern HANDLE hMainThread; /* Handle to main thread. */
 extern HANDLE hInputEvent; // Handle to console input event
 
 #endif

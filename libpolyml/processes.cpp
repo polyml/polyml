@@ -311,7 +311,7 @@ public:
     // Used in profiling
     HANDLE hStopEvent; /* Signalled to stop all threads. */
     HANDLE profilingHd;
-    HANDLE mainThreadHandle; // The same as hMainThread except on Cygwin
+    HANDLE mainThreadHandle; // Handle for main thread
     LONGLONG lastCPUTime; // CPU used by main thread.
 #endif
 
@@ -322,7 +322,8 @@ public:
 static Processes processesModule;
 ProcessExternal *processes = &processesModule;
 
-Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0), interrupt_exn(0),
+Processes::Processes(): singleThreaded(false), taskArray(0), taskArraySize(0),
+    schedLock("Scheduler"), interrupt_exn(0),
     threadRequest(0), exitResult(0), exitRequest(false),
     crowbarRunning(false), sigTask(0)
 {
@@ -506,7 +507,16 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
             // Convert the time into the correct format for WaitUntil before acquiring
             // schedLock.  div_longc could do a GC which requires schedLock.
-#ifdef HAVE_PTHREAD
+#ifdef WINDOWS_PC
+            // On Windows it is the number of 100ns units since the epoch
+            FILETIME tWake;
+            if (! isInfinite)
+            {
+                get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
+                    (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
+            }
+#else
+            // Unix style times.
             struct timespec tWake;
             if (! isInfinite)
             {
@@ -517,16 +527,6 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
                 tWake.tv_nsec =
                     1000*get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, wakeTime)));
             }
-#elif defined(HAVE_WINDOWS_H)
-            // On Windows it is the number of 100ns units since the epoch
-            FILETIME tWake;
-            if (! isInfinite)
-            {
-                get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
-                    (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
-            }
-#else
-            int tWake = 0; // Not actually used in single-threaded.
 #endif
             schedLock.Lock();
             // Atomically release the mutex.  This is atomic because we hold schedLock
@@ -1188,7 +1188,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 #ifdef HAVE_PTHREAD
         taskData->pthreadId = pthread_self();
 #elif defined(HAVE_WINDOWS_H)
-        taskData->threadHandle = hMainThread;
+        taskData->threadHandle = mainThreadHandle;
 #endif
         taskArray[0] = taskData;
 
@@ -1851,8 +1851,7 @@ void Processes::Init(void)
 #if defined(HAVE_WINDOWS_H) /* Windows including Cygwin. */
     // Create stop event for time profiling.
     hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    // Get the thread handle for this thread.  It's the same as
-    // hMainThread except that we don't have that in the Cygwin version.
+    // Get the thread handle for this thread.
     HANDLE thisProcess = GetCurrentProcess();
     DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
         &mainThreadHandle, THREAD_ALL_ACCESS, FALSE, 0);

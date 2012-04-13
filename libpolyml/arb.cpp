@@ -218,7 +218,6 @@ unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
 	return 0;
 }
 
-#ifdef WINDOWS_PC
 /* Get a arbitrary precision value as a pair of words.
    At present this is used to extract a 64-bit quantity as two
    words.  Only used in Windows code.  */
@@ -256,7 +255,6 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     while (i-- > sizeof(POLYUNSIGNED)) c = (c << 8) | ((byte *) ptr)[i];
     *pHi = c;
 }
-#endif
 
 static Handle get_long(Handle x, Handle extend, int *sign)
 {

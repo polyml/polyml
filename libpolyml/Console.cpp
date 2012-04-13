@@ -81,7 +81,6 @@ simpler and cleaner written in C++ using MFC.
 DCJM 30/5/2000.
 */
 
-HANDLE hMainThread = NULL; // Handle to ML thread.
 HWND hMainWindow = NULL; // Main window - exported.
 bool useConsole;         // False if callers should read from stdin.
 HINSTANCE hApplicationInstance;     // Application instance (exported)
@@ -915,7 +914,7 @@ int PolyWinMain(
     initDDEControl(lpszServiceName);
 
     // Call the main program to do the rest of the initialisation.
-    hMainThread = CreateThread(NULL, 0, MainThrdProc, exports, 0, &dwInId);
+    HANDLE hMainThread = CreateThread(NULL, 0, MainThrdProc, exports, 0, &dwInId);
 
     // Enter the main message loop.
     while (MsgWaitForMultipleObjects(1, &hMainThread,
