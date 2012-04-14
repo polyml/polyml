@@ -52,6 +52,8 @@ static void CheckAddress(PolyWord *pt)
         Log("Check: Bad pointer %p (no space found)\n", pt);
         ASSERT(space != 0);
     }
+    if (space->spaceType == ST_IO) // These may not have valid length words.
+        return;
     PolyObject *obj = (PolyObject*)pt;
     POLYUNSIGNED length = obj->Length();
     if (pt+length > space->top)
