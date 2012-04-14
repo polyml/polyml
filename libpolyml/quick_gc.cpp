@@ -160,7 +160,7 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
     POLYUNSIGNED n = OBJ_OBJECT_LENGTH(L);
     LocalMemSpace *lSpace = FindSpace(n, isMutable);
     if (lSpace == 0)
-        return obj; // Unable to move it.
+        return 0; // Unable to move it.
     PolyObject *newObject = (PolyObject*)(lSpace->lowerAllocPtr+1);
 
     // It's possible that another thread may have actually copied the 
@@ -359,24 +359,25 @@ POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
                 else
                 {
                     // We need to copy this object.
+                    PolyObject *newObject = FindNewAddress(obj, L, space); // New address of object.
 
-                    PolyObject *newObject = obj; // New address of object.
-
-                    // See if we can find space.
-                    newObject = FindNewAddress(obj, L, space);
-
-                    if (newObject == obj) // Couldn't copy it - not enough space.
+                    if (newObject == 0) { // Couldn't copy it - not enough space.
                         succeeded = false;
 
+                        if (debugOptions & DEBUG_GC_DETAIL)
+                            Log("GC: Quick: Insufficient space to move %p %lu %u\n",
+                                obj, OBJ_OBJECT_LENGTH(L), GetTypeBits(L));
+
+                        return 0;
+                    }
+
                     *pt = newObject; // Update the pointer to the object
+                    // N.B.  If another thread has just copied it "newObject" may actually
+                    // be an address in another thread's space.  In that case "objectCopied"
+                    // will be false.
 
                     if (debugOptions & DEBUG_GC_DETAIL)
-                    {
-                        POLYUNSIGNED l = OBJ_OBJECT_LENGTH(L);
-                        if (*pt == obj)
-                            Log("GC: Quick: Insufficient space to move %p %lu %u\n", obj, l, GetTypeBits(L));
-                        else Log("GC: Quick: %p %lu %u moved to %p\n", obj, l, GetTypeBits(L), newObject);
-                    }
+                        Log("GC: Quick: %p %lu %u moved to %p\n", obj, OBJ_OBJECT_LENGTH(L), GetTypeBits(L), newObject);
 
                     // Stop now unless this is a simple word object we have been able to move.
                     // Also stop if we're just scanning the roots.
