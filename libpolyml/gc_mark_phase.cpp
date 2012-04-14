@@ -383,13 +383,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             // Mark every word but ignore the result.
             for (POLYUNSIGNED i = 0; i < length; i++)
                 (void)MarkAndTestForScan(baseAddr+i);
-            // Add this to the limits for the containing area.
-            MemSpace *space = gMem.SpaceForAddress(baseAddr);
-            PolyWord *startAddr = baseAddr-1; // Must point AT length word.
-            PolyWord *endObject = baseAddr + length;
-            if (startAddr < space->lowestWeak) space->lowestWeak = startAddr;
-            if (endObject > space->highestWeak) space->highestWeak = endObject;
-
             // We've finished with this.
             length = 0;
         }
@@ -582,6 +575,16 @@ static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
 
                 if ((PolyWord*)obj <= space->fullGCLowerLimit)
                     space->fullGCLowerLimit = (PolyWord*)obj-1;
+
+                if (OBJ_IS_WEAKREF_OBJECT(L))
+                {
+                    // Add this to the limits for the containing area.
+                    PolyWord *baseAddr = (PolyWord*)obj;
+                    PolyWord *startAddr = baseAddr-1; // Must point AT length word.
+                    PolyWord *endObject = baseAddr + n;
+                    if (startAddr < space->lowestWeak) space->lowestWeak = startAddr;
+                    if (endObject > space->highestWeak) space->highestWeak = endObject;
+                }
             }
             pt += n;
         }
