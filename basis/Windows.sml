@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Windows signature and structure
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2012
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,8 +17,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: Done.  Minor changes. *)
 
 signature WINDOWS =
 sig
@@ -57,14 +55,14 @@ sig
         val deleteValue : hkey * string -> unit
         val enumKeyEx : hkey * int -> string option
         val enumValue : hkey * int -> string option
-        datatype values =
+        datatype value =
               SZ of string
             | DWORD of SysWord.word
             | BINARY of Word8Vector.vector
             | MULTI_SZ of string list
             | EXPAND_SZ of string
-        val queryValueEx : hkey * string -> values
-        val setValueEx : hkey * string * values -> unit
+        val queryValueEx : hkey * string -> value option
+        val setValueEx : hkey * string * value -> unit
     end
 
     structure Config:
@@ -89,7 +87,7 @@ sig
     sig
         type info
         val startDialog : string * string -> info
-        val executeString : info * string * int * int -> unit
+        val executeString : info * string * int * Time.time -> unit
         val stopDialog : info -> unit
     end
 
@@ -198,7 +196,7 @@ struct
         datatype create_result =
               CREATED_NEW_KEY of hkey
             | OPENED_EXISTING_KEY of hkey
-        datatype values =
+        datatype value =
               SZ of string
             | DWORD of SysWord.word
             | BINARY of Word8Vector.vector
@@ -289,13 +287,21 @@ struct
                 |   2 => EXPAND_SZ(unpackString v)
                 |   7 => MULTI_SZ(unpackStringList v)
                 |   _ => BINARY v
+                
+            val errorFileNotFound = valOf(OS.syserror "ERROR_FILE_NOT_FOUND")
         in
             (* The queryValue functions simply return a type and a vector of bytes.
                The type code is decoded and the bytes unpacked appropriately. *)
-            fun queryValueEx(PREDEFINED i, s) =
-                    queryResultToValues(winCall(1012, (i, s)))
-            |   queryValueEx(SUBKEY i, s) =
-                    queryResultToValues(winCall(1013, (i, s)))
+            fun queryValueEx(key, s) =
+                SOME(queryResultToValues(
+                    case key of
+                        PREDEFINED i => winCall(1012, (i, s))
+                    |   SUBKEY i => winCall(1013, (i, s))
+                    ))
+                    handle ex as OS.SysErr(_, SOME err) =>
+                        if err = errorFileNotFound
+                        then NONE
+                        else raise ex
         end
 
         local
@@ -429,7 +435,7 @@ struct
                     then raise OS.SysErr("DDE Server busy", NONE)
                     else
                         (
-                        OS.IO.poll([], SOME(Time.fromMilliseconds delay));
+                        OS.IO.poll([], SOME delay);
                         try (n-1)
                         )
             in
@@ -656,3 +662,13 @@ struct
     end
 end;
 
+local
+    (* Add pretty printers to hide internals. *)
+    fun prettyRegKey _ _ (_: Windows.Reg.hkey) = PolyML.PrettyString "?"
+    and prettyDDEInfo _ _ (_: Windows.DDE.info) = PolyML.PrettyString "?"
+    and prettyProc _ _ (_: ('a, 'b) Windows.proc) = PolyML.PrettyString "?"
+in
+    val () = PolyML.addPrettyPrinter prettyRegKey
+    and () = PolyML.addPrettyPrinter prettyDDEInfo
+    and () = PolyML.addPrettyPrinter prettyProc
+end;
