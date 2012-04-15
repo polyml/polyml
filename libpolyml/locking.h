@@ -34,7 +34,8 @@
 #include <windows.h>
 #endif
 
-#ifdef HAVE_SEMAPHORE_H
+#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+// Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
 
