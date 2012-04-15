@@ -813,7 +813,7 @@ interpose a thread which can signal an event when input is available.
 static Handle execute(TaskData *taskData, Handle args)
 {
     char *commandName = 0, *arguments = 0;
-    LPSTR lpszError = "";
+    LPCSTR lpszError = "";
     HANDLE hWriteToChild = INVALID_HANDLE_VALUE,
            hReadFromParent = INVALID_HANDLE_VALUE,
            hWriteToParent = INVALID_HANDLE_VALUE,
