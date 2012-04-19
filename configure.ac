@@ -46,6 +46,7 @@ case "${host_os}" in
         ;;
     *mingw*)
         AC_SUBST([OSFLAG], [-DWINDOWS_PC])
+        AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
         poly_no_undefined=yes
         CFLAGS="$CFLAGS -mthreads"

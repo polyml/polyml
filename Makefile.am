@@ -96,7 +96,7 @@ polyexport.obj: polyimport exportPoly.sml polytemp.txt
 	./polyimport $(POLYIMPORT_OPTIONS) polytemp.txt -I $(srcdir) < $(srcdir)/exportPoly.sml | cat
 
 polyresource.o: PolyML.rc poly.ico
-	windres -o polyresource.o $(srcdir)/PolyML.rc
+	$(WINDRES) -o polyresource.o $(srcdir)/PolyML.rc
 
 polytemp.txt: $(POLYIMPORT)
 	cp $(POLYIMPORT) polytemp.txt
