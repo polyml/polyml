@@ -261,7 +261,7 @@ public:
     LocalMemSpace *LocalSpaceForAddress(const void *pt) const
     {
         MemSpace *s = SpaceForAddress(pt);
-        if (s->spaceType == ST_LOCAL)
+        if (s != 0 && s->spaceType == ST_LOCAL)
             return (LocalMemSpace*)s;
         else return 0;
     }
