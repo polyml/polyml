@@ -113,13 +113,13 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc")
     spaceBeforeMinorGC = 0;
     spaceBeforeMajorGC = 0;
     defaultSpaceSize = 1024 * 1024 / sizeof(PolyWord); // 1Mbyte segments.
-    localTree = new SpaceTreeTree;
+    spaceTree = new SpaceTreeTree;
     ioSpace = new MemSpace;
 }
 
 MemMgr::~MemMgr()
 {
-    delete(localTree); // Have to do this before we delete the spaces.
+    delete(spaceTree); // Have to do this before we delete the spaces.
     unsigned i;
     for (i = 0; i < npSpaces; i++)
         delete(pSpaces[i]);
@@ -204,10 +204,10 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     lSpaces = table;
     // Update the B-tree.
     try {
-        AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        AddTree(space);
     }
     catch (std::bad_alloc a) {
-        RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        RemoveTree(space);
         return false;
     }
     // The entries in the local table are ordered so that the copy phase of the full
@@ -263,10 +263,10 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         }
         pSpaces = table;
         try {
-            AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+            AddTree(space);
         }
         catch (std::bad_alloc a) {
-            RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+            RemoveTree(space);
             delete space;
             return 0;
         }
@@ -288,7 +288,7 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
             globalStats.decSize(PSS_TOTAL_HEAP, sp->spaceSize() * sizeof(PolyWord));
-            RemoveTreeRange(&localTree, sp, (uintptr_t)sp->bottom, (uintptr_t)sp->top);
+            RemoveTree(sp);
             delete sp;
             nlSpaces--;
             while (i < nlSpaces)
@@ -322,7 +322,7 @@ MemSpace* MemMgr::InitIOSpace(PolyWord *base, POLYUNSIGNED words)
     ioSpace->top = ioSpace->bottom + words;
     ioSpace->spaceType = ST_IO;
     ioSpace->isMutable = false;
-    AddTreeRange(&localTree, ioSpace, (uintptr_t)ioSpace->bottom, (uintptr_t)ioSpace->top);
+    AddTree(ioSpace);
     return ioSpace;
 }
 
@@ -362,10 +362,10 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         }
         eSpaces = table;
         try {
-            AddTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+            AddTree(space);
         }
         catch (std::bad_alloc a) {
-            RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+            RemoveTree(space);
             delete space;
             return 0;
         }
@@ -382,7 +382,7 @@ void MemMgr::DeleteExportSpaces(void)
     while (neSpaces > 0)
     {
         PermanentMemSpace *space = eSpaces[--neSpaces];
-        RemoveTreeRange(&localTree, space, (uintptr_t)space->bottom, (uintptr_t)space->top);
+        RemoveTree(space);
         delete(space);
     }
 }
@@ -410,7 +410,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
             try {
                 // Turn this into a local space.
                 // Remove this from the tree - AddLocalSpace will make an entry for the local version.
-                RemoveTreeRange(&localTree, pSpace, (uintptr_t)pSpace->bottom, (uintptr_t)pSpace->top);
+                RemoveTree(pSpace);
                 LocalMemSpace *space = new LocalMemSpace;
                 space->top = space->fullGCLowerLimit = pSpace->top;
                 space->bottom = space->upperAllocPtr = space->lowerAllocPtr = pSpace->bottom;
@@ -464,7 +464,7 @@ bool MemMgr::DemoteImportSpaces()
             try {
                 // Turn this into a local space.
                 // Remove this from the tree - AddLocalSpace will make an entry for the local version.
-                RemoveTreeRange(&localTree, pSpace, (uintptr_t)pSpace->bottom, (uintptr_t)pSpace->top);
+                RemoveTree(pSpace);
                 LocalMemSpace *space = new LocalMemSpace;
                 space->top = pSpace->top;
                 // Space is allocated in local areas from the top down.  This area is full and
@@ -672,6 +672,18 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
             return 0;
         }
         sSpaces = table;
+        // Add the stack space to the tree.  This ensures that operations such as
+        // LocalSpaceForAddress will work for addresses within the stack.  We can
+        // get them in the RTS with functions such as quot_rem and exception stack.
+        // It's not clear whether they really appear in the GC.
+        try {
+            AddTree(space);
+        }
+        catch (std::bad_alloc a) {
+            RemoveTree(space);
+            delete space;
+            return 0;
+        }
         sSpaces[nsSpaces++] = space;
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New stack space %p allocated at %p size %lu\n", space, space->bottom, space->spaceSize());
@@ -791,10 +803,19 @@ bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
     }
     // The size may have been rounded up to a block boundary.
     newSize = iSpace/sizeof(PolyWord);
+    try {
+        AddTree(space, newSpace, newSpace+newSize);
+    }
+    catch (std::bad_alloc a) {
+        RemoveTree(space, newSpace, newSpace+newSize);
+        delete space;
+        return 0;
+    }
     CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
     if (debugOptions & DEBUG_MEMMGR)
         Log("MMGR: Size of stack %p changed from %lu to %lu at %p\n", space, space->spaceSize(), newSize, newSpace);
     osMemoryManager->Free(space->bottom, (char*)space->top - (char*)space->bottom);
+    RemoveTree(space);
     space->bottom = newSpace;
     space->top = newSpace+newSize;
     return true;
@@ -811,6 +832,7 @@ bool MemMgr::DeleteStackSpace(StackSpace *space)
     {
         if (sSpaces[i] == space)
         {
+            RemoveTree(space);
             delete space;
             nsSpaces--;
             while (i < nsSpaces)
@@ -841,6 +863,22 @@ SpaceTreeTree::~SpaceTreeTree()
             delete(tree[i]);
     }
 }
+
+// Add and remove entries in the space tree.
+
+void MemMgr::AddTree(MemSpace *space, PolyWord *startS, PolyWord *endS)
+{
+    // It isn't clear we need to lock here but it's probably sensible.
+    PLocker lock(&spaceTreeLock);
+    AddTreeRange(&spaceTree, space, (uintptr_t)startS, (uintptr_t)endS);
+}
+
+void MemMgr::RemoveTree(MemSpace *space, PolyWord *startS, PolyWord *endS)
+{
+    PLocker lock(&spaceTreeLock);
+    RemoveTreeRange(&spaceTree, space, (uintptr_t)startS, (uintptr_t)endS);
+}
+
 
 void MemMgr::AddTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, uintptr_t endS)
 {

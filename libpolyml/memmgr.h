@@ -243,7 +243,7 @@ public:
     MemSpace *SpaceForAddress(const void *pt) const
     {
         uintptr_t t = (uintptr_t)pt;
-        SpaceTree *tr = localTree;
+        SpaceTree *tr = spaceTree;
 
         // Each level of the tree is either a leaf or a vector of trees.
         unsigned j = sizeof(void *)*8;
@@ -333,7 +333,13 @@ private:
     // the mutable and immutable areas before a major (full) GC is needed.
     POLYUNSIGNED spaceBeforeMajorGC;
     // LocalSpaceForAddress is a hot-spot so we use a B-tree to convert addresses;
-    SpaceTree *localTree;
+    SpaceTree *spaceTree;
+    PLock spaceTreeLock;
+    void AddTree(MemSpace *space) { AddTree(space, space->bottom, space->top); }
+    void RemoveTree(MemSpace *space) { RemoveTree(space, space->bottom, space->top); }
+    void AddTree(MemSpace *space, PolyWord *startS, PolyWord *endS);
+    void RemoveTree(MemSpace *space, PolyWord *startS, PolyWord *endS);
+
     void AddTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
     void RemoveTreeRange(SpaceTree **t, MemSpace *space, uintptr_t startS, uintptr_t endS);
 };
