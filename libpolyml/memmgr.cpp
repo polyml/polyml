@@ -652,7 +652,7 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: New stack space: insufficient space\n");
             delete space;
-            return false;
+            return 0;
         }
 
         // The size may have been rounded up to a block boundary.
