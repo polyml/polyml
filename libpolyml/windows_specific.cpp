@@ -217,7 +217,7 @@ static Handle deleteRegistryValue(TaskData *taskData, Handle args, HKEY hkParent
 static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL isKey);
 
 // Vector of constants returned by call1006
-static int winConstVec[] =
+static POLYUNSIGNED winConstVec[] =
 {
     KEY_ALL_ACCESS, // 0
     KEY_CREATE_LINK,

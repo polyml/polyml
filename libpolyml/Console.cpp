@@ -101,7 +101,7 @@ static char *lpszServiceName;
 
 static LPTSTR   lpArgs[100]; // Argument list.
 static int      nArgs;
-static int initDDEControl(char *lpszName);
+static int initDDEControl(const char *lpszName);
 static void uninitDDEControl(void);
 static DWORD dwDDEInstance;
 
@@ -265,8 +265,8 @@ static void CheckForBufferSpace(int nChars)
            nReadPosn < nBuffLen);
     if (nNextPosn > nReadPosn)
         ASSERT(nAvailable >= nReadPosn && nAvailable <= nNextPosn);
-    else ASSERT(nNextPosn != nReadPosn &&
-                nAvailable <= nNextPosn || nAvailable >= nReadPosn);
+    else ASSERT((nNextPosn != nReadPosn &&
+                 nAvailable <= nNextPosn) || nAvailable >= nReadPosn);
 }
 
 /* DDE requests.  DDE uses an internal window for communication and so all
@@ -798,7 +798,7 @@ int PolyWinMain(
 
         // Initially created invisible.
         hMainWindow = CreateWindow(
-            (LPTSTR)(LONG)atClass,
+            (LPTSTR)(intptr_t)atClass,
             _T("Poly/ML"),
             dwStyle,
             CW_USEDEFAULT,
@@ -897,7 +897,7 @@ int PolyWinMain(
         if ((atClass = RegisterClassEx(&wndClass)) == 0) return 1;
 
         hDDEWindow = CreateWindow(
-            (LPTSTR)(LONG)atClass,
+            (LPTSTR)(intptr_t)atClass,
             "Poly/ML-DDE",
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
@@ -976,7 +976,7 @@ HDDEDATA CALLBACK DdeCallback(UINT uType, UINT uFmt, HCONV hconv,
     } 
 } 
 
-static int initDDEControl(char *lpszName)
+static int initDDEControl(const char *lpszName)
 {
     HSZ hszServiceName;
     if (DdeInitialize(&dwDDEInstance, DdeCallback,

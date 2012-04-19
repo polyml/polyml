@@ -168,8 +168,8 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             argv[0] = getenv("COMSPEC"); // Default CLI.
             if (argv[0] == 0)
             {
-                if (GetVersion() & 0x80000000) argv[0] = "command.com"; // Win 95 etc.
-                else argv[0] = "cmd.exe"; // Win NT etc.
+                if (GetVersion() & 0x80000000) argv[0] = (char*)"command.com"; // Win 95 etc.
+                else argv[0] = (char*)"cmd.exe"; // Win NT etc.
             }
             argv[1] = (char*)"/c";
             argv[2] = buff;
@@ -177,7 +177,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             // If _P_NOWAIT is given the result is the process handle.
             // spawnvp does any necessary path searching if argv[0]
             // does not contain a full path.
-            int pid = spawnvp(_P_NOWAIT, argv[0], argv);
+            intptr_t pid = spawnvp(_P_NOWAIT, argv[0], argv);
             if (pid == -1)
                 raise_syscall(mdTaskData, "Function system failed", errno);
 #else

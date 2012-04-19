@@ -892,12 +892,8 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 
     ffi_type *result_type = ctypeToFfiType(taskData, retCtypeH->Word());
 
-#ifdef WINDOWS_PC
-#ifdef __GNUC__
-    const ffi_abi abi = FFI_DEFAULT_ABI;
-#else
+#if(defined(WINDOWS_PC) && ! defined(__GNUC__) && ! defined(X86_WIN64))
     const ffi_abi abi = FFI_STDCALL;
-#endif
 #else
     const ffi_abi abi = FFI_DEFAULT_ABI;
 #endif
@@ -1590,8 +1586,7 @@ static Handle toCfunction (TaskData *taskData, Handle triple)
    The CALLED function must remove the arguments from the stack before returning. */
 static Handle toPascalfunction (TaskData *taskData, Handle triple)
 {
-#ifdef WINDOWS_PC
-    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
+#if(defined(WINDOWS_PC) && ! defined(X86_WIN64))    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
     return createCallbackFunction(taskData, triple, FFI_STDCALL);
 #else
     RAISE_EXN("Pascal (stdcall) calling conventions are not supported on this platform");
