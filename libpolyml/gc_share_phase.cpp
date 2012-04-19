@@ -129,6 +129,8 @@ protected:
     virtual void StackOverflow(void) {} // Ignore stack overflow
     virtual void Completed(PolyObject *);
 
+    static void startSharing(GCTaskId*, void *a, void *b);
+
 private:
     // The head of chains of cells of the same size
     SortVector byteVectors[NUM_BYTE_VECTORS];
@@ -260,6 +262,7 @@ void SortVector::SortData()
     {
         ObjEntry *oentry = &objEntries[j];
 
+        // Sort this entry.  If it's very small just process it now.
         switch (oentry->objCount)
         {
         case 0: break; // Nothing there
@@ -290,34 +293,45 @@ void SortVector::SortData()
     }
 }
 
+void GetSharing::startSharing(GCTaskId*, void *a, void *b)
+{
+    GetSharing *s = (GetSharing *)a;
+
+    for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
+        s->byteVectors[i].SortData();
+
+    for (unsigned j = 0; j < NUM_WORD_VECTORS; j++)
+        s->wordVectors[j].SortData();
+}
+
 
 void GetSharing::SortData()
 {
-    POLYUNSIGNED totalSize = 0, totalShared = 0;
-
-    for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
-        byteVectors[i].SortData();
-
-    for (unsigned j = 0; j < NUM_WORD_VECTORS; j++)
-        wordVectors[j].SortData();
-
+    // Process each of the entries.  We fork this as a separate task
+    // purely to ensure that we only have as many threads working as
+    // we've given in --gcthreads.
+    gpTaskFarm->AddWorkOrRunNow(startSharing, this, 0);
     gpTaskFarm->WaitForCompletion();
 
-    for (unsigned k = 0; k < NUM_BYTE_VECTORS; k++)
-    {
-        totalSize += byteVectors[k].Count();
-        totalShared += byteVectors[k].Shared();
-    }
-
-    for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
-    {
-        totalSize += wordVectors[l].Count();
-        totalShared += wordVectors[l].Shared();
-    }
-
     if (debugOptions & DEBUG_GC)
+    {
+        // Calculate the totals.
+        POLYUNSIGNED totalSize = 0, totalShared = 0;
+        for (unsigned k = 0; k < NUM_BYTE_VECTORS; k++)
+        {
+            totalSize += byteVectors[k].Count();
+            totalShared += byteVectors[k].Shared();
+        }
+
+        for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
+        {
+            totalSize += wordVectors[l].Count();
+            totalShared += wordVectors[l].Shared();
+        }
+
         Log("GC: Share: Totals %" POLYUFMT " objects, %" POLYUFMT " shared (%1.0f%%)\n",
             totalSize, totalShared, (float)totalShared / (float)totalSize * 100.0);
+    }
 }
 
 void GCSharingPhase(void)
