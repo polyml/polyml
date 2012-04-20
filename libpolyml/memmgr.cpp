@@ -814,8 +814,8 @@ bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
     CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
     if (debugOptions & DEBUG_MEMMGR)
         Log("MMGR: Size of stack %p changed from %lu to %lu at %p\n", space, space->spaceSize(), newSize, newSpace);
+    RemoveTree(space); // Remove it BEFORE freeing the space - another thread may allocate it
     osMemoryManager->Free(space->bottom, (char*)space->top - (char*)space->bottom);
-    RemoveTree(space);
     space->bottom = newSpace;
     space->top = newSpace+newSize;
     return true;
