@@ -66,15 +66,22 @@ extern "C" {
 
 #ifdef WINDOWS_PC
 
-#ifdef NO_POLY_LIBRARY
-#define POLYLIB_API
-#else
-#if(defined(POLYLIB_EXPORTS)||defined(DLL_EXPORT))
-#define POLYLIB_API __declspec(dllexport)
-#else
-#define POLYLIB_API __declspec(dllimport)
-#endif
-#endif
+# ifdef LIBPOLYML_BUILD
+#  ifdef DLL_EXPORT
+#   define POLYLIB_API            __declspec (dllexport)
+#  endif
+# elif defined _MSC_VER
+    // Visual C - POLYLIB_EXPORTS is defined in the library project settings
+#  ifdef POLYLIB_EXPORTS
+#   define POLYLIB_API             __declspec (dllexport)
+#  else
+#   define POLYLIB_API             __declspec (dllimport)
+#  endif
+# elif defined DLL_EXPORT
+#  define POLYLIB_API             __declspec (dllimport)
+# else
+#  define POLYLIB_API
+# endif
 
 extern POLYLIB_API int PolyWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     LPTSTR lpCmdLine, int nCmdShow, exportDescription *exports);
