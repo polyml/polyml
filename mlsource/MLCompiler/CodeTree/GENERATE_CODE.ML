@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2009-10
+    Copyright David C. J. Matthews 1991, 2009-10, 2012
 
     Title:      General purpose code generator.
     Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
@@ -1120,7 +1120,7 @@ struct
                     else ()
                 (* Since the vector is immutable, we have to evaluate
                    all the values before we can allocate it. *)
-                val entries = List.map(fn h => genToStack (h, matchFailFn)) reclist
+                val entries = List.map(fn h => genToStackOrGeneralRegister (h, matchFailFn)) reclist
                 val asConstants = List.map(fn i => isConstant(i, transtable)) entries
             in
                 if List.exists(fn NotConst => true | _ => false) asConstants
@@ -1137,6 +1137,7 @@ struct
                         end;
                     val (vec, code) = loadSmallVector(entries, 0)
                     val () = codeGenerate(code, cvec)
+                    val () = codeGenerate(allocationComplete, cvec)
                 in
                     MergeIndex vec
                 end
@@ -1262,6 +1263,7 @@ struct
                     end
             in
                 copy 0;
+                codeGenerate(allocationComplete, cvec);
                 MergeIndex tup (* Result is the tuple. *)
             end
 
@@ -1329,6 +1331,27 @@ struct
         in
             case res of
                 MergeIndex index => index
+              | NoMerge => raise InternalError "genToStack: no result"
+        end
+
+    (* Reduce the expression to a constant, general register or simple address.  This
+       differs from genToStack in that a value must not be in a floating point
+       register.  This is important if we are about to put the value into a
+       newly allocated object.  The floating point value will have to be
+       moved into memory and that must be done before we allocate the new
+       object. *)
+    and genToStackOrGeneralRegister(pt : codetree, matchFailFn) : stackIndex =
+        let
+            val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
+        in
+            case res of
+                MergeIndex index =>
+                let
+                    val (newIndex, code) = ensureNoAllocation(transtable, index)
+                in
+                    codeGenerate(code, cvec);
+                    newIndex
+                end
               | NoMerge => raise InternalError "genToStack: no result"
         end
 (* ...
@@ -1599,8 +1622,8 @@ struct
             fun loadClosure(c as Extract{fpRel=true, addr, ...}) =
                 if addr >= 0 andalso Array.sub(decToPstack, addr) = noIndex
                 then noIndex
-                else genToStack (c, matchFailFn)
-            |   loadClosure c = genToStack (c, matchFailFn)
+                else genToStackOrGeneralRegister (c, matchFailFn)
+            |   loadClosure c = genToStackOrGeneralRegister (c, matchFailFn)
             val initialLocs = List.map loadClosure closureList
             (* Extract any constants. *)
             val constants =
@@ -1717,6 +1740,7 @@ struct
                     )
                 |   fillClosure _ = ()
                 val () = fillClosure(initialLocs, constants, 0)
+                val () = codeGenerate(allocationComplete, cvec)
 
                 (* Have to ensure that the closure remains on the psuedo-stack until
                    we've filled in all uses of it. The only references may be in the
@@ -1770,188 +1794,6 @@ struct
                 vector
             end
         end
-(*
-      else let (* Full closure required. *)
-        (* Item n of the logical closure is which item of the physical closure? *)
-        fun translateClosureIndex (Constnt _ :: _) 1 =
-              raise InternalError "translateClosureIndex: constants don't belong in physical closure"
-
-          | translateClosureIndex (_ :: _) 1 = 1
-          
-          | translateClosureIndex (Constnt _ :: t) n =
-              translateClosureIndex t (n - 1)
-
-          | translateClosureIndex (_ :: t) n =
-              translateClosureIndex t (n - 1) + 1
-              
-          | translateClosureIndex [] _ = 
-              raise InternalError "translateClosureIndex: bad index into logical closure"
-      
-    (* Some of the non-local references will be references to the
-       closure itself (for example, to embed it into a data-structure).
-       We have to treat these slightly specially. They're still handled
-       in the normal way by the reference-counting mechanism, so
-       we don't have to do anything *too* clever here.
-       SPF 2/1/97
-       
-       If we're accessing a known constant in the closure, load it
-       from the constants section rather than from the closure itself.
-     *)
-        fun previous (locn, makeSl: unit-> stackIndex * operations, newtab) =
-          if locn = 0
-          then makeSl () (* load the address of the closure itself *)
-          else let
-            val closureItem = findClosure closureList locn;
-          in
-            case closureItem of
-                Constnt cval =>
-                    (pushConst (newtab, cval), []) (* load the value as a constant *)
-              | _ =>
-                let
-                    val newLocn : int = translateClosureIndex closureList locn 
-                    val (sl, closureCode) = makeSl () (* load the closure *)
-                    val (entry, indCode) = indirect (newLocn, sl, newtab) (* load value from the closure *)
-                in
-                    (entry, indCode @ closureCode)
-                end
-          end;
-        
-        val newCode = codeCreate (true (* just the code *), lambdaName, debugSwitches)
-        
-        val _ = closureRefs = 0 andalso raise InternalError "Closure function but unreferenced cp"
-        
-        val (ops, maxStack, regList, callsAFunction) = (* code-gen procedure *)
-          codegen (lambdaBody, previous, fn _ => false,
-            fn _ => raise InternalError "Not static link",
-            fn _ => raise InternalError "Not static link",
-            closureRefs, argTypes, argLifetimes, resultType, localCount, debugSwitches)
-
-        val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-        
-        val res = toMachineWord codeAddr
-      in
-        if lastDec
-        then let
-          (* Can avoid having to set and clear the mutable bit. *)
-          (* Load items for the closure. *)
-          val allWereConsts = ref true
-          val allWereConstsOrCode = ref true
-          
-          (* Compare with the code for Recconstr *)  
-          fun loadItems [] offset =
-            let
-              (* get store for closure *)
-              val (vector, vectorCode) = callgetvec (offset, F_words, whereto)
-              val () = codeGenerate(vectorCode, cvec)
-            in
-              (* Put code address into closure *)
-              codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec);
-              vector
-            end
-            
-            | loadItems (Constnt _ :: t) offset =
-                (* constants don't belong in the physical closure *)
-                loadItems t offset
-
-            | loadItems (h :: t) offset =
-              let
-                val valIndex = genToStack (h, matchFailFn)
-                val _ =
-                    case isConstant(valIndex, transtable) of
-                        NotConst => (allWereConsts := false; allWereConstsOrCode := false)
-                    |   ConstCode _ => allWereConsts := false
-                    |   _ => ()
-                (*
-                val _ = case isCodeRef(valIndex, transtable) of SOME s => print("****Code Ref in closure - " ^ procName s ^ "\n") | NONE => ()
-                val _ = case isConstant(valIndex, transtable) of SOME _ => print("****Constant in closure - \n") | NONE => ()
-                *)
-                val vec = loadItems t (offset + 1)
-              in
-                codeGenerate(moveToVec (vec, valIndex, offset, transtable), cvec);
-                vec
-              end;
-
-          val vector = loadItems closureList 1
-          
-          val _ = if ! allWereConsts then print "***Closure - all constants\n"
-                  else if ! allWereConstsOrCode then print "***Closure - all constants or code\n" else ()
-        in
-          (* Have to call this mutualRecursive to register the address. *)
-          mutualRecursive(vector, NONE); 
-          vector
-        end
-         
-        else
-        let
-            (* More mutually recursive declarations. We have to allocate as a
-               mutable segment and then clear the mutable bit. *)
-            fun nonConstntCount [] = 0
-            |   nonConstntCount (Constnt _ :: t) = nonConstntCount t
-            |   nonConstntCount (_ :: t) = nonConstntCount t + 1;
-           
-            val closureSize = nonConstntCount closureList + 1;
-          
-            (* get store for closure *)
-            val (vector, vecCode)  = callgetvec (closureSize, F_mutable_words, whereto)
-            val () = codeGenerate(vecCode, cvec)
-          
-            (* Put code address into closure *)
-            local
-                val locn = pushConst (transtable, res);
-            in
-                val () = codeGenerate(moveToVec (vector, locn, 0, transtable), cvec)
-            end;
-
-            local
-                (* Must clear each word of the closure in case we get a
-                   garbage collection. *)
-                val locn = pushConst (transtable, DummyValue);
-                val wordsToClear : int = closureSize - 1;
-                val () = codeGenerate(incrUseCount (transtable, locn, wordsToClear -1), cvec)
-           
-                (* N.B. moveToVec doesn't count as a use of vector. *)
-                fun storeWord i = 
-                    codeGenerate(moveToVec (vector, locn, i, transtable), cvec)
-            in
-                val () = forLoop storeWord 1 wordsToClear
-            end;
-          
-            (* Have to ensure that the closure remains on the psuedo-stack until
-               we've filled in all uses of it. The only references may be in the
-               closures of other procedures so it's possible that its use-count
-               could be zero when `mutualRecursive' returns. Have to  increment
-               the use-count and then decrement it afterwards to make sure it
-                is still on the stack. *)
-            val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-    
-              (* Any mutually recursive references. *)
-            val () = mutualRecursive(vector, NONE)
-           
-              (* Load items for the closure. *)
-            fun loadItems []     _ = ()
-            |   loadItems (Constnt _ ::t) addr = loadItems t addr (* constants don't belong in the physical closure *)
-            |   loadItems (h::t) addr =
-            let
-                val loadEntry = genToStack (h, matchFailed)
-                val moveCode = moveToVec (vector, loadEntry, addr, transtable)
-                val () = codeGenerate(moveCode, cvec)
-            in
-                loadItems t (addr + 1)
-            end;
-    
-            val () = loadItems closureList 1
-            val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec) (* Increment the use count before the lock. *)
-            val lockInstr =
-                case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
-                    SOME(lockInstr, _) => lockInstr
-                |   NONE => raise InternalError "Lock instruction not implemented"
-            val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
-            val () = codeGenerate(lockCode, cvec)
-            val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
-        in
-            vector
-        end
-      end*)
     end (* genProc *)
 
     (* Generates test for if..then..else or while..do. Returns address of address field of jump.
@@ -2857,11 +2699,12 @@ struct
                                        andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
                                     then
                                     let
-                                        val initLoc = genToStack (initValArg, matchFailFn)
+                                        val initLoc = genToStackOrGeneralRegister (initValArg, matchFailFn)
                                         val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
                                         val () = codeGenerate(vecCode, cvec)
                                         val moveCode = moveToVec (vec, initLoc, 0, transtable)
                                         val () = codeGenerate(moveCode, cvec)
+                                        val () = codeGenerate(allocationComplete, cvec)
                                     in
                                         case whereto of
                                             NoResult => NoMerge (* Unused. *)

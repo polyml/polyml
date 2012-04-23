@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010
+    Copyright David C. J. Matthews 2010, 2012
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -337,8 +337,8 @@ struct
             (* See if we can merge two allocations. *)
         |   reverse((l as AllocStore{size=aSize, output=aOut}) :: tl, list, rep) =
             let
-                fun searchAlloc([], _, _) = []
-                |   searchAlloc (AllocStore{size=bSize, output=bOut} :: tl, instrs, modRegs) =
+                fun searchAlloc([], _, _, _) = []
+                |   searchAlloc (AllocStore{size=bSize, output=bOut} :: tl, instrs, modRegs, true) =
                     (* We can merge this allocation unless the output register
                        has been modified in the meantime. *)
                     if inSet(bOut, modRegs)
@@ -349,26 +349,34 @@ struct
                             space for the additional object and its length word. *)
                         LoadAddress{output=aOut, offset=(bSize+1) * Address.wordSize,
                                     base=SOME bOut, index=NoIndex} ::
-                            List.rev instrs @ (AllocStore{size=aSize+bSize+1, output=bOut} :: tl)
+                            List.filter (fn StoreInitialised => false | _ => true) (List.rev instrs) @
+                            (AllocStore{size=aSize+bSize+1, output=bOut} :: tl)
+                    (* Check the correct matching of allocation and completion. *)
+                |   searchAlloc (AllocStore _ :: _, _, _, false) =
+                        raise InternalError "AllocStore found but last allocation not complete"
+                |   searchAlloc((s as StoreInitialised) :: tl, instrs, modRegs, false) =
+                        searchAlloc(tl, s :: instrs, modRegs, true)
+                |   searchAlloc(StoreInitialised :: _, _, _, true) =
+                        raise InternalError "StoreInitialised found with no allocation"
                     (* For the moment we allow only a limited range of instructions here*)
-                |   searchAlloc((s as StoreConstToMemory _) :: tl, instrs, modRegs) =
-                        searchAlloc(tl, s :: instrs, modRegs)
-                |   searchAlloc((s as StoreRegToMemory _) :: tl, instrs, modRegs) =
-                        searchAlloc(tl, s :: instrs, modRegs)
-                |   searchAlloc((s as StoreLongConstToMemory _) :: tl, instrs, modRegs) =
-                        searchAlloc(tl, s :: instrs, modRegs)
-                |   searchAlloc((s as ResetStack _) :: tl, instrs, modRegs) =
-                        searchAlloc(tl, s :: instrs, modRegs)
-                |   searchAlloc((s as LoadMemR{output, ...}) :: tl, instrs, modRegs) =
+                |   searchAlloc((s as StoreConstToMemory _) :: tl, instrs, modRegs, alloc) =
+                        searchAlloc(tl, s :: instrs, modRegs, alloc)
+                |   searchAlloc((s as StoreRegToMemory _) :: tl, instrs, modRegs, alloc) =
+                        searchAlloc(tl, s :: instrs, modRegs, alloc)
+                |   searchAlloc((s as StoreLongConstToMemory _) :: tl, instrs, modRegs, alloc) =
+                        searchAlloc(tl, s :: instrs, modRegs, alloc)
+                |   searchAlloc((s as ResetStack _) :: tl, instrs, modRegs, alloc) =
+                        searchAlloc(tl, s :: instrs, modRegs, alloc)
+                |   searchAlloc((s as LoadMemR{output, ...}) :: tl, instrs, modRegs, alloc) =
                         if output = aOut then []
-                        else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output))
-                |   searchAlloc((s as MoveRR{output, ...}) :: tl, instrs, modRegs) =
+                        else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output), alloc)
+                |   searchAlloc((s as MoveRR{output, ...}) :: tl, instrs, modRegs, alloc) =
                         if output = aOut then []
-                        else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output))                        
+                        else searchAlloc(tl, s :: instrs, regSetUnion(modRegs, singleton output), alloc)                        
                     (* Anything else terminates the search. *)
                 |   searchAlloc _ = []
             in
-                case searchAlloc(tl, [], noRegisters) of
+                case searchAlloc(tl, [], noRegisters, false) of
                     [] => reverse(tl, l :: list, rep)
                 |   newTail => reverse(newTail, list, true)
             end

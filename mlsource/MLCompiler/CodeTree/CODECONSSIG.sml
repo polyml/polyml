@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews
+    Copyright (c) David C.J. Matthews 2009, 2012
     
     Derived from original code:
 
@@ -183,6 +183,7 @@ sig
     and storeConstantToStack: machineWord * int -> operations
 
     val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
+    val allocationComplete: operations
     val callFunction: { callKind: callKinds } -> operations
     val jumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
     val returnFromFunction: { returnReg: reg option, argsToRemove: int } -> operations

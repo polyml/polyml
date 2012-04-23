@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2009
+    Copyright David C. J. Matthews 2009, 2012
     
     Derived from code
     Copyright (c) 2000
@@ -72,6 +72,7 @@ sig
     val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
     val indirect:          int * stackIndex * ttab -> stackIndex * operation list
     val moveToVec:         stackIndex * stackIndex * int * ttab -> operation list
+    val ensureNoAllocation: ttab * stackIndex -> stackIndex * operation list
 
     val removeStackEntry: ttab*stackIndex -> operation list
 

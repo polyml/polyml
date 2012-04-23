@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2010
+    Copyright David C. J. Matthews 2010, 2012
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -116,6 +116,8 @@ struct
         [StoreConstToMemory{toStore=lengthWord, address=BaseOffset{offset= ~wordSize, base=output, index=NoIndex}},
          AllocStore{size=size, output=output}]
     end
+
+    val allocationComplete = [StoreInitialised]
 
     (* Code to load a floating point constant. *)
     fun loadFPConstant source =
@@ -277,7 +279,8 @@ struct
 
     |   moveRegisterToRegister(source as FPReg _, output as GenReg _) =
         (* We need to allocate memory to contain the value. *)
-        [FPStoreToMemory{ base=output, offset=0, andPop=true },
+        [StoreInitialised,
+         FPStoreToMemory{ base=output, offset=0, andPop=true },
          FPLoadFromFPReg{source=source, lastRef=false}]
             @ allocStore{size=8 div wordSize, flags=F_bytes, output=output}
 
@@ -754,6 +757,7 @@ struct
                         StoreRegToMemory{
                             toStore=initReg, address=BaseOffset{offset=n * wordSize, base=output, index=NoIndex}}
                 in
+                    [StoreInitialised] @
                     List.tabulate(length, initialiser) @
                     allocStore{size=length, flags=flags, output=output}
                 end
@@ -773,7 +777,7 @@ struct
                                 shift=if wordSize=4 then 0w2 else 0w3}]
                         else [RepeatOperation STOSL]
                 in
-                    [PopR edi] @ (* Pop the saved edi *)
+                    [PopR edi, StoreInitialised] @ (* Pop the saved edi; initialisation done *)
                     initialiser @
                     [
                         (* Now initialise the memory. *)

@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10
+    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10, 2012
 
     Derived from code
 
@@ -1540,6 +1540,25 @@ struct
     in
         (regIndex, ops)
     end
+
+    (* Make sure that the entry will not require an allocation in order to put it into
+       memory.  This really means that the value must not be in a floating point register.
+       This is used when evaluating expressions that will be stored into a newly allocated
+       piece of memory.  A value in a FP register first has to be stored into memory
+       and this has to be done first. *)
+    fun ensureNoAllocation(table, entry) =
+        case pstackRealEntry(table, entry) of
+            { ent = Register(reg, _), ... } =>
+                if inSet(reg, floatingPtRegisters)
+                then
+                let
+                    val (_, regIndex, ops) =
+                        loadEntryToSet(table, entry, generalRegisters, false)
+                in
+                    (regIndex, ops)
+                end
+                else (entry, []) (* Safe *)
+        |   _ => (entry, []) (* Safe *)
 
     (* Checks if we are going to overwrite the stack, and loads the entry
        into a register. *)

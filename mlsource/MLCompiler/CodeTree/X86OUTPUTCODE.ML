@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012
     
     Based on original code:    
     Copyright (c) 2000
@@ -189,7 +189,8 @@ struct
       printAssemblyCode:bool,            (* Whether to print the code when we finish. *)
       printStream:    string->unit,   (* The stream to use *)
       lowLevelOptimise: bool,         (* Whether to do the low-level optimisation pass *)
-      profileObject   : machineWord   (* The profile object for this code. *)
+      profileObject   : machineWord,  (* The profile object for this code. *)
+      inAllocation:   bool ref        (* Whether we have an incomplete allocation. *)
     }
 
     (* Exported functions *)
@@ -259,7 +260,8 @@ struct
             printAssemblyCode = DEBUG.getParameter DEBUG.assemblyCodeTag parameters,
             printStream    = printStream,
             lowLevelOptimise = DEBUG.getParameter DEBUG.lowlevelOptimiseTag parameters,
-            profileObject  = profObj
+            profileObject  = profObj,
+            inAllocation   = ref false
           }
     end
            
@@ -2010,8 +2012,9 @@ Calling conventions:
             else genOpEA (MOVL_R_A, memRegLocalMPointer, ebp, resultReg, cvec)
          )
     in
-        fun allocStoreCode (size, resultReg, cvec) =
+        fun allocStoreCode (size, resultReg, cvec as Code { inAllocation as ref false, ...}) =
         let
+            val _ = inAllocation := true
             val bytes = (size + 1) * wordSize
         in
             if isX64
@@ -2025,11 +2028,14 @@ Calling conventions:
             );
             allocStoreCommonCode(resultReg, cvec)
         end
+        |  allocStoreCode _ =
+            raise InternalError "Allocation started but not complete"
 
-        and allocStoreVarCode(resultReg, code) =
+        and allocStoreVarCode(resultReg, code as Code { inAllocation as ref false, ...}) =
             (* The result reg contains the requested size as a number of bytes
                on entry and returns with the base address. *)
         (
+            inAllocation := true;
             (* Turn this into a negative value. *)
             genOpRegPlus2(Group3_A, resultReg, 0w3 (* neg *), code);
             (* Add this negative value to the current heap pointer. *)
@@ -2038,6 +2044,8 @@ Calling conventions:
             else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code);
             allocStoreCommonCode(resultReg, code)
         )
+        | allocStoreVarCode _ =
+            raise InternalError "Allocation started but not complete"
     end
 
     fun allocStoreAndSetSize (size, flag, resultReg, cvec) =
@@ -2107,6 +2115,7 @@ Calling conventions:
     |   StoreByteConstToMemory of { toStore: Word8.word, address: memoryAddress }
     |   AllocStore of { size: int, output: reg }
     |   AllocStoreVariable of reg
+    |   StoreInitialised
     |   CallFunction of { callKind: callKinds }
     |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
     |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
@@ -2290,6 +2299,8 @@ Calling conventions:
                 (stream "AllocStore "; stream(Int.toString size); stream " => "; printReg output )
 
         |   AllocStoreVariable reg => (stream "AllocStoreVariable "; printReg reg )
+        
+        |   StoreInitialised => stream "StoreInitialised"
 
         |   TagValue { source, output } =>
                 (stream "TagValue "; printReg output; stream " <= "; printReg source)
@@ -2884,6 +2895,8 @@ Calling conventions:
                 genOpPlus2(FPESC 0w5, 0, eax, 0wx3, code); (* FSTP [rd] *)
                 genOpEA (MOVL_R_A, wordSize, esp, eax, code);
                 genPushPop(POP_R, eax, code);
+                (* We've completed the allocation. *)
+                case code of Code { inAllocation, ...} => inAllocation := false;
                 cgOp remainder
             )
 
@@ -3052,6 +3065,16 @@ Calling conventions:
 
         |   cgOp(AllocStoreVariable reg :: remainder) =
                 (checkSources[reg]; addDests[reg]; allocStoreVarCode(reg, code); cgOp remainder)
+
+        |   cgOp(StoreInitialised :: remainder) =
+            (
+                (* This is just for debugging to ensure we have properly initialised a
+                   piece of memory before allocating a new one. *)
+                case code of
+                    Code { inAllocation as ref true, ...} => inAllocation := false
+                |   _ => raise InternalError "Found StoreInitialised but not in alloction" ;
+                cgOp remainder
+            )
 
         |   cgOp(CallFunction{ callKind } :: remainder) = (callFunction(callKind, code); cgOp remainder)
 
