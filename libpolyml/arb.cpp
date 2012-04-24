@@ -1093,29 +1093,12 @@ Handle rem_longc(TaskData *taskData, Handle y, Handle x)
 Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
 {
     // The result handle will almost certainly point into the stack.
-    // That isn't a valid value for an entry on the save stack and
-    // will cause problems if we GC so we must clobber it.
-    // Stacks (no longer) move as a result of a GC and are not ML objects.
-    PolyWord *addr = result->Word().AsStackAddr();
-    if (addr >= taskData->stack->bottom && addr < taskData->stack->top)
-        result->OverWrite();
-    PolyWord *oldStack = taskData->stack->bottom;
-
+    // This should now be safe within the GC.
     Handle remHandle, divHandle;
     quotRem(taskData, y, x, remHandle, divHandle);
 
-    ASSERT(taskData->stack->bottom == oldStack); // Just to be absolutely sure!
-
-    if (addr >= taskData->stack->bottom && addr < taskData->stack->top)
-    {
-        addr[0] = DEREFWORDHANDLE(divHandle);
-        addr[1] = DEREFWORDHANDLE(remHandle);
-    }
-    else
-    {
-        DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
-        DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
-    }
+    DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
+    DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
     return taskData->saveVec.push(TAGGED(0));
 }
 

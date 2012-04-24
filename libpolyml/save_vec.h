@@ -37,10 +37,6 @@ public:
     PolyWord Word() { return m_Handle; }
     PolyObject *WordP() { return m_Handle.AsObjPtr(); }
 
-    // If we have a value that points into the stack we need to replace it
-    // by the base of the stack and the offset.
-    void OverWrite(void) { m_Handle = TAGGED(0); }
-
 private:
     PolyWord m_Handle;
 
