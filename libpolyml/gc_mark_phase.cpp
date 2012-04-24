@@ -428,6 +428,9 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             {
                 // If we're processing the constant area of a code segment this could
                 // be a code address.
+                // Check that this is actually an address.  If we have had a bad pointer
+                // earlier we may treat some length fields as values.
+                ASSERT(gMem.SpaceForAddress(wordAt.AsCodePtr()) != 0);
                 PolyObject *oldObject = ObjCodePtrToPtr(wordAt.AsCodePtr());
                 // Calculate the byte offset of this value within the code object.
                 POLYUNSIGNED offset = wordAt.AsCodePtr() - (byte*)oldObject;
