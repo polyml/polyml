@@ -25,7 +25,7 @@ these has filled up it fails and a full garbage collection must be done.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -112,29 +112,41 @@ private:
 // thread has updated it in the meantime it will not set it.
 // Using the assembly code provides a very small speed-up so may not
 // be worth-while. 
+#if defined(_MSC_VER) && (_MSC_VER >= 1600)
+// In later versions of MS C we can use the intrinsic.
+// 1600 is Visual Studio 2010.  It may well work in older versions
+#   include <intrin.h>
+#   pragma intrinsic(_InterlockedCompareExchange)
+#   if (SIZEOF_VOIDP == 8)
+#       define InterlockedCompareExchange64 _InterlockedCompareExchange64
+#   else
+#       define InterlockedCompareExchange   _InterlockedCompareExchange
+#   endif
+#endif
+
 static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
                                   POLYUNSIGNED testVal, POLYUNSIGNED update)
 {
-#if(defined(HOSTARCHITECTURE_X86))
+#ifdef _MSC_VER
+# if (SIZEOF_VOIDP == 8)
+	LONGLONG *address = (LONGLONG*)(pt-1);
+	POLYUNSIGNED result = InterlockedCompareExchange64(address, update, testVal);
+	return result == testVal;
+# else
+	LONG *address = (LONG*)(pt-1);
+	POLYUNSIGNED result = InterlockedCompareExchange(address, update, testVal);
+	return result == testVal;
+# endif
+#elif(defined(HOSTARCHITECTURE_X86) && defined(__GNUC__))
     POLYUNSIGNED result;
-#ifdef __GNUC__
     __asm__ __volatile__ (
         "lock; cmpxchgl %1,%2"
         :"=a"(result)
         :"r"(update),"m"(pt[-1]),"0"(testVal)
         :"memory", "cc"
     );
-#else
-    __asm {
-        mov eax,testVal
-        mov ebx,pt
-        mov ecx,update
-        lock cmpxchg [ebx-4],ecx
-        mov result,eax
-    }
-#endif
     return result == testVal;
-#elif(defined(HOSTARCHITECTURE_X86_64) && __GNUC__)
+#elif(defined(HOSTARCHITECTURE_X86_64) && defined(__GNUC__))
     POLYUNSIGNED result;
     __asm__ __volatile__ (
         "lock; cmpxchgq %1,%2"
@@ -144,6 +156,7 @@ static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
     );
     return result == testVal;
 #else
+    // Fallback on other targets.
     PLocker lock(&space->spaceLock);
     if (pt[-1] == testVal)
     {

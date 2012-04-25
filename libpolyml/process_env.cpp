@@ -20,7 +20,7 @@
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -54,12 +54,12 @@
 #include <sys/wait.h>
 #endif
 
-#if (defined(__CYGWIN__) || defined(WINDOWS_PC))
+#if (defined(__CYGWIN__) || defined(_WIN32))
 #include <process.h>
 #endif
 
 // Include this next before errors.h since in WinCE at least the winsock errors are defined there.
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #ifdef USEWINSOCK2
 #include <winsock2.h>
 #else
@@ -94,12 +94,17 @@
 #define MAXPATHLEN MAX_PATH
 #endif
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #define ISPATHSEPARATOR(c)  ((c) == '\\' || (c) == '/')
 #define DEFAULTSEPARATOR    "\\"
 #else
 #define ISPATHSEPARATOR(c)  ((c) == '/')
 #define DEFAULTSEPARATOR    "/"
+#endif
+
+#ifdef _MSC_VER
+// Don't tell me about ISO C++ changes.
+#pragma warning(disable:4996)
 #endif
 
 // "environ" is declared in the headers on some systems but not all.
@@ -162,7 +167,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
             if (length >= (int)sizeof(buff))
                 raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
-#if (defined(WINDOWS_PC))
+#if (defined(_WIN32))
             // Windows.
             char *argv[4];
             argv[0] = getenv("COMSPEC"); // Default CLI.
@@ -219,7 +224,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 try
                 {
                 // Test to see if the child has returned.
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                     switch (WaitForSingleObject((HANDLE)pid, 0))
                     {
                     case WAIT_OBJECT_0:
@@ -257,7 +262,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                     // Either IOException or KillException.
                     // We're abandoning the wait.  This will leave
                     // a zombie in Unix.
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                     CloseHandle((HANDLE)pid);
 #endif
                     throw;
@@ -316,7 +321,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 if (errortable[i].errorNum == e)
                     return SAVE(C_string_to_Poly(mdTaskData, errortable[i].errorString));
             /* We get here if there's an error which isn't in the table. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* In the Windows version we may have both errno values
                and also GetLastError values.  We convert the latter into
                negative values before returning them. */
@@ -356,7 +361,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 int i = atoi(buff+5);
                 if (i > 0) return Make_arbitrary_precision(mdTaskData, i);
             }
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (strncmp(buff, "WINERROR", 8) == 0)
             {
                 int i = atoi(buff+8);
@@ -387,7 +392,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         }
 
     case 9: /* Are names case-sensitive? */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Windows - no. */
         return Make_arbitrary_precision(mdTaskData, 0);
 #else
@@ -414,7 +419,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                (e.g. A:b\c) which means the file b\c relative to the
                currently selected directory on the volume A.
             */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             char buff[MAXPATHLEN];
             int length;
             length = Poly_string_to_C(path, buff, MAXPATHLEN);
@@ -497,7 +502,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             if (IS_INT(volName))
             {
                 char ch = (char)UNTAGGED(volName);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                 if (ch == '<' || ch == '>' || ch == '|' ||
                     ch == '"' || ch < ' ')
 #else
@@ -513,7 +518,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 for (POLYUNSIGNED i = 0; i < volume->length; i++)
                 {
                     char ch = volume->chars[i];
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                     if (ch == '<' || ch == '>' || ch == '|' ||
                         ch == '"' || ch < ' ')
 #else

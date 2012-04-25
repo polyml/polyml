@@ -25,7 +25,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -171,7 +171,7 @@ private:
 };
 #endif
 
-#ifndef WINDOWS_PC
+#if (! defined(_WIN32) || defined(__CYGWIN__))
 // Unix: Wait until a file descriptor is available for input
 class WaitInputFD: public Waiter
 {

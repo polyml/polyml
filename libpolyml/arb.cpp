@@ -46,7 +46,7 @@ Thanks are due to D. Knuth for the long division algorithm.
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -92,7 +92,8 @@ Thanks are due to D. Knuth for the long division algorithm.
 #include "processes.h"
 #include "memmgr.h"
 
-#define BITS_PER_POLYWORD (SIZEOF_LONG*8)
+// Number of bits in a Poly word.  N.B.  This is not necessarily the same as SIZEOF_VOIDP.
+#define BITS_PER_POLYWORD (SIZEOF_VOIDP*8)
 
 #ifdef USE_GMP
 #if (BITS_PER_POLYWORD > GMP_LIMB_BITS)

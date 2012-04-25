@@ -32,7 +32,7 @@
 #define IO_BIT_SOCKET       16 /* Is it a socket? */
 #define IO_BIT_INPROGRESS   64 /* "connect" in progress on socket. */
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 
 #define IO_BIT_PIPE         128
 #define IO_BIT_DEV          256
@@ -75,7 +75,7 @@ typedef struct basic_io_struct
     int ioBits; /* Flag bits */
     union {
         int ioDesc; /* File descriptor. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         struct {
             HANDLE  hFind; /* FindFirstFile handle */
             WIN32_FIND_DATA lastFind;
@@ -87,7 +87,7 @@ typedef struct basic_io_struct
         DIR *ioDir; /* Directory entry. */
 #endif
     } device;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     HANDLE hAvailable; // Used to signal available data
 #endif
 } IOSTRUCT, *PIOSTRUCT;
@@ -100,7 +100,7 @@ class TaskData;
 #define isDirectory(s)  ((s)->ioBits & IO_BIT_DIR)
 #define isSocket(s) ((s)->ioBits & IO_BIT_SOCKET)
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #define isPipe(s)   ((s)->ioBits & IO_BIT_PIPE)
 #define isDevice(s) ((s)->ioBits & IO_BIT_DEV)
 #define isConsole(s)    ((s)->ioBits & IO_BIT_CONSOLE)

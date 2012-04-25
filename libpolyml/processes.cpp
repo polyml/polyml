@@ -22,7 +22,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -83,7 +83,7 @@
 #include <windows.h>
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H))
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #endif
@@ -122,7 +122,7 @@
 #include "exporter.h"
 #include "statistics.h"
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
 #endif
 
@@ -507,7 +507,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
             // Convert the time into the correct format for WaitUntil before acquiring
             // schedLock.  div_longc could do a GC which requires schedLock.
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             // On Windows it is the number of 100ns units since the epoch
             FILETIME tWake;
             if (! isInfinite)
@@ -939,7 +939,7 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                         return 0; // Has been interrupted.
                     // Not interrupted: pause this thread to allow for other
                     // interrupted threads to free something.
-#if defined(WINDOWS_PC)
+#if defined(_WIN32)
                     Sleep(5000);
 #else
                     sleep(5);
@@ -957,6 +957,10 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
     }
 }
 
+#ifdef _MSC_VER
+// Don't tell me that exitThread has a non-void type.
+#pragma warning(disable:4646)
+#endif
 
 Handle exitThread(TaskData *taskData)
 /* A call to this is put on the stack of a new thread so when the
@@ -1011,7 +1015,7 @@ void Waiter::Wait(unsigned maxMillisecs)
     // Since this is used only when we can't monitor the source directly
     // we set this to 10ms so that we're not waiting too long.
     if (maxMillisecs > 10) maxMillisecs = 10;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* We seem to need to reset the queue before calling
        MsgWaitForMultipleObjects otherwise it frequently returns
        immediately, often saying there is a message with a message ID
@@ -1063,7 +1067,7 @@ void WaitHandle::Wait(unsigned maxMillisecs)
 }
 #endif
 
-#ifndef WINDOWS_PC
+#if (!defined(_WIN32) || defined(__CYGWIN__))
 // Unix and Cygwin: Wait for a file descriptor on input.
 void WaitInputFD::Wait(unsigned maxMillisecs)
 {
@@ -1229,7 +1233,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         DWORD dwThrdId; // Have to provide this although we don't use it.
         taskData->threadHandle =
             CreateThread(NULL, 0, NewThreadFunction, taskData, 0, &dwThrdId);
-        if (taskData->threadHandle == NULL) errorCode = -GetLastError();
+        if (taskData->threadHandle == NULL) errorCode = 0-GetLastError();
 #endif
         if (errorCode != 0)
         {
@@ -1963,7 +1967,7 @@ void ProcessTaskData::GarbageCollect(ScanAddress *process)
 // Return the number of processors.  Used when configuring multi-threaded GC.
 extern unsigned NumberOfProcessors(void)
 {
-#ifdef WIN32
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         SYSTEM_INFO info;
         memset(&info, 0, sizeof(info));
         GetSystemInfo(&info);

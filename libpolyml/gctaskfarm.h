@@ -77,7 +77,7 @@ private:
 
     void ThreadFunction(void);
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     static void *WorkerThreadFunction(void *parameter);
     pthread_t *threadHandles;
 #elif defined(HAVE_WINDOWS_H)

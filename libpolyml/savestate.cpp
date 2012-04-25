@@ -22,7 +22,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -85,6 +85,11 @@
 #define MAXPATHLEN MAX_PATH
 #endif
 
+#ifdef _MSC_VER
+// Don't tell me about ISO C++ changes.
+#pragma warning(disable:4996)
+#endif
+
 // Helper class to close files on exit.
 class AutoClose {
 public:
@@ -137,10 +142,10 @@ typedef struct _savedStateHeader
     off_t       stringTable;            // Pointer to the string table (zero if none)
     size_t      stringTableSize;        // Size of string table
     unsigned    parentNameEntry;        // Position of parent name in string table (0 if top)
-    UNSIGNEDADDR timeStamp;            // The time stamp for this file.
-    UNSIGNEDADDR fileSignature;        // The signature for this file.
-    UNSIGNEDADDR parentTimeStamp;      // The time stamp for the parent.
-    UNSIGNEDADDR parentSignature;      // The signature for the parent.
+    time_t      timeStamp;            // The time stamp for this file.
+    uintptr_t   fileSignature;        // The signature for this file.
+    time_t      parentTimeStamp;      // The time stamp for the parent.
+    uintptr_t   parentSignature;      // The signature for the parent.
 } SavedStateHeader;
 
 // Entry for segment table.  This describes the segments on the disc that
@@ -186,17 +191,17 @@ typedef struct _relocationEntry
 class HierarchyTable
 {
 public:
-    HierarchyTable(const char *file, UNSIGNEDADDR time):
+    HierarchyTable(const char *file, time_t time):
       fileName(strdup(file)), timeStamp(time) { }
     AutoFree<char*> fileName;
-    UNSIGNEDADDR timeStamp;
+    time_t          timeStamp;
 };
 
 HierarchyTable **hierarchyTable;
 
 static unsigned hierarchyDepth;
 
-static bool AddHierarchyEntry(const char *fileName, UNSIGNEDADDR timeStamp)
+static bool AddHierarchyEntry(const char *fileName, time_t timeStamp)
 {
     // Add an entry to the hierarchy table for this file.
     HierarchyTable *newEntry = new HierarchyTable(fileName, timeStamp);
@@ -654,7 +659,7 @@ public:
         errorResult(0), errNumber(0) { strcpy(fileName, file); }
 
     virtual void Perform(void);
-    bool LoadFile(bool isInitial, UNSIGNEDADDR requiredStamp);
+    bool LoadFile(bool isInitial, time_t requiredStamp);
     const char *errorResult;
     // The fileName here is the last file loaded.  As well as using it
     // to load the name can also be printed out at the end to identify the
@@ -747,7 +752,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 }
 
 // Load a saved state file.  Calls itself to handle parent files.
-bool StateLoader::LoadFile(bool isInitial, UNSIGNEDADDR requiredStamp)
+bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
 {
     LoadRelocate relocate;
     AutoFree<char*> thisFile(strdup(fileName));

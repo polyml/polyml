@@ -42,6 +42,6 @@ NORETURNFN(extern void finish(int n));
 
 extern char *RTSArgHelp(void);
 
-extern UNSIGNEDADDR exportTimeStamp;
+extern time_t exportTimeStamp;
 
 #endif /* _MPOLY_H_DEFINED */

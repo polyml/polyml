@@ -501,7 +501,7 @@ static struct {
 #endif
 
 
-#ifdef WINDOWS_PC
+#ifdef _WIN32
 /* We generate all Windows messages as negative numbers to
    distinguish them from Unix errno values. */
     { -ERROR_INVALID_FUNCTION,  "ERROR_INVALID_FUNCTION" },

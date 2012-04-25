@@ -24,7 +24,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -51,7 +51,7 @@
 #include <string.h>
 #endif
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <windows.h>
 #include <excpt.h>
 #endif

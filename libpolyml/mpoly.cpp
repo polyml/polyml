@@ -24,7 +24,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -68,7 +68,7 @@
 #include "memmgr.h"
 #include "pexport.h"
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
 #endif
 
@@ -84,7 +84,7 @@ PolyWord *IoEntry(unsigned sysOp)
 
 struct _userOptions userOptions;
 
-UNSIGNEDADDR exportTimeStamp;
+time_t exportTimeStamp;
 
 enum {
     OPT_HEAP,
@@ -314,7 +314,7 @@ void finish (int n)
     // Make sure we don't get any interrupts once the destructors are
     // applied to globals or statics.
     Uninitialise();
-#if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     ExitThread(n);
 #else
     exit (n);
@@ -332,10 +332,10 @@ void Usage(const char *message)
     }
     fflush(stdout);
     
-#if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
+        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
     }
 #endif
     exit (1);

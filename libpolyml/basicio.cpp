@@ -33,7 +33,7 @@ DCJM May 2000.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -110,7 +110,7 @@ typedef char TCHAR;
 #endif
 #endif
 
-#ifdef WIN32
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #ifdef USEWINSOCK2
 #include <winsock2.h>
 #else
@@ -147,7 +147,7 @@ typedef char TCHAR;
 #include "rts_module.h"
 #include "locking.h"
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
 #endif
 
@@ -158,6 +158,11 @@ typedef char TCHAR;
 #define STREAMID(x) (DEREFSTREAMHANDLE(x)->streamNo)
 
 #define SAVE(x) taskData->saveVec.push(x)
+
+#ifdef _MSC_VER
+// Don't tell me about ISO C++ changes.
+#pragma warning(disable:4996)
+#endif
 
 /* Points to tokens which represent the streams and the stream itself. 
    For each stream a single word token is made containing the file 
@@ -187,7 +192,7 @@ DCJM May 2000
 PIOSTRUCT basic_io_vector;
 PLock ioLock; // Currently this just protects against two threads using the same entry
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 class WaitStream: public WaitHandle
 {
 public:
@@ -203,7 +208,7 @@ public:
 };
 #endif
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 
 /* Deal with the various cases to see if input is available. */
 static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
@@ -281,7 +286,7 @@ static int proper_stat(char *filename, struct stat *fbp)
 	return res;
 }
 
-#ifndef WINDOWS_PC
+#if (!defined(_WIN32) || defined(__CYGWIN__))
 /* I don't know whether the same applies to lstat but we'll define
    it in the same way just in case. DCJM 16/5/00. */
 static int proper_lstat(char *filename, struct stat *fbp)
@@ -316,13 +321,13 @@ void close_stream(PIOSTRUCT str)
     if (!isOpen(str)) return;
     if (isDirectory(str))
     {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         FindClose(str->device.directory.hFind);
 #else
         closedir(str->device.ioDir);
 #endif
     }
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     else if (isSocket(str))
     {
         closesocket(str->device.sock);
@@ -333,7 +338,7 @@ void close_stream(PIOSTRUCT str)
     str->ioBits = 0;
     str->token = 0;
     emfileFlag = false;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (str->hAvailable) CloseHandle(str->hAvailable);
     str->hAvailable = NULL;
 #endif
@@ -424,7 +429,7 @@ void free_stream_entry(unsigned stream_no)
     ioLock.Unlock();
 }
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 static int getFileType(int stream)
 {
     if (stream == 0 && useConsole)
@@ -482,7 +487,7 @@ TryAgain:
                 strm->ioBits |= IO_BIT_READ;
             if ((mode & O_ACCMODE) != O_RDONLY)
                 strm->ioBits |= IO_BIT_WRITE;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             strm->ioBits |= getFileType(stream);
 #else
             if (! isPosix)
@@ -568,7 +573,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
             processes->ThreadPauseForIO(taskData, &waiter);
         }
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
 #endif
         // We can now try to read without blocking.
@@ -583,7 +588,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
         POLYSIGNED haveRead;
         int err;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
         {
             haveRead = getConsoleInput((char*)base+offset, length);
@@ -629,7 +634,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
             processes->ThreadPauseForIO(taskData, &waiter);
         }
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (strm->hAvailable != NULL) ResetEvent(strm->hAvailable);
 #endif
 
@@ -643,7 +648,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", ENOMEM);
         POLYSIGNED haveRead;
         int err;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
         {
             haveRead = getConsoleInput((char*)buff, length);
@@ -709,7 +714,7 @@ static bool canOutput(TaskData *taskData, Handle stream)
     PIOSTRUCT strm = get_stream(stream->WordP());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* There's no way I can see of doing this in Windows. */
     return true;
 #else
@@ -770,7 +775,7 @@ static Handle fileKind(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         if (isPipe(strm))
             return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
@@ -846,7 +851,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
     processes->TestAnyEvents(taskData);
 
     /* Simply do a non-blocking poll. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* Record the results in this vector. */
         char *results = 0;
@@ -1090,7 +1095,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 static Handle openDirectory(TaskData *taskData, Handle dirname)
 {
     TCHAR string_buffer[MAXPATHLEN+2];
-#ifndef WINDOWS_PC
+#if (!defined(_WIN32) || defined(__CYGWIN__))
 TryAgain:
 #endif
     /* Copy the string and check the length. */
@@ -1099,7 +1104,7 @@ TryAgain:
         Handle str_token = make_stream_entry(taskData);
         int stream_no    = STREAMID(str_token);
         PIOSTRUCT strm = &basic_io_vector[stream_no];
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         {
             HANDLE hFind;
             /* Tack on \* to the end so that we find all files in
@@ -1149,12 +1154,12 @@ TryAgain:
 Handle readDirectory(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(stream->WordP());
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     Handle result = NULL;
 #endif
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* The next entry to read is already in the buffer. FindFirstFile
        both opens the directory and returns the first entry. If
        fFindSucceeded is false we have already reached the end. */
@@ -1200,7 +1205,7 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
     PIOSTRUCT strm = get_stream(stream->WordP());
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         TCHAR string_buffer[MAXPATHLEN+2];
         HANDLE hFind;
@@ -1234,7 +1239,7 @@ Handle change_dirc(TaskData *taskData, Handle name)
 {
     TCHAR string_buffer[MAXPATHLEN];
     getFileName(taskData, name, string_buffer, MAXPATHLEN);
-#if defined(WINDOWS_PC)
+#if defined(_WIN32)
     if (SetCurrentDirectory(string_buffer) == FALSE)
        raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
 #else
@@ -1250,7 +1255,7 @@ Handle isDir(TaskData *taskData, Handle name)
     TCHAR string_buffer[MAXPATHLEN];
     getFileName(taskData, name, string_buffer, MAXPATHLEN);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         DWORD dwRes = GetFileAttributes(string_buffer);
         if (dwRes == 0xFFFFFFFF)
@@ -1280,7 +1285,7 @@ Handle fullPath(TaskData *taskData, Handle filename)
     /* Special case of an empty string. */
     if (string_buffer[0] == '\0') { string_buffer[0] = '.'; string_buffer[1] = 0;}
 
-#if defined(WINDOWS_PC)
+#if defined(_WIN32)
     {
         LPTSTR lastPart;
         DWORD dwRes =
@@ -1316,7 +1321,7 @@ Handle modTime(TaskData *taskData, Handle filename)
 {
     TCHAR string_buffer[MAXPATHLEN];
     getFileName(taskData, filename, string_buffer, MAXPATHLEN);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* There are two ways to get this information.
            We can either use GetFileTime if we are able
@@ -1354,7 +1359,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
 {
     TCHAR string_buffer[MAXPATHLEN];
     getFileName(taskData, filename, string_buffer, MAXPATHLEN);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* Similar to modTime*/
         WIN32_FIND_DATA wFind;
@@ -1385,7 +1390,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
     TCHAR buff[MAXPATHLEN];
     getFileName(taskData, fileName, buff, MAXPATHLEN);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* The only way to set the time is to open the file and
        use SetFileTime. */
     {
@@ -1436,7 +1441,7 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
     TCHAR oldName[MAXPATHLEN], newName[MAXPATHLEN];
     getFileName(taskData, oldFileName, oldName, MAXPATHLEN);
     getFileName(taskData, newFileName, newName, MAXPATHLEN);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* This is defined to delete any existing file with the new name.
        We can do this with MoveFileEx but that isn't supported on
        Windows 95.  We have to use DeleteFile followed by MoveFile in
@@ -1485,7 +1490,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
     int rts = get_C_ulong(taskData, DEREFWORD(rights));
     getFileName(taskData, name, string_buffer, MAXPATHLEN);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* Test whether the file is read-only.  This is, of course,
            not what was asked but getting anything more is really
@@ -1683,7 +1688,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             /* We don't know whether it's open for read, write or even if
                it's open at all. */
             str->ioBits = IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE ;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             str->ioBits |= getFileType(ioDesc);
 #endif
             return str_token;
@@ -1706,7 +1711,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     case 54: /* Get current working directory. */
         {
             char string_buffer[MAXPATHLEN+1];
-#if defined(WINDOWS_PC)
+#if defined(_WIN32)
             if (GetCurrentDirectory(MAXPATHLEN+1, string_buffer) == 0)
                raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
 #else
@@ -1721,7 +1726,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             TCHAR string_buffer[MAXPATHLEN];
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 			if (! CreateDirectory(string_buffer, NULL))
 			   raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
 #else
@@ -1737,7 +1742,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             TCHAR string_buffer[MAXPATHLEN];
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 			if (! RemoveDirectory(string_buffer))
 			   raise_syscall(taskData, "RemoveDirectory failed", -(int)GetLastError());
 #else
@@ -1755,7 +1760,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         {
             TCHAR string_buffer[MAXPATHLEN];
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             {
                 /* Windows does not have symbolic links.  Raise an
                    exception if the file does not exist but otherwise
@@ -1779,7 +1784,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 59: /* Read a symbolic link. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* Windows does not have symbolic links. Raise an exception. */
             raiseSyscallMessage(taskData, "Not implemented");
             return taskData->saveVec.push(TAGGED(0)); /* To keep compiler happy. */
@@ -1811,7 +1816,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             TCHAR string_buffer[MAXPATHLEN];
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 			if (! DeleteFile(string_buffer))
 			   raise_syscall(taskData, "DeleteFile failed", 0-GetLastError());
 #else
@@ -1832,7 +1837,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
         {
             TCHAR buff[MAXPATHLEN];
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (GetTempPath(sizeof(buff) - 14, buff) == 0)
                 raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
             lstrcat(buff, _T("\\"));
@@ -1865,7 +1870,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 68: /* Get the file id. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* This concept does not exist in Windows. */
             /* Return a negative number. This is interpreted
                as "not implemented". */
@@ -1933,7 +1938,7 @@ void BasicIO::Start(void)
     basic_io_vector[0].token  = (PolyObject*)IoEntry(POLY_SYS_stdin);
     basic_io_vector[0].device.ioDesc = 0;
     basic_io_vector[0].ioBits = IO_BIT_OPEN | IO_BIT_READ;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     basic_io_vector[0].ioBits |= getFileType(0);
     // Set this to a duplicate of the handle so it can be closed when we
     // close the stream.
@@ -1946,14 +1951,14 @@ void BasicIO::Start(void)
     basic_io_vector[1].token  = (PolyObject*)IoEntry(POLY_SYS_stdout);
     basic_io_vector[1].device.ioDesc = 1;
     basic_io_vector[1].ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     basic_io_vector[1].ioBits |= getFileType(1);
 #endif
 
     basic_io_vector[2].token  = (PolyObject*)IoEntry(POLY_SYS_stderr);
     basic_io_vector[2].device.ioDesc = 2;
     basic_io_vector[2].ioBits = IO_BIT_OPEN | IO_BIT_WRITE;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     basic_io_vector[2].ioBits |= getFileType(2);
 #endif
     return;

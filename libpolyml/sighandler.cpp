@@ -21,7 +21,7 @@
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -66,12 +66,12 @@
 #include <stdlib.h> // For malloc
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
 // Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_LIBPTHREAD) && defined(HAVE_PTHREAD_H) && defined(HAVE_SEMAPHORE_H))
 // If we have the pthread library and header and we have semaphores we can use the pthread
 // signalling mechanism.  But if this is a native Windows build we don't use semaphores or
 // pthread even if they're provided.
@@ -105,7 +105,7 @@ int sigaltstack(const stack_t *, stack_t *);
 #include "scanaddrs.h"
 #include "locking.h"
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
 #endif
 
@@ -170,7 +170,7 @@ static PolyWord findHandler(int sig)
     else return sigData[sig].handler;
 }
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 // This is called to simulate a SIGINT in Windows.
 void RequestConsoleInterrupt(void)
 {
@@ -332,7 +332,7 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
 // This is really only needed for profiling timer signals.
 void initThreadSignals(TaskData *taskData)
 {
-#if (!(defined(WINDOWS_PC)||defined(MACOSX)))
+#if (!(defined(_WIN32)||defined(MACOSX)))
     // On the i386, at least, we need to set up a signal stack for
     // each thread if it might receive a signal.  ML code checks for
     // stack overflow but a signal could result in C code being
@@ -382,7 +382,7 @@ void initThreadSignals(TaskData *taskData)
 
 
 /* General purpose function to set up a signal handler. */
-#ifndef WINDOWS_PC
+#if (!defined(_WIN32) || defined(__CYGWIN__))
 
 bool setSignalHandler(int sig, signal_handler_type func)
 {

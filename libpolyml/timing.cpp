@@ -25,7 +25,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -110,7 +110,7 @@
 #include "diagnostics.h"
 #include "statistics.h"
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 /* Windows file times are 64-bit numbers representing times in
    tenths of a microsecond. */
 #define TICKS_PER_MICROSECOND 10
@@ -140,7 +140,7 @@
     operating system provides it.
 */
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 static FILETIME startTime;
 static FILETIME gcUTime, gcSTime, gcRTime;
 #else
@@ -162,7 +162,7 @@ static PLock timeLock;
 // it is implemented by opening a special device.  We need to handle this and there's really
 // no harm in doing that on all (Unix) systems.  DCJM 27/2/03.
 */
-#ifndef WINDOWS_PC
+#if (! defined(_WIN32) || defined(__CYGWIN__))
 static int proper_getrusage(int who, struct rusage *rusage)
 {
     while (1) {
@@ -182,7 +182,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return Make_arbitrary_precision(taskData, TICKS_PER_MICROSECOND);
     case 1: /* Return time since the time base. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ft;
 			GetSystemTimeAsFileTime(&ft);
             return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
@@ -195,7 +195,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
     case 2: /* Return the base year.  This is the year which corresponds to
                zero in the timing sequence. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         return Make_arbitrary_precision(taskData, 1601);
 #else
         return Make_arbitrary_precision(taskData, 1970);
@@ -217,7 +217,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(HAVE_GMTIME_R) || defined(HAVE_LOCALTIME_R))
             struct tm result;
 #endif
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* Although the offset is in seconds it is since 1601. */
             ULARGE_INTEGER   liTime;
             get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
@@ -264,7 +264,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 5: /* Find out if Summer Time (daylight saving) was/will be in effect. */
         {
             time_t theTime;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* Although the offset is in seconds it is since 1601. */
             ULARGE_INTEGER   liTime;
             get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
@@ -307,7 +307,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             time.tm_wday = get_C_long(taskData, DEREFHANDLE(args)->Get(7));
             time.tm_yday = get_C_long(taskData, DEREFHANDLE(args)->Get(8));
             time.tm_isdst = get_C_long(taskData, DEREFHANDLE(args)->Get(9));
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             _tzset(); /* Make sure we set the current locale. */
 #else
             setlocale(LC_TIME, "");
@@ -328,7 +328,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 7: /* Return User CPU time since the start. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ut, ct, et, kt;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
@@ -344,7 +344,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 8: /* Return System CPU time since the start. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ct, et, kt, ut;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
@@ -359,7 +359,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 9: /* Return GC time since the start. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         return Make_arb_from_pair(taskData, gcUTime.dwHighDateTime, gcUTime.dwLowDateTime);
 #else
         return Make_arb_from_pair_scaled(taskData, gcUTime.tv_sec, gcUTime.tv_usec, 1000000);
@@ -367,7 +367,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 10: /* Return real time since the start. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ft;
 			GetSystemTimeAsFileTime(&ft);
             subFiletimes(&ft, &startTime);
@@ -384,7 +384,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         /* These next two are used only in the Posix structure. */
     case 11: /* Return User CPU time used by child processes. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
@@ -397,7 +397,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 12: /* Return System CPU time used by child processes. */
         {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
@@ -410,7 +410,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 13: /* Return GC system time since the start. */
         /* This function was added in Gansner & Reppy. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         return Make_arb_from_pair(taskData, gcSTime.dwHighDateTime, gcSTime.dwLowDateTime);
 #else
         return Make_arb_from_pair_scaled(taskData, gcSTime.tv_sec, gcSTime.tv_usec, 1000000);
@@ -435,7 +435,7 @@ GcTimeData::GcTimeData()
 // This also reports the GC time if GC debugging is enabled.
 void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
 {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     FILETIME kt, ut;
     FILETIME ct, et; // Unused
     FILETIME rt;
@@ -631,7 +631,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
 void GcTimeData::Init()
 {
     resetMajorTimingData();
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     memset(&startUsageU, 0, sizeof(startUsageU));
     memset(&startUsageS, 0, sizeof(startUsageS));
     memset(&lastUsageU, 0, sizeof(lastUsageU));
@@ -652,7 +652,7 @@ void GcTimeData::Final()
     // Print the overall statistics
     if (debugOptions & DEBUG_GC)
     {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         FILETIME kt, ut;
         FILETIME ct, et; // Unused
         FILETIME rt;
@@ -815,7 +815,7 @@ static Timing timingModule;
 
 void Timing::Init(void)
 {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 	// Record an initial time of day to use as the basis of real timing
 	GetSystemTimeAsFileTime(&startTime);
 #else

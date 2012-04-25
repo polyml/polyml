@@ -21,7 +21,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -122,7 +122,7 @@ bool OSMem::SetPermissions(void *p, size_t space, unsigned permissions)
 }
 
 
-#elif defined(WINDOWS_PC)
+#elif defined(_WIN32)
 // Use Windows memory management.
 #include <windows.h>
 

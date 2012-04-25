@@ -24,7 +24,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -34,12 +34,12 @@
 #include <windows.h>
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
 // Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
 // Don't include pthread if this is native Windows and not Cygwin
 #include <pthread.h>
 #endif
@@ -54,7 +54,7 @@ public:
     bool Trylock(void); // Try to lock the mutex - returns true if succeeded
 
 private:
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     pthread_mutex_t lock;
 #elif defined(HAVE_WINDOWS_H)
     CRITICAL_SECTION lock;
@@ -86,7 +86,7 @@ public:
     void Wait(PLock *pLock); // Wait indefinitely.  Drops the lock and reaquires it.
     // Wait for a signal or until the time.  The argument is an absolute time
     // represented as a struct timespec in Unix and a FILETIME in Windows.
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     void WaitUntil(PLock *pLock, const FILETIME *timeArg);
 #else
     void WaitUntil(PLock *pLock, const timespec *timeArg);
@@ -96,7 +96,7 @@ public:
     // N.B.  Signal MUST be called only with the lock held.
     void Signal(void); // Wake up the waiting thread.
 private:
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     pthread_cond_t cond;
 #elif defined(HAVE_WINDOWS_H)
     HANDLE cond;
@@ -112,7 +112,7 @@ public:
     bool Wait(void);
     void Signal(void);
 private:
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
     sem_t localSema, *sema;
     bool isLocal;
 #elif defined(HAVE_WINDOWS_H)

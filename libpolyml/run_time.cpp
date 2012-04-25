@@ -23,7 +23,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -226,7 +226,7 @@ Handle full_gc_c(TaskData *taskData)
 // anything.
 Handle errorMsg(TaskData *taskData, int err)
 {
-#ifdef WINDOWS_PC
+#ifdef _WIN32
     /* In the Windows version we may have both errno values
        and also GetLastError values.  We convert the latter into
        negative values before returning them. */

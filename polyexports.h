@@ -25,19 +25,37 @@ This header contains the structures used in saved state created by "export".
 #ifndef _STANDALONE_H
 #define _STANDALONE_H 1
 
-#if(defined(HAVE_WINDOWS_H))
-#include <windows.h>
-typedef UINT_PTR UNSIGNEDADDR;
-#else
-typedef unsigned long UNSIGNEDADDR;
+// Get time_t
+#ifdef HAVE_TIME_H
+#include <time.h>
+#endif
+
+// Get uintptr_t
+#if HAVE_STDINT_H
+#  include <stdint.h>
+#endif
+
+#if HAVE_INTTYPES_H
+#  ifndef __STDC_FORMAT_MACROS
+#    define __STDC_FORMAT_MACROS
+#  endif
+#  include <inttypes.h>
+#endif
+
+#ifdef HAVE_STDDEF_H
+#  include <stddef.h>
+#endif
+
+#if defined(HAVE_WINDOWS_H)
+#  include <windows.h>
 #endif
 
 // There are several entries 
 typedef struct _memTableEntry {
     void *mtAddr;                       // The address of the area of memory
-    UNSIGNEDADDR mtLength;              // The length in bytes of the area
-    UNSIGNEDADDR mtFlags;               // Flags describing the area.
-    UNSIGNEDADDR mtIndex;               // An index to identify permanent spaces.
+    uintptr_t mtLength;              // The length in bytes of the area
+    uintptr_t mtFlags;               // Flags describing the area.
+    uintptr_t mtIndex;               // An index to identify permanent spaces.
 } memoryTableEntry;
 
 #define MTF_WRITEABLE         0x00000001  // The area is writeable by ML code
@@ -52,7 +70,7 @@ typedef struct _exportDescription {
     unsigned ioIndex;              // The index in the memory table for the io interface area
     memoryTableEntry *memTable;    // Pointer to the memory table.
     void *rootFunction;            // Points to the start-up function
-    UNSIGNEDADDR timeStamp;        // Creation time stamp
+    time_t timeStamp;        // Creation time stamp
     unsigned architecture;         // Machine architecture
     unsigned rtsVersion;           // Run-time system version
     unsigned ioSpacing;            // Size of each entry in the io interface area.
@@ -64,7 +82,8 @@ extern exportDescription poly_exports;
 extern "C" {
 #endif
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#include <Windows.h>
 
 # ifdef LIBPOLYML_BUILD
 #  ifdef DLL_EXPORT

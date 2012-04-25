@@ -21,7 +21,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -80,6 +80,11 @@ it fairly independent of the compiler.  It would definitely be
 simpler and cleaner written in C++ using MFC.
 DCJM 30/5/2000.
 */
+
+#ifdef _MSC_VER
+// Don't tell me about ISO C++ changes.
+#pragma warning(disable:4996)
+#endif
 
 HWND hMainWindow = NULL; // Main window - exported.
 bool useConsole;         // False if callers should read from stdin.

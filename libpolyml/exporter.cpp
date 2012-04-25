@@ -21,7 +21,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -508,7 +508,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 {
 #ifdef HAVE_PECOFF
     // Windows including Cygwin
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     const char *extension = ".obj"; // Windows
 #else
     const char *extension = ".o"; // Cygwin

@@ -30,7 +30,7 @@ extern Handle Sig_dispatch_c(TaskData *taskData, Handle handler, Handle sig);
 
 extern void markSignalInuse(int sig);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 extern void RequestConsoleInterrupt(void);
 #else
 
@@ -48,7 +48,7 @@ extern bool setSignalHandler(int sig, signal_handler_type func);
 // Set up per-thread signal data: basically signal stack.
 extern void initThreadSignals(TaskData *taskData);
 
-#endif /* ! WIN32 */
+#endif /* ! _WIN32 */
 
 extern unsigned receivedSignalCount; // Incremented each time we get a signal
 

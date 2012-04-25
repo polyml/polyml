@@ -23,7 +23,7 @@
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -57,7 +57,7 @@
 #include <windows.h>
 #endif
 
-#if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
 #endif
 
@@ -84,12 +84,12 @@ void Exit(const char *msg, ...)
     va_end(vl);
     printf("\n");
     fflush(stdout);
-    #if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
+        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
     }
-    #endif
+#endif
     exit(1);
 }
 
@@ -105,18 +105,18 @@ void Crash(const char *msg, ...)
     printf("\n");
     fflush(stdout);
 
-    #if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
+        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
     }
-    #else    
+#else    
     {
         sigset_t set;
         sigemptyset(&set);
         sigprocmask(SIG_SETMASK,&set,NULL);
     }
-    #endif    
+#endif    
 
     abort();
     exit(1);
@@ -135,16 +135,16 @@ void ExitWithError(const char *msg, int err)
 
     puts("\n");
     fflush(stdout);
-    #if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
+        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
     }
-    #endif
+#endif
     exit(1);
 }
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 // Default is to log with OutputDebugString
 static FILE *logStream = NULL;
 #else
@@ -166,7 +166,7 @@ void Log(const char *msg, ...)
     va_list vl;
     va_start(vl, msg);
     if (logStream) vfprintf(logStream, msg, vl);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     char buff[1024];
     if (_vsnprintf(buff, sizeof(buff), msg, vl) > 0)
         ::OutputDebugString(buff);

@@ -341,7 +341,7 @@ DWORD APIENTRY CollectPolyPerfMon(
     pSizes[4].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[4].CounterType = PERF_RAW_FRACTION;
     pSizes[4].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_ALLOCATION_UNRESERVED*sizeof(size_t);
+        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_ALLOCATION_FREE*sizeof(size_t);
     pObjectType->NumCounters++;
     pSizes[5].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
     pSizes[5].CounterNameTitleIndex = dwFirstCounter + stringCount*2;

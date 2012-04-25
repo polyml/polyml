@@ -25,7 +25,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -44,7 +44,7 @@
 #include <fenv.h>
 #endif
 
-#if (defined(WIN32))
+#if (defined(_MSC_VER))
 #define finite  _finite
 #define isnan   _isnan
 #define copysign _copysign
@@ -488,7 +488,7 @@ static void setrounding(TaskData *taskData, Handle args)
     }
 }
 
-#elif defined(WINDOWS_PC)
+#elif defined(_WIN32)
 // Windows version
 static int getrounding(TaskData *)
 {

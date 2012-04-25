@@ -20,7 +20,7 @@
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -106,7 +106,7 @@ typedef int socklen_t;
 #endif
 
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #ifdef USEWINSOCK2
 #include <winsock2.h>
 #else
@@ -137,7 +137,7 @@ typedef int socklen_t;
 #define ALLOC(n) alloc_and_save(taskData, n)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 static int winsock_init = 0; /* Check that it has been initialised. */
 
 #else
@@ -299,7 +299,7 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
 static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 /* To allow for portable code we map Windows socket errors to
    errno-style errors if there is a suitable entry in errno.h.
    If there isn't we simply return the negative value and handle
@@ -581,14 +581,14 @@ TryAgain:
                 }
             }
             /* Set the socket to non-blocking mode. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (ioctlsocket(skt, FIONBIO, &onOff) != 0)
 #else
             if (ioctl(skt, FIONBIO, &onOff) < 0)
 #endif
             {
                 free_stream_entry(stream_no);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                 closesocket(skt);
 #else
                 close(skt);
@@ -769,7 +769,7 @@ TryAgain:
             PIOSTRUCT strm = get_stream(args->WordP());
             unsigned long readable;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (ioctlsocket(strm->device.sock, FIONREAD, &readable) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
@@ -784,7 +784,7 @@ TryAgain:
             PIOSTRUCT strm = get_stream(args->WordP());
             unsigned long atMark;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (ioctlsocket(strm->device.sock, SIOCATMARK, &atMark) != 0)
                 raise_syscall(taskData, "ioctlsocket failed", GETERROR);
 #else
@@ -1159,7 +1159,7 @@ TryAgain:
         }
 
     case 55: /* Create a socket pair. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
         raise_syscall(taskData, "socketpair not implemented", -WSAEAFNOSUPPORT);
 #else
@@ -1220,7 +1220,7 @@ TryAgain:
 #endif
 
     case 56: /* Create a Unix socket address from a string. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
         raise_syscall(taskData, "Unix addresses not implemented", -WSAEAFNOSUPPORT);
 #else
@@ -1241,7 +1241,7 @@ TryAgain:
 #endif
 
     case 57: /* Get the file name from a Unix socket address. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         /* Not implemented. */
         raise_syscall(taskData, "Unix addresses not implemented", -WSAEAFNOSUPPORT);
 #else
@@ -1536,7 +1536,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
         case 0: /* Check the timeout. */
             {
             /* The time argument is an absolute time. */
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ftTime, ftNow;
             /* Get the file time. */
             get_C_pair(taskData, DEREFHANDLE(args)->Get(3),
@@ -1599,7 +1599,7 @@ static Networking networkingModule;
 
 void Networking::Init(void)
 {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #ifdef USEWINSOCK2
 #define WINSOCK_MAJOR_VERSION   2
 #define WINSOCK_MINOR_VERSION   2
@@ -1622,7 +1622,7 @@ void Networking::Init(void)
 
 void Networking::Stop(void)
 {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (winsock_init) WSACleanup();
     winsock_init = 0;
 #endif

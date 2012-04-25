@@ -84,7 +84,7 @@ protected:
 #endif
 
 
-#ifdef WINDOWS_PC /* Native windows */
+#if (defined(_WIN32) && ! defined(__CYGWIN__)) /* Native windows */
 #define TIMEDATA FileTimeTime
 #else /* Unix and Cygwin. */
 #define TIMEDATA TimeValTime
@@ -124,7 +124,7 @@ public:
     void Final(void);
 
 private:
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
     FILETIME startRTime, lastRTime;
 #else

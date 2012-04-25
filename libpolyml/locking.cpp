@@ -21,13 +21,13 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #elif (defined(HAVE_WINDOWS_H))
@@ -49,7 +49,7 @@
 #include <time.h>
 #endif
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
 // Don't include semaphore.h on Mingw.  It's provided but doesn't compile.
 #include <semaphore.h>
 #endif
@@ -192,16 +192,10 @@ void PCondVar::Wait(PLock *pLock)
 }
 
 // Wait until a specified absolute time.  Drops the lock and reaquires it.
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+// Windows with Windows-style times
 void PCondVar::WaitUntil(PLock *pLock, const FILETIME *time)
-#else
-void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
-#endif
 {
-#ifdef HAVE_PTHREAD
-    pthread_cond_timedwait(&cond, &pLock->lock, time);
-#elif defined(WINDOWS_PC)
-    // Windows with Windows-style times
     FILETIME now;
     GetSystemTimeAsFileTime(&now);
     LARGE_INTEGER liNow, liTime;
@@ -213,6 +207,13 @@ void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
         return;
     DWORD toWait = (DWORD)((liTime.QuadPart - liNow.QuadPart) / (LONGLONG)10000);
     (void)WaitFor(pLock, toWait);
+}
+#else
+// Unix-style times
+void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
+{
+#ifdef HAVE_PTHREAD
+    pthread_cond_timedwait(&cond, &pLock->lock, time);
 #elif defined(HAVE_WINDOWS_H)
     // This must be Cygwin but compiled with --without-threads
     struct timeval tv;
@@ -223,6 +224,7 @@ void PCondVar::WaitUntil(PLock *pLock, const timespec *time)
     WaitFor(pLock, (time->tv_sec - tv.tv_sec) * 1000 + time->tv_nsec/1000000 - tv.tv_usec/1000);
 #endif
 }
+#endif
 
 // Wait for a number of milliseconds.  Used within the RTS.  Drops the lock and reaquires it.
 bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
@@ -270,7 +272,7 @@ void PCondVar::Signal(void)
 // The semaphore is initialised with a count of zero.
 PSemaphore::PSemaphore()
 {
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
     sema = 0;
     isLocal = true;
 #elif defined(HAVE_WINDOWS_H)
@@ -280,7 +282,7 @@ PSemaphore::PSemaphore()
 
 PSemaphore::~PSemaphore()
 {
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
     if (sema && isLocal) sem_destroy(sema);
     else if (sema && !isLocal) sem_close(sema);
 #elif defined(HAVE_WINDOWS_H)
@@ -290,7 +292,7 @@ PSemaphore::~PSemaphore()
 
 bool PSemaphore::Init(unsigned init, unsigned max)
 {
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
     isLocal = true;
     if (sem_init(&localSema, 0, init) == 0) {
         sema = &localSema;
@@ -322,7 +324,7 @@ bool PSemaphore::Init(unsigned init, unsigned max)
 
 bool PSemaphore::Wait(void)
 {
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
     // Wait until the semaphore is signalled.  A Unix signal may interrupt
     // it so we need to retry in that case.
     while (sem_wait(sema) == -1)
@@ -338,7 +340,7 @@ bool PSemaphore::Wait(void)
 
 void PSemaphore::Signal(void)
 {
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_SEMAPHORE_H))
     sem_post(sema);
 #elif defined(HAVE_WINDOWS_H)
     ReleaseSemaphore(sema, 1, NULL);

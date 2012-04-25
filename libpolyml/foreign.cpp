@@ -24,13 +24,13 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
 #endif
 
-#if (defined(WIN32) || (defined(HAVE_DLOPEN)))
+#if (defined(_WIN32) || (defined(HAVE_DLOPEN)))
 // Then we can use the foreign function interface.
 
 #ifdef HAVE_STDIO_H
@@ -60,7 +60,7 @@ extern "C" {
 }
 #endif
 
-#if defined(WIN32)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include <windows.h>
 #include "Console.h" /* For hApplicationInstance. */
 #endif
@@ -722,7 +722,7 @@ static Handle load_lib (TaskData *taskData, Handle string)
 	Poly_string_to_C(DEREFWORD(string), name, sizeof(name)/sizeof(TCHAR));
 	info(("<%s>\n", name));
 	
-#if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 	HINSTANCE lib = LoadLibrary(name);
 	if (lib == NULL) 
 	{
@@ -764,7 +764,7 @@ static Handle load_sym (TaskData *taskData, Handle h)
 	Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name)/sizeof(TCHAR));
 	info(("<%s>\n", name));
 	
-#if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 	void *sym = (void*)GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
 	
 	if (sym == NULL) 
@@ -875,7 +875,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 #ifdef HAVE_ERRNO_H
     errno = 0;
 #endif
-#ifdef WINDOWS_PC
+#ifdef_WIN32
     SetLastError(0);
 #endif
 
@@ -892,7 +892,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 
     ffi_type *result_type = ctypeToFfiType(taskData, retCtypeH->Word());
 
-#if(defined(WINDOWS_PC) && ! defined(__GNUC__) && ! defined(X86_WIN64))
+#if(defined(_WIN32) && ! defined(__GNUC__) && ! defined(X86_WIN64))
     const ffi_abi abi = FFI_STDCALL;
 #else
     const ffi_abi abi = FFI_DEFAULT_ABI;
@@ -920,7 +920,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
     // Record the last error result.  If this is Windows and
     // GetLastError returned a failure set that otherwise use
     // the value of errno.
-#ifdef WINDOWS_PC
+#ifdef _WIN32
     int err = GetLastError();
     if (err != 0)
         taskData->lastError = -err;
@@ -1588,7 +1588,7 @@ static Handle toCfunction (TaskData *taskData, Handle triple)
    The CALLED function must remove the arguments from the stack before returning. */
 static Handle toPascalfunction (TaskData *taskData, Handle triple)
 {
-#if(defined(WINDOWS_PC) && ! defined(X86_WIN64))    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
+#if(defined(_WIN32) && ! defined(X86_WIN64))    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
     return createCallbackFunction(taskData, triple, FFI_STDCALL);
 #else
     RAISE_EXN("Pascal (stdcall) calling conventions are not supported on this platform");

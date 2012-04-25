@@ -21,7 +21,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -80,7 +80,7 @@ bool GCTaskFarm::Initialise(unsigned thrdCount, unsigned qSize)
     if (!waitForWork.Init(0, thrdCount)) return false;
     workQueue = (queue_entry*)calloc(qSize, sizeof(queue_entry));
     if (workQueue == 0) return false;
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     queueSize = qSize;
     threadHandles = (pthread_t*)calloc(thrdCount, sizeof(pthread_t));
     if (threadHandles == 0) return false;
@@ -94,7 +94,7 @@ bool GCTaskFarm::Initialise(unsigned thrdCount, unsigned qSize)
     // Create the worker threads.
     for (unsigned i = 0; i < thrdCount; i++) {
         // Fork a thread
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
         // Create a thread that isn't joinable since we don't want to wait
         // for it to finish.
         pthread_t pthreadId;
@@ -119,7 +119,7 @@ void GCTaskFarm::Terminate()
     // Increment the semaphore by the number of threads to release them all.
     for (unsigned i = 0; i < threadCount; i++) waitForWork.Signal();
     // Wait for the threads to terminate.
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     for (unsigned j = 0; j < threadCount; j++)
     {
         void *result;
@@ -160,7 +160,7 @@ void GCTaskFarm::AddWorkOrRunNow(gctask work, void *arg1, void *arg2)
 void GCTaskFarm::ThreadFunction()
 {
     GCTaskId myTaskId;
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     DWORD startActive = GetTickCount();
 #else
     struct timeval startTime;
@@ -201,7 +201,7 @@ void GCTaskFarm::ThreadFunction()
 
             if (debugOptions & DEBUG_GCTASKS)
             {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                 Log("GCTask: Thread %p blocking after %u milliseconds\n", &myTaskId,
                      GetTickCount() - startActive);
 #else
@@ -219,7 +219,7 @@ void GCTaskFarm::ThreadFunction()
             // We've been woken up
             if (debugOptions & DEBUG_GCTASKS)
             {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 	            startActive = GetTickCount();
 #else
                 gettimeofday(&startTime, NULL);
@@ -234,7 +234,7 @@ void GCTaskFarm::ThreadFunction()
     workLock.Unlock();
 }
 
-#if ((!defined(WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
+#if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
 void *GCTaskFarm::WorkerThreadFunction(void *parameter)
 {
     GCTaskFarm *t = (GCTaskFarm *)parameter;
@@ -253,7 +253,7 @@ DWORD WINAPI GCTaskFarm::WorkerThreadFunction(void *parameter)
 // Wait until the queue is empty.
 void GCTaskFarm::WaitForCompletion(void)
 {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     DWORD startWait;
     if (debugOptions & DEBUG_GCTASKS)
         startWait = GetTickCount();
@@ -269,7 +269,7 @@ void GCTaskFarm::WaitForCompletion(void)
 
     if (debugOptions & DEBUG_GCTASKS)
     {
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
         Log("GCTask: Threads completed after %u milliseconds\n", GetTickCount()-startWait);
 #else
         struct timeval endWait;

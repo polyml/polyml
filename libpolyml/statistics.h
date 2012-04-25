@@ -49,7 +49,7 @@ public:
 
     void setUserCounter(int which, long value);
 
-#ifdef WINDOWS_PC
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     // Native Windows
     void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime);
 #else

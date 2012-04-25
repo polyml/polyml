@@ -189,7 +189,7 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #include "winconfig.h"
 #else
 #error "No configuration file"
@@ -212,7 +212,7 @@
 #endif
 
 #if !defined(IEEE_8087) && ! defined(IEEE_MC68k)
-#if defined(WINDOWS_PC) || defined(HOSTARCHITECTURE_X86) || defined (__i386__) || defined (_M_IX86) || \
+#if defined(_WIN32) || defined(HOSTARCHITECTURE_X86) || defined (__i386__) || defined (_M_IX86) || \
         defined (vax) || defined (__alpha) || defined(HOSTARCHITECTURE_X86_64)
 #define IEEE_8087
 #else

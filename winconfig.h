@@ -642,11 +642,16 @@
 
 /* The size of `long', as computed by sizeof. */
 #undef SIZEOF_LONG
+// N.B.  This is 4 on both 32-bit and 64-bit
 #define SIZEOF_LONG 4
 
 /* The size of `void*', as computed by sizeof. */
 #undef SIZEOF_VOIDP
+#ifdef _WIN64
+#define SIZEOF_VOIDP 8
+#else
 #define SIZEOF_VOIDP 4
+#endif
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be

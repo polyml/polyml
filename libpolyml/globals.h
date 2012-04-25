@@ -63,8 +63,11 @@
 #if HAVE_STDINT_H
 #  include <stdint.h>
 #endif
+
 #if HAVE_INTTYPES_H
-#  define __STDC_FORMAT_MACROS
+#  ifndef __STDC_FORMAT_MACROS
+#    define __STDC_FORMAT_MACROS
+#  endif
 #  include <inttypes.h>
 #endif
 
@@ -78,7 +81,7 @@
 #define POLY_TAGSHIFT    1
 #endif
 
-#if defined(WINDOWS_PC)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 #  include <windows.h>
 #endif
 
@@ -451,7 +454,7 @@ typedef enum { NoMoreChildren,CannotCreate,CreatedOk } CStatus ;
 #define NONE_VALUE      (TAGGED(0))
 /* SOME x is represented by a single word cell containing x. */
 
-#if (defined(WIN32))
+#if (defined(_WIN32))
 /* Windows doesn't include 0x in %p format. */
 #define ZERO_X  "0x"
 #else
