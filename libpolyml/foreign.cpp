@@ -875,7 +875,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 #ifdef HAVE_ERRNO_H
     errno = 0;
 #endif
-#ifdef_WIN32
+#ifdef _WIN32
     SetLastError(0);
 #endif
 
