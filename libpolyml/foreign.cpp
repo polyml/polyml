@@ -1517,10 +1517,12 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 
     Handle resultHandle = EnterPolyCode(taskData);
 
-    processes->ThreadReleaseMLMemory(taskData);
     PolyWord resultWord = UNHANDLE(resultHandle);
     taskData->saveVec.reset(mark);
     memcpy(ret, DEREFVOL(taskData, resultWord), cif->rtype->size);
+    // Once we have copied the result into C memory we are free of the
+    // ML memory and can allow any GC.
+    processes->ThreadReleaseMLMemory(taskData);
 }
 
 // Creates a call-back entry.  Callbacks are never GCd because we don't know when
