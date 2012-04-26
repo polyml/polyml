@@ -305,6 +305,8 @@ public:
 #define MakeVolMagic(v)         V_MAGIC((v)) = VOL_MAGIC_NUMBER
 #define IsVolMagic(v)           (V_MAGIC((v)) == VOL_MAGIC_NUMBER)
 
+// Access to the vols table.  volLock must be held before any of these are
+// called because another thread could realloc it.
 #define ML_POINTER(v)           (vols[V_INDEX(v)].ML_pointer)
 #define C_POINTER(v)            (vols[V_INDEX(v)].C_pointer)
 #define OWN_C_SPACE(v)          (vols[V_INDEX(v)].Own_C_space)
@@ -674,10 +676,7 @@ void Foreign::GarbageCollect(ScanAddress *process)
         {
             if (vols[from].Own_C_space)
             {
-                // Can now free this.
-                mes(("Trashing malloc space of <%" POLYUFMT ">\n",from));
-                memset(vols[from].C_pointer, 0, vols[from].Own_C_space);
-            
+                // Can now free this.            
                 trace(("Freeing malloc space of <%" POLYUFMT ">\n",from));
                 Vfree(vols[from].C_pointer);
                 vols[from].C_pointer = 0;
@@ -901,6 +900,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
     if (ffi_prep_cif(&cif, abi, num_args, result_type, arg_types) != FFI_OK)
         RAISE_EXN("libffi error: ffi_prep_cif failed");
 
+    // malloc memory for the result
     void *result;
     Vmalloc(result, result_type->size);
 
@@ -910,9 +910,13 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 
     // Allocate a vol for the result.  Don't do this before the
     // call in case we have a call-back and recursion.
-    Handle res = vol_alloc(taskData);
-    C_POINTER(UNVOLHANDLE(res)) = result;
-    OWN_C_SPACE(UNVOLHANDLE(res)) = true;
+    Handle res;
+    {
+        PLocker lock(&volLock);
+        res = vol_alloc(taskData);
+        C_POINTER(UNVOLHANDLE(res)) = result;
+        OWN_C_SPACE(UNVOLHANDLE(res)) = true;
+    }
 
     freeTypeVec(arg_types, num_args); // Free any structure entries
     freeTypeVec(&result_type, 1);
