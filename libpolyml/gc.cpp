@@ -531,7 +531,7 @@ void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, 
         POLYUNSIGNED memsize = GetPhysicalMemorySize();
         if (memsize == 0) // Unable to determine memory size so default to 64M.
             memsize = 64 * 1024 * 1024;
-        hsize = memsize / 2 / 1024;
+        hsize = (unsigned)(memsize / 2 / 1024);
     }
     isize += msize; msize = 0;
     if (hsize < isize+asize) hsize = isize+asize;

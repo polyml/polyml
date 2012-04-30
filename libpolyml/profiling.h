@@ -44,7 +44,7 @@ extern ProfileMode profileMode;
 
 extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
 extern Handle profilerc(TaskData *taskData, Handle mode_handle);
-extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, int incr);
+extern void add_count(TaskData *taskData, POLYCODEPTR pc, PolyWord *sp, POLYUNSIGNED incr);
 extern void AddObjectProfile(PolyObject *obj);
 extern void printprofile();
 

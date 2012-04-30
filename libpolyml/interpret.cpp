@@ -222,7 +222,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
     storeWords = 0;
     sp = taskData->stack->stack()->p_sp; /* Reload these. */
     pc = taskData->stack->stack()->p_pc;
-    li = UNTAGGED(taskData->stack->stack()->p_reg[1]);
+    li = (unsigned)UNTAGGED(taskData->stack->stack()->p_reg[1]);
     sl = (PolyWord*)taskData->stack->stack()+OVERFLOW_STACK_SIZE;
 
     if (li != 256) goto RETRY; /* Re-execute instruction if necessary. */
@@ -620,7 +620,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                            parameters, the first always being an empty type.
                            In ML it takes just one parameter. */
                         if (*sp == TAGGED(0)) sp++;
-                        *sp = (PolyObject*)IoEntry(UNTAGGED(*sp));
+                        *sp = (PolyObject*)IoEntry((unsigned)UNTAGGED(*sp));
                         break;
 
                     case POLY_SYS_exception_trace:
@@ -654,7 +654,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         taskData->stack->stack()->p_pc = pc; /* Pc value after instruction. */
                         taskData->stack->stack()->p_reg[1] = TAGGED(li); /* Previous instruction. */
                         taskData->stack->stack()->p_sp = sp-1; /* Include the closure address. */
-                        return uu;
+                        return (int)uu;
                     }
                 } /* End of system calls. */
                 else {

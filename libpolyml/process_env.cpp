@@ -123,7 +123,7 @@ static PLock atExitLock; // Thread lock for above.
 
 Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Return the program name. */
@@ -136,9 +136,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         {
             char buff[MAXPATHLEN], *res;
             /* Get the string. */
-            int length =
+            POLYUNSIGNED length =
                 Poly_string_to_C(DEREFWORDHANDLE(args), buff, sizeof(buff));
-            if (length >= (int)sizeof(buff)) raise_syscall(mdTaskData, "Not Found", 0);
+            if (length >= sizeof(buff)) raise_syscall(mdTaskData, "Not Found", 0);
             res = getenv(buff);
             if (res == NULL) raise_syscall(mdTaskData, "Not Found", 0);
             else return SAVE(C_string_to_Poly(mdTaskData, res));
@@ -163,9 +163,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             char buff[MAXPATHLEN];
             /* Get the string. */
             int res = -1;
-            int length =
+            POLYUNSIGNED length =
                 Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
-            if (length >= (int)sizeof(buff))
+            if (length >= sizeof(buff))
                 raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
 #if (defined(_WIN32))
             // Windows.
@@ -302,7 +302,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         {
             /* I don't like terminating without some sort of clean up
                but we'll do it this way for the moment. */
-            int i = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
+            int i = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
 			_exit(i);
         }
 
@@ -311,7 +311,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
     case 2: /* Get the name of a numeric error message. */
         {
             char buff[40];
-            int e = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
+            int e = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
             Handle  res;
             unsigned i;
             /* First look to see if we have the name in
@@ -342,7 +342,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 3: /* Get the explanatory message for an error. */
         {
-            return errorMsg(mdTaskData, get_C_long(mdTaskData, DEREFWORDHANDLE(args)));
+            return errorMsg(mdTaskData, get_C_int(mdTaskData, DEREFWORDHANDLE(args)));
         }
 
     case 4: /* Try to convert an error string to an error number. */
@@ -385,7 +385,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 8: /* Test the character to see if it matches a separator. */
         {
-            int e = get_C_long(mdTaskData, DEREFWORDHANDLE(args));
+            int e = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
             if (ISPATHSEPARATOR(e))
                 return Make_arbitrary_precision(mdTaskData, 1);
             else return Make_arbitrary_precision(mdTaskData, 0);
@@ -421,8 +421,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             char buff[MAXPATHLEN];
-            int length;
-            length = Poly_string_to_C(path, buff, MAXPATHLEN);
+            POLYUNSIGNED length = Poly_string_to_C(path, buff, MAXPATHLEN);
             /* Ignore the case where the whole path is too long. */
             if (length >= 2 && buff[1] == ':')
             { /* Volume name? */
@@ -484,7 +483,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
     case 12: /* Construct a name from a volume and whether it is
                 absolute. */
         {
-            unsigned isAbs = get_C_ulong(mdTaskData, DEREFHANDLE(args)->Get(1));
+            unsigned isAbs = get_C_unsigned(mdTaskData, DEREFHANDLE(args)->Get(1));
             PolyWord volName = DEREFHANDLE(args)->Get(0);
             /* In Unix the volume name will always be empty. */
             if (isAbs == 0)
@@ -548,7 +547,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 /* Terminate normally with a result code. */
 Handle finishc(TaskData *taskData, Handle h)
 {
-    int i = get_C_long(taskData, DEREFWORDHANDLE(h));
+    int i = get_C_int(taskData, DEREFWORDHANDLE(h));
     // Cause the other threads to exit.
     processes->Exit(i);
     // Exit this thread

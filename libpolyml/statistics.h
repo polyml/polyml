@@ -47,7 +47,7 @@ public:
     void decSize(int which, size_t s);
     size_t getSize(int which);
 
-    void setUserCounter(int which, long value);
+    void setUserCounter(unsigned which, intptr_t value);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     // Native Windows

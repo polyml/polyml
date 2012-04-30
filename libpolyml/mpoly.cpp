@@ -163,7 +163,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
             bool argUsed = false;
             for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
             {
-                unsigned argl = strlen(argTable[j].argName);
+                size_t argl = strlen(argTable[j].argName);
                 if (strncmp(argv[i], argTable[j].argName, argl) == 0)
                 {
                     char *p, *endp;
@@ -402,8 +402,8 @@ void InitHeaderFromExport(exportDescription *exports)
         {
             if (gMem.NewPermanentSpace(
                     (PolyWord*)memTable[i].mtAddr,
-                    memTable[i].mtLength/sizeof(PolyWord), memTable[i].mtFlags,
-                    memTable[i].mtIndex) == 0)
+                    memTable[i].mtLength/sizeof(PolyWord), (unsigned)memTable[i].mtFlags,
+                    (unsigned)memTable[i].mtIndex) == 0)
                 Exit("Unable to initialise a permanent memory space");
         }
     }

@@ -164,7 +164,7 @@ static PHANDLETAB get_handle(PolyWord token, HANDENTRYTYPE heType)
 
 static Handle make_handle_entry(TaskData *taskData)
 {
-    POLYUNSIGNED handle_no;
+    unsigned handle_no;
     Handle str_token;
     bool have_collected = false;
 
@@ -184,7 +184,7 @@ static Handle make_handle_entry(TaskData *taskData)
             }
             else /* No space - expand vector. */
             {
-                int oldMax = maxHandleTab;
+                POLYUNSIGNED oldMax = maxHandleTab;
                 maxHandleTab += maxHandleTab/2;
                 handleTable =
                     (PHANDLETAB)realloc(handleTable,
@@ -298,7 +298,7 @@ HKEY hkPredefinedKeyTab[] =
 
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORD(code));
+    int c = get_C_int(taskData, DEREFWORD(code));
     switch (c)
     {
     case 0: /* Return our OS type.  Not in any structure. */
@@ -373,8 +373,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1006: /* Return a constant. */
         {
-            int i = get_C_long(taskData, DEREFWORD(args));
-            if (i < 0 || i >= (int)(sizeof(winConstVec)/sizeof(winConstVec[0])))
+            unsigned i = get_C_unsigned(taskData, DEREFWORD(args));
+            if (i >= sizeof(winConstVec)/sizeof(winConstVec[0]))
                 raise_syscall(taskData, "Invalid index", 0);
             return Make_unsigned(taskData, winConstVec[i]);
         }
@@ -382,7 +382,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         /* Registry functions. */
     case 1007: // Open a key within one of the roots.
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             // This should only ever happen as a result of a fault in
             // the Windows structure.
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
@@ -401,7 +401,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1009: // Create a subkey within one of the roots.
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             // This should only ever happen as a result of a fault in
             // the Windows structure.
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
@@ -427,7 +427,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1012: // Get a value
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             // This should only ever happen as a result of a fault in
             // the Windows structure.
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
@@ -446,7 +446,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1014: // Delete a subkey
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             // This should only ever happen as a result of a fault in
             // the Windows structure.
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
@@ -465,7 +465,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1016: // Set a value
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             // This should only ever happen as a result of a fault in
             // the Windows structure.
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
@@ -484,7 +484,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1018: // Enumerate a key in the predefined keys
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
                 raise_syscall(taskData, "Invalid index", 0);
             return enumerateRegistry(taskData, args, hkPredefinedKeyTab[keyIndex], TRUE);
@@ -501,7 +501,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1020: // Enumerate a value in the predefined keys
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
                 raise_syscall(taskData, "Invalid index", 0);
             return enumerateRegistry(taskData, args, hkPredefinedKeyTab[keyIndex], FALSE);
@@ -518,7 +518,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1022: // Delete a value
         {
-            unsigned keyIndex = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(0));
+            unsigned keyIndex = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(0));
             // This should only ever happen as a result of a fault in
             // the Windows structure.
             if (keyIndex >= sizeof(hkPredefinedKeyTab)/sizeof(hkPredefinedKeyTab[0]))
@@ -568,8 +568,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             DWORD dwVolSerial, dwMaxComponentLen, dwFlags;
             Handle volHandle, sysHandle, serialHandle, maxCompHandle;
             Handle resultHandle;
-            int length = Poly_string_to_C(DEREFWORD(args),
-                            rootName, MAX_PATH);
+            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), rootName, MAX_PATH);
             if (length > MAX_PATH)
                 raise_syscall(taskData, "Root name too long", ENAMETOOLONG);
             
@@ -593,8 +592,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 1033:
         {
             char fileName[MAX_PATH], execName[MAX_PATH];
-            int length = Poly_string_to_C(DEREFWORD(args),
-                            fileName, MAX_PATH);
+            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), fileName, MAX_PATH);
             HINSTANCE hInst;
             if (length > MAX_PATH)
                 raise_syscall(taskData, "File name too long", ENAMETOOLONG);
@@ -759,8 +757,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             while (1)
             {
                 HWND hwnd = (HWND)get_C_long(taskData, DEREFWORDHANDLE(args)->Get(0)); /* Handles are treated as SIGNED. */
-                UINT wMsgFilterMin = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
-                UINT wMsgFilterMax = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+                UINT wMsgFilterMin = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+                UINT wMsgFilterMax = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
                 MSG msg;
                 processes->ThreadReleaseMLMemory(taskData);
                 // N.B.  PeekMessage may directly call the window proc resulting in a
@@ -1051,8 +1049,8 @@ static Handle openRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     Handle result;
     PHANDLETAB pTab;
     HKEY hkey;
-    REGSAM sam = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
-    int length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
+    REGSAM sam = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
 
@@ -1078,9 +1076,9 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     PHANDLETAB pTab;
     HKEY hkey;
     DWORD dwDisp;
-    REGSAM sam = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(3));
-    int opt = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
-    int length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
+    REGSAM sam = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(3));
+    unsigned opt = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
 
@@ -1111,7 +1109,7 @@ static Handle deleteRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
 {
     TCHAR keyName[MAX_PATH];
     LONG lRes;
-    int length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), keyName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
 
@@ -1127,7 +1125,7 @@ static Handle deleteRegistryValue(TaskData *taskData, Handle args, HKEY hkParent
 {
     TCHAR keyName[MAX_PATH];
     LONG lRes;
-    int length = Poly_string_to_C(args->WordP()->Get(1).AsObjPtr(),
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1).AsObjPtr(),
                     keyName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Key name too long", ENAMETOOLONG);
@@ -1148,7 +1146,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     DWORD valSize;
     Handle result, resVal, resType;
     DWORD dwType;
-    int length = Poly_string_to_C(args->WordP()->Get(1), valName, MAX_PATH);
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), valName, MAX_PATH);
     if (length > MAX_PATH)
         raise_syscall(taskData, "Value name too long", ENAMETOOLONG);
 
@@ -1196,8 +1194,8 @@ static Handle setRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     TCHAR valName[MAX_PATH];
     LONG lRes;
     PolyWord str = args->WordP()->Get(3);
-    int length = Poly_string_to_C(args->WordP()->Get(1), valName, MAX_PATH);
-    DWORD dwType = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+    POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), valName, MAX_PATH);
+    DWORD dwType = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     if (length > MAX_PATH)
         raise_syscall(taskData, "Value name too long", ENAMETOOLONG);
 
@@ -1212,7 +1210,7 @@ static Handle setRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     {
         PolyStringObject *ps = (PolyStringObject*)str.AsObjPtr();
         lRes = RegSetValueEx(hkey, valName, 0, dwType,
-                            (CONST BYTE *)ps->chars, ps->length);
+                            (CONST BYTE *)ps->chars, (DWORD)ps->length);
     }
 
     if (lRes != ERROR_SUCCESS)
@@ -1225,7 +1223,7 @@ static Handle setRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
 // no key/value could be found or SOME s where s is the name of the key/value.
 static Handle enumerateRegistry(TaskData *taskData, Handle args, HKEY hkey, BOOL isKey)
 {
-    DWORD num = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+    DWORD num = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
     LONG lRes;
     TCHAR keyName[MAX_PATH];
     DWORD dwLength = sizeof(keyName)/sizeof(keyName[0]);

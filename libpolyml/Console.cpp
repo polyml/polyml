@@ -420,7 +420,7 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
             else if (wParam >= ' ' || wParam == '\r' || wParam == '\t' ||
                      wParam == 4 /* ctrl-D */ || wParam == 26 /* ctrl-Z */)
             {
-                CheckForBufferSpace(nRpt);
+                CheckForBufferSpace((int)nRpt);
                 CheckForScreenSpace(nRpt); // Make sure we have space on the screen.
                 // Add the character(s) to the buffer.
                 while (nRpt-- > 0)
@@ -434,12 +434,12 @@ static LRESULT APIENTRY EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LP
                     else if (wParam == 4 || wParam == 26)
                     {
                         // Treat either of these as EOF chars.
-                        pchInputBuffer[nNextPosn++] = wParam;
+                        pchInputBuffer[nNextPosn++] = (CHAR)wParam;
                         nAvailable = nNextPosn;
                         SetEvent(hInputEvent);
                         wParam = 4;
                     }
-                    else pchInputBuffer[nNextPosn++] = wParam;
+                    else pchInputBuffer[nNextPosn++] = (CHAR)wParam;
                     if (nNextPosn == nBuffLen) nNextPosn = 0;
                     if (nAvailable == nBuffLen) nAvailable = 0;
                 }

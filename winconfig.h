@@ -629,7 +629,11 @@
 #undef PACKAGE_VERSION
 
 /* Define prefix of external names */
-#undef POLY_LINKAGE_PREFIX
+#ifdef _WIN64
+#   undef POLY_LINKAGE_PREFIX
+#else
+#	define POLY_LINKAGE_PREFIX "_"
+#endif
 
 /* Define to the type of arg 1 for `select'. */
 #undef SELECT_TYPE_ARG1

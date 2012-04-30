@@ -594,8 +594,8 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 {
     double  dx = real_arg(arg);
     int     decpt, sign;
-    int     mode = get_C_long(mdTaskData, DEREFWORDHANDLE(hMode));
-    int     digits = get_C_long(mdTaskData, DEREFWORDHANDLE(hDigits));
+    int     mode = get_C_int(mdTaskData, DEREFWORDHANDLE(hMode));
+    int     digits = get_C_int(mdTaskData, DEREFWORDHANDLE(hDigits));
     /* Compute the shortest string which gives the required value. */
     /*  */
     char *chars = poly_dtoa(dx, mode, digits, &decpt, &sign, NULL);
@@ -615,7 +615,7 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 /* Functions added for Standard Basis Library are all indirected through here. */
 Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_long(mdTaskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* tan */ return real_result(mdTaskData, tan(real_arg(args)));
@@ -696,7 +696,7 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
         }
     case 23: /* Compute ldexp */
         {
-            int exp = get_C_long(mdTaskData, DEREFHANDLE(args)->Get(1));
+            int exp = get_C_int(mdTaskData, DEREFHANDLE(args)->Get(1));
             return real_result(mdTaskData, ldexp(real_arg1(args), exp));
         }
     case 24: /* Get mantissa. */

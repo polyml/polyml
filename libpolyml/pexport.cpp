@@ -121,8 +121,8 @@ void PExport::printAddress(void *p)
     {
         // Is it an IO entry?
         POLYUNSIGNED byteOffset = (char*)p - (char*)memTable[area].mtAddr;
-        unsigned ioEntry = byteOffset / (ioSpacing*sizeof(PolyWord));
-        unsigned ioOffset = byteOffset - ioEntry * (ioSpacing*sizeof(PolyWord));
+        unsigned ioEntry = (unsigned)(byteOffset / (ioSpacing*sizeof(PolyWord)));
+        unsigned ioOffset = (unsigned)(byteOffset - ioEntry * (ioSpacing*sizeof(PolyWord)));
         ASSERT(ioEntry >= 0 && ioEntry < POLY_SYS_vecsize);
         if (ioOffset == 0)
            fprintf(exportFile, "I%d", ioEntry);
@@ -283,7 +283,7 @@ void PExport::exportStore(void)
     {
         if (i != ioMemEntry)
         {
-            totalBytes += memTable[i].mtLength;
+            totalBytes += (unsigned long)memTable[i].mtLength;
             // Get the lowest address.
             if (startAddr == 0 || memTable[i].mtAddr < startAddr)
                 startAddr = memTable[i].mtAddr;

@@ -521,7 +521,7 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
 // Return the address of the iovec entry for a given index.
 Handle io_operation_c(TaskData *taskData, Handle entry)
 {
-    POLYUNSIGNED entryNo = get_C_ulong(taskData, DEREFWORD(entry));
+    unsigned entryNo = get_C_unsigned(taskData, DEREFWORD(entry));
     if (entryNo >= POLY_SYS_vecsize)
         raise_exception0(taskData, EXC_subscript);
     return SAVE((PolyObject*)IoEntry(entryNo));
@@ -618,12 +618,12 @@ static Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle
 static Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
-    unsigned src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
+    POLYUNSIGNED src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
     byte *source = DEREFBYTEHANDLE(src_handle) + src_offset;
-    unsigned dest_offset = get_C_ulong(taskData, DEREFWORDHANDLE(dest_offset_handle));
+    POLYUNSIGNED dest_offset = get_C_ulong(taskData, DEREFWORDHANDLE(dest_offset_handle));
     byte *destination = DEREFBYTEHANDLE(dest_handle);
     byte *dest = destination + dest_offset;
-    unsigned bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
+    POLYUNSIGNED bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
     PolyObject *obj = DEREFHANDLE(dest_handle);
     ASSERT(obj->IsByteObject());
 
@@ -663,7 +663,7 @@ static Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Han
     POLYUNSIGNED y_offset = get_C_ulong(taskData, DEREFWORDHANDLE(yOffset));
     byte *yAddr = DEREFBYTEHANDLE(y) + y_offset;
 
-    unsigned bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
+    POLYUNSIGNED bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
 
     int res = memcmp(xAddr, yAddr, bytes);
     if (res == 0) return taskData->saveVec.push(TAGGED(1));
@@ -694,7 +694,7 @@ static Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in W
 // return address into the assembly code.
 static Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
 {
-    POLYUNSIGNED flags = get_C_ulong(taskData, DEREFWORD(flags_handle));
+    unsigned flags = get_C_unsigned(taskData, DEREFWORD(flags_handle));
     POLYUNSIGNED usize = get_C_ulong(taskData, DEREFWORD(size));
     
     if (usize == 0 || usize >= MAX_OBJECT_SIZE)
@@ -932,12 +932,7 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
 static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 /* Shrinks the current stack. */
 {
-    int reserved = get_C_long(taskData, DEREFWORDHANDLE(reserved_space));
-
-    if (reserved < 0)
-    {
-       raise_exception0(taskData, EXC_size);
-    }
+    unsigned reserved = get_C_unsigned(taskData, DEREFWORDHANDLE(reserved_space));
 
     StackObject *oldStack = taskData->stack->stack();
     /* Get current size of new stack segment. */

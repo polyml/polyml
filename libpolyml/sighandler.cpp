@@ -234,7 +234,7 @@ void SignalRequest::Perform()
    I've used a general dispatch function here to allow for future expansion. */
 Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Set up signal handler. */
@@ -248,10 +248,10 @@ Handle Sig_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 PLocker locker(&sigLock);
                 // We have to pass this to the main thread to 
                 // set up the signal handler.
-                sign = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
+                sign = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
                 /* Decode the action if it is Ignore or Default. */
                 if (IS_INT(DEREFHANDLE(args)->Get(1)))
-                    action = UNTAGGED(DEREFHANDLE(args)->Get(1));
+                    action = (int)UNTAGGED(DEREFHANDLE(args)->Get(1));
                 else action = HANDLE_SIG; /* Set the handler. */
                 if (sign <= 0 || sign >= NSIG)
                     raise_syscall(taskData, "Invalid signal value", EINVAL);

@@ -61,7 +61,7 @@ PolyWord EmptyString(void)
     return (PolyObject*)IoEntry(POLY_SYS_emptystring);
 }
 
-PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, unsigned length) 
+PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, size_t length) 
 /* Returns a string as a Poly string. */
 {
     /* Return the null string if it's empty. */

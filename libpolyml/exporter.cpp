@@ -607,7 +607,7 @@ ExportStringTable::~ExportStringTable()
 // Add a string to the string table, growing it if necessary.
 unsigned long ExportStringTable::makeEntry(const char *str)
 {
-    int len = strlen(str);
+    unsigned len = (unsigned)strlen(str);
     unsigned long entry = stringSize;
     if (stringSize + len + 1 > stringAvailable)
     {

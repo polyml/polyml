@@ -203,7 +203,7 @@ static PolyObject *getProfileObjectForCode(PolyObject *code)
 // Adds incr to the profile count for the function pointed at by
 // pc or by one of its callers.
 // This is called from a signal handler in the case of time profiling.
-void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, int incr)
+void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED incr)
 {
 
     /* The first PC may be valid even if it's not a code pointer */
@@ -568,7 +568,7 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
    if the parameter is 2 it produces store profiling.
    3 - arbitrary precision emulation traps. */
 {
-    unsigned mode = get_C_ulong(taskData, DEREFWORDHANDLE(mode_handle));
+    unsigned mode = get_C_unsigned(taskData, DEREFWORDHANDLE(mode_handle));
     {
         PLocker locker(&profLock);
         if (mode == profile_mode) // No change in mode = no-op

@@ -82,7 +82,7 @@
 void PECOFFExport::setRelocationAddress(void *p, DWORD *reloc)
 {
     unsigned area = findArea(p);
-    POLYUNSIGNED offset = (char*)p - (char*)memTable[area].mtAddr;
+    DWORD offset = (DWORD)((char*)p - (char*)memTable[area].mtAddr);
     *reloc = offset;
 }
 
@@ -205,7 +205,7 @@ void PECOFFExport::exportStore(void)
     for (i = 0; i < memTableEntries; i++)
     {
         memset(&sections[i], 0, sizeof(IMAGE_SECTION_HEADER));
-        sections[i].SizeOfRawData = memTable[i].mtLength;
+        sections[i].SizeOfRawData = (DWORD)memTable[i].mtLength;
         sections[i].Characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_8BYTES;
 
         if (memTable[i].mtFlags & MTF_WRITEABLE)
@@ -353,7 +353,12 @@ void PECOFFExport::exportStore(void)
         }
     }
     // This is the only "real" symbol.
-    writeSymbol("_poly_exports", 0, memTableEntries+1, true);
+	// Add an underscore prefix if required.
+#ifdef POLY_LINKAGE_PREFIX
+	writeSymbol(POLY_LINKAGE_PREFIX "poly_exports", 0, memTableEntries+1, true);
+#else
+    writeSymbol("poly_exports", 0, memTableEntries+1, true);
+#endif
 
     fhdr.NumberOfSymbols = symbolCount;
 

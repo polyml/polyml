@@ -102,7 +102,7 @@ static inline PolyWord *FindFreeAndAllocate(LocalMemSpace *dst, POLYUNSIGNED lim
     // than n.  SPF's idea is that after finding the space in the bitmap
     // we update only the element for the size we are looking for rather
     // than everything larger.
-    POLYUNSIGNED truncated_n = n < NSTARTS ? n : NSTARTS - 1;
+    unsigned truncated_n = n < NSTARTS ? (unsigned)n : NSTARTS - 1;
 
     // If we're looking for something larger than last time update
     // all the entries last time's size and this size.

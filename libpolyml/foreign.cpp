@@ -190,7 +190,7 @@ static Handle get_foreign_debug (TaskData *taskData, Handle ignored)
 static Handle set_foreign_debug (TaskData *taskData, Handle h)
 {
   TRACE;
-  foreign_debug = get_C_long(taskData, DEREFWORD(h));
+  foreign_debug = get_C_int(taskData, DEREFWORD(h));
   return h;
 }
  
@@ -464,7 +464,7 @@ static Handle offset (TaskData *taskData, Handle h)
     char *addr = (char*)DEREFVOL(taskData, structure);
     PLocker plocker(&volLock);
     Handle res = vol_alloc(taskData);
-    int num_bytes = get_C_long(taskData, DEREFWORDHANDLE(h)->Get(1));
+    POLYSIGNED num_bytes = get_C_long(taskData, DEREFWORDHANDLE(h)->Get(1));
     
     C_POINTER(UNVOLHANDLE(res)) = addr + num_bytes;
     return res;
@@ -794,7 +794,7 @@ static Handle load_sym (TaskData *taskData, Handle h)
 }
 
 
-static POLYUNSIGNED length_list (PolyWord p)
+static unsigned length_list (PolyWord p)
 {
   TRACE; {
       return ML_Cons_Cell::IsNull(p) ? 0 : 1 + length_list (Tail(p));
@@ -865,7 +865,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
     TRACE;
     ftype sym               = *(ftype*)DEREFVOL(taskData, symH->Word());
     PolyWord arg_list       = argsH->Word();
-    POLYUNSIGNED num_args   = length_list(arg_list);
+    unsigned num_args   = length_list(arg_list);
     ffi_cif cif;
 
     // Initialise the error vars to "no error".  If we have multiple worker
@@ -891,7 +891,7 @@ static Handle call_sym (TaskData *taskData, Handle symH, Handle argsH, Handle re
 
     ffi_type *result_type = ctypeToFfiType(taskData, retCtypeH->Word());
 
-#if(defined(_WIN32) && ! defined(__GNUC__) && ! defined(X86_WIN64))
+#if(defined(_WIN32) && ! defined(__GNUC__) && ! defined(_WIN64))
     const ffi_abi abi = FFI_STDCALL;
 #else
     const ffi_abi abi = FFI_DEFAULT_ABI;
@@ -1019,7 +1019,7 @@ static Handle fromCfloat (TaskData *taskData, Handle h)
 
 static Handle toCint (TaskData *taskData, Handle h)
 {
-    int i = get_C_long(taskData, UNHANDLE(h));
+    int i = get_C_int(taskData, UNHANDLE(h));
     mes(("value = %d\n", i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(int));
     *(int*)DEREFVOL(taskData, UNHANDLE(res)) = i;
@@ -1042,7 +1042,7 @@ static Handle fromCint (TaskData *taskData, Handle h)
 
 static Handle toClong (TaskData *taskData, Handle h)
 {
-    long i = get_C_long(taskData, UNHANDLE(h));
+    long i = (long)get_C_long(taskData, UNHANDLE(h));
     mes(("value = %d\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(long));
     *(long*)DEREFVOL(taskData, UNHANDLE(res)) = i;
@@ -1088,7 +1088,7 @@ static Handle fromCshort (TaskData *taskData, Handle h)
 
 static Handle toCuint (TaskData *taskData, Handle h)
 {
-    unsigned i = get_C_ulong(taskData, UNHANDLE(h));
+    unsigned i = get_C_unsigned(taskData, UNHANDLE(h));
     mes(("value = %d\n", (int)i));
     Handle res = vol_alloc_with_c_space(taskData, sizeof(unsigned));
     *(unsigned*)DEREFVOL(taskData, UNHANDLE(res)) = i;
@@ -1190,7 +1190,7 @@ static Handle toCbytes (TaskData *taskData, Handle h)
 static Handle fromCbytes (TaskData *taskData, Handle h)
 { TRACE; {
     char* str = *(char**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0));
-    int size = get_C_long(taskData, DEREFHANDLE(h)->Get(1));
+    size_t size = get_C_long(taskData, DEREFHANDLE(h)->Get(1));
     if (str == NULL) return SAVE(EmptyString());
     else return SAVE(Buffer_to_Poly(taskData, str, size));
 }}
@@ -1555,7 +1555,7 @@ static Handle createCallbackFunction(TaskData *taskData, Handle triple, ffi_abi 
     if (closure == 0)
         RAISE_EXN("Callbacks not implemented or insufficient memory");
 
-    POLYUNSIGNED num_args = length_list(argTypeList->Word());
+    unsigned num_args = length_list(argTypeList->Word());
     ffi_type **arg_types = (ffi_type**)malloc(num_args * sizeof(ffi_type*));
     PolyWord p = argTypeList->Word();
     for (POLYUNSIGNED i=0; i<num_args; i++,p=Tail(p))
@@ -1592,7 +1592,7 @@ static Handle toCfunction (TaskData *taskData, Handle triple)
    The CALLED function must remove the arguments from the stack before returning. */
 static Handle toPascalfunction (TaskData *taskData, Handle triple)
 {
-#if(defined(_WIN32) && ! defined(X86_WIN64))    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
+#if(defined(_WIN32) && ! defined(_WIN64))    // We can't actually test for FFI_STDCALL here because it's a value in an enum not a define.
     return createCallbackFunction(taskData, triple, FFI_STDCALL);
 #else
     RAISE_EXN("Pascal (stdcall) calling conventions are not supported on this platform");
@@ -1686,7 +1686,7 @@ static type_hh_fun handlers[] =
 
 Handle foreign_dispatch_c (TaskData *taskData, Handle args, Handle fcode_h)
 {
-    int fcode = get_C_long(taskData, DEREFWORD(fcode_h));
+    int fcode = get_C_int(taskData, DEREFWORD(fcode_h));
     
     if (fcode < 0 || fcode >= NUM_HANDLERS) {
         char buf[100];

@@ -234,18 +234,19 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size);
 
 #ifdef USE_GMP
-    POLYUNSIGNED length = numLimbs(number);
+	// This code won't work with GMP but it's only relevant to Windows.
+	ASSERT(0);
 #else    
     POLYUNSIGNED length = get_length(number);
 #endif
-    unsigned i;
-    POLYUNSIGNED c;
+    POLYUNSIGNED i;
+    unsigned long c;
     POLYOBJPTR ptr = number.AsObjPtr();
 
-    if ( length > 2 * sizeof(POLYUNSIGNED) ) raise_exception0(taskData, EXC_size);
+    if ( length > 2 * sizeof(unsigned long) ) raise_exception0(taskData, EXC_size);
 
     /* Low-order word. */
-    if (length > sizeof(POLYUNSIGNED)) i = sizeof(POLYUNSIGNED); else i = length;
+    if (length > sizeof(unsigned long)) i = sizeof(unsigned long); else i = length;
     c = 0;
     while (i--) c = (c << 8) | ((byte *) ptr)[i];
     *pLo = c;
@@ -253,9 +254,43 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     /* High-order word. */
     i = length;
     c = 0;
-    while (i-- > sizeof(POLYUNSIGNED)) c = (c << 8) | ((byte *) ptr)[i];
+    while (i-- > sizeof(unsigned long)) c = (c << 8) | ((byte *) ptr)[i];
     *pHi = c;
 }
+
+
+#if (SIZEOF_LONG == SIZEOF_VOIDP)
+unsigned get_C_unsigned(TaskData *taskData, PolyWord number)
+{
+	return get_C_ulong(taskData, number);
+}
+
+int get_C_int(TaskData *taskData, PolyWord number)
+{
+	return get_C_long(taskData, number);
+}
+#else
+// Poly words are the same size as a pointer but that may
+// not be the same as int or long.
+unsigned get_C_unsigned(TaskData *taskData, PolyWord number)
+{
+	POLYUNSIGNED res = get_C_ulong(taskData, number);
+	unsigned result = (unsigned)res;
+	if ((POLYUNSIGNED)result != res)
+		raise_exception0(taskData, EXC_size);
+	return result;
+}
+
+int get_C_int(TaskData *taskData, PolyWord number)
+{
+	POLYSIGNED res = get_C_long(taskData, number);
+	int result = (int)res;
+	if ((POLYSIGNED)result != res)
+		raise_exception0(taskData, EXC_size);
+	return result;
+
+}
+#endif
 
 static Handle get_long(Handle x, Handle extend, int *sign)
 {
@@ -538,8 +573,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
     byte *v; /* byte-pointer for shorter number */
     Handle z;
 
-    int lu;   /* length of u in bytes */
-    int lv;   /* length of v in bytes */
+    POLYUNSIGNED lu;   /* length of u in bytes */
+    POLYUNSIGNED lv;   /* length of v in bytes */
 
     /* find the longer number */
     POLYUNSIGNED lx = get_length(DEREFWORD(x));
@@ -570,8 +605,8 @@ static Handle add_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 
     /* do the actual addition */
     byte  *w = DEREFBYTEHANDLE(z);
-    int carry = 0;
-    int i     = 0;
+    unsigned carry = 0;
+    POLYUNSIGNED i     = 0;
 
     /* Do the additions */
     for( ; i < lv; i++)
@@ -651,8 +686,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 {
     byte *u; /* byte-pointer alias for larger number  */
     byte *v; /* byte-pointer alias for smaller number */
-    int lu;   /* length of u in bytes */
-    int lv;   /* length of v in bytes */
+    POLYUNSIGNED lu;   /* length of u in bytes */
+    POLYUNSIGNED lv;   /* length of v in bytes */
     Handle z;
 
     /* get the larger argument into ``u'' */
@@ -682,12 +717,12 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 
     else /* lx == ly */
     { /* Must look at the numbers to decide which is bigger. */
-        int i = lx - 1;
-        for( ; i >= 0 && DEREFBYTEHANDLE(x)[i] == DEREFBYTEHANDLE(y)[i]; i--);
+		POLYUNSIGNED i = lx;
+		while (i > 0 && DEREFBYTEHANDLE(x)[i-1] == DEREFBYTEHANDLE(y)[i-1]) i--;
 
-        if (i < 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
+        if (i == 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
 
-        if (DEREFBYTEHANDLE(x)[i] < DEREFBYTEHANDLE(y)[i])
+        if (DEREFBYTEHANDLE(x)[i-1] < DEREFBYTEHANDLE(y)[i-1])
         {
             sign ^= -1; /* swap sign of result SPF 21/1/94 */
             z = alloc_and_save(taskData, WORDS(ly+1), F_MUTABLE_BIT|F_BYTE_OBJ);
@@ -706,9 +741,9 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         }
     }
 
-    byte    *w = DEREFBYTEHANDLE(z);
-    int borrow = 1; /* Becomes 0 if there is a borrow */
-    int      i = 0;
+    byte		*w = DEREFBYTEHANDLE(z);
+    unsigned	borrow = 1; /* Becomes 0 if there is a borrow */
+    POLYUNSIGNED i = 0;
 
     /* Do the subtractions */
     for( ; i < lv; i++)

@@ -414,7 +414,7 @@ Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
 Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
     ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
     switch (c)
     {
@@ -701,7 +701,7 @@ ProcessTaskData::~ProcessTaskData()
 ProcessTaskData *Processes::TaskForIdentifier(Handle taskId)
 {
     // The index is in the first word of the thread object.
-    unsigned index = UNTAGGED_UNSIGNED(taskId->WordP()->Get(0));
+    unsigned index = (unsigned)(UNTAGGED_UNSIGNED(taskId->WordP()->Get(0)));
     // Check the index is valid and matches the object stored in the table.
     if (index < taskArraySize)
     {
@@ -761,7 +761,7 @@ void Processes::ThreadExit(TaskData *taskData)
     schedLock.Lock();
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
     // Remove this from the taskArray
-    unsigned index = UNTAGGED(taskData->threadObject->index);
+    unsigned index = get_C_unsigned(taskData, taskData->threadObject->index);
     ASSERT(index < taskArraySize && taskArray[index] == taskData);
     taskArray[index] = 0;
     delete(taskData);

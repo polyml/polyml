@@ -394,7 +394,8 @@ Handle make_stream_entry(TaskData *taskData)
         memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
     }
      
-    Handle str_token = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    Handle str_token =
+		alloc_and_save(taskData, (sizeof(StreamToken) + sizeof(PolyWord) - 1)/sizeof(PolyWord), F_BYTE_OBJ);
     STREAMID(str_token) = stream_no;
 
     ASSERT(!isOpen(&basic_io_vector[stream_no]));
@@ -476,7 +477,7 @@ TryAgain:
 
     {
         Handle str_token = make_stream_entry(taskData);
-        POLYUNSIGNED stream_no    = STREAMID(str_token);
+        unsigned stream_no = STREAMID(str_token);
         stream = open(string_buffer, mode, access);
         if (stream >= 0)
         {
@@ -532,7 +533,7 @@ TryAgain:
 static Handle close_file(TaskData *taskData, Handle stream)
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(stream));
-    int stream_no = STREAMID(stream);
+    unsigned stream_no = STREAMID(stream);
 
     if (strm != NULL && stream_no > 2)
         /* Ignore closed streams, stdin, stdout or stderr. */
@@ -584,9 +585,9 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         // the higher-level IO interfaces in ML which have their own mutexes.
         int fd = strm->device.ioDesc;
         byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
-        POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
-        POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
-        POLYSIGNED haveRead;
+        unsigned offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+        unsigned length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+        int haveRead;
         int err;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
@@ -614,7 +615,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
    choose the appropriate function depending on need. */
 static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
-    POLYUNSIGNED length = get_C_ulong(taskData, DEREFWORD(args));
+    unsigned length = get_C_unsigned(taskData, DEREFWORD(args));
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
 
@@ -680,8 +681,8 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
        when the file was opened to determine whether to translate
        LF into CRLF. */
     PolyWord base = DEREFWORDHANDLE(args)->Get(0);
-    POLYUNSIGNED    offset = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
-    POLYUNSIGNED    length = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+    unsigned		offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+    unsigned		length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     PIOSTRUCT       strm = get_stream(stream->WordP());
     POLYSIGNED      haveWritten;
     byte    ch;
@@ -868,7 +869,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             Handle marker = taskData->saveVec.mark();
             PIOSTRUCT strm = get_stream(strmVec->Get(i).AsObjPtr());
             taskData->saveVec.reset(marker);
-            int bits = UNTAGGED(bitVec->Get(i));
+            int bits = get_C_int(taskData, bitVec->Get(i));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             
             if (isSocket(strm))
@@ -1102,7 +1103,7 @@ TryAgain:
     getFileName(taskData, dirname, string_buffer, MAXPATHLEN+2);
     {
         Handle str_token = make_stream_entry(taskData);
-        int stream_no    = STREAMID(str_token);
+        unsigned stream_no    = STREAMID(str_token);
         PIOSTRUCT strm = &basic_io_vector[stream_no];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         {
@@ -1487,7 +1488,7 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
 Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 {
     TCHAR string_buffer[MAXPATHLEN];
-    int rts = get_C_ulong(taskData, DEREFWORD(rights));
+    int rts = get_C_int(taskData, DEREFWORD(rights));
     getFileName(taskData, name, string_buffer, MAXPATHLEN);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1531,7 +1532,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 /* IO_dispatchc.  Called from assembly code module. */
 Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORD(code));
+    int c = get_C_int(taskData, DEREFWORD(code));
     switch (c)
     {
     case 0: /* Return standard input */
@@ -1598,7 +1599,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 19: /* Seek to position on stream. */
         {
-            long position = get_C_long(taskData, DEREFWORD(args));
+            long position = (long)get_C_long(taskData, DEREFWORD(args));
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
@@ -1671,7 +1672,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 31: /* Make an entry for a given descriptor. */
         {
-            int ioDesc = get_C_long(taskData, DEREFWORD(args));
+            int ioDesc = get_C_int(taskData, DEREFWORD(args));
             PIOSTRUCT str;
             /* First see if it's already in the table. */
             for (unsigned i = 0; i < max_streams; i++)
@@ -1684,7 +1685,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             Handle str_token = make_stream_entry(taskData);
             unsigned stream_no    = STREAMID(str_token);
             str = &basic_io_vector[stream_no];
-            str->device.ioDesc = get_C_long(taskData, DEREFWORD(args));
+            str->device.ioDesc = get_C_int(taskData, DEREFWORD(args));
             /* We don't know whether it's open for read, write or even if
                it's open at all. */
             str->ioBits = IO_BIT_OPEN | IO_BIT_READ | IO_BIT_WRITE ;
@@ -1892,15 +1893,15 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     case 70: /* Posix.FileSys.openf - open a file with given mode. */
         {
             Handle name = taskData->saveVec.push(DEREFWORDHANDLE(args)->Get(0));
-            int mode = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
+            int mode = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(1));
             return open_file(taskData, name, mode, 0666, 1);
         }
 
     case 71: /* Posix.FileSys.createf - create a file with given mode and access. */
         {
             Handle name = taskData->saveVec.push(DEREFWORDHANDLE(args)->Get(0));
-            int mode = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(1));
-            int access = get_C_ulong(taskData, DEREFWORDHANDLE(args)->Get(2));
+            int mode = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(1));
+            int access = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(2));
             return open_file(taskData, name, mode|O_CREAT, access, 1);
         }
 

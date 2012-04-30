@@ -287,7 +287,7 @@ PolyWord SaveStateExport::createRelocation(PolyWord p, void *relocAddr)
     void *addr = p.AsAddress();
     unsigned addrArea = findArea(addr);
     reloc.targetAddress = (char*)addr - (char*)memTable[addrArea].mtAddr;
-    reloc.targetSegment = memTable[addrArea].mtIndex;
+    reloc.targetSegment = (unsigned)memTable[addrArea].mtIndex;
     reloc.relKind = PROCESS_RELOC_DIRECT;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -317,7 +317,7 @@ void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
     RelocationEntry reloc;
     setRelocationAddress(addr, &reloc.relocAddress);
     reloc.targetAddress = (char*)a - (char*)memTable[aArea].mtAddr;
-    reloc.targetSegment = memTable[aArea].mtIndex;
+    reloc.targetSegment = (unsigned)memTable[aArea].mtIndex;
     reloc.relKind = code;
     fwrite(&reloc, sizeof(reloc), 1, exportFile);
     relocationCount++;
@@ -549,7 +549,7 @@ void SaveRequest::Perform()
         memoryTableEntry *entry = &exports.memTable[j];
         memset(&descrs[j], 0, sizeof(SavedStateSegmentDescr));
         descrs[j].relocationSize = sizeof(RelocationEntry);
-        descrs[j].segmentIndex = entry->mtIndex;
+        descrs[j].segmentIndex = (unsigned)entry->mtIndex;
         descrs[j].segmentSize = entry->mtLength; // Set this even if we don't write it.
         descrs[j].originalAddress = entry->mtAddr;
         if (entry->mtFlags & MTF_WRITEABLE)
@@ -631,7 +631,7 @@ Handle SaveState(TaskData *taskData, Handle args)
     if (length > MAXPATHLEN)
         raise_syscall(taskData, "File name too long", ENAMETOOLONG);
     // The value of depth is zero for top-level save so we need to add one for hierarchy.
-    unsigned newHierarchy = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)) + 1;
+    unsigned newHierarchy = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)) + 1;
 
     if (newHierarchy > hierarchyDepth+1)
         raise_fail(taskData, "Depth must be no more than the current hierarchy plus one");
@@ -798,7 +798,7 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
     // top-level file we have to load the parents first.
     if (header.parentNameEntry != 0)
     {
-        unsigned toRead = header.stringTableSize-header.parentNameEntry;
+        size_t toRead = header.stringTableSize-header.parentNameEntry;
         if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
@@ -1136,7 +1136,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
     if (header.parentNameEntry != 0)
     {
         char parentFileName[MAXPATHLEN+1];
-        unsigned toRead = header.stringTableSize-header.parentNameEntry;
+        size_t toRead = header.stringTableSize-header.parentNameEntry;
         if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
 
         if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||

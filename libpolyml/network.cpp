@@ -402,7 +402,7 @@ void WaitNet::Wait(unsigned maxMillisecs)
 
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
 TryAgain:
     switch (c)
     {
@@ -418,13 +418,10 @@ TryAgain:
         {
             /* Look up a host name. */
             char hostName[MAXHOSTNAMELEN];
-            int length;
-            struct hostent *host;
-            length = Poly_string_to_C(DEREFWORD(args),
-                        hostName, MAXHOSTNAMELEN);
+            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), hostName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
                 raise_syscall(taskData, "Host name too long", ENAMETOOLONG);
-            host = gethostbyname(hostName);
+            struct hostent *host = gethostbyname(hostName);
             if (host == NULL)
                 raise_syscall(taskData, "gethostbyname failed", GETERROR);
             return makeHostEntry(taskData, host);
@@ -434,7 +431,7 @@ TryAgain:
         {
             /* Look up entry by address. */
             unsigned long addr =
-                htonl(get_C_ulong(taskData, DEREFWORDHANDLE(args)));
+                htonl(get_C_unsigned(taskData, DEREFWORDHANDLE(args)));
             struct hostent *host;
             /* Look up a host name given an address. */
             host = gethostbyaddr((char*)&addr, sizeof(addr), AF_INET);
@@ -447,13 +444,10 @@ TryAgain:
         {
             /* Look up protocol entry. */
             char protoName[MAXHOSTNAMELEN];
-            int length;
-            struct protoent *proto;
-            length = Poly_string_to_C(DEREFWORD(args),
-                        protoName, MAXHOSTNAMELEN);
+            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), protoName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
                 raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
-            proto = getprotobyname(protoName);
+            struct protoent *proto = getprotobyname(protoName);
             if (proto == NULL)
                 raise_syscall(taskData, "getprotobyname failed", GETERROR);
             return makeProtoEntry(taskData, proto);
@@ -463,7 +457,7 @@ TryAgain:
         {
             /* Look up protocol entry. */
             struct protoent *proto;
-            int pNum = get_C_ulong(taskData, DEREFWORDHANDLE(args));
+            int pNum = get_C_int(taskData, DEREFWORDHANDLE(args));
             proto = getprotobynumber(pNum);
             if (proto == NULL)
                 raise_syscall(taskData, "getprotobynumber failed", GETERROR);
@@ -474,13 +468,10 @@ TryAgain:
         {
             /* Get service given service name only. */
             char servName[MAXHOSTNAMELEN];
-            int length;
-            struct servent *serv;
-            length = Poly_string_to_C(DEREFWORD(args),
-                        servName, MAXHOSTNAMELEN);
+            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), servName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
                 raise_syscall(taskData, "Service name too long", ENAMETOOLONG);
-            serv = getservbyname (servName, NULL);
+            struct servent *serv = getservbyname (servName, NULL);
             if (serv == NULL)
                 raise_syscall(taskData, "getservbyname failed", GETERROR);
             return makeServEntry(taskData, serv);
@@ -490,15 +481,13 @@ TryAgain:
         {
             /* Get service given service name and protocol name. */
             char servName[MAXHOSTNAMELEN], protoName[MAXHOSTNAMELEN];
-            int length;
-            struct servent *serv; 
-            length = Poly_string_to_C(args->WordP()->Get(0), servName, MAXHOSTNAMELEN);
+            POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(0), servName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
                 raise_syscall(taskData, "Service name too long", ENAMETOOLONG);
             length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
                 raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
-            serv = getservbyname (servName, protoName);
+            struct servent *serv = getservbyname (servName, protoName);
             if (serv == NULL)
                 raise_syscall(taskData, "getservbyname failed", GETERROR);
             return makeServEntry(taskData, serv);
@@ -519,10 +508,9 @@ TryAgain:
         {
             /* Get service given port number and protocol name. */
             char protoName[MAXHOSTNAMELEN];
-            int length;
             struct servent *serv;
             long port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
-            length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
+            POLYUNSIGNED length = Poly_string_to_C(args->WordP()->Get(1), protoName, MAXHOSTNAMELEN);
             if (length > MAXHOSTNAMELEN)
                 raise_syscall(taskData, "Protocol name too long", ENAMETOOLONG);
             serv = getservbyport (port, protoName);
@@ -557,10 +545,10 @@ TryAgain:
         {
             Handle str_token = make_stream_entry(taskData);
             PIOSTRUCT strm;
-            int stream_no = STREAMID(str_token);
-            int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
-            int type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
-            int proto = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned stream_no = STREAMID(str_token);
+            int af = get_C_int(taskData, DEREFHANDLE(args)->Get(0));
+            int type = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
+            int proto = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
             unsigned long onOff = 1;
             SOCKET skt = socket(af, type, proto);
             if (skt == INVALID_SOCKET)
@@ -666,7 +654,7 @@ TryAgain:
         {
             struct linger linger;
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-            int lTime = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+            int lTime = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             /* We pass in a negative value to turn the option off,
                zero or positive to turn it on. */
             if (lTime < 0)
@@ -740,7 +728,7 @@ TryAgain:
             sockaddr.sin_family = AF_INET;
             sockaddr.sin_port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
             sockaddr.sin_addr.s_addr =
-                htonl(get_C_ulong(taskData, DEREFHANDLE(args)->Get(1)));
+                htonl(get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)));
             return(SAVE(Buffer_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
         }
 
@@ -805,7 +793,6 @@ TryAgain:
             else {
                 SOCKET sock = strm->device.sock, result;
                 struct sockaddr resultAddr;
-                int stream_no;
                 socklen_t addrLen;
                 Handle addrHandle, pair;
                 Handle str_token;
@@ -813,7 +800,7 @@ TryAgain:
                 /* Get a token for the new socket - may raise an
                    exception if it fails. */
                 str_token = make_stream_entry(taskData);
-                stream_no = STREAMID(str_token);
+                unsigned stream_no = STREAMID(str_token);
                 addrLen = sizeof(resultAddr);
                 result = accept(sock, &resultAddr, &addrLen);
 
@@ -866,7 +853,7 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
-            if (bind(strm->device.sock, psock, psAddr->length) != 0)
+            if (bind(strm->device.sock, psock, (int)psAddr->length) != 0)
                 raise_syscall(taskData, "bind failed", GETERROR);
             return Make_arbitrary_precision(taskData, 0);
         }
@@ -929,7 +916,7 @@ TryAgain:
                 else
                 {
                     int err;
-                    res = connect(strm->device.sock, psock, psAddr->length);
+                    res = connect(strm->device.sock, psock, (int)psAddr->length);
                     if (res == 0) return Make_arbitrary_precision(taskData, 0); /* OK */
                     /* It isn't clear that EINTR can ever occur with
                        connect, but just to be safe, we retry. */
@@ -950,7 +937,7 @@ TryAgain:
     case 49: /* Put socket into listening mode. */
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-            int backlog = get_C_ulong(taskData, DEREFHANDLE(args)->Get(1));
+            int backlog = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (listen(strm->device.sock, backlog) != 0)
                 raise_syscall(taskData, "listen failed", GETERROR);
@@ -981,10 +968,10 @@ TryAgain:
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
-            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
-            unsigned int dontRoute = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
+            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int dontRoute = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, sent;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
@@ -1030,10 +1017,10 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
-            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
-            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
-            unsigned int dontRoute = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
-            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(6));
+            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int dontRoute = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
+            unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(6));
             int flags = 0, sent;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
@@ -1052,7 +1039,7 @@ TryAgain:
             {
                 int err;
                 sent = sendto(strm->device.sock, base+offset, length, flags,
-                            (struct sockaddr *)psAddr->chars, psAddr->length);
+                            (struct sockaddr *)psAddr->chars, (int)psAddr->length);
                 /* It isn't clear that EINTR can ever occur with
                    send but just to be safe we deal with that case and
                    retry the send. */
@@ -1077,10 +1064,10 @@ TryAgain:
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
-            unsigned int peek = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
+            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, recvd;
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
@@ -1118,10 +1105,10 @@ TryAgain:
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            unsigned int offset = get_C_ulong(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_ulong(taskData, DEREFHANDLE(args)->Get(3));
-            unsigned int peek = get_C_ulong(taskData, DEREFHANDLE(args)->Get(4));
-            unsigned int outOfBand = get_C_ulong(taskData, DEREFHANDLE(args)->Get(5));
+            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(2));
+            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+            unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, recvd;
             socklen_t addrLen;
             struct sockaddr resultAddr;
@@ -1168,8 +1155,8 @@ TryAgain:
             Handle str_token2 = make_stream_entry(taskData);
             Handle pair;
             PIOSTRUCT strm1, strm2;
-            int stream_no1 = STREAMID(str_token1);
-            int stream_no2 = STREAMID(str_token2);
+            unsigned stream_no1 = STREAMID(str_token1);
+            unsigned stream_no2 = STREAMID(str_token2);
             int af = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             int type = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             int proto = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
@@ -1226,14 +1213,12 @@ TryAgain:
 #else
         {
             struct sockaddr_un addr;
-            int length;
             memset(&addr, 0, sizeof(addr));
             addr.sun_family = AF_UNIX;
 #ifdef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
             addr.sun_len = sizeof(addr); // Used in FreeBSD only.
 #endif
-            length = Poly_string_to_C(DEREFWORD(args),
-                        addr.sun_path, sizeof(addr.sun_path));
+            POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), addr.sun_path, sizeof(addr.sun_path));
             if (length > (int)sizeof(addr.sun_path))
                 raise_syscall(taskData, "Address too long", ENAMETOOLONG);
             return SAVE(Buffer_to_Poly(taskData, (char*)&addr, sizeof(addr)));
@@ -1428,7 +1413,7 @@ static Handle mkSktab(TaskData *taskData, void *arg, char *p)
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt)
 {
     PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
-    int onOff = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+    int onOff = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
     if (setsockopt(strm->device.sock, level, opt,
         (char*)&onOff, sizeof(int)) != 0)
@@ -1467,9 +1452,9 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
 {
     /* Construct the result vectors. */
     PolyObject *inVec = DEREFHANDLE(args)->Get(offset).AsObjPtr();
-    int nVec = OBJECT_LENGTH(inVec);
+    POLYUNSIGNED nVec = OBJECT_LENGTH(inVec);
     int nRes = 0;
-    int i;
+    POLYUNSIGNED i;
     for (i = 0; i < nVec; i++) {
         PIOSTRUCT strm = get_stream(inVec->Get(i).AsObjPtr());
         if (FD_ISSET(strm->device.sock, pFds)) nRes++;
@@ -1498,7 +1483,8 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
     processes->TestAnyEvents(taskData);
     fd_set readers, writers, excepts;
     struct timeval timeout;
-    int i, nVec, selectRes;
+    int selectRes;
+	POLYUNSIGNED i, nVec;
     Handle rdResult, wrResult, exResult, result;
     /* Set up the bitmaps for the select call from the arrays. */
     PolyObject *readVec = DEREFHANDLE(args)->Get(0).AsObjPtr();

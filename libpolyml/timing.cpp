@@ -175,7 +175,7 @@ static int proper_getrusage(int who, struct rusage *rusage)
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Get ticks per microsecond. */
@@ -298,15 +298,15 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             format = Poly_string_to_C_alloc(DEREFHANDLE(args)->Get(0));
 
             /* Copy the time information. */
-            time.tm_year = get_C_long(taskData, DEREFHANDLE(args)->Get(1)) - 1900;
-            time.tm_mon = get_C_long(taskData, DEREFHANDLE(args)->Get(2));
-            time.tm_mday = get_C_long(taskData, DEREFHANDLE(args)->Get(3));
-            time.tm_hour = get_C_long(taskData, DEREFHANDLE(args)->Get(4));
-            time.tm_min = get_C_long(taskData, DEREFHANDLE(args)->Get(5));
-            time.tm_sec = get_C_long(taskData, DEREFHANDLE(args)->Get(6));
-            time.tm_wday = get_C_long(taskData, DEREFHANDLE(args)->Get(7));
-            time.tm_yday = get_C_long(taskData, DEREFHANDLE(args)->Get(8));
-            time.tm_isdst = get_C_long(taskData, DEREFHANDLE(args)->Get(9));
+            time.tm_year = get_C_int(taskData, DEREFHANDLE(args)->Get(1)) - 1900;
+            time.tm_mon = get_C_int(taskData, DEREFHANDLE(args)->Get(2));
+            time.tm_mday = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
+            time.tm_hour = get_C_int(taskData, DEREFHANDLE(args)->Get(4));
+            time.tm_min = get_C_int(taskData, DEREFHANDLE(args)->Get(5));
+            time.tm_sec = get_C_int(taskData, DEREFHANDLE(args)->Get(6));
+            time.tm_wday = get_C_int(taskData, DEREFHANDLE(args)->Get(7));
+            time.tm_yday = get_C_int(taskData, DEREFHANDLE(args)->Get(8));
+            time.tm_isdst = get_C_int(taskData, DEREFHANDLE(args)->Get(9));
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             _tzset(); /* Make sure we set the current locale. */
 #else

@@ -79,7 +79,7 @@ public:
     void ShowCode(PolyObject *start);
     void ShowWords(PolyObject *start);
 
-    int      total_length;
+    POLYUNSIGNED total_length;
     bool     show_size;
     void     *io_bottom;
     void     *io_top;

@@ -42,7 +42,7 @@ public:
 extern PolyWord EmptyString(void);
 
 /* PolyStringObject functions */
-extern PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, unsigned length);
+extern PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, size_t length);
 extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer);
 extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen);
 extern char *Poly_string_to_C_alloc(PolyWord ps);

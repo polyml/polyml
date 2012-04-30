@@ -327,7 +327,7 @@ void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords)
     }
 }
 
-void Statistics::setUserCounter(int which, long value)
+void Statistics::setUserCounter(unsigned which, intptr_t value)
 {
     if (statMemory)
     {

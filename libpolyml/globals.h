@@ -93,6 +93,9 @@ typedef uintptr_t       POLYUNSIGNED;
 #ifdef PRIuPTR
 #  define POLYUFMT PRIuPTR
 #  define POLYSFMT PRIdPTR
+#elif (defined(_MSC_VER) && (SIZEOF_VOIDP == 8))
+#  define POLYUFMT "llu"
+#  define POLYSFMT "lld"
 #else
 #  define POLYUFMT "lu"         // as before.  Cross your fingers.
 #  define POLYSFMT "ld"         // idem.
@@ -400,7 +403,7 @@ typedef PolyException poly_exn;
 class StreamToken: public PolyObject
 {
 public:
-    POLYUNSIGNED    streamNo;
+    unsigned    streamNo;
 };
 
 /***********************************************************************

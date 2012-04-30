@@ -190,7 +190,7 @@ void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 
     if (v->nitems == v->vsize)
     {
-        unsigned long new_vsize  = 2 * v->vsize + 1;
+        POLYUNSIGNED new_vsize  = 2 * v->vsize + 1;
         if (new_vsize < 15)
             new_vsize = 15;
 

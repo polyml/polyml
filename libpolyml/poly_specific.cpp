@@ -269,7 +269,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_long(taskData, DEREFWORDHANDLE(code));
+    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 1:
@@ -371,10 +371,10 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 28: // Set an entry in the user stats table.
         {
-            POLYSIGNED index = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
-            if (index < 0 || index >= N_PS_USER)
+            unsigned index = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(0));
+            if (index >= N_PS_USER)
                 raise_exception0(taskData, EXC_subscript);
-            POLYSIGNED value = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+            int value = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
             globalStats.setUserCounter(index, value);
             Make_arbitrary_precision(taskData, 0);
         }
