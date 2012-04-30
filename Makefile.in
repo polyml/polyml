@@ -36,9 +36,11 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
-@NATIVE_WINDOWS_TRUE@am__append_1 = -mwindows -Wl,-u,_WinMain@16
-@NATIVE_WINDOWS_TRUE@am__append_2 = -mwindows
-@NATIVE_WINDOWS_TRUE@am__append_3 = polyresource.o
+@ARCHINTERPRET64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_1 = -mwindows -Wl,-u,WinMain
+@ARCHINTERPRET64_FALSE@@ARCHX86_64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_2 = -mwindows -Wl,-u,WinMain
+@ARCHINTERPRET64_FALSE@@ARCHX86_64_FALSE@@NATIVE_WINDOWS_TRUE@am__append_3 = -mwindows -Wl,-u,_WinMain@16
+@NATIVE_WINDOWS_TRUE@am__append_4 = -mwindows
+@NATIVE_WINDOWS_TRUE@am__append_5 = polyresource.o
 subdir = .
 DIST_COMMON = $(am__configure_deps) $(noinst_HEADERS) \
 	$(srcdir)/Makefile.am $(srcdir)/Makefile.in \
@@ -46,9 +48,10 @@ DIST_COMMON = $(am__configure_deps) $(noinst_HEADERS) \
 	config.guess config.sub depcomp install-sh ltmain.sh missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
-	$(top_srcdir)/m4/ltoptions.m4 $(top_srcdir)/m4/ltsugar.m4 \
-	$(top_srcdir)/m4/ltversion.m4 $(top_srcdir)/m4/lt~obsolete.m4 \
-	$(top_srcdir)/m4/pkg.m4 $(top_srcdir)/configure.ac
+	$(top_srcdir)/m4/ltdl.m4 $(top_srcdir)/m4/ltoptions.m4 \
+	$(top_srcdir)/m4/ltsugar.m4 $(top_srcdir)/m4/ltversion.m4 \
+	$(top_srcdir)/m4/lt~obsolete.m4 $(top_srcdir)/m4/pkg.m4 \
+	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
@@ -291,6 +294,7 @@ sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 srcdir = @srcdir@
 subdirs = @subdirs@
+sys_symbol_underscore = @sys_symbol_underscore@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
@@ -315,9 +319,9 @@ man_MANS = poly.1 polyimport.1
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
 noinst_HEADERS = polyexports.h
-poly_LDFLAGS = $(am__append_1)
-polyimport_LDFLAGS = $(am__append_2)
-POLYRESOURCES = $(am__append_3)
+poly_LDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3)
+polyimport_LDFLAGS = $(am__append_4)
+POLYRESOURCES = $(am__append_5)
 @NATIVE_WINDOWS_FALSE@POLYOBJECTFILE = polyexport.o
 @NATIVE_WINDOWS_TRUE@POLYOBJECTFILE = polyexport.obj
 poly_SOURCES = 

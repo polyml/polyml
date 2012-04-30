@@ -219,6 +219,7 @@ unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
 	return 0;
 }
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
 /* Get a arbitrary precision value as a pair of words.
    At present this is used to extract a 64-bit quantity as two
    words.  Only used in Windows code.  */
@@ -234,8 +235,8 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size);
 
 #ifdef USE_GMP
-	// This code won't work with GMP but it's only relevant to Windows.
-	ASSERT(0);
+    // This code won't work with GMP but it's only relevant to Windows.
+#error("get_C_pair is not implemented for GMP")
 #else    
     POLYUNSIGNED length = get_length(number);
 #endif
@@ -257,6 +258,7 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
     while (i-- > sizeof(unsigned long)) c = (c << 8) | ((byte *) ptr)[i];
     *pHi = c;
 }
+#endif
 
 
 #if (SIZEOF_LONG == SIZEOF_VOIDP)

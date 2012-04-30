@@ -108,17 +108,10 @@ AC_CHECK_TYPES([uintptr_t],[],[AC_TYPE_UINTPTR_T])
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
 ## prior to 4.5.0) were faulty.
-case $host,$GCC in
-  x86_64-w64*,yes)
-     AC_MSG_CHECKING([whether external symbols need leading underscore])
-     AC_LANG_PUSH([C++])
-     AC_TRY_LINK(
-       [asm(".long bar");
-        extern "C" long bar;],
-       [],
-       [AC_DEFINE(POLY_LINKAGE_PREFIX, [_], [Define prefix of external names]) AC_MSG_RESULT([yes])])
-     AC_LANG_POP([C++])
-esac
+LT_SYS_SYMBOL_USCORE
+if test x$sys_symbol_underscore = xyes; then
+    AC_DEFINE(POLY_LINKAGE_PREFIX, [_], [Define prefix of external names])
+fi
 
 
 # Solaris needs -lsocket, -lnsl and -lrt

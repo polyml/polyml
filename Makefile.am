@@ -52,7 +52,15 @@ polyimport_LDFLAGS=
 POLYRESOURCES=
 
 if NATIVE_WINDOWS
+if ARCHINTERPRET64
+poly_LDFLAGS += -mwindows -Wl,-u,WinMain
+else
+if ARCHX86_64
+poly_LDFLAGS += -mwindows -Wl,-u,WinMain
+else
 poly_LDFLAGS += -mwindows -Wl,-u,_WinMain@16
+endif
+endif
 polyimport_LDFLAGS += -mwindows
 POLYOBJECTFILE = polyexport.obj
 POLYRESOURCES += polyresource.o
