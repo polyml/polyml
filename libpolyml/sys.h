@@ -138,9 +138,9 @@
 #define POLY_SYS_word_neq            217
 #define POLY_SYS_not_bool            218
 #define POLY_SYS_string_length       223
-#define POLY_SYS_int_eq              229
-#define POLY_SYS_int_neq             230  // Deprecated - identical to word_eq
-#define POLY_SYS_int_geq             231  // Deprecated - identical to word_ne
+#define POLY_SYS_int_eq              229  // Deprecated - identical to word_eq
+#define POLY_SYS_int_neq             230  // Deprecated - identical to word_ne
+#define POLY_SYS_int_geq             231
 #define POLY_SYS_int_leq             232
 #define POLY_SYS_int_gtr             233
 #define POLY_SYS_int_lss             234
