@@ -2227,6 +2227,7 @@ CALLMACRO   RegMask word_lss,(M_Reax)
 ;# updated value.  Since the xadd instruction returns the original value
 ;# we have to increment it.
 CALLMACRO   INLINE_ROUTINE  atomic_increment
+atomic_incr:                    ;# Internal name in case "atomic_increment" is munged.
     MOVL	CONST 2,Rebx
 	LOCKXADDL Rebx,[Reax]
 	ADDL	CONST 2,Rebx
@@ -2239,6 +2240,7 @@ CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
 ;# updated value.  Since the xadd instruction returns the original value
 ;# we have to decrement it.
 CALLMACRO   INLINE_ROUTINE  atomic_decrement
+atomic_decr:
     MOVL	CONST -2,Rebx
 	LOCKXADDL Rebx,[Reax]
 	MOVL	Rebx,Reax
@@ -2640,7 +2642,7 @@ ELSE
 ENDIF
 ENDIF
 ENDIF
-    JMP     atomic_increment
+    JMP     atomic_incr
 
 ;# This implements atomic subtraction in the same way as atomic_decrement
 CALLMACRO INLINE_ROUTINE X86AsmAtomicDecrement
@@ -2649,7 +2651,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 ELSE
     MOVL    Redi,Reax            ;# On X86_64 the argument is passed in Redi
 ENDIF
-    JMP     atomic_decrement
+    JMP     atomic_decr
 
 IFDEF WINDOWS
 ;# Visual C does not support assembly code on X86-64 so we use this for X86-32 as well.
