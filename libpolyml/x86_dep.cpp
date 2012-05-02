@@ -356,6 +356,61 @@ extern "C" {
     void X86AsmSwitchToPoly(MemRegisters *);
     void X86AsmSaveStateAndReturn(void);
 
+    unsigned X86AsmGetFPControlWord(void);
+    byte *X86AsmRestoreHandlerAfterExceptionTraceCode(void);
+    byte *X86AsmGiveExceptionTraceCode(void);
+    POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
+    POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
+
+#ifdef _MSC_VER
+    byte *X86AsmCallPOLY_SYS_exit(void);
+    byte *X86AsmCallPOLY_SYS_chdir(void);
+    byte *X86AsmCallPOLY_SYS_get_flags(void);
+    byte *X86AsmCallPOLY_SYS_exception_trace(void);
+    byte *X86AsmCallPOLY_SYS_profiler(void);
+    byte *X86AsmCallPOLY_SYS_Real_str(void);
+    byte *X86AsmCallPOLY_SYS_Real_Dispatch(void);
+    byte *X86AsmCallPOLY_SYS_Repr_real(void);
+    byte *X86AsmCallPOLY_SYS_conv_real(void);
+    byte *X86AsmCallPOLY_SYS_real_to_int(void);
+    byte *X86AsmCallPOLY_SYS_sqrt_real(void);
+    byte *X86AsmCallPOLY_SYS_sin_real(void);
+    byte *X86AsmCallPOLY_SYS_cos_real(void);
+    byte *X86AsmCallPOLY_SYS_arctan_real(void);
+    byte *X86AsmCallPOLY_SYS_exp_real(void);
+    byte *X86AsmCallPOLY_SYS_ln_real(void);
+    byte *X86AsmCallPOLY_SYS_io_operation(void);
+    byte *X86AsmCallPOLY_SYS_thread_dispatch(void);
+    byte *X86AsmCallPOLY_SYS_kill_self(void);
+    byte *X86AsmCallPOLY_SYS_objsize(void);
+    byte *X86AsmCallPOLY_SYS_showsize(void);
+    byte *X86AsmCallPOLY_SYS_timing_dispatch(void);
+    byte *X86AsmCallPOLY_SYS_XWindows(void);
+    byte *X86AsmCallPOLY_SYS_full_gc(void);
+    byte *X86AsmCallPOLY_SYS_stack_trace(void);
+    byte *X86AsmCallPOLY_SYS_foreign_dispatch(void);
+    byte *X86AsmCallPOLY_SYS_callcode_tupled(void);
+    byte *X86AsmCallPOLY_SYS_process_env(void);
+    byte *X86AsmCallPOLY_SYS_shrink_stack(void);
+    byte *X86AsmCallPOLY_SYS_code_flags(void);
+    byte *X86AsmCallPOLY_SYS_set_code_constant(void);
+    byte *X86AsmCallPOLY_SYS_poly_specific(void);
+    byte *X86AsmCallPOLY_SYS_io_dispatch(void);
+    byte *X86AsmCallPOLY_SYS_network(void);
+    byte *X86AsmCallPOLY_SYS_os_specific(void);
+    byte *X86AsmCallPOLY_SYS_signal_handler(void);
+    byte *X86AsmCallPOLY_SYS_kill_self(void);
+
+    byte *X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    byte *X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    byte *X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
+    byte *X86AsmCallExtraRETURN_RAISE_DIV(void);
+    byte *X86AsmCallExtraRETURN_ARB_EMULATION(void);
+    byte *X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
+    byte *X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
+
+#endif
+
     // These are declared in the assembly code.  They provide hand coded versions
     // of simple functions.  Some cases, such as adding words, are actually handled by
     // the code generator, so the assembly code versions would only be called when
@@ -772,37 +827,7 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData)
     // Handler addresses must be word + 2 byte aligned.
     *(--PSP_SP(taskData)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
     taskData->stack->stack()->p_hr = PSP_SP(taskData);
-    byte *codeAddr;
-#ifndef __GNUC__
-#ifdef HOSTARCHITECTURE_X86_64
-    ASSERT(0); // Inline assembly not supported on Windows 64-bit
-#else
-    __asm {
-      call endCode
-        add  esp,4               // Remove handler
-        pop  dword ptr [4+ebp]   // Restore the old handler
-        ret                      // Return to the original caller
-      endCode: pop eax
-        mov codeAddr,eax
-    }
-#endif
-#else
-// GCC
-    __asm__ __volatile__ (
-     "call    1f;"
-#ifndef HOSTARCHITECTURE_X86_64
-        "addl    $4,%%esp;"
-        "popl    4(%%ebp);"
-#else /* HOSTARCHITECTURE_X86_64 */
-        "addq    $8,%%rsp;"
-        "popq    8(%%rbp);"
-#endif /* HOSTARCHITECTURE_X86_64 */
-        "ret;"
-        "nop;"    // Add an extra byte so that we have 8 bytes on both X86 and X86_64
-    "1: pop %0"
-    :"=r"(codeAddr)
-    );
-#endif
+    byte *codeAddr = X86AsmRestoreHandlerAfterExceptionTraceCode();
     Handle retCode = BuildCodeSegment(taskData, codeAddr, 8 /* Code is 8 bytes */, 'R');
     *(--PSP_SP(taskData)) = retCode->WordP(); // Code for normal return.
     PSP_EAX(taskData) = TAGGED(0); // Set the argument of the function to "unit".
@@ -1004,15 +1029,7 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     // Set the rounding mode to the value set within the RTS.
     x86Stack(taskData)->p_fp.cw &= 0x73ff;
     // Get the rounding mode.
-    unsigned short controlWord = 0;
-#ifndef __GNUC__
-    __asm fnstcw controlWord;
-#else
-    __asm__ (
-        "fnstcw %0"
-        :"=m" (controlWord)
-    );
-#endif
+    unsigned short controlWord = X86AsmGetFPControlWord();
     x86Stack(taskData)->p_fp.cw &= 0xf3ff;
     x86Stack(taskData)->p_fp.cw |= controlWord & 0xc00;
 }
@@ -1630,32 +1647,10 @@ void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
 // It's 7 bytes on both x86 and X86_64.
 #define MAKE_CALL_SEQUENCE_BYTES     7
 
-#ifndef __GNUC__
-// Windows
-#ifndef HOSTARCHITECTURE_X86_64
-
-#define MAKE_IO_CALL_SEQUENCE(ioNum, result) \
-{ \
-    __asm call endCode##ioNum \
-    __asm mov  byte ptr [20+ebp],ioNum \
-    __asm jmp  dword ptr [48+ebp] \
-    __asm endCode##ioNum: pop eax \
-    __asm mov result,eax \
-}
-
-#define MAKE_EXTRA_CALL_SEQUENCE(exNum, result) \
-{ \
-    __asm call endCodeX##exNum \
-    __asm mov  byte ptr [22+ebp],exNum \
-    __asm jmp  dword ptr [48+ebp] \
-    __asm endCodeX##exNum: pop eax \
-    __asm mov result,eax \
-}
-
-#else /* HOSTARCHITECTURE_X86_64 */
-// Visual C++ on X64 doesn't support inline assembly code
-#endif /* HOSTARCHITECTURE_X86_64 */
-
+#ifdef _MSC_VER
+// Windows.  VC does not support inline assembly on X86-64 so we put these in the assembly code.
+#define MAKE_IO_CALL_SEQUENCE(ioNum, result) result = X86AsmCall##ioNum##()
+#define MAKE_EXTRA_CALL_SEQUENCE(exNum, result) result = X86AsmCallExtra##exNum##()
 
 #else
 
@@ -1928,54 +1923,7 @@ Handle X86Dependent::BuildKillSelf(TaskData *taskData)
 // boundary.
 Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
 {
-    byte *codeAddr;
-#ifndef __GNUC__
-#ifdef HOSTARCHITECTURE_X86_64
-    ASSERT(0); // Inline assembly not supported on Windows 64-bit
-#else
-    __asm {
-      call endCode
-        nop                      // Two NOPs - for alignment
-        nop
-        mov  ebx,eax             // Exception packet as second arg
-        mov  eax,dword ptr [4+ebp] // Handler register
-        add  eax,4               // Point at the handler to restore
-        mov  byte ptr [20+ebp],POLY_SYS_give_ex_trace
-        jmp  dword ptr [48+ebp]   // Jump to exception trace
-        nop
-        nop
-        nop
-      endCode: pop eax
-        mov codeAddr,eax
-    }
-#endif
-#else
-// GCC
-    __asm__ __volatile__ (
-     "call    1f;"
-         "nop;"
-         "nop;"
-#ifndef HOSTARCHITECTURE_X86_64
-         "movl   %%eax,%%ebx;"
-         "movl   4(%%ebp),%%eax;"
-         "addl   $4,%%eax;"
-         "movb  %1,20(%%ebp);"
-         "jmp  *48(%%ebp);"
-         "nop;"  // Pad it to 20 bytes on X86/32
-         "nop;"
-         "nop;"
-#else /* HOSTARCHITECTURE_X86_64 */
-         "movq   %%rax,%%rbx;"
-         "movq   8(%%rbp),%%rax;"
-         "addq   $8,%%rax;"
-         "movb  %1,40(%%rbp);"
-         "jmp  *96(%%rbp);"
-#endif /* HOSTARCHITECTURE_X86_64 */
-    "1: pop %0"
-    :"=r"(codeAddr)
-    :"i"(POLY_SYS_give_ex_trace)
-    );
-#endif
+    byte *codeAddr = X86AsmGiveExceptionTraceCode();
     return BuildCodeSegment(taskData, codeAddr, 20, 'E');
 }
 
@@ -2383,50 +2331,11 @@ void X86Dependent::SetCodeConstant(TaskData *taskData, Handle data, Handle const
     }
 }
 
-// Atomic addition.  Returns the new value 
-static POLYUNSIGNED AtomicAdd(PolyObject *p, POLYUNSIGNED toAdd)
-{
-    POLYUNSIGNED result;
-#ifdef HOSTARCHITECTURE_X86_64
-#ifdef __GNUC__
-// Unix - x64
-    __asm__ __volatile__ (
-        "lock xaddq %1,(%2) " // Do atomic addition
-        : "=r" (result) // Output
-        : "0" (toAdd), "r" (p) // Input
-        : "cc", "memory" // Modifies cc and memory
-        );
-#else
-// Visual C++ on X64 doesn't support inline assembly code
-#endif // ! __GNUC__
-//
-#else // ! HOSTARCHITECTURE_X86_64
-#ifdef __GNUC__
-// Unix - x32
-    __asm__ __volatile__ (
-        "lock; xaddl %1,(%2) " // Do atomic addition
-        : "=r" (result) // Output
-        : "0" (toAdd), "r" (p) // Input
-        : "cc", "memory" // Modifies cc and memory
-        );
-#else
-// Windows
-    __asm {
-        mov ebx,toAdd
-        mov eax,p
-        lock xadd [eax],ebx
-        mov result,ebx
-    }
-#endif // ! __GNUC__
-#endif
-
-    return result + toAdd; // Adjust to the new value.
-}
-
+// Increment the value contained in the first word of the mutex.
 Handle X86Dependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
-    POLYUNSIGNED result = AtomicAdd(p, 1 << POLY_TAGSHIFT);
+    POLYUNSIGNED result = X86AsmAtomicIncrement(p);
     return taskData->saveVec.push(PolyWord::FromUnsigned(result));
 }
 
@@ -2434,10 +2343,9 @@ Handle X86Dependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
 Handle X86Dependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
-    POLYUNSIGNED result = AtomicAdd(p, (-1) << POLY_TAGSHIFT);
+    POLYUNSIGNED result = X86AsmAtomicDecrement(p);
     return taskData->saveVec.push(PolyWord::FromUnsigned(result));
 }
-
 
 static X86Dependent x86Dependent;
 

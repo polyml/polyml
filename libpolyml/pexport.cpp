@@ -813,9 +813,9 @@ bool PImport::DoImport()
                     while (ch != '\n')
                     {
                         ungetc(ch, f);
-                        unsigned long offset;
+                        POLYUNSIGNED offset;
                         int code;
-                        fscanf(f, "%lu,%d", &offset, &code);
+                        fscanf(f, "%" POLYUFMT ",%d", &offset, &code);
                         ch = getc(f);
                         ASSERT(ch == ',');
                         PolyWord constVal = TAGGED(0);

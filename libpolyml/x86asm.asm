@@ -55,9 +55,11 @@
 ;#  %R15:  Memory allocation pointer
 
 IFDEF WINDOWS
+IFNDEF HOSTARCHITECTURE_X86_64
 .486
 
     .model  flat,c
+ENDIF
 
 ;# No name munging needed in MASM
 EXTNAME     TEXTEQU <>
@@ -163,10 +165,20 @@ MULL         TEXTEQU <mul>
 NEGL         TEXTEQU <neg>
 PUSHL        TEXTEQU <push>
 POPL         TEXTEQU <pop>
+
+IFDEF HOSTARCHITECTURE_X86_64
+POPFL        TEXTEQU <popfq>
+PUSHFL       TEXTEQU <pushfq>
+PUSHAL       TEXTEQU <pushaq>
+POPAL        TEXTEQU <popaq>
+FULLWORD     TEXTEQU <qword>
+ELSE
 POPFL        TEXTEQU <popfd>
 PUSHFL       TEXTEQU <pushfd>
 PUSHAL       TEXTEQU <pushad>
 POPAL        TEXTEQU <popad>
+FULLWORD     TEXTEQU <dword>
+ENDIF
 INCL         TEXTEQU <inc>
 
 ELSE
@@ -288,6 +300,17 @@ M_Redx      EQU     000004H
 M_Rebx      EQU     000008H
 M_Resi      EQU     000010H
 M_Redi      EQU     000020H
+
+IFDEF HOSTARCHITECTURE_X86_64
+M_R8        EQU     64
+M_R9        EQU     128
+M_R10       EQU     256
+M_R11       EQU     512
+M_R12       EQU     1024
+M_R13       EQU     2048
+M_R14       EQU     4096
+ENDIF
+
 M_FP0       EQU     002000H
 M_FP1       EQU     004000H
 M_FP2       EQU     008000H
@@ -388,6 +411,12 @@ MAKETAGGED  MACRO   f,t
             lea     t,1[f*2]
 ENDM
 
+IFDEF HOSTARCHITECTURE_X86_64
+POLYWORDSIZE    EQU 8
+ELSE
+POLYWORDSIZE    EQU 4
+ENDIF
+
 ELSE
 
 .set    TAG,        1
@@ -396,6 +425,13 @@ ELSE
 
 #define TAGGED(i) ((i << TAGSHIFT) | TAG)
 #define MAKETAGGED(from,to)     LEAL    TAG(,from,2),to
+
+
+IFDEF HOSTARCHITECTURE_X86_64
+.set    POLYWORDSIZE,   8
+ELSE
+.set    POLYWORDSIZE,   4
+ENDIF
 
 ENDIF
 
@@ -449,6 +485,7 @@ LocalMbottom        EQU     8
 StackTop            EQU     16  ;# Upper limit of stack
 RequestCode         EQU     20  ;# Byte: Io function to call.
 InRTS               EQU     21  ;# Byte: Set when in the RTS
+ReturnReason        EQU     22  ;# Byte: Reason for returning from ML.
 PolyStack           EQU     24  ;# Current stack base
 SavedSp             EQU     28  ;# Saved stack pointer
 IOEntryPoint        EQU     48  ;# IO call
@@ -519,37 +556,125 @@ ENDIF
 ;# to handle special cases in this code
 
 IFDEF WINDOWS
-POLY_SYS_alloc_store        EQU 11
-POLY_SYS_give_ex_trace      EQU 31
-POLY_SYS_quotrem            EQU 104
-POLY_SYS_aplus              EQU 106
-POLY_SYS_aminus             EQU 107
-POLY_SYS_amul               EQU 108
-POLY_SYS_adiv               EQU 109
-POLY_SYS_amod               EQU 110
-POLY_SYS_aneg               EQU 111
-POLY_SYS_xora               EQU 112
-POLY_SYS_equala             EQU 113
-POLY_SYS_ora                EQU 114
-POLY_SYS_anda               EQU 115
-POLY_SYS_int_geq            EQU 231
-POLY_SYS_int_leq            EQU 232
-POLY_SYS_int_gtr            EQU 233
-POLY_SYS_int_lss            EQU 234
-POLY_SYS_Add_real           EQU 125
-POLY_SYS_Sub_real           EQU 126
-POLY_SYS_Mul_real           EQU 127
-POLY_SYS_Div_real           EQU 128
-POLY_SYS_Abs_real           EQU 129
-POLY_SYS_Neg_real           EQU 130
-POLY_SYS_real_to_int        EQU 134
-POLY_SYS_int_to_real        EQU 135
-POLY_SYS_sqrt_real          EQU 136
-POLY_SYS_sin_real           EQU 137
-POLY_SYS_cos_real           EQU 138
-POLY_SYS_arctan_real        EQU 139
-POLY_SYS_exp_real           EQU 140
-POLY_SYS_ln_real            EQU 141
+POLY_SYS_exit                EQU 1
+POLY_SYS_chdir               EQU 9
+POLY_SYS_alloc_store         EQU 11
+POLY_SYS_alloc_uninit        EQU 12
+POLY_SYS_raisex              EQU 14
+POLY_SYS_get_length          EQU 15
+POLY_SYS_get_flags           EQU 17
+POLY_SYS_str_compare         EQU 23
+POLY_SYS_teststreq           EQU 24
+POLY_SYS_teststrneq          EQU 25
+POLY_SYS_teststrgtr          EQU 26
+POLY_SYS_teststrlss          EQU 27
+POLY_SYS_teststrgeq          EQU 28
+POLY_SYS_teststrleq          EQU 29
+POLY_SYS_exception_trace     EQU 30
+POLY_SYS_give_ex_trace       EQU 31
+POLY_SYS_lockseg             EQU 47
+POLY_SYS_emptystring         EQU 48
+POLY_SYS_nullvector          EQU 49
+POLY_SYS_network             EQU 51
+POLY_SYS_os_specific         EQU 52
+POLY_SYS_io_dispatch         EQU 61
+POLY_SYS_signal_handler      EQU 62
+POLY_SYS_atomic_incr         EQU 70
+POLY_SYS_atomic_decr         EQU 71
+POLY_SYS_thread_self         EQU 72
+POLY_SYS_thread_dispatch     EQU 73
+POLY_SYS_kill_self           EQU 84
+POLY_SYS_profiler            EQU 88
+POLY_SYS_full_gc             EQU 92
+POLY_SYS_stack_trace         EQU 93
+POLY_SYS_timing_dispatch     EQU 94
+POLY_SYS_objsize             EQU 99
+POLY_SYS_showsize            EQU 100
+POLY_SYS_quotrem             EQU 104
+POLY_SYS_is_short            EQU 105
+POLY_SYS_aplus               EQU 106
+POLY_SYS_aminus              EQU 107
+POLY_SYS_amul                EQU 108
+POLY_SYS_adiv                EQU 109
+POLY_SYS_amod                EQU 110
+POLY_SYS_aneg                EQU 111
+POLY_SYS_xora                EQU 112
+POLY_SYS_equala              EQU 113
+POLY_SYS_ora                 EQU 114
+POLY_SYS_anda                EQU 115
+POLY_SYS_Real_str            EQU 117
+POLY_SYS_Real_geq            EQU 118
+POLY_SYS_Real_leq            EQU 119
+POLY_SYS_Real_gtr            EQU 120
+POLY_SYS_Real_lss            EQU 121
+POLY_SYS_Real_eq             EQU 122
+POLY_SYS_Real_neq            EQU 123
+POLY_SYS_Real_Dispatch       EQU 124
+POLY_SYS_Add_real            EQU 125
+POLY_SYS_Sub_real            EQU 126
+POLY_SYS_Mul_real            EQU 127
+POLY_SYS_Div_real            EQU 128
+POLY_SYS_Abs_real            EQU 129
+POLY_SYS_Neg_real            EQU 130
+POLY_SYS_Repr_real           EQU 132
+POLY_SYS_conv_real           EQU 133
+POLY_SYS_real_to_int         EQU 134
+POLY_SYS_int_to_real         EQU 135
+POLY_SYS_sqrt_real           EQU 136
+POLY_SYS_sin_real            EQU 137
+POLY_SYS_cos_real            EQU 138
+POLY_SYS_arctan_real         EQU 139
+POLY_SYS_exp_real            EQU 140
+POLY_SYS_ln_real             EQU 141
+POLY_SYS_stdin               EQU 148
+POLY_SYS_stdout              EQU 149
+POLY_SYS_process_env         EQU 150
+POLY_SYS_set_string_length   EQU 151
+POLY_SYS_get_first_long_word EQU 152
+POLY_SYS_poly_specific       EQU 153
+POLY_SYS_bytevec_eq          EQU 154
+POLY_SYS_io_operation        EQU 189
+POLY_SYS_set_code_constant   EQU 194
+POLY_SYS_move_words          EQU 195
+POLY_SYS_shift_right_arith_word  EQU 196
+POLY_SYS_move_bytes          EQU 198
+POLY_SYS_code_flags          EQU 200
+POLY_SYS_shrink_stack        EQU 201
+POLY_SYS_stderr              EQU 202
+POLY_SYS_callcode_tupled     EQU 204
+POLY_SYS_foreign_dispatch    EQU 205
+POLY_SYS_foreign_null        EQU 206
+POLY_SYS_XWindows            EQU 209
+POLY_SYS_is_big_endian       EQU 213
+POLY_SYS_bytes_per_word      EQU 214
+POLY_SYS_offset_address      EQU 215
+POLY_SYS_shift_right_word    EQU 216
+POLY_SYS_word_neq            EQU 217
+POLY_SYS_not_bool            EQU 218
+POLY_SYS_string_length       EQU 223
+POLY_SYS_int_geq             EQU 231
+POLY_SYS_int_leq             EQU 232
+POLY_SYS_int_gtr             EQU 233
+POLY_SYS_int_lss             EQU 234
+POLY_SYS_mul_word            EQU 238
+POLY_SYS_plus_word           EQU 239
+POLY_SYS_minus_word          EQU 240
+POLY_SYS_div_word            EQU 241
+POLY_SYS_or_word             EQU 242
+POLY_SYS_and_word            EQU 243
+POLY_SYS_xor_word            EQU 244
+POLY_SYS_shift_left_word     EQU 245
+POLY_SYS_mod_word            EQU 246
+POLY_SYS_word_geq            EQU 247
+POLY_SYS_word_leq            EQU 248
+POLY_SYS_word_gtr            EQU 249
+POLY_SYS_word_lss            EQU 250
+POLY_SYS_word_eq             EQU 251
+POLY_SYS_load_byte           EQU 252
+POLY_SYS_load_word           EQU 253
+POLY_SYS_assign_byte         EQU 254
+POLY_SYS_assign_word         EQU 255
+
 ELSE
 #include "sys.h"
 ENDIF
@@ -572,6 +697,7 @@ ENDIF
 
 IFDEF WINDOWS
 
+IFNDEF HOSTARCHITECTURE_X86_64
 SPACE_OFF   EQU     0
 PC_OFF      EQU     4
 SP_OFF      EQU     8
@@ -584,6 +710,27 @@ ESI_OFF     EQU     36
 EDI_OFF     EQU     40
 FLAGS_OFF   EQU     48
 FPREGS_OFF  EQU     52
+ELSE
+SPACE_OFF   EQU     0
+PC_OFF      EQU     8
+SP_OFF      EQU     16
+HR_OFF      EQU     24
+EAX_OFF     EQU     40
+EBX_OFF     EQU     48
+ECX_OFF     EQU     56
+EDX_OFF     EQU     64
+ESI_OFF     EQU     72
+EDI_OFF     EQU     80
+R8_OFF      EQU     88
+R9_OFF      EQU     96
+R10_OFF     EQU     104
+R11_OFF     EQU     112
+R12_OFF     EQU     120
+R13_OFF     EQU     128
+R14_OFF     EQU     136
+FLAGS_OFF   EQU     152
+FPREGS_OFF  EQU     160
+ENDIF
 
 ELSE
 
@@ -625,7 +772,6 @@ ENDIF
 
 ENDIF
 
-
 ;#
 ;# CODE STARTS HERE
 ;#
@@ -643,11 +789,7 @@ IFDEF WINDOWS
 
 CALL_IO    MACRO   index
         mov     byte ptr [RequestCode+Rebp],index
-IFNDEF HOSTARCHITECTURE_X86_64
-        jmp     dword ptr [IOEntryPoint+Rebp]
-ELSE
-        jmp     qword ptr [IOEntryPoint+Rebp]
-ENDIF
+        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
 ENDM
 
 ELSE
@@ -660,13 +802,7 @@ ENDIF
 ;# Load the registers from the ML stack and jump to the code.
 ;# This is used to start ML code.
 ;# The argument is the address of the MemRegisters struct and goes into %rbp.
-IFDEF WINDOWS
-    PUBLIC  X86AsmSwitchToPoly
-X86AsmSwitchToPoly:
-ELSE
-GLOBAL EXTNAME(X86AsmSwitchToPoly)
-EXTNAME(X86AsmSwitchToPoly):               ;# Entry point from C
-ENDIF
+CALLMACRO INLINE_ROUTINE X86AsmSwitchToPoly
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Recx                    ;# Argument - address of MemRegisters - goes into Rebp
     PUSHAL                                  ;# Save all the registers just to be safe
@@ -674,15 +810,27 @@ IFNDEF HOSTARCHITECTURE_X86_64
 
     MOVL    Recx,Rebp                       ;# Put address of MemRegisters where it belongs
 ELSE
+IFDEF WINDOWS
+;# The argument to the function is passed in Recx
+    
+ELSE
+IFDEF _WIN32
+;# The argument to the function is passed in Recx
+ELSE
 ;# The argument to the function is passed in Redi
+    MOVL    Redi,Rcx
+ENDIF
+ENDIF
     PUSHL   Rebp                             ;# Save callee--save registers
     PUSHL   Rebx
-    PUSHL   %r12
-    PUSHL   %r13
-    PUSHL   %r14
-    PUSHL   %r15
-    MOVL    Resp,SavedSp[Redi]              ;# savedSp:=%Resp - Save the system stack pointer.
-    MOVL    Redi,Rebp                       ;# Put address of MemRegisters where it belongs
+    PUSHL   R12
+    PUSHL   R13
+    PUSHL   R14
+    PUSHL   R15
+    PUSHL   Redi                            ;# Callee save in Windows
+    PUSHL   Resi
+    MOVL    Resp,SavedSp[Recx]              ;# savedSp:=%Resp - Save the system stack pointer.
+    MOVL    Recx,Rebp                       ;# Put address of MemRegisters where it belongs
 ENDIF
     MOVL    PolyStack[Rebp],Reax
 IFDEF HOSTARCHITECTURE_X86_64
@@ -724,6 +872,8 @@ ELSE
 GLOBAL EXTNAME(X86AsmSaveStateAndReturn)
 EXTNAME(X86AsmSaveStateAndReturn):
 ENDIF
+
+;# CALLMACRO INLINE_ROUTINE X86AsmSaveStateAndReturn
     PUSHFL                      ;# Save flags
     PUSHL   Reax                ;# Save eax
     MOVL    PolyStack[Rebp],Reax
@@ -758,10 +908,12 @@ ENDIF
 IFNDEF HOSTARCHITECTURE_X86_64
     POPAL
 ELSE
-    POPL    %r15                            ;# Restore callee-save registers
-    POPL    %r14
-    POPL    %r13
-    POPL    %r12
+    POPL    Resi
+    POPL    Redi
+    POPL    R15                            ;# Restore callee-save registers
+    POPL    R14
+    POPL    R13
+    POPL    R12
     POPL    Rebx
     POPL    Rebp
 ENDIF
@@ -881,13 +1033,10 @@ ENDIF
  ;# use incrementing moves.
     ja      mvw1
     std                             ;# Decrement Redi,Resi
-IFNDEF HOSTARCHITECTURE_X86_64
-    LEAL    (-4)[Resi+Recx*4],Resi
-    LEAL    (-4)[Redi+Recx*4],Redi
-ELSE
-    LEAL    (-8)[Resi+Recx*8],Resi
-    LEAL    (-8)[Redi+Recx*8],Redi
-ENDIF
+
+    LEAL    (-POLYWORDSIZE)[Resi+Recx*POLYWORDSIZE],Resi
+    LEAL    (-POLYWORDSIZE)[Redi+Recx*POLYWORDSIZE],Redi
+
 mvw1:
 IFDEF WINDOWS
 IFNDEF HOSTARCHITECTURE_X86_64
@@ -1050,11 +1199,7 @@ CALLMACRO   RegMask lockseg,M_Reax
 
 
 CALLMACRO   INLINE_ROUTINE  get_length_a
-IFNDEF HOSTARCHITECTURE_X86_64
-    MOVL    (-4)[Reax],Reax
-ELSE
-    MOVL    (-8)[Reax],Reax
-ENDIF
+    MOVL    (-POLYWORDSIZE)[Reax],Reax
     SHLL    CONST 8,Reax            ;# Clear top byte
     SHRL    CONST(8-TAGSHIFT),Reax  ;# Make it a tagged integer
     ORL CONST TAG,Reax
@@ -1114,7 +1259,7 @@ IFDEF WINDOWS
     test    byte ptr [Rebx-1],B_mutable
     jne     rsx1
 rsx2:
-    jmp     dword ptr [Recx]
+    jmp     FULLWORD ptr [Recx]
 ELSE
     testb   CONST B_mutable,(-1)[Rebx]
     jne     rsx1
@@ -1128,7 +1273,7 @@ ENDIF
  ;# handler.
 rsx1:
 IFDEF WINDOWS
-    cmp     dword ptr [Recx],TAGGED(0)
+    cmp     FULLWORD ptr [Recx],TAGGED(0)
 ELSE
     CMPL    CONST TAGGED(0),[Recx]
 ENDIF
@@ -1136,11 +1281,7 @@ ENDIF
     MOVL    [Recx],Rebx ;# Arg1 - the identifier for this handler
     CMPL    [Reax],Rebx ;# Compare with exception tag - Have we got the right handler?
     je      rsx7        ;# Skip if we found a match.
-IFNDEF HOSTARCHITECTURE_X86_64
-    ADDL    CONST 8,Recx        ;# Look at the next handler.
-ELSE
-    ADDL    CONST 16,Recx        ;# Look at the next handler.
-ENDIF
+    ADDL    CONST (2*POLYWORDSIZE),Recx        ;# Look at the next handler.
     MOVL    [Recx],Rebx
     CMPL    Recx,Rebx       ;# Is it a pointer to the next handler i.e.
     jb      rsx1        ;# does it point further up the stack or at itself.
@@ -1151,23 +1292,14 @@ ENDIF
     jmp     rsx1
 
 rsx7:   ;# We have found the right handler - %Recx points to the data
-IFNDEF HOSTARCHITECTURE_X86_64
-    ADDL    CONST 4,Recx        ;# point it at the code
-ELSE
-    ADDL    CONST 8,Recx        ;# point it at the code
-ENDIF
-
+    ADDL    CONST POLYWORDSIZE,Recx        ;# point it at the code
     MOVL    [Recx],Redx     ;# Get the handler entry point
 
  ;# There may be some other identifier/entry point pairs in this group.
  ;# We have to remove them and find the pointer to the next handler in the
  ;# chain.  This becomes the new handler pointer.
 rsx6:
-IFNDEF HOSTARCHITECTURE_X86_64
-    ADDL    CONST 4,Recx
-ELSE
-    ADDL    CONST 8,Recx
-ENDIF
+    ADDL    CONST POLYWORDSIZE,Recx
     MOVL    [Recx],Rebx
     CMPL    Recx,Rebx   ;# Is it a pointer to the next handler i.e.
     jb      rsx6        ;# does it point further up the stack or at itself?
@@ -1539,11 +1671,7 @@ CALLMACRO   MAKETAGGED  Reax,Reax
 CALLMACRO   MAKETAGGED  Redx,Redx
     MOVL    Reax,Redi
     MOVL    Reax,[Recx]
-IFNDEF HOSTARCHITECTURE_X86_64
-    MOVL    Redx,4[Recx]
-ELSE
-    MOVL    Redx,8[Recx]
-ENDIF
+    MOVL    Redx,POLYWORDSIZE[Recx]
     MOVL    Recx,Reax
 IFNDEF HOSTARCHITECTURE_X86_64
     ret     CONST 4
@@ -1791,11 +1919,7 @@ teststreq2:
     MOVL    Recx,Reax
     MOVL    Rebx,Redi       ;# Move ready for cmpsb.
     MOVL    [Reax],Recx     ;# Get length
-IFNDEF HOSTARCHITECTURE_X86_64
-    ADDL    CONST 4,Recx    ;# add 4 for the length field.
-ELSE
-    ADDL    CONST 8,Recx    ;# add 8 for the length field.
-ENDIF
+    ADDL    CONST POLYWORDSIZE,Recx    ;# add 4/8 for the length field.
     MOVL    Reax,Resi       ;# Move to correct reg for cmpsb
     cld                     ;# Make sure we increment
     CMPL    Reax,Reax       ;# Set the Zero bit
@@ -1826,11 +1950,7 @@ teststrneq2:
     MOVL    Recx,Reax
     MOVL    Rebx,Redi       ;# Move ready for cmpsb.
     MOVL    [Reax],Recx     ;# Get length
-IFNDEF HOSTARCHITECTURE_X86_64
-    ADDL    CONST 4,Recx    ;# add 4 for the length field.
-ELSE
-    ADDL    CONST 8,Recx    ;# add 8 for the length field.
-ENDIF
+    ADDL    CONST POLYWORDSIZE,Recx    ;# add 4/8 for the length field.
     MOVL    Reax,Resi       ;# Move to correct reg for cmpsb
     cld                     ;# Make sure we increment
     CMPL    Reax,Reax       ;# Set the Zero bit
@@ -1866,11 +1986,7 @@ tststr0a:
     CMPL    [Rebx],Redi
     jg      tststr4            ;# Return with "gtr" set if it is
     SHRL    CONST TAGSHIFT,Reax
-IFNDEF HOSTARCHITECTURE_X86_64
-    CMPB    4[Rebx],R_al
-ELSE
-    CMPB    8[Rebx],R_al
-ENDIF
+    CMPB    POLYWORDSIZE[Rebx],R_al
     jne     tststr4            ;# If they're not equal that's the result
     CMPL    CONST 256,Reax     ;# But if they're equal set "less" because A is less than B
     jmp     tststr4
@@ -1882,11 +1998,7 @@ tststr1: ;# arg2 is not short.  Is arg1 ?
     CMPL    CONST 1,Redi
     jl      tststr4            ;# Return with "less" set if it is
     SHRL    CONST TAGSHIFT,Rebx
-IFNDEF HOSTARCHITECTURE_X86_64
-    MOVB    4[Reax],R_cl
-ELSE
-    MOVB    8[Reax],R_cl
-ENDIF
+    MOVB    POLYWORDSIZE[Reax],R_cl
     CMPB    R_bl,R_cl
     jne     tststr4            ;# If they're not equal that's the result
     CMPL    CONST 0,Redi      ;# But if they're equal set "greater" because A is greater than B
@@ -1899,13 +2011,8 @@ tststr2:
     jge     tststr3
     MOVL    Redi,Recx
 tststr3:
-IFNDEF HOSTARCHITECTURE_X86_64
-    LEAL    4[Reax],Resi    ;# Load ptrs for cmpsb
-    LEAL    4[Rebx],Redi
-ELSE
-    LEAL    8[Reax],Resi    ;# Load ptrs for cmpsb
-    LEAL    8[Rebx],Redi
-ENDIF
+    LEAL    POLYWORDSIZE[Reax],Resi    ;# Load ptrs for cmpsb
+    LEAL    POLYWORDSIZE[Rebx],Redi
     cld                 ;# Make sure we increment
     CMPL    Reax,Reax       ;# Set the Zero bit
 IFDEF WINDOWS
@@ -2022,11 +2129,7 @@ CALLMACRO   INLINE_ROUTINE  is_big_endian
 CALLMACRO   RegMask is_big_endian,(M_Reax)
 
 CALLMACRO   INLINE_ROUTINE  bytes_per_word
-IFNDEF HOSTARCHITECTURE_X86_64
-    MOVL    CONST TAGGED(4),Reax  ;# 4 bytes per word
-ELSE
-    MOVL    CONST TAGGED(8),Reax  ;# 8 bytes per word
-ENDIF
+    MOVL    CONST TAGGED(POLYWORDSIZE),Reax  ;# 4/8 bytes per word
     ret
 CALLMACRO   RegMask bytes_per_word,(M_Reax)
 
@@ -2079,7 +2182,7 @@ CALLMACRO   RegMask mod_word,(M_Reax OR M_Rebx OR M_Redx)
 
 raise_div_ex:
 IFDEF WINDOWS
-    jmp     dword ptr [RaiseDiv+Rebp]
+    jmp     FULLWORD ptr [RaiseDiv+Rebp]
 ELSE
     jmp     *RaiseDiv[Rebp]
 ENDIF
@@ -2176,14 +2279,19 @@ ENDIF
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
 IFDEF WINDOWS
-        mov     dword ptr (-4)[Recx],01000002h  ;# Length word:
+        mov     FULLWORD ptr (-4)[Recx],01000002h  ;# Length word:
 ELSE
         MOVL    CONST 0x01000002,(-4)[Recx]		;# Two words plus tag
 ENDIF
 ELSE
         MOVL    Recx,R15                        ;# Updated allocation pointer
-	MOVL    CONST 1,(-8)[Recx]		;# One word
-	MOVB    CONST B_bytes,(-1)[Recx]	;# Set the byte flag.
+IFDEF WINDOWS
+	    mov    qword ptr (-8)[Recx],1   ;# One word
+	    mov    byte ptr (-1)[Recx],B_bytes	;# Set the byte flag.
+ELSE
+	    MOVL    CONST 1,(-8)[Recx]		;# One word
+	    MOVB    CONST B_bytes,(-1)[Recx]	;# Set the byte flag.
+ENDIF
 ENDIF
         ret
 mem_for_real1:  ;# Not enough store: clobber bad value in ecx.
@@ -2455,7 +2563,7 @@ CALLMACRO INLINE_ROUTINE real_from_int
     SARL    CONST TAGSHIFT,Reax ;# Untag the value
 	MOVL    Reax,RealTemp[Rebp]	;# Save it in a temporary (N.B. It's now untagged)
 IFDEF WINDOWS
-	FILD    dword ptr RealTemp[Rebp]
+	FILD    FULLWORD ptr RealTemp[Rebp]
 	FSTP    qword ptr [Recx]
 ELSE
 IFDEF HOSTARCHITECTURE_X86_64
@@ -2473,6 +2581,145 @@ real_float_1:
 
 CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
+;# Additional assembly code routines
+
+;# Get the floating point control word.  Used to ensure any changes to the rounding
+;# mode within the RTS are passed back to compiler ML code.
+CALLMACRO INLINE_ROUTINE X86AsmGetFPControlWord
+    PUSHL   CONST 0
+    FNSTCW  [Resp]
+    POPL    Reax
+    RET
+
+;# Return the value at the top of the stack.  Used in various routines that
+;# "call" in order to return the address of the next instruction.
+ReturnFromStack:
+    POPL    Reax
+    RET
+
+;# This code returns the address of a piece of template code. The actual code is
+;# copied into a newly allocated piece of memory which is set up to
+;# look like an ML function.
+;# The code itself is called if a function set up with exception_trace
+;# returns normally.  It removes the handler.
+CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceCode
+    CALL    ReturnFromStack                 ;# Not a real call
+
+    ADDL    CONST POLYWORDSIZE,Resp       ;# Remove handler
+    POPL    HandlerRegister[Rebp]
+    RET
+    NOP                         ;# Add an extra byte so we have 8 bytes on both X86 and X86_64
+
+;# This also returns the address of some template code.  It is called
+;# if the function set up by exception_trace raises an exception.
+CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceCode
+    CALL    ReturnFromStack                 ;# Not a real call
+
+    NOP                                 ;# Two NOPs - for alignment
+    NOP
+    MOVL    Reax,Rebx                   ;# Exception packet as second arg
+    MOVL    HandlerRegister[Rebp],Reax  ;# Handler register
+    ADDL    CONST POLYWORDSIZE,Reax     ;# Point at the handler to restore
+CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace
+    NOP                                 ;# More NOPs for padding
+    NOP
+    NOP
+
+;# This implements atomic addition in the same way as atomic_increment
+CALLMACRO INLINE_ROUTINE X86AsmAtomicIncrement
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Reax
+ELSE
+IFDEF WINDOWS
+    MOVL    Recx,Reax   ;# The argument to the function is passed in Recx
+ELSE
+IFDEF _WIN32
+    MOVL    Recx,Reax   ;# The argument to the function is passed in Recx
+ELSE
+    MOVL    Redi,Reax   ;# On X86_64 the argument is passed in Redi
+ENDIF
+ENDIF
+ENDIF
+    JMP     atomic_increment
+
+;# This implements atomic subtraction in the same way as atomic_decrement
+CALLMACRO INLINE_ROUTINE X86AsmAtomicDecrement
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Reax
+ELSE
+    MOVL    Redi,Reax            ;# On X86_64 the argument is passed in Redi
+ENDIF
+    JMP     atomic_decrement
+
+IFDEF WINDOWS
+;# Visual C does not support assembly code on X86-64 so we use this for X86-32 as well.
+CREATE_IO_CALL  MACRO index
+    INLINE_ROUTINE    X86AsmCall&index&
+    CALL    ReturnFromStack                 ;# Not a real call
+    CALL_IO index
+    ENDM
+
+CREATE_EXTRA_CALL MACRO index
+    INLINE_ROUTINE  X86AsmCallExtra&index&
+    CALL    ReturnFromStack
+    mov     byte ptr [ReturnReason+Rebp],index
+    jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+    ENDM
+
+    CREATE_IO_CALL  POLY_SYS_exit
+    CREATE_IO_CALL  POLY_SYS_chdir
+    CREATE_IO_CALL  POLY_SYS_get_flags
+    CREATE_IO_CALL  POLY_SYS_exception_trace
+    CREATE_IO_CALL  POLY_SYS_profiler
+    CREATE_IO_CALL  POLY_SYS_Real_str
+    CREATE_IO_CALL  POLY_SYS_Real_Dispatch
+    CREATE_IO_CALL  POLY_SYS_Repr_real
+    CREATE_IO_CALL  POLY_SYS_conv_real
+    CREATE_IO_CALL  POLY_SYS_real_to_int
+    CREATE_IO_CALL  POLY_SYS_sqrt_real
+    CREATE_IO_CALL  POLY_SYS_sin_real
+    CREATE_IO_CALL  POLY_SYS_signal_handler
+    CREATE_IO_CALL  POLY_SYS_os_specific
+    CREATE_IO_CALL  POLY_SYS_network
+    CREATE_IO_CALL  POLY_SYS_io_dispatch
+    CREATE_IO_CALL  POLY_SYS_poly_specific
+    CREATE_IO_CALL  POLY_SYS_set_code_constant
+    CREATE_IO_CALL  POLY_SYS_code_flags
+    CREATE_IO_CALL  POLY_SYS_shrink_stack
+    CREATE_IO_CALL  POLY_SYS_process_env
+    CREATE_IO_CALL  POLY_SYS_callcode_tupled
+    CREATE_IO_CALL  POLY_SYS_foreign_dispatch
+    CREATE_IO_CALL  POLY_SYS_stack_trace
+    CREATE_IO_CALL  POLY_SYS_full_gc
+    CREATE_IO_CALL  POLY_SYS_XWindows
+    CREATE_IO_CALL  POLY_SYS_timing_dispatch
+    CREATE_IO_CALL  POLY_SYS_showsize
+    CREATE_IO_CALL  POLY_SYS_objsize
+    CREATE_IO_CALL  POLY_SYS_kill_self
+    CREATE_IO_CALL  POLY_SYS_thread_dispatch
+    CREATE_IO_CALL  POLY_SYS_io_operation
+    CREATE_IO_CALL  POLY_SYS_ln_real
+    CREATE_IO_CALL  POLY_SYS_exp_real
+    CREATE_IO_CALL  POLY_SYS_arctan_real
+    CREATE_IO_CALL  POLY_SYS_cos_real
+
+RETURN_HEAP_OVERFLOW        EQU 1
+RETURN_STACK_OVERFLOW       EQU 2
+RETURN_STACK_OVERFLOWEX     EQU 3
+RETURN_RAISE_DIV            EQU 4
+RETURN_ARB_EMULATION        EQU 5
+RETURN_CALLBACK_RETURN      EQU 6
+RETURN_CALLBACK_EXCEPTION   EQU 7
+
+    CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
+    CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
+    CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+    CREATE_EXTRA_CALL RETURN_RAISE_DIV
+    CREATE_EXTRA_CALL RETURN_ARB_EMULATION
+    CREATE_EXTRA_CALL RETURN_CALLBACK_RETURN
+    CREATE_EXTRA_CALL RETURN_CALLBACK_EXCEPTION
+
+ENDIF
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
@@ -2744,8 +2991,4 @@ ENDIF
     dd  Mask_assign_byte         ;# 254
     dd  Mask_assign_word         ;# 255
 
-IFDEF HOSTARCHITECTURE_X86_64
-
-
-ENDIF
 END
