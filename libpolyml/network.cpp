@@ -127,6 +127,7 @@ typedef int socklen_t;
 #include "save_vec.h"
 #include "rts_module.h"
 #include "machine_dep.h"
+#include "errors.h"
 
 #ifndef MAXHOSTNAMELEN
 #define MAXHOSTNAMELEN 256
@@ -307,37 +308,26 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType);
    have an equivalent.  (It does seem to be defined in Windows CE). */
 static int MapError(int err)
 {
-    switch (err)
-    {
-#ifdef EINTR
-    case WSAEINTR: return EINTR;
-#endif
-#ifdef EBADF
-    case WSAEBADF: return EBADF;
-#endif
-#ifdef EACCES
-    case WSAEACCES: return EACCES;
-#endif
-#ifdef EFAULT
-    case WSAEFAULT: return EFAULT;
-#endif
-#ifdef EINVAL
-    case WSAEINVAL: return EINVAL;
-#endif
-#ifdef EMFILE
-    case WSAEMFILE: return EMFILE;
-#endif
-#ifdef ENAMETOOLONG
-    case WSAENAMETOOLONG: return ENAMETOOLONG;
-#endif
-#ifdef ENOTEMPTY
-    case WSAENOTEMPTY: return ENOTEMPTY;
-#endif
 #ifdef EWOULDBLOCK
-	case WSAEWOULDBLOCK: return EWOULDBLOCK;
+    // This is very common so we treat it specially.
+    if (err == WSAEWOULDBLOCK)
+        return EWOULDBLOCK;
 #endif
-    default: return -err;
+    for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
+    {
+        if (errortable[i].errorNum == -err)
+        {
+            const char *text = errortable[i].errorString;
+            // It's in the table.  Is there an entry with the same string earlier in the table?
+            // This involves a linear search but it's only going to happen if there's an error.
+            for (unsigned j = 0; j < sizeof(errortable)/sizeof(errortable[0]); j++)
+            {
+                if (strcmp(text, errortable[j].errorString) == 0)
+                    return errortable[j].errorNum;
+            }
+        }
     }
+    return -err;
 }
 
 /* If these are not defined define them as negative because GetError returns
