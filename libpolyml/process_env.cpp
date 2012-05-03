@@ -167,7 +167,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
             if (length >= sizeof(buff))
                 raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
-#if (defined(_WIN32))
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             // Windows.
             char *argv[4];
             argv[0] = getenv("COMSPEC"); // Default CLI.

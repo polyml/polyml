@@ -1240,7 +1240,7 @@ Handle change_dirc(TaskData *taskData, Handle name)
 {
     TCHAR string_buffer[MAXPATHLEN];
     getFileName(taskData, name, string_buffer, MAXPATHLEN);
-#if defined(_WIN32)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (SetCurrentDirectory(string_buffer) == FALSE)
        raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
 #else
@@ -1286,7 +1286,7 @@ Handle fullPath(TaskData *taskData, Handle filename)
     /* Special case of an empty string. */
     if (string_buffer[0] == '\0') { string_buffer[0] = '.'; string_buffer[1] = 0;}
 
-#if defined(_WIN32)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         LPTSTR lastPart;
         DWORD dwRes =
@@ -1712,7 +1712,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     case 54: /* Get current working directory. */
         {
             char string_buffer[MAXPATHLEN+1];
-#if defined(_WIN32)
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (GetCurrentDirectory(MAXPATHLEN+1, string_buffer) == 0)
                raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
 #else
