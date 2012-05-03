@@ -155,7 +155,7 @@ PolyWord C_string_to_Poly(const WCHAR *buffer)
     
     /* Set length of string, then copy the characters. */
     result->length = length;
-	for (unsigned long i = 0; i < length; i++) result->chars[i] = (char)buffer[i];
+    for (unsigned long i = 0; i < length; i++) result->chars[i] = (char)buffer[i];
 
     return result;
 } /* C_string_to_Poly */
@@ -171,29 +171,29 @@ POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen)
 
     PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
     POLYUNSIGNED chars = str->length >= bufflen ? bufflen-1 : str->length;
-	for (POLYUNSIGNED i = 0; i < chars; i++) buff[i] = str->chars[i];
+    for (POLYUNSIGNED i = 0; i < chars; i++) buff[i] = str->chars[i];
     buff[chars] = 0;
     return chars;
 } /* Poly_string_to_C */
 
 WCHAR *Poly_string_to_U_alloc(PolyWord ps)
 {
-	if (IS_INT(ps))
-	{
-		WCHAR *res = (WCHAR*)malloc(2 * sizeof(WCHAR));
-		res[0] = (WCHAR)(UNTAGGED(ps));
-		res[1] = 0;
-		return res;
-	}
-	else
-	{
-		PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
-		POLYUNSIGNED chars = str->length;
-		WCHAR * res = (WCHAR*)malloc((chars+1) * sizeof(WCHAR));
-		for (POLYUNSIGNED i = 0; i < chars; i++) res[i] = str->chars[i];
-		res[chars] = 0;
-		return res;
-	}
+    if (IS_INT(ps))
+    {
+        WCHAR *res = (WCHAR*)malloc(2 * sizeof(WCHAR));
+        res[0] = (WCHAR)(UNTAGGED(ps));
+        res[1] = 0;
+        return res;
+    }
+    else
+    {
+        PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
+        POLYUNSIGNED chars = str->length;
+        WCHAR * res = (WCHAR*)malloc((chars+1) * sizeof(WCHAR));
+        for (POLYUNSIGNED i = 0; i < chars; i++) res[i] = str->chars[i];
+        res[chars] = 0;
+        return res;
+    }
 } /* Poly_string_to_U_alloc */
 
 #endif

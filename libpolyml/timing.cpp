@@ -184,7 +184,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ft;
-			GetSystemTimeAsFileTime(&ft);
+            GetSystemTimeAsFileTime(&ft);
             return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
             struct timeval tv;
@@ -280,8 +280,8 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #else
             {
                 PLocker lock(&timeLock);
-			    struct tm *loctime = localtime(&theTime);
-			    if (loctime == NULL) raise_exception0(taskData, EXC_size);
+                struct tm *loctime = localtime(&theTime);
+                if (loctime == NULL) raise_exception0(taskData, EXC_size);
                 isDst = loctime->tm_isdst;
             }
 #endif
@@ -369,7 +369,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ft;
-			GetSystemTimeAsFileTime(&ft);
+            GetSystemTimeAsFileTime(&ft);
             subFiletimes(&ft, &startTime);
             return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
@@ -421,7 +421,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown timing function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }
@@ -637,7 +637,7 @@ void GcTimeData::Init()
     memset(&lastUsageU, 0, sizeof(lastUsageU));
     memset(&lastUsageS, 0, sizeof(lastUsageS));
     memset(&lastRTime, 0, sizeof(lastRTime));
-	GetSystemTimeAsFileTime(&startRTime);
+    GetSystemTimeAsFileTime(&startRTime);
 #else
     memset(&startUsage, 0, sizeof(startUsage));
     memset(&lastUsage, 0, sizeof(lastUsage));
@@ -816,8 +816,8 @@ static Timing timingModule;
 void Timing::Init(void)
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-	// Record an initial time of day to use as the basis of real timing
-	GetSystemTimeAsFileTime(&startTime);
+    // Record an initial time of day to use as the basis of real timing
+    GetSystemTimeAsFileTime(&startTime);
 #else
     gettimeofday(&startTime, NULL);
 #endif

@@ -193,7 +193,7 @@ POLYSIGNED get_C_long(TaskData *taskData, PolyWord number)
 
         raise_exception0(taskData, EXC_size );
         /*NOTREACHED*/
-		return 0;
+        return 0;
     }
 }
 
@@ -205,7 +205,7 @@ short get_C_short(TaskData *taskData, PolyWord number)
 
     raise_exception0(taskData, EXC_size );
     /*NOTREACHED*/
-	return 0;
+    return 0;
 }
 
 unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
@@ -216,7 +216,7 @@ unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
 
     raise_exception0(taskData, EXC_size );
     /*NOTREACHED*/
-	return 0;
+    return 0;
 }
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -264,32 +264,32 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
 #if (SIZEOF_LONG == SIZEOF_VOIDP)
 unsigned get_C_unsigned(TaskData *taskData, PolyWord number)
 {
-	return get_C_ulong(taskData, number);
+    return get_C_ulong(taskData, number);
 }
 
 int get_C_int(TaskData *taskData, PolyWord number)
 {
-	return get_C_long(taskData, number);
+    return get_C_long(taskData, number);
 }
 #else
 // Poly words are the same size as a pointer but that may
 // not be the same as int or long.
 unsigned get_C_unsigned(TaskData *taskData, PolyWord number)
 {
-	POLYUNSIGNED res = get_C_ulong(taskData, number);
-	unsigned result = (unsigned)res;
-	if ((POLYUNSIGNED)result != res)
-		raise_exception0(taskData, EXC_size);
-	return result;
+    POLYUNSIGNED res = get_C_ulong(taskData, number);
+    unsigned result = (unsigned)res;
+    if ((POLYUNSIGNED)result != res)
+        raise_exception0(taskData, EXC_size);
+    return result;
 }
 
 int get_C_int(TaskData *taskData, PolyWord number)
 {
-	POLYSIGNED res = get_C_long(taskData, number);
-	int result = (int)res;
-	if ((POLYSIGNED)result != res)
-		raise_exception0(taskData, EXC_size);
-	return result;
+    POLYSIGNED res = get_C_long(taskData, number);
+    int result = (int)res;
+    if ((POLYSIGNED)result != res)
+        raise_exception0(taskData, EXC_size);
+    return result;
 
 }
 #endif
@@ -719,8 +719,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
 
     else /* lx == ly */
     { /* Must look at the numbers to decide which is bigger. */
-		POLYUNSIGNED i = lx;
-		while (i > 0 && DEREFBYTEHANDLE(x)[i-1] == DEREFBYTEHANDLE(y)[i-1]) i--;
+        POLYUNSIGNED i = lx;
+        while (i > 0 && DEREFBYTEHANDLE(x)[i-1] == DEREFBYTEHANDLE(y)[i-1]) i--;
 
         if (i == 0) return taskData->saveVec.push(TAGGED(0)); /* They are equal */
 
@@ -743,8 +743,8 @@ static Handle sub_unsigned_long(TaskData *taskData, Handle x, Handle y, int sign
         }
     }
 
-    byte		*w = DEREFBYTEHANDLE(z);
-    unsigned	borrow = 1; /* Becomes 0 if there is a borrow */
+    byte        *w = DEREFBYTEHANDLE(z);
+    unsigned    borrow = 1; /* Becomes 0 if there is a borrow */
     POLYUNSIGNED i = 0;
 
     /* Do the subtractions */

@@ -96,7 +96,7 @@ public:
     AutoClose(FILE *f = 0): m_file(f) {}
     ~AutoClose() { if (m_file) ::fclose(m_file); }
 
-	operator FILE*() { return m_file; }
+    operator FILE*() { return m_file; }
 
 private:
     FILE *m_file;

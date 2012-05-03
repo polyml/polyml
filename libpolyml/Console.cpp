@@ -509,7 +509,7 @@ static BOOL CALLBACK AboutProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
     }
 }
 
-#define CF_TEXTFORMAT	CF_TEXT
+#define CF_TEXTFORMAT   CF_TEXT
 
 /* This is the main window procedure. */
 LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -589,7 +589,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     LPCTSTR lpszText;
                     OpenClipboard(hEditWnd);
                     hClip = GetClipboardData(CF_TEXTFORMAT);
-					lpszText = (LPCTSTR)GlobalLock(hClip);
+                    lpszText = (LPCTSTR)GlobalLock(hClip);
                     CheckForScreenSpace(lstrlen(lpszText));
                     MoveToEnd();
                     // Add it to the screen.
@@ -619,7 +619,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     }
                     if (nAvailable != nReadPosn) SetEvent(hInputEvent);
                     LeaveCriticalSection(&csIOInterlock);
-					GlobalUnlock(hClip);
+                    GlobalUnlock(hClip);
                     CloseClipboard();
                 }
                 return 0; 
@@ -793,8 +793,8 @@ int PolyWinMain(
         wndClass.hbrBackground = NULL; // For the moment
         wndClass.lpszClassName = _T("PolyMLWindowClass");
         wndClass.lpszMenuName = MAKEINTRESOURCE(IDR_MENU); 
-		wndClass.hIconSm = NULL; // For the moment
-		DWORD dwStyle = WS_OVERLAPPEDWINDOW;
+        wndClass.hIconSm = NULL; // For the moment
+        DWORD dwStyle = WS_OVERLAPPEDWINDOW;
 
         if ((atClass = RegisterClassEx(&wndClass)) == 0)
         {

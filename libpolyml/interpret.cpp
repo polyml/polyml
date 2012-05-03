@@ -728,7 +728,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     try {
                         ex_tracec(taskData, taskData->saveVec.push(taskData->stack->stack()->p_reg[0]),
                                   taskData->saveVec.push(PolyWord::FromStackAddr(nextHandler)));
-					}
+                    }
                     catch (IOException) {
                     }
                     taskData->saveVec.reset(marker);
@@ -1131,7 +1131,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
 
         } /* switch */
      } /* for */
-	 return 0;
+     return 0;
 } /* MD_switch_to_poly */
 
 
@@ -1141,7 +1141,7 @@ void Interpreter::CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *))
         Handle result = (*ioFun)(taskData);
         *(taskData->stack->stack()->p_sp) = result->Word();
         taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-	}
+    }
     catch (IOException) {
     }
 }
@@ -1153,7 +1153,7 @@ void Interpreter::CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle)
         Handle result = (*ioFun)(taskData, funarg);
         *(++taskData->stack->stack()->p_sp) = result->Word();
         taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-	}
+    }
     catch (IOException) {
     }
 }
@@ -1167,7 +1167,7 @@ void Interpreter::CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle,
         taskData->stack->stack()->p_sp += 2;
         *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
         taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-	}
+    }
     catch (IOException) {
     }
 }
@@ -1182,7 +1182,7 @@ void Interpreter::CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle,
         taskData->stack->stack()->p_sp += 3;
         *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
         taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-	}
+    }
     catch (IOException) {
     }
 }
@@ -1198,7 +1198,7 @@ void Interpreter::CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle,
         taskData->stack->stack()->p_sp += 4;
         *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
         taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-	}
+    }
     catch (IOException) {
     }
 }
@@ -1215,7 +1215,7 @@ void Interpreter::CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle,
         taskData->stack->stack()->p_sp += 5;
         *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
         taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-	}
+    }
     catch (IOException) {
     }
 }

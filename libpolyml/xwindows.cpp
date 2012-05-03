@@ -6372,7 +6372,7 @@ static void GetArgType
         
         if (i == MAXListTYPES) Crash ("Bad list resource name %s",T->name);
         
-	arg.name = listTypes[i].intName;
+    arg.name = listTypes[i].intName;
         arg.value = (XtArgVal) &result;
         /* Bug fix here which only appeared in OpenMotif and LessTif.  We need
            to pass the address of an integer here to receive the result.
@@ -8648,8 +8648,8 @@ Handle XWindows_c(TaskData *taskData, Handle params)
         /* Motif 4000 */
         
 #define XMCREATE(number,name) \
-	case number: return CreateXm(taskData, name, (char *)	\
-#name   " failed",	\
+    case number: return CreateXm(taskData, name, (char *)   \
+#name   " failed",  \
     GetDS(taskData, XP1), \
     GetWidget(taskData, XP1), \
     GetString(P2),      \
@@ -8852,7 +8852,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextInsert:
             {
-	      Widget w = GetTextWidget(taskData, (char *) "XmTextInsert",XP1);
+          Widget w = GetTextWidget(taskData, (char *) "XmTextInsert",XP1);
                 {
                     unsigned pos = get_C_ulong(taskData, P2);
                     PolyStringObject *s    = GetString(P3);
@@ -8871,7 +8871,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
         case XCALL_XmTextReplace:
             {
-	      Widget w = GetTextWidget(taskData, (char *) "XmTextReplace",XP1);
+          Widget w = GetTextWidget(taskData, (char *) "XmTextReplace",XP1);
                 {
                     unsigned from_pos = get_C_ulong(taskData, P2);
                     unsigned to_pos   = get_C_ulong(taskData, P3);
@@ -8899,7 +8899,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             /* inlined SPF 15/2/94 */
         case XCALL_XmTextSetString:
             {
-	      Widget w = GetTextWidget(taskData, (char *) "XmTextSetString",XP1);
+          Widget w = GetTextWidget(taskData, (char *) "XmTextSetString",XP1);
                 {
                     PolyStringObject *s    = GetString(P2);
                     int   size   = s->length + 1;
@@ -9106,7 +9106,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
 #define ListWidgetIntAction(func) \
         case XCALL_ ## func : \
-	  WidgetIntAction(taskData, (char *) #func,GetListWidget,func,XP1,P2); \
+      WidgetIntAction(taskData, (char *) #func,GetListWidget,func,XP1,P2); \
             break
             
 #define ListWidgetIntIntAction(func) \
@@ -9178,7 +9178,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
     case XCALL_XmListReplaceItems: 
         /* Unpairing the strings is done in the ML, because it's easier there. */
         {
-	  Widget w = GetListWidget(taskData, (char *) "XmListReplaceItems",XP1);
+      Widget w = GetListWidget(taskData, (char *) "XmListReplaceItems",XP1);
             unsigned n    = ListLength(P2);
             unsigned n2   = ListLength(P3);
             

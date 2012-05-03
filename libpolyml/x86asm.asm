@@ -188,7 +188,7 @@ ELSE
 #    define EXTNAME(x) POLY_LINKAGE_PREFIX ## x
 #  else
 #    define EXTNAME(x) x
-#  endif	
+#  endif    
 ;# External names in older versions of FreeBSD have a leading underscore.
 #elif ! defined(__ELF__)
 #define EXTNAME(x)  _##x
@@ -490,8 +490,8 @@ PolyStack           EQU     24  ;# Current stack base
 SavedSp             EQU     28  ;# Saved stack pointer
 IOEntryPoint        EQU     48  ;# IO call
 RaiseDiv            EQU     52  ;# Call to raise the Div exception
-ArbEmulation		EQU		56  ;# Arbitrary precision emulation
-ThreadId			EQU		60	;# My thread id
+ArbEmulation        EQU     56  ;# Arbitrary precision emulation
+ThreadId            EQU     60  ;# My thread id
 RealTemp            EQU     64 ;# Space for int-real conversions
 
 ELSE
@@ -511,7 +511,7 @@ RaiseExEntry        EQU     88  ;# Raise exception
 IOEntryPoint        EQU     96  ;# IO call
 RaiseDiv            EQU     104  ;# Exception trace
 ArbEmulation        EQU     112  ;# Arbitrary precision emulation
-ThreadId			EQU		120	;# My thread id
+ThreadId            EQU     120 ;# My thread id
 RealTemp            EQU     128 ;# Space for int-real conversions
 ENDIF
 
@@ -854,7 +854,7 @@ IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R13_OFF[Reax],R13
     MOVL    R14_OFF[Reax],R14
 ENDIF
-	cld										;# Clear this just in case
+    cld                                     ;# Clear this just in case
     MOVL    EAX_OFF[Reax],Reax
     POPFL                                   ;# reset flags
 IFDEF WINDOWS
@@ -883,7 +883,7 @@ ENDIF
     MOVL    Resi,ESI_OFF[Reax]
     MOVL    Redi,EDI_OFF[Reax]
     FNSAVE  FPREGS_OFF[Reax]          ;# Save FP state.  Also resets the state so...
-	FLDCW   FPREGS_OFF[Reax]          ;# ...load because we need the same rounding mode in the RTS
+    FLDCW   FPREGS_OFF[Reax]          ;# ...load because we need the same rounding mode in the RTS
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R8,R8_OFF[Reax]
     MOVL    R9,R9_OFF[Reax]
@@ -1250,8 +1250,8 @@ CALLMACRO   INLINE_ROUTINE  raisex
  ;# The default handler put on by InitStackFrame is word-aligned so we
  ;# also have to check that we really have an exception handler.
 
-	MOVL    [Recx],Rebx
-	TESTL   CONST 1,Rebx
+    MOVL    [Recx],Rebx
+    TESTL   CONST 1,Rebx
     jne     rsx1          ;# Old format
     TESTL   CONST 3,Rebx
     jne     rsx2          ;# New format
@@ -1757,12 +1757,12 @@ CALLMACRO   RegMask aneg,(M_Reax OR M_Redi OR Mask_all)
 
 CALLMACRO   INLINE_ROUTINE  int_geq
     TESTL   CONST TAG,Reax ;# Is first arg short?
-	jz      igeq2
-	TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      igeq1
-	CMPL    Rebx,Reax
-	jge     RetTrue
-	jmp     RetFalse
+    jz      igeq2
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+    jz      igeq1
+    CMPL    Rebx,Reax
+    jge     RetTrue
+    jmp     RetFalse
 igeq1:
  ;# First arg is short, second isn't
 IFDEF WINDOWS
@@ -1771,12 +1771,12 @@ ELSE
     testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
 ENDIF
     jnz     RetTrue     ;# Negative - always less
-	jmp     RetFalse
+    jmp     RetFalse
 
 igeq2:
  ;# First arg is long
     TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      igeq3
+    jz      igeq3
  ;# First arg is long, second is short
 IFDEF WINDOWS
     test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
@@ -1784,7 +1784,7 @@ ELSE
     testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
 ENDIF
     jz      RetTrue    ;# Positive - always greater
-	jmp     RetFalse
+    jmp     RetFalse
 
 igeq3:
  ;# Both long
@@ -1794,12 +1794,12 @@ CALLMACRO   RegMask int_geq,(M_Reax OR Mask_all)
 
 CALLMACRO   INLINE_ROUTINE  int_leq
     TESTL   CONST TAG,Reax ;# Is first arg short?
-	jz      ileq2
-	TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      ileq1
-	CMPL    Rebx,Reax
-	jle     RetTrue
-	jmp     RetFalse
+    jz      ileq2
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+    jz      ileq1
+    CMPL    Rebx,Reax
+    jle     RetTrue
+    jmp     RetFalse
 ileq1:
  ;# First arg is short, second isn't
 IFDEF WINDOWS
@@ -1808,12 +1808,12 @@ ELSE
     testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
 ENDIF
     jz      RetTrue     ;# Negative - always less
-	jmp     RetFalse
+    jmp     RetFalse
 
 ileq2:
  ;# First arg is long
     TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      ileq3
+    jz      ileq3
  ;# First arg is long, second is short
 IFDEF WINDOWS
     test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
@@ -1821,7 +1821,7 @@ ELSE
     testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
 ENDIF
     jnz     RetTrue    ;# Positive - always greater
-	jmp     RetFalse
+    jmp     RetFalse
 
 ileq3:
 CALLMACRO   CALL_IO    POLY_SYS_int_leq
@@ -1830,12 +1830,12 @@ CALLMACRO   RegMask int_leq,(M_Reax OR M_Recx OR Mask_all)
 
 CALLMACRO   INLINE_ROUTINE  int_gtr
     TESTL   CONST TAG,Reax ;# Is first arg short?
-	jz      igtr2
-	TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      igtr1
-	CMPL    Rebx,Reax
-	jg      RetTrue
-	jmp     RetFalse
+    jz      igtr2
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+    jz      igtr1
+    CMPL    Rebx,Reax
+    jg      RetTrue
+    jmp     RetFalse
 igtr1:
  ;# First arg is short, second isn't
 IFDEF WINDOWS
@@ -1844,12 +1844,12 @@ ELSE
     testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
 ENDIF
     jnz     RetTrue     ;# Negative - always less
-	jmp     RetFalse
+    jmp     RetFalse
 
 igtr2:
  ;# First arg is long
     TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      igtr3
+    jz      igtr3
  ;# First arg is long, second is short
 IFDEF WINDOWS
     test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
@@ -1857,7 +1857,7 @@ ELSE
     testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
 ENDIF
     jz      RetTrue    ;# Positive - always greater
-	jmp     RetFalse
+    jmp     RetFalse
 
 igtr3:
 CALLMACRO   CALL_IO    POLY_SYS_int_gtr
@@ -1866,12 +1866,12 @@ CALLMACRO   RegMask int_gtr,(M_Reax OR M_Recx OR Mask_all)
 
 CALLMACRO   INLINE_ROUTINE  int_lss
     TESTL   CONST TAG,Reax ;# Is first arg short?
-	jz      ilss2
-	TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      ilss1
-	CMPL    Rebx,Reax
-	jl      RetTrue
-	jmp     RetFalse
+    jz      ilss2
+    TESTL   CONST TAG,Rebx ;# Is second arg short?
+    jz      ilss1
+    CMPL    Rebx,Reax
+    jl      RetTrue
+    jmp     RetFalse
 ilss1:
  ;# First arg is short, second isn't
 IFDEF WINDOWS
@@ -1880,12 +1880,12 @@ ELSE
     testb   CONST 16,(-1)[Rebx]     ;# 16 is the "negative" bit
 ENDIF
     jz      RetTrue     ;# Negative - always less
-	jmp     RetFalse
+    jmp     RetFalse
 
 ilss2:
  ;# First arg is long
     TESTL   CONST TAG,Rebx ;# Is second arg short?
-	jz      ilss3
+    jz      ilss3
  ;# First arg is long, second is short
 IFDEF WINDOWS
     test    byte ptr [Reax-1],CONST 16  ;# 16 is the "negative" bit
@@ -1893,7 +1893,7 @@ ELSE
     testb   CONST 16,(-1)[Reax]     ;# 16 is the "negative" bit
 ENDIF
     jnz     RetTrue    ;# Positive - always greater
-	jmp     RetFalse
+    jmp     RetFalse
 
 ilss3:
 CALLMACRO   CALL_IO    POLY_SYS_int_lss
@@ -2228,10 +2228,10 @@ CALLMACRO   RegMask word_lss,(M_Reax)
 ;# we have to increment it.
 CALLMACRO   INLINE_ROUTINE  atomic_increment
 atomic_incr:                    ;# Internal name in case "atomic_increment" is munged.
-    MOVL	CONST 2,Rebx
+    MOVL    CONST 2,Rebx
     LOCKXADDL Rebx,[Reax]
-    ADDL	CONST 2,Rebx
-    MOVL	Rebx,Reax
+    ADDL    CONST 2,Rebx
+    MOVL    Rebx,Reax
     ret
 
 CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
@@ -2241,18 +2241,18 @@ CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
 ;# we have to decrement it.
 CALLMACRO   INLINE_ROUTINE  atomic_decrement
 atomic_decr:
-    MOVL	CONST -2,Rebx
+    MOVL    CONST -2,Rebx
     LOCKXADDL Rebx,[Reax]
-    MOVL	Rebx,Reax
-    SUBL	CONST 2,Reax
+    MOVL    Rebx,Reax
+    SUBL    CONST 2,Reax
     ret
 
 CALLMACRO   RegMask atomic_decr,(M_Reax OR M_Rebx)
 
 ;# Return the thread id object for the current thread
 CALLMACRO   INLINE_ROUTINE  thread_self
-	MOVL    ThreadId[Rebp],Reax
-	ret
+    MOVL    ThreadId[Rebp],Reax
+    ret
 CALLMACRO   RegMask thread_self,(M_Reax)
 
 
@@ -2266,10 +2266,10 @@ mem_for_real:
 ;# Allocate memory for the result.
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    LocalMpointer[Rebp],Recx
-	    SUBL    CONST 12,Recx        ;# Length word (4 bytes) + 8 bytes
+        SUBL    CONST 12,Recx        ;# Length word (4 bytes) + 8 bytes
 ELSE
         MOVL    R15,Recx
-	    SUBL    CONST 16,Recx        ;# Length word (8 bytes) + 8 bytes
+        SUBL    CONST 16,Recx        ;# Length word (8 bytes) + 8 bytes
 ENDIF
 IFDEF TEST_ALLOC
 ;# Test case - this will always force a call into RTS.
@@ -2283,43 +2283,43 @@ IFNDEF HOSTARCHITECTURE_X86_64
 IFDEF WINDOWS
         mov     FULLWORD ptr (-4)[Recx],01000002h  ;# Length word:
 ELSE
-        MOVL    CONST 0x01000002,(-4)[Recx]		;# Two words plus tag
+        MOVL    CONST 0x01000002,(-4)[Recx]     ;# Two words plus tag
 ENDIF
 ELSE
         MOVL    Recx,R15                        ;# Updated allocation pointer
 IFDEF WINDOWS
-	    mov    qword ptr (-8)[Recx],1   ;# One word
-	    mov    byte ptr (-1)[Recx],B_bytes	;# Set the byte flag.
+        mov    qword ptr (-8)[Recx],1   ;# One word
+        mov    byte ptr (-1)[Recx],B_bytes  ;# Set the byte flag.
 ELSE
-	    MOVL    CONST 1,(-8)[Recx]		;# One word
-	    MOVB    CONST B_bytes,(-1)[Recx]	;# Set the byte flag.
+        MOVL    CONST 1,(-8)[Recx]      ;# One word
+        MOVB    CONST B_bytes,(-1)[Recx]    ;# Set the byte flag.
 ENDIF
 ENDIF
         ret
 mem_for_real1:  ;# Not enough store: clobber bad value in ecx.
         MOVL   CONST 1,Recx
-	ret
+    ret
 
 
 CALLMACRO INLINE_ROUTINE real_add
         call    mem_for_real
-	jb      real_add_1     ;# Not enough space - call RTS.
+    jb      real_add_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FADD    qword ptr [Rebx]
-	FSTP    qword ptr [Recx]
+    FLD     qword ptr [Reax]
+    FADD    qword ptr [Rebx]
+    FSTP    qword ptr [Recx]
 ELSE
-	FLDL    [Reax]
-	FADDL   [Rebx]
-	FSTPL   [Recx]
+    FLDL    [Reax]
+    FADDL   [Rebx]
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_add_1:
-	CALLMACRO   CALL_IO    POLY_SYS_Add_real
+    CALLMACRO   CALL_IO    POLY_SYS_Add_real
 ;# The mask includes FP7 rather than FP0 because this pushes a value which
 ;# overwrites the bottom of the stack.
 CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
@@ -2328,69 +2328,69 @@ CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 CALLMACRO INLINE_ROUTINE real_sub
         call    mem_for_real
-	jb      real_sub_1     ;# Not enough space - call RTS.
+    jb      real_sub_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FSUB    qword ptr [Rebx]
-	FSTP    qword ptr [Recx]
+    FLD     qword ptr [Reax]
+    FSUB    qword ptr [Rebx]
+    FSTP    qword ptr [Recx]
 ELSE
-	FLDL    [Reax]
-	FSUBL   [Rebx]
-	FSTPL   [Recx]
+    FLDL    [Reax]
+    FSUBL   [Rebx]
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_sub_1:
-	CALLMACRO   CALL_IO    POLY_SYS_Sub_real
+    CALLMACRO   CALL_IO    POLY_SYS_Sub_real
 
 CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 CALLMACRO INLINE_ROUTINE real_mul
         call    mem_for_real
-	jb      real_mul_1     ;# Not enough space - call RTS.
+    jb      real_mul_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FMUL    qword ptr [Rebx]
-	FSTP    qword ptr [Recx]
+    FLD     qword ptr [Reax]
+    FMUL    qword ptr [Rebx]
+    FSTP    qword ptr [Recx]
 ELSE
-	FLDL    [Reax]
-	FMULL   [Rebx]
-	FSTPL   [Recx]
+    FLDL    [Reax]
+    FMULL   [Rebx]
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_mul_1:
-	CALLMACRO   CALL_IO    POLY_SYS_Mul_real
+    CALLMACRO   CALL_IO    POLY_SYS_Mul_real
 
 CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 CALLMACRO INLINE_ROUTINE real_div
         call    mem_for_real
-	jb      real_div_1     ;# Not enough space - call RTS.
+    jb      real_div_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FDIV    qword ptr [Rebx]
-	FSTP    qword ptr [Recx]
+    FLD     qword ptr [Reax]
+    FDIV    qword ptr [Rebx]
+    FSTP    qword ptr [Recx]
 ELSE
-	FLDL    [Reax]
-	FDIVL   [Rebx]
-	FSTPL   [Recx]
+    FLDL    [Reax]
+    FDIVL   [Rebx]
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_div_1:
-	CALLMACRO   CALL_IO    POLY_SYS_Div_real
+    CALLMACRO   CALL_IO    POLY_SYS_Div_real
 
 CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
@@ -2400,48 +2400,48 @@ CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 CALLMACRO INLINE_ROUTINE real_abs
     call    mem_for_real
-	jb      real_abs_1     ;# Not enough space - call RTS.
+    jb      real_abs_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 ;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FABS
-	FSTP    qword ptr [Recx]
+    FLD     qword ptr [Reax]
+    FABS
+    FSTP    qword ptr [Recx]
 ELSE
-	FLDL    [Reax]
-	FABS
-	FSTPL   [Recx]
+    FLDL    [Reax]
+    FABS
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_abs_1:
-	CALLMACRO   CALL_IO    POLY_SYS_Abs_real
+    CALLMACRO   CALL_IO    POLY_SYS_Abs_real
 
 CALLMACRO   RegMask real_abs,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 
 CALLMACRO INLINE_ROUTINE real_neg
         call    mem_for_real
-	jb      real_neg_1     ;# Not enough space - call RTS.
+    jb      real_neg_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 ;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCHS
-	FSTP    qword ptr [Recx]
+    FLD     qword ptr [Reax]
+    FCHS
+    FSTP    qword ptr [Recx]
 ELSE
-	FLDL    [Reax]
-	FCHS
-	FSTPL   [Recx]
+    FLDL    [Reax]
+    FCHS
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_neg_1:
-	CALLMACRO   CALL_IO    POLY_SYS_Neg_real
+    CALLMACRO   CALL_IO    POLY_SYS_Neg_real
 
 CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
@@ -2449,35 +2449,35 @@ CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 CALLMACRO INLINE_ROUTINE real_eq
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCOMP   qword ptr [Rebx]
+    FLD     qword ptr [Reax]
+    FCOMP   qword ptr [Rebx]
 ELSE
-	FLDL    [Reax]
-	FCOMPL  [Rebx]
+    FLDL    [Reax]
+    FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
 ;# Not all 64-bit processors support SAHF.
 ;# The result is true if the zero flag is set and parity flag clear.  
         ANDL    CONST 17408,Reax ;# 0x4400
         CMPL    CONST 16384,Reax ;# 0x4000
-	je      RetTrue
-	jmp     RetFalse
+    je      RetTrue
+    jmp     RetFalse
 CALLMACRO   RegMask real_eq,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_neq
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCOMP   qword ptr [Rebx]
+    FLD     qword ptr [Reax]
+    FCOMP   qword ptr [Rebx]
 ELSE
-	FLDL    [Reax]
-	FCOMPL  [Rebx]
+    FLDL    [Reax]
+    FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
         ANDL    CONST 17408,Reax ;# 0x4400
         CMPL    CONST 16384,Reax ;# 0x4000
-	jne     RetTrue
-	jmp     RetFalse
+    jne     RetTrue
+    jmp     RetFalse
 
 CALLMACRO   RegMask real_neq,(M_Reax OR M_FP7)
 
@@ -2485,38 +2485,38 @@ CALLMACRO   RegMask real_neq,(M_Reax OR M_FP7)
 CALLMACRO INLINE_ROUTINE real_lss
 ;# Compare Rebx > Reax
 IFDEF WINDOWS
-	FLD     qword ptr [Rebx]
-	FCOMP   qword ptr [Reax]
+    FLD     qword ptr [Rebx]
+    FCOMP   qword ptr [Reax]
 ELSE
-	FLDL    [Rebx]
-	FCOMPL  [Reax]
+    FLDL    [Rebx]
+    FCOMPL  [Reax]
 ENDIF
         FNSTSW  R_ax
 
 ;# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
         ANDL    CONST 17664,Reax ;# 0x4500
 
-	je      RetTrue
-	jmp     RetFalse
+    je      RetTrue
+    jmp     RetFalse
 
 CALLMACRO   RegMask real_lss,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_gtr
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCOMP   qword ptr [Rebx]
+    FLD     qword ptr [Reax]
+    FCOMP   qword ptr [Rebx]
 ELSE
-	FLDL    [Reax]
-	FCOMPL  [Rebx]
+    FLDL    [Reax]
+    FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
 
 ;# True if the carry flag (C0), zero flag (C3) and parity (C2) are all clear
         ANDL    CONST 17664,Reax ;# 0x4500
 
-	je      RetTrue
-	jmp     RetFalse
+    je      RetTrue
+    jmp     RetFalse
 
 CALLMACRO   RegMask real_gtr,(M_Reax OR M_FP7)
 
@@ -2524,36 +2524,36 @@ CALLMACRO   RegMask real_gtr,(M_Reax OR M_FP7)
 CALLMACRO INLINE_ROUTINE real_leq
 ;# Compare Rebx > Reax
 IFDEF WINDOWS
-	FLD     qword ptr [Rebx]
-	FCOMP   qword ptr [Reax]
+    FLD     qword ptr [Rebx]
+    FCOMP   qword ptr [Reax]
 ELSE
-	FLDL    [Rebx]
-	FCOMPL  [Reax]
+    FLDL    [Rebx]
+    FCOMPL  [Reax]
 ENDIF
         FNSTSW  R_ax
 ;# True if the carry flag (C0) and parity (C2) are both clear
         ANDL    CONST 1280,Reax ;# 0x500
 
-	je      RetTrue
-	jmp     RetFalse
+    je      RetTrue
+    jmp     RetFalse
 
 CALLMACRO   RegMask real_leq,(M_Reax OR M_FP7)
 
 
 CALLMACRO INLINE_ROUTINE real_geq
 IFDEF WINDOWS
-	FLD     qword ptr [Reax]
-	FCOMP   qword ptr [Rebx]
+    FLD     qword ptr [Reax]
+    FCOMP   qword ptr [Rebx]
 ELSE
-	FLDL    [Reax]
-	FCOMPL  [Rebx]
+    FLDL    [Reax]
+    FCOMPL  [Rebx]
 ENDIF
         FNSTSW  R_ax
 ;# True if the carry flag (C0) and parity (C2) are both clear
         ANDL    CONST 1280,Reax ;# 0x500
 
-	je      RetTrue
-	jmp     RetFalse
+    je      RetTrue
+    jmp     RetFalse
 
 CALLMACRO   RegMask real_geq,(M_Reax OR M_FP7)
 
@@ -2561,25 +2561,25 @@ CALLMACRO INLINE_ROUTINE real_from_int
     TESTL   CONST TAG,Reax   ;# Is it long ?
     jz      real_float_1
     call    mem_for_real
-	jb      real_float_1     ;# Not enough space - call RTS.
+    jb      real_float_1     ;# Not enough space - call RTS.
     SARL    CONST TAGSHIFT,Reax ;# Untag the value
-	MOVL    Reax,RealTemp[Rebp]	;# Save it in a temporary (N.B. It's now untagged)
+    MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
 IFDEF WINDOWS
-	FILD    FULLWORD ptr RealTemp[Rebp]
-	FSTP    qword ptr [Recx]
+    FILD    FULLWORD ptr RealTemp[Rebp]
+    FSTP    qword ptr [Recx]
 ELSE
 IFDEF HOSTARCHITECTURE_X86_64
     FILDQ   RealTemp[Rebp]
 ELSE
-	FILDL   RealTemp[Rebp]
+    FILDL   RealTemp[Rebp]
 ENDIF
-	FSTPL   [Recx]
+    FSTPL   [Recx]
 ENDIF
-	MOVL    Recx,Reax
-	ret
+    MOVL    Recx,Reax
+    ret
 
 real_float_1:
-	CALLMACRO   CALL_IO    POLY_SYS_int_to_real
+    CALLMACRO   CALL_IO    POLY_SYS_int_to_real
 
 CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
@@ -2643,10 +2643,10 @@ ENDIF
 ENDIF
 ENDIF
 ;# Use Recx and Reax because they are volatile (unlike Rebx on X86/64/Unix)
-    MOVL	CONST 2,Recx
+    MOVL    CONST 2,Recx
     LOCKXADDL Recx,[Reax]
-    ADDL	CONST 2,Recx
-    MOVL	Recx,Reax
+    ADDL    CONST 2,Recx
+    MOVL    Recx,Reax
     ret
 
 
@@ -2657,10 +2657,10 @@ IFNDEF HOSTARCHITECTURE_X86_64
 ELSE
     MOVL    Redi,Reax            ;# On X86_64 the argument is passed in Redi
 ENDIF
-    MOVL	CONST -2,Recx
+    MOVL    CONST -2,Recx
     LOCKXADDL Recx,[Reax]
-    MOVL	Recx,Reax
-    SUBL	CONST 2,Reax
+    MOVL    Recx,Reax
+    SUBL    CONST 2,Reax
     ret
 
 IFDEF WINDOWS

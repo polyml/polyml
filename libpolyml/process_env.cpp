@@ -303,7 +303,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             /* I don't like terminating without some sort of clean up
                but we'll do it this way for the moment. */
             int i = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
-			_exit(i);
+            _exit(i);
         }
 
         /************ Error codes **************/
@@ -539,7 +539,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown environment function: %d", c);
             raise_exception_string(mdTaskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }

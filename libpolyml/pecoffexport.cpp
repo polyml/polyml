@@ -353,7 +353,7 @@ void PECOFFExport::exportStore(void)
         }
     }
     // This is the only "real" symbol.
-	// Add an underscore prefix if required.
+    // Add an underscore prefix if required.
 #ifdef POLY_LINKAGE_PREFIX
 #define PLTOSTRING1(x) #x
 #define PLTOSTRING(x) PLTOSTRING1(x)

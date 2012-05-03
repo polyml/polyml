@@ -606,34 +606,34 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1034: // Open a document
         {
-			SHELLEXECUTEINFO shellEx;
-			memset(&shellEx, 0, sizeof(shellEx));
-			shellEx.cbSize = sizeof(shellEx);
-			shellEx.lpVerb = _T("open");
-			shellEx.lpFile = Poly_string_to_T_alloc(DEREFWORD(args));
-			shellEx.hwnd = hMainWindow;
-			shellEx.nShow = SW_SHOWNORMAL;
+            SHELLEXECUTEINFO shellEx;
+            memset(&shellEx, 0, sizeof(shellEx));
+            shellEx.cbSize = sizeof(shellEx);
+            shellEx.lpVerb = _T("open");
+            shellEx.lpFile = Poly_string_to_T_alloc(DEREFWORD(args));
+            shellEx.hwnd = hMainWindow;
+            shellEx.nShow = SW_SHOWNORMAL;
             BOOL fRes = ShellExecuteEx(&shellEx);
             free((void*)shellEx.lpFile);
-			if (! fRes)
-				raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
+            if (! fRes)
+                raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
             return Make_arbitrary_precision(taskData, 0);
         }
 
     case 1035: // Launch an application.
         {
-			SHELLEXECUTEINFO shellEx;
-			memset(&shellEx, 0, sizeof(shellEx));
-			shellEx.cbSize = sizeof(shellEx);
-			shellEx.lpVerb = _T("open");
-			shellEx.lpFile = Poly_string_to_T_alloc(args->WordP()->Get(0));
+            SHELLEXECUTEINFO shellEx;
+            memset(&shellEx, 0, sizeof(shellEx));
+            shellEx.cbSize = sizeof(shellEx);
+            shellEx.lpVerb = _T("open");
+            shellEx.lpFile = Poly_string_to_T_alloc(args->WordP()->Get(0));
             shellEx.lpParameters = Poly_string_to_T_alloc(args->WordP()->Get(1));
-			shellEx.nShow = SW_SHOWNORMAL;
+            shellEx.nShow = SW_SHOWNORMAL;
             BOOL fRes = ShellExecuteEx(&shellEx);
             free((void*)shellEx.lpFile);
             free((void*)shellEx.lpParameters);
-			if (! fRes)
-				raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
+            if (! fRes)
+                raise_syscall(taskData, "ShellExecuteEx failed", 0-GetLastError());
             return Make_arbitrary_precision(taskData, 0);
         }
 
@@ -786,7 +786,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown windows-specific function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }
@@ -945,13 +945,13 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     startupInfo.hStdInput = hNull;
     startupInfo.hStdOutput = hNull;
     startupInfo.hStdError = hNull;
-	STARTUPINFO *start = &startupInfo;
+    STARTUPINFO *start = &startupInfo;
 
     // Try starting the process first using the given name.
     if (!CreateProcess(commandName,
             arguments, // Command line
             NULL, NULL, // Security attributes
-			TRUE, CREATE_NO_WINDOW, // Inherit handles, creation flags
+            TRUE, CREATE_NO_WINDOW, // Inherit handles, creation flags
             NULL, NULL, // Inherit our environment and directory
             start,
             &processInfo)) {
@@ -996,15 +996,15 @@ static Handle openProcessHandle(TaskData *taskData, Handle args, BOOL fIsRead, B
 
     if (fIsRead) hStream = hnd->entry.process.hInput;
     else hStream = hnd->entry.process.hOutput;
-	/* I had previously assumed that it wasn't possible to get the
-	   same stream twice.  The current basis library definition allows
-	   it but warns it may produce unpredictable results.  For the moment
-	   we don't allow it because we could get problems with closing
-	   the same handle twice. */
+    /* I had previously assumed that it wasn't possible to get the
+       same stream twice.  The current basis library definition allows
+       it but warns it may produce unpredictable results.  For the moment
+       we don't allow it because we could get problems with closing
+       the same handle twice. */
 #ifdef _WIN32_WCE
-	// Not possible in Windows CE.
-	raise_syscall(taskData, "Process is closed", EBADF);
-	return 0;
+    // Not possible in Windows CE.
+    raise_syscall(taskData, "Process is closed", EBADF);
+    return 0;
 #else
     if (hStream == INVALID_HANDLE_VALUE)
         raise_syscall(taskData, "Process is closed", EBADF);

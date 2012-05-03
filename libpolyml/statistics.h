@@ -33,7 +33,7 @@
 class Statistics  
 {
 public:
-	Statistics();
+    Statistics();
     ~Statistics();
 
     bool getLocalsStatistics(struct polystatistics *statCopy);

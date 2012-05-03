@@ -220,7 +220,7 @@ void GCTaskFarm::ThreadFunction()
             if (debugOptions & DEBUG_GCTASKS)
             {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-	            startActive = GetTickCount();
+                startActive = GetTickCount();
 #else
                 gettimeofday(&startTime, NULL);
 #endif

@@ -129,13 +129,13 @@ static bool atomiclySetForwarding(LocalMemSpace *space, POLYUNSIGNED *pt,
 {
 #ifdef _MSC_VER
 # if (SIZEOF_VOIDP == 8)
-	LONGLONG *address = (LONGLONG*)(pt-1);
-	POLYUNSIGNED result = InterlockedCompareExchange64(address, update, testVal);
-	return result == testVal;
+    LONGLONG *address = (LONGLONG*)(pt-1);
+    POLYUNSIGNED result = InterlockedCompareExchange64(address, update, testVal);
+    return result == testVal;
 # else
-	LONG *address = (LONG*)(pt-1);
-	POLYUNSIGNED result = InterlockedCompareExchange(address, update, testVal);
-	return result == testVal;
+    LONG *address = (LONG*)(pt-1);
+    POLYUNSIGNED result = InterlockedCompareExchange(address, update, testVal);
+    return result == testVal;
 # endif
 #elif(defined(HOSTARCHITECTURE_X86) && defined(__GNUC__))
     POLYUNSIGNED result;

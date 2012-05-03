@@ -648,7 +648,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown thread function: %d", c);
             raise_fail(taskData, msg);
-			return 0;
+            return 0;
         }
     }
 }

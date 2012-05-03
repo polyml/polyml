@@ -60,9 +60,9 @@ extern POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED buff
 extern WCHAR *Poly_string_to_U_alloc(PolyWord ps);
 
 // Poly_string_to_T_alloc returns a Unicode string in Unicode and char string otherwise.
-#define Poly_string_to_T_alloc	Poly_string_to_U_alloc
+#define Poly_string_to_T_alloc  Poly_string_to_U_alloc
 #else
-#define Poly_string_to_T_alloc	Poly_string_to_C_alloc
+#define Poly_string_to_T_alloc  Poly_string_to_C_alloc
 #endif
 
 Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);

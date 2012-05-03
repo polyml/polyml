@@ -965,7 +965,7 @@ Handle EnterPolyCode(TaskData *taskData)
         int ioFunction = machineDependent->SwitchToPoly(taskData);
         globalStats.decCount(PSC_THREADS_IN_ML);
 
-	    try {
+        try {
             switch (ioFunction)
             {
             case -1:
@@ -1436,8 +1436,8 @@ Handle EnterPolyCode(TaskData *taskData)
             default:
                 Crash("Unknown io operation %d\n", ioFunction);
             }
-		}
-		catch (IOException) {
+        }
+        catch (IOException) {
         }
 
     }

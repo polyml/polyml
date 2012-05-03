@@ -388,7 +388,7 @@ static void* DEREFVOL (TaskData *taskData, PolyWord v)
     }
     RAISE_EXN("Invalid volatile");
     /*NOTREACHED*/
-	return 0;
+    return 0;
 }}
 
 /**********************************************************************
@@ -716,36 +716,36 @@ void Foreign::GarbageCollect(ScanAddress *process)
 
 static Handle load_lib (TaskData *taskData, Handle string)
 {
-	TCHAR name[500];
-	
-	Poly_string_to_C(DEREFWORD(string), name, sizeof(name)/sizeof(TCHAR));
-	info(("<%s>\n", name));
-	
+    TCHAR name[500];
+    
+    Poly_string_to_C(DEREFWORD(string), name, sizeof(name)/sizeof(TCHAR));
+    info(("<%s>\n", name));
+    
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-	HINSTANCE lib = LoadLibrary(name);
-	if (lib == NULL) 
-	{
-		char buf[256];
-		sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
-		RAISE_EXN(buf);
-	}
+    HINSTANCE lib = LoadLibrary(name);
+    if (lib == NULL) 
+    {
+        char buf[256];
+        sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
+        RAISE_EXN(buf);
+    }
 
-	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
-	return res;
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
+    return res;
 
 #else  /* UNIX version */
-	void *lib = dlopen(name,DLOPENFLAGS);
-	if (!lib)
-	{
-		char buf[256];
-		sprintf(buf, "load_lib <%s> : %s", name, dlerror());
-		RAISE_EXN(buf);
-	}
-	
-	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
-	return res;
+    void *lib = dlopen(name,DLOPENFLAGS);
+    if (!lib)
+    {
+        char buf[256];
+        sprintf(buf, "load_lib <%s> : %s", name, dlerror());
+        RAISE_EXN(buf);
+    }
+    
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = lib;
+    return res;
 #endif
 }
 
@@ -758,38 +758,38 @@ static Handle load_lib (TaskData *taskData, Handle string)
 
 static Handle load_sym (TaskData *taskData, Handle h)
 {
-	TCHAR name[500];
-	
-	Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name)/sizeof(TCHAR));
-	info(("<%s>\n", name));
-	
+    TCHAR name[500];
+    
+    Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name)/sizeof(TCHAR));
+    info(("<%s>\n", name));
+    
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-	void *sym = (void*)GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
-	
-	if (sym == NULL) 
-	{
-		char buf[256];
-		sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
-		RAISE_EXN(buf);
-	}
+    void *sym = (void*)GetProcAddress( *(HINSTANCE*)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name);
+    
+    if (sym == NULL) 
+    {
+        char buf[256];
+        sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
+        RAISE_EXN(buf);
+    }
 
-	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
-	return res;
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
+    return res;
 
 #else /* UNIX version */
-	void *sym = dlsym( *(void**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name );
-	
-	if (!sym)
-	{
-		char buf[256];
-		sprintf(buf, "load_sym <%s> : %s", name, dlerror());
-		RAISE_EXN(buf);
-	}
+    void *sym = dlsym( *(void**)DEREFVOL(taskData, DEREFHANDLE(h)->Get(0)), name );
+    
+    if (!sym)
+    {
+        char buf[256];
+        sprintf(buf, "load_sym <%s> : %s", name, dlerror());
+        RAISE_EXN(buf);
+    }
 
-	Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
-	*(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
-	return res;
+    Handle res = vol_alloc_with_c_space(taskData, sizeof(void*));
+    *(void**)DEREFVOL(taskData, UNHANDLE(res)) = sym;
+    return res;
 #endif
 }
 
@@ -1332,7 +1332,7 @@ static Handle union2vol_and_ctype (TaskData *taskData, Handle u)
     default:              RAISE_EXN ("Unknown union tag");
     }
     /*NOTREACHED*/
-	return 0;
+    return 0;
 }
 
 

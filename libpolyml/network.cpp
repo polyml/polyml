@@ -1242,7 +1242,7 @@ TryAgain:
             char msg[100];
             sprintf(msg, "Unknown net function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }
@@ -1474,7 +1474,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
     fd_set readers, writers, excepts;
     struct timeval timeout;
     int selectRes;
-	POLYUNSIGNED i, nVec;
+    POLYUNSIGNED i, nVec;
     Handle rdResult, wrResult, exResult, result;
     /* Set up the bitmaps for the select call from the arrays. */
     PolyObject *readVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
@@ -1517,7 +1517,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             /* Get the file time. */
             get_C_pair(taskData, DEREFHANDLE(args)->Get(3),
                 &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
-			GetSystemTimeAsFileTime(&ftNow);
+            GetSystemTimeAsFileTime(&ftNow);
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (CompareFileTime(&ftTime, &ftNow) <= 0)

@@ -268,22 +268,22 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
 
 static int proper_stat(char *filename, struct stat *fbp)
 {
-	int res = stat(filename, fbp);
-	while (res != 0 && errno == EINTR) 
-	{ 
-		res = stat(filename, fbp);
-		/* There's a bug in SunOS 5.3 (at least) whereby the stat following
-		an interrupted stat call can give junk results (ENOENT on a real file).
-		I suspect a timing-related problem on automounted file systems.
-		So let's try one more time, just to be sure.
-		SPF 16/12/96
-		*/
-		if (res != 0)
-		{
-			res = stat(filename, fbp);
-		}
-	};
-	return res;
+    int res = stat(filename, fbp);
+    while (res != 0 && errno == EINTR) 
+    { 
+        res = stat(filename, fbp);
+        /* There's a bug in SunOS 5.3 (at least) whereby the stat following
+        an interrupted stat call can give junk results (ENOENT on a real file).
+        I suspect a timing-related problem on automounted file systems.
+        So let's try one more time, just to be sure.
+        SPF 16/12/96
+        */
+        if (res != 0)
+        {
+            res = stat(filename, fbp);
+        }
+    };
+    return res;
 }
 
 #if (!defined(_WIN32) || defined(__CYGWIN__))
@@ -291,16 +291,16 @@ static int proper_stat(char *filename, struct stat *fbp)
    it in the same way just in case. DCJM 16/5/00. */
 static int proper_lstat(char *filename, struct stat *fbp)
 {
-	int res = lstat(filename, fbp);
-	while (res != 0 && errno == EINTR) 
-	{ 
-		res = lstat(filename, fbp);
-		if (res != 0)
-		{
-			res = lstat(filename, fbp);
-		}
-	};
-	return res;
+    int res = lstat(filename, fbp);
+    while (res != 0 && errno == EINTR) 
+    { 
+        res = lstat(filename, fbp);
+        if (res != 0)
+        {
+            res = lstat(filename, fbp);
+        }
+    };
+    return res;
 }
 #endif
 
@@ -395,7 +395,7 @@ Handle make_stream_entry(TaskData *taskData)
     }
      
     Handle str_token =
-		alloc_and_save(taskData, (sizeof(StreamToken) + sizeof(PolyWord) - 1)/sizeof(PolyWord), F_BYTE_OBJ);
+        alloc_and_save(taskData, (sizeof(StreamToken) + sizeof(PolyWord) - 1)/sizeof(PolyWord), F_BYTE_OBJ);
     STREAMID(str_token) = stream_no;
 
     ASSERT(!isOpen(&basic_io_vector[stream_no]));
@@ -524,7 +524,7 @@ TryAgain:
         default:
             raise_syscall(taskData, "Cannot open", errno);
            /*NOTREACHED*/
-			return 0;
+            return 0;
         }
     }
 }
@@ -681,8 +681,8 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
        when the file was opened to determine whether to translate
        LF into CRLF. */
     PolyWord base = DEREFWORDHANDLE(args)->Get(0);
-    unsigned		offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-    unsigned		length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+    unsigned        offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+    unsigned        length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     PIOSTRUCT       strm = get_stream(stream->WordP());
     POLYSIGNED      haveWritten;
     byte    ch;
@@ -1459,7 +1459,7 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
         if (dwErr != /* ERROR_FILE_EXISTS */ ERROR_ALREADY_EXISTS)
             raise_syscall(taskData, "MoveFile failed", -(int)dwErr);
         /* Failed because destination file exists. */
-		if (GetVersion() & 0x80000000)
+        if (GetVersion() & 0x80000000)
         {
             /* Windows 95 - must use delete. */
             if (!DeleteFile(newName))
@@ -1728,8 +1728,8 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-			if (! CreateDirectory(string_buffer, NULL))
-			   raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
+            if (! CreateDirectory(string_buffer, NULL))
+               raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
 #else
             if (mkdir(string_buffer, 0777) != 0)
                 raise_syscall(taskData, "mkdir failed", errno);
@@ -1744,8 +1744,8 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-			if (! RemoveDirectory(string_buffer))
-			   raise_syscall(taskData, "RemoveDirectory failed", -(int)GetLastError());
+            if (! RemoveDirectory(string_buffer))
+               raise_syscall(taskData, "RemoveDirectory failed", -(int)GetLastError());
 #else
             if (rmdir(string_buffer) != 0)
                 raise_syscall(taskData, "rmdir failed", errno);
@@ -1818,11 +1818,11 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-			if (! DeleteFile(string_buffer))
-			   raise_syscall(taskData, "DeleteFile failed", 0-GetLastError());
+            if (! DeleteFile(string_buffer))
+               raise_syscall(taskData, "DeleteFile failed", 0-GetLastError());
 #else
-			if (unlink(string_buffer) != 0)
-				raise_syscall(taskData, "unlink failed", errno);
+            if (unlink(string_buffer) != 0)
+                raise_syscall(taskData, "unlink failed", errno);
 #endif
 
             return Make_arbitrary_precision(taskData, 0);
@@ -1910,7 +1910,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             char msg[100];
             sprintf(msg, "Unknown io function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }

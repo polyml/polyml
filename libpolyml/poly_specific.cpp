@@ -275,8 +275,8 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 1:
         return exportNative(taskData, args); // Export
     case 2:
-		raise_syscall(taskData, "C Export has been withdrawn", 0);
-		return 0;
+        raise_syscall(taskData, "C Export has been withdrawn", 0);
+        return 0;
     case 3:
         return exportPortable(taskData, args); // Export as portable format
 
@@ -484,7 +484,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown poly-specific function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }
