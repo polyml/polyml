@@ -2229,10 +2229,10 @@ CALLMACRO   RegMask word_lss,(M_Reax)
 CALLMACRO   INLINE_ROUTINE  atomic_increment
 atomic_incr:                    ;# Internal name in case "atomic_increment" is munged.
     MOVL	CONST 2,Rebx
-	LOCKXADDL Rebx,[Reax]
-	ADDL	CONST 2,Rebx
-	MOVL	Rebx,Reax
-	ret
+    LOCKXADDL Rebx,[Reax]
+    ADDL	CONST 2,Rebx
+    MOVL	Rebx,Reax
+    ret
 
 CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
 
@@ -2242,10 +2242,10 @@ CALLMACRO   RegMask atomic_incr,(M_Reax OR M_Rebx)
 CALLMACRO   INLINE_ROUTINE  atomic_decrement
 atomic_decr:
     MOVL	CONST -2,Rebx
-	LOCKXADDL Rebx,[Reax]
-	MOVL	Rebx,Reax
-	SUBL	CONST 2,Reax
-	ret
+    LOCKXADDL Rebx,[Reax]
+    MOVL	Rebx,Reax
+    SUBL	CONST 2,Reax
+    ret
 
 CALLMACRO   RegMask atomic_decr,(M_Reax OR M_Rebx)
 
@@ -2642,7 +2642,13 @@ ELSE
 ENDIF
 ENDIF
 ENDIF
-    JMP     atomic_incr
+;# Use Recx and Reax because they are volatile (unlike Rebx on X86/64/Unix)
+    MOVL	CONST 2,Recx
+    LOCKXADDL Recx,[Reax]
+    ADDL	CONST 2,Recx
+    MOVL	Recx,Reax
+    ret
+
 
 ;# This implements atomic subtraction in the same way as atomic_decrement
 CALLMACRO INLINE_ROUTINE X86AsmAtomicDecrement
@@ -2651,7 +2657,11 @@ IFNDEF HOSTARCHITECTURE_X86_64
 ELSE
     MOVL    Redi,Reax            ;# On X86_64 the argument is passed in Redi
 ENDIF
-    JMP     atomic_decr
+    MOVL	CONST -2,Recx
+    LOCKXADDL Recx,[Reax]
+    MOVL	Recx,Reax
+    SUBL	CONST 2,Reax
+    ret
 
 IFDEF WINDOWS
 ;# Visual C does not support assembly code on X86-64 so we use this for X86-32 as well.
