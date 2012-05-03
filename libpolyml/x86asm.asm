@@ -818,7 +818,7 @@ IFDEF _WIN32
 ;# The argument to the function is passed in Recx
 ELSE
 ;# The argument to the function is passed in Redi
-    MOVL    Redi,Rcx
+    MOVL    Redi,Recx
 ENDIF
 ENDIF
     PUSHL   Rebp                             ;# Save callee--save registers
