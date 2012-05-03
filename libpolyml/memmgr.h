@@ -131,6 +131,7 @@ public:
     PolyWord    *fullGCRescanEnd;
     PolyWord    *partialGCTop;    // Value of lowerAllocPtr before the current partial GC.
     PolyWord    *partialGCScan;   // Scan pointer used in minor GC
+    PolyWord    *partialGCRootTop;// Value of lowerAllocPtr after the roots have been copied.
     PLock       spaceLock;        // Lock used to protect forwarding pointers
     GCTaskId    *spaceOwner;      // The thread that "owns" this space during a GC.
 

@@ -598,6 +598,18 @@ bool RunQuickGC(void)
     // We also need to scan local mutable areas since these are roots as well.
     // They have data between partialGCTop and top.  Parallelising this appears
     // to be a significant gain.
+    // We first have to set partialGCRootTop to the value of lowerAllocPtr.
+    // We mustn't use lowerAllocPtr directly when forking the threads because
+    // it's possible another thread may start copying into that area and alter
+    // localAllocPtr, putting an incomplete object there, before we create the
+    // second thread.
+    for (unsigned l = 0; l < gMem.nlSpaces; l++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[l];
+        space->partialGCRootTop = space->lowerAllocPtr;
+    }
+
+    // Now start creating tasks.
     {
         unsigned l = 0;
         while (true)
@@ -612,8 +624,8 @@ bool RunQuickGC(void)
                     break;
                 space = gMem.lSpaces[l++];
             }
-            if (space->partialGCScan != space->lowerAllocPtr)
-                gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCScan, space->lowerAllocPtr);
+            if (space->partialGCScan != space->partialGCRootTop)
+                gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCScan, space->partialGCRootTop);
             if (space->partialGCTop != space->top)
                 gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCTop, space->top);
         }
