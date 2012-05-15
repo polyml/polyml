@@ -21,6 +21,10 @@
 #ifndef POLY_STATISTICS_INCLUDED
 #define POLY_STATISTICS_INCLUDED
 
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
+
 // Name of shared memory file.  This has the process ID appended.
 // In Unix this is in /tmp
 #define POLY_STATS_NAME "poly-stats-"
