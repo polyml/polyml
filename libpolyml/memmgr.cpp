@@ -87,14 +87,11 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     size = iSpace/sizeof(PolyWord);
 
     top = bottom + size;
-    upperAllocPtr = top;
-    lowerAllocPtr = bottom;
-    fullGCLowerLimit = top;
-    fullGCRescanEnd = bottom;
-    fullGCRescanStart = top;
+    upperAllocPtr = partialGCTop = fullGCRescanStart = fullGCLowerLimit = lowestWeak = top;
+    lowerAllocPtr = partialGCScan = partialGCRootTop = fullGCRescanEnd = highestWeak = bottom;
 
     allocationSpace = false;
-    
+
     // Bitmap for the space.
     return bitmap.Create(size);
 }
