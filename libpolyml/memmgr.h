@@ -129,8 +129,9 @@ public:
     PolyWord    *fullGCLowerLimit;// Lowest object in area before copying.
     PolyWord    *fullGCRescanStart; // Upper and lower limits for rescan during mark phase.
     PolyWord    *fullGCRescanEnd;
-    PolyWord    *partialGCTop;    // Value of lowerAllocPtr before the current partial GC.
+    PolyWord    *partialGCTop;    // Value of upperAllocPtr before the current partial GC.
     PolyWord    *partialGCScan;   // Scan pointer used in minor GC
+    PolyWord    *partialGCRootBase; // Start of the root objects.
     PolyWord    *partialGCRootTop;// Value of lowerAllocPtr after the roots have been copied.
     PLock       spaceLock;        // Lock used to protect forwarding pointers
     GCTaskId    *spaceOwner;      // The thread that "owns" this space during a GC.

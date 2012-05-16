@@ -252,13 +252,7 @@ LocalMemSpace *RootScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         // Allocate a new space for this.
         POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
         if (n+1 > spaceSize) spaceSize = n+1;
-        LocalMemSpace *lSpace = gMem.NewLocalSpace(spaceSize, isMutable);
-        if (lSpace == 0)
-            return 0; // Couldn't allocate it.
-        lSpace->partialGCTop = lSpace->upperAllocPtr;
-        lSpace->partialGCScan = lSpace->lowerAllocPtr;
-        lSpace->spaceOwner = 0;
-        return lSpace;
+        return gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
     }
     return 0; // Insufficient space
 }
@@ -326,12 +320,7 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
         if (n+1 > spaceSize) spaceSize = n+1;
         lSpace = gMem.NewLocalSpace(spaceSize, isMutable);
-        if (lSpace == 0)
-            return 0; // Couldn't allocate it.
-        lSpace->partialGCTop = lSpace->upperAllocPtr;
-        lSpace->partialGCScan = lSpace->lowerAllocPtr;
-        lSpace->spaceOwner = 0;
-        if (! TakeOwnership(lSpace))
+        if (lSpace == 0 || ! TakeOwnership(lSpace))
             return 0;
         return lSpace;
     }
@@ -566,10 +555,10 @@ bool RunQuickGC(void)
         // If we're scanning a space this is where we start.
         // For immutable areas this only includes newly added
         // data but for mutable areas we have to scan data added
-        // by previous GCs.
+        // by previous partial GCs.
         if (lSpace->isMutable && ! lSpace->allocationSpace)
-            lSpace->partialGCScan = lSpace->bottom;
-        else lSpace->partialGCScan = lSpace->lowerAllocPtr;
+            lSpace->partialGCRootBase = lSpace->bottom;
+        else lSpace->partialGCRootBase = lSpace->lowerAllocPtr;
         lSpace->spaceOwner = 0; // Not currently owned
         // Add up the space in the mutable and immutable areas
         if (! lSpace->allocationSpace)
@@ -591,25 +580,31 @@ bool RunQuickGC(void)
     GCModules(&rootScan);
 
     // At this point the immutable and mutable areas will have some root objects
-    // in the space between partialGCScan (the old value of lowerAllocPtr) and
+    // in the space between partialGCRootBase (the old value of lowerAllocPtr) and
     // lowerAllocPtr.  These will contain the addresses of objects in the allocation
     // areas.  We need to scan these root objects and then any new objects we copy
     // until there are no objects left to scan.
     // We also need to scan local mutable areas since these are roots as well.
     // They have data between partialGCTop and top.  Parallelising this appears
     // to be a significant gain.
-    // We first have to set partialGCRootTop to the value of lowerAllocPtr.
-    // We mustn't use lowerAllocPtr directly when forking the threads because
-    // it's possible another thread may start copying into that area and alter
-    // localAllocPtr, putting an incomplete object there, before we create the
-    // second thread.
+    // We have to be careful about the pointers here.  AddWorkOrRunNow begins
+    // a thread immediately and so the scanning threads may be running while
+    // we are still creating new tasks.  To avoid tripping up we use separate
+    // pointers to the root objects rather than using lowerAllocPtr and
+    // partialGCScan because these can be modified by the scanning tasks.
+    // It's also possible for new spaces to be added to the table by the scanning
+    // tasks while we are still adding tasks.  It is important that the values of
+    // partialGCRootBase, partialGCRootTop and partialGCTop are properly initialised
+    // for these new spaces.
     for (unsigned l = 0; l < gMem.nlSpaces; l++)
     {
         LocalMemSpace *space = gMem.lSpaces[l];
-        space->partialGCRootTop = space->lowerAllocPtr;
+        space->partialGCRootTop = space->lowerAllocPtr; // Top of the roots
+        space->partialGCScan = space->lowerAllocPtr; // Start of scanning for new data.
     }
 
-    // Now start creating tasks.
+    // Now start creating tasks.  From this point only a thread that owns a space
+    // may read or modify lowerAllocPtr or partialGCScan.
     {
         unsigned l = 0;
         while (true)
@@ -624,8 +619,8 @@ bool RunQuickGC(void)
                     break;
                 space = gMem.lSpaces[l++];
             }
-            if (space->partialGCScan != space->partialGCRootTop)
-                gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCScan, space->partialGCRootTop);
+            if (space->partialGCRootBase != space->partialGCRootTop)
+                gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCRootBase, space->partialGCRootTop);
             if (space->partialGCTop != space->top)
                 gpTaskFarm->AddWorkOrRunNow(scanArea, space->partialGCTop, space->top);
         }

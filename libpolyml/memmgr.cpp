@@ -87,8 +87,11 @@ bool LocalMemSpace::InitSpace(POLYUNSIGNED size, bool mut)
     size = iSpace/sizeof(PolyWord);
 
     top = bottom + size;
+    // Initialise all the fields.  The partial GC in particular relies on this.
     upperAllocPtr = partialGCTop = fullGCRescanStart = fullGCLowerLimit = lowestWeak = top;
-    lowerAllocPtr = partialGCScan = partialGCRootTop = fullGCRescanEnd = highestWeak = bottom;
+    lowerAllocPtr = partialGCScan = partialGCRootBase = partialGCRootTop =
+        fullGCRescanEnd = highestWeak = bottom;
+    spaceOwner = 0;
 
     allocationSpace = false;
 
