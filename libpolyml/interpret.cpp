@@ -74,8 +74,9 @@
 #define arg3    (pc[4] + pc[5]*256)
 #define arg4    (pc[6] + pc[7]*256)
 
-#define True    TAGGED(1)
-#define False   TAGGED(0)
+const PolyWord True = TAGGED(1);
+const PolyWord False = TAGGED(0);
+const PolyWord Zero = TAGGED(0);
 
 #define CHECKED_REGS 2
 #define UNCHECKED_REGS 0
@@ -164,7 +165,7 @@ void Interpreter::InitStackFrame(TaskData *taskData, StackSpace *space, Handle p
     stack->p_sp--;
     *(stack->p_sp) = PolyWord::FromStackAddr(stack->p_sp);
     *(--stack->p_sp) = SPECIAL_PC_END_THREAD; /* Default return address. */
-    *(--stack->p_sp) = TAGGED(0); /* Default handler. */
+    *(--stack->p_sp) = Zero; /* Default handler. */
     stack->p_hr = stack->p_sp;
 
     /* If this function takes an argument store it on the stack. */
@@ -434,7 +435,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         {
                             t = (*sp++).AsStackAddr();
                             PolyWord v = t[1]; /* Arguments. */
-                            if (v != TAGGED(0)) /* No args. */
+                            if (v != Zero) /* No args. */
                             {
                                 PolyWord *vv = v.AsStackAddr();
                                 POLYUNSIGNED u = v.AsObjPtr()->Length(); /* No. of args. */
@@ -490,7 +491,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                             /* Store the length word of a string. */
                             POLYUNSIGNED len = UNTAGGED(*sp++);
                             ((PolyStringObject*)(*sp).AsObjPtr())->length = len;
-                            *sp = TAGGED(0);
+                            *sp = Zero;
                             break; 
                         }
 
@@ -534,7 +535,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         {
                             PolyWord u = *sp++;
                             if (UNTAGGED_UNSIGNED(u) > sizeof(PolyWord)*8)
-                                *sp = TAGGED(0);
+                                *sp = Zero;
                             else
                                 *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) << UNTAGGED_UNSIGNED(u));
                             break;
@@ -544,7 +545,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         {
                             PolyWord u = *sp++;
                             if (UNTAGGED_UNSIGNED(u) > sizeof(PolyWord)*8)
-                                *sp = TAGGED(0);
+                                *sp = Zero;
                             else
                                 *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) >> UNTAGGED_UNSIGNED(u));
                             break;
@@ -557,7 +558,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                             {
                                 if (UNTAGGED_UNSIGNED(*sp) < 0)
                                     *sp = TAGGED(-1);
-                                else *sp = TAGGED(0);
+                                else *sp = Zero;
                             }
                             else
                                 *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) >> UNTAGGED_UNSIGNED(u));
@@ -583,7 +584,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                             POLYUNSIGNED t = UNTAGGED(*sp++);
                             POLYUNSIGNED u = UNTAGGED(*sp++);
                             (*sp).AsCodePtr()[u] = (byte)t;
-                            *sp = TAGGED(0);
+                            *sp = Zero;
                             break; 
                         }
 
@@ -592,7 +593,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                             PolyWord t = *sp++;
                             POLYUNSIGNED u = UNTAGGED(*sp++);
                             (*sp).AsStackAddr()[u] = t;
-                            *sp = TAGGED(0);
+                            *sp = Zero;
                             break;
                         }
 
@@ -602,7 +603,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                             POLYUNSIGNED lengthW = obj->LengthWord();
                             /* Clear the mutable bit. */
                             obj->SetLengthWord(lengthW & ~_OBJ_MUTABLE_BIT);
-                            *sp = TAGGED(0);
+                            *sp = Zero;
                             break;
                         }
 
@@ -612,14 +613,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         break;
 
                     case POLY_SYS_is_short:
-                        *sp = IS_INT(*sp) ? TAGGED(1) : TAGGED(0); break;
+                        *sp = IS_INT(*sp) ? True : False; break;
 
                     case POLY_SYS_io_operation:
-                        /* The io_operation call has changed between the old Poly
-                           version and the new ML version.  In Poly it took two
-                           parameters, the first always being an empty type.
-                           In ML it takes just one parameter. */
-                        if (*sp == TAGGED(0)) sp++;
                         *sp = (PolyObject*)IoEntry((unsigned)UNTAGGED(*sp));
                         break;
 
@@ -628,17 +624,17 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
                         *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
                         *(--sp) = SPECIAL_PC_TRACE_EX; /* Marks exception trace. */
-                        *(--sp) = TAGGED(0); /* Catch everything. */
+                        *(--sp) = Zero; /* Catch everything. */
                         taskData->stack->stack()->p_hr = sp; /* Handler is here. */
                         pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
-                        *(--sp) = TAGGED(0); /* Unit argument to the function. */
+                        *(--sp) = Zero; /* Unit argument to the function. */
                         *(--sp) = u; /* Push the procedure. */
                         goto CALL_CLOSURE;
 
                     case POLY_SYS_is_big_endian: {
                         union { unsigned long wrd; char chrs[sizeof(unsigned long)]; } endian;
                         endian.wrd = 1;
-                        *(--sp) = endian.chrs[0] == 0 ? TAGGED(1) : TAGGED(0);
+                        *(--sp) = endian.chrs[0] == 0 ? True : False;
                         break;
                     }
 
@@ -647,8 +643,114 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
  
                     case POLY_SYS_raisex:
                         goto RAISE_EXCEPTION;
- 
+
+                    case POLY_SYS_aplus:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            // If they're both short and no overflow.
+                            if (IS_INT(x) && IS_INT(y))
+                            {
+                                POLYSIGNED t = UNTAGGED(x) + UNTAGGED(y);
+                                if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                {
+                                    sp++;
+                                    *sp = TAGGED(t);
+                                    break;
+                                }
+                                else goto FullRTSCall;
+                            }
+                            else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_aminus:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            // If they're both short and no overflow.
+                            if (IS_INT(x) && IS_INT(y))
+                            {
+                                POLYSIGNED t = UNTAGGED(y) - UNTAGGED(x);
+                                if (t <= MAXTAGGED && t >= -MAXTAGGED-1)
+                                {
+                                    sp++;
+                                    *sp = TAGGED(t);
+                                    break;
+                                }
+                                else goto FullRTSCall;
+                            }
+                            else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_equala:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            // If either argument is short the values are only equal
+                            // if the words contain the same bit pattern.
+                            if (IS_INT(x) || IS_INT(y))
+                            {
+                                sp++;
+                                *sp = y == x ? True : False;
+                                break;
+                            }
+                            else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_int_geq:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            if (IS_INT(x) && IS_INT(y))
+                            {
+                                sp++;
+                                *sp = UNTAGGED(y) >= UNTAGGED(x) ? True : False;
+                                break;
+                            }
+                            else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_int_leq:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            if (IS_INT(x) && IS_INT(y))
+                            {
+                                sp++;
+                                *sp = UNTAGGED(y) <= UNTAGGED(x) ? True : False;
+                                break;
+                            }
+                            else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_int_gtr:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            if (IS_INT(x) && IS_INT(y))
+                            {
+                                sp++;
+                                *sp = UNTAGGED(y) > UNTAGGED(x) ? True : False;
+                                break;
+                            }
+                            else goto FullRTSCall;
+                        }
+
+                    case POLY_SYS_int_lss:
+                        {
+                            PolyWord x = sp[0];
+                            PolyWord y = sp[1];
+                            if (IS_INT(x) && IS_INT(y))
+                            {
+                                sp++;
+                                *sp = UNTAGGED(y) < UNTAGGED(x) ? True : False;
+                                break;
+                            }
+                            else goto FullRTSCall;
+                        }
+
                     default:
+                    FullRTSCall:
                         // For all the calls that aren't built in ...
                         /* Save the state so that the instruction can be retried if necessary. */
                         taskData->stack->stack()->p_pc = pc; /* Pc value after instruction. */
@@ -710,7 +812,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 PolyWord *endStack = taskData->stack->top;
                 /* Handlers consist of one or more pairs of identifier and
                    code address, followed by the address of the next handler. */
-                while (*t != TAGGED(0) && *t != exId) {
+                while (*t != Zero && *t != exId) {
                     /* Loop until we find an ELSE handler or one that matches */
                     t += 2; /* Go on to next. */
                     /* If it points into stack it must be a pointer to the next
@@ -877,7 +979,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             pc += 1;
             break;
 
-        case INSTR_const_nil: *(--sp) = (PolyWord)TAGGED(0); break;
+        case INSTR_const_nil: *(--sp) = Zero; break;
 
         case INSTR_jump_back: pc -= *pc + 1; break;
 
@@ -941,7 +1043,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         case INSTR_indirect_5:
             *sp = (*sp).AsObjPtr()->Get(5); break;
 
-        case INSTR_const_0: *(--sp) = TAGGED(0); break;
+        case INSTR_const_0: *(--sp) = Zero; break;
         case INSTR_const_1: *(--sp) = TAGGED(1); break;
         case INSTR_const_2: *(--sp) = TAGGED(2); break;
         case INSTR_const_3: *(--sp) = TAGGED(3); break;
@@ -1064,7 +1166,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 PolyWord u = *sp++;
                 POLYUNSIGNED uu = UNTAGGED(*sp++);
                 (*sp).AsObjPtr()->Set(uu, u);
-                *sp = TAGGED(0);
+                *sp = Zero;
                 break;
             }
 
@@ -1084,7 +1186,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 storeWords--;
                 PolyObject *t = (PolyObject*)(taskData->allocPointer+1);
                 t->SetLengthWord(storeWords, F_MUTABLE_BIT);
-                for(; storeWords > 0; ) t->Set(--storeWords, TAGGED(0));
+                for(; storeWords > 0; ) t->Set(--storeWords, Zero);
                 *(--sp) = t; /* Push the address of the container. */
                 pc += 2;
                 break;
