@@ -2421,7 +2421,21 @@ Calling conventions:
            integer so it is already multiplied by 2.  We need to
            multiply by four to get the correct size. We subtract off
            the minimum value and also the shifted tag. *)
-        genOpIndexed (LEAL, Word.toInt min * ~8 - 4, SOME r2, Index4 r1, r2, cvec);
+		let
+			val adjustment = Word.toIntX min * ~8 - 4
+		in
+			(* In 64-bit mode this may not fit in a 32-bit value.  It will always
+			   fit in 32-bit mode so we avoid an unnecessary long integer test. *)
+			(* We don't need to consider any possible overflow in the execution 
+			   because we've already checked that the value is within the range. *)
+			if isX64 andalso (adjustment < ~exp2_31 orelse adjustment >= exp2_31)
+			then
+			(
+                genImmed(ADD, r2, adjustment, cvec);
+			 	genOpIndexed(LEAL, 0, SOME r2, Index4 r1, r2, cvec)
+			)
+        	else genOpIndexed(LEAL, adjustment, SOME r2, Index4 r1, r2, cvec)
+		end;
         (* Jump into the jump table.  Since each entry in the table
            is 8 bytes long r2 will still be on a word + 2 byte
            boundary. *)

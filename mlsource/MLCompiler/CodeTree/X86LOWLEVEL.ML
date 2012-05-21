@@ -240,8 +240,6 @@ struct
                     )
                     else (defUses := 2; [])
                 (* Range checks. *)
-                (* TODO: In 64-bit mode we could have constants that won't fit in
-                   32-bit words. *)
                 val range1 =
                     [ConditionalBranch{test=JB, predict=PredictNotTaken, label=defaultLab},
                      ArithRConst{ opc=CMP, output=testReg, source=tag(Word.toInt minCase) }]

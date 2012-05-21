@@ -941,8 +941,7 @@ struct
                 val testValue = genToStack (test, matchFailFn)
                 val mark = markStack transtable
 
-                (* Get exclusive use so that
-                   indexedCase can modify the registers. *)
+                (* Get exclusive use so that indexedCase can modify the registers. *)
                 val (testReg, testIndex, testCode)  =
                     loadEntryToSet (transtable, testValue, RegSet.generalRegisters, true);
                 (* Need a work register. *)
