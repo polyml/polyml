@@ -47,5 +47,6 @@ extern unsigned    debugOptions; // debugging  flags
 #define DEBUG_X             0x080       // X-Windows debugging
 #define DEBUG_SHARING       0x100       // Diagnostics for share-common-data
 #define DEBUG_CONTENTION    0x200       // Information about contended locks
+#define DEBUG_RTSCALLS      0x400       // Information about run-time calls.
 
 #endif

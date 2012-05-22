@@ -129,7 +129,8 @@ struct __debugOpts {
     { "heapsize",           "Log heap resizing data",                           DEBUG_HEAPSIZE },
     { "x",                  "Log X-windows information",                        DEBUG_X},
     { "sharing",            "Information from PolyML.shareCommonData",          DEBUG_SHARING},
-    { "locks",              "Information about contended locks",                DEBUG_CONTENTION}
+    { "locks",              "Information about contended locks",                DEBUG_CONTENTION},
+    { "rts",                "General run-time system calls",                    DEBUG_RTSCALLS}
 };
 
 /* In the Windows version this is called from WinMain in Console.c */
@@ -215,14 +216,20 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         while (*p != '\0')
                         {
                             // Debug options are separated by commas
+                            bool optFound = false;
                             char *q = strchr(p, ',');
                             if (q == NULL) q = p+strlen(p);
                             for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
                             {
                                 if (strlen(debugOptTable[k].optName) == (size_t)(q-p) &&
                                         strncmp(p, debugOptTable[k].optName, q-p) == 0)
+                                {
                                     debugOptions |= debugOptTable[k].optKey;
+                                    optFound = true;
+                                }
                             }
+                            if (! optFound)
+                                Usage("Unknown argument to --debug\n");
                             if (*q == ',') p = q+1; else p = q;
                         }
                         break;
