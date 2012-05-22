@@ -1971,7 +1971,9 @@ void BasicIO::Stop(void)
 {
     if (basic_io_vector)
     {
-        for (unsigned i = 0; i < max_streams; i++)
+        // Don't close the standard streams since we may need
+        // stdout at least to produce final debugging output.
+        for (unsigned i = 3; i < max_streams; i++)
         {
             if (isOpen(&basic_io_vector[i]))
                 close_stream(&basic_io_vector[i]);
