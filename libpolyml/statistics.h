@@ -57,7 +57,7 @@ public:
     void copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime);
 #endif
     
-    void updatePeriodicStats(POLYUNSIGNED freeSpace);
+    void updatePeriodicStats(POLYUNSIGNED freeSpace, unsigned threadsInML);
 
 private:
     PLock accessLock;

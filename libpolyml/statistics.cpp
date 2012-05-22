@@ -300,7 +300,7 @@ void Statistics::copyGCTimes(const struct timeval &gcUtime, const struct timeval
 
 // Update the statistics that are not otherwise copied.  Called from the
 // root thread every second.
-void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords)
+void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords, unsigned threadsInML)
 {
     if (statMemory)
     {
@@ -324,6 +324,7 @@ void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords)
         statMemory->psTimers[PST_NONGC_UTIME] = usage.ru_utime;
         statMemory->psTimers[PST_NONGC_STIME] = usage.ru_stime;
 #endif
+        statMemory->psCounters[PSC_THREADS_IN_ML] = threadsInML;
     }
 }
 

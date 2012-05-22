@@ -963,9 +963,9 @@ Handle EnterPolyCode(TaskData *taskData)
         taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
 
         // Run the ML code and return with the function to call.
-        globalStats.incCount(PSC_THREADS_IN_ML);
+        taskData->inML = true;
         int ioFunction = machineDependent->SwitchToPoly(taskData);
-        globalStats.decCount(PSC_THREADS_IN_ML);
+        taskData->inML = false;
 
         if ((debugOptions & DEBUG_RTSCALLS) && ioFunction >= 0 && ioFunction < POLY_SYS_vecsize)
             rtsCallCounts[ioFunction]++;

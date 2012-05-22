@@ -654,7 +654,8 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 }
 
 TaskData::TaskData(): mdTaskData(0), allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false), foreignStack(TAGGED(0))
+        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false), foreignStack(TAGGED(0)),
+        inML(false)
 {
 }
 
@@ -1320,7 +1321,11 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         // One possibility would be see if the value of
         // gMem.GetFreeAllocSpace() has changed from what it was at the
         // start and recalculate if it has.
+        // We also count the number of threads in ML code.  Taking the
+        // lock in EnterPolyCode on every RTS call turned out to be
+        // expensive.
         POLYUNSIGNED freeSpace = 0;
+        unsigned threadsInML = 0;
         for (unsigned j = 0; j < taskArraySize; j++)
         {
             ProcessTaskData *taskData = taskArray[j];
@@ -1330,12 +1335,13 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 PolyWord *limit = taskData->allocLimit, *ptr = taskData->allocPointer;
                 if (limit < ptr && (POLYUNSIGNED)(ptr-limit) < taskData->allocSize)
                     freeSpace += ptr-limit;
+                if (taskData->inML) threadsInML++;
             }
         }
         // Add the space in the allocation areas after calculating the sizes for the
         // threads in case a thread has allocated some more.
         freeSpace += gMem.GetFreeAllocSpace();
-        globalStats.updatePeriodicStats(freeSpace);
+        globalStats.updatePeriodicStats(freeSpace, threadsInML);
     }
     schedLock.Unlock();
     // We are about to return normally.  Stop any crowbar function
