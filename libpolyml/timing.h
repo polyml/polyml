@@ -127,6 +127,7 @@ private:
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
     FILETIME startRTime, lastRTime;
+    DWORD startPF;
 #else
     struct rusage startUsage, lastUsage;
     struct timeval startRTime, lastRTime;

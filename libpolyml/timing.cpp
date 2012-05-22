@@ -95,6 +95,10 @@
 #include <stdio.h>
 #endif
 
+#ifdef HAVE_WINDOWS_H
+#include <windows.h>
+#endif
+
 #include "locking.h"
 #include "globals.h"
 #include "mpoly.h"
@@ -153,7 +157,7 @@ GcTimeData gcTimeData;
 #if(!(defined(HAVE_GMTIME_R) && defined(HAVE_LOCALTIME_R)))
 // gmtime and localtime are not re-entrant so if we don't have the
 // re-entrant versions we need to use a lock.
-static PLock timeLock;
+static PLock timeLock("Timing");
 #endif
 
 
@@ -421,13 +425,54 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown timing function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-            return 0;
+			return 0;
         }
     }
 }
 
+#ifdef HAVE_WINDOWS_H
+// Getting hard page counts in Windows is not easy.  Cygwin uses
+// GetProcessMemoryInfo to return the value in ru_majflt but this
+// is actually incorrect because it returns the soft page count not
+// the hard page count.  We use NtQuerySystemInformation to get the
+// total paging on the system on the basis that this is more useful
+// than the soft page faults for the process.
+// This is an undocumented interface and it's all a bit of a mess.
+
+typedef struct  {
+    INT64 pad1[4];
+    DWORD pad2[12];
+    DWORD pagesRead;
+    DWORD pad3[60];
+} SystemPerformanceInfo;
+
+typedef int (*NtSystemInfo)(int, SystemPerformanceInfo *, ULONG, void*);
+static NtSystemInfo pFunctionPtr;
+
+static long GetPaging(long)
+{
+    if (pFunctionPtr == 0)
+        pFunctionPtr = (NtSystemInfo) GetProcAddress(GetModuleHandle("Ntdll.dll"), "NtQuerySystemInformation");
+
+    if (pFunctionPtr != 0)
+    {
+        SystemPerformanceInfo pInfo;
+        int result = (*pFunctionPtr)(2/*SystemPerformanceInformation*/, &pInfo, sizeof(pInfo), 0);
+        if (result == 0)
+            return pInfo.pagesRead;
+    }
+    return 0;
+}
+#else
+inline long GetPaging(long rusagePage)
+{
+    return rusagePage;
+}
+#endif
+
 GcTimeData::GcTimeData()
 {
+    startPF = GetPaging(0);
 }
 
 // This function is called at the beginning and end of garbage
@@ -446,31 +491,36 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
     switch (isEnd)
     {
     case GCTimeStart:
-        // Start of GC
-        lastUsageU = ut;
-        lastUsageS = kt;
-        lastRTime = rt;
-        subFiletimes(&ut, &startUsageU);
-        subFiletimes(&kt, &startUsageS);
-        subFiletimes(&rt, &startRTime);
-        if (debugOptions & DEBUG_GC)
         {
-            float userTime = filetimeToSeconds(&ut);
-            float systemTime = filetimeToSeconds(&kt);
-            float realTime = filetimeToSeconds(&rt);
-            Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n", userTime, systemTime, realTime);
-            // Add to the statistics.
+            // Start of GC
+            long pageCount = GetPaging(0);
+            lastUsageU = ut;
+            lastUsageS = kt;
+            lastRTime = rt;
+            subFiletimes(&ut, &startUsageU);
+            subFiletimes(&kt, &startUsageS);
+            subFiletimes(&rt, &startRTime);
+            if (debugOptions & DEBUG_GC)
+            {
+                float userTime = filetimeToSeconds(&ut);
+                float systemTime = filetimeToSeconds(&kt);
+                float realTime = filetimeToSeconds(&rt);
+                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %u\n",
+                    userTime, systemTime, realTime, pageCount - startPF);
+                // Add to the statistics.
+            }
+            minorNonGCUserCPU.add(ut);
+            majorNonGCUserCPU.add(ut);
+            minorNonGCSystemCPU.add(kt);
+            majorNonGCSystemCPU.add(kt);
+            minorNonGCReal.add(rt);
+            majorNonGCReal.add(rt);
+            startUsageU = lastUsageU;
+            startUsageS = lastUsageS;
+            startRTime = lastRTime;
+            startPF = pageCount;
+            break;
         }
-        minorNonGCUserCPU.add(ut);
-        majorNonGCUserCPU.add(ut);
-        minorNonGCSystemCPU.add(kt);
-        majorNonGCSystemCPU.add(kt);
-        minorNonGCReal.add(rt);
-        majorNonGCReal.add(rt);
-        startUsageU = lastUsageU;
-        startUsageS = lastUsageS;
-        startRTime = lastRTime;
-        break;
 
     case GCTimeIntermediate:
         // Report intermediate GC time for debugging
@@ -486,7 +536,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             float realTime = filetimeToSeconds(&rt);
 
             Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
-                systemTime, realTime, (userTime + systemTime) / realTime);
+                systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime);
             lastUsageU = nextU;
             lastUsageS = nextS;
             lastRTime = nextR;
@@ -495,6 +545,8 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
 
     case GCTimeEnd: // End of GC.
         {
+            long pageCount = GetPaging(0);
+
             lastUsageU = ut;
             lastUsageS = kt;
             lastRTime = rt;
@@ -510,8 +562,9 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
                 float userTime = filetimeToSeconds(&ut);
                 float systemTime = filetimeToSeconds(&kt);
                 float realTime = filetimeToSeconds(&rt);
-                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", userTime, 
-                    systemTime, realTime, (userTime + systemTime) / realTime);
+                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
+                    systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime,
+                    pageCount - startPF);
             }
             minorGCUserCPU.add(ut);
             majorGCUserCPU.add(ut);
@@ -522,6 +575,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
             startRTime = lastRTime;
+            startPF = pageCount;
             globalStats.copyGCTimes(gcUTime, gcSTime);
         }
         break;
@@ -536,6 +590,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
                 return;
             lastUsage = rusage;
+            long pageFaults = GetPaging(rusage.ru_majflt);
             subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
             subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
             struct timeval tv;
@@ -550,7 +605,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
                 float systemTime = timevalToSeconds(&rusage.ru_stime);
                 float realTime = timevalToSeconds(&tv);
                 Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
-                    systemTime, realTime, rusage.ru_majflt - startPF);
+                    systemTime, realTime, pageFaults - startPF);
             }
             minorNonGCUserCPU.add(rusage.ru_utime);
             majorNonGCUserCPU.add(rusage.ru_utime);
@@ -560,7 +615,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             majorNonGCReal.add(tv);
             startUsage = lastUsage;
             startRTime = lastRTime;
-            startPF = rusage.ru_majflt;
+            startPF = pageFaults;
             break;
          }
 
@@ -582,7 +637,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             float systemTime = timevalToSeconds(&rusage.ru_stime);
             float realTime = timevalToSeconds(&tv);
             Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
-                systemTime, realTime, (userTime + systemTime) / realTime);
+                systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime);
             lastUsage = nextUsage;
             lastRTime = nextTime;
         }
@@ -594,6 +649,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
                 return;
             lastUsage = rusage;
+            long pageFaults = GetPaging(rusage.ru_majflt);
             subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
             subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
             addTimevals(&gcUTime, &rusage.ru_utime);
@@ -611,7 +667,8 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
                 float systemTime = timevalToSeconds(&rusage.ru_stime);
                 float realTime = timevalToSeconds(&tv);
                 Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
-                    systemTime, realTime, (userTime + systemTime) / realTime, rusage.ru_majflt-startPF);
+                    systemTime, realTime, realTime == 0.0 ? 0.0 :(userTime + systemTime) / realTime,
+                    pageFaults-startPF);
             }
             minorGCUserCPU.add(rusage.ru_utime);
             majorGCUserCPU.add(rusage.ru_utime);
@@ -620,7 +677,7 @@ void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
             minorGCReal.add(tv);
             majorGCReal.add(tv);
             startRTime = lastRTime;
-            startPF = rusage.ru_majflt;
+            startPF = pageFaults;
             startUsage = lastUsage;
             globalStats.copyGCTimes(gcUTime, gcSTime);
         }
@@ -638,12 +695,13 @@ void GcTimeData::Init()
     memset(&lastUsageS, 0, sizeof(lastUsageS));
     memset(&lastRTime, 0, sizeof(lastRTime));
     GetSystemTimeAsFileTime(&startRTime);
+    startPF = GetPaging(0);
 #else
     memset(&startUsage, 0, sizeof(startUsage));
     memset(&lastUsage, 0, sizeof(lastUsage));
     memset(&lastRTime, 0, sizeof(lastRTime));
     gettimeofday(&startRTime, NULL);
-    startPF = 0;
+    startPF = GetPaging(0);
 #endif
 }
 
