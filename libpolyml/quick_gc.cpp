@@ -462,7 +462,7 @@ void ThreadScanner::ScanOwnedAreas()
             {
                 // Is the queue draining?  If so it's probably worth creating
                 // some spare work.
-                if (gpTaskFarm->Draining())
+                if (gpTaskFarm->Draining() && gpTaskFarm->ThreadCount() > 1)
                 {
                     PolyWord *mid =
                         space->partialGCScan + (space->lowerAllocPtr - space->partialGCScan)/2;

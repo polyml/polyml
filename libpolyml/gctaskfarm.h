@@ -55,7 +55,7 @@ public:
     void Terminate(void);
     // See if the queue is draining.  Used as a hint as to whether
     // it's worth sparking off some new work.
-    bool Draining(void) const { return queuedItems < threadCount; }
+    bool Draining(void) const { return queuedItems == 0; }
 
     unsigned ThreadCount(void) const { return threadCount; }
 
