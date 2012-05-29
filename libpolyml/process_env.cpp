@@ -74,7 +74,6 @@
 #include "process_env.h"
 #include "arb.h"
 #include "mpoly.h"
-#include "errors.h"
 #include "gc.h"
 #include "scanaddrs.h"
 #include "polystring.h"
@@ -84,6 +83,7 @@
 #include "machine_dep.h"
 #include "processes.h"
 #include "locking.h"
+#include "errors.h"
 
 #include "poly_specific.h" // For the functions that have been moved.
 
@@ -313,13 +313,12 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             char buff[40];
             int e = get_C_int(mdTaskData, DEREFWORDHANDLE(args));
             Handle  res;
-            unsigned i;
             /* First look to see if we have the name in
                the error table. They should generally all be
                there. */
-            for (i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
-                if (errortable[i].errorNum == e)
-                    return SAVE(C_string_to_Poly(mdTaskData, errortable[i].errorString));
+            const char *errorMsg = stringFromErrorCode(e);
+            if (errorMsg != NULL)
+                return SAVE(C_string_to_Poly(mdTaskData, errorMsg));
             /* We get here if there's an error which isn't in the table. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* In the Windows version we may have both errno values
@@ -351,9 +350,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             /* Get the string. */
             Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
             /* Look the string up in the table. */
-            for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
-                if (strcmp(buff, errortable[i].errorString) == 0)
-                    return Make_arbitrary_precision(mdTaskData, errortable[i].errorNum);
+            int err = 0;
+            if (errorCodeFromString(buff, &err))
+                return Make_arbitrary_precision(mdTaskData, err);
             /* If we don't find it then it may have been a constructed
                error name. */
             if (strncmp(buff, "ERROR", 5) == 0)

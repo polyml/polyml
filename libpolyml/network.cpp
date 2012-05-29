@@ -300,36 +300,6 @@ static Handle getSocketOption(TaskData *taskData, Handle args, int level, int op
 static Handle getSocketInt(TaskData *taskData, Handle args, int level, int opt);
 static Handle selectCall(TaskData *taskData, Handle args, int blockType);
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-/* To allow for portable code we map Windows socket errors to
-   errno-style errors if there is a suitable entry in errno.h.
-   If there isn't we simply return the negative value and handle
-   it later. N.B. WSAEWOULDBLOCK is one of those which does not
-   have an equivalent.  (It does seem to be defined in Windows CE). */
-static int MapError(int err)
-{
-#ifdef EWOULDBLOCK
-    // This is very common so we treat it specially.
-    if (err == WSAEWOULDBLOCK)
-        return EWOULDBLOCK;
-#endif
-    for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++)
-    {
-        if (errortable[i].errorNum == -err)
-        {
-            const char *text = errortable[i].errorString;
-            // It's in the table.  Is there an entry with the same string earlier in the table?
-            // This involves a linear search but it's only going to happen if there's an error.
-            for (unsigned j = 0; j < sizeof(errortable)/sizeof(errortable[0]); j++)
-            {
-                if (strcmp(text, errortable[j].errorString) == 0)
-                    return errortable[j].errorNum;
-            }
-        }
-    }
-    return -err;
-}
-
 /* If these are not defined define them as negative because GetError returns
    negative values for socket library errors which do not have
    equivalents as errno-style errors. */
@@ -353,12 +323,33 @@ static int MapError(int err)
 #define EBADF       (-WSAEBADF)
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+/* To allow for portable code we map Windows socket errors to
+   errno-style errors if there is a suitable entry in errno.h.
+   If there isn't we simply return the negative value and handle
+   it later. N.B. WSAEWOULDBLOCK is one of those which does not
+   have an equivalent.  (It does seem to be defined in Windows CE). */
+int mapWindowsErrorCode(int err)
+{
+#ifdef EWOULDBLOCK
+    // This is very common so we treat it specially.
+    if (err == WSAEWOULDBLOCK)
+        return EWOULDBLOCK;
+#endif
+    const char *errText = stringFromErrorCode(-err);
+    int newErr = 0;
+    if (errText != NULL && errorCodeFromString(errText, &newErr))
+        return newErr;
+    else return -err;
+}
+
 static int GetError()
 {
-    return MapError(WSAGetLastError());
+    return mapWindowsErrorCode(WSAGetLastError());
 }
+
 #define GETERROR    (GetError())
-#define MAPERROR(x) (MapError(x))
+#define MAPERROR(x) (mapWindowsErrorCode(x))
 #else
 #define GETERROR    (errno)
 #define MAPERROR(x) (x)

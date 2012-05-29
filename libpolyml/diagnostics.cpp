@@ -126,12 +126,8 @@ void ExitWithError(const char *msg, int err)
 {
     puts("\n");
     puts(msg);
-    for (unsigned i = 0; i < sizeof(errortable)/sizeof(errortable[0]); i++) {
-        if (errortable[i].errorNum == err) {
-            puts(errortable[i].errorString);
-            break;
-        }
-    }
+    const char *errorMsg = stringFromErrorCode(err);
+    if (errorMsg != NULL) puts(errorMsg);
 
     puts("\n");
     fflush(stdout);
