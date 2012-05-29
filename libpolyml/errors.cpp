@@ -35,6 +35,10 @@
 #include <errno.h>
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #ifdef USEWINSOCK2
 #include <winsock2.h>
@@ -1328,7 +1332,7 @@ const char *stringFromErrorCode(int err)
             return errortable[i].errorString;
         }
     }
-    return NULL;
+    return 0;
 }
 
 bool errorCodeFromString(const char *text, int *err)

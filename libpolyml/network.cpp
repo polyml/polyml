@@ -338,7 +338,7 @@ int mapWindowsErrorCode(int err)
 #endif
     const char *errText = stringFromErrorCode(-err);
     int newErr = 0;
-    if (errText != NULL && errorCodeFromString(errText, &newErr))
+    if (errText != 0 && errorCodeFromString(errText, &newErr))
         return newErr;
     else return -err;
 }

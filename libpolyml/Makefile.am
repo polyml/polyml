@@ -114,17 +114,47 @@ noinst_HEADERS = \
 	xcall_numbers.h \
 	xwindows.h
 
-libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
-    arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
-    realconv.cpp objsize.cpp foreign.cpp \
-    process_env.cpp basicio.cpp network.cpp \
-    sighandler.cpp xwindows.cpp check_objects.cpp scanaddrs.cpp \
-    polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
-    rts_module.cpp bitmap.cpp poly_specific.cpp \
-    exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
-    locking.cpp savestate.cpp gctaskfarm.cpp \
-    gc_mark_phase.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
-    gc_update_phase.cpp quick_gc.cpp statistics.cpp gc_share_phase.cpp \
+libpolyml_la_SOURCES = \
+    arb.cpp \
+    basicio.cpp \
+    bitmap.cpp \
+    check_objects.cpp \
+    diagnostics.cpp \
+    errors.cpp \
+    exporter.cpp \
+    foreign.cpp \
+    gc.cpp \
+    gc_check_weak_ref.cpp \
+    gc_copy_phase.cpp \
+    gc_mark_phase.cpp \
+    gc_share_phase.cpp \
+    gc_update_phase.cpp \
+    gctaskfarm.cpp \
+    locking.cpp \
+    memmgr.cpp \
+    mpoly.cpp \
+    network.cpp \
+    objsize.cpp \
+    osmem.cpp \
+    pexport.cpp \
+    poly_specific.cpp \
+    polystring.cpp \
+    process_env.cpp \
+    processes.cpp \
+    profiling.cpp \
+    quick_gc.cpp \
+    realconv.cpp \
+    reals.cpp \
+    rts_module.cpp \
+    run_time.cpp \
+    save_vec.cpp \
+    savestate.cpp \
+    scanaddrs.cpp \
+    sharedata.cpp \
+    sighandler.cpp \
+    statistics.cpp \
+    timing.cpp \
+    xwindows.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 # Convert the portable format to a native binary

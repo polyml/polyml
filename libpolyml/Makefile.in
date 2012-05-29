@@ -81,17 +81,17 @@ am__DEPENDENCIES_1 =
 @INTERNAL_LIBFFI_FALSE@	$(am__DEPENDENCIES_1)
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_DEPENDENCIES =  \
 @INTERNAL_LIBFFI_TRUE@	../libffi/libffi_convenience.la
-am__libpolyml_la_SOURCES_DIST = mpoly.cpp gc.cpp diagnostics.cpp \
-	arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
-	realconv.cpp objsize.cpp foreign.cpp process_env.cpp \
-	basicio.cpp network.cpp sighandler.cpp xwindows.cpp \
-	check_objects.cpp scanaddrs.cpp polystring.cpp run_time.cpp \
-	osmem.cpp save_vec.cpp rts_module.cpp bitmap.cpp \
-	poly_specific.cpp exporter.cpp sharedata.cpp memmgr.cpp \
-	pexport.cpp locking.cpp savestate.cpp gctaskfarm.cpp \
-	gc_mark_phase.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
-	gc_update_phase.cpp quick_gc.cpp statistics.cpp \
-	gc_share_phase.cpp x86_dep.cpp x86asmtemp.S interpret.cpp \
+am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
+	check_objects.cpp diagnostics.cpp errors.cpp exporter.cpp \
+	foreign.cpp gc.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
+	gc_mark_phase.cpp gc_share_phase.cpp gc_update_phase.cpp \
+	gctaskfarm.cpp locking.cpp memmgr.cpp mpoly.cpp network.cpp \
+	objsize.cpp osmem.cpp pexport.cpp poly_specific.cpp \
+	polystring.cpp process_env.cpp processes.cpp profiling.cpp \
+	quick_gc.cpp realconv.cpp reals.cpp rts_module.cpp \
+	run_time.cpp save_vec.cpp savestate.cpp scanaddrs.cpp \
+	sharedata.cpp sighandler.cpp statistics.cpp timing.cpp \
+	xwindows.cpp x86_dep.cpp x86asmtemp.S interpret.cpp \
 	sparc_dep.cpp sparc_assembly.S power_dep.cpp ppcasmtemp.s \
 	machoexport.cpp elfexport.cpp pecoffexport.cpp \
 	unix_specific.cpp Console.cpp windows_specific.cpp
@@ -111,15 +111,15 @@ am__libpolyml_la_SOURCES_DIST = mpoly.cpp gc.cpp diagnostics.cpp \
 @EXPPECOFF_TRUE@am__objects_2 = pecoffexport.lo
 @NATIVE_WINDOWS_FALSE@am__objects_3 = unix_specific.lo
 @NATIVE_WINDOWS_TRUE@am__objects_3 = Console.lo windows_specific.lo
-am_libpolyml_la_OBJECTS = mpoly.lo gc.lo diagnostics.lo arb.lo \
-	reals.lo timing.lo processes.lo profiling.lo realconv.lo \
-	objsize.lo foreign.lo process_env.lo basicio.lo network.lo \
-	sighandler.lo xwindows.lo check_objects.lo scanaddrs.lo \
-	polystring.lo run_time.lo osmem.lo save_vec.lo rts_module.lo \
-	bitmap.lo poly_specific.lo exporter.lo sharedata.lo memmgr.lo \
-	pexport.lo locking.lo savestate.lo gctaskfarm.lo \
-	gc_mark_phase.lo gc_check_weak_ref.lo gc_copy_phase.lo \
-	gc_update_phase.lo quick_gc.lo statistics.lo gc_share_phase.lo \
+am_libpolyml_la_OBJECTS = arb.lo basicio.lo bitmap.lo check_objects.lo \
+	diagnostics.lo errors.lo exporter.lo foreign.lo gc.lo \
+	gc_check_weak_ref.lo gc_copy_phase.lo gc_mark_phase.lo \
+	gc_share_phase.lo gc_update_phase.lo gctaskfarm.lo locking.lo \
+	memmgr.lo mpoly.lo network.lo objsize.lo osmem.lo pexport.lo \
+	poly_specific.lo polystring.lo process_env.lo processes.lo \
+	profiling.lo quick_gc.lo realconv.lo reals.lo rts_module.lo \
+	run_time.lo save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
+	sighandler.lo statistics.lo timing.lo xwindows.lo \
 	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libpolyml_la_OBJECTS = $(am_libpolyml_la_OBJECTS)
 libpolyml_la_LINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) \
@@ -370,17 +370,47 @@ noinst_HEADERS = \
 	xcall_numbers.h \
 	xwindows.h
 
-libpolyml_la_SOURCES = mpoly.cpp gc.cpp diagnostics.cpp \
-    arb.cpp reals.cpp timing.cpp processes.cpp profiling.cpp \
-    realconv.cpp objsize.cpp foreign.cpp \
-    process_env.cpp basicio.cpp network.cpp \
-    sighandler.cpp xwindows.cpp check_objects.cpp scanaddrs.cpp \
-    polystring.cpp run_time.cpp osmem.cpp save_vec.cpp \
-    rts_module.cpp bitmap.cpp poly_specific.cpp \
-    exporter.cpp sharedata.cpp memmgr.cpp pexport.cpp \
-    locking.cpp savestate.cpp gctaskfarm.cpp \
-    gc_mark_phase.cpp gc_check_weak_ref.cpp gc_copy_phase.cpp \
-    gc_update_phase.cpp quick_gc.cpp statistics.cpp gc_share_phase.cpp \
+libpolyml_la_SOURCES = \
+    arb.cpp \
+    basicio.cpp \
+    bitmap.cpp \
+    check_objects.cpp \
+    diagnostics.cpp \
+    errors.cpp \
+    exporter.cpp \
+    foreign.cpp \
+    gc.cpp \
+    gc_check_weak_ref.cpp \
+    gc_copy_phase.cpp \
+    gc_mark_phase.cpp \
+    gc_share_phase.cpp \
+    gc_update_phase.cpp \
+    gctaskfarm.cpp \
+    locking.cpp \
+    memmgr.cpp \
+    mpoly.cpp \
+    network.cpp \
+    objsize.cpp \
+    osmem.cpp \
+    pexport.cpp \
+    poly_specific.cpp \
+    polystring.cpp \
+    process_env.cpp \
+    processes.cpp \
+    profiling.cpp \
+    quick_gc.cpp \
+    realconv.cpp \
+    reals.cpp \
+    rts_module.cpp \
+    run_time.cpp \
+    save_vec.cpp \
+    savestate.cpp \
+    scanaddrs.cpp \
+    sharedata.cpp \
+    sighandler.cpp \
+    statistics.cpp \
+    timing.cpp \
+    xwindows.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
 all: all-am
@@ -464,6 +494,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/check_objects.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/diagnostics.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/elfexport.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/errors.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/exporter.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/foreign.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gc.Plo@am__quote@
