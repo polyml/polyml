@@ -446,7 +446,7 @@ typedef struct  {
     DWORD pad3[60];
 } SystemPerformanceInfo;
 
-typedef int (*NtSystemInfo)(int, SystemPerformanceInfo *, ULONG, void*);
+typedef int (WINAPI *NtSystemInfo)(int, SystemPerformanceInfo *, ULONG, void*);
 static NtSystemInfo pFunctionPtr;
 
 static long GetPaging(long)
