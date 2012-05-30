@@ -76,6 +76,7 @@ private:
     PolyObject *FindNewAddress(PolyObject *obj, POLYUNSIGNED L, LocalMemSpace *srcSpace);
     virtual LocalMemSpace *FindSpace(POLYUNSIGNED length, bool isMutable) = 0;
 protected:
+    LocalMemSpace *MoreSpace(POLYUNSIGNED length, bool isMutable);
     bool objectCopied;
     bool rootScan;
 };
@@ -222,7 +223,6 @@ PolyObject *QuickGCScanner::FindNewAddress(PolyObject *obj, POLYUNSIGNED L, Loca
 // so that the work is distributed for the scanning threads.
 LocalMemSpace *RootScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
 {
-    POLYUNSIGNED spaceAllocated = 0;
     LocalMemSpace *lSpace = isMutable ? mutableSpace : immutableSpace;
 
     if (lSpace != 0)
@@ -247,14 +247,7 @@ LocalMemSpace *RootScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         return lSpace;
     }
 
-    if (spaceAllocated < gMem.SpaceBeforeMajorGC())
-    {
-        // Allocate a new space for this.
-        POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
-        if (n+1 > spaceSize) spaceSize = n+1;
-        return gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
-    }
-    return 0; // Insufficient space
+    return MoreSpace(n, isMutable);
 }
 
 // When scanning within a thread we don't want to be searching the space table.
@@ -306,6 +299,18 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         }
     }
 
+    lSpace = MoreSpace(n, isMutable);
+    if (lSpace != 0 && TakeOwnership(lSpace))
+        return lSpace;
+    return 0;
+}
+
+
+// Create a new heap segment if there is space.  This is used if there is no
+// suitable space in the available segments.
+LocalMemSpace *QuickGCScanner::MoreSpace(POLYUNSIGNED length, bool isMutable)
+{
+    // See how much space is allocated.
     POLYUNSIGNED spaceAllocated = 0;
     for (unsigned k = 0; k < gMem.nlSpaces; k++)
     {
@@ -314,19 +319,16 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
             spaceAllocated += space->spaceSize();
     }
 
-    if (spaceAllocated < gMem.SpaceBeforeMajorGC())
-    {
-        // Allocate a new space for this.
-        POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
-        if (n+1 > spaceSize) spaceSize = n+1;
-        lSpace = gMem.NewLocalSpace(spaceSize, isMutable);
-        if (lSpace == 0 || ! TakeOwnership(lSpace))
-            return 0;
-        return lSpace;
-    }
+    // The new segment is either the default size or as large as
+    // necessary for the object.
+    POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
+    if (length+1 > spaceSize) spaceSize = length+1;
 
+    if (spaceAllocated + spaceSize < gMem.SpaceBeforeMajorGC())
+        return gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
     return 0; // Insufficient space
 }
+
 
 // Copy all the objects.
 POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
