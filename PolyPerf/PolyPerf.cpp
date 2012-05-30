@@ -54,9 +54,11 @@ extern "C" {
 };
 
 // Export the functions without any decoration.
+#ifndef _WIN64
 #pragma comment(linker, "/export:OpenPolyPerfMon=_OpenPolyPerfMon@4")
 #pragma comment(linker, "/export:ClosePolyPerfMon=_ClosePolyPerfMon@0")
 #pragma comment(linker, "/export:CollectPolyPerfMon=_CollectPolyPerfMon@16")
+#endif
 
 class PolyProcess {
 public:

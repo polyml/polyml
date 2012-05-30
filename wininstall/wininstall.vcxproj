@@ -66,6 +66,7 @@ light.exe Release\PolyML.wixobj -out Release\PolyML.msi -ext WixUIExtension -cul
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Licence.rtf;%(AdditionalInputs)</AdditionalInputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Release\PolyML.msi;%(Outputs)</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Release\PolyML.msi;%(Outputs)</Outputs>
+      <SubType>Designer</SubType>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
