@@ -95,7 +95,8 @@ enum {
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
     OPT_DEBUGFILE,
-    OPT_GCSHARE
+    OPT_GCSHARE,
+    OPT_HEAPSIZING
 };
 
 struct __argtab {
@@ -112,7 +113,8 @@ struct __argtab {
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
     { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE },
-    { "--gcshare",      "Perform a data sharing pass before each major GC",     OPT_GCSHARE }
+    { "--gcshare",      "Perform a data sharing pass before each major GC",     OPT_GCSHARE },
+    { "--resizing",    "Policy for RTS heap resizing: default, fixed",            OPT_HEAPSIZING }
 };
 
 struct __debugOpts {
@@ -131,6 +133,24 @@ struct __debugOpts {
     { "sharing",            "Information from PolyML.shareCommonData",          DEBUG_SHARING},
     { "locks",              "Information about contended locks",                DEBUG_CONTENTION},
     { "rts",                "General run-time system calls",                    DEBUG_RTSCALLS}
+};
+
+enum {
+    HEAPSIZING_DEFAULT,
+    HEAPSIZING_FIXED,
+    HEAPSIZING_PID
+};
+
+extern unsigned heapsizingOption; // heapsizing option, in memmgr.cpp
+
+struct __heapsizingOpts {
+    const char *optName, *optHelp;
+    unsigned optKey;
+} heapsizingOptTable[] =
+{
+    { "default",    "Use the default adaptive heap sizing strategy",    HEAPSIZING_DEFAULT },
+    { "fixed",       "Initial heap size is fixed, do not expand",            HEAPSIZING_FIXED},
+    { "pid",          "Use the PID controller for heap sizing (**experimental**)",    HEAPSIZING_PID }
 };
 
 /* In the Windows version this is called from WinMain in Console.c */
@@ -239,6 +259,21 @@ int polymain(int argc, char **argv, exportDescription *exports)
                     case OPT_GCSHARE:
                         userOptions.gcSharing = strtol(p, &endp, 10) != 0;
                         break;
+		    case OPT_HEAPSIZING:
+			// single heap size policy follows --resizing
+			bool optFound = false;
+			for (unsigned k = 0; k < sizeof(heapsizingOptTable)/sizeof(heapsizingOptTable[0]); k++)
+			{
+			    if (strcmp(p, heapsizingOptTable[k].optName) == 0)
+			    {
+			        heapsizingOption = heapsizingOptTable[k].optKey;
+				optFound = true;
+			        break;
+                            }
+			} 
+			if (! optFound)
+			    Usage("Unknown argument to --resizing\n");
+			break;
                     }
                     argUsed = true;
                     break;

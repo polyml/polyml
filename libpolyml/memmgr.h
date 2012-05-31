@@ -25,6 +25,11 @@
 #include "bitmap.h"
 #include "locking.h"
 
+// utility conversion macros
+#define Words_to_K(w) (w*sizeof(PolyWord))/1024
+#define Words_to_M(w) (w*sizeof(PolyWord))/(1<<20)
+#define B_to_M(b) (b/(1<<20))
+
 class ScanAddress;
 class GCTaskId;
 
@@ -321,6 +326,8 @@ public:
     { spaceBeforeMinorGC = minorSize; spaceBeforeMajorGC = majorSize; }
 
     POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
+
+    void reportHeapSpaceUsage(void);
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);

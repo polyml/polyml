@@ -44,6 +44,9 @@
 #include "diagnostics.h"
 #include "statistics.h"
 
+// heap resizing policy option requested on command line
+unsigned heapsizingOption = 0;
+
 MemSpace::MemSpace(): SpaceTree(true)
 {
     spaceType = ST_PERMANENT;
@@ -959,6 +962,54 @@ void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, 
     }
     delete(t);
     *tt = 0;
+}
+
+// debugging information on heap space usage
+void MemMgr::reportHeapSpaceUsage()
+{
+    unsigned i;
+    // all space sizes are measured in number of PolyWords
+    int allocSize = 0;
+    int mutableSize = 0;
+    int immutableSize = 0;
+    int permSize = 0;
+    int exportSize = 0;
+    int stackSize = 0;
+
+    // local space usage    
+    // local space is divided up as   | IMMUTABLE | MUTABLE | ALLOC |
+    for (i=0; i < nlSpaces; i++) 
+    {
+	LocalMemSpace *space = lSpaces[i];
+	int spaceSize = space->spaceSize();
+	if (space->allocationSpace)
+	    allocSize +=spaceSize;
+	else if (space->isMutable)
+	    mutableSize += spaceSize;
+	else
+	    immutableSize += spaceSize;
+    }
+    
+    // permanent space usage
+    for (i=0; i < npSpaces; i++)
+	permSize += pSpaces[i]->spaceSize();
+
+    // export space usage
+    for (i=0; i < neSpaces; i++)
+	exportSize += eSpaces[i]->spaceSize();
+
+    // stack space usage
+    for (i=0; i < nsSpaces; i++)
+	stackSize += sSpaces[i]->spaceSize();
+
+    Log("--- begin mem usage dump ---\n");
+    Log("Alloc Size %d M\n", Words_to_M(allocSize));
+    Log("Mutable Size %d M\n", Words_to_M(mutableSize));
+    Log("Immutable Size %d M\n", Words_to_M(immutableSize));
+    Log("Permanent Size %d M\n", Words_to_M(permSize));
+    Log("Export Size %d M\n", Words_to_M(exportSize));
+    Log("Stack Size %d M\n", Words_to_M(stackSize));
+    Log("--- end mem usage dump ---\n");
 }
 
 MemMgr gMem; // The one and only memory manager object
