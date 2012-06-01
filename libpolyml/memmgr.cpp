@@ -981,27 +981,27 @@ void MemMgr::reportHeapSpaceUsage()
     // local space is divided up as   | IMMUTABLE | MUTABLE | ALLOC |
     for (i=0; i < nlSpaces; i++) 
     {
-	LocalMemSpace *space = lSpaces[i];
-	int spaceSize = space->spaceSize();
-	if (space->allocationSpace)
-	    allocSize +=spaceSize;
-	else if (space->isMutable)
-	    mutableSize += spaceSize;
-	else
-	    immutableSize += spaceSize;
+        LocalMemSpace *space = lSpaces[i];
+        int spaceSize = space->spaceSize();
+        if (space->allocationSpace)
+            allocSize +=spaceSize;
+        else if (space->isMutable)
+            mutableSize += spaceSize;
+        else
+            immutableSize += spaceSize;
     }
     
     // permanent space usage
     for (i=0; i < npSpaces; i++)
-	permSize += pSpaces[i]->spaceSize();
+        permSize += pSpaces[i]->spaceSize();
 
     // export space usage
     for (i=0; i < neSpaces; i++)
-	exportSize += eSpaces[i]->spaceSize();
+        exportSize += eSpaces[i]->spaceSize();
 
     // stack space usage
     for (i=0; i < nsSpaces; i++)
-	stackSize += sSpaces[i]->spaceSize();
+        stackSize += sSpaces[i]->spaceSize();
 
     Log("--- begin mem usage dump ---\n");
     Log("Alloc Size %d M\n", Words_to_M(allocSize));

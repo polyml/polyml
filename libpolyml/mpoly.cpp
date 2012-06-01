@@ -259,21 +259,21 @@ int polymain(int argc, char **argv, exportDescription *exports)
                     case OPT_GCSHARE:
                         userOptions.gcSharing = strtol(p, &endp, 10) != 0;
                         break;
-		    case OPT_HEAPSIZING:
-			// single heap size policy follows --resizing
-			bool optFound = false;
-			for (unsigned k = 0; k < sizeof(heapsizingOptTable)/sizeof(heapsizingOptTable[0]); k++)
-			{
-			    if (strcmp(p, heapsizingOptTable[k].optName) == 0)
-			    {
-			        heapsizingOption = heapsizingOptTable[k].optKey;
-				optFound = true;
-			        break;
+                    case OPT_HEAPSIZING:
+                        // single heap size policy follows --resizing
+                        bool optFound = false;
+                        for (unsigned k = 0; k < sizeof(heapsizingOptTable)/sizeof(heapsizingOptTable[0]); k++)
+                        {
+                            if (strcmp(p, heapsizingOptTable[k].optName) == 0)
+                            {
+                                heapsizingOption = heapsizingOptTable[k].optKey;
+                                optFound = true;
+                                break;
                             }
-			} 
-			if (! optFound)
-			    Usage("Unknown argument to --resizing\n");
-			break;
+                        } 
+                        if (! optFound)
+                            Usage("Unknown argument to --resizing\n");
+                        break;
                     }
                     argUsed = true;
                     break;

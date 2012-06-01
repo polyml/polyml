@@ -425,7 +425,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             char msg[100];
             sprintf(msg, "Unknown timing function: %d", c);
             raise_exception_string(taskData, EXC_Fail, msg);
-			return 0;
+            return 0;
         }
     }
 }

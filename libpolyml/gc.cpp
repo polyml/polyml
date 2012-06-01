@@ -167,7 +167,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.nlSpaces);
     
     if (debugOptions & DEBUG_HEAPSIZE)
-	gMem.reportHeapSpaceUsage();
+        gMem.reportHeapSpaceUsage();
     
     // Experimental data sharing pass.
     if (userOptions.gcSharing)
@@ -389,7 +389,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     }
 
     if (debugOptions & DEBUG_HEAPSIZE)
-	gMem.reportHeapSpaceUsage();
+        gMem.reportHeapSpaceUsage();
 
     if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
         printprofile();
