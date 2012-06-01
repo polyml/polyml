@@ -421,6 +421,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 space->isOwnSpace = true;
                 if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                     return false;
+                globalStats.incSize(PSS_TOTAL_HEAP, space->spaceSize() * sizeof(PolyWord));
             }
             catch (std::bad_alloc a) {
                 return false;
