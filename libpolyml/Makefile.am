@@ -78,6 +78,7 @@ noinst_HEADERS = \
 	gc.h \
 	gctaskfarm.h \
 	globals.h \
+        heapsizing.h \
 	int_opcodes.h \
 	io_internal.h \
 	locking.h \
@@ -130,6 +131,7 @@ libpolyml_la_SOURCES = \
     gc_share_phase.cpp \
     gc_update_phase.cpp \
     gctaskfarm.cpp \
+    heapsizing.cpp \
     locking.cpp \
     memmgr.cpp \
     mpoly.cpp \
