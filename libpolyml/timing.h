@@ -48,12 +48,9 @@ class TaskData;
 
 extern Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code);
 
-/* This contains the information about the time used for GC and
-   non-gc time to allow the heap resizing code to make a decision.
-   Some of this may be removed once we have a final algorithm.
-   There are separate figures for the time since the last minor
-   GC and the last major GC.
-*/
+// Define classes for operations on time values in Windows and Posix.
+// N.B. In Cygwin we use both classes because in some cases we need
+// Windows-style timing and in other places we use Unix-style.
 
 #ifdef HAVE_WINDOWS_H
 class FileTimeTime {
@@ -64,6 +61,7 @@ public:
     void add(const FileTimeTime &);
     void sub(const FileTimeTime &);
     float toSeconds(void);
+    operator FILETIME() const { return t; }
 protected:
     FILETIME t;
 };
@@ -78,6 +76,7 @@ public:
     void add(const TimeValTime &);
     void sub(const TimeValTime &);
     float toSeconds(void) { return (float)t.tv_sec + (float)t.tv_usec / 1.0E6; }
+    operator timeval() const { return t; }
 protected:
     struct timeval t;
 };
@@ -89,53 +88,6 @@ protected:
 #else /* Unix and Cygwin. */
 #define TIMEDATA TimeValTime
 #endif
-
-class GcTimeData {
-public:
-    GcTimeData();
-
-    TIMEDATA minorNonGCUserCPU;
-    TIMEDATA minorNonGCSystemCPU;
-    TIMEDATA minorNonGCReal;
-    TIMEDATA minorGCUserCPU;
-    TIMEDATA minorGCSystemCPU;
-    TIMEDATA minorGCReal;
-
-    TIMEDATA majorNonGCUserCPU;
-    TIMEDATA majorNonGCSystemCPU;
-    TIMEDATA majorNonGCReal;
-    TIMEDATA majorGCUserCPU;
-    TIMEDATA majorGCSystemCPU;
-    TIMEDATA majorGCReal;
-
-    void resetMinorTimingData(void);
-    void resetMajorTimingData(void);
-
-    /* Called by the garbage collector at the beginning and
-       end of garbage collection. */
-    typedef enum __gcTime {
-        GCTimeStart,
-        GCTimeIntermediate,
-        GCTimeEnd
-    } gcTime;
-
-    void RecordGCTime(gcTime isEnd, const char *stage = "");
-    void Init(void);
-    void Final(void);
-
-private:
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
-    FILETIME startRTime, lastRTime;
-    DWORD startPF;
-#else
-    struct rusage startUsage, lastUsage;
-    struct timeval startRTime, lastRTime;
-    long startPF;
-#endif
-};
-
-extern GcTimeData gcTimeData;
 
 #ifdef HAVE_WINDOWS_H
 extern void addFiletimes(FILETIME *result, const FILETIME *x);

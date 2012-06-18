@@ -79,7 +79,7 @@ Many of the ideas are drawn from Flood, Detlefs, Shavit and Zhang 2001
 #include "diagnostics.h"
 #include "gctaskfarm.h"
 #include "profiling.h"
-#include "timing.h"
+#include "heapsizing.h"
 
 #define MARK_STACK_SIZE 3000
 
@@ -667,7 +667,7 @@ void GCMarkPhase(void)
     RescanMarked rescanner;
     while (rescanner.RunRescan()) ;
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Mark");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Mark");
 
     // Turn the marks into bitmap entries.
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
@@ -675,7 +675,7 @@ void GCMarkPhase(void)
 
     gpTaskFarm->WaitForCompletion();
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Bitmap");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Bitmap");
 
     POLYUNSIGNED totalLive = 0;
     for(unsigned l = 0; l < gMem.nlSpaces; l++)

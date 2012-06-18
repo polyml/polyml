@@ -101,9 +101,7 @@
 
 #include "locking.h"
 #include "globals.h"
-#include "mpoly.h"
 #include "arb.h"
-#include "machine_dep.h"
 #include "run_time.h"
 #include "sys.h"
 #include "timing.h"
@@ -111,8 +109,7 @@
 #include "save_vec.h"
 #include "rts_module.h"
 #include "processes.h"
-#include "diagnostics.h"
-#include "statistics.h"
+#include "heapsizing.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 /* Windows file times are 64-bit numbers representing times in
@@ -146,35 +143,14 @@
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 static FILETIME startTime;
-static FILETIME gcUTime, gcSTime, gcRTime;
 #else
 static struct timeval startTime;
-static struct timeval gcUTime, gcSTime, gcRTime;
 #endif
-
-GcTimeData gcTimeData; 
 
 #if(!(defined(HAVE_GMTIME_R) && defined(HAVE_LOCALTIME_R)))
 // gmtime and localtime are not re-entrant so if we don't have the
 // re-entrant versions we need to use a lock.
 static PLock timeLock("Timing");
-#endif
-
-
-/* There is a problem with getrusage on Solaris where it sometimes fails with EINTR.
-// This is despite the documentation which doesn't mention this and is probably because
-// it is implemented by opening a special device.  We need to handle this and there's really
-// no harm in doing that on all (Unix) systems.  DCJM 27/2/03.
-*/
-#if (! defined(_WIN32) || defined(__CYGWIN__))
-static int proper_getrusage(int who, struct rusage *rusage)
-{
-    while (1) {
-        int res = getrusage(who, rusage);
-        if (res == 0 || errno != EINTR) return res;
-    }
-}
-
 #endif
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
@@ -339,7 +315,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_arb_from_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
 #else
             struct rusage rusage;
-            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
+            if (getrusage(RUSAGE_SELF, &rusage) != 0)
                 raise_syscall(taskData, "getrusage failed", errno);
             return Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
                         rusage.ru_utime.tv_usec, 1000000);
@@ -355,7 +331,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_arb_from_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
 #else
             struct rusage rusage;
-            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
+            if (getrusage(RUSAGE_SELF, &rusage) != 0)
                 raise_syscall(taskData, "getrusage failed", errno);
             return Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
                         rusage.ru_stime.tv_usec, 1000000);
@@ -363,11 +339,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 9: /* Return GC time since the start. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        return Make_arb_from_pair(taskData, gcUTime.dwHighDateTime, gcUTime.dwLowDateTime);
-#else
-        return Make_arb_from_pair_scaled(taskData, gcUTime.tv_sec, gcUTime.tv_usec, 1000000);
-#endif
+        return gHeapSizeParameters.getGCUtime(taskData);
 
     case 10: /* Return real time since the start. */
         {
@@ -392,7 +364,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
-            if (proper_getrusage(RUSAGE_CHILDREN, &rusage) != 0)
+            if (getrusage(RUSAGE_CHILDREN, &rusage) != 0)
                 raise_syscall(taskData, "getrusage failed", errno);
             return Make_arb_from_pair_scaled(taskData, rusage.ru_utime.tv_sec,
                         rusage.ru_utime.tv_usec, 1000000);
@@ -405,7 +377,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             return Make_arbitrary_precision(taskData, 0);
 #else
             struct rusage rusage;
-            if (proper_getrusage(RUSAGE_CHILDREN, &rusage) != 0)
+            if (getrusage(RUSAGE_CHILDREN, &rusage) != 0)
                 raise_syscall(taskData, "getrusage failed", errno);
             return Make_arb_from_pair_scaled(taskData, rusage.ru_stime.tv_sec,
                         rusage.ru_stime.tv_usec, 1000000);
@@ -413,12 +385,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
 
     case 13: /* Return GC system time since the start. */
-        /* This function was added in Gansner & Reppy. */
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        return Make_arb_from_pair(taskData, gcSTime.dwHighDateTime, gcSTime.dwLowDateTime);
-#else
-        return Make_arb_from_pair_scaled(taskData, gcSTime.tv_sec, gcSTime.tv_usec, 1000000);
-#endif
+        return gHeapSizeParameters.getGCStime(taskData);
 
     default:
         {
@@ -429,318 +396,6 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         }
     }
 }
-
-#ifdef HAVE_WINDOWS_H
-// Getting hard page counts in Windows is not easy.  Cygwin uses
-// GetProcessMemoryInfo to return the value in ru_majflt but this
-// is actually incorrect because it returns the soft page count not
-// the hard page count.  We use NtQuerySystemInformation to get the
-// total paging on the system on the basis that this is more useful
-// than the soft page faults for the process.
-// This is an undocumented interface and it's all a bit of a mess.
-
-typedef struct  {
-    INT64 pad1[4];
-    DWORD pad2[12];
-    DWORD pagesRead;
-    DWORD pad3[60];
-} SystemPerformanceInfo;
-
-typedef int (WINAPI *NtSystemInfo)(int, SystemPerformanceInfo *, ULONG, void*);
-static NtSystemInfo pFunctionPtr;
-
-static long GetPaging(long)
-{
-    if (pFunctionPtr == 0)
-        pFunctionPtr = (NtSystemInfo) GetProcAddress(GetModuleHandle("Ntdll.dll"), "NtQuerySystemInformation");
-
-    if (pFunctionPtr != 0)
-    {
-        SystemPerformanceInfo pInfo;
-        int result = (*pFunctionPtr)(2/*SystemPerformanceInformation*/, &pInfo, sizeof(pInfo), 0);
-        if (result == 0)
-            return pInfo.pagesRead;
-    }
-    return 0;
-}
-#else
-inline long GetPaging(long rusagePage)
-{
-    return rusagePage;
-}
-#endif
-
-GcTimeData::GcTimeData()
-{
-    startPF = GetPaging(0);
-}
-
-// This function is called at the beginning and end of garbage
-// collection to record the time used.
-// This also reports the GC time if GC debugging is enabled.
-void GcTimeData::RecordGCTime(gcTime isEnd, const char *stage)
-{
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    FILETIME kt, ut;
-    FILETIME ct, et; // Unused
-    FILETIME rt;
-
-    GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
-    GetSystemTimeAsFileTime(&rt);
-
-    switch (isEnd)
-    {
-    case GCTimeStart:
-        {
-            // Start of GC
-            long pageCount = GetPaging(0);
-            lastUsageU = ut;
-            lastUsageS = kt;
-            lastRTime = rt;
-            subFiletimes(&ut, &startUsageU);
-            subFiletimes(&kt, &startUsageS);
-            subFiletimes(&rt, &startRTime);
-            if (debugOptions & DEBUG_GC)
-            {
-                float userTime = filetimeToSeconds(&ut);
-                float systemTime = filetimeToSeconds(&kt);
-                float realTime = filetimeToSeconds(&rt);
-                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %u\n",
-                    userTime, systemTime, realTime, pageCount - startPF);
-                // Add to the statistics.
-            }
-            minorNonGCUserCPU.add(ut);
-            majorNonGCUserCPU.add(ut);
-            minorNonGCSystemCPU.add(kt);
-            majorNonGCSystemCPU.add(kt);
-            minorNonGCReal.add(rt);
-            majorNonGCReal.add(rt);
-            startUsageU = lastUsageU;
-            startUsageS = lastUsageS;
-            startRTime = lastRTime;
-            startPF = pageCount;
-            break;
-        }
-
-    case GCTimeIntermediate:
-        // Report intermediate GC time for debugging
-        if (debugOptions & DEBUG_GC)
-        {
-            FILETIME nextU = ut, nextS = kt, nextR = rt;
-            subFiletimes(&ut, &lastUsageU);
-            subFiletimes(&kt, &lastUsageS);
-            subFiletimes(&rt, &lastRTime);
-
-            float userTime = filetimeToSeconds(&ut);
-            float systemTime = filetimeToSeconds(&kt);
-            float realTime = filetimeToSeconds(&rt);
-
-            Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
-                systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime);
-            lastUsageU = nextU;
-            lastUsageS = nextS;
-            lastRTime = nextR;
-        }
-        break;
-
-    case GCTimeEnd: // End of GC.
-        {
-            long pageCount = GetPaging(0);
-
-            lastUsageU = ut;
-            lastUsageS = kt;
-            lastRTime = rt;
-            subFiletimes(&ut, &startUsageU);
-            subFiletimes(&kt, &startUsageS);
-            subFiletimes(&rt, &startRTime);
-            addFiletimes(&gcUTime, &ut);
-            addFiletimes(&gcSTime, &kt);
-            addFiletimes(&gcRTime, &rt);
-
-            if (debugOptions & DEBUG_GC)
-            {
-                float userTime = filetimeToSeconds(&ut);
-                float systemTime = filetimeToSeconds(&kt);
-                float realTime = filetimeToSeconds(&rt);
-                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
-                    systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime,
-                    pageCount - startPF);
-            }
-            minorGCUserCPU.add(ut);
-            majorGCUserCPU.add(ut);
-            minorGCSystemCPU.add(kt);
-            majorGCSystemCPU.add(kt);
-            minorGCReal.add(rt);
-            majorGCReal.add(rt);
-            startUsageU = lastUsageU;
-            startUsageS = lastUsageS;
-            startRTime = lastRTime;
-            startPF = pageCount;
-            globalStats.copyGCTimes(gcUTime, gcSTime);
-        }
-        break;
-    }
-#else
-    switch (isEnd)
-    {
-    case GCTimeStart:
-        {            
-            // Start of GC
-            struct rusage rusage;
-            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
-                return;
-            lastUsage = rusage;
-            long pageFaults = GetPaging(rusage.ru_majflt);
-            subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
-            subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
-            struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
-                return;
-            lastRTime = tv;
-            subTimevals(&tv, &startRTime);
-
-            if (debugOptions & DEBUG_GC)
-            {
-                float userTime = timevalToSeconds(&rusage.ru_utime);
-                float systemTime = timevalToSeconds(&rusage.ru_stime);
-                float realTime = timevalToSeconds(&tv);
-                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
-                    systemTime, realTime, pageFaults - startPF);
-            }
-            minorNonGCUserCPU.add(rusage.ru_utime);
-            majorNonGCUserCPU.add(rusage.ru_utime);
-            minorNonGCSystemCPU.add(rusage.ru_stime);
-            majorNonGCSystemCPU.add(rusage.ru_stime);
-            minorNonGCReal.add(tv);
-            majorNonGCReal.add(tv);
-            startUsage = lastUsage;
-            startRTime = lastRTime;
-            startPF = pageFaults;
-            break;
-         }
-
-    case GCTimeIntermediate:
-        // Report intermediate GC time for debugging
-        if (debugOptions & DEBUG_GC)
-        {
-            struct rusage rusage;
-            struct timeval tv;
-            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0 || gettimeofday(&tv, NULL) != 0)
-                return;
-            struct rusage nextUsage = rusage;
-            struct timeval nextTime = tv;
-            subTimevals(&rusage.ru_utime, &lastUsage.ru_utime);
-            subTimevals(&rusage.ru_stime, &lastUsage.ru_stime);
-            subTimevals(&tv, &lastRTime);
-
-            float userTime = timevalToSeconds(&rusage.ru_utime);
-            float systemTime = timevalToSeconds(&rusage.ru_stime);
-            float realTime = timevalToSeconds(&tv);
-            Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
-                systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime);
-            lastUsage = nextUsage;
-            lastRTime = nextTime;
-        }
-        break;
-
-    case GCTimeEnd:
-        {
-            struct rusage rusage;
-            if (proper_getrusage(RUSAGE_SELF, &rusage) != 0)
-                return;
-            lastUsage = rusage;
-            long pageFaults = GetPaging(rusage.ru_majflt);
-            subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
-            subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
-            addTimevals(&gcUTime, &rusage.ru_utime);
-            addTimevals(&gcSTime, &rusage.ru_stime);
-            struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
-                return;
-            lastRTime = tv;
-            subTimevals(&tv, &startRTime);
-            addTimevals(&gcRTime, &tv);
-
-            if (debugOptions & DEBUG_GC)
-            {
-                float userTime = timevalToSeconds(&rusage.ru_utime);
-                float systemTime = timevalToSeconds(&rusage.ru_stime);
-                float realTime = timevalToSeconds(&tv);
-                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
-                    systemTime, realTime, realTime == 0.0 ? 0.0 :(userTime + systemTime) / realTime,
-                    pageFaults-startPF);
-            }
-            minorGCUserCPU.add(rusage.ru_utime);
-            majorGCUserCPU.add(rusage.ru_utime);
-            minorGCSystemCPU.add(rusage.ru_stime);
-            majorGCSystemCPU.add(rusage.ru_stime);
-            minorGCReal.add(tv);
-            majorGCReal.add(tv);
-            startRTime = lastRTime;
-            startPF = pageFaults;
-            startUsage = lastUsage;
-            globalStats.copyGCTimes(gcUTime, gcSTime);
-        }
-    }
-#endif
-}
-
-void GcTimeData::Init()
-{
-    resetMajorTimingData();
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    memset(&startUsageU, 0, sizeof(startUsageU));
-    memset(&startUsageS, 0, sizeof(startUsageS));
-    memset(&lastUsageU, 0, sizeof(lastUsageU));
-    memset(&lastUsageS, 0, sizeof(lastUsageS));
-    memset(&lastRTime, 0, sizeof(lastRTime));
-    GetSystemTimeAsFileTime(&startRTime);
-    startPF = GetPaging(0);
-#else
-    memset(&startUsage, 0, sizeof(startUsage));
-    memset(&lastUsage, 0, sizeof(lastUsage));
-    memset(&lastRTime, 0, sizeof(lastRTime));
-    gettimeofday(&startRTime, NULL);
-    startPF = GetPaging(0);
-#endif
-}
-
-void GcTimeData::Final()
-{
-    // Print the overall statistics
-    if (debugOptions & DEBUG_GC)
-    {
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        FILETIME kt, ut;
-        FILETIME ct, et; // Unused
-        FILETIME rt;
-        GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
-        GetSystemTimeAsFileTime(&rt);
-        subFiletimes(&ut, &gcUTime);
-        subFiletimes(&kt, &gcSTime);
-        subFiletimes(&rt, &startTime);
-        subFiletimes(&rt, &gcRTime);
-        Log("GC (Total): Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
-            filetimeToSeconds(&ut), filetimeToSeconds(&kt), filetimeToSeconds(&rt));
-        Log("GC (Total): GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
-            filetimeToSeconds(&gcUTime), filetimeToSeconds(&gcSTime), filetimeToSeconds(&gcRTime));
-#else
-        struct rusage rusage;
-        struct timeval tv;
-        if (proper_getrusage(RUSAGE_SELF, &rusage) != 0 || gettimeofday(&tv, NULL) != 0)
-            return;
-        subTimevals(&rusage.ru_utime, &gcUTime);
-        subTimevals(&rusage.ru_stime, &gcSTime);
-        subTimevals(&tv, &startTime);
-        subTimevals(&tv, &gcRTime);
-        Log("GC (Total): Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
-            timevalToSeconds(&rusage.ru_utime), timevalToSeconds(&rusage.ru_stime), timevalToSeconds(&tv));
-        Log("GC (Total): GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
-            timevalToSeconds(&gcUTime), timevalToSeconds(&gcSTime), timevalToSeconds(&gcRTime));
-#endif
-    }
-}
-
 
 #ifdef HAVE_WINDOWS_H
 void addFiletimes(FILETIME *result, const FILETIME *x)
@@ -834,38 +489,11 @@ void TimeValTime::sub(const TimeValTime &f)
 
 #endif
 
-void GcTimeData::resetMinorTimingData(void)
-{
-    minorNonGCUserCPU.fromSeconds(0);
-    minorNonGCSystemCPU.fromSeconds(0);
-    minorNonGCReal.fromSeconds(0);
-    minorGCUserCPU.fromSeconds(0);
-    minorGCSystemCPU.fromSeconds(0);
-    minorGCReal.fromSeconds(0);
-}
-
-void GcTimeData::resetMajorTimingData(void)
-{
-    minorNonGCUserCPU.fromSeconds(0);
-    minorNonGCSystemCPU.fromSeconds(0);
-    minorNonGCReal.fromSeconds(0);
-    minorGCUserCPU.fromSeconds(0);
-    minorGCSystemCPU.fromSeconds(0);
-    minorGCReal.fromSeconds(0);
-    majorNonGCUserCPU.fromSeconds(0);
-    majorNonGCSystemCPU.fromSeconds(0);
-    majorNonGCReal.fromSeconds(0);
-    majorGCUserCPU.fromSeconds(0);
-    majorGCSystemCPU.fromSeconds(0);
-    majorGCReal.fromSeconds(0);
-}
-
 
 class Timing: public RtsModule
 {
 public:
     virtual void Init(void);
-    virtual void Stop(void);
 };
 
 // Declare this.  It will be automatically added to the table.
@@ -879,10 +507,4 @@ void Timing::Init(void)
 #else
     gettimeofday(&startTime, NULL);
 #endif
-    gcTimeData.Init();
-}
-
-void Timing::Stop()
-{
-    gcTimeData.Final();
 }

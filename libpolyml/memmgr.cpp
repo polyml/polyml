@@ -114,7 +114,8 @@ MemMgr::MemMgr(): allocLock("Memmgr alloc")
     nextAllocator = 0;
     defaultSpaceSize = 0;
     spaceBeforeMinorGC = 0;
-    spaceBeforeMajorGC = 0;
+    spaceForHeap = 0;
+    currentAllocSpace = currentHeapSize = 0;
     defaultSpaceSize = 1024 * 1024 / sizeof(PolyWord); // 1Mbyte segments.
     spaceTree = new SpaceTreeTree;
     ioSpace = new MemSpace;
@@ -168,7 +169,8 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: New local %smutable space %p, size=%luk words, bottom=%p, top=%p\n", mut ? "": "im",
                     space, space->spaceSize()/1024, space->bottom, space->top);
-            globalStats.incSize(PSS_TOTAL_HEAP, space->spaceSize() * sizeof(PolyWord));
+            currentHeapSize += space->spaceSize();
+            globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
             return space;
         }
 
@@ -192,7 +194,8 @@ LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
     if (result) 
     {
         result->allocationSpace = true;
-        globalStats.incSize(PSS_ALLOCATION, result->freeSpace()*sizeof(PolyWord));
+        currentAllocSpace += result->spaceSize();
+        globalStats.incSize(PSS_ALLOCATION, result->spaceSize()*sizeof(PolyWord));
         globalStats.incSize(PSS_ALLOCATION_FREE, result->freeSpace()*sizeof(PolyWord));
     }
     return result;
@@ -290,7 +293,9 @@ bool MemMgr::DeleteLocalSpace(LocalMemSpace *sp)
         {
             if (debugOptions & DEBUG_MEMMGR)
                 Log("MMGR: Deleted local %s space %p\n", sp->spaceTypeString(), sp);
-            globalStats.decSize(PSS_TOTAL_HEAP, sp->spaceSize() * sizeof(PolyWord));
+            currentHeapSize -= sp->spaceSize();
+            globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
+            if (sp->allocationSpace) currentAllocSpace -= sp->spaceSize();
             RemoveTree(sp);
             delete sp;
             nlSpaces--;
@@ -421,7 +426,8 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 space->isOwnSpace = true;
                 if (! space->bitmap.Create(space->top-space->bottom) || ! AddLocalSpace(space))
                     return false;
-                globalStats.incSize(PSS_TOTAL_HEAP, space->spaceSize() * sizeof(PolyWord));
+                currentHeapSize += space->spaceSize();
+                globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
             }
             catch (std::bad_alloc a) {
                 return false;
@@ -486,7 +492,8 @@ bool MemMgr::DemoteImportSpaces()
                 if (debugOptions & DEBUG_MEMMGR)
                     Log("MMGR: Converted saved state space %p into local %smutable space %p\n",
                             pSpace, pSpace->isMutable ? "im": "", space);
-                globalStats.incSize(PSS_TOTAL_HEAP, space->spaceSize() * sizeof(PolyWord));
+                currentHeapSize += space->spaceSize();
+                globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
             }
             catch (std::bad_alloc a) {
                 if (debugOptions & DEBUG_MEMMGR)
@@ -610,21 +617,11 @@ void MemMgr::RemoveExcessAllocation(POLYUNSIGNED words)
                 space->spaceSize() != defaultSpaceSize)
             DeleteLocalSpace(space);
     }
-    POLYUNSIGNED totalAlloc = 0;
-    for (i = 0; i < nlSpaces; i++)
-    {
-        LocalMemSpace *space = lSpaces[i];
-        if (space->allocationSpace)
-            totalAlloc += space->spaceSize();
-    }
-    for (i = nlSpaces; totalAlloc > words && i > 0; i--)
+    for (i = nlSpaces; currentAllocSpace > words && i > 0; i--)
     {
         LocalMemSpace *space = lSpaces[i-1];
         if (space->allocationSpace && space->allocatedSpace() == 0)
-        {
-            totalAlloc -= space->spaceSize();
             DeleteLocalSpace(space);
-        }
     }
 }
 
@@ -970,19 +967,19 @@ void MemMgr::reportHeapSpaceUsage()
 {
     unsigned i;
     // all space sizes are measured in number of PolyWords
-    int allocSize = 0;
-    int mutableSize = 0;
-    int immutableSize = 0;
-    int permSize = 0;
-    int exportSize = 0;
-    int stackSize = 0;
+    POLYUNSIGNED allocSize = 0;
+    POLYUNSIGNED mutableSize = 0;
+    POLYUNSIGNED immutableSize = 0;
+    POLYUNSIGNED permSize = 0;
+    POLYUNSIGNED exportSize = 0;
+    POLYUNSIGNED stackSize = 0;
 
     // local space usage    
     // local space is divided up as   | IMMUTABLE | MUTABLE | ALLOC |
     for (i=0; i < nlSpaces; i++) 
     {
         LocalMemSpace *space = lSpaces[i];
-        int spaceSize = space->spaceSize();
+        POLYUNSIGNED spaceSize = space->spaceSize();
         if (space->allocationSpace)
             allocSize +=spaceSize;
         else if (space->isMutable)
@@ -1004,12 +1001,12 @@ void MemMgr::reportHeapSpaceUsage()
         stackSize += sSpaces[i]->spaceSize();
 
     Log("--- begin mem usage dump ---\n");
-    Log("Alloc Size %d M\n", Words_to_M(allocSize));
-    Log("Mutable Size %d M\n", Words_to_M(mutableSize));
-    Log("Immutable Size %d M\n", Words_to_M(immutableSize));
-    Log("Permanent Size %d M\n", Words_to_M(permSize));
-    Log("Export Size %d M\n", Words_to_M(exportSize));
-    Log("Stack Size %d M\n", Words_to_M(stackSize));
+    Log("Alloc Size %d K\n", Words_to_K(allocSize));
+    Log("Mutable Size %d K\n", Words_to_K(mutableSize));
+    Log("Immutable Size %d K\n", Words_to_K(immutableSize));
+    Log("Permanent Size %d K\n", Words_to_K(permSize));
+    Log("Export Size %d K\n", Words_to_K(exportSize));
+    Log("Stack Size %d K\n", Words_to_K(stackSize));
     Log("--- end mem usage dump ---\n");
 }
 

@@ -321,9 +321,12 @@ public:
     unsigned nextIndex; // Used when allocating new permanent spaces.
 
     POLYUNSIGNED SpaceBeforeMinorGC() const { return spaceBeforeMinorGC; }
-    POLYUNSIGNED SpaceBeforeMajorGC() const { return spaceBeforeMajorGC; }
-    void SetSpaceSizes(POLYUNSIGNED minorSize, POLYUNSIGNED majorSize)
-    { spaceBeforeMinorGC = minorSize; spaceBeforeMajorGC = majorSize; }
+    POLYUNSIGNED SpaceForHeap() const { return spaceForHeap; }
+    void SetSpaceBeforeMinorGC(POLYUNSIGNED minorSize) { spaceBeforeMinorGC = minorSize; }
+    void SetSpaceForHeap(POLYUNSIGNED heapSize) { spaceForHeap = heapSize; }
+
+    POLYUNSIGNED CurrentAllocSpace() { return currentAllocSpace; }
+    POLYUNSIGNED CurrentHeapSize() { return currentHeapSize; }
 
     POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
 
@@ -338,9 +341,10 @@ private:
     POLYUNSIGNED defaultSpaceSize;
     // The number of words that can be used for initial allocation.
     POLYUNSIGNED spaceBeforeMinorGC;
-    // The number of words that can accumulate in
-    // the mutable and immutable areas before a major (full) GC is needed.
-    POLYUNSIGNED spaceBeforeMajorGC;
+    // The number of words that can be used for the heap
+    POLYUNSIGNED spaceForHeap;
+    // The current sizes of the allocation space and the total heap size.
+    POLYUNSIGNED currentAllocSpace, currentHeapSize;
     // LocalSpaceForAddress is a hot-spot so we use a B-tree to convert addresses;
     SpaceTree *spaceTree;
     PLock spaceTreeLock;

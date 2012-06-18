@@ -37,22 +37,6 @@
 #define ASSERT(x)
 #endif
 
-#ifdef HAVE_WINDOWS_H
-#include <windows.h> // Used in both Windows and Cygwin
-#endif
-
-#ifdef HAVE_UNISTD_H
-#include <unistd.h> // For sysconf
-#endif
-
-#ifdef HAVE_SYS_TYPES_H
-#include <sys/types.h>
-#endif
-
-#ifdef HAVE_SYS_SYSCTL_H
-#include <sys/sysctl.h>
-#endif
-
 #include "globals.h"
 #include "run_time.h"
 #include "machine_dep.h"
@@ -70,12 +54,7 @@
 #include "mpoly.h"
 #include "statistics.h"
 #include "profiling.h"
-
-// The immutable and mutable segment sizes are the default units of allocation
-// for new address spaces.
-//static POLYUNSIGNED    immutableSegSize, mutableSegSize;
-//static POLYUNSIGNED    immutableFreeSpace, mutableFreeSpace;
-//static POLYUNSIGNED    immutableMinFree, mutableMinFree; // Probably remove
+#include "heapsizing.h"
 
 static GCTaskFarm gTaskFarm; // Global task farm.
 GCTaskFarm *gpTaskFarm = &gTaskFarm;
@@ -112,55 +91,18 @@ bool convertedWeak = false;
     addresses for moved objects are updated.  The lowest address used in the area
     then becomes the base of the area for future allocations.
 
-    Updated DCJM 02/02/12
+    There is a sharing phase which may be performed before the mark phase.  This
+    merges immutable cells with the same contents with the aim of reducing the
+    size of the live data.  It is expensive so is not performed by default.
+
+    Updated DCJM 12/06/12
 
 */
-
-#define INRANGE(val,start,end) ((start) <= (val) && (val) < (end))
-
-// For the current, crude heap allocation strategy this is the heap
-// size (less the allocation area) given on the command line.
-static POLYUNSIGNED majorGCFree;
-
-// Called at the end of collection.  This is where we should do the
-// fine adjustment of the heap size to minimise the GC time.
-// Growing the heap is just a matter of adjusting the limits.  We
-// don't actually need to allocate the space here.
-// See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
-static void adjustHeapSize()
-{
-    TIMEDATA gc, total;
-    gc.add(gcTimeData.majorGCSystemCPU);
-    gc.add(gcTimeData.majorGCUserCPU);
-    total.add(gc);
-    total.add(gcTimeData.majorNonGCSystemCPU);
-    total.add(gcTimeData.majorNonGCUserCPU);
-    float g = gc.toSeconds() / total.toSeconds();
-    // A very crude adjustment at this stage:
-    // Keep the allocation area the same,
-    // Set the major GC size (mutable+immutable area) so
-    // that there is a fixed amount free.
-    POLYUNSIGNED spaceUsed = 0;
-    for (unsigned i = 0; i < gMem.nlSpaces; i++)
-    {
-        spaceUsed += gMem.lSpaces[i]->allocatedSpace();
-    }
-    float l = (float)spaceUsed / (float)gMem.SpaceBeforeMajorGC();
-    if (debugOptions & DEBUG_HEAPSIZE)
-    {
-        Log("Heap: Major resizing factors g = %f, l = %f\n", g, l);
-        Log("Heap: Resizing from %"POLYUFMT" to %"POLYUFMT"\n", gMem.SpaceBeforeMajorGC(), majorGCFree+spaceUsed);
-    }
-    // Set the sizes.
-    gMem.SetSpaceSizes(
-        gMem.SpaceBeforeMinorGC()/* i.e. unchanged*/, majorGCFree+spaceUsed);
-}
-
 static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
     unsigned j;
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeStart);
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeStart);
     globalStats.incCount(PSC_GC_FULLGC);
 
     if (debugOptions & DEBUG_GC)
@@ -170,7 +112,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         gMem.reportHeapSpaceUsage();
     
     // Experimental data sharing pass.
-    if (userOptions.gcSharing)
+    if (gHeapSizeParameters.PerformSharingPass())
         GCSharingPhase();
 /*
  * There is a really weird bug somewhere.  An extra bit may be set in the bitmap during
@@ -265,22 +207,22 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
             }
         }
         // Add space if necessary and possible.
-        while (iMarked > iSpace - iSpace/10 && gMem.NewLocalSpace(gMem.DefaultSpaceSize(), false) != 0)
+        while (iMarked > iSpace - iSpace/10 && gHeapSizeParameters.AddSpaceBeforeCopyPhase(false) != 0)
             iSpace += gMem.DefaultSpaceSize();
-        while (mMarked > mSpace - mSpace/10 && gMem.NewLocalSpace(gMem.DefaultSpaceSize(), true) != 0)
+        while (mMarked > mSpace - mSpace/10 && gHeapSizeParameters.AddSpaceBeforeCopyPhase(true) != 0)
             mSpace += gMem.DefaultSpaceSize();
     }
 
     /* Compact phase */
     GCCopyPhase();
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Copy");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Copy");
 
     // Update Phase.
     if (debugOptions & DEBUG_GC) Log("GC: Update\n");
     GCUpdatePhase();
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Update");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Update");
 
     {
         POLYUNSIGNED iUpdated = 0, mUpdated = 0, iMarked = 0, mMarked = 0;
@@ -299,29 +241,6 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 
     // Delete empty spaces.
     gMem.RemoveEmptyLocals();
-
-    {
-        // Make sure there is at least one mutable and one immutable area
-        // for each thread so that the minor GC has something to copy into.
-        unsigned nMutable = 0, nImmutable = 0;
-        for (unsigned s = gMem.nlSpaces; s > 0; s--)
-        {
-            LocalMemSpace *space = gMem.lSpaces[s-1];
-            if (space->freeSpace() > 1000)
-            {
-                // Some useful free space in the area.
-                if (space->isMutable)
-                    nMutable++;
-                else nImmutable++;
-            }
-        }
-        while (nImmutable < userOptions.gcthreads &&
-               gMem.NewLocalSpace(gMem.DefaultSpaceSize(), false) != 0)
-            nImmutable++;
-        while (nMutable < userOptions.gcthreads &&
-               gMem.NewLocalSpace(gMem.DefaultSpaceSize(), true) != 0)
-            nMutable++;
-    }
 
     // The allocation areas should have been emptied and deallocated.  We
     // want to create one that is big enough for the required data
@@ -374,11 +293,11 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     }
 
     // End of garbage collection
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeEnd);
 
     // Now we've finished we can adjust the heap sizes.
-    adjustHeapSize();
-    gcTimeData.resetMajorTimingData();
+    gHeapSizeParameters.AdjustSizeAfterMajorGC();
+    gHeapSizeParameters.resetMajorTimingData();
 
     // Invariant: the bitmaps are completely clean.
     if (debugOptions & DEBUG_GC)
@@ -399,175 +318,16 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     return haveSpace; // Completed
 }
 
-// Return the physical memory size.  Returns the maximum unsigned integer value if
-// it won't .
-#if defined(HAVE_WINDOWS_H)
-
-// Define this here rather than attempting to use MEMORYSTATUSEX since
-// it may not be in the include and we can't easily test.  The format
-// of MEMORYSTATUSVLM is the same.
-typedef struct _MyMemStatusEx {
-    DWORD dwLength;
-    DWORD dwMemoryLoad;
-    DWORDLONG ullTotalPhys;
-    DWORDLONG ullAvailPhys;
-    DWORDLONG ullTotalPageFile;
-    DWORDLONG ullAvailPageFile;
-    DWORDLONG ullTotalVirtual;
-    DWORDLONG ullAvailVirtual;
-    DWORDLONG ullAvailExtendedVirtual;
-} MyMemStatusEx;
-
-typedef VOID (WINAPI *GLOBALMEMSLVM)(MyMemStatusEx *);
-typedef BOOL (WINAPI *GLOBALMEMSEX)(MyMemStatusEx *);
-#endif
-
-
-POLYUNSIGNED GetPhysicalMemorySize(void)
-{
-    POLYUNSIGNED maxMem = 0-1; // Maximum unsigned value.
-#if defined(HAVE_WINDOWS_H)
-    {
-        // This is more complicated than it needs to be.  GlobalMemoryStatus
-        // returns silly values if there is more than 4GB so GlobalMemoryStatusEx
-        // is preferred.  However, it is not in all the include files and may not
-        // be in kernel32.dll in pre-XP versions.  Furthermore at one point it was
-        // called GlobalMemoryStatusVlm.  The only way to do this portably is the
-        // hard way.
-        HINSTANCE hlibKernel = LoadLibrary("kernel32.dll");
-        if (hlibKernel)
-        {
-            MyMemStatusEx memStatEx;
-            memset(&memStatEx, 0, sizeof(memStatEx));
-            memStatEx.dwLength = sizeof(memStatEx);
-            GLOBALMEMSEX globalMemStatusEx =
-                (GLOBALMEMSEX)GetProcAddress(hlibKernel, "GlobalMemoryStatusEx");
-            GLOBALMEMSLVM globalMemStatusVlm =
-                (GLOBALMEMSLVM)GetProcAddress(hlibKernel, "GlobalMemoryStatusVlm");
-            if (globalMemStatusEx && ! (*globalMemStatusEx)(&memStatEx))
-                memStatEx.ullTotalPhys = 0; // Clobber any rubbish since it says it failed.
-            else if (globalMemStatusVlm)
-                // GlobalMemoryStatusVlm returns VOID so we assume it worked
-                (*globalMemStatusVlm) (&memStatEx);
-            FreeLibrary(hlibKernel);
-            if (memStatEx.ullTotalPhys) // If it's non-zero assume it succeeded
-            {
-                DWORDLONG dwlMax = maxMem;
-                if (memStatEx.ullTotalPhys > dwlMax)
-                    return maxMem;
-                else
-                    return (POLYUNSIGNED)memStatEx.ullTotalPhys;
-           }
-        }
-        // Fallback if that fails.
-
-        MEMORYSTATUS memStatus;
-        memset(&memStatus, 0, sizeof(memStatus));
-        GlobalMemoryStatus(&memStatus);
-        if (memStatus.dwTotalPhys > maxMem)
-            return maxMem;
-        else
-            return (POLYUNSIGNED)memStatus.dwTotalPhys;
-    }
-
-#endif
-#if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
-    {
-        // Linux and Solaris.  This gives a silly value in Cygwin.
-        long physPages      = sysconf(_SC_PHYS_PAGES);
-        long physPagesize   = sysconf(_SC_PAGESIZE);
-        if (physPages != -1 && physPagesize != -1)
-        {
-            unsigned long maxPages = maxMem / physPagesize;
-            if ((unsigned long)physPages > maxPages)
-                return maxMem;
-            else // We've checked it won't overflow.
-                return physPages*physPagesize;
-        }
-    }
-#endif
-#if defined(HAVE_SYSCTL) && defined(CTL_HW)
-    // FreeBSD and Mac OS X.  It seems HW_MEMSIZE has been added to
-    // Max OS X to return a 64-bit value.
-#ifdef HW_MEMSIZE
-    {
-        static int mib[2] = { CTL_HW, HW_MEMSIZE };
-        uint64_t physMem = 0;
-        size_t len = sizeof(physMem);
-        if (sysctl(mib, 2, &physMem, &len, NULL, 0) == 0 && len == sizeof(physMem))
-        {
-            if (physMem > (uint64_t)maxMem)
-                return maxMem;
-            else
-                return (POLYUNSIGNED)physMem;
-        }
-    }
-#endif
-#ifdef HW_PHYSMEM
-    // If HW_MEMSIZE isn't there or the call failed try this.
-    {
-        static int mib[2] = { CTL_HW, HW_PHYSMEM };
-        unsigned int physMem = 0;
-        size_t len = sizeof(physMem);
-        if (sysctl(mib, 2, &physMem, &len, NULL, 0) == 0 && len == sizeof(physMem))
-        {
-            if (physMem > maxMem)
-                return maxMem;
-            else
-                return physMem;
-        }
-    }
-#endif
-#endif
-    return 0; // Unable to determine
-}
-
-/* This macro must make a whole number of chunks */
-#define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
-
 // Create the initial heap.  hsize, isize and msize are the requested heap sizes
 // from the user arguments in units of kbytes.
 // Fills in the defaults and attempts to allocate the heap.  If the heap size
 // is too large it allocates as much as it can.  The default heap size is half the
 // physical memory.
-void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, unsigned rsize)
+void CreateHeap()
 {
-    // If no -H option was given set the default initial size to half the memory.
-    if (hsize == 0) {
-        POLYUNSIGNED memsize = GetPhysicalMemorySize();
-        if (memsize == 0) // Unable to determine memory size so default to 64M.
-            memsize = 64 * 1024 * 1024;
-        hsize = (unsigned)(memsize / 2 / 1024);
-    }
-    isize += msize; msize = 0;
-    if (hsize < isize+asize) hsize = isize+asize;
-
-    // Defaults are half the heap for the immutable buffer, half for allocation
-    if (isize == 0) isize = hsize / 2;  /* set default immutable buffer size */
-    if (asize == 0) asize = hsize - isize;
-
-    majorGCFree = K_to_words(isize);
-
-    gMem.SetSpaceSizes(K_to_words(asize), majorGCFree);
-    gMem.SetReservation(K_to_words(rsize));
-
     // Create an initial allocation space.
     if (gMem.CreateAllocationSpace(gMem.DefaultSpaceSize()) == 0)
         Exit("Insufficient memory to allocate the heap");
-
-    // Try to create one mutable and one immutable area for each GC thread.
-    // This is not essential but allows the minor GC to distibute work for
-    // the GC threads.  Additional areas up to the maximum will be
-    // allocated by the minor GC.  Leaving it to there means that the
-    // proportion of mutable and immutable areas will depend on the
-    // application.
-    for (unsigned i = 0; i < userOptions.gcthreads; i++)
-    {
-        if (gMem.NewLocalSpace(gMem.DefaultSpaceSize(), false) == 0)
-            break;
-        if (gMem.NewLocalSpace(gMem.DefaultSpaceSize(), true) == 0)
-            break;
-    }
 
     // Create the task farm if required
     if (userOptions.gcthreads != 1)

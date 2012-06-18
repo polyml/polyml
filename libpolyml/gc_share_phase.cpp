@@ -49,7 +49,7 @@
 #include "memmgr.h"
 #include "diagnostics.h"
 #include "gctaskfarm.h"
-#include "timing.h"
+#include "heapsizing.h"
 
 class ObjEntry
 {
@@ -357,10 +357,10 @@ void GCSharingPhase(void)
     // Process the RTS roots.
     GCModules(&sharer);
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Table");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Table");
 
     // Sort and merge the data.
     sharer.SortData();
 
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeIntermediate, "Sort");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Sort");
 }

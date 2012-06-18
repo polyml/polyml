@@ -741,6 +741,7 @@
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile Include="heapsizing.cpp" />
     <ClCompile Include="interpret.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
@@ -1303,6 +1304,7 @@
     <ClInclude Include="gc.h" />
     <ClInclude Include="gctaskfarm.h" />
     <ClInclude Include="globals.h" />
+    <ClInclude Include="heapsizing.h" />
     <ClInclude Include="int_opcodes.h" />
     <ClInclude Include="io_internal.h" />
     <ClInclude Include="locking.h" />

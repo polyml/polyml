@@ -33,11 +33,9 @@ class TaskData;
 extern void FullGC(TaskData *taskData);
 // Make a request for a partial garbage collection.
 extern bool QuickGC(TaskData *taskData, POLYUNSIGNED words_needed);
-extern void CreateHeap(unsigned hsize, unsigned isize, unsigned msize, unsigned asize, unsigned rsize);
+extern void CreateHeap();
 
 extern bool convertedWeak;
-
-extern POLYUNSIGNED GetPhysicalMemorySize(void);
 
 // Multi-thread GC.
 extern void initialiseMarkerTables();

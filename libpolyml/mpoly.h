@@ -30,7 +30,6 @@ extern struct _userOptions {
     char        **user_arg_strings;
     const char  *programName;
     unsigned    gcthreads;    // Number of threads to use for gc
-    bool        gcSharing;    // Perform data sharing pass
 } userOptions;
 
 class PolyWord;

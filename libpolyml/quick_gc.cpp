@@ -54,7 +54,7 @@ these has filled up it fails and a full garbage collection must be done.
 #include "bitmap.h"
 #include "memmgr.h"
 #include "diagnostics.h"
-#include "timing.h"
+#include "heapsizing.h"
 #include "gctaskfarm.h"
 #include "statistics.h"
 
@@ -76,7 +76,6 @@ private:
     PolyObject *FindNewAddress(PolyObject *obj, POLYUNSIGNED L, LocalMemSpace *srcSpace);
     virtual LocalMemSpace *FindSpace(POLYUNSIGNED length, bool isMutable) = 0;
 protected:
-    LocalMemSpace *MoreSpace(POLYUNSIGNED length, bool isMutable);
     bool objectCopied;
     bool rootScan;
 };
@@ -247,7 +246,7 @@ LocalMemSpace *RootScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         return lSpace;
     }
 
-    return MoreSpace(n, isMutable);
+    return gHeapSizeParameters.AddSpaceInMinorGC(n+1, isMutable);
 }
 
 // When scanning within a thread we don't want to be searching the space table.
@@ -299,36 +298,11 @@ LocalMemSpace *ThreadScanner::FindSpace(POLYUNSIGNED n, bool isMutable)
         }
     }
 
-    lSpace = MoreSpace(n, isMutable);
+    lSpace = gHeapSizeParameters.AddSpaceInMinorGC(n+1, isMutable);
     if (lSpace != 0 && TakeOwnership(lSpace))
         return lSpace;
     return 0;
 }
-
-
-// Create a new heap segment if there is space.  This is used if there is no
-// suitable space in the available segments.
-LocalMemSpace *QuickGCScanner::MoreSpace(POLYUNSIGNED length, bool isMutable)
-{
-    // See how much space is allocated.
-    POLYUNSIGNED spaceAllocated = 0;
-    for (unsigned k = 0; k < gMem.nlSpaces; k++)
-    {
-        LocalMemSpace *space = gMem.lSpaces[k];
-        if (! space->allocationSpace)
-            spaceAllocated += space->spaceSize();
-    }
-
-    // The new segment is either the default size or as large as
-    // necessary for the object.
-    POLYUNSIGNED spaceSize = gMem.DefaultSpaceSize();
-    if (length+1 > spaceSize) spaceSize = length+1;
-
-    if (spaceAllocated + spaceSize < gMem.SpaceBeforeMajorGC())
-        return gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
-    return 0; // Insufficient space
-}
-
 
 // Copy all the objects.
 POLYUNSIGNED QuickGCScanner::ScanAddressAt(PolyWord *pt)
@@ -509,29 +483,13 @@ void ThreadScanner::ScanOwnedAreas()
     nOwnedSpaces = 0;
 }
 
-// Called after a minor GC.  Currently does nothing.
-// See also adjustHeapSize for adjustments after a major GC.
-static void adjustHeapSizeAfterMinorGC(POLYUNSIGNED spaceCopiedOut)
-{
-    TIMEDATA gc, total;
-    gc.add(gcTimeData.minorGCSystemCPU);
-    gc.add(gcTimeData.minorGCUserCPU);
-    total.add(gc);
-    total.add(gcTimeData.minorNonGCSystemCPU);
-    total.add(gcTimeData.minorNonGCUserCPU);
-    float g = gc.toSeconds() / total.toSeconds();
-    // In this case we compute l as the live memory in the allocation area
-    // divided by the size of the allocation area.
-    float l = (float)spaceCopiedOut / (float)gMem.SpaceBeforeMinorGC();
-    if (debugOptions & DEBUG_HEAPSIZE)
-        Log("Heap: Minor resizing factors g = %f, l = %f\n", g, l);
-
-}
-
-
 bool RunQuickGC(void)
 {
-    gcTimeData.RecordGCTime(GcTimeData::GCTimeStart);
+    // If the last minor GC took too long force a full GC.
+    if (gHeapSizeParameters.RunMajorGCImmediately())
+        return false;
+
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeStart);
     globalStats.incCount(PSC_GC_PARTIALGC);
     mainThreadPhase = MTP_GCQUICK;
     succeeded = true;
@@ -662,10 +620,10 @@ bool RunQuickGC(void)
             spaceAfterGC += lSpace->allocatedSpace();
         }
 
-        gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
+        gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeEnd);
 
-        adjustHeapSizeAfterMinorGC(spaceAfterGC-spaceBeforeGC); // Adjust the allocation size.
-        gcTimeData.resetMinorTimingData();
+        gHeapSizeParameters.AdjustSizeAfterMinorGC(spaceAfterGC, spaceBeforeGC); // Adjust the allocation size.
+        gHeapSizeParameters.resetMinorTimingData();
         // Remove allocation spaces that are larger than the default
         // and any excess over the current size of the allocation area.
         gMem.RemoveExcessAllocation();
@@ -679,7 +637,7 @@ bool RunQuickGC(void)
     {
         // There was insufficient room to copy everything.  We will need to
         // run a full GC.
-        gcTimeData.RecordGCTime(GcTimeData::GCTimeEnd);
+        gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeEnd);
         if (debugOptions & DEBUG_GC)
             Log("GC: Quick GC failed\n");
     }

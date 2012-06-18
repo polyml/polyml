@@ -56,6 +56,7 @@
 #include "globals.h"
 #include "sys.h"
 #include "gc.h"
+#include "heapsizing.h"
 #include "run_time.h"
 #include "machine_dep.h"
 #include "version.h"
@@ -88,9 +89,6 @@ time_t exportTimeStamp;
 
 enum {
     OPT_HEAP,
-    OPT_IMMUTABLE,
-    OPT_MUTABLE,
-    OPT_ALLOCATION,
     OPT_RESERVE,
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
@@ -106,9 +104,6 @@ struct __argtab {
 {
     { "-H",             "Initial heap size (MB)",                               OPT_HEAP },
     { "--heap",         "Initial heap size (MB)",                               OPT_HEAP },
-    { "--immutable",    "Initial size of immutable buffer (MB)",                OPT_IMMUTABLE },
-    { "--mutable",      "Initial size of mutable buffer(MB)",                   OPT_MUTABLE },
-    { "--allocation",   "Size of allocation area(MB)",                          OPT_ALLOCATION },
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
@@ -135,29 +130,20 @@ struct __debugOpts {
     { "rts",                "General run-time system calls",                    DEBUG_RTSCALLS}
 };
 
-enum {
-    HEAPSIZING_DEFAULT,
-    HEAPSIZING_FIXED,
-    HEAPSIZING_PID
-};
-
-extern unsigned heapsizingOption; // heapsizing option, in memmgr.cpp
-
 struct __heapsizingOpts {
     const char *optName, *optHelp;
     unsigned optKey;
 } heapsizingOptTable[] =
 {
-    { "default",    "Use the default adaptive heap sizing strategy",    HEAPSIZING_DEFAULT },
-    { "fixed",       "Initial heap size is fixed, do not expand",            HEAPSIZING_FIXED},
-    { "pid",          "Use the PID controller for heap sizing (**experimental**)",    HEAPSIZING_PID }
+    { "default",    "Use the default adaptive heap sizing strategy",                HEAPSIZING_DEFAULT },
+    { "fixed",      "Initial heap size is fixed, do not expand",                    HEAPSIZING_FIXED},
+    { "pid",        "Use the PID controller for heap sizing (**experimental**)",    HEAPSIZING_PID }
 };
 
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
-    unsigned hsize=0, isize=0, msize=0, rsize=0, asize=0;
-
+    unsigned hsize=0; // Default heap size to proportion of memory
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 0; // Default multi-threaded
@@ -207,23 +193,8 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         if (*endp != '\0') 
                             printf("Incomplete %s option\n", argTable[j].argName);
                         break;
-                    case OPT_IMMUTABLE:
-                        isize = strtol(p, &endp, 10) * 1024;
-                        if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
-                        break;
-                    case OPT_MUTABLE:
-                        msize = strtol(p, &endp, 10) * 1024;
-                        if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
-                        break;
-                    case OPT_ALLOCATION:
-                        asize = strtol(p, &endp, 10) * 1024;
-                        if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
-                        break;
                     case OPT_RESERVE:
-                        rsize = strtol(p, &endp, 10) * 1024;
+                        gHeapSizeParameters.SetReservation(strtol(p, &endp, 10) * 1024);
                         if (*endp != '\0') 
                             printf("Incomplete %s option\n", argTable[j].argName);
                         break;
@@ -257,7 +228,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         SetLogFile(p);
                         break;
                     case OPT_GCSHARE:
-                        userOptions.gcSharing = strtol(p, &endp, 10) != 0;
+                        gHeapSizeParameters.SetSharingOption(strtol(p, &endp, 10) != 0);
                         break;
                     case OPT_HEAPSIZING:
                         // single heap size policy follows --resizing
@@ -266,7 +237,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         {
                             if (strcmp(p, heapsizingOptTable[k].optName) == 0)
                             {
-                                heapsizingOption = heapsizingOptTable[k].optKey;
+                                gHeapSizeParameters.SetHeapSizingOption(heapsizingOptTable[k].optKey);
                                 optFound = true;
                                 break;
                             }
@@ -295,11 +266,13 @@ int polymain(int argc, char **argv, exportDescription *exports)
         // For the moment, at any rate, indicate that we should use as many
         // threads as there are processors by a thread count of zero.
         userOptions.gcthreads = NumberOfProcessors();
+
+    // Set the heap size if it has been provided otherwise use the default.
+    gHeapSizeParameters.SetInitialSize(hsize);
    
     // Initialise the run-time system before creating the heap.
     InitModules();
-
-    CreateHeap(hsize, isize, msize, asize, rsize);
+    CreateHeap();
     
     PolyObject *rootFunction = 0;
 
