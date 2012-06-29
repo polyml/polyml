@@ -35,6 +35,8 @@ extern void FullGC(TaskData *taskData);
 extern bool QuickGC(TaskData *taskData, POLYUNSIGNED words_needed);
 extern void CreateHeap();
 
+extern void FullGCForShareCommonData(void);
+
 extern bool convertedWeak;
 
 // Multi-thread GC.

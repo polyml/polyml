@@ -836,7 +836,17 @@ class ShareRequest: public MainThreadRequest
 public:
     ShareRequest(Handle root): MainThreadRequest(MTP_SHARING), shareRoot(root), result(false) {}
 
-    virtual void Perform() { ShareData s; result = s.RunShareData(shareRoot->WordP()); }
+    virtual void Perform()
+    {
+        ShareData s; 
+        // Do a full GC.  If we have a large heap the allocation of the vectors
+        // can cause paging.  Doing this now reduces the heap and discards the
+        // allocation spaces.  It may be overkill if we are applying the sharing
+        // to a small root but generally it seems to be applied to the whole heap.
+        FullGCForShareCommonData();
+        // Now do the sharing.
+        result = s.RunShareData(shareRoot->WordP()); 
+    }
     Handle shareRoot;
     bool result;
 };

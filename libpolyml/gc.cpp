@@ -400,3 +400,8 @@ bool QuickGC(TaskData *taskData, POLYUNSIGNED wordsRequiredToAllocate)
     return request.result;
 }
 
+// Called in RunShareData.  This is called as a root function
+void FullGCForShareCommonData(void)
+{
+    doGC(0);
+}
