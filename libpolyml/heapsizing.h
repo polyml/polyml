@@ -26,12 +26,6 @@
 
 class LocalMemSpace;
 
-enum {
-    HEAPSIZING_DEFAULT,
-    HEAPSIZING_FIXED,
-    HEAPSIZING_PID
-};
-
 class HeapSizeParameters {
 public:
     HeapSizeParameters();
@@ -40,10 +34,9 @@ public:
     Handle getGCUtime(TaskData *taskData) const;
     Handle getGCStime(TaskData *taskData) const;
 
-    void SetInitialSize(unsigned hsize);
+    void SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned percent);
+
     void SetReservation(unsigned rsize);
-    void SetSharingOption(bool gcShare) { performSharingPass = gcShare; }
-    void SetHeapSizingOption(unsigned h) { heapSizeOption = h; }
 
     // Called in the minor GC if a GC thread needs to grow the heap.
     // Returns zero if the heap cannot be grown.
@@ -55,7 +48,7 @@ public:
 
     bool PerformSharingPass() const { return performSharingPass; }
     void AdjustSizeAfterMajorGC();
-    void AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC);
+    bool AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC);
 
     // Returns true if we should run a major GC at this point
     bool RunMajorGCImmediately();
@@ -77,18 +70,36 @@ public:
     void Final(void);
 
 private:
+    // Estimate the GC cost for a given heap size.  The result is the ratio of
+    // GC time to application time.
+    double costFunction(POLYUNSIGNED heapSize);
 
+    // Set if we should do a full GC next time instead of a minor GC.
     bool fullGCNextTime;
 
-    // Whether a sharing pass should be performed.  Currently this is set by
-    // a user option.
+    // Whether a sharing pass should be performed.  Triggered when the estimated
+    // cost is double the target cost.
     bool performSharingPass;
 
-    unsigned heapSizeOption;
+    // Maximum and minimum heap size as given by the user.
+    POLYUNSIGNED minHeapSize, maxHeapSize;
 
-    // For the current, crude heap allocation strategy this is the heap
-    // size given on the command line.
-    POLYUNSIGNED freeHeapSpace;
+    // Target GC cost requested by the user.
+    double userGCRatio;
+    // Actual ratio for the last major GC
+    double lastMajorGCRatio;
+
+    POLYUNSIGNED lastFreeSpace, currentSpaceUsed;
+    // Set to false if an allocation failed.  Indicates that
+    // we may have reached some virtual memory limit.
+    bool lastAllocationSucceeded;
+
+    // The estimated boundary where the paging will become
+    // a significant factor.
+    POLYUNSIGNED pagingLimitSize;
+
+    // The maximum size the heap has reached so far. 
+    POLYUNSIGNED highWaterMark;
 
     TIMEDATA startTime;
 
@@ -98,6 +109,8 @@ private:
     TIMEDATA minorGCUserCPU;
     TIMEDATA minorGCSystemCPU;
     TIMEDATA minorGCReal;
+    long minorGCPageFaults;
+    unsigned minorGCsSinceMajor;
 
     TIMEDATA majorNonGCUserCPU;
     TIMEDATA majorNonGCSystemCPU;
@@ -105,6 +118,7 @@ private:
     TIMEDATA majorGCUserCPU;
     TIMEDATA majorGCSystemCPU;
     TIMEDATA majorGCReal;
+    long majorGCPageFaults;
 
     TIMEDATA totalGCUserCPU;
     TIMEDATA totalGCSystemCPU;
@@ -119,8 +133,6 @@ private:
     struct timeval startRTime, lastRTime;
     long startPF;
 #endif
-
-    bool lastAllocationSucceeded;
 };
 
 extern HeapSizeParameters gHeapSizeParameters;

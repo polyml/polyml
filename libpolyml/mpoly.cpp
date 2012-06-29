@@ -88,31 +88,31 @@ struct _userOptions userOptions;
 time_t exportTimeStamp;
 
 enum {
-    OPT_HEAP,
+    OPT_HEAPMIN,
+    OPT_HEAPMAX,
+    OPT_GCPERCENT,
     OPT_RESERVE,
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
-    OPT_DEBUGFILE,
-    OPT_GCSHARE,
-    OPT_HEAPSIZING
+    OPT_DEBUGFILE
 };
 
-struct __argtab {
+static struct __argtab {
     const char *argName, *argHelp;
     unsigned argKey;
 } argTable[] =
 {
-    { "-H",             "Initial heap size (MB)",                               OPT_HEAP },
-    { "--heap",         "Initial heap size (MB)",                               OPT_HEAP },
+    { "-H",             "Minimum heap size (MB)",                               OPT_HEAPMIN },
+    { "--minheap",      "Minimum heap size (MB)",                               OPT_HEAPMIN },
+    { "--maxheap",      "Maximum heap size (MB)",                               OPT_HEAPMAX },
+    { "--gcpercent",    "Target percentage time in GC (1-99)",                  OPT_GCPERCENT },
     { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
-    { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE },
-    { "--gcshare",      "Perform a data sharing pass before each major GC",     OPT_GCSHARE },
-    { "--resizing",    "Policy for RTS heap resizing: default, fixed",            OPT_HEAPSIZING }
+    { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
 };
 
-struct __debugOpts {
+static struct __debugOpts {
     const char *optName, *optHelp;
     unsigned optKey;
 } debugOptTable[] =
@@ -130,20 +130,10 @@ struct __debugOpts {
     { "rts",                "General run-time system calls",                    DEBUG_RTSCALLS}
 };
 
-struct __heapsizingOpts {
-    const char *optName, *optHelp;
-    unsigned optKey;
-} heapsizingOptTable[] =
-{
-    { "default",    "Use the default adaptive heap sizing strategy",                HEAPSIZING_DEFAULT },
-    { "fixed",      "Initial heap size is fixed, do not expand",                    HEAPSIZING_FIXED},
-    { "pid",        "Use the PID controller for heap sizing (**experimental**)",    HEAPSIZING_PID }
-};
-
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
-    unsigned hsize=0; // Default heap size to proportion of memory
+    unsigned minsize=0, maxsize=0, gcpercent=0;
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 0; // Default multi-threaded
@@ -188,10 +178,25 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         printf("Incomplete %s option\n", argTable[j].argName);
                     else switch (argTable[j].argKey)
                     {
-                    case OPT_HEAP:
-                        hsize = strtol(p, &endp, 10) * 1024;
+                    case OPT_HEAPMIN:
+                        minsize = strtol(p, &endp, 10) * 1024;
                         if (*endp != '\0') 
                             printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_HEAPMAX:
+                        maxsize = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        break;
+                    case OPT_GCPERCENT:
+                        gcpercent = strtol(p, &endp, 10) * 1024;
+                        if (*endp != '\0') 
+                            printf("Incomplete %s option\n", argTable[j].argName);
+                        if (gcpercent < 1 || gcpercent > 99)
+                        {
+                            printf("GC percentage must be between 1 and 99\n");
+                            gcpercent = 0;
+                        }
                         break;
                     case OPT_RESERVE:
                         gHeapSizeParameters.SetReservation(strtol(p, &endp, 10) * 1024);
@@ -227,24 +232,6 @@ int polymain(int argc, char **argv, exportDescription *exports)
                     case OPT_DEBUGFILE:
                         SetLogFile(p);
                         break;
-                    case OPT_GCSHARE:
-                        gHeapSizeParameters.SetSharingOption(strtol(p, &endp, 10) != 0);
-                        break;
-                    case OPT_HEAPSIZING:
-                        // single heap size policy follows --resizing
-                        bool optFound = false;
-                        for (unsigned k = 0; k < sizeof(heapsizingOptTable)/sizeof(heapsizingOptTable[0]); k++)
-                        {
-                            if (strcmp(p, heapsizingOptTable[k].optName) == 0)
-                            {
-                                gHeapSizeParameters.SetHeapSizingOption(heapsizingOptTable[k].optKey);
-                                optFound = true;
-                                break;
-                            }
-                        } 
-                        if (! optFound)
-                            Usage("Unknown argument to --resizing\n");
-                        break;
                     }
                     argUsed = true;
                     break;
@@ -268,7 +255,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
         userOptions.gcthreads = NumberOfProcessors();
 
     // Set the heap size if it has been provided otherwise use the default.
-    gHeapSizeParameters.SetInitialSize(hsize);
+    gHeapSizeParameters.SetHeapParameters(minsize, maxsize, gcpercent);
    
     // Initialise the run-time system before creating the heap.
     InitModules();
@@ -344,6 +331,11 @@ void Usage(const char *message)
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
         printf("%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+    }
+    printf("Debug options:\n");
+    for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
+    {
+        printf("%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
     }
     fflush(stdout);
     

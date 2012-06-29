@@ -54,6 +54,21 @@ debugging.
 #include <sys/sysctl.h>
 #endif
 
+#ifdef HAVE_FLOAT_H
+#include <float.h>
+#endif
+
+#ifdef HAVE_MATH_H
+#include <math.h>
+#endif
+
+#ifdef HAVE_ASSERT_H
+#include <assert.h>
+#define ASSERT(x)   assert(x)
+#else
+#define ASSERT(x)
+#endif
+
 #include "globals.h"
 #include "arb.h"
 #include "diagnostics.h"
@@ -111,32 +126,80 @@ HeapSizeParameters::HeapSizeParameters()
     startPF = GetPaging(0);
     fullGCNextTime = false;
     performSharingPass = false;
-    heapSizeOption = HEAPSIZING_DEFAULT;
     lastAllocationSucceeded = true;
+    minHeapSize = 0;
+    maxHeapSize = 0; // Unlimited
+    lastFreeSpace = 0;
+    pagingLimitSize = 0;
+    highWaterMark = 0;
 }
 
 /* This macro must make a whole number of chunks */
 #define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
 
+// Returns physical memory size in bytes
 static POLYUNSIGNED GetPhysicalMemorySize(void);
 
+// These are the maximum values for the number of words.
+#if (SIZEOF_VOIDP == 4)
+#   define MAXIMUMADDRESS   0x3fffffff
+#else
+#   define MAXIMUMADDRESS   0x1fffffffffffffff
+#endif
+
 // Set the initial size based on any parameters specified on the command line
-void HeapSizeParameters::SetInitialSize(unsigned hsize)
+void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned percent)
 {
-    // If no -H option was given set the default initial size to half the memory.
-    if (hsize == 0) {
-        POLYUNSIGNED memsize = GetPhysicalMemorySize();
-        if (memsize == 0) // Unable to determine memory size so default to 64M.
-            memsize = 64 * 1024 * 1024;
-        hsize = (unsigned)(memsize / 2 / 1024);
+    minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
+    maxHeapSize = K_to_words(maxsize);
+
+    POLYUNSIGNED memsize = 0;
+    if (minHeapSize == 0 || maxHeapSize == 0)
+        memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
+
+    // If no maximum is given default it to 100% of the physical memory
+    if (maxHeapSize == 0 || maxHeapSize > MAXIMUMADDRESS)
+    {
+        if (memsize == 0) maxHeapSize = MAXIMUMADDRESS;
+        else maxHeapSize = memsize /*- memsize / 5*/;
     }
+
+    // Set the initial size to the minimum if that has been provided.
+    POLYUNSIGNED initialSize = minHeapSize;
+
+    if (initialSize == 0) {
+        // If no -H option was given set the default initial size to a quarter of the memory.
+        if (memsize == 0) // Unable to determine memory size so default to 64M.
+            initialSize = 64 * 1024 * 1024;
+        else initialSize =  memsize / 4;
+    }
+
     // Initially we divide the space equally between the major and
     // minor heaps.  That means that there will definitely be space
     // for the first minor GC to copy its data.  This division can be
     // changed later on.
-    freeHeapSpace = K_to_words(hsize);
-    gMem.SetSpaceForHeap(freeHeapSpace);
-    gMem.SetSpaceBeforeMinorGC(freeHeapSpace/2);
+    gMem.SetSpaceForHeap(initialSize);
+    gMem.SetSpaceBeforeMinorGC(initialSize/2);
+    lastFreeSpace = initialSize;
+    highWaterMark = initialSize;
+
+    if (percent == 0)
+        userGCRatio = 0.25F; // Default to 20% GC to 80% application
+    else
+        userGCRatio = (float)percent / (float)(100 - percent);
+
+    lastMajorGCRatio = userGCRatio;
+
+    if (debugOptions & DEBUG_HEAPSIZE)
+    {
+        Log("Heap: Initial settings: Initial heap ");
+        LogSize(initialSize);
+        Log(" minimum ");
+        LogSize(minHeapSize);
+        Log(" maximum ");
+        LogSize(maxHeapSize);
+        Log(" target ratio %f\n", userGCRatio);
+    }
 }
 
 void HeapSizeParameters::SetReservation(unsigned rsize)
@@ -182,7 +245,12 @@ LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
     return sp;
 }
 
-#define HEURISTIC_GC_LOAD_FACTOR    10
+// The steepness of the curve.
+#define PAGINGCOSTSTEEPNESS 20.0
+// The additional cost at the boundary
+#define PAGINGCOSTFACTOR    1.0
+// The number of pages at the boundary
+#define PAGINGCOUNTFACTOR   1000.0
 
 // Called at the end of collection.  This is where we should do the
 // fine adjustment of the heap size to minimise the GC time.
@@ -191,79 +259,218 @@ LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
 // See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
 void HeapSizeParameters::AdjustSizeAfterMajorGC()
 {
-    TIMEDATA gc, nonGc, total;
+    TIMEDATA gc, nonGc;
     gc.add(majorGCSystemCPU);
     gc.add(majorGCUserCPU);
     nonGc.add(majorNonGCSystemCPU);
     nonGc.add(majorNonGCUserCPU);
-    total.add(gc);
-    total.add(nonGc);
-    float g = gc.toSeconds() / total.toSeconds();
-//    float desiredLoad = ((float)HEURISTIC_GC_LOAD_FACTOR) / (float)100.0;
+    if (gc.toSeconds() != 0.0 && nonGc.toSeconds() != 0.0)
+        lastMajorGCRatio = gc.toSeconds() / nonGc.toSeconds();
 
-    // A very crude adjustment at this stage:
-    // Keep the allocation area the same,
-    // Set the major GC size (mutable+immutable area) so
-    // that there is a fixed amount free.
-    POLYUNSIGNED spaceUsed = 0;
+    if (highWaterMark < gMem.CurrentHeapSize()) highWaterMark = gMem.CurrentHeapSize();
+
+    POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
+    currentSpaceUsed = 0;
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
     {
-        spaceUsed += gMem.lSpaces[i]->allocatedSpace();
+        currentSpaceUsed += gMem.lSpaces[i]->allocatedSpace();
     }
-    float l = (float)spaceUsed / (float)gMem.SpaceForHeap();
+    POLYUNSIGNED currentFreeSpace = heapSpace - currentSpaceUsed;
+
     if (debugOptions & DEBUG_HEAPSIZE)
     {
-        Log("Heap: Major resizing factors g = %f, l = %f\n", g, l);
-        Log("Heap: Resizing from %"POLYUFMT" to %"POLYUFMT"\n", gMem.SpaceForHeap(), freeHeapSpace+spaceUsed);
+        Log("Heap: GC cpu time %2.3f non-gc time %2.3f ratio %0.3f for free space ",
+            gc.toSeconds(), nonGc.toSeconds(), lastMajorGCRatio);
+        LogSize((lastFreeSpace + currentFreeSpace)/2);
+        Log("\n");
+        Log("Heap: GC real time %2.3f non-gc time %2.3f ratio %0.3f\n",
+            majorGCReal.toSeconds(), majorNonGCReal.toSeconds(), majorGCReal.toSeconds()/majorNonGCReal.toSeconds());
+    }
+
+    // Calculate the paging threshold.
+    if (pagingLimitSize != 0 || majorGCPageFaults != 0)
+    {
+        if (majorGCPageFaults == 0) majorGCPageFaults = 1; // Less than one
+        // Some paging detected.  The expression here is the inverse of the one used to
+        // compute the paging contribution in the cost function.
+        double scaleFactor = 1.0 + log((double)majorGCPageFaults / PAGINGCOUNTFACTOR) / PAGINGCOSTSTEEPNESS;
+        ASSERT(scaleFactor > 0.0);
+        POLYUNSIGNED newLimit = (POLYUNSIGNED)((double)heapSpace / scaleFactor);
+        if (pagingLimitSize == 0)
+            pagingLimitSize = newLimit;
+        else 
+            pagingLimitSize = (newLimit + pagingLimitSize) / 2;
+
+        if (debugOptions & DEBUG_HEAPSIZE)
+        {
+            Log("Heap: Paging threshold adjusted to ");
+            LogSize(pagingLimitSize);
+            Log(" with %ld page faults\n", majorGCPageFaults);
+        }
+    }
+
+    // Calculate a new heap size.  We allow a maximum doubling or halving of size.
+    // It's probably more important to limit the increase in case we hit paging.
+    POLYUNSIGNED sizeMax = heapSpace * 2;
+    if (sizeMax > maxHeapSize) sizeMax = maxHeapSize;
+    POLYUNSIGNED sizeMin = heapSpace / 2;
+    if (sizeMin < minHeapSize) sizeMin = minHeapSize;
+
+    double costMin = costFunction(sizeMin);
+    if (costMin > userGCRatio)
+        // If the cost of the minimum is below the target we
+        // use that and don't need to look further.
+    {
+        double costMax = costFunction(sizeMax);
+        while (sizeMax - sizeMin > gMem.DefaultSpaceSize())
+        {
+            POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
+            double cost = costFunction(sizeNext);
+            if (cost < userGCRatio || (costMax > costMin && costMax > userGCRatio))
+            {
+                sizeMax = sizeNext;
+                costMax = cost;
+            }
+            else
+            {
+                sizeMin = sizeNext;
+                costMin = cost;
+            }
+            ASSERT(costMin > userGCRatio);
+        }
+    }
+    ASSERT(sizeMin >= minHeapSize && sizeMin <= maxHeapSize);
+
+    // If the estimated cost is large run the sharing pass next time.
+    // This will happen if the heap cannot be extended because we've
+    // reached the maximum or reached the paging limit.
+    // If we ran it last time we will overestimate the GC cost because
+    // the cost of the sharing pass is included in the GC cost so if
+    // we ran it last time we only run it next time if the estimated cost is
+    // very large.
+    // TODO: We also don't want to run it just because we're limiting the growth of the heap
+    // to a factor of two and the previous cost was high.
+    // We also want to run this if we haven't been able to extend the heap because
+    // we've hit some limit (lastAllocationSucceeded is false) and the actual
+    // cost was large.  We may compute a smaller heap size but not be able to
+    // achieve it.
+    performSharingPass =
+        (lastAllocationSucceeded ? costMin: lastMajorGCRatio) > userGCRatio * (performSharingPass ? 8 : 4);
+
+    if (debugOptions & DEBUG_HEAPSIZE)
+    {
+        if (performSharingPass)
+            Log("Heap: Next full GC will enable the sharing pass\n");
+        Log("Heap: Resizing from ");
+        LogSize(gMem.SpaceForHeap());
+        Log(" to ");
+        LogSize(sizeMin);
+        Log(".  Estimated ratio %2.2f\n", costMin);
     }
     // Set the sizes.
-    gMem.SetSpaceForHeap(freeHeapSpace+spaceUsed);
+    gMem.SetSpaceForHeap(sizeMin);
+    // Set the minor space size.  It can potentially use the whole of the
+    // rest of the available heap but there could be a problem if that exceeds
+    // the available memory and causes paging.  We need to raise the limit carefully.
+    POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
+    if (nextLimit > sizeMin) nextLimit = sizeMin;
+    gMem.SetSpaceBeforeMinorGC(nextLimit-gMem.CurrentHeapSize());
+
+    lastFreeSpace = sizeMin - currentSpaceUsed;
 }
-
-
-// Trigger a full GC next time if this GC took more than this
-// percentage of time.
-#define HEURISTIC_TRIGGER_FULL_GC_PERCENT   50
 
 // Called after a minor GC.  Currently does nothing.
 // See also adjustHeapSize for adjustments after a major GC.
-void HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC)
+bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC)
 {
     POLYUNSIGNED spaceCopiedOut = spaceAfterGC-spaceBeforeGC;
     TIMEDATA gc, total;
-    gc.add(minorGCSystemCPU);
-    gc.add(minorGCUserCPU);
+    minorGCsSinceMajor++;
+    // The major costs are cumulative so we use those
+    gc.add(majorGCSystemCPU);
+    gc.add(majorGCUserCPU);
     total.add(gc);
-    total.add(minorNonGCSystemCPU);
-    total.add(minorNonGCUserCPU);
+    total.add(majorNonGCSystemCPU);
+    total.add(majorNonGCUserCPU);
     float g = gc.toSeconds() / total.toSeconds();
-    // In this case we compute l as the live memory in the allocation area
-    // divided by the size of the allocation area.
-    float l = (float)spaceCopiedOut / (float)gMem.SpaceBeforeMinorGC();
+
     if (debugOptions & DEBUG_HEAPSIZE)
     {
-        Log("Heap: Space before %"POLYUFMT", space after %"POLYUFMT"\n", spaceBeforeGC, spaceAfterGC);
-        Log("Heap: Minor resizing factors g = %f, l = %f\n", g, l);
+        Log("Heap: Space before ");
+        LogSize(spaceBeforeGC);
+        Log(", space after ");
+        LogSize(spaceAfterGC);
+        Log("\n");
+        Log("Heap: Minor resizing factors g = %f, recent pf = %ld, cumulative pf = %ld\n",
+            g, minorGCPageFaults, majorGCPageFaults);
     }
+
+    if (highWaterMark < gMem.CurrentHeapSize()) highWaterMark = gMem.CurrentHeapSize();
+
+    POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
+    if (nextLimit > gMem.SpaceForHeap()) nextLimit = gMem.SpaceForHeap();
+
     // Set the space available for the allocation area to be the difference between the
     // total heap size and the allowed heap size together with as much space as we copied
     // on this GC.  That allows for the next minor GC to copy the same amount without
     // extending the heap.  If the next minor GC adds more than this the heap will be
     // extended and a corresponding amount deducted so that the heap shrinks again.
     POLYUNSIGNED nonAlloc = gMem.CurrentHeapSize() - gMem.CurrentAllocSpace() + spaceCopiedOut;
-    POLYUNSIGNED allowedAlloc =
-        nonAlloc >= gMem.SpaceForHeap() ? 0 : gMem.SpaceForHeap() - nonAlloc;
+    // TODO: If we have limited the space to the high water mark + 1/32 but that is less
+    // than we really need we should increase it further.
+    POLYUNSIGNED allowedAlloc = nonAlloc >= nextLimit ? 0 : nextLimit - nonAlloc;
     if (gMem.CurrentAllocSpace() != allowedAlloc)
     {
         if (debugOptions & DEBUG_HEAPSIZE)
-            Log("Heap: Adjusting space for allocation area from %"POLYUFMT" to %"POLYUFMT"\n",
-                gMem.SpaceBeforeMinorGC(), allowedAlloc);
+        {
+            Log("Heap: Adjusting space for allocation area from ");
+            LogSize(gMem.SpaceBeforeMinorGC());
+            Log(" to ");
+            LogSize(allowedAlloc);
+            Log("\n");
+        }
         gMem.SetSpaceBeforeMinorGC(allowedAlloc);
+        if (allowedAlloc < gMem.DefaultSpaceSize() * 2 || minorGCPageFaults > 100)
+            return false; // Trigger full GC immediately.
      }
 
-    // If we took more than this time we probably want a full GC next time.
-    if (g > ((float)HEURISTIC_TRIGGER_FULL_GC_PERCENT)/100.0)
+    // Trigger a full GC if the live data is very large or if we have exceeeded
+    // the target ratio over several GCs (this smooths out small variations).
+    if ((minorGCsSinceMajor > 4 && g > userGCRatio*0.8) || majorGCPageFaults > 100)
         fullGCNextTime = true;
+    return true;
+}
+
+// Estimate the GC cost for a given heap size.  The result is the ratio of
+// GC time to application time.
+// This is really guesswork.
+double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize)
+{
+    POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
+    POLYUNSIGNED currentFreeSpace = heapSpace - currentSpaceUsed;
+    POLYUNSIGNED averageFree = (lastFreeSpace + currentFreeSpace) / 2;
+    if (heapSize <= currentSpaceUsed)
+        return 1.0E6;
+    POLYUNSIGNED estimatedFree = heapSize - currentSpaceUsed;
+    // The cost scales as the inverse of the amount of free space.
+    double result = lastMajorGCRatio * (double)averageFree / (double)estimatedFree;
+
+    // The paging contribution depends on the page limit
+    double pagingCost = 0.0;
+    if (pagingLimitSize != 0)
+    {
+        double factor = ((double)heapSize - (double)pagingLimitSize) / (double)pagingLimitSize * PAGINGCOSTSTEEPNESS;
+        pagingCost = PAGINGCOSTFACTOR * exp(factor);
+        result += pagingCost;
+    }
+
+    if (debugOptions & DEBUG_HEAPSIZE)
+    {
+        Log("Heap: Cost for heap of size ");
+        LogSize(heapSize);
+        Log(" is %2.2f with paging contributing %2.2f\n", result, pagingCost);
+    }
+    return result;
 }
 
 bool HeapSizeParameters::RunMajorGCImmediately()
@@ -306,7 +513,7 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
                 float userTime = filetimeToSeconds(&ut);
                 float systemTime = filetimeToSeconds(&kt);
                 float realTime = filetimeToSeconds(&rt);
-                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %u\n",
+                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n",
                     userTime, systemTime, realTime, pageCount - startPF);
                 // Add to the statistics.
             }
@@ -319,6 +526,9 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
             startRTime = lastRTime;
+            // Page faults in the application are included
+            minorGCPageFaults += pageCount - startPF;
+            majorGCPageFaults += pageCount - startPF;
             startPF = pageCount;
             break;
         }
@@ -376,6 +586,8 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
             startRTime = lastRTime;
+            minorGCPageFaults += pageCount - startPF;
+            majorGCPageFaults += pageCount - startPF;
             startPF = pageCount;
             globalStats.copyGCTimes(totalGCUserCPU, totalGCSystemCPU);
         }
@@ -416,6 +628,9 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
             majorNonGCReal.add(tv);
             startUsage = lastUsage;
             startRTime = lastRTime;
+            // Page faults in the application are included
+            minorGCPageFaults += pageFaults - startPF;
+            majorGCPageFaults += pageFaults - startPF;
             startPF = pageFaults;
             break;
          }
@@ -477,6 +692,8 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
             majorGCSystemCPU.add(rusage.ru_stime);
             minorGCReal.add(tv);
             majorGCReal.add(tv);
+            minorGCPageFaults += pageFaults - startPF;
+            majorGCPageFaults += pageFaults - startPF;
             startRTime = lastRTime;
             startPF = pageFaults;
             startUsage = lastUsage;
@@ -537,7 +754,7 @@ void HeapSizeParameters::Init()
 void HeapSizeParameters::Final()
 {
     // Print the overall statistics
-    if (debugOptions & DEBUG_GC)
+    if (debugOptions & (DEBUG_GC|DEBUG_HEAPSIZE))
     {
         TIMEDATA userTime, systemTime, realTime;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -562,10 +779,23 @@ void HeapSizeParameters::Final()
         userTime.sub(totalGCUserCPU);
         systemTime.sub(totalGCSystemCPU);
         realTime.sub(totalGCReal);
-        Log("GC (Total): Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
-            userTime.toSeconds(), systemTime.toSeconds(), realTime.toSeconds());
-        Log("GC (Total): GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
-            totalGCUserCPU.toSeconds(), totalGCSystemCPU.toSeconds(), totalGCReal.toSeconds());
+        if (debugOptions & DEBUG_GC)
+        {
+            Log("GC (Total): Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
+                userTime.toSeconds(), systemTime.toSeconds(), realTime.toSeconds());
+            Log("GC (Total): GC time: CPU user: %0.3f system: %0.3f real: %0.3f\n",
+                totalGCUserCPU.toSeconds(), totalGCSystemCPU.toSeconds(), totalGCReal.toSeconds());
+        }
+        if (debugOptions & DEBUG_HEAPSIZE)
+        {
+            TIMEDATA gc, nonGc;
+            gc.add(totalGCUserCPU);
+            gc.add(totalGCSystemCPU);
+            nonGc.add(userTime);
+            nonGc.add(systemTime);
+            Log("Heap: Total CPU GC time %0.3fsecs,  Non-GC %0.3fsecs, ratio %0.3f\n",
+                gc.toSeconds(), nonGc.toSeconds(), gc.toSeconds() / nonGc.toSeconds());
+        }
     }
 }
 
@@ -578,22 +808,20 @@ void HeapSizeParameters::resetMinorTimingData(void)
     minorGCUserCPU.fromSeconds(0);
     minorGCSystemCPU.fromSeconds(0);
     minorGCReal.fromSeconds(0);
+    minorGCPageFaults = 0;
 }
 
 void HeapSizeParameters::resetMajorTimingData(void)
 {
-    minorNonGCUserCPU.fromSeconds(0);
-    minorNonGCSystemCPU.fromSeconds(0);
-    minorNonGCReal.fromSeconds(0);
-    minorGCUserCPU.fromSeconds(0);
-    minorGCSystemCPU.fromSeconds(0);
-    minorGCReal.fromSeconds(0);
+    resetMinorTimingData();
     majorNonGCUserCPU.fromSeconds(0);
     majorNonGCSystemCPU.fromSeconds(0);
     majorNonGCReal.fromSeconds(0);
     majorGCUserCPU.fromSeconds(0);
     majorGCSystemCPU.fromSeconds(0);
     majorGCReal.fromSeconds(0);
+    majorGCPageFaults = 0;
+    minorGCsSinceMajor = 0;
 }
 
 

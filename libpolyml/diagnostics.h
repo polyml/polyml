@@ -25,6 +25,7 @@
 #ifndef _DIAGNOSTICS_H_USED
 #define _DIAGNOSTICS_H_USED
 #include "noreturn.h"
+#include "globals.h"
 
 NORETURNFN(extern void Exit(const char *, ...));
 NORETURNFN(extern void Crash(const char *, ...));
@@ -33,6 +34,7 @@ NORETURNFN(extern void ExitWithError(const char *, int err));
 
 extern void SetLogFile(const char *fileName);
 extern void Log(const char *, ...);
+extern void LogSize(POLYUNSIGNED wordSize);
 
 extern unsigned    debugOptions; // debugging  flags
 

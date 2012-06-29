@@ -66,6 +66,8 @@
 #endif
 
 #include "errors.h"
+#include "noreturn.h"
+#include "globals.h"
 
 unsigned debugOptions = 0; // Debugging options requested on command line.
 
@@ -171,3 +173,19 @@ void Log(const char *msg, ...)
     if (logStream) fflush(logStream);
 }
 
+// Log the size of a space as a comprehensible number
+void LogSize(POLYUNSIGNED wordSize)
+{
+    POLYUNSIGNED size = wordSize * sizeof(PolyWord);
+    if (size < 10*1024)
+        Log("%"POLYUFMT, size);
+    else
+    {
+        double s = (double)size;
+        if (s < 1024000.0)
+            Log("%1.2fK", s / 1024.0);
+        else if (s < 1000.0 * 1024.0 * 1024.0)
+            Log("%1.2fM", s / (1024.0 * 1024.0));
+        else Log("%1.2fG", s / (1024.0 * 1024.0 * 1024.0));
+    }
+}

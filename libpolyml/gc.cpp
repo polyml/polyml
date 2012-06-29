@@ -105,13 +105,19 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeStart);
     globalStats.incCount(PSC_GC_FULLGC);
 
+    // Remove any empty spaces.  There will not normally be any except
+    // if we have triggered a full GC as a result of detecting paging in the
+    // minor GC but in that case we want to try to stop the system writing
+    // out areas that are now empty.
+    gMem.RemoveEmptyLocals();
+
     if (debugOptions & DEBUG_GC)
         Log("GC: Full GC, %lu words required %u spaces\n", wordsRequiredToAllocate, gMem.nlSpaces);
-    
+
     if (debugOptions & DEBUG_HEAPSIZE)
-        gMem.reportHeapSpaceUsage();
-    
-    // Experimental data sharing pass.
+        gMem.ReportHeapSizes("Full GC (before)");
+
+    // Data sharing pass.
     if (gHeapSizeParameters.PerformSharingPass())
         GCSharingPhase();
 /*
@@ -308,7 +314,7 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     }
 
     if (debugOptions & DEBUG_HEAPSIZE)
-        gMem.reportHeapSpaceUsage();
+        gMem.ReportHeapSizes("Full GC (after)");
 
     if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
         printprofile();

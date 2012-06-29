@@ -330,7 +330,7 @@ public:
 
     POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
 
-    void reportHeapSpaceUsage(void);
+    void ReportHeapSizes(const char *phase);
 
 private:
     bool AddLocalSpace(LocalMemSpace *space);

@@ -962,52 +962,33 @@ void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, 
     *tt = 0;
 }
 
-// debugging information on heap space usage
-void MemMgr::reportHeapSpaceUsage()
+// Report heap sizes and occupancy before and after GC
+void MemMgr::ReportHeapSizes(const char *phase)
 {
-    unsigned i;
-    // all space sizes are measured in number of PolyWords
-    POLYUNSIGNED allocSize = 0;
-    POLYUNSIGNED mutableSize = 0;
-    POLYUNSIGNED immutableSize = 0;
-    POLYUNSIGNED permSize = 0;
-    POLYUNSIGNED exportSize = 0;
-    POLYUNSIGNED stackSize = 0;
-
-    // local space usage    
-    // local space is divided up as   | IMMUTABLE | MUTABLE | ALLOC |
-    for (i=0; i < nlSpaces; i++) 
+    POLYUNSIGNED alloc = 0, nonAlloc = 0, inAlloc = 0, inNonAlloc = 0;
+    for (unsigned i = 0; i < nlSpaces; i++)
     {
-        LocalMemSpace *space = lSpaces[i];
-        POLYUNSIGNED spaceSize = space->spaceSize();
-        if (space->allocationSpace)
-            allocSize +=spaceSize;
-        else if (space->isMutable)
-            mutableSize += spaceSize;
+        LocalMemSpace *sp = lSpaces[i];
+        if (sp->allocationSpace)
+        {
+            alloc += sp->spaceSize();
+            inAlloc += sp->allocatedSpace();
+        }
         else
-            immutableSize += spaceSize;
+        {
+            nonAlloc += sp->spaceSize();
+            inNonAlloc += sp->allocatedSpace();
+        }
     }
-    
-    // permanent space usage
-    for (i=0; i < npSpaces; i++)
-        permSize += pSpaces[i]->spaceSize();
-
-    // export space usage
-    for (i=0; i < neSpaces; i++)
-        exportSize += eSpaces[i]->spaceSize();
-
-    // stack space usage
-    for (i=0; i < nsSpaces; i++)
-        stackSize += sSpaces[i]->spaceSize();
-
-    Log("--- begin mem usage dump ---\n");
-    Log("Alloc Size %d K\n", Words_to_K(allocSize));
-    Log("Mutable Size %d K\n", Words_to_K(mutableSize));
-    Log("Immutable Size %d K\n", Words_to_K(immutableSize));
-    Log("Permanent Size %d K\n", Words_to_K(permSize));
-    Log("Export Size %d K\n", Words_to_K(exportSize));
-    Log("Stack Size %d K\n", Words_to_K(stackSize));
-    Log("--- end mem usage dump ---\n");
+    Log("Heap: %s Major heap used ", phase);
+    LogSize(inNonAlloc); Log(" of ");
+    LogSize(nonAlloc);
+    Log(" (%1.0f%%). Alloc space used ", (float)inNonAlloc / (float)nonAlloc * 100.0F);
+    LogSize(inAlloc); Log(" of ");
+    LogSize(alloc);
+    Log(" (%1.0f%%). Total space ", (float)inAlloc / (float)alloc * 100.0F);
+    LogSize(spaceForHeap);
+    Log(" %1.0f%% full.\n", (float)(inAlloc + inNonAlloc) / (float)spaceForHeap * 100.0F);
 }
 
 MemMgr gMem; // The one and only memory manager object

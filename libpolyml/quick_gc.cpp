@@ -497,6 +497,9 @@ bool RunQuickGC(void)
     if (debugOptions & DEBUG_GC)
         Log("GC: Beginning quick GC\n");
 
+    if (debugOptions & DEBUG_HEAPSIZE)
+        gMem.ReportHeapSizes("Minor GC (before)");
+
     POLYUNSIGNED spaceBeforeGC = 0;
 
     for(unsigned k = 0; k < gMem.nlSpaces; k++)
@@ -622,11 +625,15 @@ bool RunQuickGC(void)
 
         gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeEnd);
 
-        gHeapSizeParameters.AdjustSizeAfterMinorGC(spaceAfterGC, spaceBeforeGC); // Adjust the allocation size.
+        if (! gHeapSizeParameters.AdjustSizeAfterMinorGC(spaceAfterGC, spaceBeforeGC)) // Adjust the allocation size.
+            return false; // If necessary trigger a full GC immediately
         gHeapSizeParameters.resetMinorTimingData();
         // Remove allocation spaces that are larger than the default
         // and any excess over the current size of the allocation area.
         gMem.RemoveExcessAllocation();
+
+        if (debugOptions & DEBUG_HEAPSIZE)
+            gMem.ReportHeapSizes("Minor GC (after)");
 
         if (debugOptions & DEBUG_GC)
             Log("GC: Completed successfully\n");
