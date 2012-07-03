@@ -313,25 +313,29 @@ void GetSharing::SortData()
     gpTaskFarm->AddWorkOrRunNow(startSharing, this, 0);
     gpTaskFarm->WaitForCompletion();
 
-    if (debugOptions & DEBUG_GC)
+    // Calculate the totals.
+    POLYUNSIGNED totalSize = 0, totalShared = 0, totalRecovered = 0;
+    for (unsigned k = 0; k < NUM_BYTE_VECTORS; k++)
     {
-        // Calculate the totals.
-        POLYUNSIGNED totalSize = 0, totalShared = 0;
-        for (unsigned k = 0; k < NUM_BYTE_VECTORS; k++)
-        {
-            totalSize += byteVectors[k].Count();
-            totalShared += byteVectors[k].Shared();
-        }
-
-        for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
-        {
-            totalSize += wordVectors[l].Count();
-            totalShared += wordVectors[l].Shared();
-        }
-
-        Log("GC: Share: Totals %" POLYUFMT " objects, %" POLYUFMT " shared (%1.0f%%)\n",
-            totalSize, totalShared, (float)totalShared / (float)totalSize * 100.0);
+        totalSize += byteVectors[k].Count();
+        POLYUNSIGNED shared = byteVectors[k].Shared();
+        totalShared += shared;
+        totalRecovered += shared * (k+2); // Add 2 because the 0th item is one word + length word.
     }
+
+    for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
+    {
+        totalSize += wordVectors[l].Count();
+        POLYUNSIGNED shared = wordVectors[l].Shared();
+        totalShared += shared;
+        totalRecovered += shared * (l+2);
+    }
+
+    if (debugOptions & DEBUG_GC)
+        Log("GC: Share: Totals %" POLYUFMT " objects, %" POLYUFMT " shared (%1.0f%%).  %" POLYUFMT " words recovered.\n",
+            totalSize, totalShared, (double)totalShared / (double)totalSize * 100.0, totalRecovered);
+
+    gHeapSizeParameters.RecordSharingData(totalRecovered);
 }
 
 void GCSharingPhase(void)

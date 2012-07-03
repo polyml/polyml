@@ -62,6 +62,8 @@ public:
     } gcTime;
 
     void RecordGCTime(gcTime isEnd, const char *stage = "");
+
+    void RecordSharingData(POLYUNSIGNED recovery);
     
     void resetMinorTimingData(void);
     void resetMajorTimingData(void);
@@ -72,14 +74,23 @@ public:
 private:
     // Estimate the GC cost for a given heap size.  The result is the ratio of
     // GC time to application time.
-    double costFunction(POLYUNSIGNED heapSize);
+    double costFunction(POLYUNSIGNED heapSize, bool withSharing);
+
+    void getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing);
 
     // Set if we should do a full GC next time instead of a minor GC.
     bool fullGCNextTime;
 
-    // Whether a sharing pass should be performed.  Triggered when the estimated
-    // cost is double the target cost.
+    // Whether a sharing pass should be performed on the next GC
     bool performSharingPass;
+    // The proportion of the total heap recovered by the sharing pass
+    double sharingRecoveryRate;
+    // The cost of doing the sharing as a proportion of the rest of the GC.
+    double sharingCostFactor;
+    // The actual number of words recovered in the last sharing pass
+    POLYUNSIGNED sharingWordsRecovered;
+    // The number of major GCs since the last sharing pass.
+    unsigned gcsWithoutSharing;
 
     // Maximum and minimum heap size as given by the user.
     POLYUNSIGNED minHeapSize, maxHeapSize;
@@ -101,8 +112,10 @@ private:
     // The maximum size the heap has reached so far. 
     POLYUNSIGNED highWaterMark;
 
+    // The start of the clock.
     TIMEDATA startTime;
 
+    // Timing for the last minor or major GC
     TIMEDATA minorNonGCUserCPU;
     TIMEDATA minorNonGCSystemCPU;
     TIMEDATA minorNonGCReal;
@@ -112,6 +125,8 @@ private:
     long minorGCPageFaults;
     unsigned minorGCsSinceMajor;
 
+    // Timing for all the minor GCs and the last major GC.
+    // Reset after each major GC.
     TIMEDATA majorNonGCUserCPU;
     TIMEDATA majorNonGCSystemCPU;
     TIMEDATA majorNonGCReal;
@@ -120,19 +135,17 @@ private:
     TIMEDATA majorGCReal;
     long majorGCPageFaults;
 
+    // Totals for all GCs
     TIMEDATA totalGCUserCPU;
     TIMEDATA totalGCSystemCPU;
     TIMEDATA totalGCReal;
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-    FILETIME startUsageU, startUsageS, lastUsageU, lastUsageS;
-    FILETIME startRTime, lastRTime;
-    DWORD startPF;
-#else
-    struct rusage startUsage, lastUsage;
-    struct timeval startRTime, lastRTime;
+    // The cost for the last sharing pass
+    TIMEDATA sharingCPU;
+
+    TIMEDATA startUsageU, startUsageS, lastUsageU, lastUsageS;
+    TIMEDATA startRTime, lastRTime;
     long startPF;
-#endif
 };
 
 extern HeapSizeParameters gHeapSizeParameters;

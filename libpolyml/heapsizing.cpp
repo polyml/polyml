@@ -132,6 +132,11 @@ HeapSizeParameters::HeapSizeParameters()
     lastFreeSpace = 0;
     pagingLimitSize = 0;
     highWaterMark = 0;
+    sharingWordsRecovered = 0;
+    gcsWithoutSharing = 0;
+    // Initial values until we've actually done a sharing pass.
+    sharingRecoveryRate = 0.17; // Default 17%
+    sharingCostFactor = 2; // It doubles the cost
 }
 
 /* This macro must make a whole number of chunks */
@@ -248,7 +253,7 @@ LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
 // The steepness of the curve.
 #define PAGINGCOSTSTEEPNESS 20.0
 // The additional cost at the boundary
-#define PAGINGCOSTFACTOR    1.0
+#define PAGINGCOSTFACTOR    3.0
 // The number of pages at the boundary
 #define PAGINGCOUNTFACTOR   1000.0
 
@@ -259,13 +264,12 @@ LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
 // See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
 void HeapSizeParameters::AdjustSizeAfterMajorGC()
 {
+    // Cumulative times since the last major GC
     TIMEDATA gc, nonGc;
     gc.add(majorGCSystemCPU);
     gc.add(majorGCUserCPU);
     nonGc.add(majorNonGCSystemCPU);
     nonGc.add(majorNonGCUserCPU);
-    if (gc.toSeconds() != 0.0 && nonGc.toSeconds() != 0.0)
-        lastMajorGCRatio = gc.toSeconds() / nonGc.toSeconds();
 
     if (highWaterMark < gMem.CurrentHeapSize()) highWaterMark = gMem.CurrentHeapSize();
 
@@ -277,6 +281,33 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
     }
     POLYUNSIGNED currentFreeSpace = heapSpace - currentSpaceUsed;
 
+    // The times for all the minor GCs up to this.  The cost of this (major) GC
+    // is actually in minorGCUserCPU/minorGCSystemCPU.
+    TIMEDATA minorGC;
+    minorGC.add(gc);
+    minorGC.sub(minorGCUserCPU);
+    minorGC.sub(minorGCSystemCPU);
+
+    if (performSharingPass)
+    {
+        // We ran the sharing pass last time: calculate the actual recovery rate.
+        POLYUNSIGNED originalSpaceUsed = currentSpaceUsed + sharingWordsRecovered;
+        sharingRecoveryRate = (double)sharingWordsRecovered / (double)originalSpaceUsed;
+        if (debugOptions & DEBUG_HEAPSIZE)
+            Log("Heap: Sharing recovery rate was %0.3f and cost %0.3f seconds (%0.3f%% of total).\n",
+                sharingRecoveryRate, sharingCPU.toSeconds(), sharingCPU.toSeconds() / gc.toSeconds());
+        // The cost factor is the ratio of the cost of sharing to the cost without.
+        sharingCostFactor = sharingCPU.toSeconds() / (gc.toSeconds() - sharingCPU.toSeconds());
+        // Subtract the sharing cost from the GC cost because the initial estimate is
+        // the cost without running the sharing pass.
+        gc.sub(sharingCPU);
+        gcsWithoutSharing = 0;
+    }
+    else gcsWithoutSharing++;
+
+    if (gc.toSeconds() != 0.0 && nonGc.toSeconds() != 0.0)
+        lastMajorGCRatio = gc.toSeconds() / nonGc.toSeconds();
+
     if (debugOptions & DEBUG_HEAPSIZE)
     {
         Log("Heap: GC cpu time %2.3f non-gc time %2.3f ratio %0.3f for free space ",
@@ -285,6 +316,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
         Log("\n");
         Log("Heap: GC real time %2.3f non-gc time %2.3f ratio %0.3f\n",
             majorGCReal.toSeconds(), majorNonGCReal.toSeconds(), majorGCReal.toSeconds()/majorNonGCReal.toSeconds());
+        Log("Heap: Total of minor GCs %2.3f, %2.3f of total\n", minorGC.toSeconds(), minorGC.toSeconds() / gc.toSeconds());
     }
 
     // Calculate the paging threshold.
@@ -309,53 +341,22 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
         }
     }
 
-    // Calculate a new heap size.  We allow a maximum doubling or halving of size.
-    // It's probably more important to limit the increase in case we hit paging.
-    POLYUNSIGNED sizeMax = heapSpace * 2;
-    if (sizeMax > maxHeapSize) sizeMax = maxHeapSize;
-    POLYUNSIGNED sizeMin = heapSpace / 2;
-    if (sizeMin < minHeapSize) sizeMin = minHeapSize;
-
-    double costMin = costFunction(sizeMin);
-    if (costMin > userGCRatio)
-        // If the cost of the minimum is below the target we
-        // use that and don't need to look further.
+    POLYUNSIGNED newHeapSizeWithout, newHeapSizeWith, newHeapSize;
+    double costWithout, costWith, cost;
+    getCostAndSize(newHeapSizeWithout, costWithout, false);
+    getCostAndSize(newHeapSizeWith, costWith, true);
+    if (costWith < costWithout)
     {
-        double costMax = costFunction(sizeMax);
-        while (sizeMax - sizeMin > gMem.DefaultSpaceSize())
-        {
-            POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
-            double cost = costFunction(sizeNext);
-            if (cost < userGCRatio || (costMax > costMin && costMax > userGCRatio))
-            {
-                sizeMax = sizeNext;
-                costMax = cost;
-            }
-            else
-            {
-                sizeMin = sizeNext;
-                costMin = cost;
-            }
-            ASSERT(costMin > userGCRatio);
-        }
+        performSharingPass = true;
+        newHeapSize = newHeapSizeWith;
+        cost = costWith;
     }
-    ASSERT(sizeMin >= minHeapSize && sizeMin <= maxHeapSize);
-
-    // If the estimated cost is large run the sharing pass next time.
-    // This will happen if the heap cannot be extended because we've
-    // reached the maximum or reached the paging limit.
-    // If we ran it last time we will overestimate the GC cost because
-    // the cost of the sharing pass is included in the GC cost so if
-    // we ran it last time we only run it next time if the estimated cost is
-    // very large.
-    // TODO: We also don't want to run it just because we're limiting the growth of the heap
-    // to a factor of two and the previous cost was high.
-    // We also want to run this if we haven't been able to extend the heap because
-    // we've hit some limit (lastAllocationSucceeded is false) and the actual
-    // cost was large.  We may compute a smaller heap size but not be able to
-    // achieve it.
-    performSharingPass =
-        (lastAllocationSucceeded ? costMin: lastMajorGCRatio) > userGCRatio * (performSharingPass ? 8 : 4);
+    else
+    {
+        performSharingPass = false;
+        newHeapSize = newHeapSizeWithout;
+        cost = costWithout;
+    }
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
@@ -364,19 +365,19 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
         Log("Heap: Resizing from ");
         LogSize(gMem.SpaceForHeap());
         Log(" to ");
-        LogSize(sizeMin);
-        Log(".  Estimated ratio %2.2f\n", costMin);
+        LogSize(newHeapSize);
+        Log(".  Estimated ratio %2.2f\n", cost);
     }
     // Set the sizes.
-    gMem.SetSpaceForHeap(sizeMin);
+    gMem.SetSpaceForHeap(newHeapSize);
     // Set the minor space size.  It can potentially use the whole of the
     // rest of the available heap but there could be a problem if that exceeds
     // the available memory and causes paging.  We need to raise the limit carefully.
     POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
-    if (nextLimit > sizeMin) nextLimit = sizeMin;
+    if (nextLimit > newHeapSize) nextLimit = newHeapSize;
     gMem.SetSpaceBeforeMinorGC(nextLimit-gMem.CurrentHeapSize());
 
-    lastFreeSpace = sizeMin - currentSpaceUsed;
+    lastFreeSpace = newHeapSize - currentSpaceUsed;
 }
 
 // Called after a minor GC.  Currently does nothing.
@@ -444,16 +445,24 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
 // Estimate the GC cost for a given heap size.  The result is the ratio of
 // GC time to application time.
 // This is really guesswork.
-double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize)
+double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize, bool withSharing)
 {
     POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     POLYUNSIGNED currentFreeSpace = heapSpace - currentSpaceUsed;
     POLYUNSIGNED averageFree = (lastFreeSpace + currentFreeSpace) / 2;
     if (heapSize <= currentSpaceUsed)
         return 1.0E6;
+    // If we run the sharing pass the live space will be smaller.
+    if (withSharing)
+        currentSpaceUsed -= (POLYUNSIGNED)((double)currentSpaceUsed * sharingRecoveryRate);
     POLYUNSIGNED estimatedFree = heapSize - currentSpaceUsed;
     // The cost scales as the inverse of the amount of free space.
     double result = lastMajorGCRatio * (double)averageFree / (double)estimatedFree;
+    // If we run the sharing pass the GC cost will increase.  The additional cost is
+    // the cost of doing the sharing divided over the number of GCs since the last time
+    // we ran the sharing pass.
+    if (withSharing)
+        result += result*sharingCostFactor / (gcsWithoutSharing+1);
 
     // The paging contribution depends on the page limit
     double pagingCost = 0.0;
@@ -468,9 +477,50 @@ double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize)
     {
         Log("Heap: Cost for heap of size ");
         LogSize(heapSize);
-        Log(" is %2.2f with paging contributing %2.2f\n", result, pagingCost);
+        Log(" is %2.2f with paging contributing %2.2f with%s sharing pass.\n", result, pagingCost, withSharing ? "" : "out");
     }
     return result;
+}
+
+// Calculate the size for the minimum cost.
+// TODO: This could definitely be improved although it's not likely to contribute much to
+// the overall cost of a GC.
+void HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing)
+{
+    POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
+    // Calculate a new heap size.  We allow a maximum doubling or halving of size.
+    // It's probably more important to limit the increase in case we hit paging.
+    POLYUNSIGNED sizeMax = heapSpace * 2;
+    if (sizeMax > maxHeapSize) sizeMax = maxHeapSize;
+    POLYUNSIGNED sizeMin = heapSpace / 2;
+    if (sizeMin < minHeapSize) sizeMin = minHeapSize;
+
+    double costMin = costFunction(sizeMin, withSharing);
+    if (costMin > userGCRatio)
+        // If the cost of the minimum is below the target we
+        // use that and don't need to look further.
+    {
+        double costMax = costFunction(sizeMax, withSharing);
+        while (sizeMax - sizeMin > gMem.DefaultSpaceSize())
+        {
+            POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
+            double cost = costFunction(sizeNext, withSharing);
+            if (cost < userGCRatio || (costMax > costMin && costMax > userGCRatio))
+            {
+                sizeMax = sizeNext;
+                costMax = cost;
+            }
+            else
+            {
+                sizeMin = sizeNext;
+                costMin = cost;
+            }
+            ASSERT(costMin > userGCRatio);
+        }
+    }
+    ASSERT(sizeMin >= minHeapSize && sizeMin <= maxHeapSize);
+    heapSize = sizeMin;
+    cost = costMin;
 }
 
 bool HeapSizeParameters::RunMajorGCImmediately()
@@ -483,46 +533,64 @@ bool HeapSizeParameters::RunMajorGCImmediately()
     return false;
 }
 
-// This function is called at the beginning and end of garbage
-// collection to record the time used.
-// This also reports the GC time if GC debugging is enabled.
-void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
+
+static bool GetLastStats(TIMEDATA &userTime, TIMEDATA &systemTime, TIMEDATA &realTime, long &pageCount)
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     FILETIME kt, ut;
     FILETIME ct, et; // Unused
     FILETIME rt;
-
     GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
     GetSystemTimeAsFileTime(&rt);
+    userTime = ut;
+    systemTime = kt;
+    realTime = rt;
+    pageCount = GetPaging(0);
+#else
+    struct rusage rusage;
+    if (getrusage(RUSAGE_SELF, &rusage) != 0)
+        return false;
+    userTime = rusage.ru_utime;
+    systemTime = rusage.ru_stime;
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0)
+        return false;
+    realTime = tv;
+    pageCount = GetPaging(rusage.ru_majflt);
+#endif
+    return true;
+}
+
+// This function is called at the beginning and end of garbage
+// collection to record the time used.
+// This also reports the GC time if GC debugging is enabled.
+void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
+{
 
     switch (isEnd)
     {
     case GCTimeStart:
         {
             // Start of GC
-            long pageCount = GetPaging(0);
-            lastUsageU = ut;
-            lastUsageS = kt;
-            lastRTime = rt;
-            subFiletimes(&ut, &startUsageU);
-            subFiletimes(&kt, &startUsageS);
-            subFiletimes(&rt, &startRTime);
+            TIMEDATA userTime, systemTime, realTime;
+            long pageCount;
+            if (! GetLastStats(userTime, systemTime, realTime, pageCount))
+                break;
+            lastUsageU = userTime;
+            lastUsageS = systemTime;
+            lastRTime = realTime;
+            userTime.sub(startUsageU);  // Times since the start
+            systemTime.sub(startUsageS);
+            realTime.sub(startRTime);
             if (debugOptions & DEBUG_GC)
-            {
-                float userTime = filetimeToSeconds(&ut);
-                float systemTime = filetimeToSeconds(&kt);
-                float realTime = filetimeToSeconds(&rt);
                 Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n",
-                    userTime, systemTime, realTime, pageCount - startPF);
-                // Add to the statistics.
-            }
-            minorNonGCUserCPU.add(ut);
-            majorNonGCUserCPU.add(ut);
-            minorNonGCSystemCPU.add(kt);
-            majorNonGCSystemCPU.add(kt);
-            minorNonGCReal.add(rt);
-            majorNonGCReal.add(rt);
+                    userTime.toSeconds(), systemTime.toSeconds(), realTime.toSeconds(), pageCount - startPF);
+            minorNonGCUserCPU.add(userTime);
+            majorNonGCUserCPU.add(userTime);
+            minorNonGCSystemCPU.add(systemTime);
+            majorNonGCSystemCPU.add(systemTime);
+            minorNonGCReal.add(realTime);
+            majorNonGCReal.add(realTime);
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
             startRTime = lastRTime;
@@ -537,17 +605,18 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
         // Report intermediate GC time for debugging
         if (debugOptions & DEBUG_GC)
         {
-            FILETIME nextU = ut, nextS = kt, nextR = rt;
-            subFiletimes(&ut, &lastUsageU);
-            subFiletimes(&kt, &lastUsageS);
-            subFiletimes(&rt, &lastRTime);
+            TIMEDATA userTime, systemTime, realTime;
+            long pageCount;
+            if (! GetLastStats(userTime, systemTime, realTime, pageCount))
+                break;
+            TIMEDATA nextU = userTime, nextS = systemTime, nextR = realTime;
+            userTime.sub(lastUsageU);
+            systemTime.sub(lastUsageS);
+            realTime.sub(lastRTime);
 
-            float userTime = filetimeToSeconds(&ut);
-            float systemTime = filetimeToSeconds(&kt);
-            float realTime = filetimeToSeconds(&rt);
-
-            Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
-                systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime);
+            Log("GC: (%s) CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime.toSeconds(), 
+                systemTime.toSeconds(), realTime.toSeconds(),
+                realTime.toSeconds() == 0.0 ? 0.0 : (userTime.toSeconds() + systemTime.toSeconds()) / realTime.toSeconds());
             lastUsageU = nextU;
             lastUsageS = nextS;
             lastRTime = nextR;
@@ -556,33 +625,35 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
 
     case GCTimeEnd: // End of GC.
         {
-            long pageCount = GetPaging(0);
+            TIMEDATA userTime, systemTime, realTime;
+            long pageCount;
+            if (! GetLastStats(userTime, systemTime, realTime, pageCount))
+                break;
+            lastUsageU = userTime;
+            lastUsageS = systemTime;
+            lastRTime = realTime;
 
-            lastUsageU = ut;
-            lastUsageS = kt;
-            lastRTime = rt;
-            subFiletimes(&ut, &startUsageU);
-            subFiletimes(&kt, &startUsageS);
-            subFiletimes(&rt, &startRTime);
-            totalGCUserCPU.add(ut);
-            totalGCSystemCPU.add(kt);
-            totalGCReal.add(rt);
+            userTime.sub(startUsageU);  // Times since the start
+            systemTime.sub(startUsageS);
+            realTime.sub(startRTime);
+
+            totalGCUserCPU.add(userTime);
+            totalGCSystemCPU.add(systemTime);
+            totalGCReal.add(realTime);
 
             if (debugOptions & DEBUG_GC)
             {
-                float userTime = filetimeToSeconds(&ut);
-                float systemTime = filetimeToSeconds(&kt);
-                float realTime = filetimeToSeconds(&rt);
-                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
-                    systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime,
+                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime.toSeconds(), 
+                    systemTime.toSeconds(), realTime.toSeconds(),
+                    realTime.toSeconds() == 0.0 ? 0.0 : (userTime.toSeconds() + systemTime.toSeconds()) / realTime.toSeconds(),
                     pageCount - startPF);
             }
-            minorGCUserCPU.add(ut);
-            majorGCUserCPU.add(ut);
-            minorGCSystemCPU.add(kt);
-            majorGCSystemCPU.add(kt);
-            minorGCReal.add(rt);
-            majorGCReal.add(rt);
+            minorGCUserCPU.add(userTime);
+            majorGCUserCPU.add(userTime);
+            minorGCSystemCPU.add(systemTime);
+            majorGCSystemCPU.add(systemTime);
+            minorGCReal.add(realTime);
+            majorGCReal.add(realTime);
             startUsageU = lastUsageU;
             startUsageS = lastUsageS;
             startRTime = lastRTime;
@@ -593,114 +664,22 @@ void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
         }
         break;
     }
-#else
-    switch (isEnd)
-    {
-    case GCTimeStart:
-        {            
-            // Start of GC
-            struct rusage rusage;
-            if (getrusage(RUSAGE_SELF, &rusage) != 0)
-                return;
-            lastUsage = rusage;
-            long pageFaults = GetPaging(rusage.ru_majflt);
-            subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
-            subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
-            struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
-                return;
-            lastRTime = tv;
-            subTimevals(&tv, &startRTime);
+}
 
-            if (debugOptions & DEBUG_GC)
-            {
-                float userTime = timevalToSeconds(&rusage.ru_utime);
-                float systemTime = timevalToSeconds(&rusage.ru_stime);
-                float realTime = timevalToSeconds(&tv);
-                Log("GC: Non-GC time: CPU user: %0.3f system: %0.3f real: %0.3f page faults: %ld\n", userTime, 
-                    systemTime, realTime, pageFaults - startPF);
-            }
-            minorNonGCUserCPU.add(rusage.ru_utime);
-            majorNonGCUserCPU.add(rusage.ru_utime);
-            minorNonGCSystemCPU.add(rusage.ru_stime);
-            majorNonGCSystemCPU.add(rusage.ru_stime);
-            minorNonGCReal.add(tv);
-            majorNonGCReal.add(tv);
-            startUsage = lastUsage;
-            startRTime = lastRTime;
-            // Page faults in the application are included
-            minorGCPageFaults += pageFaults - startPF;
-            majorGCPageFaults += pageFaults - startPF;
-            startPF = pageFaults;
-            break;
-         }
-
-    case GCTimeIntermediate:
-        // Report intermediate GC time for debugging
-        if (debugOptions & DEBUG_GC)
-        {
-            struct rusage rusage;
-            struct timeval tv;
-            if (getrusage(RUSAGE_SELF, &rusage) != 0 || gettimeofday(&tv, NULL) != 0)
-                return;
-            struct rusage nextUsage = rusage;
-            struct timeval nextTime = tv;
-            subTimevals(&rusage.ru_utime, &lastUsage.ru_utime);
-            subTimevals(&rusage.ru_stime, &lastUsage.ru_stime);
-            subTimevals(&tv, &lastRTime);
-
-            float userTime = timevalToSeconds(&rusage.ru_utime);
-            float systemTime = timevalToSeconds(&rusage.ru_stime);
-            float realTime = timevalToSeconds(&tv);
-            Log("GC: %s CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f\n", stage, userTime, 
-                systemTime, realTime, realTime == 0.0 ? 0.0 : (userTime + systemTime) / realTime);
-            lastUsage = nextUsage;
-            lastRTime = nextTime;
-        }
-        break;
-
-    case GCTimeEnd:
-        {
-            struct rusage rusage;
-            if (getrusage(RUSAGE_SELF, &rusage) != 0)
-                return;
-            lastUsage = rusage;
-            long pageFaults = GetPaging(rusage.ru_majflt);
-            subTimevals(&rusage.ru_utime, &startUsage.ru_utime);
-            subTimevals(&rusage.ru_stime, &startUsage.ru_stime);
-            totalGCUserCPU.add(rusage.ru_utime);
-            totalGCSystemCPU.add(rusage.ru_stime);
-            struct timeval tv;
-            if (gettimeofday(&tv, NULL) != 0)
-                return;
-            lastRTime = tv;
-            subTimevals(&tv, &startRTime);
-            totalGCReal.add(tv);
-
-            if (debugOptions & DEBUG_GC)
-            {
-                float userTime = timevalToSeconds(&rusage.ru_utime);
-                float systemTime = timevalToSeconds(&rusage.ru_stime);
-                float realTime = timevalToSeconds(&tv);
-                Log("GC: CPU user: %0.3f system: %0.3f real: %0.3f speed up %0.1f page faults %ld\n", userTime, 
-                    systemTime, realTime, realTime == 0.0 ? 0.0 :(userTime + systemTime) / realTime,
-                    pageFaults-startPF);
-            }
-            minorGCUserCPU.add(rusage.ru_utime);
-            majorGCUserCPU.add(rusage.ru_utime);
-            minorGCSystemCPU.add(rusage.ru_stime);
-            majorGCSystemCPU.add(rusage.ru_stime);
-            minorGCReal.add(tv);
-            majorGCReal.add(tv);
-            minorGCPageFaults += pageFaults - startPF;
-            majorGCPageFaults += pageFaults - startPF;
-            startRTime = lastRTime;
-            startPF = pageFaults;
-            startUsage = lastUsage;
-            globalStats.copyGCTimes(totalGCUserCPU, totalGCSystemCPU);
-        }
-    }
-#endif
+// Record the recovery rate and cost after running the GC sharing pass.
+// TODO: We should probably average these because if we've run a full
+// sharing pass and then a full GC after the recovery rate will be zero.
+void HeapSizeParameters::RecordSharingData(POLYUNSIGNED recovery)
+{
+    sharingWordsRecovered = recovery;
+    TIMEDATA userTime, systemTime, realTime;
+    long pageCount;
+    if (! GetLastStats(userTime, systemTime, realTime, pageCount))
+        return;
+    userTime.sub(startUsageU);  // Times since the start
+    systemTime.sub(startUsageS);
+    sharingCPU = userTime;
+    sharingCPU.add(systemTime);
 }
 
 Handle HeapSizeParameters::getGCUtime(TaskData *taskData) const
@@ -731,22 +710,13 @@ void HeapSizeParameters::Init()
     struct timeval s;
     gettimeofday(&s, NULL);
 #endif
-    startTime.add(s);
+    startTime = s;  // Overall start time
+    startRTime = startTime; // Start of this non-gc phase
 
     resetMajorTimingData();
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    memset(&startUsageU, 0, sizeof(startUsageU));
-    memset(&startUsageS, 0, sizeof(startUsageS));
-    memset(&lastUsageU, 0, sizeof(lastUsageU));
-    memset(&lastUsageS, 0, sizeof(lastUsageS));
-    memset(&lastRTime, 0, sizeof(lastRTime));
-    GetSystemTimeAsFileTime(&startRTime);
     startPF = GetPaging(0);
 #else
-    memset(&startUsage, 0, sizeof(startUsage));
-    memset(&lastUsage, 0, sizeof(lastUsage));
-    memset(&lastRTime, 0, sizeof(lastRTime));
-    gettimeofday(&startRTime, NULL);
     startPF = GetPaging(0);
 #endif
 }
