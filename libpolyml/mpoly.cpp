@@ -189,7 +189,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
                             printf("Incomplete %s option\n", argTable[j].argName);
                         break;
                     case OPT_GCPERCENT:
-                        gcpercent = strtol(p, &endp, 10) * 1024;
+                        gcpercent = strtol(p, &endp, 10);
                         if (*endp != '\0') 
                             printf("Incomplete %s option\n", argTable[j].argName);
                         if (gcpercent < 1 || gcpercent > 99)
