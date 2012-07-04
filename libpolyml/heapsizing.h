@@ -74,9 +74,9 @@ public:
 private:
     // Estimate the GC cost for a given heap size.  The result is the ratio of
     // GC time to application time.
-    double costFunction(POLYUNSIGNED heapSize, bool withSharing);
+    double costFunction(POLYUNSIGNED heapSize, bool withSharing, bool withSharingCost);
 
-    void getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing);
+    bool getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing);
 
     // Set if we should do a full GC next time instead of a minor GC.
     bool fullGCNextTime;
@@ -89,8 +89,8 @@ private:
     double sharingCostFactor;
     // The actual number of words recovered in the last sharing pass
     POLYUNSIGNED sharingWordsRecovered;
-    // The number of major GCs since the last sharing pass.
-    unsigned gcsWithoutSharing;
+    // The saving we would have made by enabling sharing in the past
+    double cumulativeSharingSaving;
 
     // Maximum and minimum heap size as given by the user.
     POLYUNSIGNED minHeapSize, maxHeapSize;
@@ -99,6 +99,8 @@ private:
     double userGCRatio;
     // Actual ratio for the last major GC
     double lastMajorGCRatio;
+    // Predicted ratio for the next GC
+    double predictedRatio;
 
     POLYUNSIGNED lastFreeSpace, currentSpaceUsed;
     // Set to false if an allocation failed.  Indicates that

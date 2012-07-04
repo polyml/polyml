@@ -133,7 +133,7 @@ HeapSizeParameters::HeapSizeParameters()
     pagingLimitSize = 0;
     highWaterMark = 0;
     sharingWordsRecovered = 0;
-    gcsWithoutSharing = 0;
+    cumulativeSharingSaving = 0;
     // Initial values until we've actually done a sharing pass.
     sharingRecoveryRate = 0.17; // Default 17%
     sharingCostFactor = 2; // It doubles the cost
@@ -189,11 +189,11 @@ void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, u
     highWaterMark = initialSize;
 
     if (percent == 0)
-        userGCRatio = 0.25F; // Default to 20% GC to 80% application
+        userGCRatio = 1.0 / 9.0; // Default to 10% GC to 90% application
     else
         userGCRatio = (float)percent / (float)(100 - percent);
 
-    lastMajorGCRatio = userGCRatio;
+    predictedRatio = lastMajorGCRatio = userGCRatio;
 
     if (debugOptions & DEBUG_HEAPSIZE)
     {
@@ -301,9 +301,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
         // Subtract the sharing cost from the GC cost because the initial estimate is
         // the cost without running the sharing pass.
         gc.sub(sharingCPU);
-        gcsWithoutSharing = 0;
     }
-    else gcsWithoutSharing++;
 
     if (gc.toSeconds() != 0.0 && nonGc.toSeconds() != 0.0)
         lastMajorGCRatio = gc.toSeconds() / nonGc.toSeconds();
@@ -341,21 +339,50 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
         }
     }
 
-    POLYUNSIGNED newHeapSizeWithout, newHeapSizeWith, newHeapSize;
-    double costWithout, costWith, cost;
-    getCostAndSize(newHeapSizeWithout, costWithout, false);
-    getCostAndSize(newHeapSizeWith, costWith, true);
-    if (costWith < costWithout)
+    POLYUNSIGNED newHeapSize;
+    double cost;
+    if (getCostAndSize(newHeapSize, cost, false))
     {
-        performSharingPass = true;
-        newHeapSize = newHeapSizeWith;
-        cost = costWith;
+        // We are at the target level.  We don't want to attempt sharing.
+        performSharingPass = false;
+        cumulativeSharingSaving = 0;
     }
     else
     {
-        performSharingPass = false;
-        newHeapSize = newHeapSizeWithout;
-        cost = costWithout;
+        POLYUNSIGNED newHeapSizeWithSharing;
+        double costWithSharing;
+        (void)getCostAndSize(newHeapSizeWithSharing, costWithSharing, true);
+        // Run the sharing pass if that would give a lower cost.
+        // Subtract the cumulative saving that would have been made if the
+        // sharing had been run before.  This is an estimate and depends on the
+        // extent to which a reduction in the heap earlier would be carried through
+        // to later GCs.
+        cumulativeSharingSaving =
+            cumulativeSharingSaving * ((double)currentSpaceUsed / (double)heapSpace);
+        if (debugOptions & DEBUG_HEAPSIZE)
+            Log("Heap: Cumulative sharing saving %0.2f\n", cumulativeSharingSaving);
+        if (costWithSharing - cumulativeSharingSaving < cost)
+        {
+            // Run the sharing pass next time.
+            performSharingPass = true;
+            newHeapSize = newHeapSizeWithSharing;
+            cost = costWithSharing;
+            cumulativeSharingSaving = 0;
+        }
+        else
+        {
+            // Don't run the sharing pass next time
+            performSharingPass = false;
+            // Running a sharing pass reduces the heap for subsequent
+            // runs.  Add this into the cost.
+            double freeSharingCost = costFunction(newHeapSizeWithSharing, true, false);
+            if (freeSharingCost < cost && freeSharingCost > userGCRatio)
+            {
+                if (debugOptions & DEBUG_HEAPSIZE)
+                    Log("Heap: Previous sharing would have saved %0.2f\n", cost - freeSharingCost);
+                cumulativeSharingSaving += cost - freeSharingCost;
+            }
+        }
     }
 
     if (debugOptions & DEBUG_HEAPSIZE)
@@ -378,6 +405,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
     gMem.SetSpaceBeforeMinorGC(nextLimit-gMem.CurrentHeapSize());
 
     lastFreeSpace = newHeapSize - currentSpaceUsed;
+    predictedRatio = cost;
 }
 
 // Called after a minor GC.  Currently does nothing.
@@ -437,7 +465,7 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
 
     // Trigger a full GC if the live data is very large or if we have exceeeded
     // the target ratio over several GCs (this smooths out small variations).
-    if ((minorGCsSinceMajor > 4 && g > userGCRatio*0.8) || majorGCPageFaults > 100)
+    if ((minorGCsSinceMajor > 4 && g > predictedRatio*0.8) || majorGCPageFaults > 100)
         fullGCNextTime = true;
     return true;
 }
@@ -445,24 +473,23 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
 // Estimate the GC cost for a given heap size.  The result is the ratio of
 // GC time to application time.
 // This is really guesswork.
-double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize, bool withSharing)
+double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize, bool withSharing, bool withSharingCost)
 {
     POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     POLYUNSIGNED currentFreeSpace = heapSpace - currentSpaceUsed;
     POLYUNSIGNED averageFree = (lastFreeSpace + currentFreeSpace) / 2;
+    POLYUNSIGNED spaceUsed = currentSpaceUsed;
     if (heapSize <= currentSpaceUsed)
         return 1.0E6;
     // If we run the sharing pass the live space will be smaller.
     if (withSharing)
-        currentSpaceUsed -= (POLYUNSIGNED)((double)currentSpaceUsed * sharingRecoveryRate);
-    POLYUNSIGNED estimatedFree = heapSize - currentSpaceUsed;
+        spaceUsed -= (POLYUNSIGNED)((double)currentSpaceUsed * sharingRecoveryRate);
+    POLYUNSIGNED estimatedFree = heapSize - spaceUsed;
     // The cost scales as the inverse of the amount of free space.
     double result = lastMajorGCRatio * (double)averageFree / (double)estimatedFree;
-    // If we run the sharing pass the GC cost will increase.  The additional cost is
-    // the cost of doing the sharing divided over the number of GCs since the last time
-    // we ran the sharing pass.
-    if (withSharing)
-        result += result*sharingCostFactor / (gcsWithoutSharing+1);
+    // If we run the sharing pass the GC cost will increase.
+    if (withSharing && withSharingCost)
+        result += result*sharingCostFactor;
 
     // The paging contribution depends on the page limit
     double pagingCost = 0.0;
@@ -482,11 +509,13 @@ double HeapSizeParameters::costFunction(POLYUNSIGNED heapSize, bool withSharing)
     return result;
 }
 
-// Calculate the size for the minimum cost.
+// Calculate the size for the minimum cost.  Returns true if this is bounded by
+// the user GC ratio and false if we minimised the cost
 // TODO: This could definitely be improved although it's not likely to contribute much to
 // the overall cost of a GC.
-void HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing)
+bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bool withSharing)
 {
+    bool isBounded = false;
     POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     // Calculate a new heap size.  We allow a maximum doubling or halving of size.
     // It's probably more important to limit the increase in case we hit paging.
@@ -495,16 +524,20 @@ void HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
     POLYUNSIGNED sizeMin = heapSpace / 2;
     if (sizeMin < minHeapSize) sizeMin = minHeapSize;
 
-    double costMin = costFunction(sizeMin, withSharing);
-    if (costMin > userGCRatio)
+    double costMin = costFunction(sizeMin, withSharing, true);
+    if (costMin < userGCRatio)
         // If the cost of the minimum is below the target we
         // use that and don't need to look further.
+        isBounded = true;
+    else
     {
-        double costMax = costFunction(sizeMax, withSharing);
+        double costMax = costFunction(sizeMax, withSharing, true);
         while (sizeMax - sizeMin > gMem.DefaultSpaceSize())
         {
             POLYUNSIGNED sizeNext = (sizeMin + sizeMax) / 2;
-            double cost = costFunction(sizeNext, withSharing);
+            double cost = costFunction(sizeNext, withSharing, true);
+            if (cost < userGCRatio)
+                isBounded = true;
             if (cost < userGCRatio || (costMax > costMin && costMax > userGCRatio))
             {
                 sizeMax = sizeNext;
@@ -519,8 +552,11 @@ void HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
         }
     }
     ASSERT(sizeMin >= minHeapSize && sizeMin <= maxHeapSize);
+    // If we are bounded by the user GC ratio we actually return the size and cost
+    // that is slightly above the user ratio.
     heapSize = sizeMin;
     cost = costMin;
+    return isBounded;
 }
 
 bool HeapSizeParameters::RunMajorGCImmediately()
