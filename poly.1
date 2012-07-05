@@ -1,13 +1,12 @@
-.TH POLY 1 "Poly/ML Version 5.4 2010"
+.TH POLY 1 "Poly/ML Version 5.5 2012"
 .SH NAME
 poly \- the Poly/ML Standard ML implementation
 .SH SYNOPSIS
 .B poly
 .SH DESCRIPTION
 .I poly
-starts the Poly/ML shell. Poly/ML is an implementation of Standard ML developed by David Matthews at
-the University of Cambridge, at the Laboratory for Foundations of Computer Science (LFCS) at
-the University of Edinburgh and maintained as a project supported by contributors. 
+starts the Poly/ML shell. Poly/ML is an implementation of Standard ML written by David Matthews
+originally at the University of Cambridge and maintained as a project supported by contributors. 
 .SH OPTIONS
 .TP
 .B \-v
@@ -19,6 +18,13 @@ Print a list of the arguments and exit.
 .B \-q
 Suppress the start-up message.
 .TP
+.B \--use FILE
+Reads input from FILE as though executing the ML command 'use "FILE";' before the ML shell starts.
+.TP
+.B \--error-exit
+Normally if the ML code raises an unhandled exception control returns to the ML shell.  With this
+option the shell exits on an unhandled exception.
+.TP
 .B \--with-markup
 Include extra mark-up information when printing.  This is only suitable when Poly/ML is run under
 an environment that is able to decode the additional information.
@@ -27,16 +33,22 @@ an environment that is able to decode the additional information.
 Run the IDE communications protocol rather than the normal read-eval-print loop.  Only suitable
 for running within a development environment.
 .TP
-.BI \-H " size, " \--heap " size"
-Set the initial heap size, in MB.  This is used to set the size of the immutables and
-mutables segments if one or other is not explicitly specified.  The heap may grow larger
-than this if required.
+.BI\--minheap " size, " \-H " size" 
+Set the minimum heap size, in MB.  The heap will not shrink below this value.  It is also used as
+the initial heap size
 .TP
-.BI \--immutable " size"
-Set the size of the immutables segment, in MB.  This controls the frequency of major garbage collections.
+.BI \--maxheap " size"
+Set the maximum heap size, in MB.  The heap will not grow above this value.
 .TP
-.BI \--mutable " size"
-Set the size of the mutables segment, in MB.  This controls the frequency of minor garbage collections.
+.BI \--gcpercent " percent"
+Set the target percentage of time that the code should spend in the garbage collector.  The heap
+sizer will attempt to set the heap size to achieve this target consistent with the minimum and
+maximum heap sizes given by the arguments and also consistent with keeping paging under control.
+.TP
+.BI \--gcthreads " threads"
+Sets the number of threads used in the parallel garbage collector.  Setting this to 1 forces the
+garbage collector to be single-threaded.  The value 0, the default, is taken to be the number of
+processors (cores) available.
 .TP
 .BI \--debug " options"
 Set various debugging options for the run-time system.
