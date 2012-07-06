@@ -38,6 +38,10 @@
 #include <stdlib.h>
 #endif
 
+#ifdef HAVE_STDARG_H
+#include <stdarg.h>
+#endif
+
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
@@ -74,7 +78,7 @@
 #endif
 
 static void  InitHeaderFromExport(exportDescription *exports);
-NORETURNFN(static void Usage(const char *message));
+NORETURNFN(static void Usage(const char *message, ...));
 
 // Return the entry in the io vector corresponding to the Poly system call.
 PolyWord *IoEntry(unsigned sysOp)
@@ -130,6 +134,48 @@ static struct __debugOpts {
     { "rts",                "General run-time system calls",                    DEBUG_RTSCALLS}
 };
 
+// Parse a parameter that is meant to be a size.  Returns the value as a number
+// of kilobytes.
+unsigned parseSize(const char *p, const char *arg)
+{
+    unsigned result = 0;
+    if (*p < '0' || *p > '9')
+        // There must be at least one digit
+        Usage("Incomplete %s option\n", arg);
+    while (true)
+    {
+        result = result*10 + *p++ - '0';
+        if (*p == 0)
+        {
+            // The default is megabytes
+            result *= 1024;
+            break;
+        }
+        if (*p == 'G' || *p == 'g')
+        {
+            result *= 1024 * 1024;
+            p++;
+            break;
+        }
+        if (*p == 'M' || *p == 'm')
+        {
+            result *= 1024;
+            p++;
+            break;
+        }
+        if (*p == 'K' || *p == 'k')
+        {
+            p++;
+            break;
+        }
+        if (*p < '0' || *p > '9')
+            break;
+    }
+    if (*p != 0)
+        Usage("Malformed %s option\n", arg);
+    return result;
+}
+
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
@@ -175,38 +221,36 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         if (*p == '=') p++; // Skip an equals sign
                     }
                     if (i >= argc)
-                        printf("Incomplete %s option\n", argTable[j].argName);
+                        Usage("Incomplete %s option\n", argTable[j].argName);
                     else switch (argTable[j].argKey)
                     {
                     case OPT_HEAPMIN:
-                        minsize = strtol(p, &endp, 10) * 1024;
-                        if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
+                        minsize = parseSize(p, argTable[j].argName);
                         break;
                     case OPT_HEAPMAX:
-                        maxsize = strtol(p, &endp, 10) * 1024;
-                        if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
+                        maxsize = parseSize(p, argTable[j].argName);
                         break;
                     case OPT_GCPERCENT:
                         gcpercent = strtol(p, &endp, 10);
                         if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
+                            Usage("Malformed %s option\n", argTable[j].argName);
                         if (gcpercent < 1 || gcpercent > 99)
                         {
-                            printf("GC percentage must be between 1 and 99\n");
+                            Usage("%s argument must be between 1 and 99\n", argTable[j].argName);
                             gcpercent = 0;
                         }
                         break;
                     case OPT_RESERVE:
-                        gHeapSizeParameters.SetReservation(strtol(p, &endp, 10) * 1024);
-                        if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
-                        break;
+                        {
+                            unsigned reserve = parseSize(p, argTable[j].argName);
+                            if (reserve != 0)
+                                gHeapSizeParameters.SetReservation(strtol(p, &endp, 10) * 1024);
+                            break;
+                        }
                     case OPT_GCTHREADS:
                         userOptions.gcthreads = strtol(p, &endp, 10);
                         if (*endp != '\0') 
-                            printf("Incomplete %s option\n", argTable[j].argName);
+                            Usage("Incomplete %s option\n", argTable[j].argName);
                         break;
                     case OPT_DEBUGOPTS:
                         while (*p != '\0')
@@ -247,7 +291,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
     }
 
     if (exports == 0 && importFileName == 0)
-        Usage("Missing import file name");
+        Usage("Missing import file name\n");
 
     if (userOptions.gcthreads == 0)
         // For the moment, at any rate, indicate that we should use as many
@@ -324,10 +368,14 @@ void finish (int n)
 }
 
 // Print a message and exit if an argument is malformed.
-void Usage(const char *message)
+void Usage(const char *message, ...)
 {
-    if (message)
-        printf("%s\n", message);
+    va_list vl;
+    printf("\n");
+    va_start(vl, message);
+    vprintf(message, vl);
+    va_end(vl);
+
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
         printf("%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
