@@ -222,21 +222,23 @@ void SortVector::sharingTask(GCTaskId*, void *a, void *b)
     // to build an array and sort that.
 
     PolyObject **objTable = (PolyObject **)malloc(vecSize * sizeof(PolyObject*));
-    if (objTable == 0)
-        return;
 
     POLYUNSIGNED p = 0;
-
     // Create the table and restore the length words.  They're
     // needed for the comparison function when we sort.
+    // N.B. We must do this even if we failed to allocate the table.
     for (PolyObject *obj = oentry->objList; obj != 0; p++)
     {
         PolyObject *next = obj->GetShareChain();
         obj->SetLengthWord(s->lengthWord);
-        objTable[p] = obj;
+        if (objTable != 0)
+            objTable[p] = obj;
         obj = next;
     }
     ASSERT(p == vecSize);
+
+    if (objTable == 0)
+        return;
 
     qsort(objTable, vecSize, sizeof(PolyObject*), qsCompare);
 
@@ -253,7 +255,6 @@ void SortVector::sharingTask(GCTaskId*, void *a, void *b)
     }
 
     free(objTable);
-
 }
 
 void SortVector::SortData()
