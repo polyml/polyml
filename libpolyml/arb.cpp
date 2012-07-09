@@ -1669,7 +1669,7 @@ Handle gcd_arbitrary(TaskData *taskData, Handle x, Handle y)
         if (t != 0)
             rl[rZeroLimbs+lx] = t;
     }
-    else memcpy(rl+rZeroLimbs, xC, lx);
+    else memcpy(rl+rZeroLimbs, xC, lx * sizeof(mp_limb_t));
 
     return make_canonical(taskData, r, false);
 }
