@@ -490,10 +490,9 @@ struct
 
                 fun addToInstance([], []) = []
                 |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
-                |   addToInstance([], _) = []
-						(* This case can occur if we are producing an error message because of
-						   a type-incorrect program so we just ignore it. *)
-                        (*raise InternalError "addToInstance: Entry in instance but not in generic"*)
+                |   addToInstance([], instance) = instance
+                        (* This case can occur if we are producing an error message because of
+                           a type-incorrect program so we just ignore it. *)
                 |   addToInstance(generic :: geRest, inst as instance :: iRest) =
                     let
                         val order = compareLabels (generic, #name instance);
@@ -502,7 +501,8 @@ struct
                         then instance :: addToInstance(geRest, iRest)
                         else if order < 0 (* generic name < instance name *)
                         then createNewField generic :: addToInstance(geRest, inst)
-                        else raise InternalError "addToInstance: Entry in instance but not in generic"
+                        else (* This is another case that can occur with type-incorrect code. *)
+                            instance :: addToInstance(generic :: geRest, iRest)
                     end
 
                 val newList = addToInstance(recordFields r, recList)
