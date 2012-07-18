@@ -18,6 +18,43 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 */
+
+/*  GC Sharing pass.
+    This pass is invoked only if the heap sizing code detects that heap space
+    is running very short because it adds a very considerable overhead to GC.
+    It aims to reduce the size of the live data in a similar way to the data
+    sharing function PolyML.shareCommonData by merging immutable cells that
+    contain data that cannot be distinguished.  Unlike the full sharing function
+    this only combines cells that have identical contents although repeated calls
+    will merge more complicated data structures.  The first time it is called
+    identical leaves will be merged and the next time cells that refer to
+    these leaves will be merged since the addresses will now be the same,
+    and so on.  The full sharing code requires two additional words for
+    each cell in the original heap but since this is likely to be called
+    when memory is short we cannot afford that overhead.
+
+    This code first does a full pass over the heap creating lists of cells
+    that could possibly be merged.  The heads of the lists are held in
+    hash tables.  There are separate hash tables for each combination
+    of byte and word object and each possible object length from 1 to 10.
+    Larger objects are not considered.  Because all the items in a list
+    have the same length and type (flag bits) we can use the length word
+    to link the items in the list.  A consequence of this is that positive
+    long precision values can be shared but negative values cannot.  If
+    two cells are to be shared they must have the same contents which
+    implies that they must have the same length, type and hash value.
+    Once the lists have been constructed each in turn is turned into
+    a vector and sorted, bringing together cells with the same contents.
+    Finally cells with the same contents are merged by choosing one cell
+    and setting the forwarding pointers on the other cells to point to
+    that.  This relies on the updating process in the mark phase of the
+    GC to update addresses to cells that have been merged.  The sorting
+    and forwarding process can be parallelised because each list is
+    independent.  The reason for using the hash tables is both to
+    spread the load for parallel processing and also to reduce
+    the size of the vectors that need to be allocated for sorting,
+    important because this pass is invoked when memory is short.
+*/
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #elif defined(_WIN32)
@@ -65,7 +102,7 @@ public:
 class SortVector
 {
 public:
-    void AddToVector(PolyObject *obj);
+    void AddToVector(PolyObject *obj, POLYUNSIGNED length);
 
     void SortData(void);
     POLYUNSIGNED Count() const;
@@ -104,9 +141,19 @@ POLYUNSIGNED SortVector::Shared() const
     return shareCount;
 }
 
-void SortVector::AddToVector(PolyObject *obj)
+void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 {
-    ObjEntry *entry = &objEntries[obj->Get(0).AsUnsigned() & 0xff];
+    /* Each object of a particular size is added to a hash table.
+       The idea is to spread the work evenly between the tasks when
+       we come to sort the entries.  We merge entries with identical
+       contents which means they must have the same has value.  Word
+       objects containing addresses are likely to be fairly well
+       distributed whatever hash function is used but strings probably
+       only contain ASCII characters. */
+    unsigned char hash = 0;
+    for(POLYUNSIGNED i = 0; i < length*sizeof(PolyWord); i++)
+        hash += obj->AsBytePtr()[i];
+    ObjEntry *entry = &objEntries[hash & 0xff];
     obj->SetShareChain(entry->objList);
     entry->objList = obj;
     entry->objCount++;
@@ -189,14 +236,14 @@ void GetSharing::Completed(PolyObject *obj)
         POLYUNSIGNED length = obj->Length();
         ASSERT(length != 0);
         if (length <= NUM_WORD_VECTORS)
-            wordVectors[length-1].AddToVector(obj);
+            wordVectors[length-1].AddToVector(obj, length);
     }
     else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == F_BYTE_OBJ)
     {
         POLYUNSIGNED length = obj->Length();
         ASSERT(length != 0);
         if (length <= NUM_BYTE_VECTORS)
-            byteVectors[length-1].AddToVector(obj);
+            byteVectors[length-1].AddToVector(obj, length);
     }
 }
 
