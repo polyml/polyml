@@ -2192,9 +2192,24 @@ struct
      end (* assign *);
 
     (* First find see if typeA and typeB are unified to anything
-       already, and get the end of a list of "flexibles". *)
-    val tA = eventual Atype;
-    val tB = eventual Btype;
+       already, and get the end of a list of "flexibles".
+       Also follow any type functions.  This is needed because of
+       pathological cases involving type equivalences with type
+       variables that do not appear on the RHS e.g. type 'a t = int.
+       TODO: There are cases that check for type equivalences later
+       on that are now redundant. *)
+    local
+        fun followVarsAndTypeFunctions t =
+            case eventual t of
+                ev as TypeConstruction{constr, args, ...} =>
+                if tcIsAbbreviation constr
+                then followVarsAndTypeFunctions(makeEquivalent (constr, args))
+                else ev
+            |   ev => ev
+    in
+        val tA = followVarsAndTypeFunctions Atype
+        and tB = followVarsAndTypeFunctions Btype
+    end
 
     in (* start of "match" *)
     if isUndefinedType tA orelse isUndefinedType tB
@@ -2681,60 +2696,88 @@ struct
             }
         end
 
-        fun general (TypeVar tvar) showError =
-            if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
-                andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
-            then let
-                (* Is this an overload set ? *)
-                val isOverloadSet = 
-                    case tvValue tvar of
-                        OverloadSet _ => true
-                    |    _ => false
+        fun general t (genArgs as (showError, nonExpansive)) =
+            case eventual t of
+                TypeVar tvar =>
+                if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
+                    andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
+                then
+                let
+                    (* Is this an overload set ? *)
+                    val isOverloadSet = 
+                        case tvValue tvar of
+                            OverloadSet _ => true
+                        |    _ => false
 
-                (* Make a new generisable type variable, except that type
-                   variables in an expansive context cannot be generalised.
-                   We also don't generalise if this is an overload set.
-                   The reason for that is that it allows us to get overloading
-                   information from the surrounding context.
-                   e.g. let fun f x y = x+y in f 2.0 end.  An alternative
-                   would be take the default type (in this case int).
-                   DCJM 1/9/00. *)
-                val nonCopiable = not nonExpansive orelse isOverloadSet;
-                val newLevel =
-                   if nonCopiable then level-1 else generalisable (* copiable *);
+                    (* Make a new generisable type variable, except that type
+                       variables in an expansive context cannot be generalised.
+                       We also don't generalise if this is an overload set.
+                       The reason for that is that it allows us to get overloading
+                       information from the surrounding context.
+                       e.g. let fun f x y = x+y in f 2.0 end.  An alternative
+                       would be take the default type (in this case int).
+                       DCJM 1/9/00. *)
+                    val nonCopiable = not nonExpansive orelse isOverloadSet;
+                    val newLevel =
+                       if nonCopiable then level-1 else generalisable (* copiable *);
 
-                val isOk =
-                    (* If the type variable has top-level scope then we have
-                       a free type variable.  We only want to generate this
-                       message once even if we have multiple type variables.*)
-                    (* If the type variable is non-unifiable and the expression is
-                       expansive then we have an error since this will have to
-                       be a monotype.  *)
-                    if tvNonUnifiable tvar andalso nonCopiable andalso showError
+                    val isOk =
+                        (* If the type variable has top-level scope then we have
+                           a free type variable.  We only want to generate this
+                           message once even if we have multiple type variables.*)
+                        (* If the type variable is non-unifiable and the expression is
+                           expansive then we have an error since this will have to
+                           be a monotype.  *)
+                        if tvNonUnifiable tvar andalso nonCopiable andalso showError
+                        then
+                            (
+                            giveError("Type", "includes a free type variable");
+                            false
+                            )
+                        else showError;
+                    val newVal =
+                         mkTypeVar 
+                           (newLevel, tvEquality tvar,
+                            if nonCopiable then (tvNonUnifiable tvar) else false,
+                            tvPrintity tvar)
+                in
+                    (* If an explicit type variable is going out of scope we can
+                       generalise it, except if it is nonunifiable. *)
+                    (* It may be a flexible record so we have to transfer the
+                       record to the new variable. *)
+                    tvSetValue (typesTypeVar newVal, tvValue tvar);
+                    tvSetValue (tvar, newVal);
+                    general (tvValue tvar) (isOk, nonExpansive) (* Process any flexible record. *)
+                end
+                else general (tvValue tvar) genArgs (* Process the value - it may be a flexible record *)
+           
+            |   TypeConstruction {args, constr, ...} =>
+                    (* There is a pathological case here.  If we have a type equivalence
+                       which contains type variables that do not occur on the RHS
+                       (e.g. type 'a t = int) then we generalise over them even with an
+                       expansive expression.  This is because the semantics treats type
+                       abbreviations as type functions and so any type variables that
+                       are eliminated by the function application do not appear in the
+                       "type" that the semantics applies to the expression. *)
+                    if tcIsAbbreviation constr
                     then
-                        (
-                        giveError("Type", "includes a free type variable");
-                        false
-                        )
-                    else showError;
-                val newVal =
-                     mkTypeVar 
-                       (newLevel, tvEquality tvar,
-                        if nonCopiable then (tvNonUnifiable tvar) else false,
-                        tvPrintity tvar)
-            in
-                (* If an explicit type variable is going out of scope we can
-                   generalise it, except if it is nonunifiable. *)
-                (* It may be a flexible record so we have to transfer the
-                   record to the new variable. *)
-                tvSetValue (typesTypeVar newVal, tvValue tvar);
-                tvSetValue (tvar, newVal);
-                isOk
-            end
-            else showError
-        | general _ isOk = isOk
+                    let
+                        val (r1, _) = general(makeEquivalent (constr, args)) genArgs
+                        (* Process any arguments that have not been processed in the equivalent. *)
+                        val (r2, _) = List.foldr (fn (t, v) => general t v) (r1, true) args
+                    in
+                        (r2, nonExpansive)
+                    end
+                    else List.foldr (fn (t, v) => general t v) genArgs args
+
+            |   FunctionType {arg, result} => general arg (general result genArgs)
+
+            |   LabelledType {recList,...} =>
+                    List.foldr (fn ({ typeof, ... }, v) => general typeof v) genArgs recList
+
+            |   _ => genArgs
     in
-        foldType general t true;
+        general t (true, nonExpansive);
         ()
     end (*  end allowGeneralisation *);
 
