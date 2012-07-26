@@ -219,9 +219,12 @@ public:
     // are the same) and when allocating heap segments.  If there is insufficient
     // space to satisfy the minimum it will return 0.  Updates "maxWords" with
     // the space actually allocated
-    PolyWord *AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords);
+    PolyWord *AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, bool doAllocation = true);
     PolyWord *AllocHeapSpace(POLYUNSIGNED words)
         { POLYUNSIGNED allocated = words; return AllocHeapSpace(words, allocated); }
+
+    // Check that a subsequent allocation will succeed.  Called from the GC to ensure
+    bool CheckForAllocation(POLYUNSIGNED words);
 
     // Allocate space for the initial stack for a thread.  The caller must
     // initialise the new stack.  Returns 0 if allocation fails.

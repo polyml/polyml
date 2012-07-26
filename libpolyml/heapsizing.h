@@ -47,7 +47,7 @@ public:
     LocalMemSpace *AddSpaceBeforeCopyPhase(bool isMutable);
 
     bool PerformSharingPass() const { return performSharingPass; }
-    void AdjustSizeAfterMajorGC();
+    void AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired);
     bool AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYUNSIGNED spaceBeforeGC);
 
     // Returns true if we should run a major GC at this point

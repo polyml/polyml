@@ -248,19 +248,6 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     // Delete empty spaces.
     gMem.RemoveEmptyLocals();
 
-    // The allocation areas should have been emptied and deallocated.  We
-    // want to create one that is big enough for the required data
-    // to check that it's possible.  If it isn't then we've run out of
-    // memory.
-    bool haveSpace = true;
-    if (wordsRequiredToAllocate != 0)
-    {
-        POLYUNSIGNED needed = gMem.DefaultSpaceSize();
-        if (wordsRequiredToAllocate > needed)
-            needed = wordsRequiredToAllocate;
-        haveSpace = gMem.CreateAllocationSpace(needed) != 0;
-    }
-
     if (debugOptions & DEBUG_GC)
     {
         for(j = 0; j < gMem.nlSpaces; j++)
@@ -302,8 +289,10 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeEnd);
 
     // Now we've finished we can adjust the heap sizes.
-    gHeapSizeParameters.AdjustSizeAfterMajorGC();
+    gHeapSizeParameters.AdjustSizeAfterMajorGC(wordsRequiredToAllocate);
     gHeapSizeParameters.resetMajorTimingData();
+
+    bool haveSpace = gMem.CheckForAllocation(wordsRequiredToAllocate);
 
     // Invariant: the bitmaps are completely clean.
     if (debugOptions & DEBUG_GC)
@@ -365,7 +354,7 @@ public:
         result =
 #ifndef DEBUG_ONLY_FULL_GC
 // If DEBUG_ONLY_FULL_GC is defined then we skip the partial GC.
-            RunQuickGC() ||
+            RunQuickGC(wordsRequired) ||
 #endif
             doGC (wordsRequired);
     }

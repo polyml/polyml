@@ -231,9 +231,14 @@ LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(POLYUNSIGNED space, bool is
     if (spaceAllocated + spaceSize + gMem.DefaultSpaceSize() <= gMem.SpaceForHeap())
     {
         LocalMemSpace *sp = gMem.NewLocalSpace(spaceSize, isMutable); // Return the space or zero if it failed
+        // If this is the first time the allocation failed report it.
+        if (sp == 0 && (debugOptions & DEBUG_HEAPSIZE) && lastAllocationSucceeded)
+        {
+            Log("Heap: Allocation of new heap segment size ");
+            LogSize(spaceSize);
+            Log(" failed.  Limit reached?\n");
+        }
         lastAllocationSucceeded = sp != 0;
-        if ((debugOptions & DEBUG_HEAPSIZE) && ! lastAllocationSucceeded)
-            Log("Heap: Allocation of new heap segment failed.  Limit reached?\n");
         return sp;
     }
     return 0; // Insufficient space
@@ -244,9 +249,9 @@ LocalMemSpace *HeapSizeParameters::AddSpaceInMinorGC(POLYUNSIGNED space, bool is
 LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
 {
     LocalMemSpace *sp = gMem.NewLocalSpace(gMem.DefaultSpaceSize(), isMutable);
-    lastAllocationSucceeded = sp != 0;
-    if ((debugOptions & DEBUG_HEAPSIZE) && ! lastAllocationSucceeded)
+    if (sp == 0 && (debugOptions & DEBUG_HEAPSIZE) && lastAllocationSucceeded)
         Log("Heap: Allocation of new heap segment failed.  Limit reached?\n");
+    lastAllocationSucceeded = sp != 0;
     return sp;
 }
 
@@ -262,7 +267,7 @@ LocalMemSpace *HeapSizeParameters::AddSpaceBeforeCopyPhase(bool isMutable)
 // Growing the heap is just a matter of adjusting the limits.  We
 // don't actually need to allocate the space here.
 // See also adjustHeapSizeAfterMinorGC for adjustments after a minor GC.
-void HeapSizeParameters::AdjustSizeAfterMajorGC()
+void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
 {
     // Cumulative times since the last major GC
     TIMEDATA gc, nonGc;
@@ -280,6 +285,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC()
         currentSpaceUsed += gMem.lSpaces[i]->allocatedSpace();
     }
     POLYUNSIGNED currentFreeSpace = heapSpace - currentSpaceUsed;
+    if (currentFreeSpace < wordsRequired) currentFreeSpace = 0; else currentFreeSpace -= wordsRequired;
 
     // The times for all the minor GCs up to this.  The cost of this (major) GC
     // is actually in minorGCUserCPU/minorGCSystemCPU.

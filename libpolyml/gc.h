@@ -48,7 +48,7 @@ extern GCTaskFarm *gpTaskFarm;
 
 extern void CopyObjectToNewAddress(PolyObject *srcAddress, PolyObject *destAddress, POLYUNSIGNED L);
 
-extern bool RunQuickGC(void);
+extern bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate);
 
 // GC Phases.
 extern void GCSharingPhase(void);

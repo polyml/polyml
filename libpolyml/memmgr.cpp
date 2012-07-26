@@ -544,19 +544,9 @@ void MemMgr::FillUnusedSpace(PolyWord *base, POLYUNSIGNED words)
 // This is used both when allocating single objects (when minWords and maxWords
 // are the same) and when allocating heap segments.  If there is insufficient
 // space to satisfy the minimum it will return 0.
-PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
+PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, bool doAllocation)
 {
     PLocker locker(&allocLock);
-    // If we want to allocate an object that is larger than the default space
-    // there probably won't be an area large enough.  We will need a large area
-    // but to make space we'll have to delete some other spaces.
-    if (minWords > defaultSpaceSize)
-    {
-        if (minWords < spaceBeforeMinorGC)
-            RemoveExcessAllocation(spaceBeforeMinorGC - minWords);
-        else
-            RemoveExcessAllocation(0);
-    }
     // We try to distribute the allocations between the memory spaces
     // so that at the next GC we don't have all the most recent cells in
     // one space.  The most recent cells will be more likely to survive a
@@ -564,7 +554,6 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
     nextAllocator++;
     if (nextAllocator > gMem.nlSpaces) nextAllocator = 0;
 
-    POLYUNSIGNED spaceInAllocs = 0;
     for (unsigned j = 0; j < gMem.nlSpaces; j++)
     {
         LocalMemSpace *space = gMem.lSpaces[(j + nextAllocator) % gMem.nlSpaces];
@@ -577,14 +566,20 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
                 if (available < maxWords)
                     maxWords = available;
                 PolyWord *result = space->lowerAllocPtr; // Return the address.
-                space->lowerAllocPtr += maxWords; // Allocate it.
+                if (doAllocation)
+                    space->lowerAllocPtr += maxWords; // Allocate it.
                 return result;
             }
-            spaceInAllocs += space->spaceSize();
         }
     }
     // There isn't space in the existing areas - can we create a new area?
-    if (spaceInAllocs < spaceBeforeMinorGC && minWords < spaceBeforeMinorGC - spaceInAllocs)
+    // The reason we don't have enough space could simply be that we want to
+    // allocate an object larger than the default space size.  Try deleting
+    // some other spaces to bring currentAllocSpace below spaceBeforeMinorGC - minWords.
+    if (minWords > defaultSpaceSize && minWords < spaceBeforeMinorGC)
+        RemoveExcessAllocation(spaceBeforeMinorGC - minWords);
+
+    if (currentAllocSpace < spaceBeforeMinorGC && minWords < spaceBeforeMinorGC - currentAllocSpace)
     {
         POLYUNSIGNED spaceSize = defaultSpaceSize;
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
@@ -596,10 +591,20 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords)
         if (available < maxWords)
             maxWords = available;
         PolyWord *result = space->lowerAllocPtr; // Return the address.
-        space->lowerAllocPtr += maxWords; // Allocate it.
+        if (doAllocation)
+            space->lowerAllocPtr += maxWords; // Allocate it.
         return result;
     }
     return 0; // There isn't space even for the minimum.
+}
+
+// Check that we have sufficient space for an allocation to succeed.
+// Called from the GC to ensure that we will not get into an infinite
+// loop trying to allocate, failing and garbage-collecting again.
+bool MemMgr::CheckForAllocation(POLYUNSIGNED words)
+{
+    POLYUNSIGNED allocated = 0;
+    return AllocHeapSpace(words, allocated, false) != 0;
 }
 
 // Adjust the allocation area by removing free areas so that the total

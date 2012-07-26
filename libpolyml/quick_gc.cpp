@@ -483,7 +483,7 @@ void ThreadScanner::ScanOwnedAreas()
     nOwnedSpaces = 0;
 }
 
-bool RunQuickGC(void)
+bool RunQuickGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
     // If the last minor GC took too long force a full GC.
     if (gHeapSizeParameters.RunMajorGCImmediately())
@@ -591,14 +591,14 @@ bool RunQuickGC(void)
 
     gpTaskFarm->WaitForCompletion();
 
+    POLYUNSIGNED spaceAfterGC = 0;
+
     if (succeeded)
     {
-
         globalStats.setSize(PSS_AFTER_LAST_GC, 0);
         globalStats.setSize(PSS_ALLOCATION, 0);
         globalStats.setSize(PSS_ALLOCATION_FREE, 0);
         // If it succeeded the allocation areas are now empty.
-        POLYUNSIGNED spaceAfterGC = 0;
         for(unsigned l = 0; l < gMem.nlSpaces; l++)
         {
             LocalMemSpace *lSpace = gMem.lSpaces[l];
@@ -615,6 +615,7 @@ bool RunQuickGC(void)
                 globalStats.incSize(PSS_ALLOCATION_FREE, free*sizeof(PolyWord));
             }
             else free = lSpace->freeSpace();
+
             if (debugOptions & DEBUG_GC)
                 Log("GC: %s space %p %d free in %d words %2.1f%% full\n", lSpace->spaceTypeString(),
                     lSpace, lSpace->freeSpace(), lSpace->spaceSize(),
@@ -623,6 +624,12 @@ bool RunQuickGC(void)
             spaceAfterGC += lSpace->allocatedSpace();
         }
 
+        if (! gMem.CheckForAllocation(wordsRequiredToAllocate))
+            succeeded = false;
+    }
+
+    if (succeeded)
+    {
         gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeEnd);
 
         if (! gHeapSizeParameters.AdjustSizeAfterMinorGC(spaceAfterGC, spaceBeforeGC)) // Adjust the allocation size.
