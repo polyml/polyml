@@ -345,9 +345,19 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
         }
     }
 
+    // Calculate the new heap size and the predicted cost.
     POLYUNSIGNED newHeapSize;
     double cost;
-    if (getCostAndSize(newHeapSize, cost, false))
+    bool atTarget = getCostAndSize(newHeapSize, cost, false);
+    // If we have been unable to allocate any more memory we may already
+    // be at the limit.
+    if (! lastAllocationSucceeded && newHeapSize > gMem.CurrentHeapSize())
+    {
+        cost = costFunction(gMem.CurrentHeapSize(), false, true);
+        atTarget = false;
+    }
+
+    if (atTarget)
     {
         // We are at the target level.  We don't want to attempt sharing.
         performSharingPass = false;
@@ -357,7 +367,11 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     {
         POLYUNSIGNED newHeapSizeWithSharing;
         double costWithSharing;
+        // Get the cost and heap size if sharing was enabled.  If we are at the
+        // limit, though, we need to work using the size we can achieve.
         (void)getCostAndSize(newHeapSizeWithSharing, costWithSharing, true);
+        if (! lastAllocationSucceeded && newHeapSizeWithSharing > gMem.CurrentHeapSize())
+            costWithSharing = costFunction(gMem.CurrentHeapSize(), true, true);
         // Run the sharing pass if that would give a lower cost.
         // Subtract the cumulative saving that would have been made if the
         // sharing had been run before.  This is an estimate and depends on the
