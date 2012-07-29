@@ -50,10 +50,8 @@
     that.  This relies on the updating process in the mark phase of the
     GC to update addresses to cells that have been merged.  The sorting
     and forwarding process can be parallelised because each list is
-    independent.  The reason for using the hash tables is both to
-    spread the load for parallel processing and also to reduce
-    the size of the vectors that need to be allocated for sorting,
-    important because this pass is invoked when memory is short.
+    independent.  The reason for using the hash tables is to
+    spread the load for parallel processing.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -110,12 +108,8 @@ public:
     void SetLengthWord(POLYUNSIGNED l) { lengthWord = l; }
 
 private:
-    static int CompareItems(PolyObject* const *a,  PolyObject* const *b);
-
-    static int qsCompare(const void *a, const void *b)
-        { return CompareItems((PolyObject* const *)a, (PolyObject* const *)b); }
-
     static void sharingTask(GCTaskId*, void *a, void *b);
+    void sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &count);
 
     // Items are pre-sorted by the first byte of the data.
     // This is mainly to create plenty of tasks for parallel
@@ -247,61 +241,74 @@ void GetSharing::Completed(PolyObject *obj)
     }
 }
 
-int SortVector::CompareItems(PolyObject * const *a, PolyObject * const *b)
+// Quicksort the list to detect cells with the same content.  These are made
+// to share and removed from further sorting.
+void SortVector::sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &shareCount)
 {
-    POLYUNSIGNED l1 = (*a)->LengthWord(), l2 = (*b)->LengthWord();
-    if (l1 < l2)
-        return -1;
-    else if (l1 > l2)
-        return 1;
-    else return memcmp(*a, *b, OBJ_OBJECT_LENGTH(l1)*sizeof(PolyWord));
+    while (nItems > 2)
+    {
+        size_t bytesToCompare = OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord);
+        PolyObject *median = head;
+        head = head->GetShareChain();
+        median->SetLengthWord(lengthWord);
+        PolyObject *left = 0, *right = 0;
+        POLYUNSIGNED leftCount = 0, rightCount = 0;
+        while (head != 0)
+        {
+            PolyObject *next = head->GetShareChain();
+            int res = memcmp(median, head, bytesToCompare);
+            if (res == 0) // Equal - they can share
+                head->SetForwardingPtr(median);
+            else if (res < 0)
+            {
+                head->SetShareChain(left);
+                left = head;
+                leftCount++;
+            }
+            else
+            {
+                head->SetShareChain(right);
+                right = head;
+                rightCount++;
+            }
+            head = next;
+        }
+        // We can now drop the median and anything that shares with it.
+        // Process the smaller partition recursively and the larger by
+        // tail recursion.
+        if (leftCount < rightCount)
+        {
+            sortList(left, leftCount, shareCount);
+            head = right;
+            nItems = rightCount;
+        }
+        else
+        {
+            sortList(right, rightCount, shareCount);
+            head = left;
+            nItems = leftCount;
+        }
+    }
+    if (nItems == 1)
+        head->SetLengthWord(lengthWord);
+    else if (nItems == 2)
+    {
+        PolyObject *next = head->GetShareChain();
+        head->SetLengthWord(lengthWord);
+        next->SetLengthWord(lengthWord);
+        if (memcmp(head, next, OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord)) == 0)
+        {
+            next->SetForwardingPtr(head);
+            shareCount++;
+        }
+    }
 }
 
 void SortVector::sharingTask(GCTaskId*, void *a, void *b)
 {
     SortVector *s = (SortVector*)a;
     ObjEntry *oentry = (ObjEntry*)b;
-
-    POLYUNSIGNED vecSize = oentry->objCount;
-    ASSERT(vecSize > 2);
-
-    // We could sort the list directly but it's much more efficient
-    // to build an array and sort that.
-
-    PolyObject **objTable = (PolyObject **)malloc(vecSize * sizeof(PolyObject*));
-
-    POLYUNSIGNED p = 0;
-    // Create the table and restore the length words.  They're
-    // needed for the comparison function when we sort.
-    // N.B. We must do this even if we failed to allocate the table.
-    for (PolyObject *obj = oentry->objList; obj != 0; p++)
-    {
-        PolyObject *next = obj->GetShareChain();
-        obj->SetLengthWord(s->lengthWord);
-        if (objTable != 0)
-            objTable[p] = obj;
-        obj = next;
-    }
-    ASSERT(p == vecSize);
-
-    if (objTable == 0)
-        return;
-
-    qsort(objTable, vecSize, sizeof(PolyObject*), qsCompare);
-
-    PolyObject *share = objTable[0];
-
-    for (POLYUNSIGNED i = 1; i < vecSize; i++)
-    {
-        if (CompareItems(&share, objTable+i) == 0)
-        {
-            objTable[i]->SetForwardingPtr(share);
-            oentry->shareCount++;
-        }
-        else share = objTable[i];
-    }
-
-    free(objTable);
+    s->sortList(oentry->objList, oentry->objCount, oentry->shareCount);
 }
 
 void SortVector::SortData()
@@ -325,7 +332,7 @@ void SortVector::SortData()
                 PolyObject *obj1 = oentry->objList;
                 PolyObject *obj2 = obj1->GetShareChain();
                 obj1->SetLengthWord(lengthWord);
-                if (CompareItems(&obj1, &obj2) == 0)
+                if (memcmp(obj1, obj2, OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord)) == 0)
                 {
                     obj2->SetForwardingPtr(obj1);
                     oentry->shareCount = 1;
