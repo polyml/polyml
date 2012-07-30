@@ -422,7 +422,9 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     // the available memory and causes paging.  We need to raise the limit carefully.
     POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
     if (nextLimit > newHeapSize) nextLimit = newHeapSize;
-    gMem.SetSpaceBeforeMinorGC(nextLimit-gMem.CurrentHeapSize());
+    if (gMem.CurrentHeapSize() > nextLimit)
+        gMem.SetSpaceBeforeMinorGC(0); // Run out of space
+    else gMem.SetSpaceBeforeMinorGC(nextLimit-gMem.CurrentHeapSize());
 
     lastFreeSpace = newHeapSize - currentSpaceUsed;
     predictedRatio = cost;
