@@ -155,7 +155,10 @@ void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 
 // The number of byte and word entries.
 // Objects of up to and including this size are shared.
-#define NUM_BYTE_VECTORS    10
+// Byte objects include strings so it is more likely that
+// larger objects will share.  Word objects that share
+// are much more likely to be 2 or 3 words.
+#define NUM_BYTE_VECTORS    22
 #define NUM_WORD_VECTORS    10
 
 class GetSharing: public RecursiveScanWithStack
@@ -176,6 +179,8 @@ private:
     // The head of chains of cells of the same size
     SortVector byteVectors[NUM_BYTE_VECTORS];
     SortVector wordVectors[NUM_WORD_VECTORS];
+
+    POLYUNSIGNED largeWordCount, largeByteCount, excludedCount;
 };
 
 GetSharing::GetSharing()
@@ -185,6 +190,8 @@ GetSharing::GetSharing()
 
     for (unsigned j = 0; j < NUM_WORD_VECTORS; j++)
         wordVectors[j].SetLengthWord(j+1);
+
+    largeWordCount = largeByteCount = excludedCount = 0;
 }
 
 bool GetSharing::TestForScan(PolyWord *pt)
@@ -231,14 +238,18 @@ void GetSharing::Completed(PolyObject *obj)
         ASSERT(length != 0);
         if (length <= NUM_WORD_VECTORS)
             wordVectors[length-1].AddToVector(obj, length);
+        else largeWordCount++;
     }
-    else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == F_BYTE_OBJ)
+    else if ((L & _OBJ_PRIVATE_FLAGS_MASK) == _OBJ_BYTE_OBJ)
     {
         POLYUNSIGNED length = obj->Length();
         ASSERT(length != 0);
         if (length <= NUM_BYTE_VECTORS)
             byteVectors[length-1].AddToVector(obj, length);
+        else largeByteCount++;
     }
+    else if (! OBJ_IS_CODE_OBJECT(L) && ! OBJ_IS_MUTABLE_OBJECT(L))
+        excludedCount++; // Code and mutables can't be shared - see what could be
 }
 
 // Quicksort the list to detect cells with the same content.  These are made
@@ -257,8 +268,12 @@ void SortVector::sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &s
         {
             PolyObject *next = head->GetShareChain();
             int res = memcmp(median, head, bytesToCompare);
-            if (res == 0) // Equal - they can share
+            if (res == 0)
+            {
+                // Equal - they can share
                 head->SetForwardingPtr(median);
+                shareCount++;
+            }
             else if (res < 0)
             {
                 head->SetShareChain(left);
@@ -376,6 +391,9 @@ void GetSharing::SortData()
         POLYUNSIGNED shared = byteVectors[k].Shared();
         totalShared += shared;
         totalRecovered += shared * (k+2); // Add 2 because the 0th item is one word + length word.
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
+                k+1, byteVectors[k].Count(), byteVectors[k].Shared());
     }
 
     for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
@@ -384,11 +402,18 @@ void GetSharing::SortData()
         POLYUNSIGNED shared = wordVectors[l].Shared();
         totalShared += shared;
         totalRecovered += shared * (l+2);
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
+                l+1, wordVectors[l].Count(), wordVectors[l].Shared());
     }
 
     if (debugOptions & DEBUG_GC)
-        Log("GC: Share: Totals %" POLYUFMT " objects, %" POLYUFMT " shared (%1.0f%%).  %" POLYUFMT " words recovered.\n",
+    {
+        Log("GC: Share: Total %" POLYUFMT " objects, %" POLYUFMT " shared (%1.0f%%).  %" POLYUFMT " words recovered.\n",
             totalSize, totalShared, (double)totalShared / (double)totalSize * 100.0, totalRecovered);
+        Log("GC: Share: Excluding %" POLYUFMT " large word objects %" POLYUFMT " large byte objects and %" POLYUFMT " others\n",
+            largeWordCount, largeByteCount, excludedCount);
+    }
 
     gHeapSizeParameters.RecordSharingData(totalRecovered);
 }
