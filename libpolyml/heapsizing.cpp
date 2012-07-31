@@ -276,7 +276,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     nonGc.add(majorNonGCSystemCPU);
     nonGc.add(majorNonGCUserCPU);
 
-    if (highWaterMark < gMem.CurrentHeapSize()) highWaterMark = gMem.CurrentHeapSize();
+    if (highWaterMark < heapSizeAtStart) highWaterMark = heapSizeAtStart;
 
     POLYUNSIGNED heapSpace = gMem.SpaceForHeap() < highWaterMark ? gMem.SpaceForHeap() : highWaterMark;
     currentSpaceUsed = 0;
@@ -336,13 +336,22 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
             pagingLimitSize = newLimit;
         else 
             pagingLimitSize = (newLimit + pagingLimitSize) / 2;
-
-        if (debugOptions & DEBUG_HEAPSIZE)
-        {
-            Log("Heap: Paging threshold adjusted to ");
-            LogSize(pagingLimitSize);
-            Log(" with %ld page faults\n", majorGCPageFaults);
-        }
+    }
+    if (! lastAllocationSucceeded)
+    {
+        // If the last allocation failed then we may well have reached the
+        // maximum available memory.  Set the paging limit to be the current
+        // heap size.  We want to avoid hitting the limit because typically
+        // that happens when we try to extend the major heap in a minor GC
+        // resulting in the minor GC failing and a major GC starting.
+        if (pagingLimitSize == 0 || heapSizeAtStart < pagingLimitSize)
+            pagingLimitSize = heapSizeAtStart;
+    }
+    if (pagingLimitSize != 0 && (debugOptions & DEBUG_HEAPSIZE))
+    {
+        Log("Heap: Paging threshold adjusted to ");
+        LogSize(pagingLimitSize);
+        Log(" with %ld page faults\n", majorGCPageFaults);
     }
 
     // Calculate the new heap size and the predicted cost.
@@ -351,9 +360,9 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     bool atTarget = getCostAndSize(newHeapSize, cost, false);
     // If we have been unable to allocate any more memory we may already
     // be at the limit.
-    if (! lastAllocationSucceeded && newHeapSize > gMem.CurrentHeapSize())
+    if (! lastAllocationSucceeded && newHeapSize > heapSizeAtStart)
     {
-        cost = costFunction(gMem.CurrentHeapSize(), false, true);
+        cost = costFunction(heapSizeAtStart, false, true);
         atTarget = false;
     }
 
@@ -369,9 +378,13 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
         double costWithSharing;
         // Get the cost and heap size if sharing was enabled.  If we are at the
         // limit, though, we need to work using the size we can achieve.
-        (void)getCostAndSize(newHeapSizeWithSharing, costWithSharing, true);
-        if (! lastAllocationSucceeded && newHeapSizeWithSharing > gMem.CurrentHeapSize())
-            costWithSharing = costFunction(gMem.CurrentHeapSize(), true, true);
+        if (lastAllocationSucceeded)
+            (void)getCostAndSize(newHeapSizeWithSharing, costWithSharing, true);
+        else
+        {
+            newHeapSizeWithSharing = heapSizeAtStart;
+            costWithSharing = costFunction(heapSizeAtStart, true, true);
+        }
         // Run the sharing pass if that would give a lower cost.
         // Subtract the cumulative saving that would have been made if the
         // sharing had been run before.  This is an estimate and depends on the
@@ -385,8 +398,6 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
         {
             // Run the sharing pass next time.
             performSharingPass = true;
-            newHeapSize = newHeapSizeWithSharing;
-            cost = costWithSharing;
             cumulativeSharingSaving = 0;
         }
         else
@@ -420,11 +431,15 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     // Set the minor space size.  It can potentially use the whole of the
     // rest of the available heap but there could be a problem if that exceeds
     // the available memory and causes paging.  We need to raise the limit carefully.
+    // Also, if we use the whole of the heap we may not then be able to allocate
+    // new areas in the major heap without going over the limit.  Restrict it to
+    // half of the available heap.
     POLYUNSIGNED nextLimit = highWaterMark + highWaterMark / 32;
     if (nextLimit > newHeapSize) nextLimit = newHeapSize;
+    // gMem.CurrentHeapSize() is the live space size.
     if (gMem.CurrentHeapSize() > nextLimit)
         gMem.SetSpaceBeforeMinorGC(0); // Run out of space
-    else gMem.SetSpaceBeforeMinorGC(nextLimit-gMem.CurrentHeapSize());
+    else gMem.SetSpaceBeforeMinorGC((nextLimit-gMem.CurrentHeapSize())/2);
 
     lastFreeSpace = newHeapSize - currentSpaceUsed;
     predictedRatio = cost;
@@ -624,7 +639,6 @@ static bool GetLastStats(TIMEDATA &userTime, TIMEDATA &systemTime, TIMEDATA &rea
 // This also reports the GC time if GC debugging is enabled.
 void HeapSizeParameters::RecordGCTime(gcTime isEnd, const char *stage)
 {
-
     switch (isEnd)
     {
     case GCTimeStart:

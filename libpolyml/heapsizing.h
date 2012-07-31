@@ -61,6 +61,8 @@ public:
         GCTimeEnd
     } gcTime;
 
+    void RecordHeapSize(POLYUNSIGNED heapSize) { heapSizeAtStart = heapSize; }
+
     void RecordGCTime(gcTime isEnd, const char *stage = "");
 
     void RecordSharingData(POLYUNSIGNED recovery);
@@ -113,6 +115,9 @@ private:
 
     // The maximum size the heap has reached so far. 
     POLYUNSIGNED highWaterMark;
+
+    // The heap size at the start of the current GC before any spaces have been deleted.
+    POLYUNSIGNED heapSizeAtStart;
 
     // The start of the clock.
     TIMEDATA startTime;
