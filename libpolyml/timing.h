@@ -40,6 +40,10 @@
 #include <sys/resource.h>
 #endif
 
+#ifdef HAVE_WINDOWS_H
+#include <windows.h>
+#endif
+
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
