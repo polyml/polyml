@@ -136,7 +136,7 @@ HeapSizeParameters::HeapSizeParameters()
     sharingWordsRecovered = 0;
     cumulativeSharingSaving = 0;
     // Initial values until we've actually done a sharing pass.
-    sharingRecoveryRate = 0.17; // Default 17%
+    sharingRecoveryRate = 0.5; // The structure sharing recovers half the heap.
     sharingCostFactor = 2; // It doubles the cost
 }
 

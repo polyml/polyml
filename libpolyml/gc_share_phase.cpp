@@ -24,34 +24,43 @@
     is running very short because it adds a very considerable overhead to GC.
     It aims to reduce the size of the live data in a similar way to the data
     sharing function PolyML.shareCommonData by merging immutable cells that
-    contain data that cannot be distinguished.  Unlike the full sharing function
-    this only combines cells that have identical contents although repeated calls
-    will merge more complicated data structures.  The first time it is called
-    identical leaves will be merged and the next time cells that refer to
-    these leaves will be merged since the addresses will now be the same,
-    and so on.  The full sharing code requires two additional words for
-    each cell in the original heap but since this is likely to be called
-    when memory is short we cannot afford that overhead.
+    contain data that cannot be distinguished.
 
-    This code first does a full pass over the heap creating lists of cells
-    that could possibly be merged.  The heads of the lists are held in
-    hash tables.  There are separate hash tables for each combination
-    of byte and word object and each possible object length from 1 to 10.
-    Larger objects are not considered.  Because all the items in a list
-    have the same length and type (flag bits) we can use the length word
-    to link the items in the list.  A consequence of this is that positive
-    long precision values can be shared but negative values cannot.  If
-    two cells are to be shared they must have the same contents which
-    implies that they must have the same length, type and hash value.
-    Once the lists have been constructed each in turn is turned into
-    a vector and sorted, bringing together cells with the same contents.
-    Finally cells with the same contents are merged by choosing one cell
-    and setting the forwarding pointers on the other cells to point to
-    that.  This relies on the updating process in the mark phase of the
-    GC to update addresses to cells that have been merged.  The sorting
-    and forwarding process can be parallelised because each list is
-    independent.  The reason for using the hash tables is to
-    spread the load for parallel processing.
+    This version of the code now does a deep structure merge in a similar
+    way to the full sharing function. This code first does a full pass
+    over the heap creating lists of cells that could possibly be merged.
+    There are separate lists for byte and word objects up to a fixed
+    size.  Larger objects and other objects are not considered. Because
+    all the items in a list have the same length and type (flag bits)
+    we can use the length word to link the items in the list.  A
+    consequence of this is that positive long precision values can be
+    shared but negative values cannot.  
+
+    There is a sharing function that first distributes items into a
+    hash table.  Then each hash table is sorted and as part of the
+    sorting process cells with the same contents are merged.  One
+    cell is chosen and the length words on the others are set to be
+    forwarding pointers to the chosen cell.  Hashing allows for easy
+    parallel processing.
+
+    The structure sharing code works by first sharing the byte
+    data which cannot contain pointers.  Then the word data is processed
+    to separate out "tail" cells that contain only tagged integers or
+    pointers to cells that either cannot be merged, such as mutables,
+    or those that have already been processed, such as the byte data.
+    Any pointers to shared data are updated to point to the merged cell.
+    The tail cells are then sorted and shared using the sharing function
+    and become part of the "processed" set.  This process is repeated to
+    find cells that are now tails and so on.
+
+    Compared with the full sharing code this is expensive since it
+    requires repeated scans of the list of unprocessed cells.  In
+    particular there may be cells that form loops (basically closures
+    for mutually recusive functions) and if they are present they and
+    anything that points directly or indirectly at them will never
+    be removed from the list.  We stop when it appears that we are
+    not making progress and simply do a final bit-wise share of the
+    remainder.
 */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -100,57 +109,45 @@ public:
 class SortVector
 {
 public:
+    SortVector(): totalCount(0), carryOver(0) {}
+
     void AddToVector(PolyObject *obj, POLYUNSIGNED length);
 
     void SortData(void);
-    POLYUNSIGNED Count() const;
+    POLYUNSIGNED TotalCount() const { return totalCount; }
+    POLYUNSIGNED CurrentCount() const { return baseObject.objCount; }
     POLYUNSIGNED Shared() const;
     void SetLengthWord(POLYUNSIGNED l) { lengthWord = l; }
+    POLYUNSIGNED CarryOver() const { return carryOver; }
+
+    static void hashAndSortAllTask(GCTaskId*, void *a, void *b);
+    static void sharingTask(GCTaskId*, void *a, void *b);
+    static void wordDataTask(GCTaskId*, void *a, void *b);
 
 private:
-    static void sharingTask(GCTaskId*, void *a, void *b);
     void sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &count);
 
-    // Items are pre-sorted by the first byte of the data.
-    // This is mainly to create plenty of tasks for parallel
-    // processing.
-    ObjEntry objEntries[256];
-
+    ObjEntry baseObject, processObjects[256];
+    POLYUNSIGNED totalCount;
     POLYUNSIGNED lengthWord;
+    POLYUNSIGNED carryOver;
 };
-
-POLYUNSIGNED SortVector::Count() const
-{
-    POLYUNSIGNED tableCount = 0;
-    for (unsigned i = 0; i < 256; i++)
-        tableCount += objEntries[i].objCount;
-    return tableCount; 
-}
 
 POLYUNSIGNED SortVector::Shared() const
 {
-    POLYUNSIGNED shareCount = 0;
+    // Add all the sharing counts
+    POLYUNSIGNED shareCount = baseObject.shareCount;
     for (unsigned i = 0; i < 256; i++)
-        shareCount += objEntries[i].shareCount;
+        shareCount += processObjects[i].shareCount;
     return shareCount;
 }
 
 void SortVector::AddToVector(PolyObject *obj, POLYUNSIGNED length)
 {
-    /* Each object of a particular size is added to a hash table.
-       The idea is to spread the work evenly between the tasks when
-       we come to sort the entries.  We merge entries with identical
-       contents which means they must have the same has value.  Word
-       objects containing addresses are likely to be fairly well
-       distributed whatever hash function is used but strings probably
-       only contain ASCII characters. */
-    unsigned char hash = 0;
-    for(POLYUNSIGNED i = 0; i < length*sizeof(PolyWord); i++)
-        hash += obj->AsBytePtr()[i];
-    ObjEntry *entry = &objEntries[hash & 0xff];
-    obj->SetShareChain(entry->objList);
-    entry->objList = obj;
-    entry->objCount++;
+    obj->SetShareChain(baseObject.objList);
+    baseObject.objList = obj;
+    baseObject.objCount++;
+    totalCount++;
 }
 
 // The number of byte and word entries.
@@ -166,14 +163,15 @@ class GetSharing: public RecursiveScanWithStack
 public:
     GetSharing();
     void SortData(void);
+    static void shareByteData(GCTaskId *, void *, void *);
+    static void shareWordData(GCTaskId *, void *, void *);
+    static void shareRemainingWordData(GCTaskId *, void *, void *);
 
 protected:
     virtual bool TestForScan(PolyWord *);
     virtual void MarkAsScanning(PolyObject *);
     virtual void StackOverflow(void) {} // Ignore stack overflow
     virtual void Completed(PolyObject *);
-
-    static void startSharing(GCTaskId*, void *a, void *b);
 
 private:
     // The head of chains of cells of the same size
@@ -310,28 +308,105 @@ void SortVector::sortList(PolyObject *head, POLYUNSIGNED nItems, POLYUNSIGNED &s
     {
         PolyObject *next = head->GetShareChain();
         head->SetLengthWord(lengthWord);
-        next->SetLengthWord(lengthWord);
         if (memcmp(head, next, OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord)) == 0)
         {
             next->SetForwardingPtr(head);
             shareCount++;
         }
+        else next->SetLengthWord(lengthWord);
     }
 }
 
 void SortVector::sharingTask(GCTaskId*, void *a, void *b)
 {
-    SortVector *s = (SortVector*)a;
-    ObjEntry *oentry = (ObjEntry*)b;
-    s->sortList(oentry->objList, oentry->objCount, oentry->shareCount);
+    SortVector *s = (SortVector *)a;
+    ObjEntry *o = (ObjEntry*)b;
+    s->sortList(o->objList, o->objCount, o->shareCount);
 }
 
+// Process one level of the word data.
+// N.B.  The length words are updated without any locking.  This is safe
+// because all length words are initially chain entries and a chain entry
+// can be replaced by another chain entry, a forwarding pointer or a normal
+// length word.  Forwarding pointers and normal length words are only ever
+// set once.  There is a small chance that we could lose some sharing as a
+// result of a race condition if a thread defers an object because it
+// contains a pointer with a chain entry and later sees an otherwise
+// equal object where another thread has replaced the chain with a
+// normal address, adds it to the list for immediate processing and
+// so never compares the two.
+void SortVector::wordDataTask(GCTaskId*, void *a, void *)
+{
+    SortVector *s = (SortVector*)a;
+    // Partition the objects between those that have pointers to objects that are
+    // still to be processed and those that have been processed.
+    if (s->baseObject.objList == 0)
+        return;
+    PolyObject *h = s->baseObject.objList;
+    s->baseObject.objList = 0;
+    s->baseObject.objCount = 0;
+    POLYUNSIGNED words = OBJ_OBJECT_LENGTH(s->lengthWord);
+    s->carryOver = 0;
+
+    for (unsigned i = 0; i < 256; i++)
+    {
+        // Clear the entries in the hash table but not the sharing count.
+        s->processObjects[i].objList = 0;
+        s->processObjects[i].objCount = 0;
+    }
+
+    while (h != 0)
+    {
+        PolyObject *next = h->GetShareChain();
+        bool deferred = false;
+        for (POLYUNSIGNED i = 0; i < words; i++)
+        {
+            PolyWord w = h->Get(i);
+            if (w.IsDataPtr())
+            {
+                PolyObject *p = w.AsObjPtr();
+                // Update the addresses of objects that have been merged
+                if (p->ContainsForwardingPtr())
+                {
+                    h->Set(i, p->GetForwardingPtr());
+                    s->carryOver++;
+                }
+                else if (p->ContainsShareChain())
+                {
+                    // If it is still to be shared leave it
+                    deferred = true;
+                    break;
+                }
+            }
+        }
+        if (deferred)
+        {
+            // We can't do it yet: add it back to the list
+            h->SetShareChain(s->baseObject.objList);
+            s->baseObject.objList = h;
+            s->baseObject.objCount++;
+        }
+        else
+        {
+            // Add it to the hash table.
+            unsigned char hash = 0;
+            for (POLYUNSIGNED i = 0; i < words*sizeof(PolyWord); i++)
+                hash += h->AsBytePtr()[i];
+            h->SetShareChain(s->processObjects[hash].objList);
+            s->processObjects[hash].objList = h;
+            s->processObjects[hash].objCount++;
+        }
+        h = next;
+    }
+    s->SortData();
+}
+
+// Sort the entries in the hash table.
 void SortVector::SortData()
 {
     for (unsigned j = 0; j < 256; j++)
     {
-        ObjEntry *oentry = &objEntries[j];
-
+        ObjEntry *oentry = &processObjects[j];
         // Sort this entry.  If it's very small just process it now.
         switch (oentry->objCount)
         {
@@ -350,10 +425,9 @@ void SortVector::SortData()
                 if (memcmp(obj1, obj2, OBJ_OBJECT_LENGTH(lengthWord)*sizeof(PolyWord)) == 0)
                 {
                     obj2->SetForwardingPtr(obj1);
-                    oentry->shareCount = 1;
+                    oentry->shareCount++;
                 }
-                else
-                    obj2->SetLengthWord(lengthWord);
+                else obj2->SetLengthWord(lengthWord);
                 break;
             }
 
@@ -363,48 +437,162 @@ void SortVector::SortData()
     }
 }
 
-void GetSharing::startSharing(GCTaskId*, void *a, void *b)
+void SortVector::hashAndSortAllTask(GCTaskId*, void *a, void *b)
 {
-    GetSharing *s = (GetSharing *)a;
-
-    for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
-        s->byteVectors[i].SortData();
-
-    for (unsigned j = 0; j < NUM_WORD_VECTORS; j++)
-        s->wordVectors[j].SortData();
+    SortVector *s = (SortVector *)a;
+    // Hash the contents of the base object then sort them.
+    for (unsigned i = 0; i < 256; i++)
+    {
+        // Clear the entries in the hash table but not the sharing count.
+        s->processObjects[i].objList = 0;
+        s->processObjects[i].objCount = 0;
+    }
+    PolyObject *h = s->baseObject.objList;
+    POLYUNSIGNED bytes = OBJ_OBJECT_LENGTH(s->lengthWord)*sizeof(PolyWord);
+    while (h != 0)
+    {
+        PolyObject *next = h->GetShareChain();
+        unsigned char hash = 0;
+        for (POLYUNSIGNED j = 0; j < bytes; j++)
+            hash += h->AsBytePtr()[j];
+        h->SetShareChain(s->processObjects[hash].objList);
+        s->processObjects[hash].objList = h;
+        s->processObjects[hash].objCount++;
+        h = next;
+    }
+    s->SortData();
 }
 
+// Look for sharing between byte data.  These cannot contain pointers
+// so they can all be processed together.
+void GetSharing::shareByteData(GCTaskId *, void *a, void *)
+{
+    GetSharing *s = (GetSharing*)a;
+    for (unsigned i = 0; i < NUM_BYTE_VECTORS; i++)
+    {
+        if (s->byteVectors[i].CurrentCount() != 0)
+            gpTaskFarm->AddWorkOrRunNow(SortVector::hashAndSortAllTask, &(s->byteVectors[i]), 0);
+    }
+}
+
+// Process word data at this particular level
+void GetSharing::shareWordData(GCTaskId *, void *a, void *)
+{
+    GetSharing *s = (GetSharing*)a;
+    for (unsigned i = 0; i < NUM_WORD_VECTORS; i++)
+    {
+        if (s->wordVectors[i].CurrentCount() != 0)
+            gpTaskFarm->AddWorkOrRunNow(SortVector::wordDataTask, &(s->wordVectors[i]), 0);
+    }
+}
+
+// Share any entries left.
+void GetSharing::shareRemainingWordData(GCTaskId *, void *a, void *)
+{
+    GetSharing *s = (GetSharing*)a;
+    for (unsigned i = 0; i < NUM_WORD_VECTORS; i++)
+    {
+        if (s->wordVectors[i].CurrentCount() != 0)
+            gpTaskFarm->AddWorkOrRunNow(SortVector::hashAndSortAllTask, &(s->wordVectors[i]), 0);
+    }
+}
 
 void GetSharing::SortData()
 {
-    // Process each of the entries.  We fork this as a separate task
-    // purely to ensure that we only have as many threads working as
-    // we've given in --gcthreads.
-    gpTaskFarm->AddWorkOrRunNow(startSharing, this, 0);
+    // First process the byte objects.  They cannot contain pointers.
+    // We create a task to do this so that we never have more threads
+    // running than given with --gcthreads.
+    gpTaskFarm->AddWorkOrRunNow(shareByteData, this, 0);
     gpTaskFarm->WaitForCompletion();
+
+    // Word data may contain pointers to other objects.  If an object
+    // has been processed its header will contain either a normal length
+    // word or a forwarding pointer if it shares.  We can process an
+    // object if every word in it is either a tagged integer or an
+    // address we have already processed.  This works provided there
+    // are no loops so when we reach a stage where we are unable to
+    // process anything we simply run a final scan on the remainder.
+    // Loops can arise from the closures of mutually recursive functions.
+
+    // Now process the word entries until we have nothing left apart from loops.
+    POLYUNSIGNED lastCount = 0, lastShared = 0;
+    for (unsigned n = 0; n < NUM_WORD_VECTORS; n++)
+        lastCount += wordVectors[n].CurrentCount();
+
+    for(unsigned pass = 1; lastCount != 0; pass++)
+    {
+        gpTaskFarm->AddWorkOrRunNow(shareWordData, this, 0);
+        gpTaskFarm->WaitForCompletion();
+
+        // At each stage check that we have removed some items
+        // from the lists.
+        POLYUNSIGNED postCount = 0, postShared = 0, carryOver = 0;
+        for (unsigned i = 0; i < NUM_WORD_VECTORS; i++)
+        {
+            postCount += wordVectors[i].CurrentCount();
+            postShared += wordVectors[i].Shared();
+            carryOver += wordVectors[i].CarryOver();
+        }
+
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Share: Pass %u: %" POLYUFMT " removed (%1.1f%%) %" POLYUFMT " shared (%1.1f%%) %" POLYUFMT " remain. %"POLYUFMT" entries updated (%1.1f%%).\n",
+                pass, lastCount-postCount, (double)(lastCount-postCount) / (double) lastCount * 100.0,
+                postShared - lastShared, (double)(postShared - lastShared) / (double) (lastCount-postCount) * 100.0,
+                postCount, carryOver, (double)carryOver / (double)(lastCount-postCount) * 100.0);
+
+        // Condition for exiting the loop.  There are some heuristics here.
+        // If we remove less than 10% in a pass it's probably not worth continuing
+        // unless the carry over is large.  The "carry over" is the number of words updated as
+        // a result of the last pass.  It represents the extra sharing we gained in this pass
+        // as a result of the last pass.  If there are deep data structures that can be shared
+        // we get better sharing with more passes.  If the data structures are shallow we will
+        // get as much sharing by just running the final pass.  The first pass only carries
+        // over any sharing from the byte objects so we need to run at least one more before
+        // checking the carry over.
+        if (pass > 1 && (lastCount - postCount) * 10 < lastCount && carryOver*2 < (lastCount-postCount))
+            break;
+
+        lastCount = postCount;
+        lastShared = postShared;
+    }
+
+    // Process any remaining entries.  There may be loops.
+    gpTaskFarm->AddWorkOrRunNow(shareRemainingWordData, this, 0);
+    gpTaskFarm->WaitForCompletion();
+
+    if (debugOptions & DEBUG_GC)
+    {
+        POLYUNSIGNED postShared = 0;
+        for (unsigned i = 0; i < NUM_WORD_VECTORS; i++)
+            postShared += wordVectors[i].Shared();
+        if (debugOptions & DEBUG_GC)
+            Log("GC: Share: Final pass %" POLYUFMT " removed %" POLYUFMT " shared (%1.1f%%).\n",
+                lastCount, postShared - lastShared,
+                (double)(postShared - lastShared) / (double) lastCount * 100.0);
+    }
 
     // Calculate the totals.
     POLYUNSIGNED totalSize = 0, totalShared = 0, totalRecovered = 0;
     for (unsigned k = 0; k < NUM_BYTE_VECTORS; k++)
     {
-        totalSize += byteVectors[k].Count();
+        totalSize += byteVectors[k].TotalCount();
         POLYUNSIGNED shared = byteVectors[k].Shared();
         totalShared += shared;
         totalRecovered += shared * (k+2); // Add 2 because the 0th item is one word + length word.
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                k+1, byteVectors[k].Count(), byteVectors[k].Shared());
+                k+1, byteVectors[k].TotalCount(), byteVectors[k].Shared());
     }
 
     for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
     {
-        totalSize += wordVectors[l].Count();
+        totalSize += wordVectors[l].TotalCount();
         POLYUNSIGNED shared = wordVectors[l].Shared();
         totalShared += shared;
         totalRecovered += shared * (l+2);
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                l+1, wordVectors[l].Count(), wordVectors[l].Shared());
+                l+1, wordVectors[l].TotalCount(), wordVectors[l].Shared());
     }
 
     if (debugOptions & DEBUG_GC)
