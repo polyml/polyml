@@ -61,10 +61,9 @@ public:
         GCTimeEnd
     } gcTime;
 
-    void RecordHeapSize(POLYUNSIGNED heapSize) { heapSizeAtStart = heapSize; }
-
+    // These are called by the GC to record information about its progress.
+    void RecordAtStartOfMajorGC();
     void RecordGCTime(gcTime isEnd, const char *stage = "");
-
     void RecordSharingData(POLYUNSIGNED recovery);
     
     void resetMinorTimingData(void);
@@ -108,6 +107,8 @@ private:
     // Set to false if an allocation failed.  Indicates that
     // we may have reached some virtual memory limit.
     bool lastAllocationSucceeded;
+    // Set to true if the last major GC may have hit the limit
+    bool allocationFailedBeforeLastMajorGC;
 
     // The estimated boundary where the paging will become
     // a significant factor.

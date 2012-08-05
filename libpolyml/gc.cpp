@@ -101,7 +101,7 @@ bool convertedWeak = false;
 static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
 {
     unsigned j;
-    gHeapSizeParameters.RecordHeapSize(gMem.CurrentHeapSize());
+    gHeapSizeParameters.RecordAtStartOfMajorGC();
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeStart);
     globalStats.incCount(PSC_GC_FULLGC);
 

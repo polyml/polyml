@@ -127,6 +127,7 @@ HeapSizeParameters::HeapSizeParameters()
     fullGCNextTime = false;
     performSharingPass = false;
     lastAllocationSucceeded = true;
+    allocationFailedBeforeLastMajorGC = false;
     minHeapSize = 0;
     maxHeapSize = 0; // Unlimited
     lastFreeSpace = 0;
@@ -337,7 +338,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
         else 
             pagingLimitSize = (newLimit + pagingLimitSize) / 2;
     }
-    if (! lastAllocationSucceeded)
+    if (allocationFailedBeforeLastMajorGC)
     {
         // If the last allocation failed then we may well have reached the
         // maximum available memory.  Set the paging limit to be the current
@@ -360,7 +361,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
     bool atTarget = getCostAndSize(newHeapSize, cost, false);
     // If we have been unable to allocate any more memory we may already
     // be at the limit.
-    if (! lastAllocationSucceeded && newHeapSize > heapSizeAtStart)
+    if (allocationFailedBeforeLastMajorGC && newHeapSize > heapSizeAtStart)
     {
         cost = costFunction(heapSizeAtStart, false, true);
         atTarget = false;
@@ -378,7 +379,7 @@ void HeapSizeParameters::AdjustSizeAfterMajorGC(POLYUNSIGNED wordsRequired)
         double costWithSharing;
         // Get the cost and heap size if sharing was enabled.  If we are at the
         // limit, though, we need to work using the size we can achieve.
-        if (lastAllocationSucceeded)
+        if (! allocationFailedBeforeLastMajorGC)
             (void)getCostAndSize(newHeapSizeWithSharing, costWithSharing, true);
         else
         {
@@ -485,6 +486,13 @@ bool HeapSizeParameters::AdjustSizeAfterMinorGC(POLYUNSIGNED spaceAfterGC, POLYU
     // TODO: If we have limited the space to the high water mark + 1/32 but that is less
     // than we really need we should increase it further.
     POLYUNSIGNED allowedAlloc = nonAlloc >= nextLimit ? 0 : nextLimit - nonAlloc;
+    // If we hit the limit at the last major GC we have to be much more careful.
+    // If the minor GC cannot allocate a major GC space when it needs it the minor
+    // GC will fail immediately and a major GC will be started.  It's better to
+    // risk doing more minor GCs than we need by making the allocation area smaller
+    // rather than run out of space.
+    if (allocationFailedBeforeLastMajorGC)
+        allowedAlloc = allowedAlloc / 2;
     if (gMem.CurrentAllocSpace() != allowedAlloc)
     {
         if (debugOptions & DEBUG_HEAPSIZE)
@@ -632,6 +640,12 @@ static bool GetLastStats(TIMEDATA &userTime, TIMEDATA &systemTime, TIMEDATA &rea
     pageCount = GetPaging(rusage.ru_majflt);
 #endif
     return true;
+}
+
+void HeapSizeParameters::RecordAtStartOfMajorGC()
+{
+    heapSizeAtStart = gMem.CurrentHeapSize();
+    allocationFailedBeforeLastMajorGC = !lastAllocationSucceeded;
 }
 
 // This function is called at the beginning and end of garbage
