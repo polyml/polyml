@@ -56,17 +56,17 @@
     <None Include="Licence.rtf" />
     <CustomBuild Include="PolyML.wxs">
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">candle.exe PolyML.wxs -o Release\PolyML.wixobj  -ext WixUtilExtension
-light.exe Release\PolyML.wixobj -out Release\PolyML.msi -ext WixUIExtension -cultures:en-us -ext WixUtilExtension
-</Command>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">candle.exe PolyML.wxs -o Release\PolyML.wixobj  -ext WixUtilExtension
-light.exe Release\PolyML.wixobj -out Release\PolyML.msi -ext WixUIExtension -cultures:en-us -ext WixUtilExtension
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">candle.exe -nologo PolyML.wxs -o Release\PolyML.wixobj  -ext WixUtilExtension -arch x86 -dPlatform=x86
+light.exe -nologo Release\PolyML.wixobj -out Release\PolyML.msi -ext WixUIExtension -cultures:en-us -ext WixUtilExtension
 </Command>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Licence.rtf;%(AdditionalInputs)</AdditionalInputs>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Licence.rtf;%(AdditionalInputs)</AdditionalInputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Release\PolyML.msi;%(Outputs)</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Release\PolyML.msi;%(Outputs)</Outputs>
       <SubType>Designer</SubType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">candle.exe -nologo PolyML.wxs -o Release64\PolyML.wixobj  -ext WixUtilExtension -arch x64 -dPlatform=x64
+light.exe -nologo Release64\PolyML.wixobj -out Release64\PolyML.msi -ext WixUIExtension -cultures:en-us -ext WixUtilExtension
+</Command>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
