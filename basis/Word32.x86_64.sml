@@ -66,14 +66,14 @@ struct
     (* Shift the "sign" bit into the real sign bit position then
        shift right down again. *)
     local
-        val toSignBit = (Word.fromInt(Int.-(LargeWord.wordSize,wordSize)))
+        val toSignBit = (Word.fromInt(Int.-(Word.wordSize,wordSize)))
     in
         fun op ~>> (a: word, b: Word.word): word = 
-            fromLargeWord(LargeWord.~>>(LargeWord.<<(toLargeWord a, toSignBit), Word.+(b, toSignBit)))  
+            fromWord(Word.~>>(Word.<<(a, toSignBit), Word.+(b, toSignBit)))
     
         (* Convert to a large word by sign extending. *)
         fun toLargeWordX (w: word): LargeWord.word =
-            LargeWord.~>>(LargeWord.<<(toLargeWord w, toSignBit), toSignBit)
+            LargeWord.~>>(Word.toLargeWordX(Word.<<(w, toSignBit)), toSignBit)
     end
     val toLargeX = toLargeWordX
         
