@@ -640,6 +640,12 @@ void Foreign::Start()
 
 void Foreign::Stop()
 {
+    // Call finalisers that have not otherwise been called.
+    for (POLYUNSIGNED k = FIRST_VOL; k < next_vol; k++)
+    {
+        if (vols[k].ML_pointer != NULL && vols[k].C_pointer != 0 && vols[k].C_finaliser)
+            vols[k].C_finaliser(*(void**)vols[k].C_pointer);
+    }
 }
 
 void Foreign::GarbageCollect(ScanAddress *process)
