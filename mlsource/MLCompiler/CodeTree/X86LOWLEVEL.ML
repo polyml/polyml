@@ -1295,7 +1295,7 @@ struct
                        and all ones for negative.  We just limit the shift to 31/63. *)
                     [ArithRConst{opc=OR, output=reg, source=1 },
                      ShiftConstant{shiftType=SRA, output=reg,
-                        shift=wordToWord8(Word.max(maxShift, shift))}]
+                        shift=wordToWord8(Word.min(maxShift, shift))}]
 
             |   genConstShift _ _ = raise InternalError "genConstShift"
 
