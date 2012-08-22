@@ -621,6 +621,14 @@ void ProcessAddToVector::PushToStack(PolyObject *obj)
     addStack[asp++] = obj;
 }
 
+// There is an optimisation bug in the 64-bit MS C compiler which causes it to convert
+// if (obj->LengthWord() & _OBJ_GC_MARK) obj->SetLengthWord(OBJ_SET_DEPTH(0))
+// into obj->SetLengthWord(obj->LengthWord() & _OBJ_GC_MARK ? OBJ_SET_DEPTH(0) : obj->LengthWord())
+// That will crash if obj points into the permanent immutable area which is read-only.
+#if(defined(_MSC_VER) && defined(_WIN64))
+#pragma optimize( "", off )
+#endif
+
 void ProcessAddToVector::ProcessRoot(PolyObject *root)
 {
     // Mark the initial object
@@ -708,6 +716,10 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
         }
     }
 }
+
+#if(defined(_MSC_VER) && defined(_WIN64))
+#pragma optimize( "", off )
+#endif
 
 static void RestoreLengthWords(DepthVector *vec)
 {
