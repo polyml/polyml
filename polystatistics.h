@@ -76,7 +76,7 @@ typedef struct polystatistics {
 #else
     int psTimers[N_PS_TIMES];
 #endif
-    intptr_t psUser[N_PS_USER];
+    int psUser[N_PS_USER];
 } polystatistics;
 
 #endif // POLY_STATISTICS_INCLUDED

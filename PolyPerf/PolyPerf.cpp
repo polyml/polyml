@@ -40,6 +40,13 @@ replaces the old method of using lodctr with .ini and .h files.
 The DLL is loaded by the performance monitor.  In XP that seems to
 be part of the management console application mmc.exe and perfmon.exe
 seems to be just a stub.
+
+There are still some issues with 32-bit/64-bit compatibility.  Currently,
+the counters are all defined as 32-bit quantities although the actual
+values in psSizes will be 64-bit on a 64-bit system.  Since the x86 is
+little-endian that will work so long as the values fit in the low-order
+word.  It isn't clear if Wix supports 64-bit values for the base and
+fraction.
 */
 
 extern "C" {
@@ -384,7 +391,7 @@ DWORD APIENTRY CollectPolyPerfMon(
         pUsers[l].DetailLevel = PERF_DETAIL_NOVICE;
         pUsers[l].CounterType = PERF_COUNTER_RAWCOUNT;
         pUsers[l].CounterOffset =
-            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psUser)+l*sizeof(long);
+            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psUser)+l*sizeof(int);
         pObjectType->NumCounters++;
     }
 
