@@ -163,11 +163,12 @@ void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, u
     if (minHeapSize == 0 || maxHeapSize == 0)
         memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
 
-    // If no maximum is given default it to 100% of the physical memory
+    // If no maximum is given default it to 80% of the physical memory.
+    // This allows some space for the OS and other things.
     if (maxHeapSize == 0 || maxHeapSize > MAXIMUMADDRESS)
     {
         if (memsize == 0) maxHeapSize = MAXIMUMADDRESS;
-        else maxHeapSize = memsize /*- memsize / 5*/;
+        else maxHeapSize = memsize - memsize / 5;
     }
 
     // Set the initial size to the minimum if that has been provided.
