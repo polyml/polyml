@@ -569,6 +569,12 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
     if (sizeMax > maxHeapSize) sizeMax = maxHeapSize;
     POLYUNSIGNED sizeMin = heapSpace / 2;
     if (sizeMin < minHeapSize) sizeMin = minHeapSize;
+    // We mustn't reduce the heap size too far.  If the application does a lot
+    // of work with few allocations and particularly if it calls PolyML.fullGC
+    // explicitly we could attempt to shrink the heap below the current live data size.
+    POLYUNSIGNED minForAllocation = gMem.CurrentHeapSize() + gMem.DefaultSpaceSize() * 2;
+    if (minForAllocation > maxHeapSize) minForAllocation = maxHeapSize;
+    if (sizeMin < minForAllocation) sizeMin = minForAllocation;
 
     double costMin = costFunction(sizeMin, withSharing, true);
     if (costMin < userGCRatio)
