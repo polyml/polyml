@@ -950,7 +950,8 @@ PolyWord *Processes::FindAllocationSpace(TaskData *taskData, POLYUNSIGNED words,
                 else {
                     // That didn't work.  Exit.
                     fprintf(stderr,"Failed to recover - exiting\n");
-                    Exit(1);
+                    Exit(1); // Begins the shutdown process
+                    processes->ThreadExit(taskData); // And terminate this thread.
                 }
              }
             // Try again.  There should be space now.
