@@ -6,7 +6,7 @@ AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
 lib_LTLIBRARIES = libpolyml.la
-libpolyml_la_LDFLAGS = -version-info 3:1:0
+libpolyml_la_LDFLAGS = -version-info 4:0:0
 
 if INTERNAL_LIBFFI
 libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
