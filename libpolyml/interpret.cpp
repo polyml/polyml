@@ -556,12 +556,12 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                             PolyWord u = *sp++;
                             if (UNTAGGED_UNSIGNED(u) > sizeof(PolyWord)*8)
                             {
-                                if (UNTAGGED_UNSIGNED(*sp) < 0)
+                                if (UNTAGGED(*sp) < 0)
                                     *sp = TAGGED(-1);
                                 else *sp = Zero;
                             }
                             else
-                                *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) >> UNTAGGED_UNSIGNED(u));
+                                *sp = TAGGED(UNTAGGED(*sp) >> UNTAGGED(u));
                             break;
                         }
 
