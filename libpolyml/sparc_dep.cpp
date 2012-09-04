@@ -1341,8 +1341,10 @@ void SparcDependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old,
                 absAddr = absAddr - (PolyWord*)addr + (PolyWord*)old;
                 // We have to correct the displacement for the new location and store
                 // that away before we call ScanConstant.
-                POLYSIGNED newDisp = absAddr - pt;
-                *pt = PolyWord::FromUnsigned((newDisp & 0x3fffffff) | 0x40000000);
+                POLYSIGNED newDisp = (absAddr - pt) & 0x3fffffff;
+                // N.B. This could be in read-only memory so only write if it has changed.
+                if (newDisp != disp)
+                    *pt = PolyWord::FromUnsigned(newDisp | 0x40000000);
                 process->ScanConstant((byte*)pt, PROCESS_RELOC_SPARCRELATIVE);
             }
         }
