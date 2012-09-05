@@ -111,18 +111,12 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	rts_module.cpp run_time.cpp save_vec.cpp savestate.cpp \
 	scanaddrs.cpp sharedata.cpp sighandler.cpp statistics.cpp \
 	timing.cpp xwindows.cpp x86_dep.cpp x86asmtemp.S interpret.cpp \
-	sparc_dep.cpp sparc_assembly.S power_dep.cpp ppcasmtemp.s \
 	machoexport.cpp elfexport.cpp pecoffexport.cpp \
 	unix_specific.cpp Console.cpp windows_specific.cpp
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@	x86asmtemp.lo
-@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@am__objects_1 = interpret.lo
-@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@am__objects_1 = interpret.lo
-@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@am__objects_1 =  \
-@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@	sparc_dep.lo \
-@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@	sparc_assembly.lo
-@ARCHI386_FALSE@@ARCHPPC_TRUE@am__objects_1 = power_dep.lo \
-@ARCHI386_FALSE@@ARCHPPC_TRUE@	ppcasmtemp.lo
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86asmtemp.lo
+@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
+@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@am__objects_1 = interpret.lo
 @ARCHI386_TRUE@am__objects_1 = x86_dep.lo x86asmtemp.lo
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@am__objects_2 =  \
 @EXPELF_FALSE@@EXPMACHO_TRUE@@EXPPECOFF_FALSE@	machoexport.lo
@@ -163,9 +157,6 @@ CXXLD = $(CXX)
 CXXLINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-CCASCOMPILE = $(CCAS) $(AM_CCASFLAGS) $(CCASFLAGS)
-LTCCASCOMPILE = $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=compile $(CCAS) $(AM_CCASFLAGS) $(CCASFLAGS)
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 LTCOMPILE = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
@@ -330,11 +321,9 @@ lib_LTLIBRARIES = libpolyml.la
 libpolyml_la_LDFLAGS = -version-info 4:0:0 $(am__append_1)
 @INTERNAL_LIBFFI_FALSE@libpolyml_la_LIBADD = $(FFI_LIBS)
 @INTERNAL_LIBFFI_TRUE@libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86asmtemp.S
-@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@ARCHSOURCE = interpret.cpp
-@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@ARCHSOURCE = interpret.cpp
-@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@ARCHSOURCE = sparc_dep.cpp sparc_assembly.S
-@ARCHI386_FALSE@@ARCHPPC_TRUE@ARCHSOURCE = power_dep.cpp ppcasmtemp.s
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@ARCHSOURCE = x86_dep.cpp x86asmtemp.S
+@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@ARCHSOURCE = interpret.cpp
+@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@ARCHSOURCE = interpret.cpp
 
 # Select the architecture-specific modules
 @ARCHI386_TRUE@ARCHSOURCE = x86_dep.cpp x86asmtemp.S
@@ -443,7 +432,7 @@ libpolyml_la_SOURCES = \
 all: all-am
 
 .SUFFIXES:
-.SUFFIXES: .S .cpp .lo .o .obj .s
+.SUFFIXES: .S .cpp .lo .o .obj
 $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__configure_deps)
 	@for dep in $?; do \
 	  case '$(am__configure_deps)' in \
@@ -545,7 +534,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pexport.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/poly_specific.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polystring.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/power_dep.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/process_env.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/processes.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/profiling.Plo@am__quote@
@@ -559,8 +547,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/scanaddrs.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sharedata.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sighandler.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sparc_assembly.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sparc_dep.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/statistics.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/timing.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/unix_specific.Plo@am__quote@
@@ -610,15 +596,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(LTCXXCOMPILE) -c -o $@ $<
-
-.s.o:
-	$(CCASCOMPILE) -c -o $@ $<
-
-.s.obj:
-	$(CCASCOMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
-
-.s.lo:
-	$(LTCCASCOMPILE) -c -o $@ $<
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -840,10 +817,6 @@ polyexport.o: polyimport exportPoly.sml
 # Special rule for x86 assembly code.
 x86asmtemp.S: x86asm.asm
 	sed -f $(srcdir)/masm2gas <  x86asm.asm > $@ || { rm -f $@; false; }
-
-# Special rule for Power PC.  This is needed because of pecularities with MAC OS X.
-ppcasmtemp.s: power_assembly.S
-	$(CPP) $(ARCHFLAG) $(OSFLAG) -DGCC $< | tr ';' '\012' > ppcasmtemp.s
 
 clean-local:
 	rm -f x86asmtemp.S ppcasmtemp.s

@@ -23,12 +23,6 @@ endif
 if ARCHI386
 ARCHSOURCE = x86_dep.cpp x86asmtemp.S
 else
-if ARCHPPC
-ARCHSOURCE = power_dep.cpp ppcasmtemp.s
-else
-if ARCHSPARC
-ARCHSOURCE = sparc_dep.cpp sparc_assembly.S
-else
 if ARCHINTERPRET
 ARCHSOURCE = interpret.cpp
 else
@@ -38,8 +32,6 @@ else
 if ARCHX86_64
 ARCHSOURCE = x86_dep.cpp x86asmtemp.S
 else
-endif
-endif
 endif
 endif
 endif
@@ -166,10 +158,6 @@ polyexport.o: polyimport exportPoly.sml
 # Special rule for x86 assembly code.
 x86asmtemp.S: x86asm.asm
 	sed -f $(srcdir)/masm2gas <  x86asm.asm > $@ || { rm -f $@; false; }
-
-# Special rule for Power PC.  This is needed because of pecularities with MAC OS X.
-ppcasmtemp.s: power_assembly.S
-	$(CPP) $(ARCHFLAG) $(OSFLAG) -DGCC $< | tr ';' '\012' > ppcasmtemp.s
 
 clean-local:
 	rm -f x86asmtemp.S ppcasmtemp.s

@@ -378,22 +378,17 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_X86], [1], [Define if the host is an X86 (32 bit)])
             polyarch=i386
             ;;
-      sparc*)
-            AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32 bit)])
-            polyarch=sparc
-            # Need the v9 argument to compile the atomic code.  This means that this will not work
-            # on older processors.
-            CXXFLAGS="$CXXFLAGS -mcpu=v9"
-            CFLAGS="$CFLAGS -mcpu=v9"
-            CCASFLAGS="$CCASFLAGS -mcpu=v9"
-            ;;
-      power* | ppc*)
-            AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a Power PC (32 bit)])
-            polyarch=ppc
-            ;;
       x86_64* | amd64*)
             AC_DEFINE([HOSTARCHITECTURE_X86_64], [1], [Define if the host is an X86 (64 bit)])
             polyarch=x86_64
+            ;;
+      sparc*)
+            AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32 bit)])
+            ac_cv_with_portable=yes
+            ;;
+      power* | ppc*)
+            AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a Power PC (32 bit)])
+            ac_cv_with_portable=yes
             ;;
       arm*)
             AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
@@ -433,11 +428,9 @@ then
 fi
 
 AM_CONDITIONAL([ARCHI386], [test "$polyarch" = i386])
-AM_CONDITIONAL([ARCHPPC], [test "$polyarch" = ppc])
-AM_CONDITIONAL([ARCHSPARC], [test "$polyarch" = sparc])
+AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 AM_CONDITIONAL([ARCHINTERPRET], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X4])
 AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_sizeof_voidp" = X8])
-AM_CONDITIONAL([ARCHX86_64], [test "$polyarch" = x86_64])
 
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])

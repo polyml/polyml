@@ -23,12 +23,6 @@ man_MANS = poly.1 polyimport.1
 if ARCHI386
 POLYIMPORT = $(srcdir)/imports/polymli386.txt
 else
-if ARCHPPC
-POLYIMPORT = $(srcdir)/imports/polymlppc.txt
-else
-if ARCHSPARC
-POLYIMPORT = $(srcdir)/imports/polymlsparc.txt
-else
 if ARCHINTERPRET
 POLYIMPORT = $(srcdir)/imports/polymlint.txt
 else
@@ -38,8 +32,6 @@ else
 if ARCHX86_64
 POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
 else
-endif
-endif
 endif
 endif
 endif
@@ -78,11 +70,7 @@ EXTRA_DIST = \
 	imports/polymli386.txt \
 	imports/polymlint64.txt \
 	imports/polymlint.txt \
-	imports/polymlppc.txt \
-	imports/polymlsparc.txt \
 	imports/polymlx86_64.txt \
-	libpolyml/power_assembly.S \
-	libpolyml/sparc_assembly.S \
 	libpolyml/x86asm.asm \
 	exportPoly.sml \
 	poly.1 \

@@ -338,11 +338,9 @@ DIST_SUBDIRS = libpolyml libpolymain libffi
 @INTERNAL_LIBFFI_FALSE@SUBDIRS = libpolyml libpolymain
 @INTERNAL_LIBFFI_TRUE@SUBDIRS = libffi libpolyml libpolymain
 man_MANS = poly.1 polyimport.1
-@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
-@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
-@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@@ARCHPPC_FALSE@@ARCHSPARC_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint.txt
-@ARCHI386_FALSE@@ARCHPPC_FALSE@@ARCHSPARC_TRUE@POLYIMPORT = $(srcdir)/imports/polymlsparc.txt
-@ARCHI386_FALSE@@ARCHPPC_TRUE@POLYIMPORT = $(srcdir)/imports/polymlppc.txt
+@ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
+@ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
+@ARCHI386_FALSE@@ARCHINTERPRET_TRUE@POLYIMPORT = $(srcdir)/imports/polymlint.txt
 
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
@@ -360,11 +358,7 @@ EXTRA_DIST = \
 	imports/polymli386.txt \
 	imports/polymlint64.txt \
 	imports/polymlint.txt \
-	imports/polymlppc.txt \
-	imports/polymlsparc.txt \
 	imports/polymlx86_64.txt \
-	libpolyml/power_assembly.S \
-	libpolyml/sparc_assembly.S \
 	libpolyml/x86asm.asm \
 	exportPoly.sml \
 	poly.1 \
