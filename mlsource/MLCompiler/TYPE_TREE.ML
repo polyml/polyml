@@ -1998,49 +1998,69 @@ struct
     fun assign (var, t) =
     let
       (* Mapped over the type to be assigned. *)
-      (* Returns "true" if it is safe to make the assignment. Sorts out
+      (* Returns "false" if it is safe to make the assignment. Sorts out
          imperative type variables and propagates level information.
          N.B. It does not propagate equality status. The reason is that
          if we are unifying ''a with '_b ref, the '_b does NOT become
          an equality type var. In all other cases it would. *)
-      fun checkForLoops _ false = false
-       |  checkForLoops (TypeVar tvar) true =
-           let
-             (* The level is the minimum of the two, and if we are unifying with
-                an equality type variable we must make this into one. *)
-             val minLev = Int.min (tvLevel var, tvLevel tvar);
-           in
-             if tvLevel tvar <> minLev
-             then 
-               (* If it is nonunifiable we cannot make its level larger. *)
-               if tvNonUnifiable tvar
-               then cantMatch (Atype, Btype,
-                        "(Type variable is free in surrounding scope)")
-               else let
-                 (* Must make a new type var with the right properties *)
-                 (* This type variable may be a flexible record, in which
-                    case we have to save the record and put it on the new
-                    type variable. foldType will apply checkForLoops to the
-                    record. *)
-                 val newTv = mkTypeVar (minLev, tvEquality tvar, false, tvPrintity tvar)
-               in
-                 tvSetValue (typesTypeVar newTv, tvValue tvar);
-                 tvSetValue (tvar, newTv)
-               end
-             else ();
-             not (sameTv (tvar, var)) (* Safe if vars are different. *)
-           end
-       |  checkForLoops _ true = true
-         (* end checkForLoops *);
+        fun occursCheckFails _ true = true
+
+        |   occursCheckFails ty false =
+            let
+                val t = eventual ty
+            in
+                case t of
+                    TypeVar tvar =>
+                    let
+                        (* The level is the minimum of the two, and if we are unifying with
+                           an equality type variable we must make this into one. *)
+                        val minLev = Int.min (tvLevel var, tvLevel tvar);
+                    in
+                        if tvLevel tvar <> minLev
+                        then 
+                            (* If it is nonunifiable we cannot make its level larger. *)
+                            if tvNonUnifiable tvar
+                            then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
+                        else
+                        let
+                            (* Must make a new type var with the right properties *)
+                            (* This type variable may be a flexible record, in which
+                               case we have to save the record and put it on the new
+                               type variable. foldType will apply checkForLoops to the
+                               record. *)
+                            val newTv = mkTypeVar (minLev, tvEquality tvar, false, tvPrintity tvar)
+                        in
+                            tvSetValue (typesTypeVar newTv, tvValue tvar);
+                            tvSetValue (tvar, newTv)
+                        end
+                        else ();
+                        sameTv (tvar, var) (* Safe if vars are different. *)
+                    end
+
+                |   TypeConstruction {args, constr, ...} =>
+                        (* If this is a type abbreviation we have to expand this before processing
+                           any arguments.  We mustn't process arguments that are not actually used. *)
+                        if tcIsAbbreviation constr
+                        then occursCheckFails(makeEquivalent (constr, args)) false
+                        else List.foldr (fn (t, v) => occursCheckFails t v) false args
+
+                |   FunctionType {arg, result} =>
+                        occursCheckFails arg false orelse occursCheckFails result false
+
+                |   LabelledType {recList,...} =>
+                        List.foldr (fn ({ typeof, ... }, v) => occursCheckFails typeof v) false recList
+
+                |   _ => false
+
+            end
+
 
       val varVal = tvValue var (* Current value of the variable to be set. *)
 
       local
-        (* Before setting the properties of any type variables we need to follow any
-           type abbreviations in the type to be assigned.  There are pathological cases
-           where type abbreviations drop type variables (e.g. type ('a, 'b) t = 'a)
-           and unused type variables must not inherit any properties from the type
-           variable we're assigning.  *)
+        (* We need to process any type abbreviations before applying the occurs check.
+           The type we're assigning could boil down to the same type variable we're
+           trying to assign.  This doesn't breach the occurs check. *)
          fun followVarsAndTypeFunctions t =
             case eventual t of
                 ev as TypeConstruction{constr, args, ...} =>
@@ -2081,7 +2101,7 @@ struct
         else if tvNonUnifiable var
         then cantMatch (Atype, Btype, "(Cannot unify with explicit type variable)")
 
-        else if not (foldType checkForLoops finalType true)
+        else if occursCheckFails finalType false
         then cantMatch (Atype, Btype, "(Type variable to be unified occurs in type)")
 
         else let (* Occurs check succeeded. *)
