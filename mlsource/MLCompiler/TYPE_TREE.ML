@@ -2032,8 +2032,33 @@ struct
            end
        |  checkForLoops _ true = true
          (* end checkForLoops *);
-                   
+
       val varVal = tvValue var (* Current value of the variable to be set. *)
+
+      local
+        (* Before setting the properties of any type variables we need to follow any
+           type abbreviations in the type to be assigned.  There are pathological cases
+           where type abbreviations drop type variables (e.g. type ('a, 'b) t = 'a)
+           and unused type variables must not inherit any properties from the type
+           variable we're assigning.  *)
+         fun followVarsAndTypeFunctions t =
+            case eventual t of
+                ev as TypeConstruction{constr, args, ...} =>
+                if tcIsAbbreviation constr
+                then followVarsAndTypeFunctions(makeEquivalent (constr, args))
+                else ev
+            |   ev => ev
+      in
+        val finalType = followVarsAndTypeFunctions t
+      end
+      
+      (* We may actually have the same type variable after any type abbreviations
+         have been followed. *)
+      val reallyTheSame =
+            case finalType of
+                TypeVar tv => sameTv (tv, var)
+            |   _ => false
+
     in (* start of "assign" *)
         case varVal of
             LabelledType _ =>
@@ -2047,47 +2072,19 @@ struct
                 match (varVal, t)
           | _ => ();
  
-      (* If this type variable was put in explicitly then it can't be
-         assigned to something else. (We have already checked for the
-         type variables being the same). *) 
-      if tvNonUnifiable var orelse not (foldType checkForLoops t true)
-      then let
-        (* The one case where an apparent occurs check is not an error
-           is when unifying 'a with ('a,'b) x, where x was defined by
-           type ('a,'b) x = 'a. In this case we are really unifying 'a and 'a
-           and so there is no problem. *)
-        (* This originally just checked a single level of expansion.  I've
-           now turned it into a function to handle arbitrary levels. e.g.
-           (('a, 'b) x, 'c) x   DCJM 22/8/00. *)
-        fun checkRealError (TypeConstruction {constr, args, ...}) =
-              not (tcIsAbbreviation constr) orelse
-                  let
-                    (* expand type constructor to get its body *)
-                    val equiv = eventual (makeEquivalent (constr, args));
-                  in
-                    checkRealError equiv
-                  end
-          | checkRealError (TypeVar tv) =
-                (* is it the same type variable that we started with? *)
-                not (sameTv (tv, var))
-          | checkRealError _ = true
+        if reallyTheSame
+        then () (* Don't apply the occurs check or check for non-unifiable. *)
 
-        val realError = checkRealError t
-      in
-        if realError
-        then let
-          (* generate the right error message. *)
-          val msg =
-            if tvNonUnifiable var
-            then "(Cannot unify with explicit type variable)"
-            else "(Type variable to be unified occurs in type)";
-        in
-          cantMatch (Atype, Btype, msg)
-        end
-        else ()
-      end
+        (* If this type variable was put in explicitly then it can't be
+           assigned to something else. (We have already checked for the
+           type variables being the same). *)
+        else if tvNonUnifiable var
+        then cantMatch (Atype, Btype, "(Cannot unify with explicit type variable)")
 
-      else let (* Occurs check succeeded. *)
+        else if not (foldType checkForLoops finalType true)
+        then cantMatch (Atype, Btype, "(Type variable to be unified occurs in type)")
+
+        else let (* Occurs check succeeded. *)
         fun canMkEqTv (tvar : typeVarForm) : tri = 
           (* Turn it into an equality type var. *)
           if tvEquality tvar then Yes 
@@ -2192,24 +2189,10 @@ struct
      end (* assign *);
 
     (* First find see if typeA and typeB are unified to anything
-       already, and get the end of a list of "flexibles".
-       Also follow any type functions.  This is needed because of
-       pathological cases involving type equivalences with type
-       variables that do not appear on the RHS e.g. type 'a t = int.
-       TODO: There are cases that check for type equivalences later
-       on that are now redundant. *)
-    local
-        fun followVarsAndTypeFunctions t =
-            case eventual t of
-                ev as TypeConstruction{constr, args, ...} =>
-                if tcIsAbbreviation constr
-                then followVarsAndTypeFunctions(makeEquivalent (constr, args))
-                else ev
-            |   ev => ev
-    in
-        val tA = followVarsAndTypeFunctions Atype
-        and tB = followVarsAndTypeFunctions Btype
-    end
+       already, and get the end of a list of "flexibles".  *)
+
+    val tA = eventual Atype
+    and tB = eventual Btype
 
     in (* start of "match" *)
     if isUndefinedType tA orelse isUndefinedType tB
