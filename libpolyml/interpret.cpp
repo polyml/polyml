@@ -95,12 +95,13 @@ const PolyWord Zero = TAGGED(0);
    CHECKED_REGS + \
    UNCHECKED_REGS + \
    EXTRA_STACK)
-/*
+
 class IntTaskData: public MDTaskData {
 public:
-    IntTaskData(): allocWords(0) {}
-    POLYUNSIGNED allocWords; // The words to allocate.
-};*/
+    IntTaskData(): interrupt_requested(false) {}
+    
+    bool interrupt_requested;
+};
 
 // Special values for return addresses or in the address of an exception handler.
 // In an exception handler SPECIAL_PC_TRACE_EX means trace this exception, as
@@ -108,13 +109,12 @@ public:
 #define SPECIAL_PC_TRACE_EX    TAGGED(0)
 #define SPECIAL_PC_END_THREAD  TAGGED(1)
 
-
 class Interpreter : public MachineDependent {
 public:
     Interpreter() {}
 
     // Create a task data object.
-    virtual MDTaskData *CreateTaskData(void) { return new MDTaskData(); }
+    virtual MDTaskData *CreateTaskData(void) { return new IntTaskData(); }
 
     virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
     // Switch to Poly and return with the io function to call.
@@ -175,14 +175,12 @@ void Interpreter::InitStackFrame(TaskData *taskData, StackSpace *space, Handle p
     *(--stack->p_sp) = closure; /* Closure address */
 }
 
-int interrupt_requested = 0;
-int profile_count_wanted = 0;
-
 void Interpreter::InterruptCode(TaskData *taskData)
 /* Stop the Poly code at a suitable place. */
 /* We may get an asynchronous interrupt at any time. */
 {
-    interrupt_requested = 1;
+    IntTaskData *itd = (IntTaskData *)taskData->mdTaskData;
+    itd->interrupt_requested = true;
 }
 
 
@@ -225,6 +223,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
     pc = taskData->stack->stack()->p_pc;
     li = (unsigned)UNTAGGED(taskData->stack->stack()->p_reg[1]);
     sl = (PolyWord*)taskData->stack->stack()+OVERFLOW_STACK_SIZE;
+    IntTaskData *itd = (IntTaskData *)taskData->mdTaskData;
 
     if (li != 256) goto RETRY; /* Re-execute instruction if necessary. */
 
@@ -252,17 +251,12 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             goto RESTART;
         }
 
-        if (interrupt_requested) {
-            interrupt_requested = 0;
+        if (itd->interrupt_requested) {
+            itd->interrupt_requested = false;
             taskData->stack->stack()->p_sp = sp;
             taskData->stack->stack()->p_pc = pc;
             taskData->stack->stack()->p_reg[1] = TAGGED(li);
             return -1;
-        }
-
-        if (profile_count_wanted) {
-            add_count(taskData, pc, sp, profile_count_wanted);
-            profile_count_wanted = 0;
         }
 
         switch(li) {
