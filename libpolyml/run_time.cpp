@@ -1199,6 +1199,10 @@ Handle EnterPolyCode(TaskData *taskData)
                 machineDependent->CallIO1(taskData, &io_operation_c);
                 break;
 
+            case POLY_SYS_atomic_reset:
+                machineDependent->CallIO1(taskData, &AtomicReset);
+                break;
+
             case POLY_SYS_atomic_incr:
                 machineDependent->CallIO1(taskData, &AtomicIncrement);
                 break;

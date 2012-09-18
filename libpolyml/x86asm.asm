@@ -579,6 +579,7 @@ POLY_SYS_network             EQU 51
 POLY_SYS_os_specific         EQU 52
 POLY_SYS_io_dispatch         EQU 61
 POLY_SYS_signal_handler      EQU 62
+POLY_SYS_atomic_reset        EQU 69
 POLY_SYS_atomic_incr         EQU 70
 POLY_SYS_atomic_decr         EQU 71
 POLY_SYS_thread_self         EQU 72
@@ -2249,6 +2250,19 @@ atomic_decr:
 
 CALLMACRO   RegMask atomic_decr,(M_Reax OR M_Rebx)
 
+;# Reset a mutex to (tagged) one.  Because the increment and decrements
+;# are atomic this doesn't have to do anything special.
+CALLMACRO   INLINE_ROUTINE  atomic_reset
+IFDEF WINDOWS
+    mov     FULLWORD ptr [Reax],3 
+ELSE
+    MOVL    CONST 3,[Reax]
+ENDIF
+    MOVL    CONST UNIT,Reax  ;# The function returns unit
+    ret
+
+CALLMACRO   RegMask atomic_reset,M_Reax
+
 ;# Return the thread id object for the current thread
 CALLMACRO   INLINE_ROUTINE  thread_self
     MOVL    ThreadId[Rebp],Reax
@@ -2815,7 +2829,7 @@ ENDIF
     dd  Mask_all                 ;# 66 is unused
     dd  Mask_all                 ;# 67 is unused
     dd  Mask_all                 ;# 68 is unused
-    dd  Mask_all                 ;# 69 is unused
+    dd  Mask_atomic_reset        ;# 69
     dd  Mask_atomic_incr         ;# 70
     dd  Mask_atomic_decr         ;# 71
     dd  Mask_thread_self         ;# 72

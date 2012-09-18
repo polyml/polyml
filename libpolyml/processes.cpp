@@ -344,46 +344,6 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
     return UNTAGGED_UNSIGNED(taskData->threadObject->flags);
 }
 
-// As far as possible we want locking and unlocking an ML mutex to be fast so
-// we try to implement the code in the assembly code using appropriate
-// interlocked instructions.  That does mean that if we need to lock and
-// unlock an ML mutex in this code we have to use the same, machine-dependent,
-// code to do it.  These are defaults that are used where there is no
-// machine-specific code.
-
-// Increment the value contained in the first word of the mutex.
-// On most platforms this code will be done with a piece of assembly code.
-PLock mutexLock;
-
-Handle MachineDependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
-{
-    mutexLock.Lock();
-    PolyObject *p = DEREFHANDLE(mutexp);
-    // A thread can only call this once so the values will be short
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
-    p->Set(0, newValue);
-    mutexLock.Unlock();
-    return SAVE(newValue);
-}
-
-// Decrement the value contained in the first word of the mutex.
-Handle MachineDependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
-{
-    mutexLock.Lock();
-    PolyObject *p = DEREFHANDLE(mutexp);
-    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
-    p->Set(0, newValue);
-    mutexLock.Unlock();
-    return SAVE(newValue);
-}
-
-// Release a mutex and if necessary apply a write barrier.
-// This is the default code for platforms that don't need a barrier.
-void MachineDependent::SetToReleased(TaskData * /*taskData*/, Handle mutexp)
-{
-    DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.
-}
-
 // Called from interface vector.  Generally the assembly code will be
 // used instead of this.
 Handle AtomicIncrement(TaskData *taskData, Handle mutexp)
@@ -396,6 +356,12 @@ Handle AtomicIncrement(TaskData *taskData, Handle mutexp)
 Handle AtomicDecrement(TaskData *taskData, Handle mutexp)
 {
     return machineDependent->AtomicDecrement(taskData, mutexp);
+}
+
+Handle AtomicReset(TaskData *taskData, Handle mutexp)
+{
+    machineDependent->AtomicReset(taskData, mutexp);
+    return SAVE(TAGGED(0)); // Push the unit result
 }
 
 // Return the thread object for the current thread.
@@ -534,7 +500,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             Handle decrResult = machineDependent->AtomicIncrement(taskData, mutexH);
             if (UNTAGGED(decrResult->Word()) != 1)
             {
-                machineDependent->SetToReleased(taskData, mutexH);
+                machineDependent->AtomicReset(taskData, mutexH);
                 // The mutex was locked so we have to release any waiters.
                 // Unlock any waiters.
                 for (unsigned i = 0; i < taskArraySize; i++)

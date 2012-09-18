@@ -202,6 +202,8 @@ public:
     // mutex argument and return the new value.
     virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
     virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
+    // Set a mutex to one.
+    virtual void AtomicReset(TaskData *taskData, Handle mutexp);
 
     void SetMemRegisters(TaskData *taskData);
     void SaveMemRegisters(TaskData *taskData);
@@ -442,7 +444,7 @@ extern "C" {
     extern int mul_word(), plus_word(), minus_word(), div_word(), mod_word();
     extern int word_geq(), word_leq(), word_gtr(), word_lss();
     extern int raisex();
-    extern int thread_self(), atomic_increment(), atomic_decrement();
+    extern int thread_self(), atomic_increment(), atomic_decrement(), atomic_reset();
     extern int real_add(), real_sub(), real_mul(), real_div(), real_abs(), real_neg();
     extern int real_geq(), real_leq(), real_gtr(), real_lss(), real_eq(), real_neq();
     extern int real_from_int();
@@ -1805,6 +1807,7 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_io_operation, codeAddr);
     add_word_to_io_area(POLY_SYS_io_operation, PolyWord::FromCodePtr(codeAddr));
 
+    add_function_to_io_area(POLY_SYS_atomic_reset, &atomic_reset);
     add_function_to_io_area(POLY_SYS_atomic_incr, &atomic_increment);
     add_function_to_io_area(POLY_SYS_atomic_decr, &atomic_decrement);
     add_function_to_io_area(POLY_SYS_thread_self, &thread_self);
@@ -2345,6 +2348,13 @@ Handle X86Dependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
     PolyObject *p = DEREFHANDLE(mutexp);
     POLYUNSIGNED result = X86AsmAtomicDecrement(p);
     return taskData->saveVec.push(PolyWord::FromUnsigned(result));
+}
+
+// Release a mutex.  Because the atomic increment and decrement
+// use the hardware LOCK prefix we can simply set this to one.
+void X86Dependent::AtomicReset(TaskData *taskData, Handle mutexp)
+{
+    DEREFHANDLE(mutexp)->Set(0, TAGGED(1));
 }
 
 static X86Dependent x86Dependent;

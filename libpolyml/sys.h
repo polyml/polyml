@@ -57,6 +57,7 @@
 #define POLY_SYS_os_specific         52 /* DCJM 22/5/00 */
 #define POLY_SYS_io_dispatch         61 /* DCJM 8/5/00 */
 #define POLY_SYS_signal_handler      62 /* DCJM 18/7/00 */
+#define POLY_SYS_atomic_reset        69 /* DCJM 18/9/12 */
 #define POLY_SYS_atomic_incr         70 /* DCJM 12/3/07 */
 #define POLY_SYS_atomic_decr         71 /* DCJM 12/3/07 */
 #define POLY_SYS_thread_self         72 /* DCJM 12/3/07 */

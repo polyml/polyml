@@ -396,6 +396,7 @@ struct
         fun mutex() = nvref 0w1; (* Initially unlocked. *)
         val atomicIncr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_incr
         and atomicDecr: Word.word ref -> Word.word = RunCall.run_call1 POLY_SYS_atomic_decr
+        and atomicReset: Word.word ref -> unit     = RunCall.run_call1 POLY_SYS_atomic_reset
 
         val doCall: int * mutex -> unit = RunCall.run_call2 POLY_SYS_thread_dispatch
 
@@ -442,9 +443,16 @@ struct
                    acquires it before we have woken up the other threads that's fine.
                    Equally, if another thread decremented the count and saw it was
                    still locked it will enter the RTS and try to acquire the lock
-                   there. *)
+                   there.
+                   It's probably better to reset it here rather than within the RTS
+                   since it allows another thread to acquire the lock immediately
+                   rather than after the rather long process of entering the RTS.
+                   Resetting this needs to be atomic with respect to atomic increment
+                   and decrement.  That's not a problem on X86 so a simple assignment
+                   is sufficient but in the interpreter at least it's necessary to
+                   acquire a lock. *)
             (
-                m := 0w1;
+                atomicReset m;
                 doCall(2, m)
             )
         end

@@ -143,6 +143,12 @@ public:
     // code addresses specially.
     virtual void SetExceptionTrace(TaskData *taskData) { ASSERT(false); }
     virtual void CallCodeTupled(TaskData *taskData) { ASSERT(false); }
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
+    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
+    // Set a mutex to one.
+    virtual void AtomicReset(TaskData *taskData, Handle mutexp);
 };
 
 void Interpreter::InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg)
@@ -1381,6 +1387,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_exp_real, TAGGED(POLY_SYS_exp_real));
     add_word_to_io_area(POLY_SYS_ln_real, TAGGED(POLY_SYS_ln_real));
     add_word_to_io_area(POLY_SYS_io_operation, TAGGED(POLY_SYS_io_operation));
+    add_word_to_io_area(POLY_SYS_atomic_reset, TAGGED(POLY_SYS_atomic_reset));
     add_word_to_io_area(POLY_SYS_atomic_incr, TAGGED(POLY_SYS_atomic_incr));
     add_word_to_io_area(POLY_SYS_atomic_decr, TAGGED(POLY_SYS_atomic_decr));
     add_word_to_io_area(POLY_SYS_thread_self, TAGGED(POLY_SYS_thread_self));
@@ -1441,6 +1448,46 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_network, TAGGED(POLY_SYS_network));
     add_word_to_io_area(POLY_SYS_os_specific, TAGGED(POLY_SYS_os_specific));
     add_word_to_io_area(POLY_SYS_signal_handler, TAGGED(POLY_SYS_signal_handler));
+}
+
+// As far as possible we want locking and unlocking an ML mutex to be fast so
+// we try to implement the code in the assembly code using appropriate
+// interlocked instructions.  That does mean that if we need to lock and
+// unlock an ML mutex in this code we have to use the same, machine-dependent,
+// code to do it.  These are defaults that are used where there is no
+// machine-specific code.
+
+// Increment the value contained in the first word of the mutex.
+// On most platforms this code will be done with a piece of assembly code.
+static PLock mutexLock;
+
+Handle Interpreter::AtomicIncrement(TaskData *taskData, Handle mutexp)
+{
+    PLocker l(&mutexLock);
+    PolyObject *p = DEREFHANDLE(mutexp);
+    // A thread can only call this once so the values will be short
+    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
+    p->Set(0, newValue);
+    return taskData->saveVec.push(newValue);
+}
+
+// Decrement the value contained in the first word of the mutex.
+Handle Interpreter::AtomicDecrement(TaskData *taskData, Handle mutexp)
+{
+    PLocker l(&mutexLock);
+    PolyObject *p = DEREFHANDLE(mutexp);
+    PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
+    p->Set(0, newValue);
+    return taskData->saveVec.push(newValue);
+}
+
+// Release a mutex.  We need to lock the mutex to ensure we don't
+// reset it in the time between one of atomic operations reading
+// and writing the mutex.
+void Interpreter::AtomicReset(TaskData * /*taskData*/, Handle mutexp)
+{
+    PLocker l(&mutexLock);
+    DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.
 }
 
 static Interpreter interpreterObject;

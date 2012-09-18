@@ -116,10 +116,11 @@ public:
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
-    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
-    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
-    // Set a mutex to one.  On the Sparc this requires a memory barrier.
-    virtual void SetToReleased(TaskData *taskData, Handle mutexp);
+    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp) = 0;
+    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp) = 0;
+    // Reset a mutex to one.  This needs to be atomic with respect to the
+    // atomic increment and decrement instructions.
+    virtual void AtomicReset(TaskData *taskData, Handle mutexp) = 0;
 };
 
 extern MachineDependent *machineDependent;

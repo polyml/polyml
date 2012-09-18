@@ -103,6 +103,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_os_specific: return 0;
     case POLY_SYS_io_dispatch: return 0;
     case POLY_SYS_signal_handler: return 0;
+    case POLY_SYS_atomic_reset: return PROPWORD_NORAISE;
     case POLY_SYS_atomic_incr: return PROPWORD_NORAISE;
     case POLY_SYS_atomic_decr: return PROPWORD_NORAISE;
     case POLY_SYS_thread_self: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
