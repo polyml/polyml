@@ -2437,7 +2437,7 @@ end (* structure XWindows *);
 
 exception XWindows = XWindows.XWindows;
 
-let
+local
   open XWindows;
   
   fun printRect _ _ (r:XRectangle) =
@@ -2447,6 +2447,6 @@ let
     PolyML.PrettyString ("Rect " ^ PolyML.makestring R)
   end;
 in
-  PolyML.addPrettyPrinter printRect
+  val () = PolyML.addPrettyPrinter printRect
 end;
 
