@@ -75,11 +75,10 @@
 #  include <stddef.h>
 #endif
 
-#if (defined(HOSTARCHITECTURE_SPARC) && !defined(INTERPRETED))
-#define POLY_TAGSHIFT    2
-#else
+// Integers (non-pointers) have the bottom bit set and the rest of the word
+// contains the significant bits.  The original native code Sparc version
+// shifted by two so that it could use the Taddcc/Tsubcc instructions.
 #define POLY_TAGSHIFT    1
-#endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #  include <windows.h>

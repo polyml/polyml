@@ -596,9 +596,6 @@
 /* Define if the host is an X86 (64 bit) */
 /*#undef HOSTARCHITECTURE_X86_64*/
 
-/* Define if using the interpreter */
-/*#undef INTERPRETED*/
-
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
