@@ -20870,10 +20870,8 @@ fi
 # Check whether --with-portable was given.
 if test "${with_portable+set}" = set; then :
   withval=$with_portable;
-    ac_cv_with_portable=yes
 else
-
-    ac_cv_with_portable=no
+  with_portable=check
 fi
 
 
@@ -20894,36 +20892,46 @@ $as_echo "#define HOSTARCHITECTURE_X86_64 1" >>confdefs.h
 
 $as_echo "#define HOSTARCHITECTURE_SPARC 1" >>confdefs.h
 
-            ac_cv_with_portable=yes
+            polyarch=interpret
             ;;
       power* | ppc*)
 
 $as_echo "#define HOSTARCHITECTURE_PPC 1" >>confdefs.h
 
-            ac_cv_with_portable=yes
+            polyarch=interpret
             ;;
       arm*)
 
 $as_echo "#define HOSTARCHITECTURE_ARM 1" >>confdefs.h
 
-            ac_cv_with_portable=yes
+            polyarch=interpret
             ;;
       ia64*)
 
 $as_echo "#define HOSTARCHITECTURE_IA64 1" >>confdefs.h
 
-            ac_cv_with_portable=yes
+            polyarch=interpret
         ;;
       *) as_fn_error $? "Poly/ML is not supported for this architecture" "$LINENO" 5 ;;
 esac
 
-# If we have explicitly set --with-portable or we are on a machine without
-# a code-generator set to use the interpreter.
-if test "$ac_cv_with_portable" = "yes"; then
+# If we explicitly asked to use the interpreter set the architecture to interpreted.
+if test "x$with_portable" = "xyes" ; then
+    polyarch=interpret
+fi
+
+# If we asked not to use the interpreter check we have native code support.
+if test "x$with_portable" = "xno" ; then
+    if test "x$polyarch" = "xinterpret" ; then
+        as_fn_error $? "--without-portable was given but native code is not supported on this platform" "$LINENO" 5
+    fi
+fi
+
+# Set the define if this is the interpreter.  This is no longer actually used.
+if test "x$polyarch" = "xinterpret" ; then
 
 $as_echo "#define INTERPRETED 1" >>confdefs.h
 
-       polyarch=interpret
 fi
 
 # Put this test at the end where it's less likely to be missed.

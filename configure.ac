@@ -368,10 +368,10 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 # Test the --with-portable option to build the interpreter even if
 # we have a code-generator.
 AC_ARG_WITH([portable],
-    [AS_HELP_STRING([--with-portable],
-              [Build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])], [
-    ac_cv_with_portable=yes], [
-    ac_cv_with_portable=no])
+            [AS_HELP_STRING([--with-portable],
+              [Build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])],
+            [],
+            [with_portable=check])
 
 case "${host_cpu}" in
       i[[3456]]86*)
@@ -384,28 +384,39 @@ case "${host_cpu}" in
             ;;
       sparc*)
             AC_DEFINE([HOSTARCHITECTURE_SPARC], [1], [Define if the host is a Sparc (32 bit)])
-            ac_cv_with_portable=yes
+            polyarch=interpret
             ;;
       power* | ppc*)
             AC_DEFINE([HOSTARCHITECTURE_PPC], [1], [Define if the host is a Power PC (32 bit)])
-            ac_cv_with_portable=yes
+            polyarch=interpret
             ;;
       arm*)
             AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
-            ac_cv_with_portable=yes
+            polyarch=interpret
             ;;
       ia64*)
             AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
-            ac_cv_with_portable=yes
+            polyarch=interpret
         ;;
       *) AC_MSG_ERROR([Poly/ML is not supported for this architecture]) ;;
 esac
 
-# If we have explicitly set --with-portable or we are on a machine without
-# a code-generator set to use the interpreter.
-if test "$ac_cv_with_portable" = "yes"; then
+# If we explicitly asked to use the interpreter set the architecture to interpreted.
+if test "x$with_portable" = "xyes" ; then
+    polyarch=interpret
+fi
+
+# If we asked not to use the interpreter check we have native code support.
+if test "x$with_portable" = "xno" ; then
+    if test "x$polyarch" = "xinterpret" ; then
+        AC_MSG_ERROR(
+            [--without-portable was given but native code is not supported on this platform])
+    fi
+fi
+
+# Set the define if this is the interpreter.  This is no longer actually used.
+if test "x$polyarch" = "xinterpret" ; then
        AC_DEFINE([INTERPRETED], [1], [Define if using the interpreter] )
-       polyarch=interpret
 fi
 
 # Put this test at the end where it's less likely to be missed.
