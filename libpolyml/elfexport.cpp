@@ -62,6 +62,9 @@
 #ifdef HAVE_SYS_ELF_386_H
 #include <sys/elf_386.h>
 #endif
+#ifdef HAVE_SYS_ELF_AMD64_H
+#include <sys/elf_amd64.h>
+#endif
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
@@ -161,19 +164,16 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
     {
     case PROCESS_RELOC_DIRECT: // 32 or 64 bit address of target
         {
-            ElfXX_Rel reloc;
-            setRelocationAddress(addr, &reloc.r_offset);
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), directReloc);
+            PolyWord r = createRelocation(p, addr);
+            POLYUNSIGNED w = r.AsUnsigned();
             for (unsigned i = 0; i < sizeof(PolyWord); i++)
             {
-                addr[i] = (byte)(offset & 0xff);
-                offset >>= 8;
+                addr[i] = (byte)(w & 0xff);
+                w >>= 8;
             }
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
         }
         break;
-#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
+#if(defined(HOSTARCHITECTURE_X86))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             ElfXX_Rel reloc;
@@ -361,9 +361,11 @@ void ELFExport::exportStore(void)
        relocations) as well as the addend. To be safe, whenever we use an ELF32_Rela
        relocation we always zero the location to be relocated. */
 #elif defined(HOSTARCHITECTURE_X86_64)
+    /* It seems Solaris/X86-64 only supports ELF64_Rela relocations.  It appears that
+       Linux will support either so we now use Rela on X86-64. */
     fhdr.e_machine = EM_X86_64;
     directReloc = R_X86_64_64;
-    useRela = false;
+    useRela = true;
 #elif defined(HOSTARCHITECTURE_ARM)
 #ifndef EF_ARM_EABI_VER4 
 #define EF_ARM_EABI_VER4     0x04000000

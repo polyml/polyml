@@ -399,6 +399,9 @@
 /* Define to 1 if you have the <sys/elf_386.h> header file. */
 #undef HAVE_SYS_ELF_386_H
 
+/* Define to 1 if you have the <sys/elf_amd64.h> header file. */
+#undef HAVE_SYS_ELF_AMD64_H
+
 /* Define to 1 if you have the <sys/elf_SPARC.h> header file. */
 #undef HAVE_SYS_ELF_SPARC_H
 
