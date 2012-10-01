@@ -2587,7 +2587,10 @@ struct
                     end
                 in
                     (mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [polyCode]) :: otherCode,
-                     allSame andalso justCopy)
+                     (* We can use the original structure if nothing else has changed, the offset in
+                        the destination structure is the same as the offset in the source and
+                        we don't have any coercion. *)
+                     allSame andalso justCopy andalso (case coercion of NoCoercion => true | _ => false))
                 end
 
             |   applyAction ((_, TypeIdMatch { sourceIdNo, isEquality }), (otherCode, _)) =
