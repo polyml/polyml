@@ -110,7 +110,13 @@
 // "environ" is declared in the headers on some systems but not all.
 // Oddly, declaring it within process_env_dispatch_c causes problems
 // on mingw where "environ" is actually a function.
+#if __APPLE__
+// On Mac OS X there may be problems accessing environ directly.
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#else
 extern char **environ;
+#endif
 
 /* Functions registered with atExit are added to this list. */
 static PolyWord at_exit_list = TAGGED(0);
