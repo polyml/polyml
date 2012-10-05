@@ -3,7 +3,7 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2007-11
+    Further development Copyright David C.J. Matthews 2007-12
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -42,8 +42,6 @@
 #define POLY_SYS_get_length          15
 #define POLY_SYS_get_flags           17
 #define POLY_SYS_str_compare         23 /* DCJM 21/3/06 */
-#define POLY_SYS_teststreq           24
-#define POLY_SYS_teststrneq          25
 #define POLY_SYS_teststrgtr          26
 #define POLY_SYS_teststrlss          27
 #define POLY_SYS_teststrgeq          28
@@ -51,10 +49,16 @@
 #define POLY_SYS_exception_trace     30
 #define POLY_SYS_give_ex_trace       31 /* Called from exception unwind code. */
 #define POLY_SYS_lockseg             47
-#define POLY_SYS_emptystring         48
-#define POLY_SYS_nullvector          49
+#define POLY_SYS_emptystring         48 // A value not a function
+#define POLY_SYS_nullvector          49 // A value not a function
 #define POLY_SYS_network             51 /* DCJM 22/5/00 */
 #define POLY_SYS_os_specific         52 /* DCJM 22/5/00 */
+#define POLY_SYS_eq_longword                    53
+#define POLY_SYS_neq_longword                   54
+#define POLY_SYS_geq_longword                   55
+#define POLY_SYS_leq_longword                   56
+#define POLY_SYS_gt_longword                    57
+#define POLY_SYS_lt_longword                    58
 #define POLY_SYS_io_dispatch         61 /* DCJM 8/5/00 */
 #define POLY_SYS_signal_handler      62 /* DCJM 18/7/00 */
 #define POLY_SYS_atomic_reset        69 /* DCJM 18/9/12 */
@@ -62,20 +66,27 @@
 #define POLY_SYS_atomic_decr         71 /* DCJM 12/3/07 */
 #define POLY_SYS_thread_self         72 /* DCJM 12/3/07 */
 #define POLY_SYS_thread_dispatch     73 /* DCJM 12/3/07 */
-
-//#define POLY_SYS_fork_process        82
-//#define POLY_SYS_choice_process      83
+#define POLY_SYS_plus_longword                  74
+#define POLY_SYS_minus_longword                 75
+#define POLY_SYS_mul_longword                   76
+#define POLY_SYS_div_longword                   77
+#define POLY_SYS_mod_longword                   78
+#define POLY_SYS_andb_longword                  79
+#define POLY_SYS_orb_longword                   80
+#define POLY_SYS_xorb_longword                  81
 #define POLY_SYS_kill_self           84
-//#define POLY_SYS_int_process         85
-//#define POLY_SYS_send_on_channel     86
-//#define POLY_SYS_receive_on_channel  87
+#define POLY_SYS_shift_left_longword            85
+#define POLY_SYS_shift_right_longword           86
+#define POLY_SYS_shift_right_arith_longword     87
 #define POLY_SYS_profiler            88
+#define POLY_SYS_longword_to_tagged             89
+#define POLY_SYS_signed_to_longword             90
+#define POLY_SYS_unsigned_to_longword           91
 #define POLY_SYS_full_gc             92   /* MJC 18/03/91 */
 #define POLY_SYS_stack_trace         93   /* MJC 18/03/91 */
 #define POLY_SYS_timing_dispatch     94   /* DCJM 10/4/00 */
 #define POLY_SYS_objsize             99   /* MJC 27/04/88 */
 #define POLY_SYS_showsize            100  /* MJC 09/03/89 */
-//#define POLY_SYS_interrupt_console_processes 103  /* MJC 01/08/90 */
 #define POLY_SYS_quotrem             104  /* DCJM 05/03/10 */
 #define POLY_SYS_is_short            105
 #define POLY_SYS_aplus               106

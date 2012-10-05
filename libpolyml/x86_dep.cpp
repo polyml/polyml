@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011
+    Further work copyright David C. J. Matthews 2011-12
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -402,6 +402,26 @@ extern "C" {
     byte *X86AsmCallPOLY_SYS_os_specific(void);
     byte *X86AsmCallPOLY_SYS_signal_handler(void);
     byte *X86AsmCallPOLY_SYS_kill_self(void);
+    byte *X86AsmCallPOLY_SYS_eq_longword(void);
+    byte *X86AsmCallPOLY_SYS_neq_longword(void);
+    byte *X86AsmCallPOLY_SYS_geq_longword(void);
+    byte *X86AsmCallPOLY_SYS_leq_longword(void);
+    byte *X86AsmCallPOLY_SYS_gt_longword(void);
+    byte *X86AsmCallPOLY_SYS_lt_longword(void);
+    byte *X86AsmCallPOLY_SYS_plus_longword(void);
+    byte *X86AsmCallPOLY_SYS_minus_longword(void);
+    byte *X86AsmCallPOLY_SYS_mul_longword(void);
+    byte *X86AsmCallPOLY_SYS_div_longword(void);
+    byte *X86AsmCallPOLY_SYS_mod_longword(void);
+    byte *X86AsmCallPOLY_SYS_andb_longword(void);
+    byte *X86AsmCallPOLY_SYS_orb_longword(void);
+    byte *X86AsmCallPOLY_SYS_xorb_longword(void);
+    byte *X86AsmCallPOLY_SYS_shift_left_longword(void);
+    byte *X86AsmCallPOLY_SYS_shift_right_longword(void);
+    byte *X86AsmCallPOLY_SYS_shift_right_arith_longword(void);
+    byte *X86AsmCallPOLY_SYS_longword_to_tagged(void);
+    byte *X86AsmCallPOLY_SYS_signed_to_longword(void);
+    byte *X86AsmCallPOLY_SYS_unsigned_to_longword(void);
 
     byte *X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
     byte *X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
@@ -420,7 +440,7 @@ extern "C" {
     extern int alloc_store(), alloc_uninit();
     extern int get_length_a();
     extern int str_compare();
-    extern int teststreq(), teststrneq(), teststrgtr(), teststrlss(), teststrgeq(), teststrleq();
+    extern int teststrgtr(), teststrlss(), teststrgeq(), teststrleq();
     extern int locksega();
     extern int is_shorta();
     extern int add_long(), sub_long(), mult_long(), div_long(), rem_long(), neg_long();
@@ -1735,8 +1755,6 @@ void X86Dependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_get_flags, PolyWord::FromCodePtr(codeAddr));
 
     add_function_to_io_area(POLY_SYS_str_compare, str_compare);
-    add_function_to_io_area(POLY_SYS_teststreq, &teststreq);
-    add_function_to_io_area(POLY_SYS_teststrneq, &teststrneq);
     add_function_to_io_area(POLY_SYS_teststrgtr, &teststrgtr);
     add_function_to_io_area(POLY_SYS_teststrlss, &teststrlss);
     add_function_to_io_area(POLY_SYS_teststrgeq, &teststrgeq);
@@ -1903,6 +1921,51 @@ void X86Dependent::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_os_specific, PolyWord::FromCodePtr(codeAddr));
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_signal_handler, codeAddr);
     add_word_to_io_area(POLY_SYS_signal_handler, PolyWord::FromCodePtr(codeAddr));
+
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_eq_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_eq_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_neq_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_neq_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_geq_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_geq_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_leq_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_leq_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_gt_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_gt_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_lt_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_lt_longword, PolyWord::FromCodePtr(codeAddr));
+
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_plus_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_plus_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_minus_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_minus_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_mul_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_mul_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_div_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_div_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_mod_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_mod_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_andb_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_andb_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_orb_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_orb_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_xorb_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_xorb_longword, PolyWord::FromCodePtr(codeAddr));
+
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_shift_left_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_shift_left_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_shift_right_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_shift_right_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_shift_right_arith_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_shift_right_arith_longword, PolyWord::FromCodePtr(codeAddr));
+
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_longword_to_tagged, codeAddr);
+    add_word_to_io_area(POLY_SYS_longword_to_tagged, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_signed_to_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_signed_to_longword, PolyWord::FromCodePtr(codeAddr));
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_unsigned_to_longword, codeAddr);
+    add_word_to_io_area(POLY_SYS_unsigned_to_longword, PolyWord::FromCodePtr(codeAddr));
+
 
     // Entries for special cases.  These are generally, but not always, called from
     // compiled code.

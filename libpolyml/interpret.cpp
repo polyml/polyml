@@ -561,6 +561,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                                 else *sp = Zero;
                             }
                             else
+                            // Strictly speaking, C does not require that this uses
+                            // arithmetic shifting so we really ought to set the
+                            // high-order bits explicitly.
                                 *sp = TAGGED(UNTAGGED(*sp) >> UNTAGGED(u));
                             break;
                         }
@@ -1338,8 +1341,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_get_length, TAGGED(POLY_SYS_get_length));
     add_word_to_io_area(POLY_SYS_get_flags, TAGGED(POLY_SYS_get_flags));
     add_word_to_io_area(POLY_SYS_str_compare, TAGGED(POLY_SYS_str_compare));
-    add_word_to_io_area(POLY_SYS_teststreq, TAGGED(POLY_SYS_teststreq));
-    add_word_to_io_area(POLY_SYS_teststrneq, TAGGED(POLY_SYS_teststrneq));
     add_word_to_io_area(POLY_SYS_teststrgtr, TAGGED(POLY_SYS_teststrgtr));
     add_word_to_io_area(POLY_SYS_teststrlss, TAGGED(POLY_SYS_teststrlss));
     add_word_to_io_area(POLY_SYS_teststrgeq, TAGGED(POLY_SYS_teststrgeq));
@@ -1443,6 +1444,26 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_set_code_constant,TAGGED(POLY_SYS_set_code_constant));
     add_word_to_io_area(POLY_SYS_move_bytes,       TAGGED(POLY_SYS_move_bytes));
     add_word_to_io_area(POLY_SYS_move_words,       TAGGED(POLY_SYS_move_words));
+    add_word_to_io_area(POLY_SYS_eq_longword,               TAGGED(POLY_SYS_eq_longword));
+    add_word_to_io_area(POLY_SYS_neq_longword,              TAGGED(POLY_SYS_neq_longword));
+    add_word_to_io_area(POLY_SYS_geq_longword,              TAGGED(POLY_SYS_geq_longword));
+    add_word_to_io_area(POLY_SYS_leq_longword,              TAGGED(POLY_SYS_leq_longword));
+    add_word_to_io_area(POLY_SYS_gt_longword,               TAGGED(POLY_SYS_gt_longword));
+    add_word_to_io_area(POLY_SYS_lt_longword,               TAGGED(POLY_SYS_lt_longword));
+    add_word_to_io_area(POLY_SYS_plus_longword,             TAGGED(POLY_SYS_plus_longword));
+    add_word_to_io_area(POLY_SYS_minus_longword,            TAGGED(POLY_SYS_minus_longword));
+    add_word_to_io_area(POLY_SYS_mul_longword,              TAGGED(POLY_SYS_mul_longword));
+    add_word_to_io_area(POLY_SYS_div_longword,              TAGGED(POLY_SYS_div_longword));
+    add_word_to_io_area(POLY_SYS_mod_longword,              TAGGED(POLY_SYS_mod_longword));
+    add_word_to_io_area(POLY_SYS_andb_longword,             TAGGED(POLY_SYS_andb_longword));
+    add_word_to_io_area(POLY_SYS_orb_longword,              TAGGED(POLY_SYS_orb_longword));
+    add_word_to_io_area(POLY_SYS_xorb_longword,             TAGGED(POLY_SYS_xorb_longword));
+    add_word_to_io_area(POLY_SYS_shift_left_longword,       TAGGED(POLY_SYS_shift_left_longword));
+    add_word_to_io_area(POLY_SYS_shift_right_longword,      TAGGED(POLY_SYS_shift_right_longword));
+    add_word_to_io_area(POLY_SYS_shift_right_arith_longword,TAGGED(POLY_SYS_shift_right_arith_longword));
+    add_word_to_io_area(POLY_SYS_longword_to_tagged,        TAGGED(POLY_SYS_longword_to_tagged));
+    add_word_to_io_area(POLY_SYS_signed_to_longword,        TAGGED(POLY_SYS_signed_to_longword));
+    add_word_to_io_area(POLY_SYS_unsigned_to_longword,      TAGGED(POLY_SYS_unsigned_to_longword));
 
     add_word_to_io_area(POLY_SYS_io_dispatch, TAGGED(POLY_SYS_io_dispatch));
     add_word_to_io_area(POLY_SYS_network, TAGGED(POLY_SYS_network));

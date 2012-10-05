@@ -31,13 +31,17 @@
    require boxed word values.  DCJM 14/8/09.
 *)
 
+(* We need to declare a Word64 structure as well. *)
+structure Word64 = LargeWord;
+
+val () = if Word64.wordSize <> 64 then raise Fail "Not 64-bit" else ()
+
 structure Word32 :> WORD =
 struct
     (* We can use Word here because a 63-bit tagged value is sufficient. *)
     open Word
     
     (* Values of type Word32.word can be in the range 0.. 4294967295 *)
-
     val wordSize = 32
     val maxWord = 4294967295
     val maxWordAsWord: word = (Word.fromInt maxWord)

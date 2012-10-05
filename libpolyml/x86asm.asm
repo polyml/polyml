@@ -564,8 +564,6 @@ POLY_SYS_raisex              EQU 14
 POLY_SYS_get_length          EQU 15
 POLY_SYS_get_flags           EQU 17
 POLY_SYS_str_compare         EQU 23
-POLY_SYS_teststreq           EQU 24
-POLY_SYS_teststrneq          EQU 25
 POLY_SYS_teststrgtr          EQU 26
 POLY_SYS_teststrlss          EQU 27
 POLY_SYS_teststrgeq          EQU 28
@@ -577,6 +575,12 @@ POLY_SYS_emptystring         EQU 48
 POLY_SYS_nullvector          EQU 49
 POLY_SYS_network             EQU 51
 POLY_SYS_os_specific         EQU 52
+POLY_SYS_eq_longword         EQU 53
+POLY_SYS_neq_longword        EQU 54
+POLY_SYS_geq_longword        EQU 55
+POLY_SYS_leq_longword        EQU 56
+POLY_SYS_gt_longword         EQU 57
+POLY_SYS_lt_longword         EQU 58
 POLY_SYS_io_dispatch         EQU 61
 POLY_SYS_signal_handler      EQU 62
 POLY_SYS_atomic_reset        EQU 69
@@ -584,8 +588,22 @@ POLY_SYS_atomic_incr         EQU 70
 POLY_SYS_atomic_decr         EQU 71
 POLY_SYS_thread_self         EQU 72
 POLY_SYS_thread_dispatch     EQU 73
+POLY_SYS_plus_longword       EQU 74
+POLY_SYS_minus_longword      EQU 75
+POLY_SYS_mul_longword        EQU 76
+POLY_SYS_div_longword        EQU 77
+POLY_SYS_mod_longword        EQU 78
+POLY_SYS_andb_longword       EQU 79
+POLY_SYS_orb_longword        EQU 80
+POLY_SYS_xorb_longword       EQU 81
 POLY_SYS_kill_self           EQU 84
+POLY_SYS_shift_left_longword        EQU  85
+POLY_SYS_shift_right_longword       EQU 86
+POLY_SYS_shift_right_arith_longword EQU 87
 POLY_SYS_profiler            EQU 88
+POLY_SYS_longword_to_tagged   EQU 89
+POLY_SYS_signed_to_longword   EQU 90
+POLY_SYS_unsigned_to_longword EQU 91
 POLY_SYS_full_gc             EQU 92
 POLY_SYS_stack_trace         EQU 93
 POLY_SYS_timing_dispatch     EQU 94
@@ -1908,68 +1926,6 @@ CALLMACRO   INLINE_ROUTINE  offset_address
     ret
 CALLMACRO   RegMask offset_address,(M_Reax OR M_Rebx)
 
-CALLMACRO   INLINE_ROUTINE  teststreq
-    MOVL    Reax,Recx       ;# Are either just single chars?
-    ORL     Rebx,Reax
-    ANDL    CONST TAG,Reax
-    jz      teststreq2
-    CMPL    Rebx,Recx       ;# Must be identical
-    jz      RetTrue
-    jmp     RetFalse
-teststreq2:
-    MOVL    Recx,Reax
-    MOVL    Rebx,Redi       ;# Move ready for cmpsb.
-    MOVL    [Reax],Recx     ;# Get length
-    ADDL    CONST POLYWORDSIZE,Recx    ;# add 4/8 for the length field.
-    MOVL    Reax,Resi       ;# Move to correct reg for cmpsb
-    cld                     ;# Make sure we increment
-    CMPL    Reax,Reax       ;# Set the Zero bit
-;# Compare the strings.  Because the length field is at the beginning
-;# it does not matter if the value we loaded into %Recx is wrong
-IFDEF WINDOWS
-    repe    cmpsb
-ELSE
-    repe    
-    cmpsb
-ENDIF
-    MOVL    Reax,Resi       ;# Make these valid
-    MOVL    Reax,Recx
-    MOVL    Reax,Redi
-    jz      RetTrue
-    jmp     RetFalse
-CALLMACRO   RegMask teststreq,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
-
-CALLMACRO   INLINE_ROUTINE  teststrneq
-    MOVL    Reax,Recx       ;# Are either just single chars?
-    ORL     Rebx,Reax
-    ANDL    CONST TAG,Reax
-    jz      teststrneq2
-    CMPL    Rebx,Recx       ;# Must be identical
-    jz      RetFalse
-    jmp     RetTrue
-teststrneq2:
-    MOVL    Recx,Reax
-    MOVL    Rebx,Redi       ;# Move ready for cmpsb.
-    MOVL    [Reax],Recx     ;# Get length
-    ADDL    CONST POLYWORDSIZE,Recx    ;# add 4/8 for the length field.
-    MOVL    Reax,Resi       ;# Move to correct reg for cmpsb
-    cld                     ;# Make sure we increment
-    CMPL    Reax,Reax       ;# Set the Zero bit
-;# Compare the strings.  Because the length field is at the beginning
-;# it does not matter if the value we loaded into %Recx is wrong
-IFDEF WINDOWS
-    repe    cmpsb
-ELSE
-    repe
-    cmpsb
-ENDIF
-    MOVL    Reax,Resi       ;# Make these valid
-    MOVL    Reax,Recx
-    MOVL    Reax,Redi
-    jz      RetFalse
-    jmp     RetTrue
-CALLMACRO   RegMask teststrneq,(M_Reax OR M_Recx OR M_Redi OR M_Resi)
-
 ;# General test routine.  Returns with the condition codes set
 ;# appropriately.
 
@@ -2729,6 +2685,30 @@ CREATE_EXTRA_CALL MACRO index
     CREATE_IO_CALL  POLY_SYS_arctan_real
     CREATE_IO_CALL  POLY_SYS_cos_real
 
+;# For the moment these all call into C++.  They will be replaced by
+;# assembly code in due course.
+    CREATE_IO_CALL  POLY_SYS_eq_longword
+    CREATE_IO_CALL  POLY_SYS_neq_longword
+    CREATE_IO_CALL  POLY_SYS_geq_longword
+    CREATE_IO_CALL  POLY_SYS_leq_longword
+    CREATE_IO_CALL  POLY_SYS_gt_longword
+    CREATE_IO_CALL  POLY_SYS_lt_longword
+    CREATE_IO_CALL  POLY_SYS_plus_longword
+    CREATE_IO_CALL  POLY_SYS_minus_longword
+    CREATE_IO_CALL  POLY_SYS_mul_longword
+    CREATE_IO_CALL  POLY_SYS_div_longword
+    CREATE_IO_CALL  POLY_SYS_mod_longword
+    CREATE_IO_CALL  POLY_SYS_andb_longword
+    CREATE_IO_CALL  POLY_SYS_orb_longword
+    CREATE_IO_CALL  POLY_SYS_xorb_longword
+    CREATE_IO_CALL  POLY_SYS_shift_left_longword
+    CREATE_IO_CALL  POLY_SYS_shift_right_longword
+    CREATE_IO_CALL  POLY_SYS_shift_right_arith_longword
+    CREATE_IO_CALL  POLY_SYS_longword_to_tagged
+    CREATE_IO_CALL  POLY_SYS_signed_to_longword
+    CREATE_IO_CALL  POLY_SYS_unsigned_to_longword
+
+
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
 RETURN_STACK_OVERFLOWEX     EQU 3
@@ -2784,8 +2764,8 @@ ENDIF
     dd  Mask_all                 ;# 21 is unused
     dd  Mask_all                 ;# 22 is unused
     dd  Mask_str_compare         ;# 23
-    dd  Mask_teststreq           ;# 24
-    dd  Mask_teststrneq          ;# 25
+    dd  Mask_all                 ;# 24 is unused
+    dd  Mask_all                 ;# 25 is unused
     dd  Mask_teststrgtr          ;# 26
     dd  Mask_teststrlss          ;# 27
     dd  Mask_teststrgeq          ;# 28
@@ -2813,12 +2793,12 @@ ENDIF
     dd  Mask_all                 ;# 50 is no longer used
     dd  Mask_all                 ;# 51
     dd  Mask_all                 ;# 52
-    dd  Mask_all                 ;# 53 is unused
-    dd  Mask_all                 ;# 54 is unused
-    dd  Mask_all                 ;# version_number = 55
-    dd  Mask_all                 ;# 56 is unused
-    dd  Mask_all                 ;# 57 is unused
-    dd  Mask_all                 ;# 58 is unused
+    dd  Mask_all                 ;# 53
+    dd  Mask_all                 ;# 54
+    dd  Mask_all                 ;# 55
+    dd  Mask_all                 ;# 56
+    dd  Mask_all                 ;# 57
+    dd  Mask_all                 ;# 58
     dd  Mask_all                 ;# 59 is unused
     dd  Mask_all                 ;# 60 is unused
     dd  Mask_all                 ;# 61
@@ -2834,24 +2814,24 @@ ENDIF
     dd  Mask_atomic_decr         ;# 71
     dd  Mask_thread_self         ;# 72
     dd  Mask_all                 ;# 73
-    dd  Mask_all                 ;# 74 is unused
-    dd  Mask_all                 ;# 75 is unused
-    dd  Mask_all                 ;# 76 is unused
-    dd  Mask_all                 ;# 77 is unused
-    dd  Mask_all                 ;# 78 is unused
-    dd  Mask_all                 ;# 79 is unused
-    dd  Mask_all                 ;# Mask_version_number_1 = 80
-    dd  Mask_all                 ;# 81 is now unused
-    dd  Mask_all                 ;# 82 is now unused
+    dd  Mask_all                 ;# 74
+    dd  Mask_all                 ;# 75
+    dd  Mask_all                 ;# 76
+    dd  Mask_all                 ;# 77
+    dd  Mask_all                 ;# 78
+    dd  Mask_all                 ;# 79
+    dd  Mask_all                 ;# 80
+    dd  Mask_all                 ;# 81
+    dd  Mask_all                 ;# 82 is unused
     dd  Mask_all                 ;# 83 is now unused
     dd  Mask_all                 ;# 84
-    dd  Mask_all                 ;# 85 is now unused
-    dd  Mask_all                 ;# 86 is now unused
-    dd  Mask_all                 ;# 87 is now unused
+    dd  Mask_all                 ;# 85
+    dd  Mask_all                 ;# 86
+    dd  Mask_all                 ;# 87
     dd  Mask_all                 ;# 88
-    dd  Mask_all                 ;# 89 is unused
-    dd  Mask_all                 ;# 90 is unused
-    dd  Mask_all                 ;# 91 is unused
+    dd  Mask_all                 ;# 89
+    dd  Mask_all                 ;# 90
+    dd  Mask_all                 ;# 91
     dd  Mask_all                 ;# 92
     dd  Mask_all                 ;# 93
     dd  Mask_all                 ;# 94

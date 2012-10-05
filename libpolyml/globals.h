@@ -141,6 +141,7 @@ public:
     static PolyWord FromUnsigned(POLYUNSIGNED u) { return PolyWord(u); }
     static PolyWord FromSigned(POLYSIGNED s) { return PolyWord(s); }
     POLYUNSIGNED AsUnsigned(void) const { return contents.unsignedInt; }
+    POLYSIGNED AsSigned(void) const { return contents.signedInt; }
 
 protected:
     PolyWord(POLYSIGNED s) { contents.signedInt = s; }

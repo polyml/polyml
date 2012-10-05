@@ -57,7 +57,7 @@
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-10 CUTS, David C.J. Matthews and contributors.";
+"Copyright (c) 2002-12 CUTS, David C.J. Matthews and contributors.";
 
 // Property bits for functions.  For compiled functions these are
 // stored in the register mask word.  None of the architectures has
@@ -88,8 +88,6 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
         // This isn't quite true.  It is possible to clear the mutable flag on a mutable segment.
         return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_str_compare: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_teststreq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_teststrneq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_teststrgtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_teststrlss: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_teststrgeq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
@@ -101,6 +99,12 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_nullvector: return 0; // Not a function
     case POLY_SYS_network: return 0;
     case POLY_SYS_os_specific: return 0;
+    case POLY_SYS_eq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_neq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_geq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_leq_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_gt_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_lt_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_io_dispatch: return 0;
     case POLY_SYS_signal_handler: return 0;
     case POLY_SYS_atomic_reset: return PROPWORD_NORAISE;
@@ -108,8 +112,22 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_atomic_decr: return PROPWORD_NORAISE;
     case POLY_SYS_thread_self: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
     case POLY_SYS_thread_dispatch: return 0;
+    case POLY_SYS_plus_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_minus_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_mul_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_div_longword: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
+    case POLY_SYS_mod_longword: return PROPWORD_NOUPDATE|PROPWORD_NODEREF; // Can raise Divide
+    case POLY_SYS_andb_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_orb_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_xorb_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_kill_self: return 0;
+    case POLY_SYS_shift_left_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_shift_right_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_shift_right_arith_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_profiler: return 0;
+    case POLY_SYS_longword_to_tagged: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_signed_to_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_unsigned_to_longword: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_full_gc: return PROPWORD_NORAISE; // Effectively has a side-effect
     case POLY_SYS_stack_trace: return 0;
     case POLY_SYS_timing_dispatch: return 0;

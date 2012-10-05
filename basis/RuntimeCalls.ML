@@ -2,6 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further work copyright David C. J. Matthews 2012
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -32,8 +33,6 @@ struct
   val POLY_SYS_get_length          = 15
   val POLY_SYS_get_flags           = 17
   val POLY_SYS_str_compare         = 23 (* DCJM 21/3/06 *)
-(* val POLY_SYS_teststreq          = 24*) (* Replaced by bytevec_eq *)
-(*val POLY_SYS_teststrneq          = 25*)
   val POLY_SYS_teststrgtr          = 26
   val POLY_SYS_teststrlss          = 27
   val POLY_SYS_teststrgeq          = 28
@@ -45,6 +44,12 @@ struct
   val POLY_SYS_nullvector          = 49
   val POLY_SYS_network             = 51 (* DCJM 22/5/00 *)
   val POLY_SYS_os_specific         = 52 (* DCJM 22/5/00 *)
+  val POLY_SYS_eq_longword         = 53
+  val POLY_SYS_neq_longword        = 54
+  val POLY_SYS_geq_longword        = 55
+  val POLY_SYS_leq_longword        = 56
+  val POLY_SYS_gt_longword         = 57
+  val POLY_SYS_lt_longword         = 58
   val POLY_SYS_io_dispatch         = 61 (* DCJM 8/5/00 *)
   val POLY_SYS_signal_handler      = 62 (* DCJM 18/7/00 *)
   val POLY_SYS_atomic_reset        = 69 (* DCJM 18/9/12 *)
@@ -52,14 +57,27 @@ struct
   val POLY_SYS_atomic_decr         = 71 (* DCJM 12/3/07 *)
   val POLY_SYS_thread_self         = 72 (* DCJM 12/3/07 *)
   val POLY_SYS_thread_dispatch     = 73 (* DCJM 12/3/07 *)
+  val POLY_SYS_plus_longword       = 74
+  val POLY_SYS_minus_longword      = 75
+  val POLY_SYS_mul_longword        = 76
+  val POLY_SYS_div_longword        = 77
+  val POLY_SYS_mod_longword        = 78
+  val POLY_SYS_andb_longword       = 79
+  val POLY_SYS_orb_longword        = 80
+  val POLY_SYS_xorb_longword       = 81
   val POLY_SYS_kill_self           = 84
+  val POLY_SYS_shift_left_longword         = 85
+  val POLY_SYS_shift_right_longword        = 86
+  val POLY_SYS_shift_right_arith_longword  = 87
+  val POLY_SYS_longword_to_tagged          = 89
+  val POLY_SYS_signed_to_longword          = 90
+  val POLY_SYS_unsigned_to_longword        = 91
   val POLY_SYS_profiler            = 88
   val POLY_SYS_full_gc             = 92   (* MJC 18/03/91 *)
   val POLY_SYS_stack_trace         = 93   (* MJC 18/03/91 *)
   val POLY_SYS_timing_dispatch     = 94   (* DCJM 10/4/00 *)
   val POLY_SYS_objsize             = 99   (* MJC 27/04/88 *)
   val POLY_SYS_showsize            = 100  (* MJC 09/03/89 *)
-(*val POLY_SYS_interrupt_console_processes = 103*)  (* MJC 01/08/90 *)
   val POLY_SYS_quotrem             = 104 (* DCJM 05/03/10 *)
   val POLY_SYS_is_short            = 105
   val POLY_SYS_aplus               = 106
@@ -121,8 +139,6 @@ struct
   val POLY_SYS_word_neq            = 217
   val POLY_SYS_not_bool            = 218
   val POLY_SYS_string_length       = 223
-(*  val POLY_SYS_int_eq              = 229 (* Removed: equivalent to word_eq. *)
-  val POLY_SYS_int_neq             = 230*) (* Removed: equivalent to word_ne. *)
   val POLY_SYS_int_geq             = 231 (* These are actually arbitrary precision ops. *)
   val POLY_SYS_int_leq             = 232
   val POLY_SYS_int_gtr             = 233

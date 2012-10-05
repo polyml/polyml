@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9
+    Updated David C.J. Matthews 2008-9, 2012
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -784,6 +784,32 @@ struct
                 makeTypeConstructor("byteVector", [],
                     makeFreeId(idCode, true, basisDescription "byteVector"), declInBasis);
             val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []));
+        end
+
+        (* Similarly we need LargeWord.word *)
+        local
+            fun monoTypePrinter _ = PRETTY.PrettyString "?"
+
+            val idCode =
+                let
+                    open TypeValue
+                    val code =
+                        createTypeValue{
+                            eqCode=CODETREE.rtsFunction POLY_SYS_eq_longword,
+                            printCode=mkConst (toMachineWord (ref monoTypePrinter)),
+                            boxedCode = boxedNever,
+                            sizeCode = singleWord
+                            }
+                in
+                   Global (genCode(code, []) ())
+                end
+        in
+            val largeWordType =
+                makeTypeConstructor("word", [],
+                    makeFreeId(idCode, true, basisDescription "word"), declInBasis);
+            (* This is put in Bootstrap so it can be picked out in the basis library.
+               The default "word" type (Word.word) is in the global namespace. *)
+            val () = #enterType bootstrapEnv ("word", TypeConstrSet(largeWordType, []));
         end
 
     (* We also need array and Array2.array to be passed through here so that

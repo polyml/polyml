@@ -5,6 +5,8 @@
     Copyright (c) 2000, 2009
         Cambridge University Technical Services Limited
 
+    Further work copyright David C. J. Matthews 2012
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License as published by the Free Software Foundation; either
@@ -873,14 +875,183 @@ static Handle shift_right_word_c(TaskData *taskData, Handle y, Handle x)
 
 static Handle shift_right_arith_word_c(TaskData *taskData, Handle y, Handle x)
 {
-    POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x)); /* Treat as a signed quantity. */
+    POLYSIGNED wx = UNTAGGED(DEREFWORD(x)); /* Treat as a signed quantity. */
+    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    // This function in ML is defined to return 0 or ~1 if the shift is greater
+    // than the number of bits in the word.
+    // C does not actually define how signed values are shifted although most
+    // (all?) compilers seem to use arithmetic shifts here.
+    if (wy > sizeof(PolyWord)*8)
+        return taskData->saveVec.push(wx < 0 ? TAGGED(-1) : TAGGED(0));
+    return taskData->saveVec.push(TAGGED(wx >> wy));
+}
+
+// Large-word operations.  A large word is a 32/64-bit value in a byte segment.
+// These will normally be code-generated and in the assembly code.
+static Handle eqLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(wx==wy ? TAGGED(1) : TAGGED(0));
+}
+
+static Handle neqLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(wx!=wy ? TAGGED(1) : TAGGED(0));
+}
+
+static Handle geqLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(wx>=wy ? TAGGED(1) : TAGGED(0));
+}
+
+static Handle leqLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(wx<=wy ? TAGGED(1) : TAGGED(0));
+}
+
+static Handle gtLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(wx>wy ? TAGGED(1) : TAGGED(0));
+}
+
+static Handle ltLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
+}
+
+static Handle makeLongWord(TaskData *taskData, POLYUNSIGNED w)
+{
+    Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+    result->WordP()->Set(0, PolyWord::FromUnsigned(w));
+    return result;
+}
+
+static Handle plusLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return makeLongWord(taskData, wx + wy);
+}
+
+static Handle minusLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return makeLongWord(taskData, wx - wy);
+}
+
+static Handle mulLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return makeLongWord(taskData, wx * wy);
+}
+
+static Handle divLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    if (wy == 0) raise_exception0(taskData, EXC_divide);
+    return makeLongWord(taskData, wx / wy);
+}
+
+static Handle modLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    if (wy == 0) raise_exception0(taskData, EXC_divide);
+    return makeLongWord(taskData, wx % wy);
+}
+
+static Handle andbLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return makeLongWord(taskData, wx & wy);
+}
+
+static Handle orbLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return makeLongWord(taskData, wx | wy);
+}
+
+static Handle xorbLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
+    return makeLongWord(taskData, wx ^ wy);
+}
+
+static Handle shiftLeftLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    // The amount to shift is always a Word.word value.
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
-    /* It is defined to return 0 or ~1 if the shift is greater than the
+    /* It is defined to return 0 if the shift is greater than the
+       number of bits in the PolyWord.  The shift instructions on many
+       architectures don't get that right. */
+    if (wy > sizeof(PolyWord)*8)
+        return makeLongWord(taskData, 0);
+    return makeLongWord(taskData, wx << wy);
+}
+
+static Handle shiftRightLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
+    /* It is defined to return 0 if the shift is greater than the
        number of bits in the word.  The shift instructions on many
        architectures don't get that right. */
     if (wy > sizeof(PolyWord)*8)
-        return taskData->saveVec.push(wx < 0 ? TAGGED(-1) : TAGGED(0));
-    return taskData->saveVec.push(TAGGED(wx>>wy));
+        return makeLongWord(taskData, 0);
+    return makeLongWord(taskData, wx >> wy);
+}
+
+static Handle shiftRightArithLongWord(TaskData *taskData, Handle y, Handle x)
+{
+    POLYSIGNED wx = x->WordP()->Get(0).AsSigned();
+    POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
+    if (wy > sizeof(PolyWord)*8)
+        return makeLongWord(taskData, wx < 0 ? -1 : 0);
+    // Strictly speaking, C does not define that this uses an arithmetic shift
+    // so we really ought to set the high-order bits explicitly.
+    return makeLongWord(taskData, (POLYUNSIGNED)(wx >> wy));
+}
+
+// Extract the first word and return it as a tagged value.  This loses the top-bit
+static Handle longWordToTagged(TaskData *taskData, Handle x)
+{
+    POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
+    return taskData->saveVec.push(TAGGED(wx));
+}
+
+// Shift the tagged value to remove the tag and put it into the first word.
+// The original sign bit is copied in the shift.
+static Handle signedToLongWord(TaskData *taskData, Handle x)
+{
+    POLYSIGNED wx = x->Word().UnTagged();
+    return makeLongWord(taskData, (POLYUNSIGNED)wx);
+}
+
+// As with the above except the value is treated as an unsigned
+// value and the top bit is zero.
+static Handle unsignedToLongWord(TaskData *taskData, Handle x)
+{
+    POLYUNSIGNED wx = x->Word().UnTaggedUnsigned();
+    return makeLongWord(taskData, wx);
 }
 
 static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
@@ -1017,14 +1188,6 @@ Handle EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_str_compare:
                 machineDependent->CallIO2(taskData, compareStrings);
-                break;
-
-            case POLY_SYS_teststreq:
-                machineDependent->CallIO2(taskData, &testStringEqual);
-                break;
-
-            case POLY_SYS_teststrneq:
-                machineDependent->CallIO2(taskData, &testStringNotEqual);
                 break;
 
             case POLY_SYS_teststrgtr:
@@ -1434,6 +1597,86 @@ Handle EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_kill_self:
                 machineDependent->CallIO0(taskData, exitThread);
+                break;
+
+            case POLY_SYS_eq_longword:
+                machineDependent->CallIO2(taskData, &eqLongWord);
+                break;
+
+            case POLY_SYS_neq_longword:
+                machineDependent->CallIO2(taskData, &neqLongWord);
+                break;
+
+            case POLY_SYS_geq_longword:
+                machineDependent->CallIO2(taskData, &geqLongWord);
+                break;
+
+            case POLY_SYS_leq_longword:
+                machineDependent->CallIO2(taskData, &leqLongWord);
+                break;
+
+            case POLY_SYS_gt_longword:
+                machineDependent->CallIO2(taskData, &gtLongWord);
+                break;
+
+            case POLY_SYS_lt_longword:
+                machineDependent->CallIO2(taskData, &ltLongWord);
+                break;
+
+            case POLY_SYS_plus_longword:
+                machineDependent->CallIO2(taskData, &plusLongWord);
+                break;
+
+            case POLY_SYS_minus_longword:
+                machineDependent->CallIO2(taskData, &minusLongWord);
+                break;
+
+            case POLY_SYS_mul_longword:
+                machineDependent->CallIO2(taskData, &mulLongWord);
+                break;
+
+            case POLY_SYS_div_longword:
+                machineDependent->CallIO2(taskData, &divLongWord);
+                break;
+
+            case POLY_SYS_mod_longword:
+                machineDependent->CallIO2(taskData, &modLongWord);
+                break;
+
+            case POLY_SYS_andb_longword:
+                machineDependent->CallIO2(taskData, &andbLongWord);
+                break;
+
+            case POLY_SYS_orb_longword:
+                machineDependent->CallIO2(taskData, &orbLongWord);
+                break;
+
+            case POLY_SYS_xorb_longword:
+                machineDependent->CallIO2(taskData, &xorbLongWord);
+                break;
+
+            case POLY_SYS_shift_left_longword:
+                machineDependent->CallIO2(taskData, &shiftLeftLongWord);
+                break;
+
+            case POLY_SYS_shift_right_longword:
+                machineDependent->CallIO2(taskData, &shiftRightLongWord);
+                break;
+
+            case POLY_SYS_shift_right_arith_longword:
+                machineDependent->CallIO2(taskData, &shiftRightArithLongWord);
+                break;
+
+            case POLY_SYS_longword_to_tagged:
+                machineDependent->CallIO1(taskData, &longWordToTagged);
+                break;
+
+            case POLY_SYS_signed_to_longword:
+                machineDependent->CallIO1(taskData, &signedToLongWord);
+                break;
+
+            case POLY_SYS_unsigned_to_longword:
+                machineDependent->CallIO1(taskData, &unsignedToLongWord);
                 break;
 
             // This is called from assembly code and doesn't actually have an entry in the

@@ -43,11 +43,15 @@ val () = Bootstrap.use "basis/Bool.sml";
 val () = Bootstrap.use "basis/ListPair.sml";
 val () = Bootstrap.use "basis/Int.sml";
 val () = Bootstrap.use "basis/LargeWord.sml";
-val () = Bootstrap.use "basis/Word8.sml";
+(* Declare the appropriate additional structures. *)
+(* The version of Word32 we use depends on whether this is
+   32-bit or 64-bit. *)
 val () =
-if PolyML.architecture() = "X86_64"
-then Bootstrap.use "basis/Word32.x86_64.sml"
-else Bootstrap.use "basis/Word32.sml";
+    if LargeWord.wordSize = 32
+    then Bootstrap.use "basis/Word32.sml"
+    else Bootstrap.use "basis/Word32In64.sml";
+
+val () = Bootstrap.use "basis/Word8.sml";
 val () = Bootstrap.use "basis/INTEGER.sml";
 val () = Bootstrap.use "basis/IntInf.sml";
 val () = Bootstrap.use "basis/Int32.sml";

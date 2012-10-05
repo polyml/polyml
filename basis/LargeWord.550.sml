@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Word and LargeWord Structure
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005, 2012
+    Copyright   David Matthews 1999, 2005
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -18,6 +18,8 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+(* G&R 2004 status: updated. *)
+
 (*
 This file contains definitions of both LargeWord and Word.  SysWord is
 defined to be LargeWord.
@@ -27,14 +29,10 @@ hold the full machine word values for certain operating-system calls.
 
 (* This uses the global definition of type "word" made in the compiler.
    That type has special status as the default for literals of the form
-   0wn in the absence of any other type information. 
-   It also uses the definition of LargeWord.word that the compiler
-   puts into the Bootstrap structure.  This has to be done by the
-   compiler because there is currently no way to introduce a new
-   type with a specific equality function. *)
+   0wn in the absence of any other type information. *)
 local
     open RuntimeCalls;
-    type largeword = Bootstrap.word
+    type largeword = {hi: word, lo: word}
 
     (* Extract a word value from a character stream. *)
     (* There's a complication here which is similar to that with 0x for
@@ -152,23 +150,23 @@ local
             else getFirstWord i
     end
 
-    (* The maximum word is the largest tagged value.  The maximum large-word is
-       the largest value that will fit in a machine word. *)
+    (* The maximum word value is given by the smallest integer power of two
+       which when converted to word gives zero, less one. *)
     val zero = (* 0w *) wordFromInt 0
 
     local
         fun power2' n 0 = n
          |  power2' n i = power2' (2*n) (i-1)
         val power2 = power2' 1
-        val bitsInWord: int = (RunCall.unsafeCast LibrarySupport.wordSize) * 8
+        fun findlong i =
+            if wordFromInt(power2 i) = zero then i else findlong(i+1)
     in
-        val wordSize = bitsInWord - 1 (* 31 or 63 bits *)
-        val maxWordP1 = power2 wordSize (* One more than the maximum word *)
+        val wordSize = findlong 1
+        val maxWordP1 = power2 wordSize
         val maxWord = maxWordP1 - 1
-        val largeWordSize = bitsInWord
-        val maxLargeWord = power2 largeWordSize - 1
-        val largeWordTopBit = maxWordP1 (* The top bit of a large word *)
+        val maxLongWord = power2 (wordSize*2) - 1
         val maxWordAsWord = wordFromInt maxWord
+        val wordSizeAsWord = wordFromInt wordSize
     end
 
     structure Words :>
@@ -318,14 +316,18 @@ local
             and op << : word*word->word = RunCall.run_call2 POLY_SYS_shift_left_word
             and op ~>> : word*word->word = RunCall.run_call2 POLY_SYS_shift_right_arith_word
             
-            val toLargeWord: word->largeword = RunCall.run_call1 POLY_SYS_unsigned_to_longword
-            and toLargeWordX: word->largeword = RunCall.run_call1 POLY_SYS_signed_to_longword
-            and fromLargeWord: largeword->word = RunCall.run_call1 POLY_SYS_longword_to_tagged
+            local
+                val signShift = fromInt(Int.-(wordSize,1))
+            in
+                fun toLargeWord x = {hi=zero, lo=x}
+                and toLargeWordX x = (* Sign extend. *)
+                    {hi = x ~>> signShift, lo = x}
+                and fromLargeWord (x: largeword) = #lo x
 
-            fun ~ x = zero - x
-
+                fun ~ x = zero - x
+            end
             val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
-
+        
             fun notb x = xorb(maxWordAsWord, x)
             
             (* We can format the result using the integer format function. *)
@@ -345,12 +347,10 @@ local
             and max (i, j) = if i > j then i else j
         end (* Word *)
 
-        (* LargeWord.word values have one more bit of precision than Word,word values and
-           are always "boxed" i.e. held in a one word piece of memory with the "byte" bit set. *)
         structure LargeWord =
         struct
             type word = largeword
-            val wordSize = largeWordSize
+            val wordSize = 2*wordSize;
 
             (* As this is LargeWord we don't need to do anything here. *)
             fun toLargeWord x = x
@@ -358,60 +358,15 @@ local
             and fromLargeWord x = x
             val toLarge = toLargeWord and toLargeX = toLargeWordX and fromLarge = fromLargeWord
 
-            (* Logical operations.  Declare these first so they can be used in fromInt etc but
-               leave the arithmetic operations until later. *)
-            val orb : word*word->word = RunCall.run_call2 POLY_SYS_orb_longword
-            and andb : word*word->word = RunCall.run_call2 POLY_SYS_andb_longword
-            and xorb : word*word->word = RunCall.run_call2 POLY_SYS_xorb_longword
-            and op >> : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_right_longword
-            and op << : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_left_longword
-            and op ~>> : word*Word.word->word = RunCall.run_call2 POLY_SYS_shift_right_arith_longword
-
-            local
-                val shortToWord: int -> largeword = RunCall.run_call1 POLY_SYS_signed_to_longword
-                val getFirstWord: int -> Word.word = RunCall.run_call1 POLY_SYS_get_first_long_word
-                val longToInt: largeword -> int = RunCall.run_call1 POLY_SYS_longword_to_tagged
-                val zero: largeword = shortToWord 0
-                val andbInt : int * int -> int = RunCall.run_call2 POLY_SYS_anda
-
-                infix << orb andb
-
-                val topBitAsLargeWord: largeword =
-                    (* The top bit *) shortToWord 1 << Word.fromInt(largeWordSize - 1)
-
-                fun topIntBitClear(x : int) : bool = andbInt(x, largeWordTopBit) = 0
-
-                fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero 
-            in
-                (* If it is short we just need to sign-extend it when storing it into
-                   memory.  If it is long it's more complicated.  getFirstWord returns
-                   the tagged value, possibly negated, but loses the high-order bit.
-                   That has to be put back. *)
-                fun fromInt x = 
-                    if LibrarySupport.isShortInt x
-                    then shortToWord x
-                    else if topIntBitClear x <> (x < 0)
-                    then Word.toLargeWord(getFirstWord x)
-                    else topBitAsLargeWord orb (Word.toLargeWord(getFirstWord x))
-
-                and toInt x =
-                let
-                    val asInt: int = longToInt x
-                in
-                    (if asInt < 0 then maxWordP1 + asInt else asInt) +
-                    (if topBitClear x then 0 else largeWordTopBit)
-                end
-                and toIntX x =
-                let
-                    val asInt: int = longToInt x
-                in
-                    (if asInt < 0 then maxWordP1 + asInt else asInt) -
-                    (if topBitClear x then 0 else largeWordTopBit)
-                end
-               
-                val zero = zero
-                val maxLargeWordAsLargeWord = fromInt maxLargeWord
-            end
+            (* The values are treated as lo + 2^n * hi *)
+             (* Avoid doing long precision arithmetic unnecessarily. *)
+            fun fromInt x = { lo = Word.fromInt x,
+                              hi = if LibrarySupport.isShortInt x then if x < 0 then 0w0-0w1 else 0w0
+                                   else Word.fromInt (Int.div(x, maxWordP1)) }
+            and toIntX { lo, hi=0w0 } = Word.toInt lo
+            |   toIntX { lo, hi } = Word.toInt lo + Word.toIntX hi * maxWordP1
+            and toInt { lo, hi=0w0 } = Word.toInt lo
+            |   toInt { lo, hi } = Word.toInt lo + Word.toInt hi * maxWordP1
 
             val toLargeInt = toInt
             val toLargeIntX = toIntX
@@ -421,29 +376,83 @@ local
                 case scanWord radix getc src of
                     NONE => NONE
                 |   SOME(res, src') =>
-                        if res > maxLargeWord then raise General.Overflow
+                        if res > maxLongWord then raise General.Overflow
                         else SOME(fromInt res, src')
     
+            (* TODO: Implement this directly? *)
             val fromString = StringCvt.scanString (scan StringCvt.HEX)
 
-            val op + : word*word->word = RunCall.run_call2 POLY_SYS_plus_longword
-            and op - : word*word->word = RunCall.run_call2 POLY_SYS_minus_longword
-            and op * : word*word->word = RunCall.run_call2 POLY_SYS_mul_longword
-            and op div : word*word->word = RunCall.run_call2 POLY_SYS_div_longword
-            and op mod : word*word->word = RunCall.run_call2 POLY_SYS_mod_longword
-            
-            fun ~ x = zero - x
-            fun notb x = xorb(maxLargeWordAsLargeWord, x)
+            (* Logical operations are fairly simple. *)
+            fun orb ({hi, lo}, {hi=hi', lo=lo'}) =
+                {hi=Word.orb(hi, hi'), lo=Word.orb(lo, lo')}
+            and xorb ({hi, lo}, {hi=hi', lo=lo'}) =
+                {hi=Word.xorb(hi, hi'), lo=Word.xorb(lo, lo')}
+            and andb ({hi, lo}, {hi=hi', lo=lo'}) =
+                {hi=Word.andb(hi, hi'), lo=Word.andb(lo, lo')}
+            and notb {hi, lo} = {hi=Word.notb hi, lo=Word.notb lo}
 
-            val op > : word*word->bool = RunCall.run_call2 POLY_SYS_gt_longword
-            and op < : word*word->bool = RunCall.run_call2 POLY_SYS_lt_longword
-            and op >= : word*word->bool = RunCall.run_call2 POLY_SYS_geq_longword
-            and op <= : word*word->bool = RunCall.run_call2 POLY_SYS_leq_longword
-        
-            fun compare (i, j) =
-                if i < j then General.LESS
-                else if i > j then General.GREATER else General.EQUAL
-            
+            (* Shifts are a bit more difficult. *)
+            fun op << ({hi, lo}, x) =
+                if Word.>=(x, wordSizeAsWord)
+                then {hi=Word.<<(lo, Word.-(x, wordSizeAsWord)), lo=zero}
+                else {lo= Word.<<(lo, x),
+                      hi = Word.orb(Word.<<(hi, x),
+                             Word.>>(lo, Word.-(wordSizeAsWord, x)))}
+
+            and op >> ({hi, lo}, x) =
+                if Word.>=(x, wordSizeAsWord)
+                then {lo=Word.>>(hi, Word.-(x, wordSizeAsWord)), hi=zero}
+                else {hi= Word.>>(hi, x),
+                      lo= Word.orb(Word.>>(lo, x),
+                            Word.<<(hi, Word.-(wordSizeAsWord, x)))}
+
+            and op ~>> ({hi, lo}, x) =
+                if Word.>=(x, wordSizeAsWord)
+                then {lo=Word.~>>(hi, Word.-(x, wordSizeAsWord)),
+                      hi=Word.~>>(hi, wordSizeAsWord) (* Just leaves the sign bit. *)}
+                else {hi= Word.~>>(hi, x),
+                      (* No sign propagation into low-order word. *)
+                      lo= Word.orb(Word.>>(lo, x),
+                             Word.<<(hi, Word.-(wordSizeAsWord, x)))}
+
+            (* Arithmetic is most easily done just by converting to integer and
+               back again. *)
+            fun op + (x, y) = fromInt(Int.+(toInt x, toInt y))
+            and op - (x, y) = fromInt(Int.-(toInt x, toInt y))
+            and op * (x, y) = fromInt(Int.*(toInt x, toInt y))
+            and op div (x, y) = fromInt(Int.quot(toInt x, toInt y))
+            and op mod (x, y) = fromInt(Int.rem(toInt x, toInt y))
+            and ~ x = fromInt(Int.~(toInt x))
+
+            fun op > ({hi, lo}, {hi=hi', lo=lo'}) =
+                case Word.compare (hi, hi') of
+                    General.GREATER => true
+                |   General.EQUAL => Word.>(lo, lo')
+                |   General.LESS => false
+
+            and op < ({hi, lo}, {hi=hi', lo=lo'}) =
+                case Word.compare (hi, hi') of
+                    General.GREATER => false
+                |   General.EQUAL => Word.<(lo, lo')
+                |   General.LESS => true
+
+            and op >= ({hi, lo}, {hi=hi', lo=lo'}) =
+                case Word.compare (hi, hi') of
+                    General.GREATER => true
+                |   General.EQUAL => Word.>=(lo, lo')
+                |   General.LESS => false
+
+            and op <= ({hi, lo}, {hi=hi', lo=lo'}) =
+                case Word.compare (hi, hi') of
+                    General.GREATER => false
+                |   General.EQUAL => Word.<=(lo, lo')
+                |   General.LESS => true
+
+            and compare({hi, lo}, {hi=hi', lo=lo'}) =
+                case Word.compare (hi, hi') of
+                    General.EQUAL => Word.compare(lo, lo')
+                |   compHi => compHi
+
             fun min (i, j) = if i < j then i else j
             and max (i, j) = if i > j then i else j
 
