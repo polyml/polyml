@@ -876,7 +876,7 @@ static Handle shift_right_word_c(TaskData *taskData, Handle y, Handle x)
 static Handle shift_right_arith_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYSIGNED wx = UNTAGGED(DEREFWORD(x)); /* Treat as a signed quantity. */
-    POLYSIGNED wy = UNTAGGED(DEREFWORD(y));
+    POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     // This function in ML is defined to return 0 or ~1 if the shift is greater
     // than the number of bits in the word.
     // C does not actually define how signed values are shifted although most
