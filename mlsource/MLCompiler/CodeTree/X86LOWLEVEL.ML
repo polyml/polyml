@@ -138,16 +138,7 @@ struct
 
     datatype implement = ImplementGeneral | ImplementLiteral of machineWord
 
-(*    local
-        (* Multiplies and divides by powers of two can be implemented as shifts. *)
-        fun getPower2 n =
-        let
-            fun p2(i, log) = if i < n then p2 (i*0w2, log+0w1) else if i = n then SOME log else NONE
-        in
-            p2(0w1, 0w0)
-        end
-    in
-
+(* 
         |   checkAndReduce(InstrMulA, args as [arg1, arg2], mapper) =
             (
                 (* The only special case we recognise is multiplication by 2. *)
@@ -162,7 +153,7 @@ struct
                         else SOME(InstrMulA, args)
                 |   _ => SOME(InstrMulA, args)
             )
-    end*)
+*)
 
     (* Argument negotiation.  The idea is to get the arguments into the "best" locations
        for the instruction. *)
@@ -1341,9 +1332,12 @@ struct
 
             fun getPower2 n =
             let
-                fun p2(i, log) = if i < n then p2 (i*0w2, log+0w1) else if i = n then SOME log else NONE
+                fun p2 (n, l) =
+                    if n = 0w1 then SOME l
+                    else if Word.andb(n, 0w1) = 0w1 then NONE
+                    else p2(Word.>>(n, 0w1), l+0w1)
             in
-                p2(0w1, 0w0)
+                if n = 0w0 then NONE else p2(n,0w0)
             end
 
             local
