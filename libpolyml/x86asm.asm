@@ -251,6 +251,7 @@ IFDEF HOSTARCHITECTURE_X86_64
 #define TESTL        testq
 #define IMULL        imulq
 #define MULL         mulq
+#define DIVL         divl
 #define NEGL         negq
 #define PUSHL        pushq
 #define POPL         popq
@@ -277,6 +278,7 @@ ELSE
 #define TESTL        testl
 #define IMULL        imull
 #define MULL         mull
+#define DIVL         divl
 #define NEGL         negl
 #define PUSHL        pushl
 #define POPL         popl
@@ -2227,10 +2229,37 @@ CALLMACRO   RegMask thread_self,(M_Reax)
 
 
 
+;# Memory for LargeWord.word values.  This is the same as mem_for_real on
+;# 64-bits but only a single word on 32-bits.
+mem_for_largeword:
+IFNDEF HOSTARCHITECTURE_X86_64
+        MOVL    LocalMpointer[Rebp],Recx
+        SUBL    CONST 8,Recx        ;# Length word (4 bytes) + 4 bytes
+IFDEF TEST_ALLOC
+;# Test case - this will always force a call into RTS.
+        CMPL    LocalMpointer[Rebp],Recx
+ELSE
+        CMPL    LocalMbottom[Rebp],Recx
+ENDIF
+        jb      mem_for_real1
+        MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
+IFDEF WINDOWS
+        mov     FULLWORD ptr (-4)[Recx],01000001h  ;# Length word:
+ELSE
+        MOVL    CONST 0x01000001,(-4)[Recx]     ;# Length word
+ENDIF
+        ret
+ENDIF
+;# Else if it is 64-bits just drop through
+
 ;# FLOATING POINT
 ;# If we have insufficient space for the result we call in to
-;# main RTS to do the work.
-
+;# main RTS to do the work.  The reason for this is that it is
+;# not safe to make a call into memory allocator and then
+;# continue with the rest of the floating point operation
+;# because that would produce a return address pointing into the
+;# assembly code itself.  It's possible that this is no longer
+;# a problem.
 
 mem_for_real:
 ;# Allocate memory for the result.
@@ -2633,6 +2662,294 @@ ENDIF
     SUBL    CONST 2,Reax
     ret
 
+;# LargeWord.word operations.  These are 32 or 64-bit values in a single-word byte
+;# memory cell.
+CALLMACRO INLINE_ROUTINE eq_longword
+    MOVL    [Reax],Reax
+    CMPL    [Rebx],Reax
+    jz      RetTrue         ;# True if they are equal.
+    jmp     RetFalse
+CALLMACRO   RegMask eq_longword,(M_Reax)
+
+CALLMACRO INLINE_ROUTINE neq_longword
+    MOVL    [Reax],Reax
+    CMPL    [Rebx],Reax
+    jz      RetFalse
+    jmp     RetTrue
+CALLMACRO   RegMask neq_longword,(M_Reax)
+
+CALLMACRO   INLINE_ROUTINE  geq_longword
+    MOVL    [Reax],Reax
+    CMPL    [Rebx],Reax
+    jnb     RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask geq_longword,(M_Reax)
+
+CALLMACRO   INLINE_ROUTINE  leq_longword
+    MOVL    [Reax],Reax
+    CMPL    [Rebx],Reax
+    jna     RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask leq_longword,(M_Reax)
+
+CALLMACRO   INLINE_ROUTINE  gt_longword
+    MOVL    [Reax],Reax
+    CMPL    [Rebx],Reax
+    ja      RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask gt_longword,(M_Reax)
+
+CALLMACRO   INLINE_ROUTINE  lt_longword
+    MOVL    [Reax],Reax
+    CMPL    [Rebx],Reax
+    jb      RetTrue
+    jmp     RetFalse
+CALLMACRO   RegMask lt_longword,(M_Reax)
+
+CALLMACRO   INLINE_ROUTINE longword_to_tagged
+;# Load the value and tag it, discarding the top bit
+    MOVL    [Reax],Reax
+    CALLMACRO   MAKETAGGED  Reax,Reax
+    ret
+CALLMACRO   RegMask longword_to_tagged,(M_Reax)
+
+CALLMACRO   INLINE_ROUTINE signed_to_longword
+;# Shift the value to remove the tag and store it.
+    call    mem_for_largeword
+    jb      signed_to_longword1
+    SARL    CONST TAGSHIFT,Reax         ;# Arithmetic shift, preserve sign
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+signed_to_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_signed_to_longword
+CALLMACRO   RegMask signed_to_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE unsigned_to_longword
+;# Shift the value to remove the tag and store it.
+    call    mem_for_largeword
+    jb      unsigned_to_longword1
+    SHRL    CONST TAGSHIFT,Reax         ;# Logical shift, zero top bit
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+unsigned_to_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_unsigned_to_longword
+CALLMACRO   RegMask unsigned_to_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE plus_longword
+    call    mem_for_largeword
+    jb      plus_longword1
+    MOVL    [Reax],Reax
+    ADDL    [Rebx],Reax
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+plus_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_plus_longword
+CALLMACRO   RegMask plus_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE minus_longword
+    call    mem_for_largeword
+    jb      minus_longword1
+    MOVL    [Reax],Reax
+    SUBL    [Rebx],Reax
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+minus_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_minus_longword
+CALLMACRO   RegMask minus_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE mul_longword
+    call    mem_for_largeword
+    jb      mul_longword1
+    MOVL    [Reax],Reax
+IFDEF WINDOWS
+    mul     FULLWORD ptr [Rebx]
+ELSE
+    MULL    [Rebx]
+ENDIF
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    MOVL    Reax,Redx           ;# clobber this which has the high-end result
+    ret
+mul_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_mul_longword
+CALLMACRO   RegMask mul_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE div_longword
+IFDEF WINDOWS
+    cmp     FULLWORD ptr [Rebx],0
+ELSE
+    CMPL    CONST 0,[Rebx]
+ENDIF
+    jz      raise_div_ex
+    call    mem_for_largeword
+    jb      div_longword1
+    MOVL    [Reax],Reax
+    MOVL    CONST 0,Redx
+IFDEF WINDOWS
+    div     FULLWORD ptr [Rebx]
+ELSE
+    DIVL    [Rebx]
+ENDIF
+    MOVL    Reax,[Recx]         ;# Store the quotient
+    MOVL    Recx,Reax
+    MOVL    Reax,Redx           ;# clobber this which has the remainder
+    ret
+div_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_div_longword
+CALLMACRO   RegMask div_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE mod_longword
+IFDEF WINDOWS
+    cmp     FULLWORD ptr [Rebx],0
+ELSE
+    CMPL    CONST 0,[Rebx]
+ENDIF
+    jz      raise_div_ex
+    call    mem_for_largeword
+    jb      mod_longword1
+    MOVL    [Reax],Reax
+    MOVL    CONST 0,Redx
+IFDEF WINDOWS
+    div     FULLWORD ptr [Rebx]
+ELSE
+    DIVL    [Rebx]
+ENDIF
+    MOVL    Redx,[Recx]         ;# Store the remainder
+    MOVL    Recx,Reax
+    MOVL    Reax,Redx           ;# clobber this which has the remainder
+    ret
+mod_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_mod_longword
+CALLMACRO   RegMask mod_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE andb_longword
+    call    mem_for_largeword
+    jb      andb_longword1
+    MOVL    [Reax],Reax
+    ANDL    [Rebx],Reax
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+andb_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_andb_longword
+CALLMACRO   RegMask andb_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE orb_longword
+    call    mem_for_largeword
+    jb      orb_longword1
+    MOVL    [Reax],Reax
+    ORL     [Rebx],Reax
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+orb_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_orb_longword
+CALLMACRO   RegMask orb_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE xorb_longword
+    call    mem_for_largeword
+    jb      xorb_longword1
+    MOVL    [Reax],Reax
+    XORL    [Rebx],Reax
+    MOVL    Reax,[Recx]
+    MOVL    Recx,Reax
+    ret
+xorb_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_xorb_longword
+CALLMACRO   RegMask xorb_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE shift_left_longword
+    call    mem_for_largeword
+    jb      shift_left_longword1
+    MOVL    Recx,Redx           ;# We need Recx for the shift
+ ;# The shift value is always a Word.word value i.e. tagged
+ ;# LargeWord.<<(a,b) is defined to return 0 if b > LargeWord.wordSize
+IFNDEF HOSTARCHITECTURE_X86_64
+    CMPL    CONST TAGGED(32),Rebx
+ELSE
+    CMPL    CONST TAGGED(64),Rebx
+ENDIF
+    jb      sllw1
+    MOVL    CONST 0,Reax
+    jmp     sllw2
+sllw1:
+    MOVL    Rebx,Recx
+    SHRL    CONST TAGSHIFT,Recx ;# remove tag
+    MOVL    [Reax],Reax
+    SHLL    R_cl,Reax
+sllw2:
+    MOVL    Reax,[Redx]
+    MOVL    Redx,Reax
+    MOVL    Reax,Recx           ;# Clobber Recx
+    ret
+shift_left_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_shift_left_longword
+CALLMACRO   RegMask shift_left_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE shift_right_longword
+    call    mem_for_largeword
+    jb      shift_right_longword1
+    MOVL    Recx,Redx           ;# We need Recx for the shift
+ ;# The shift value is always a Word.word value i.e. tagged
+ ;# LargeWord.>>(a,b) is defined to return 0 if b > LargeWord.wordSize
+IFNDEF HOSTARCHITECTURE_X86_64
+    CMPL    CONST TAGGED(32),Rebx
+ELSE
+    CMPL    CONST TAGGED(64),Rebx
+ENDIF
+    jb      srlw1
+    MOVL    CONST 0,Reax
+    jmp     srlw2
+srlw1:
+    MOVL    Rebx,Recx
+    SHRL    CONST TAGSHIFT,Recx ;# remove tag
+    MOVL    [Reax],Reax
+    SHRL    R_cl,Reax
+srlw2:
+    MOVL    Reax,[Redx]
+    MOVL    Redx,Reax
+    MOVL    Reax,Recx           ;# Clobber Recx
+    ret
+shift_right_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_shift_right_longword
+CALLMACRO   RegMask shift_right_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   INLINE_ROUTINE shift_right_arith_longword
+    call    mem_for_largeword
+    jb      shift_right_arith_longword1
+    MOVL    Recx,Redx           ;# We need Recx for the shift
+ ;# The shift value is always a Word.word value i.e. tagged
+ ;# LargeWord.~>>(a,b) is defined to return 0 or ~1 if b > LargeWord.wordSize
+IFNDEF HOSTARCHITECTURE_X86_64
+    CMPL    CONST TAGGED(32),Rebx
+ELSE
+    CMPL    CONST TAGGED(64),Rebx
+ENDIF
+    jb      sralw1
+    ;# Setting the shift to 31/63 propagates the sign bit
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    CONST TAGGED(31),Rebx
+ELSE
+    MOVL    CONST TAGGED(63),Rebx
+ENDIF
+sralw1:
+    MOVL    Rebx,Recx
+    SHRL    CONST TAGSHIFT,Recx ;# remove tag
+    MOVL    [Reax],Reax
+    SARL    R_cl,Reax
+    MOVL    Reax,[Redx]
+    MOVL    Redx,Reax
+    MOVL    Reax,Recx           ;# Clobber Recx
+    ret
+shift_right_arith_longword1:
+    CALLMACRO   CALL_IO POLY_SYS_shift_right_arith_longword
+CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR Mask_all)
+
+
 IFDEF WINDOWS
 ;# Visual C does not support assembly code on X86-64 so we use this for X86-32 as well.
 CREATE_IO_CALL  MACRO index
@@ -2684,30 +3001,6 @@ CREATE_EXTRA_CALL MACRO index
     CREATE_IO_CALL  POLY_SYS_exp_real
     CREATE_IO_CALL  POLY_SYS_arctan_real
     CREATE_IO_CALL  POLY_SYS_cos_real
-
-;# For the moment these all call into C++.  They will be replaced by
-;# assembly code in due course.
-    CREATE_IO_CALL  POLY_SYS_eq_longword
-    CREATE_IO_CALL  POLY_SYS_neq_longword
-    CREATE_IO_CALL  POLY_SYS_geq_longword
-    CREATE_IO_CALL  POLY_SYS_leq_longword
-    CREATE_IO_CALL  POLY_SYS_gt_longword
-    CREATE_IO_CALL  POLY_SYS_lt_longword
-    CREATE_IO_CALL  POLY_SYS_plus_longword
-    CREATE_IO_CALL  POLY_SYS_minus_longword
-    CREATE_IO_CALL  POLY_SYS_mul_longword
-    CREATE_IO_CALL  POLY_SYS_div_longword
-    CREATE_IO_CALL  POLY_SYS_mod_longword
-    CREATE_IO_CALL  POLY_SYS_andb_longword
-    CREATE_IO_CALL  POLY_SYS_orb_longword
-    CREATE_IO_CALL  POLY_SYS_xorb_longword
-    CREATE_IO_CALL  POLY_SYS_shift_left_longword
-    CREATE_IO_CALL  POLY_SYS_shift_right_longword
-    CREATE_IO_CALL  POLY_SYS_shift_right_arith_longword
-    CREATE_IO_CALL  POLY_SYS_longword_to_tagged
-    CREATE_IO_CALL  POLY_SYS_signed_to_longword
-    CREATE_IO_CALL  POLY_SYS_unsigned_to_longword
-
 
 RETURN_HEAP_OVERFLOW        EQU 1
 RETURN_STACK_OVERFLOW       EQU 2
@@ -2793,12 +3086,12 @@ ENDIF
     dd  Mask_all                 ;# 50 is no longer used
     dd  Mask_all                 ;# 51
     dd  Mask_all                 ;# 52
-    dd  Mask_all                 ;# 53
-    dd  Mask_all                 ;# 54
-    dd  Mask_all                 ;# 55
-    dd  Mask_all                 ;# 56
-    dd  Mask_all                 ;# 57
-    dd  Mask_all                 ;# 58
+    dd  Mask_eq_longword         ;# 53
+    dd  Mask_neq_longword        ;# 54
+    dd  Mask_geq_longword        ;# 55
+    dd  Mask_leq_longword        ;# 56
+    dd  Mask_gt_longword         ;# 57
+    dd  Mask_lt_longword         ;# 58
     dd  Mask_all                 ;# 59 is unused
     dd  Mask_all                 ;# 60 is unused
     dd  Mask_all                 ;# 61
@@ -2814,24 +3107,24 @@ ENDIF
     dd  Mask_atomic_decr         ;# 71
     dd  Mask_thread_self         ;# 72
     dd  Mask_all                 ;# 73
-    dd  Mask_all                 ;# 74
-    dd  Mask_all                 ;# 75
-    dd  Mask_all                 ;# 76
-    dd  Mask_all                 ;# 77
-    dd  Mask_all                 ;# 78
-    dd  Mask_all                 ;# 79
-    dd  Mask_all                 ;# 80
-    dd  Mask_all                 ;# 81
+    dd  Mask_plus_longword       ;# 74
+    dd  Mask_minus_longword      ;# 75
+    dd  Mask_mul_longword        ;# 76
+    dd  Mask_div_longword        ;# 77
+    dd  Mask_mod_longword        ;# 78
+    dd  Mask_andb_longword       ;# 79
+    dd  Mask_orb_longword        ;# 80
+    dd  Mask_xorb_longword       ;# 81
     dd  Mask_all                 ;# 82 is unused
     dd  Mask_all                 ;# 83 is now unused
     dd  Mask_all                 ;# 84
-    dd  Mask_all                 ;# 85
-    dd  Mask_all                 ;# 86
-    dd  Mask_all                 ;# 87
+    dd  Mask_shift_left_longword ;# 85
+    dd  Mask_shift_right_longword ;# 86
+    dd  Mask_shift_right_arith_longword ;# 87
     dd  Mask_all                 ;# 88
-    dd  Mask_all                 ;# 89
-    dd  Mask_all                 ;# 90
-    dd  Mask_all                 ;# 91
+    dd  Mask_longword_to_tagged  ;# 89
+    dd  Mask_signed_to_longword  ;# 90
+    dd  Mask_unsigned_to_longword ;# 91
     dd  Mask_all                 ;# 92
     dd  Mask_all                 ;# 93
     dd  Mask_all                 ;# 94
