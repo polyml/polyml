@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=168
+NFiles=173
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -171,6 +171,8 @@ File164=mlsource\MLCompiler\CodeTree\CodeCons.i386.ML
 File165=mlsource\MLCompiler\CodeTree\X86OPTIMISE.ML
 File166=mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML
 File167=basis\Word32In64.sml
-File168=mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML
-File169=mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML
-File170=mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML
+File168=mlsource\MLCompiler\CodeTree\CODETREE_FUNCTIONS.sml
+File169=mlsource\MLCompiler\CodeTree\CODETREE_LIFETIMES.sml
+File170=mlsource\MLCompiler\CodeTree\CodetreeFunctionsSig.sml
+File171=mlsource\MLCompiler\CodeTree\CODETREE_STATIC_LINK_AND_CASES.sml
+File172=mlsource\MLCompiler\CodeTree\CODETREE_OPTIMISER.sml

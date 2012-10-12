@@ -17,11 +17,36 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+structure CodetreeFunctions =
+    CODETREE_FUNCTIONS(structure BASECODETREE = BaseCodeTree)
+
+structure CodetreeLifetimes =
+    CODETREE_LIFETIMES(
+        structure BASECODETREE = BaseCodeTree
+        structure CODETREE_FUNCTIONS = CodetreeFunctions
+    )
+
+structure CodetreeStaticLinkAndCases =
+    CODETREE_STATIC_LINK_AND_CASES(
+        structure BASECODETREE = BaseCodeTree
+        structure CODETREE_FUNCTIONS = CodetreeFunctions
+    )
+
+structure CodetreeOptimiser =
+    CODETREE_OPTIMISER(
+        structure BASECODETREE = BaseCodeTree
+        structure CODETREE_FUNCTIONS = CodetreeFunctions
+    )
+
 structure CodeTree = 
   CODETREE (
     structure PRETTY        = Pretty
     structure GCODE         = GCode
     structure DEBUG         = Debug
     structure BASECODETREE  = BaseCodeTree
+    structure CODETREE_FUNCTIONS = CodetreeFunctions
+    structure LIFETIMES     = CodetreeLifetimes
+    structure STATIC_LINK_AND_CASES = CodetreeStaticLinkAndCases
+    structure OPTIMISER     = CodetreeOptimiser
   );
 

@@ -174,6 +174,9 @@ sig
         and  optVal = optVal
         and  caseType = caseType
         and  pretty = pretty
+        and  inlineStatus = inlineStatus
+        and  argumentType = argumentType
+        and  varTuple = varTuple
     end
 
 end;
