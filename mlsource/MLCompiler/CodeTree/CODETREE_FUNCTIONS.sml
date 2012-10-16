@@ -473,34 +473,6 @@ struct
     (* Create a tuple from a container. *)
     val mkTupleFromContainer = TupleFromContainer
 
-  (* Makes a constant value from an expression which is known to be *)
-  (* constant but may involve inline procedures, types etc.         *)
-  fun makeConstVal (cVal:codetree) =
-  let
-    fun makeVal (Constnt c) = c
-      (* should just be a tuple  *)
-      (* Get a vector, copy the entries into it and return it as a constant. *)
-    | makeVal (Recconstr []) = word0 (* should have been optimised already! *)
-    | makeVal (Recconstr xp) =
-        let
-          val vec : address = alloc (toShort (List.length xp), F_mutable_words, word0);
-          
-          fun copyToVec []       _ = ()
-            | copyToVec (h :: t) locn =
-              (
-            assignWord (vec, toShort locn, makeVal h);
-            copyToVec t (locn + 1)
-              );
-        in
-          copyToVec xp 0;
-          lock vec;
-          toMachineWord vec
-        end
-    | makeVal _ = raise InternalError "makeVal - not constant or record"
-  in
-    mkConst (makeVal cVal)
-  end
-
   (* Processing each expression results in a "optVal" value. This contains a 
      "general" value which can be used anywhere and a "special" value which
      provides optimisations of inline procedures and tuples. "environ" is a
@@ -515,8 +487,7 @@ struct
      to get the value.
   *)
   
-    fun errorEnv (_,  _, _) : optVal =
-      raise InternalError "error env";
+    fun errorEnv (_,  _, _) : optVal = raise InternalError "error env"
   
     fun optGeneral (OptVal {general,...})       = general 
     |   optGeneral (ValWithDecs {general, ...}) = general
@@ -535,71 +506,65 @@ struct
     fun optRec     (OptVal {recCall,...})       = recCall
       | optRec     _ = ref false; (* Generate a temporary. *)
   
-    val simpleOptVal : codetree -> optVal = JustTheVal;
+    val simpleOptVal : codetree -> optVal = JustTheVal
 
     fun optVal{special=CodeNil, decs=[], general, ...} = JustTheVal general
     |   optVal{special=CodeNil, decs, general, ...} = ValWithDecs {general = general, decs = decs}
     |   optVal ov = OptVal ov
 
 
-    (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
-    fun findEntryInBlock (Recconstr recs) offset =
-        if offset < List.length recs
-        then List.nth(recs, offset)
-        else (* This can arise if we're processing a branch of a case discriminating on
-              a datatype which won't actually match at run-time. *)
-          mkRaise (mkTuple [mkConst (toMachineWord RuntimeCalls.EXC_Bind), mkStr "Bind", CodeZero, CodeZero])
+    local
+        val except: exn = InternalError "Invalid load encountered in compiler"
+        (* Exception value to use for invalid cases.  We put this in the code
+           but it should never actually be executed.  *)
+        val raiseError = mkRaise (mkConst (toMachineWord except))
+    in
+        (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
+        fun findEntryInBlock (Recconstr recs) offset =
+            if offset < List.length recs
+            then List.nth(recs, offset)
+            (* This can arise if we're processing a branch of a case discriminating on
+               a datatype which won't actually match at run-time. e.g. Tests/Succeed/Test030. *)
+            else raiseError
 
-    |  findEntryInBlock (Constnt b) offset =
-    ( 
-      (* The ML compiler may generate loads from invalid addresses as a
-         result of a val binding to a constant which has the wrong shape.
-         e.g. val a :: b = nil
-         It will always result in a Bind exception being generated 
-         before the invalid load, but we have to be careful that the
-         optimiser does not fall over.  *)
-      if isShort b
-      orelse not (Address.isWords (toAddress b)) (* DCJM's bugfix SPF 25/1/95 *)
-      orelse Address.length (toAddress b) <= Word.fromInt offset
-      then mkRaise (mkTuple [mkConst (toMachineWord RuntimeCalls.EXC_Bind), mkStr "Bind", CodeZero, CodeZero])
-      else mkConst (loadWord (toAddress b, toShort offset))
-    )
+        |  findEntryInBlock (Constnt b) offset =
+              (* The ML compiler may generate loads from invalid addresses as a
+                 result of a val binding to a constant which has the wrong shape.
+                 e.g. val a :: b = nil
+                 It will always result in a Bind exception being generated 
+                 before the invalid load, but we have to be careful that the
+                 optimiser does not fall over.  *)
+            if isShort b
+            orelse not (Address.isWords (toAddress b))
+            orelse Address.length (toAddress b) <= Word.fromInt offset
+            then raiseError
+            else mkConst (loadWord (toAddress b, toShort offset))
     
-    |  findEntryInBlock (Global glob) offset =
-    (* Do the selection now - it makes the code-tree much more readable if *)
-    (* we don't print the whole of the int type whenever we have int.+. *)
-      (
-      case optSpecial glob of
-        recc as Recconstr _ =>
-        (
-        case findEntryInBlock recc offset of
-           (* Most entries in the list are load instructions, however if 
-           the entry we want is in a type which has been extended we
-           will return an indirection.
-           DCJM 28/11/99.  That may not apply to ML. *)
-            Extract (ext as {level, ...}) =>
-              Global ((optEnviron glob) (ext, 0, (* global *) level))
-          | Indirect{base=Extract (ext as {level, ...}), offset} =>
-            let 
-              (* Must be indirecting on a local value. Look it up and do the
-                 indirection recursively. *)
-              val newBase =
-                 Global ((optEnviron glob) (ext, 0, (* global *) level))
-            in
-              findEntryInBlock newBase offset
-            end
-        
-        | selection => selection (* constants *)
-        )
+        |  findEntryInBlock (Global glob) offset =
+            (* Do the selection now.  This is especially useful if we
+               have a global structure  *)
+            (
+                case optSpecial glob of
+                    recc as Recconstr _ =>
+                    (
+                        case findEntryInBlock recc offset of
+                            Extract (ext as {level, ...}) =>
+                                Global (optEnviron glob (ext, 0, (* global *) level))
+                        |   selection => selection (* Normally a constant *)
+                    )
       
-      | _ => findEntryInBlock (optGeneral glob) offset
-      )
+                |   _ => findEntryInBlock (optGeneral glob) offset
+            )
     
-    |  findEntryInBlock base offset =
-        Indirect {base = base, offset = offset} (* anything else *)
-     (* end findEntryInBlock *);
+        |   findEntryInBlock base offset =
+                Indirect {base = base, offset = offset} (* anything else *)
+     end
         
-    (* indirect load operation *)
+    (* Exported indirect load operation i.e. load a field from a tuple.
+       We can't use  findEntryInBlock in every case since that discards
+       unused entries in a tuple and at this point we haven't checked
+       that the unused entries don't have
+       side-effects/raise exceptions e.g. #1 (1, raise Fail "bad") *)
     fun mkInd (addr, base as Global _ ) = findEntryInBlock base addr
     |   mkInd (addr, base as Constnt _) = findEntryInBlock base addr
     |   mkInd (addr, base) = Indirect {base = base, offset = addr};
