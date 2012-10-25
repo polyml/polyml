@@ -3897,12 +3897,6 @@ struct
     infix |>
     fun a |> f = f a
 
-    (* Generates a block from a sequence of declarations/statements, unless
-       there is only one, in which case it returns that one. *)
-    fun mkblock []    = mkEnv [] (* Empty - generate ``void'' *)
-    |   mkblock [c]   = c
-    |   mkblock clist = mkEnv clist;
-
     val singleArg = mkLoad (~1, 0);
 
     (* Make a tuple out of a set of arguments or return the single
@@ -4067,7 +4061,7 @@ struct
        call on a line. *)
     fun changeLine (loc, context as { lex, lastDebugLine, ...}) =
         if not (getParameter debugTag (debugParams lex)) orelse #startLine loc = !lastDebugLine then []
-        else [addDebugCall(loc, context)]
+        else [mkNullDec(addDebugCall(loc, context))]
 
     fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv), lex, ...}) =
         if not (getParameter debugTag (debugParams lex))
@@ -4136,9 +4130,9 @@ struct
             and exceptionCode = toMachineWord exceptionFunction
             val ldexAddr = mkAddr 1
         in
-            mkEnv [
+            mkEnv(
                 (* Call the enter code. *)
-                mkEval(mkConst entryCode, [mkTuple[rtEnv level, argCode]], false),
+                [mkNullDec (mkEval(mkConst entryCode, [mkTuple[rtEnv level, argCode]], false))],
                 (* Call the exit code with the function result. The
                    function is wrapped in a handler that catches all
                    exceptions and calls the exception code. *)
@@ -4146,14 +4140,14 @@ struct
                     [mkTuple[rtEnv level,
                         mkHandle (body,
                         mkEnv
-                            [
+                            (
                                 (* Must save the exception packet first. *)
-                                mkDec(ldexAddr, Ldexc),
+                                [mkDec(ldexAddr, Ldexc)],
                                 mkEval(mkConst exceptionCode,
-                                    [mkTuple[rtEnv level, mkLoad(ldexAddr, 0)]], false)])
-                            ]
-                    ], false)
-            ]
+                                    [mkTuple[rtEnv level, mkLoad(ldexAddr, 0)]], false))
+                            )
+                    ]], false)
+            )
         end
 
     (* Convert a literal constant. We can only do this once any overloading
@@ -4735,10 +4729,13 @@ struct
          tests that are sometimes put in where we have a wild card above
          a constructor. *)
 
-      type patcode = {code: codetree list, pat: int};
+      type patcode = {decs: codeBinding list, exp: codetree, pat: int};
 
-      fun makePatcode code pat : patcode = { code = code, pat = pat };
-      val matchFailCode  : patcode = makePatcode [MatchFail] 0;
+      fun makePatcode code pat : patcode = { decs = [], exp = code, pat = pat }
+      
+      fun patCodeBlock {decs, exp, pat=_} = mkEnv(decs, exp)
+
+      val matchFailCode  : patcode = makePatcode MatchFail 0
 
         local
              (* Raises an exception. *)
@@ -4753,9 +4750,9 @@ struct
         in
             (* Raise match and bind exceptions. *)
             fun raiseMatchCode line : patcode =
-                makePatcode [raiseException("Match", matchExceptionVal, line)] 0
+                makePatcode (raiseException("Match", matchExceptionVal, line)) 0
             and raiseBindCode line  : patcode =
-                makePatcode [raiseException("Bind", bindExceptionVal, line)] 0;
+                makePatcode (raiseException("Bind", bindExceptionVal, line)) 0;
         end
 
       (* Code generate a set of patterns.  tree is the aot we are working
@@ -4886,13 +4883,12 @@ struct
                      in one half.
                   *) 
                     if isBind
-                    then makePatcode (mkIf (mkNot testCode, mkblock (#code elseCode), CodeNil) :: 
-                                          #code thenCode) ~1
+                    then { decs = mkNullDec(mkIf (mkNot testCode, patCodeBlock elseCode, CodeNil)) :: #decs thenCode,
+                           exp = #exp thenCode, pat =  ~1 }
                     else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
                     then elseCode (* This didn't actually do any discrimination,
                                   probably because a default was above a constructor. *)
-                    else makePatcode [mkIf (testCode, mkblock (#code thenCode),
-                                        mkblock (#code elseCode))] ~1
+                    else makePatcode (mkIf (testCode, patCodeBlock thenCode, patCodeBlock elseCode)) ~1
                 end
             end (* genConstrs *);
       
@@ -4960,10 +4956,9 @@ struct
                       only have a single pattern we don't need to use an AltMatch
                       here.  DCJM 27/3/01. *)
                     if isBind
-                    then   
-                        makePatcode
-                            (mkIf (mkNot testCode, mkblock (#code elseCode), CodeNil):: #code thenCode)
-                            ~1
+                    then
+                        { decs = mkNullDec(mkIf (mkNot testCode, patCodeBlock elseCode, CodeNil)) :: #decs thenCode,
+                          exp = #exp thenCode, pat = ~1 }
     
                     (* Needed? *)
                     else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
@@ -4971,13 +4966,13 @@ struct
             
                     else
                         makePatcode
-                        [
+                        (
                             mkAltMatch
                             (
-                                mkIf (testCode, mkblock (#code thenCode), MatchFail),
-                                mkblock (#code elseCode)
+                                mkIf (testCode, patCodeBlock thenCode, MatchFail),
+                                patCodeBlock elseCode
                             )
-                        ] ~1
+                        ) ~1
                 end
             end (* genExnConstrs *);
   
@@ -5096,7 +5091,7 @@ struct
                    
                 (* If it is a binding we turn the test round - see
                     comment in genConstrs. *)
-                val rest = 
+                val rest: patcode = 
                   othermatches(newActive plus activeDefaults, default, declEnv);
             
                    (* If we have a handler of the form
@@ -5113,13 +5108,12 @@ struct
                 val elsept = foldConstrs vs;
                   in
                 if isBind
-                  then makePatcode (mkIf (mkNot testCode, mkblock (#code elsept),
-                                          CodeNil) :: #code rest) ~1
+                  then {decs = mkNullDec(mkIf (mkNot testCode, patCodeBlock elsept, CodeNil)) :: #decs rest,
+                        exp = #exp rest, pat = ~1 }
                    (* Match or handler. *)
                 else if (#pat rest) = (#pat elsept) andalso (#pat rest) >= 0
                    then elsept
-                else makePatcode [mkIf (testCode, mkblock (#code rest),
-                            mkblock (#code elsept))] ~1
+                else makePatcode (mkIf (testCode, patCodeBlock rest, patCodeBlock elsept)) ~1
                   end 
                 end (* foldConstrs *);
             in
@@ -5127,8 +5121,8 @@ struct
             end
           | _ =>  (* wild - no choices to make here. *)
                 othermatches(activeDefaults, default, declEnv)
-      in 
-        makePatcode (declDecs @ #code pattCode) (#pat pattCode)
+      in
+           { decs = declDecs @ #decs pattCode, exp = #exp pattCode, pat = #pat pattCode}
       end; (* codePatt *)
 
       (* Make an argument list from the variables bound in the pattern. *)
@@ -5187,7 +5181,7 @@ struct
         (* Make some code to insert at defaults. *)
         val codeDefault : unit -> patcode =
             if isHandlerMatch
-            then (fn () => (exhaustive := false; makePatcode [makeRaise loadExpCode] 0))
+            then (fn () => (exhaustive := false; makePatcode (makeRaise loadExpCode) 0))
             else (fn () => (exhaustive := false; raiseMatchCode lineNo));
 
         (* Generate the code and also check for redundancy
@@ -5215,7 +5209,7 @@ struct
                 then cgExpression (exp, matchContext |> repDebugEnv env)
                 else mkEval(mkLoad (baseAddr + pattChosenIndex, 0), argsForCall, false)
         in
-            makePatcode [expCode] pattChosen
+            makePatcode expCode pattChosen
         end
 
         val code = codePatt(andortree, loadExpCode, from 1 noOfPats, firePatt,
@@ -5288,7 +5282,7 @@ struct
                 val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
 
                 val functionBody =
-                    mkEnv(envDec @ [cgExpression (exp, fnContext |> repDebugEnv newEnv)])
+                    mkEnv(envDec, cgExpression (exp, fnContext |> repDebugEnv newEnv))
             in
                 mkDec(base + patNoIndex, mkProc (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo)) ::
                     cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
@@ -5301,7 +5295,7 @@ struct
             cgExps(alt, allVars, baseAddr, 1, uses, cgExpression, lex, near, matchContext)
     in
         (* Return the code in a block. *)
-        mkblock (#dec decCode @ (expressionFuns @ #code code))
+        mkEnv (#dec decCode @ expressionFuns @ #decs code, #exp code)
     end (* codeMatch *)
 
     (* Makes a block from a series of alternatives in a match.
@@ -5316,7 +5310,7 @@ struct
         in
             if not (getParameter debugTag (debugParams lex))
             then code
-            else mkEnv[addDebugCall(getLocation c, context), code]
+            else mkEnv([mkNullDec(addDebugCall(getLocation c, context))], code)
         end
     in
         codeMatch (near, alt, arg, cgExp, false, context)
@@ -5413,7 +5407,7 @@ struct
                 (* We work down the list evaluating the expressions and putting
                    the results away in temporaries. When we reach the end we
                    construct the tuple by asking for each entry in turn. *) 
-                fun declist [] look = [mkTuple (List.tabulate (recordSize, look))]
+                fun declist [] look = ([], mkTuple (List.tabulate (recordSize, look)))
           
                 |   declist ({name, valOrPat, ...} :: t) look =
                     let
@@ -5424,8 +5418,9 @@ struct
             
                         fun lookFn i =
                             if i = myPosition then #load thisDec (level) else look i
+                        val (otherDecs, tuple) = declist t lookFn
                     in
-                        #dec thisDec @ declist t lookFn
+                        (#dec thisDec @ otherDecs, tuple)
                     end
             in
                 (* Create the record and package it up as a block. *)
@@ -5492,8 +5487,7 @@ struct
 
         | Fn { location, expType=ref expType, ... } =>
             (* Function *)
-            mkblock (codeProc(c, false, ref 0, location,
-                                filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context))
+            codeProc(c, location, filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context)
 
         |   Localdec {decs, body, ...} =>
             (* Local expressions only. Local declarations will be handled
@@ -5502,14 +5496,16 @@ struct
                 (* This is the continuation called when the declarations have been
                    processed.  We need to ensure that if there are local datatypes
                    we make new entries in the type value cache after them. *)
-                fun processBody (previousDecs, newContext as {debugEnv, ...}) =
+                (* TODO: This is a bit of a mess.  We want to return the result of the
+                   last expression as an expression rather than a codeBinding. *)
+                fun processBody (previousDecs: codeBinding list, newContext as {debugEnv, ...}) =
                 let
                     fun codeList [] = []
                      |  codeList (x::tl) =
                          (* Generate any line change code first, then this entry, then the rest. *)
                         let
                             val lineChange = changeLine(getLocation x, newContext)
-                            val code = codegen (x, newContext)
+                            val code = mkNullDec(codegen (x, newContext))
                         in
                             lineChange @ code :: codeList tl
                         end
@@ -5518,9 +5514,9 @@ struct
                     (previousDecs @ exps, debugEnv)
                 end
 
-                val (decs, _) = codeSequence (decs, [], context, processBody);
+                val (decs, _) = codeSequence (decs, [], context, processBody)
             in
-                mkblock decs
+                decSequenceWithFinalExp decs
             end
 
         | ExpSeq(ptl, _) =>
@@ -5530,16 +5526,19 @@ struct
              results unless they are wanted. It may be necessary to turn
              all except the last into declarations. *)
             let
-                fun codeList [] = []
+                fun codeList [] = raise InternalError "ExpSeq: empty sequence"
+                |   codeList [last] =
+                        (changeLine(getLocation last, context), codegen (last, context))
                  |  codeList (x::tl) =
                     let
                         val lineChange = changeLine(getLocation x, context)
-                        val code = codegen (x, context)
+                        val code = mkNullDec(codegen (x, context))
+                        val (otherDecs, expCode) = codeList tl
                     in
-                        lineChange @ code :: codeList tl
+                        (lineChange @ (code :: otherDecs), expCode)
                     end
             in
-                mkblock (codeList ptl)
+                mkEnv (codeList ptl)
             end
 
         | Raise (pt, location) =>
@@ -5550,8 +5549,8 @@ struct
             in
                 (* Copy the identifier, name and argument from the packet and add this location. *)
                 makeRaise (
-                    mkEnv(dec @
-                        [mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location]]))
+                    mkEnv(dec,
+                        mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location]))
             end
 
         | HandleTree {exp, hrules, ...} =>
@@ -5591,7 +5590,7 @@ struct
 
     (* Generate a function either as a free standing lambda expression or as
        a val rec declaration. *)
-    and codeProc(c, isRecursive, varAddr, location, polyVars,
+    and codeProc(c, location, polyVars,
                     cpContext as
                         {mkAddr=originalmkAddr, level=originalLevel, decName, debugEnv, ...}) =
     let
@@ -5652,14 +5651,12 @@ struct
                         List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg)), false),
                     1, decName ^ "(1)");
         in
-            #dec thisDec @ [if isRecursive then mkDec (!varAddr, resProc) else resProc]
+            mkEnv(#dec thisDec, resProc)
         end
     
         else
         let (* No tuple or polymorphic. *)
             (* Must set the address to zero to get recursive references right. *)
-            val addr = !varAddr;
-            val ()    = varAddr := 0; 
             val newDecName : string  = decName ^ "(1)";
             val newDebug = newDebugLevel debugEnv
             val newContext =
@@ -5670,20 +5667,17 @@ struct
             val wrapped =
                 wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType,
                     location, newContext)
-            val () = varAddr   := addr;        (* Reset the address *)
-            val pr = mkProc (wrapped, 1, newDecName);
-            val polyPr =
-                case polyVars of
-                    [] => pr
-                |   _ => mkProc(pr, List.length polyVars, newDecName^"(P)")
+            val pr = mkProc (wrapped, 1, newDecName)
         in
-            [if isRecursive then mkDec (addr, polyPr) else polyPr]
+            case polyVars of
+                [] => pr
+            |   _ => mkProc(pr, List.length polyVars, newDecName^"(P)")
         end
     end (* codeProc *)
 
 
     (* Code-generates a sequence of declarations. *)
-    and codeSequence ([]: parsetree list, leading, codeSeqContext, processBody) =
+    and codeSequence ([]: parsetree list, leading, codeSeqContext, processBody): codeBinding list * debugenv =
             processBody(leading, codeSeqContext) (* Do the continuation. *)
 
     |   codeSequence ((firstEntry as FunDeclaration {dec, ...}) :: pTail, leading, codeSeqContext, processBody) =
@@ -5830,7 +5824,7 @@ struct
                     (constrDecs @ decs @ newDecs, newDebug)
                 end
             in
-                val (valConstrDecs: codetree list, constrDebugenv: debugenv) =
+                val (valConstrDecs: codeBinding list, constrDebugenv: debugenv) =
                     ListPair.foldl decConstrs ([], debugEnv) (typelist, constrsCode)
             end
 
@@ -6195,7 +6189,7 @@ struct
                     in
                         val innerFun =
                             mkFunction(
-                                mkEnv(getCachedTypeValues newTypeVarMap @ appDecs @ [wrapped]),
+                                mkEnv(getCachedTypeValues newTypeVarMap @ appDecs, wrapped),
                                 argTypes, resultType, innerProcName)
                     end;
   
@@ -6230,8 +6224,8 @@ struct
                                 val ld = load(level + levelOffset)
                             in
                                 mkEnv(dec @
-                                   [mkCall (loadInnerFun, parms @ polyParms @ [(ld, GeneralType)], GeneralType),
-                                    mkTupleFromContainer(ld, resTupleSize)])
+                                   [mkNullDec(mkCall (loadInnerFun, parms @ polyParms @ [(ld, GeneralType)], GeneralType))],
+                                    mkTupleFromContainer(ld, resTupleSize))
                             end
                         end
                 |    makeFuns(depth, decName, parms, t::ts) =
@@ -6249,7 +6243,7 @@ struct
                     val () = setValueAddress(fb, addr, level)
                in
                     if noInlineFunction
-                    then mkDec (addr, innerFun) :: loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
+                    then (addr, innerFun) :: loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
                     else
                     let
                         val baseFun = makeFuns (numOfPats - 1, procName, [], tupleSeq)
@@ -6262,7 +6256,7 @@ struct
                           functions as a mutually recursive pair. Try putting
                           the inner function first to see if the optimiser
                           does better this way. *)
-                        mkDec (addr + 1, innerFun) :: mkDec (addr, polyFun) ::
+                        (addr + 1, innerFun) :: (addr, polyFun) ::
                             loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
                     end
                end (* loadFunDecs *)
@@ -6287,7 +6281,7 @@ struct
 
         in
             case loaded of
-                [singleton] => (singleton :: decEnv, newDebugEnv)
+                [singleton] => (mkDec singleton :: decEnv, newDebugEnv)
             |  _ => (* Put the declarations into a package of mutual decs. *)
                     (mkMutualDecs loaded :: decEnv, newDebugEnv)
         end (* codeFunBindings *)
@@ -6394,7 +6388,7 @@ struct
                 val code : patcode =
                     codePatt(andortree, #load decCode level, singleton 1,
                         fn (pattsLeft, default, _) =>
-                            if pattsLeft eq empty then (default ()) else makePatcode [] ~1,
+                            if pattsLeft eq empty then (default ()) else makePatcode CodeZero ~1,
                         codeDefault, true, debugEnv, localContext);
                 (* Report inexhaustiveness if necessary. *)
                 val () =
@@ -6408,7 +6402,7 @@ struct
                     else ()
                 
                 val resultCode =
-                    if nPolyVars = 0 then #dec decCode @ #code code
+                    if nPolyVars = 0 then #dec decCode @ #decs code @ [mkNullDec (#exp code)]
                     else
                     let
                         fun loadVal(Value{access=Local{addr=ref add, ...}, ...}) = mkLoad(add, 0)
@@ -6423,7 +6417,7 @@ struct
                             mkDec(fnAddr,
                                 mkInlproc(
                                     mkEnv(getCachedTypeValues typeVarMap @ #dec decCode
-                                          @ #code code @ [mkTuple(List.map loadVal vars)]),
+                                          @ #decs code @ [mkNullDec (#exp code)], mkTuple(List.map loadVal vars)),
                                     nPolyVars, "(P)"))
 
                         (* Apply the general function to the set of type variables using either the
@@ -6469,7 +6463,7 @@ struct
                         (* Return the declaration of the function, a dummy application that will
                            force any pattern checking and raise a Match if necessary and the
                            declarations of the variables. *)
-                        resFunction :: application([], outerLevel) :: loadCode
+                        resFunction :: mkNullDec(application([], outerLevel)) :: loadCode
                     end
             in
                 otherDecs @ resultCode
@@ -6481,11 +6475,11 @@ struct
     (* Code generates the parse tree. *)
     fun gencode
             (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
-             mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codetree list * debugenv =
+             mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codeBinding list * debugenv =
         codeSequence ([pt], [],
             {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
              debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0},
-             fn (code, {debugEnv, typeVarMap, ...}) => continuation(code, debugEnv, typeVarMap))
+             fn (code: codeBinding list, {debugEnv, typeVarMap, ...}) => continuation(code, debugEnv, typeVarMap))
 
     (* Types that can be shared. *)
     structure Sharing =
@@ -6494,6 +6488,7 @@ struct
         and  pretty     = pretty
         and  environEntry = environEntry
         and  codetree   = codetree
+        and  codeBinding = codeBinding
         and  types      = types
         and  values     = values
         and  typeId     = typeId

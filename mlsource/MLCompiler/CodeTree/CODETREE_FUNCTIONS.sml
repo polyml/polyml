@@ -34,16 +34,19 @@ struct
  
     fun mkDecRef(ct, i1, i2) = Declar{value = ct, addr = i1, references = i2};
     fun mkDec (laddr, res) = mkDecRef(res, laddr, 0)
+    fun mkMutualDecs l = MutualDecs(List.map(fn (a, v) => {value = v, addr = a, references = 0}) l)
+    val mkNullDec = NullBinding
 
-    val mkMutualDecs        = MutualDecs
-    and mkIf                = Cond
-    and mkEnv               = Newenv
+    val mkIf                = Cond
     and mkConst             = Constnt
     and mkRaise             = Raise
     and mkContainer         = Container
     and mkIndirectVariable  = IndirectVariable
     and mkTupleVariable     = TupleVariable
-
+    
+    
+    fun mkEnv([], exp) = exp
+    |   mkEnv(decs, exp) = Newenv(decs, exp)
 
     val word0 = toMachineWord 0
     and word1 = toMachineWord 1
@@ -59,10 +62,11 @@ struct
 
     (* For the moment limit these to general arguments. *)
     fun mkLoop args = Loop (List.map(fn c => (c, GeneralType)) args)
-    and mkBeginLoop(exp, args) = BeginLoop{loop=exp, arguments=List.map(fn c => (c, GeneralType)) args}
+    and mkBeginLoop(exp, args) =
+        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i, references=0}, GeneralType)) args}
 
     fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
-        mkBeginLoop(mkIf(b, mkEnv[e, mkLoop[]], CodeZero), [])
+        mkBeginLoop(mkIf(b, mkEnv([NullBinding e], mkLoop[]), CodeZero), [])
 
     (* We previously had conditional-or and conditional-and as separate
        instructions.  I've taken them out since they can be implemented
@@ -73,13 +77,6 @@ struct
        to add it to.   DCJM 7/12/00. *)
     fun mkCor(xp1, xp2)  = mkIf(xp1, CodeTrue, xp2);
     fun mkCand(xp1, xp2)  = mkIf(xp1, xp2, CodeZero);
-
-    (* Wrap up multiple entries.  Return a single item unless it is a
-        declaration. *)
-    fun wrapEnv (l as [Declar _]) = mkEnv l
-    |   wrapEnv (l as [MutualDecs _]) = mkEnv l
-    |   wrapEnv [singleton] = singleton
-    |   wrapEnv multiple = mkEnv multiple
 
   (* Test for possible side effects. If an expression has no side-effect
      and its result is not used then we don't need to generate it. An
@@ -165,17 +162,15 @@ struct
     | sideEffectFree (Lambda _) = true
     | sideEffectFree (Constnt _) = true
     | sideEffectFree (Extract _) = true
-    | sideEffectFree (Declar{value, ...}) = sideEffectFree value
     | sideEffectFree (Cond(i, t, e)) =
           sideEffectFree i andalso
           sideEffectFree t andalso
           sideEffectFree e
-    | sideEffectFree (Newenv decs) = testList decs
+    | sideEffectFree (Newenv(decs, exp)) = List.all sideEffectBinding decs andalso sideEffectFree exp
     | sideEffectFree (Handle { exp, handler }) =
           sideEffectFree exp andalso sideEffectFree handler
     | sideEffectFree (Recconstr recs) = testList recs
     | sideEffectFree (Indirect{base, ...}) = sideEffectFree base
-    | sideEffectFree (MutualDecs decs) = testList decs
 
         (* An RTS call, which may actually be code which is inlined
            by the code-generator, may be side-effect free.  This can
@@ -211,6 +206,11 @@ struct
              (* Rest are unsafe (or too rare to be worth checking) *)
 
     and testList t = List.all sideEffectFree t
+    
+    and sideEffectBinding(Declar{value, ...}) = sideEffectFree value
+    |   sideEffectBinding(MutualDecs decs) = (* These should all be lambdas *)
+            List.all (fn {value, ...} => sideEffectFree value) decs
+    |   sideEffectBinding(NullBinding c) = sideEffectFree c
 
     and sideEffectFreeRTSCall(function: machineWord, args: (codetree * argumentType) list): bool =
     let
@@ -427,25 +427,25 @@ struct
       constant or a load we can reduce the amount of code we generate by
       simply returning the original code. *)
     fun multipleUses (code as Constnt _, _, _) = 
-      {load = (fn _ => code), dec = []}
+        {load = (fn _ => code), dec = []}
 
-   |  multipleUses (code as Extract{addr, level=loadLevel, ...}, _, level) = 
-    let (* May have to adjust the level. *)
-      fun loadFn lev =
-        if lev = level
-        then code 
-        else mkLoad (addr, loadLevel + (lev - level))
-    in
-      {load = loadFn, dec = []}
-    end
+    |   multipleUses (code as Extract{addr, level=loadLevel, ...}, _, level) = 
+        let (* May have to adjust the level. *)
+            fun loadFn lev =
+                if lev = level
+                then code 
+                else mkLoad (addr, loadLevel + (lev - level))
+        in
+            {load = loadFn, dec = []}
+        end
     
-   |  multipleUses (code, nextAddress, level) = 
-    let
-      val addr       = nextAddress();
-      fun loadFn lev = mkLoad (addr, lev - level);
-    in
-      {load = loadFn, dec = [mkDec (addr, code)]}
-    end (* multipleUses *);
+   |    multipleUses (code, nextAddress, level) = 
+        let
+            val addr       = nextAddress();
+            fun loadFn lev = mkLoad (addr, lev - level);
+        in
+            {load = loadFn, dec = [mkDec (addr, code)]}
+        end (* multipleUses *);
 
     (* Set the container to the fields of the record.  Try to push this
        down as far as possible. *)
@@ -453,15 +453,8 @@ struct
         Cond(ifpt, mkSetContainer(container, thenpt, size),
             mkSetContainer(container, elsept, size))
 
-    |  mkSetContainer(container, Newenv entries, size) =
-        let
-            fun applyLast [] = raise List.Empty
-            |   applyLast [last] =
-                    [mkSetContainer(container, last, size)]
-            |   applyLast (hd::tl) = hd :: applyLast tl
-        in
-            Newenv(applyLast entries)
-        end
+    |  mkSetContainer(container, Newenv(decs, exp), size) =
+            Newenv(decs, mkSetContainer(container, exp, size))
 
     |  mkSetContainer(_, r as Raise _, _) =
         r (* We may well have the situation where one branch of an "if" raises an
@@ -574,12 +567,26 @@ struct
     |   evalue (Global g) = evalue(optGeneral g)
     |   evalue _ = NONE
 
+    (* This is really to simplify the change from mkEnv taking a codetree list to
+       taking a codeBinding list * code.  This extracts the last entry which must
+       be a NullBinding and packages the declarations with it. *)
+    fun decSequenceWithFinalExp decs =
+    let
+        fun splitLast _ [] = raise InternalError "decSequenceWithFinalExp: empty"
+        |   splitLast decs [NullBinding exp] = (List.rev decs, exp)
+        |   splitLast _ [_] = raise InternalError "decSequenceWithFinalExp: last is not a NullDec"
+        |   splitLast decs (hd::tl) = splitLast (hd:: decs) tl
+    in
+        mkEnv(splitLast [] decs)
+    end
+
     structure Sharing =
     struct
         type codetree = codetree
         and  optVal = optVal
         and  argumentType = argumentType
         and  varTuple = varTuple
+        and  codeBinding = codeBinding
     end
 
 end;

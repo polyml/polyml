@@ -42,6 +42,7 @@ sig
     type structureIdentForm;
     type typeParsetree
     type funpattern
+    type codeBinding
   
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
@@ -148,8 +149,8 @@ sig
 
     val gencode:
         parsetree * lexan * debugenv * int * (int->int) * typeVarMap * string *
-            (codetree list * debugenv * typeVarMap -> codetree list * debugenv)
-            -> codetree list * debugenv
+            (codeBinding list * debugenv * typeVarMap -> codeBinding list * debugenv)
+            -> codeBinding list * debugenv
 
     (* only used for debugging and error messages! *)
     val ptDisplay: parsetree * int -> pretty;
@@ -165,6 +166,7 @@ sig
         and  pretty     = pretty
         and  environEntry = environEntry
         and  codetree   = codetree
+        and  codeBinding = codeBinding
         and  types      = types
         and  values     = values
         and  typeId     = typeId

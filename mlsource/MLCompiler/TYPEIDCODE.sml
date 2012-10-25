@@ -150,7 +150,7 @@ struct
         {
             entryType: typeVarMapEntry, (* Either the type var map or a "stopper". *)
             cache: (* Cache of new type values. *)
-                {typeOf: types, address: int, decCode: codetree} list ref,
+                {typeOf: types, address: int, decCode: codeBinding} list ref,
             mkAddr: int->int, (* Make new addresses at this level. *)
             level: int (* Function nesting level. *)
         } list
@@ -161,7 +161,7 @@ struct
         fun markTypeConstructors(typConstrs, mkAddr, level, tvs) =
                 {entryType = TypeConstrListEntry typConstrs, cache = ref [], mkAddr=mkAddr, level=level} :: tvs
 
-        fun getCachedTypeValues(({cache=ref cached, ...}) ::_): codetree list =
+        fun getCachedTypeValues(({cache=ref cached, ...}) ::_): codeBinding list =
                 (* Extract the values from the list.  The later values may refer to earlier
                    so the list must be reversed. *)
                 List.rev (List.map (fn{decCode, ...} => decCode) cached)
@@ -739,7 +739,7 @@ struct
     end
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
-    fun equalityForDatatypes(typeDataList, eqAddresses, baseLevel, typeVarMap): codetree list =
+    fun equalityForDatatypes(typeDataList, eqAddresses, baseLevel, typeVarMap): (int * codetree) list =
     let
         val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
@@ -861,25 +861,25 @@ struct
                         mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
-            then mkDec(addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)")) :: otherFns
+            then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)")) :: otherFns
             else (* Polymorphic.  Add an extra inline functions. *)
             let
                 val nArgs = List.length argTypes
                 (* Call the second function with the values to be compared and the base types. *)
                 val polyArgs = List.tabulate(nArgs, fn i => mkLoad(~nArgs+i, 1))
             in
-                mkDec(addr,
+                (addr,
                     mkInlproc(
                         mkInlproc(
                             mkEval(mkLoad(addr+1, 2), polyArgs @ [arg1, arg2], true), 2, "eq-" ^ tcName tyConstr ^ "(2)"),
                             nArgs, "eq-" ^ tcName tyConstr ^ "(2)(P)")) ::
-                mkDec(addr+1,
-                    mkProc(mkEnv(getCachedTypeValues argTypeMap @ [eqCode]), 2+nTypeVars, "eq-" ^ tcName tyConstr ^ "()")) ::
+                (addr+1,
+                    mkProc(mkEnv(getCachedTypeValues argTypeMap, eqCode), 2+nTypeVars, "eq-" ^ tcName tyConstr ^ "()")) ::
                 otherFns
             end
         end
         else (* Not an equality type.  This will not be called. *)
-            mkDec(addr, CodeZero) :: otherFns
+            (addr, CodeZero) :: otherFns
     in
         List.foldl equalityForDatatype [] typesAndAddresses
     end
@@ -994,8 +994,8 @@ struct
         (* Wrap this in the functions for the base types. *)
         if null argTypes
         then mkProc(printerCode, 1, "print-"^name)
-        else mkProc(mkEnv(getCachedTypeValues newTypeVarMap @
-                            [mkProc(printerCode, 1, "print-"^name)]),
+        else mkProc(mkEnv(getCachedTypeValues newTypeVarMap,
+                            mkProc(printerCode, 1, "print-"^name)),
                     List.length argTypes, "print"^name^"()")
     end    
 
@@ -1021,11 +1021,11 @@ struct
                     false)
         in
             mkEnv(
-                dec @
-                [createTypeValue {
+                dec,
+                createTypeValue {
                     eqCode = extractEquality loadLocal, printCode = printCode,
                     boxedCode = extractBoxed loadLocal, sizeCode = extractSize loadLocal
-                }]
+                }
              )
         end
 
@@ -1049,8 +1049,8 @@ struct
                 sizeForType(resType, level, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
         in
             mkEnv(
-                TypeVarMap.getCachedTypeValues typeVarMap @
-                [createTypeValue {
+                TypeVarMap.getCachedTypeValues typeVarMap,
+                createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode, sizeCode = sizeCode,
                     printCode =
                     mkEval
@@ -1058,7 +1058,7 @@ struct
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                          printCode],
                     false)
-                }])
+                })
         end
 
     |   codeGenerativeId(TypeId{typeFn=(argTypes, resType), ...}, isEq, mkAddr, level) =
@@ -1080,7 +1080,7 @@ struct
                 in
                     (* Wrap this in a function for the type arguments. *)
                     mkProc(
-                        mkEnv(getCachedTypeValues argTypeMap @ [printCode]),
+                        mkEnv(getCachedTypeValues argTypeMap, printCode),
                         nArgs, "print-helper()")
                 end
 
@@ -1096,7 +1096,7 @@ struct
                         val innerFnCode =
                             makeEq(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
                     in
-                        mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), nArgs, "equality()")
+                        mkInlproc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, "equality()")
                     end
             val boxedCode =
                 let
@@ -1107,7 +1107,7 @@ struct
                     val innerFnCode =
                         boxednessForType(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
                 in
-                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), nArgs, "boxedness()")
+                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, "boxedness()")
                 end
             val sizeCode =
                 let
@@ -1118,12 +1118,12 @@ struct
                     val innerFnCode =
                         sizeForType(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
                 in
-                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap @ [innerFnCode]), nArgs, "size()")
+                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, "size()")
                 end
         in
             mkEnv(
-                TypeVarMap.getCachedTypeValues typeVarMap @
-                [createTypeValue {
+                TypeVarMap.getCachedTypeValues typeVarMap,
+                createTypeValue {
                     eqCode = eqCode, boxedCode = boxedCode,
                     printCode =
                     mkEval
@@ -1132,7 +1132,7 @@ struct
                          printCode],
                     false),
                     sizeCode = sizeCode
-                }])
+                })
         end
 
 
@@ -1192,11 +1192,12 @@ struct
         (* Create the print functions and set the printer code for each typeId. *)
         local
             fun setPrinter{typeConstr=tc, ...} =
-                mkEval(
-                    rtsFunction POLY_SYS_assign_word,
-                    [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
-                              CodeZero, printerForDatatype(tc, level, typeVarMap)],
-                    false)
+                mkNullDec(
+                    mkEval(
+                        rtsFunction POLY_SYS_assign_word,
+                        [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
+                                  CodeZero, printerForDatatype(tc, level, typeVarMap)],
+                        false))
         in
             val printerCode = List.map setPrinter typeDatalist
         end
@@ -1313,5 +1314,6 @@ struct
         type typeConstrSet=typeConstrSet
         type typeVarForm=typeVarForm
         type typeVarMap = typeVarMap
+        type codeBinding    = codeBinding
     end
 end;

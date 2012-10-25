@@ -77,7 +77,7 @@ struct
                     end
             )
 
-            fun makeDecl(Declar{addr, ...}) =
+            fun makeDecl({addr, ...}: simpleBinding) =
             (let
                 val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
                 val () = Array.update (closuresForLocals, addr, false)
@@ -85,7 +85,6 @@ struct
             in
                 newAddr
             end handle Subscript => raise InternalError("makeDecl " ^ Int.toString addr ^ " of " ^ Int.toString localCount))
-            |   makeDecl _ = raise InternalError "makeDecl: not Declar"
             
           (* locaddr *)
 
@@ -147,9 +146,8 @@ struct
                     val insBody = insert body
                     (* Finally the initial argument values. *)
                     local
-                        fun copyDec((Declar{value, ...}, t), addr) =
-                                (mkDecRef(insert value, addr, 0), t)
-                        |   copyDec _ = raise InternalError "copyDec: not a declaration"
+                        fun copyDec(({value, ...}, t), addr) =
+                                ({value = insert value, addr = addr, references = 0}, t)
                     in
                         val newargs = ListPair.map copyDec (argList, newAddrs)
                     end
@@ -169,14 +167,14 @@ struct
             |   insert(Cond(condTest, condThen, condElse)) =
                         reconvertCase(copyCond (condTest, condThen, condElse))
 
-            |   insert(Newenv ptElist) =
+            |   insert(Newenv(ptElist, ptExp)) =
                 let
                     (* Process the body. Recurses down the list of declarations
                        and expressions processing each, and then reconstructs the
                        list on the way back. *)
                     fun copyDeclarations ([])   = []
 
-                    |   copyDeclarations ((dec as Declar{addr=caddr, value = pt, ...}) :: vs)  =
+                    |   copyDeclarations (Declar(dec as {addr=caddr, value = pt, ...}) :: vs)  =
                         let
                             val newAddr = makeDecl dec
                             val () =
@@ -230,14 +228,13 @@ struct
 
                             val _ = List.map makeDecl mutualDecs
 
-                            fun applyFn (Declar{addr=caddr, value=dv, ...}) =     
+                            fun applyFn ({addr=caddr, value=dv, ...}) =     
                                 (
                                     case dv of
                                         Constnt _ => Array.update (localConsts, caddr, SOME dv) 
                                     |   _ => ()
                                 )
-                            |   applyFn _ = raise InternalError "applyFn: not a Declar"               
-              
+
                             val () = List.app applyFn mutualDecs;
                   
                             (* Process the rest of the block. Identifies all other
@@ -247,7 +244,7 @@ struct
                             (* We now want to find out which of the declarations require
                                closures. First we copy all the declarations, except that
                                we don't copy the non-local lists of procedures. *)
-                            fun copyDec (Declar{addr=caddr, value=dv, ...}) = 
+                            fun copyDec ({addr=caddr, value=dv, ...}) = 
                                 let
                                     val closure = ref (Array.sub(closuresForLocals, caddr))
                                     val dec     =
@@ -263,11 +260,10 @@ struct
                                     (* copyLambda may set "closure" to true. *)
                                     val () = Array.update (closuresForLocals, caddr, !closure);
                                 in
-                                    mkDec (caddr, dec)
-                                end
-                            |   copyDec _ = raise InternalError "copyDec: not a Declar"               
+                                    {addr=caddr, value = dec, references = 0}
+                                end             
 
-                            val copiedDecs = map copyDec mutualDecs;
+                            val copiedDecs = map copyDec mutualDecs
                    
                             (* We now have identified all possible references to the
                                procedures apart from those of the closures themselves.
@@ -283,43 +279,39 @@ struct
                                    anything which needs a closure. The remainder do not
                                    need full closures. *)
                                 let
-                                    fun mkLightClosure (Declar{value, addr, ...}) = 
+                                    fun mkLightClosure ({value, addr, ...}) = 
                                         let
                                             val clos = copyProcClosure value false
                                             val newAddr = Array.sub(newLocalAddresses, addr)
                                         in
-                                            mkDec (newAddr, clos)
-                                        end
-                                    | mkLightClosure _ = raise InternalError "mkLightClosure: not a Declar"               
+                                            {value=clos, addr=newAddr, references=0}
+                                        end          
                                 in
                                     map mkLightClosure outlist
                                 end
                   
-                            |   processClosures((h as Declar{addr=caddr, value, ...})::t, outlist, someFound) =
+                            |   processClosures((h as {addr=caddr, value, ...})::t, outlist, someFound) =
                                 if Array.sub(closuresForLocals, caddr)
                                 then
                                 let (* Must copy it. *)
                                     val clos = copyProcClosure value true
                                     val newAddr = Array.sub(newLocalAddresses, caddr)
                                 in
-                                    mkDec (newAddr, clos) :: processClosures(t, outlist, true)
+                                    {value=clos, addr=newAddr, references=0} :: processClosures(t, outlist, true)
                                 end
                                     (* Leave it for the moment. *)
                                 else processClosures(t, h :: outlist, someFound)
-
-                            |   processClosures _ =
-                                    raise InternalError "processClosures: not a Declar"               
                   
                             val decs = processClosures(copiedDecs, [], false)
                         in
                             (* Return the mutual declarations and the rest of the block. *)
                             case decs of
                                 []   => restOfBlock         (* None left *)
-                            |   [d]  => d :: restOfBlock    (* Just one *)
-                            |   _    => mkMutualDecs decs :: restOfBlock
+                            |   [d]  => Declar d :: restOfBlock    (* Just one *)
+                            |   _    => MutualDecs decs :: restOfBlock
                         end (* copyDeclarations.isMutualDecs *)
           
-                    |   copyDeclarations (v :: vs)  =
+                    |   copyDeclarations (NullBinding v :: vs)  =
                         let (* Not a declaration - process this and the rest. *)
                            (* Must process later expressions before earlier
                                ones so that the last references to variables
@@ -329,37 +321,26 @@ struct
                         in
                             (* Expand out blocks *)
                             case copiedNode of
-                                Newenv decs => decs @ copiedRest
-                            |   _ => copiedNode :: copiedRest
+                                Newenv(decs, exp) => decs @ (NullBinding exp :: copiedRest)
+                            |   _ => NullBinding copiedNode :: copiedRest
                         end (* copyDeclarations *)
 
-                     val insElist = copyDeclarations ptElist
+                    val insElist = copyDeclarations(ptElist @ [NullBinding ptExp])
                 in
-                    (* If there is only one item then return that item (unless it is
-                       a declaration - this can occur if we have a block which contains
-                       a declaration to discard the result of a function call and 
-                       only do its side-effects). *)
-                    wrapEnv insElist
+                    (* TODO: Tidy this up. *)
+                    decSequenceWithFinalExp insElist
                 end (* isNewEnv *)
                 
             |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
-                let
-                    val processedFields = mapright insert recs
-(*                    fun allConsts []       = true
-                      | allConsts (Constnt _ :: t) = allConsts t
-                      | allConsts _ = false*)
-                    (* This does occasionally happen. *)
-                in
-                    mkTuple processedFields
-                end
+                    mkTuple (mapright insert recs)
 
             |   insert(pt as Ldexc) = pt (* just a constant so return it *)
       
             |   insert(Lambda lam)=
                     (* Must make a closure for this procedure because
                         it is not a simple declaration. *)
-                        copyProcClosure (copyLambda lam (ref true)) true
-     
+                    copyProcClosure (copyLambda lam (ref true)) true
+
             |   insert(Handle { exp, handler }) =
                 let
                     (* The order here is important.  We want to make sure that
@@ -410,11 +391,9 @@ struct
                     (* Remove the mutable bit (needed by alloc_store). *)
                     val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [mkLoad(newAddr, 0)], false)
                  in
-                    mkEnv(allocTuple :: (mapright copyTuple vars @ [lock, mkLoad(newAddr, 0)]))
+                    mkEnv(allocTuple :: (map NullBinding (mapright copyTuple vars @ [lock])), mkLoad(newAddr, 0))
                 end
 
-            |   insert(Declar _) = raise InternalError "insert:Declar"
-            |   insert(MutualDecs _) = raise InternalError "insert:MutualDecs"
             |   insert(Case _) = raise InternalError "insert:Case"
             |   insert(KillItems _) = raise InternalError "insert:KillItems"
 

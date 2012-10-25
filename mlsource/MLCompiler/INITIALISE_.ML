@@ -508,7 +508,7 @@ struct
                     val n = mkLoad (~1, 0)                 (* the outer parameter *)
                     val f = mkEval (ioOpEntry, [n], true); (* early evaluation possible *)
                 in
-                    mkEnv[mkDec (1, f), innerLambda]
+                    mkEnv([mkDec (1, f)], innerLambda)
                 end
 
                 val outerLambda  = mkInlproc (outerBody, 1, name)
@@ -533,8 +533,8 @@ struct
                         List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoad(1, 0)]
                 in
                     mkInlproc(
-                        mkEnv[container, mkEval (f, args, false),
-                              mkTupleFromContainer(mkLoad(1, 0), containerWidth)],
+                        mkEnv([container, mkNullDec(mkEval (f, args, false))],
+                              mkTupleFromContainer(mkLoad(1, 0), containerWidth)),
                         1, name ^ "(1)")
                 end
 
@@ -543,7 +543,7 @@ struct
                     val n = mkLoad (~1, 0)                 (* the outer parameter *)
                     val f = mkEval (ioOpEntry, [n], true) (* early evaluation possible *)
                 in
-                    mkInlproc(mkEnv[mkDec (1, f), innerLambda], 1, name)
+                    mkInlproc(mkEnv([mkDec (1, f)], innerLambda), 1, name)
                 end
             in
                 outerLambda
@@ -689,7 +689,7 @@ struct
             val eqCode =
                 mkInlproc(
                     mkProc(
-                        mkEnv[
+                        mkEnv([
                             (* Length of the items. *)
                             mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
                             mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false)),
@@ -716,7 +716,8 @@ struct
                                             CodeFalse (* Not equal elements - result false *)
                                         )
                                     ),
-                                1, "vector-loop")),
+                                1, "vector-loop"))
+                            ],
                             mkIf(
                                 (* Test the lengths. *)
                                 mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
@@ -724,7 +725,7 @@ struct
                                 mkEval(mkLoad(3, 0), [CodeZero], false),
                                 CodeFalse (* Not same length- result false *)
                             )
-                        ],
+                        ),
                         2, "vector-eq"),
                     1, "vector-eq()")
 
@@ -754,10 +755,11 @@ struct
                the whole words which could look like addresses if the bottom bit happens to be zero. *)
             val eqCode =
                 mkProc(
-                    mkEnv[
+                    mkEnv([
                         (* Length of the items. *)
                         mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
-                        mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false)),
+                        mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false))
+                        ],
                         mkIf(
                             (* Test the lengths. *)
                             mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
@@ -766,7 +768,7 @@ struct
                                 [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero, mkLoad(1, 0)], false),
                             CodeFalse (* Not same length- result false *)
                         )
-                    ],
+                    ),
                     2, "byteVector-eq")
 
             val idCode = (* Polytype *)
@@ -1273,7 +1275,9 @@ struct
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
             end
 
-            val CodeTree = createType "codetree" and MachineWord = createType "machineWord"
+            val CodeTree = createType "codetree"
+            and MachineWord = createType "machineWord"
+            and CodeBinding = createType "codeBinding"
 
             (* For the moment export these only for the general argument and result types. *)
             fun simpleFn (code, nArgs, name) =
@@ -1300,17 +1304,18 @@ struct
                 ("mkCall", toMachineWord simpleCall, CodeTree ** List CodeTree ->> CodeTree),
                 ("mkLoad", toMachineWord mkLoad, Int ** Int ->> CodeTree),
                 ("mkRecLoad", toMachineWord mkRecLoad, Int ->> CodeTree),
-                ("mkDec", toMachineWord mkDec, Int ** CodeTree ->> CodeTree),
+                ("mkDec", toMachineWord mkDec, Int ** CodeTree ->> CodeBinding),
                 ("mkInd", toMachineWord mkInd, Int ** CodeTree ->> CodeTree),
                 ("mkIf", toMachineWord mkIf, mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),
                 ("mkWhile", toMachineWord mkWhile, CodeTree ** CodeTree ->> CodeTree),
                 ("mkLoop", toMachineWord mkLoop, List CodeTree ->> CodeTree),
-                ("mkBeginLoop", toMachineWord mkBeginLoop, CodeTree ** List CodeTree ->> CodeTree),
-                ("mkEnv", toMachineWord mkEnv, List CodeTree ->> CodeTree),
-                ("mkMutualDecs", toMachineWord mkMutualDecs, List CodeTree ->> CodeTree),
+                ("mkBeginLoop", toMachineWord mkBeginLoop, CodeTree ** List(Int ** CodeTree) ->> CodeTree),
+                ("mkEnv", toMachineWord mkEnv, List CodeBinding ** CodeTree ->> CodeTree),
+                ("mkMutualDecs", toMachineWord mkMutualDecs, List(Int ** CodeTree) ->> CodeTree),
                 ("mkTuple", toMachineWord mkTuple, List CodeTree ->> CodeTree),
                 ("mkRaise", toMachineWord mkRaise, CodeTree ->> CodeTree),
                 ("mkHandle", toMachineWord mkHandle, CodeTree ** CodeTree ->> CodeTree),
+                ("mkNullDec", toMachineWord mkNullDec, CodeTree ->> CodeBinding),
                 ("Ldexc", toMachineWord Ldexc, CodeTree),
                 ("rtsFunction", toMachineWord rtsFunction, Int ->> CodeTree)
                 ]

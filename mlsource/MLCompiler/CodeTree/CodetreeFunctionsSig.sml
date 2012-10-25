@@ -20,6 +20,8 @@ signature CodetreeFunctionsSig =
 sig
     type codetree
     type optVal
+    type codeBinding
+
     type machineWord = Address.machineWord
 
     datatype argumentType =
@@ -34,14 +36,16 @@ sig
     val mkClosLoad: int * bool -> codetree
     val mkGenLoad: int * int * bool * bool -> codetree
     
-    val mkDecRef: codetree * int * int -> codetree
-    val mkDec: int * codetree -> codetree
+    val mkDecRef: codetree * int * int -> codeBinding
+    val mkDec: int * codetree -> codeBinding
+    val mkMutualDecs: (int * codetree) list -> codeBinding
+    val mkNullDec: codetree -> codeBinding
     
     val mkTuple: codetree list -> codetree
     
-    val mkMutualDecs: codetree list -> codetree
+
     val mkIf: codetree * codetree * codetree -> codetree
-    val mkEnv: codetree list -> codetree
+    val mkEnv: codeBinding list * codetree -> codetree
     val mkConst: machineWord -> codetree
     val mkWhile: codetree * codetree -> codetree
     val mkCor: codetree * codetree -> codetree
@@ -58,7 +62,7 @@ sig
     and mkInd: int * codetree -> codetree
 
     val mkLoop: codetree list -> codetree
-    and mkBeginLoop: codetree * codetree list -> codetree
+    and mkBeginLoop: codetree * (int * codetree) list -> codetree
     
     val CodeFalse: codetree and CodeTrue: codetree and CodeZero: codetree
     
@@ -74,9 +78,9 @@ sig
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: codetree * int -> codetree
 
-    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list}
+    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codeBinding list}
 
-    val wrapEnv: codetree list -> codetree
+    val decSequenceWithFinalExp: codeBinding list -> codetree
     
     val sideEffectFree: codetree -> bool
     val makeConstVal: codetree -> codetree
@@ -87,13 +91,13 @@ sig
 
     val optGeneral: optVal -> codetree
     and optSpecial: optVal -> codetree
-    and optDecs: optVal -> codetree list
+    and optDecs: optVal -> codeBinding list
     and optRec: optVal -> bool ref
     and optEnviron: optVal -> { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal
     and optVal:
         { general : codetree, special : codetree,
           environ : { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal,
-          decs : codetree list, recCall: bool ref } -> optVal
+          decs : codeBinding list, recCall: bool ref } -> optVal
     and simpleOptVal : codetree -> optVal
     
     val errorEnv: { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal
@@ -108,6 +112,7 @@ sig
         and  optVal = optVal
         and  argumentType = argumentType
         and  varTuple = varTuple
+        and  codeBinding = codeBinding
     end
 
 end;

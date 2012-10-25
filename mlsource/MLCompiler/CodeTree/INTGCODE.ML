@@ -267,36 +267,26 @@ struct
 
     (* Loads a local, argument or closure value; translating local
        stack addresses to real stack offsets. *)
-   fun locaddr ext =
-   let
-     val locn = #addr ext;
-   in
-     if #fpRel ext
-     then 
-       if locn < 0 (* Args. *)
-       then pushStackValue (~locn, 0)
-       else (* positive address - on the stack. *)
-     case STRETCHARRAY.sub (decVec, locn) of
-       StackAddr n => pushStackValue (~ n, 0)
- 
-     | _ => (* Should be on the stack, not a procedure. *)
-       raise InternalError "locaddr: bad stack address"
-         
-     else (* closure-pointer relative *)
-    case loadStaticLink (locn, 1) of
-      Recursive code =>
-      let
-        val () = genRecRef (code, cvec)
-      in
-        incsp ()
-      end
-      
-       | Address (addr, level) =>
-       pushStackValue (addr, level)
-       
-       | StaticLink _ =>
-       raise InternalError "locaddr: illegal use of static-link function"
-   end; (* locaddr *)
+        fun locaddr({addr=locn, fpRel = true, ...}) =
+            (
+                if locn < 0 (* Args. *)
+                then pushStackValue (~locn, 0)
+                else (* positive address - on the stack. *)
+                    case STRETCHARRAY.sub (decVec, locn) of
+                        StackAddr n => pushStackValue (~ n, 0)
+
+                    |   _ => (* Should be on the stack, not a procedure. *)
+                        raise InternalError "locaddr: bad stack address"
+            )
+        | locaddr({addr=locn, ...}) =
+            ( (* closure-pointer relative *)
+                case loadStaticLink (locn, 1) of
+                    Recursive code =>
+                    ( genRecRef (code, cvec); incsp () )
+                |   Address (addr, level) => pushStackValue (addr, level)
+   
+                |   StaticLink _ => raise InternalError "locaddr: illegal use of static-link function"
+            )
 
    (* generates code from the tree *)
    fun gencde (pt : codetree, whereto : whereto, tailKind : tail, matchFailFn : unit -> unit, loopAddr) : unit =
@@ -365,31 +355,6 @@ struct
             
        | Eval evl =>
            genEval (evl, tailKind, matchFailFn)
-         
-       (* Declarations are not necessarily nested in Newenv *)
-       | Declar {value, addr, ...} =>
-       (* Put the entry for this declaration in the table. *)
-       (case value of
-          Lambda (lam as {makeClosure = false, name, ...}) => 
-          let
-        val newCode : code = codeCreate (true, name, parameters);
-        val () =
-          STRETCHARRAY.update (decVec, addr, ProcConst newCode);
-          in
-        genSlProc (lam, newCode)
-          end
-          
-        | _ => (* Other declaration - to the stack. *)
-          let
-        val () = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
-          in
-        STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
-          end
-       )
-
-        (* MutualDecs should nested in Newenv??? *)
-      | MutualDecs _ =>
-            raise InternalError "gencde: MutualDecs only allowed inside Newenv"
 
        | Extract ext =>
            (* This may just be being used to discard a value which isn't
@@ -417,35 +382,72 @@ struct
        | Cond (testPart, thenPart, elsePart) =>
            genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
   
-       | Newenv vl =>
-         let
-           (* We can't just call "gencde" on all the elements of the list,
-              because declarations must persist as long as they're in scope.
-              We treat Declar and MutualDecs specially here, but just naively
-              call gencde for expressions.
-              SPF 7/1/97
-           *)
-         
+       | Newenv(decls, exp) =>
+         let         
             (* Processes a list of entries. *)
-            fun codeList [] = ()
-              | codeList (valu :: valus) = 
-            let
-              val () =
-                case valu of
-                  MutualDecs dl => genMutualDecs (dl, matchFailFn)
-                | Declar _ => gencde (valu, ToStack, NotEnd, matchFailFn, loopAddr)
-                | _ =>
-                (* If this is the last one it is the result of the block
-                   so it is generated to the stack if the block needs a
-                   result. *)
-                   case valus of
-                     [] => gencde (valu, whereto, tailKind, matchFailFn, loopAddr)
-                   | _  => gencde (valu, NoResult, NotEnd, matchFailFn, loopAddr)
-            in (* process the tail *)
-              codeList valus
-            end
+            
+            (* Mutually recursive declarations. May be either lambdas or constants. Recurse down
+               the list pushing the addresses of the closure vectors, then unwind the 
+               recursion and fill them in. *)
+            fun genMutualDecs ([], _) = ()
+
+            |   genMutualDecs ({value = Lambda(lam as {makeClosure = false, ...}), addr, ...} :: otherDecs, matchFailFn) =
+                let (* Static link. *)
+                    (* Create a code-segment and put it in the table in case of
+                     mutually recursive references. *)
+                    val newCode : code = codeCreate(true, #name lam, parameters);
+                    val () = STRETCHARRAY.update (decVec, addr, ProcConst newCode);
+                    (* Deal with any other possible references. *)
+                    val () = genMutualDecs (otherDecs, matchFailFn);
+                in
+                    (* Can now process this procedure since we have made an entry
+                       in the table for everything it could refer to. *)
+                    genSlProc (lam, newCode)
+                end
+       
+            |   genMutualDecs ({value = Lambda(lam as {makeClosure = true, ...}), addr, ...} :: otherDecs, matchFailFn) =
+                let (* Closure. *)
+                    fun doRest () : unit  = 
+                    let
+                        val () = STRETCHARRAY.update (decVec, addr, StackAddr (! realstackptr));
+                    in
+                        (* Now time to do the other closures. *)
+                        genMutualDecs (otherDecs, matchFailFn)
+                    end
+                in
+                    genProc (lam, true, doRest, matchFailFn)
+                end
+     
+            |   genMutualDecs ({value =dec, addr, ...} :: otherDecs, matchFailFn) =
+                (
+                    gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
+                    STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
+                    genMutualDecs (otherDecs, matchFailFn)
+                )
+
+            fun codeDecls(MutualDecs dl) = genMutualDecs (dl, matchFailFn)
+            |   codeDecls(Declar{value, addr, ...}) =
+                (
+                    case value of
+                        Lambda (lam as {makeClosure = false, name, ...}) => 
+                        let
+                            val newCode : code = codeCreate (true, name, parameters);
+                            val () = STRETCHARRAY.update (decVec, addr, ProcConst newCode);
+                        in
+                            genSlProc (lam, newCode)
+                        end
+          
+                    |   _ => (* Other declaration - to the stack. *)
+                        let
+                            val () = gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
+                        in
+                            STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
+                        end
+                )
+            |   codeDecls(NullBinding exp) = gencde (exp, NoResult, NotEnd, matchFailFn, loopAddr)
           in
-            codeList vl
+                List.app codeDecls decls;
+                gencde (exp, whereto, tailKind, matchFailFn, loopAddr)
           end
           
          | BeginLoop {loop=body, arguments} =>
@@ -455,13 +457,12 @@ struct
             let
                 val args = List.map #1 arguments
                 (* Evaluate each of the arguments, pushing the result onto the stack. *)
-                fun genLoopArg (Declar {addr, value, ...}) =
+                fun genLoopArg ({addr, value, ...}) =
                     (
                      gencde (value, ToStack, NotEnd, matchFailFn, loopAddr);
                      STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
                      !realstackptr (* Return the posn on the stack. *)
                     )
-                |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
                 val argIndexList = map genLoopArg args;
 
                 val startSp = ! realstackptr; (* Remember the current top of stack. *)
@@ -1281,51 +1282,6 @@ struct
       (* Finally go down the list of exit labels pointing them to here. *)
       fixup (!lastEndJump, cvec)
     end
-
-   (* Mutually recursive declarations. May be either procedures, constants
-      or reccons (from type constructors). Recurse down the list pushing the
-      addresses of the closure vectors, then unwind the recursion and fill them in. *)
-   and genMutualDecs ([], _) : unit = ()
-     | genMutualDecs (Declar decl :: otherDecs, matchFailFn) : unit =
-     (
-       case #value decl of
-         Lambda lam =>
-       if not (#makeClosure lam)
-       then let (* Static link. *)
-         (* Create a code-segment and put it in the table in case of
-         mutually recursive references. *)
-         val newCode : code = codeCreate(true, #name lam, parameters);
-         val () = STRETCHARRAY.update (decVec, #addr decl, ProcConst newCode);
-         (* Deal with any other possible references. *)
-         val () = genMutualDecs (otherDecs, matchFailFn);
-       in
-         (* Can now process this procedure since we have made an entry
-        in the table for everything it could refer to. *)
-          genSlProc (lam, newCode)
-       end
-       
-       else let (* Closure. *)
-         fun doRest () : unit  = 
-         let
-           val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (! realstackptr));
-         in
-           (* Now time to do the other closures. *)
-           genMutualDecs (otherDecs, matchFailFn)
-         end
-       in
-         genProc (lam, true, doRest, matchFailFn)
-       end
-     
-       | dec => (* constants or reccons.*)
-     let
-       val () = gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
-       val () = STRETCHARRAY.update (decVec, #addr decl, StackAddr (!realstackptr));
-     in
-       genMutualDecs (otherDecs, matchFailFn)
-     end
-     )
-     | genMutualDecs _ : unit =
-        raise InternalError "genMutualDecs: mutual declaration list contains non-declaration";
      
     (* Closure procedures must start with ``enterIntProc''. This is actually a
        break-point instruction in the machine-code instruction set to make sure

@@ -257,9 +257,6 @@ DCJM 2000.
 
         val (insertedCode, localCount) =
         let
-            (* Strip off a surrounding declaration. *)
-            val pt = case pt of Declar{value, ...} => value | _ => pt;
-
             (* Function to code-generate and run expressions that can be evaluated
                at compile-time. *)
             fun eval(pt, localCount) = evaluate (preCodeAndPrint(pt, localCount), codeGenAndPrint, localCount)
@@ -282,7 +279,7 @@ DCJM 2000.
         then
         let
             (* Nothing special or it is a non-inline procedure - Code-generate it. *)
-            val optCode = wrapEnv(decs @ [gen])
+            val optCode = mkEnv(decs, gen)
         in
             if isConstnt optCode (* Save code-generating it. *)
             then (fn () => optCode)
@@ -307,8 +304,8 @@ DCJM 2000.
                side-effects. *)
             fun expandMutual [] = []
               | expandMutual (MutualDecs dec :: decs) =
-                    expandMutual dec @ expandMutual decs
-              | expandMutual ((dec as Declar _) :: decs) =
+                    dec @ expandMutual decs
+              | expandMutual ((Declar dec) :: decs) =
                     dec :: expandMutual decs
               | expandMutual (_ :: decs) =
                     expandMutual decs; (* expression *)
@@ -336,16 +333,16 @@ DCJM 2000.
                a block with declarations in it. The gaps are replaced with zero
                values. However mutually recursive declarations may be in a random
                order so the list may have to be sorted. *)
-            fun getValues ([]: codetree list) _ : codetree list =
+            fun getValues [] _ : codetree list =
                 [] (* Last of all the general value. *)
           
-            |   getValues (decs as (Declar{addr=declAddr, ...} :: vs)) (addr: int): codetree list =
+            |   getValues (decs as ({addr=declAddr, ...} :: vs)) (addr: int): codetree list =
                 if declAddr < addr (* Already done? *)
                 then getValues vs addr (* remove *)
                 else
                 let
                     fun findEntry [] = CodeZero (* Not found. *)
-                    |   findEntry (Declar{addr=dAddr, value, ...} :: rest) =
+                    |   findEntry ({addr=dAddr, value, ...} :: rest) =
                         if dAddr <> addr
                         then findEntry rest
                         else (* Found the declaration. *)
@@ -359,15 +356,12 @@ DCJM 2000.
                                 TupleFromContainer(mkLoad (addr, 0), size)
                         |   _ => mkLoad (addr, 0) (* Found - put in a load. *)
                         )
-                    |   findEntry _ = raise InternalError "findEntry: not Declar"
                 in
                     findEntry decs  :: getValues decs (addr + 1)
                 end
-
-            |   getValues _ _ = raise InternalError "getValues: not a Declar";
     
             val ext     = gen :: getValues (expandMutual decs) 1
-            val newDecs = mkEnv (decs @ [mkTuple ext])
+            val newDecs = mkEnv (decs, mkTuple ext)
             val code    = codeGenAndPrint (preCodeAndPrint(newDecs, localCount), localCount)
         in (* We now have the values of the declarations. *)
             fn () =>
@@ -540,6 +534,7 @@ DCJM 2000.
         type codetree    = codetree
         type pretty      = pretty
         type argumentType=argumentType
+        type codeBinding     = codeBinding
     end
 
 end (* CODETREE functor body *);

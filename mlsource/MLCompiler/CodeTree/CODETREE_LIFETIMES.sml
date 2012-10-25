@@ -148,8 +148,8 @@ struct
             end
 
             fun addKillSet(original, []) = original (* No change *)
-            |   addKillSet(Newenv decs, killSet) = Newenv(killSet @ decs)
-            |   addKillSet(original, killSet) = Newenv(killSet @ [original]);
+            |   addKillSet(Newenv(decs, exp), killSet) = Newenv(map mkNullDec killSet @ decs, exp)
+            |   addKillSet(original, killSet) = Newenv(map mkNullDec killSet, original)
 
             (* returns the translated node *)
             fun locaddr { addr=laddr, fpRel=true, ...} =
@@ -285,12 +285,11 @@ struct
 
                     (* Make entries in the tables for the arguments. I'm not sure
                        if this is essential. *)
-                    fun declareArg(Declar{addr=caddr, ...}, _) =
+                    fun declareArg({addr=caddr, ...}, _) =
                     (
                         Array.update (localUses, caddr, 0);
                         Array.update (outsideLoop, caddr, false) (* Must do this. *)
                     )
-                    |   declareArg _ = raise InternalError "declareArg: not a declaration"
                     val _ = List.app declareArg argList
 
                     (* Process the body. *)
@@ -300,9 +299,8 @@ struct
                        the loop so they can safely be killed inside it.  However we want to record
                        the final references so we can attach them to the declarations. *)
                     local
-                        fun processDec(Declar{addr, ...}, _) =
+                        fun processDec({addr, ...}, _) =
                             Array.sub(localUses, addr) before Array.update (localUses, addr, 0)
-                        |   processDec _ = raise InternalError "processDec"
                     in
                         val loopArgUses = List.map processDec argList
                     end
@@ -331,9 +329,8 @@ struct
                     end
                     (* Finally the initial argument values. *)
                     local
-                        fun copyDec((Declar{addr, value, ...}, _), uses) =
-                                mkDecRef(insert value, addr, uses)
-                        |   copyDec _ = raise InternalError "copyDec: not a declaration"
+                        fun copyDec(({addr, value, ...}, _), uses) =
+                            {addr=addr, value=insert value, references=uses}
                     in
                         val newargs = mapright copyDec (ListPair.zipEq(argList, loopArgUses))
                     end
@@ -356,7 +353,7 @@ struct
             |   insert(Cond(condTest, condThen, condElse)) =
                         copyCond (condTest, condThen, condElse)
 
-            |   insert(Newenv ptElist) =
+            |   insert(Newenv(ptElistDecs, ptExp)) =
                 let
                     (* Process the body. Recurses down the list of declarations
                        and expressions processing each, and then reconstructs the
@@ -416,8 +413,7 @@ struct
                                any of these can call any of the others so we just accumulate
                                them into a single list. *)
                             local
-                                fun getClosure(
-                                        Declar{value=Lambda{makeClosure, closure, ...}, ...},
+                                fun getClosure({value=Lambda{makeClosure, closure, ...}, ...},
                                         (slClosures, fcClosures)) =
                                     if makeClosure
                                     then (slClosures, closure @ fcClosures) else (closure @ slClosures, fcClosures)
@@ -435,13 +431,12 @@ struct
 
                             (* Make the declarations. *)
                             local
-                                fun applyFn (Declar{addr=caddr, ...}) =     
+                                fun applyFn({addr=caddr, ...}) =     
                                     (
                                         Array.sub(localUses, caddr) <> 0 andalso raise InternalError "applyFn: Already used";
                                         Array.update(slClosureTable, caddr, staticCl);
                                         Array.update (outsideLoop, caddr, false) (* It's local *)
                                     )
-                                |   applyFn _ = raise InternalError "applyFn: not a Declar"
                             in
                                 val () = List.app applyFn mutualDecs
                             end
@@ -454,18 +449,17 @@ struct
 
                             (* Process the closure entries and extract the ones that are the last refs. *)
                             val lastRefsForClosure =
-                                List.filter (fn Extract{lastRef=true, ...} => true | _ => false)
-                                    (map insert fullClosureList)
+                                List.map NullBinding
+                                    (List.filter (fn Extract{lastRef=true, ...} => true | _ => false)
+                                        (map insert fullClosureList))
 
-                            fun copyDec (Declar{addr=caddr, value=dv, ...}) = mkDec (caddr, insert dv)
-                            |   copyDec _ = raise InternalError "copyDec: not a Declar"               
-
+                            fun copyDec ({addr=caddr, value=dv, ...}) = {addr=caddr, value=insert dv, references = 0}
                             val copiedDecs = map copyDec mutualDecs;
            
                             (* Now we know all the references we can complete
                                the declaration and put on the use-count. *)
                             fun copyEntries []      = []
-                            |   copyEntries (Declar{ addr, value, ...} ::ds) =
+                            |   copyEntries ({ addr, value, ...} ::ds) =
                                 let
                                     val wasUsed = Array.sub(localUses, addr)
                                 in
@@ -477,42 +471,37 @@ struct
                                            entry would become part of the kill set for the
                                            surrounding expression. *)
                                         Array.update(localUses, addr, 0);
-                                        mkDecRef(value, addr, wasUsed) :: copyEntries ds
+                                        {value=value, addr=addr, references=wasUsed} :: copyEntries ds
                                     )
                                 end
-                            |  copyEntries (_::_) =
-                                    raise InternalError "copyEntries: Not a Declar";
-                  
+
                             val decs = copyEntries copiedDecs
                         in
                             (* Return the mutual declarations and the rest of the block. *)
                             case decs of
                                 []   => lastRefsForClosure @ restOfBlock         (* None left *)
-                            |   [d]  => d :: (lastRefsForClosure @ restOfBlock)    (* Just one *)
-                            |   _    => mkMutualDecs decs :: (lastRefsForClosure @ restOfBlock)
+                            |   [d]  => Declar d :: (lastRefsForClosure @ restOfBlock)    (* Just one *)
+                            |   _    => MutualDecs decs :: (lastRefsForClosure @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
-          
-                    |   copyDeclarations (v :: vs)  =
+
+                    |   copyDeclarations (NullBinding v :: vs)  =
                         let (* Not a declaration - process this and the rest. *)
                            (* Must process later expressions before earlier
                                ones so that the last references to variables
                                are found correctly. *)
-                            val copiedRest = copyDeclarations vs;
-                            val copiedNode = insert v;
+                            val copiedRest = copyDeclarations vs
+                            val copiedNode = insert v
                         in
                             (* Expand out blocks *)
                             case copiedNode of
-                                Newenv decs => decs @ copiedRest
-                            |   _ => copiedNode :: copiedRest
+                                Newenv(decs, exp) => decs @ (NullBinding exp :: copiedRest)
+                            |   _ => NullBinding copiedNode :: copiedRest
                         end (* copyDeclarations *)
 
-                    val insElist = copyDeclarations ptElist
+                    val insElist = copyDeclarations(ptElistDecs @ [NullBinding ptExp])
                 in
-                    (* If there is only one item then return that item (unless it is
-                       a declaration - this can occur if we have a block which contains
-                       a declaration to discard the result of a function call and 
-                       only do its side-effects). *)
-                    wrapEnv insElist
+                    (* TODO: Tidy this up. *)
+                    decSequenceWithFinalExp insElist
                 end (* isNewEnv *)
                 
             |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
@@ -618,8 +607,6 @@ struct
                     TupleVariable(mapright insertTuple vars, insert length)
                 end
 
-            |   insert(Declar _) = raise InternalError "insert:Declar"
-            |   insert(MutualDecs _) = raise InternalError "insert:MutualDecs"
             |   insert(KillItems _) = raise InternalError "insert:KillItems"
 
           and copyCond (condTest, condThen, condElse) =

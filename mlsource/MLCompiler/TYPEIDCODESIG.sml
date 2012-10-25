@@ -20,6 +20,7 @@ signature TYPEIDCODESIG =
 sig
     type typeId
     type codetree
+    type codeBinding
     type types
     type typeConstrs
     type typeConstrSet
@@ -31,7 +32,7 @@ sig
     
     val createDatatypeFunctions:
          {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list *
-            (int->int) * int * typeVarMap -> codetree list
+            (int->int) * int * typeVarMap -> codeBinding list
     
     val codeForUniqueId: unit->codetree
 
@@ -55,7 +56,7 @@ sig
         (* Mark in the cache chain that some type constructors are new. *)
         val markTypeConstructors: typeConstrs list * (int->int) * int * typeVarMap -> typeVarMap
         (* Get the set of cached type values that have been created after this entry. *)
-        val getCachedTypeValues: typeVarMap -> codetree list
+        val getCachedTypeValues: typeVarMap -> codeBinding list
     end
 
     val defaultTypeCode: codetree
@@ -71,5 +72,6 @@ sig
         type typeConstrSet=typeConstrSet
         type typeVarForm=typeVarForm
         type typeVarMap = typeVarMap
+        type codeBinding    = codeBinding
     end
 end;

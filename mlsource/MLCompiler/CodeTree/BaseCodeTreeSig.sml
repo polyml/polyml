@@ -35,18 +35,11 @@ sig
     |   FloatingPtType
 
     datatype codetree =
-       MatchFail    (* Pattern-match failure *)
+        MatchFail    (* Pattern-match failure *)
     
-    |  AltMatch of codetree * codetree(* Pattern-match alternative choices *)
+    |   AltMatch of codetree * codetree(* Pattern-match alternative choices *)
 
-    |   Declar of (* Make a local declaration or push an argument *)
-        { (* Declare a value or push an argument. *)
-            value:      codetree,
-            addr:       int,
-            references: int
-        }
-     
-    |   Newenv of codetree list (* Start a block *)
+    |   Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
     |   Constnt of machineWord (* Load a constant *)
 
@@ -83,8 +76,6 @@ sig
             makeClosure   : bool,               (* Whether it has a full closure.  Added by preCode. *)
             argLifetimes  : int list            (* Lifetime data for arguments.  Added by preCode. *)
         }
-    
-    |   MutualDecs of codetree list (* Set of mutually recursive declarations. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)
 
@@ -97,11 +88,15 @@ sig
         }
     
     |   BeginLoop of (* Start of tail-recursive inline function. *)
-        { loop: codetree, arguments: (codetree * argumentType) list }
+        { loop: codetree, arguments: (simpleBinding * argumentType) list }
 
     |   Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    |   KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
+    |   KillItems of
+            (* Kill entries.  Used to mark a branch where a binding is no longer required.
+               "killSet" is always an Extract with lastRef=true so the type should
+               be loadForm list rather than codetree list. *)
+            { expression: codetree, killSet: codetree list, killBefore: bool }
 
     |   Raise of codetree (* Raise an exception *)
 
@@ -133,7 +128,7 @@ sig
     and optVal = (* Global values - Also used in the optimiser. *)
         JustTheVal of codetree
     
-    |   ValWithDecs of {general : codetree, decs : codetree list}
+    |   ValWithDecs of {general : codetree, decs : codeBinding list}
     
     |   OptVal of
     {
@@ -145,10 +140,15 @@ sig
         (* Environment for the special value. *)
         environ : { addr : int,  level: int, fpRel: bool, lastRef: bool } * int * int -> optVal,
         (* Declarations to precede the value - Always nil for global values. *)
-        decs : codetree list,
+        decs : codeBinding list,
         (* A reference which is used to detect recursive inline expansions. *)
         recCall: bool ref
     }
+
+    and codeBinding =
+        Declar  of simpleBinding (* Make a local declaration or push an argument *)
+    |   MutualDecs of simpleBinding list (* Set of mutually recursive declarations. *)
+    |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and caseType =
         CaseInt
@@ -159,6 +159,21 @@ sig
         VarTupleSingle of { source: codetree, destOffset: codetree }
     |   VarTupleMultiple of
             { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
+
+    withtype loadForm = 
+    { (* Load a value. *)
+        addr : int, 
+        level: int, 
+        fpRel: bool,
+        lastRef: bool
+    }
+    
+    and simpleBinding = 
+    { (* Declare a value or push an argument. *)
+        value:      codetree,
+        addr:       int,
+        references: int
+    }
 
     (* Return the "size" of the codetree used as a way of estimating whether to insert
        the body inline.  If the bool is true this includes the size of sub-functions
@@ -177,6 +192,8 @@ sig
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType
         and  varTuple = varTuple
+        and  codeBinding = codeBinding
+        and  simpleBinding = simpleBinding
     end
 
 end;

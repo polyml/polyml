@@ -2422,7 +2422,7 @@ struct
        This now threads the debugging environment through the functions so
        the name is no longer really appropriate.  DCJM 23/2/01. *)
     fun mapPair
-        (_: 'a * debugenv -> {code: codetree list, debug: debugenv})
+        (_: 'a * debugenv -> {code: codeBinding list, debug: debugenv})
         [] debug =
           {
             code = [],
@@ -2581,12 +2581,12 @@ struct
                                     applyToInstance(sourceVars, localLevel, newTypeVarMap, loadCode)
                             in
                                 (mkProc(
-                                    mkEnv(getCachedTypeValues newTypeVarMap @ [application]),
+                                    mkEnv(getCachedTypeValues newTypeVarMap, application),
                                     List.length destVars, name ^ "(P)"), false)
                             end
                     end
                 in
-                    (mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [polyCode]) :: otherCode,
+                    (mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, polyCode) :: otherCode,
                      (* We can use the original structure if nothing else has changed, the offset in
                         the destination structure is the same as the offset in the source and
                         we don't have any coercion. *)
@@ -2599,7 +2599,7 @@ struct
 
             val (codeList, isAllEq) = List.foldr applyAction ([], true) sortedActions
         in
-            if isAllEq then (code, true) else (mkEnv (#dec decs @ [mkTuple codeList]), false)
+            if isAllEq then (code, true) else (mkEnv (#dec decs, mkTuple codeList), false)
         end
     in
         #1 (matchSubStructure (code, actions))
@@ -2624,7 +2624,7 @@ struct
 
     (* Code-generate a structure value. *)
     fun structureCode (str, strName, debugEnv, mkAddr, level):
-                { code: codetree list, load: codetree } =
+                { code: codeBinding list, load: codetree } =
     case str of
         FunctorAppl {arg, valRef = ref functs, argIds=ref argIds, resIds=ref resIds,
                      matchToArgument=ref matchToArgument, ...} =>
@@ -2694,7 +2694,7 @@ struct
       | StructDec {alist, matchToResult=ref matchToResult, ...} =>
         let
             val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
-            fun processBody(decs, _, debugEnv, _, _, _) = (decs, debugEnv)
+            fun processBody(decs, _, debugEnv, _, _, _) = (decs: codeBinding list, debugEnv)
             val (coded, _(*debugEnv*)) = codeStrdecs(strName, alist, debugEnv, mkAddr, level, typeVarMap, [], processBody)
             (* We match to the dummy signature here.  If there is a signature outside
                we will match again.  This results in double copying but that should
@@ -2725,7 +2725,7 @@ struct
     (* We need to generate code for the declaration and then code to load
        the results into a tuple. *)
     and codeStrdecs (strName, [], debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
-            processBody(leadingDecs, strName, debugEnv, mkAddr, level, typeVarMap) (* Do the continuation. *)
+            processBody(leadingDecs: codeBinding list, strName, debugEnv, mkAddr, level, typeVarMap) (* Do the continuation. *)
         
     |   codeStrdecs (strName, (StructureDec (structList : structBind list, _)) :: sTail,
                      debugEnv, mkAddr, level, _(*typeVarMap*), leadingDecs, processBody) =
@@ -2740,12 +2740,12 @@ struct
                 val () = #level var := level;
             in (* Get the code and save the result in the variable. *)
                 {
-                    code = strCode @ [mkDec (addr, strLoad)],
+                    code = strCode @ [mkDec (addr, strLoad)] : codeBinding list,
                     debug = debug (* TODO: We don't do structures at the moment. *)
                 }
             end
             
-            val { code, debug } = (* Code-generate each declaration. *)
+            val { code: codeBinding list, debug } = (* Code-generate each declaration. *)
                 mapPair codeStructureBind structList debugEnv
             (* TODO: Get the debug environment right. *)
 
@@ -2909,7 +2909,7 @@ struct
                     in
                         val functorCode = (* The function that implements the functor. *)
                             (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                                (mkEnv(fBindDebugDecs @ strCode @ [matchedCode]),
+                                (mkEnv(fBindDebugDecs @ strCode, matchedCode),
                                 1, name);
                     end
 
@@ -2969,7 +2969,7 @@ struct
         (* The result is code for a vector containing the results of the
            declarations which pass4 can use to pull out the values after
            the code has been run. *)
-        mkEnv (#code coded @ [mkTuple(List.rev loaded)])
+        mkEnv (#code coded, mkTuple(List.rev loaded))
     end (* gencodeStructs *);
 
   (* Once the code has been executed the declarations must be added to

@@ -374,34 +374,37 @@ struct
                     List.app (fn (l, _) => loads l) argList
                 )
             
-            |   Declar {addr, value, ...} =>
-                (
-                    (* Indicate that this is a new declaration. *)
-                    StretchArray.update (newDecs, addr, true);
-                    loads value (* Check the expression. *)
-                )
-            
             |   Indirect {base, ...} => loads base
             
-            |   Newenv vl => List.app loads vl
+            |   Newenv(decs, exp) =>
+                let
+                    fun loadDecs(Declar {addr, value, ...}) =
+                        (
+                            (* Indicate that this is a new declaration. *)
+                            StretchArray.update (newDecs, addr, true);
+                            loads value (* Check the expression. *)
+                        )
+                    |   loadDecs(MutualDecs decs) =
+                        (
+                            (* First process the declarations to ensure that new declarations
+                               are marked as such then process the values being declared. *)
+                            List.app(
+                                fn {addr, ...} => StretchArray.update (newDecs, addr, true)) decs;
+                            List.app (fn{value, ...} => loads value) decs
+                        )
+                    |   loadDecs(NullBinding c) = loads c
+                in
+                    List.app loadDecs decs;
+                    loads exp
+                end
             
             |   Recconstr vl => List.app loads vl
 
-            |   BeginLoop{loop, arguments, ...} => (List.app (fn (l, _) => loads l) arguments; loads loop)
+            |   BeginLoop{loop, arguments, ...} => (List.app (fn ({value, ...}, _) => loads value) arguments; loads loop)
 
             |   Loop argList => List.app (fn (l, _) => loads l) argList
 
             |   Handle{exp, handler} => (loads exp; loads handler)
-
-            |   MutualDecs decs =>
-                (
-                    (* First process the declarations to ensure that new declarations
-                       are marked as such then process the values being declared. *)
-                    List.app(
-                        fn Declar{addr, ...} => StretchArray.update (newDecs, addr, true)
-                        |   _ => raise InternalError "MutualDecs: not Declar") decs;
-                    List.app loads decs
-                )
 
             |   _ => ()
         in
@@ -488,26 +491,6 @@ struct
             
         | Eval {function, argList, resultType, ...} =>
             genEval (function, argList, resultType, primBoolOps, whereto, tailKind, matchFailFn)
-          
-        | Declar {addr, value, references} =>
-            (
-                case value of
-                    Lambda lam =>
-                    let
-                        fun nextMutual(dec, slRelease) =
-                            codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
-                        val _ = genProc (lam, nextMutual, true, whereto, matchFailFn)
-                    in
-                        ()
-                    end
-                |   _ =>
-                    let
-                        val decl = genToStack (value, matchFailFn)
-                    in
-                        codeGenerate(localDeclaration (decl, addr, references, NONE), cvec)
-                    end;
-                NoMerge
-            )
 
         | Extract ext =>
             let
@@ -540,64 +523,19 @@ struct
         | Cond (testPart, thenPart, elsePart) =>
             genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
 
-        | Newenv vl =>
+        | Newenv(decs, exp) =>
             let (* Processes a list of entries. *)
                 val startMark = markStack transtable
                 (* We may have the situation where we want the result in a specific register
                    but we actually have a Decl entry followed by an Extract.
                    Don't do this unless we've asked for a specific register. *)
-                val destAddr =
-                    if null vl then 0 (* 0 can't occur as a valid address *)
-                    else case (List.last vl, whereto) of
-                        (Extract{addr, level=0, fpRel=true, ...}, UseReg _) => addr
-                    |   _ => 0
+                val specificLoc =
+                    case (exp, whereto) of
+                        (Extract{addr, level=0, fpRel=true, ...}, UseReg _) => SOME(addr, whereto)
+                    |   _ => NONE
 
-                fun codeList ([], _) =
-                (* Either the list is empty or the previous entry was a 
-                   declaration. Generate a value to represent void.empty so
-                   that there is something on the stack. *)
-                    if needsResult
-                    then MergeIndex(pushConst (transtable, DummyValue))
-                    else NoMerge (* Ignored *)
-                
-                | codeList (Declar{addr, value, references} :: valus, whereto) =
-                  (* Declaration. *)
-                    let
-                        val dest = if addr = destAddr then whereto else NoHint
-                    in
-                        case value of
-                            Lambda lam =>
-                            let
-                                fun nextMutual(dec, slRelease) =
-                                    codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
-                                val _ = genProc (lam, nextMutual, true, dest, matchFailFn)
-                            in
-                                ()
-                            end
-                        |   _ =>
-                            let
-                                val res = gencde (value, true, dest, NotEnd, matchFailFn, NONE)
-                                val decl =
-                                    case res of
-                                        MergeIndex index => index
-                                    |   NoMerge => raise InternalError "genToStack: no result"
-                            in
-                                codeGenerate(localDeclaration (decl, addr, references, NONE), cvec)
-                            end;
-                        codeList(valus, whereto)
-                    end
-
-                |   codeList ([valu], whereto) =
-                        (* Last entry is an expression. *)
-                        gencde (valu, true, whereto, tailKind, matchFailFn, loopAddr)
-                
-                |   codeList (valu :: valus, whereto) =
-                    (* Expression in a sequence. *)
-                    (
-                        gencde (valu, true, NoResult, NotEnd, matchFailFn, loopAddr);
-                        codeList(valus, whereto)
-                    )
-                val resultPosn = codeList(vl, whereto)
+                val () = List.app (codeBinding (matchFailFn, specificLoc)) decs
+                val resultPosn = gencde (exp, true, whereto, tailKind, matchFailFn, loopAddr)
                 val () = checkBlockResult(transtable, resultPosn)
                 val () = unmarkStack(transtable, startMark)
             in
@@ -616,7 +554,7 @@ struct
                onto the pstack, the second loading them into registers since
                that would generate better code when some arguments are constants
                but others are expressions that push those constants onto the stack. *)
-            fun genLoopArg (Declar {addr, value, references}, argType) =
+            fun genLoopArg ({addr, value, references}, argType) =
             let
                 (* This is almost the same as a normal declaration except
                    that we have to make sure that we use a new location, stack or
@@ -648,7 +586,7 @@ struct
                    we won't have a location for the loop argument. *)
                 if references = 0 then noIndex else decl
             end
-            |   genLoopArg _ = raise InternalError "genLoopArg: not a declaration"
+
             val argIndexList = map genLoopArg args;
             (* We need to ensure that the state we return to after the loop is the same
                as it was at the start.  If we find inside the loop that we need to spill
@@ -1058,57 +996,6 @@ struct
             in
                 mergeRes
             end      
-
-        | MutualDecs dl =>
-            let
-                (* Mutually recursive declarations. These can only be functions.
-                   Recurse down the list
-                   pushing the addresses of the closure vectors or forward
-                   references to the code, then unwind the recursion and fill
-                   in closures or compile the code. *)
-                local
-                    (* We now use the fact that decToPstack contains noindex to detect
-                        mutual recursion in genProc.*)
-                    fun setToEmpty(Declar{addr, ...}) = Array.update (decToPstack, addr, noIndex)
-                    |   setToEmpty _ = raise InternalError "not dec"
-                in
-                    val () = List.app setToEmpty dl
-                end
-
-                fun genMutualDecs []      = ()
-                |   genMutualDecs ((Declar{value=dec, addr, references, ...})::ds) =
-                (
-                    case dec of
-                        Lambda lam =>
-                        let
-                            (* This procedure is called once the closure has been
-                               created but before the entries have been filled in. *) 
-                            fun nextMutual(r, slEntries) =
-                            let
-                                val () = codeGenerate(localDeclaration (r, addr, references, slEntries), cvec)
-                            in (* Now time to do the other closures. *)
-                                genMutualDecs ds
-                            end
-                            val _ =
-                                genProc(lam, nextMutual, null ds, (* Last one? *) NoHint, matchFailFn)
-                        in
-                            ()
-                        end
-                        |   _ =>
-                        let (* should only be constants i.e. procedures already compiled. *)
-                            val decEntry = genToStack (dec, matchFailFn)
-                            val () = codeGenerate(localDeclaration (decEntry, addr, references, NONE), cvec)
-                        in
-                          genMutualDecs ds
-                        end
-                ) (* genMutualDecs *)
-                | genMutualDecs _ =
-                    raise InternalError "genMutualDecs - Not a declaration";
-              
-                val () = genMutualDecs dl;
-            in
-                NoMerge (* Unused. *)
-            end
 
         | Recconstr reclist =>
             let
@@ -1918,20 +1805,11 @@ struct
             end
           else noJump (* else drop through. *)
 
-        |   Newenv vl =>
-            let (* Blocks and particularly inline procedures. *)
-                (* Process the list up to the last item with "gencde",
-                   and the last item with "genTest". *)
-                fun codeBlock []       = noJump
-                |   codeBlock [h]      = genTest (h, jumpOn, matchFailFn)
-                |   codeBlock (h :: t) = 
-                    (
-                        gencde (h, true, NoResult, NotEnd, matchFailFn, NONE);
-                        codeBlock t
-                    )
-            in
-                codeBlock vl 
-            end
+        |   Newenv(decs, exp) =>
+            (
+                List.app (codeBinding (matchFailFn, NONE)) decs;
+                genTest (exp, jumpOn, matchFailFn)
+            )
 
         |   TagTest { test, tag, ... } =>
             let
@@ -2960,6 +2838,86 @@ struct
                     callClosure (SOME evalFun)
         end (* genEval *)
 
+        and codeBinding (matchFailFn, specific) (Declar{addr, value, references}) = (* Declaration. *)
+            let
+                (* If the result of this block is this declaration choose a preferred register. *)
+                val dest =
+                    case specific of
+                        SOME(destAddr, whereto) => if addr = destAddr then whereto else NoHint
+                    |   NONE => NoHint
+            in
+                case value of
+                    Lambda lam =>
+                    let
+                        fun nextMutual(dec, slRelease) =
+                            codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
+                        val _ = genProc (lam, nextMutual, true, dest, matchFailFn)
+                    in
+                        ()
+                    end
+                |   _ =>
+                    let
+                        val res = gencde (value, true, dest, NotEnd, matchFailFn, NONE)
+                        val decl =
+                            case res of
+                                MergeIndex index => index
+                            |   NoMerge => raise InternalError "genToStack: no result"
+                    in
+                        codeGenerate(localDeclaration (decl, addr, references, NONE), cvec)
+                    end
+            end
+
+        |   codeBinding (matchFailFn, _) (MutualDecs dl) =
+            let
+                (* Mutually recursive declarations. These can only be functions.
+                   Recurse down the list
+                   pushing the addresses of the closure vectors or forward
+                   references to the code, then unwind the recursion and fill
+                   in closures or compile the code. *)
+                local
+                    (* We now use the fact that decToPstack contains noindex to detect
+                        mutual recursion in genProc.*)
+                    fun setToEmpty({addr, ...}) = Array.update (decToPstack, addr, noIndex)
+                in
+                    val () = List.app setToEmpty dl
+                end
+
+                fun genMutualDecs []      = ()
+                |   genMutualDecs (({value=dec, addr, references, ...})::ds) =
+                (
+                    case dec of
+                        Lambda lam =>
+                        let
+                            (* This procedure is called once the closure has been
+                               created but before the entries have been filled in. *) 
+                            fun nextMutual(r, slEntries) =
+                            let
+                                val () = codeGenerate(localDeclaration (r, addr, references, slEntries), cvec)
+                            in (* Now time to do the other closures. *)
+                                genMutualDecs ds
+                            end
+                            val _ =
+                                genProc(lam, nextMutual, null ds, (* Last one? *) NoHint, matchFailFn)
+                        in
+                            ()
+                        end
+                        |   _ =>
+                        let (* should only be constants i.e. procedures already compiled. *)
+                            val decEntry = genToStack (dec, matchFailFn)
+                            val () = codeGenerate(localDeclaration (decEntry, addr, references, NONE), cvec)
+                        in
+                          genMutualDecs ds
+                        end
+                ) (* genMutualDecs *)
+            in
+                genMutualDecs dl
+            end
+
+        |   codeBinding  (matchFailFn, _) (NullBinding valu) = (* Expression in a sequence. *)
+            (
+                gencde (valu, true, NoResult, NotEnd, matchFailFn, NONE);
+                ()
+            )
 
         val resReg = resultReg(codeToCgType resultType)
         val _ = genToRegister (pt, UseReg(singleton resReg), EndOfProc resReg, matchFailed, NONE);

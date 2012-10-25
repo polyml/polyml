@@ -103,19 +103,34 @@ struct
                    closureRefs=0, makeClosure=false, localCount=localCount, argLifetimes = []}
         end
 
-        and cleanCode (Newenv decs) =
+        and cleanCode (Newenv(decs, exp)) =
             let
                 fun cleanDec(myAddr, Lambda lam) = cleanLambda(myAddr, lam)
-                |   cleanDec(_, d) = cleanCode d;
+                |   cleanDec(_, d) = cleanCode d
 
-                (* Process the declarations in reverse order. *)
+                local
+                    (* Clear the entries.  I think it's possible that addresses could be reused in other
+                       blocks so do this just in case. *)
+                    fun clearEntry(Declar{addr, ...}) =
+                            Array.update(locals, addr, false) (* Clear the entry *)
+
+                    |   clearEntry(MutualDecs decs) =
+                            List.app (fn {addr, ...} => Array.update(locals, addr, false)) decs
+
+                    |   clearEntry(NullBinding _) = ()
+                in
+                    val () = List.app clearEntry decs
+                end
+                
+                (* First process the expression so as to mark any references it makes. *)
+                val processedExp = cleanCode exp
+                
+                (* Process the declarations in reverse order.  A binding may be used in
+                   a later declaration but apart from mutually-recursive functions no binding
+                   can be used in an earlier one. *)
                 fun processDecs [] = []
                  |  processDecs(Declar{value, addr, references} :: rest) =
                     let
-                        (* Clear the entry.  I think it's possible that
-                           addresses have been reused in other blocks
-                           so do this just in case. *)
-                        val _ = Array.update(locals, addr, false)
                         val processedRest = processDecs rest
                     in
                         (* If this is used or if it has side-effects we
@@ -128,10 +143,6 @@ struct
 
                  |  processDecs(MutualDecs decs :: rest) =
                     let
-                        (* Clear the entries just in case the addresses are reused. *)
-                        fun setEntry(Declar{addr, ...}) = Array.update(locals, addr, false)
-                          | setEntry _ = raise InternalError "setEntry: unknown instr"
-                        val _ = List.app setEntry decs
                         val processedRest = processDecs rest
 
                         (* We now know the entries that have actually been used
@@ -145,7 +156,7 @@ struct
                          |  processMutuals [] _ false =
                                 (* We didn't add anything more - finish *) []
                          |  processMutuals(
-                                (this as Declar{addr, value, references}) :: rest)
+                                (this as {addr, value, references}) :: rest)
                                         excluded added =
                             if not (Array.sub(locals, addr))
                             then (* Put this on the excluded list. *)
@@ -155,50 +166,32 @@ struct
                                 (* Process this entry - it may cause other
                                    entries to become "used". *)
                                 val newEntry =
-                                    Declar{value=cleanDec(addr, value), addr=addr,
+                                    {value=cleanDec(addr, value), addr=addr,
                                         references=references}
                             in
                                 newEntry :: processMutuals rest excluded true
                             end
-                          | processMutuals _ _ _ = 
-                                raise InternalError "processMutual: unknown instr"
                         val processedDecs = processMutuals decs nil false
                     in
                         case processedDecs of
                             [] => processedRest (* None at all. *)
-                        |   [oneDec] => oneDec :: processedRest
+                        |   [oneDec] => Declar oneDec :: processedRest
                         |   mutuals => MutualDecs mutuals :: processedRest
                     end
-                 
-                 |  processDecs(Newenv decs :: rest) = (* Expand out blocks. *)
-                    let
-                        val processedRest = processDecs rest
-                        val processedDecs = processDecs decs
-                    in
-                        processedDecs @ processedRest
-                    end
 
-                 |  processDecs(exp :: rest) =
+                 |  processDecs(NullBinding exp :: rest) =
                     let
-                        (* Either the result expression or part of an expression
-                           being evaluated for its side-effects.  We can
-                           eliminate it if it doesn't actually have a side-effect
-                           except if it is the result.
-                           Note: we have to process the rest of the list first
-                           because the code for SetContainer checks whether the
-                           container is used. *)
                         val processedRest = processDecs rest
                         val newExp = cleanCode exp
                     in
                         if sideEffectFree newExp andalso not(null processedRest)
                         then processedRest
-                        else newExp :: processedRest
+                        else NullBinding newExp :: processedRest
                     end
 
-                val res = processDecs decs
+                val processedDecs = processDecs decs
             in
-                (* We need a Newenv entry except for singleton expressions. *)
-                wrapEnv res
+                mkEnv(processedDecs, processedExp)
             end (* Newenv *)
 
          |  cleanCode (dec as Extract(ext as {addr, level, fpRel, ...})) =
@@ -237,9 +230,8 @@ struct
          |  cleanCode(BeginLoop{loop=body, arguments=argList, ...}) =
             let
                 val processedBody = cleanCode body
-                fun copyDec(Declar{addr, value, ...}, typ) =
-                        (mkDec(addr, cleanCode value), typ)
-                  | copyDec _ = raise InternalError "copyDec: not a declaration"
+                fun copyDec({addr, value, ...}, typ) =
+                        ({addr=addr, value=cleanCode value, references=0}, typ)
                 val newargs = map copyDec argList
             in
                 BeginLoop{loop=processedBody, arguments=newargs}
@@ -312,10 +304,6 @@ struct
                 TupleVariable(map cleanTuple vars, cleanCode length)
             end
 
-         |  cleanCode (Declar _) = raise InternalError "cleanCode: Declar"
-
-         |  cleanCode (MutualDecs _) = raise InternalError "cleanCode: MutualDecs"
-
          |  cleanCode (Case _) = raise InternalError "cleanCode: Case"
 
          |  cleanCode (Global _) = raise InternalError "cleanCode: Global"
@@ -361,11 +349,14 @@ struct
         | changeL(Indirect{ base, offset }, nesting) =
             Indirect{base = changeL(base, nesting), offset = offset }
 
-        | changeL(Declar{value, addr, ...}, nesting) =
-            mkDec(addr, changeL(value, nesting))
-
-        | changeL(Newenv l, nesting) =
-            Newenv(map(fn d => changeL(d, nesting)) l)
+        | changeL(Newenv(decs,exp), nesting) =
+            let
+                fun changeLDec(Declar{value, addr, ...}, nesting) = mkDec(addr, changeL(value, nesting))
+                |   changeLDec(NullBinding exp, nesting) = NullBinding(changeL(exp, nesting))
+                |   changeLDec _ = raise InternalError "changeLDec: Unknown code"
+            in
+                Newenv(map(fn d => changeLDec(d, nesting)) decs, changeL(exp, nesting))
+            end
 
         | changeL(c as Container _, _) = c
 
@@ -450,7 +441,7 @@ struct
              recCall = optRec ov
           };
        
-    fun newDecl (setTab, ins, addrs, pushProc) : codetree list =
+    fun newDecl (setTab, ins, addrs, pushProc) : codeBinding list =
     let
         val gen  = optGeneral ins;
     in
@@ -625,7 +616,7 @@ struct
         (
         case optDecs ov of
           []   => optGeneral ov
-        | decs => mkEnv (decs @ [optGeneral ov])
+        | decs => mkEnv (decs, optGeneral ov)
         )
 
     (* The main optimisation routine. *)
@@ -730,7 +721,7 @@ struct
             val localNewVec = stretchArray (initTrans, NONE);
             
                 (* copies the argument list. *)
-            fun copy []     _          = [] : codetree list
+            fun copy []     _          = []
               | copy ((h, _)::t) argAddress =
               let
 			    fun setTab (index, v) = update (paramVec, ~index, SOME v);
@@ -1114,24 +1105,21 @@ struct
 
                     (* If we need to make the declarations put them in at the
                        beginning of the loop. *)
-                    fun makeDecs(0, [], _) = []
-                      | makeDecs(n, (_, typ):: rest, isCall) =
+                    fun makeDecs(0, []) = []
+                      | makeDecs(n, (_, typ):: rest) =
                             if not (Array.sub(argModificationVec, n-1))
-                            then makeDecs (n-1, rest, isCall)
+                            then makeDecs (n-1, rest)
                             else
                             let
                                 val argVal = getGeneral(valOf (Vector.sub(frozenParams, n)))
                                 val argDec =
-                                (* If we are calling a function we just put the
-                                   argument values in. *)
-                                    if isCall
-                                    then argVal
-                                    else mkDec(argBaseAddr+nArgs-n, argVal)
+                                    (* Include the address at this stage even if it's a call *)
+                                    {value = argVal, addr=argBaseAddr+nArgs-n, references=0}
                             in
-                                (argDec, typ) :: makeDecs (n-1, rest, isCall)
+                                (argDec, typ) :: makeDecs (n-1, rest)
                             end
                      |  makeDecs _ = raise InternalError "Unequal lengths"
-                    fun mkDecs isCall = makeDecs(nArgs, argList, isCall)
+                    val newDecs = makeDecs(nArgs, argList)
                 in
                     if ! needsRecursiveCall
                     then (* We need to put in a call to this function. *)
@@ -1142,7 +1130,8 @@ struct
                             spval := addr + 1;
                             optVal{
                                 general =
-                                    Eval {function = mkLoad(addr, 0), argList = mkDecs true,
+                                    Eval {function = mkLoad(addr, 0), 
+                                          argList = List.map (fn({value, ...}, t) => (value, t)) newDecs,
                                           earlyEval = false, resultType=resultType},
                                 special = CodeNil,
                                 decs = [mkDec(addr, getGeneral procBody)],
@@ -1151,13 +1140,13 @@ struct
                             }
                         end
                     else if ! needsBeginLoop
-                    then simpleOptVal(BeginLoop{loop=getGeneral procBody, arguments=mkDecs false})
+                    then simpleOptVal(BeginLoop{loop=getGeneral procBody, arguments=newDecs})
                     else if Array.exists(fn x => x) argModificationVec
                     then (* We could have reset needsBeginLoop to false and ended up not needing a loop.
                             Ifwe have declarations that we made earlier we have to include them. *)
                         optVal{general = optGeneral procBody, special = optSpecial procBody,
                                environ = optEnviron procBody, recCall = optRec procBody,
-                               decs = List.map #1 (mkDecs false) @ optDecs procBody}
+                               decs = List.map (Declar o #1) newDecs @ optDecs procBody}
                     else procBody
                 end           
           in
@@ -1439,7 +1428,7 @@ struct
                 set of declarations followed by an expression. *)
              val _ =
                 optimiseProc 
-                  {pt=mkEnv(List.map #1 args @ [body]), lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
+                  {pt=mkEnv(List.map (Declar o #1) args, body), lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
                    enterDec=enterDec, enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure,
                    spval=spval, earlyInline=earlyInline, evaluate=evaluate, tailCallEntry=SOME foptRec,
                    recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
@@ -1449,12 +1438,12 @@ struct
             then (* The Loop instructions have been optimised away.  Since there's
                     no BeginLoop we can reprocess it with the surrounding
                     tail recursion. *)
-                optimise(mkEnv(List.map #1 args @ [body]), tailCall)
+                optimise(mkEnv(List.map (Declar o #1) args, body), tailCall)
             else (* It loops - have to reprocess. *)
             let
                 (* The arguments to the functions are Declar entries but they
                    must not be optimised. *)
-                fun declArg(Declar{addr, value, ...}, typ) =
+                fun declArg({addr, value, ...}, typ) =
                     let
                         val optVal = optimise(value, NONE)
                         val decSpval = ! spval
@@ -1462,9 +1451,8 @@ struct
                         val optV = simpleOptVal(mkLoad (decSpval, 0))
                     in
                         enterDec(addr, optV);
-                        (mkDec(decSpval, getGeneral optVal), typ)
+                        ({addr = decSpval, value = getGeneral optVal, references = 0}, typ)
                     end
-                 |  declArg _ = raise InternalError "declArg: not Declar"
                  val declArgs = map declArg args
                  val beginBody =
                     optimiseProc 
@@ -1498,480 +1486,476 @@ struct
          
      |  optimise (Cond(condTest, condThen, condElse), tailCall) =
         let
-          val insFirst = general condTest;
+            val insFirst = general condTest
         in
-          (* If the condition is a constant we need only
-             return the appropriate arm. *)
-          case insFirst of
-            Constnt testResult =>
-            if wordEq (testResult, False) (* false - return else-part *)
-            then 
-          (* if false then x else y == y *)
-              if isCodeNil condElse (* May be nil. (Pattern-matching) *)
-              then simpleOptVal (mkEnv [])
-              else optimise(condElse, tailCall)
-          (* if true then x else y == x *)
-            else optimise(condThen, tailCall)  (* return then-part *)
+            (* If the condition is a constant we need only
+               return the appropriate arm. *)
+            case insFirst of
+                Constnt testResult =>
+                    if wordEq (testResult, False) (* false - return else-part *)
+                    then (* if false then x else y == y *)
+                        if isCodeNil condElse (* May be nil. (Pattern-matching) *)
+                    then simpleOptVal CodeZero
+                    else optimise(condElse, tailCall)
+                    (* if true then x else y == x *)
+                    else optimise(condThen, tailCall)  (* return then-part *)
             
-           | _ =>
-          let
-            (* Perhaps the "if" is really a simpler expression?
-               Unfortunately, we don't know whether we're returning
-               a boolean result here so we can't optimise to
-               andalso/orelse but we can at least look for the
-               case where both results are constants. *)
-            val insSecond = optimise(condThen, tailCall)
-            val insThird  = optimise(condElse, tailCall)
-
-            (* If we have tuples on both arms we can probably combine them. *)
-            fun combineTuples(containerAddr, thenAddr, elseAddr, thenRec, elseRec, size) =
-            let
-                val thenDecs = optDecs insSecond and elseDecs = optDecs insThird
-
-                fun replaceContainerDec([], _) =
-                    raise InternalError "replaceContainerDec"
-                 |  replaceContainerDec((hd as Declar{addr, ...})::tl, ad)=
-                        if addr = ad
-                        then (* Found the declaration. If we are using this
-                                container address we remove this declaration.
-                                If we have containers on both branches we
-                                need to make them both point to the same
-                                container. *)
-                            if addr = containerAddr
-                            then tl
-                            else mkDec(addr, mkLoad(containerAddr, 0)) :: tl
-                        else hd :: replaceContainerDec(tl, ad) 
-                | replaceContainerDec(hd :: tl, ad) =
-                    hd :: replaceContainerDec(tl, ad)
-
-                fun createBranch(recEntries, decEntries, cAddr) =
-                    case cAddr of
-                        SOME ad => (* We have a container on that branch ... *)
-                           wrapEnv(replaceContainerDec(decEntries, ad))
-                    |   NONE => 
-                            wrapEnv(decEntries @
-                                [mkSetContainer(
-                                    mkLoad(containerAddr, 0), Recconstr recEntries,
-                                    size)])
-
-                val thenPart = createBranch(thenRec, thenDecs, thenAddr)
-                and elsePart = createBranch(elseRec, elseDecs, elseAddr)
-                (* The result is a block which declares the container, side-effects it
-                   in the "if" and makes a tuple from the result.  If we're lucky
-                   the resulting tuple will be optimised away. *)
-                (* This code is the same as that used to optimise TupleFromContainer
-                   and is designed to allow us to optimise away the tuple creation
-                   if we use the individual fields. *)
-                val baseAddr = !spval
-                val _ = spval := baseAddr + size
-                val specialDecs =
-                    List.tabulate(size,
-                        fn n => mkDec(n+baseAddr, mkInd(n, mkLoad(containerAddr, 0))))
-                val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
-                fun env (l:loadForm, depth, _) : optVal =
-                    changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisProcedure)
-            in
-                optVal 
-                    {
-                      general = TupleFromContainer(mkLoad(containerAddr, 0), size),
-                      special = Recconstr specialEntries,
-                      environ = env,
-                      decs    =
-                          mkDec(containerAddr, Container size) ::
-                          mkIf(insFirst, thenPart, elsePart) :: specialDecs,
-                      recCall = ref false
-                    }
-            end (* combineTuples *)
-          in
-            case (optGeneral insSecond, optDecs insSecond,
-                  optGeneral insThird, optDecs insThird) of
-                (second as Constnt c2, [], third as Constnt c3, []) =>
-              (* if x then y else y == (x; y) *)
-              if wordEq (c2, c3)
-              then if sideEffectFree insFirst
-                  then insSecond
-                  else
-                  (* Must put insFirst in decs, so it gets executed *) 
-                  optVal 
-                    {
-                      general = second,
-                      special = CodeNil,
-                      environ = errorEnv,
-                      decs    = [insFirst],
-                      recCall = ref false
-                    }
-                  
-              (* if x then true else false == x *)
-              else if wordEq (c2, True) andalso wordEq (c3, False)
-                then simpleOptVal insFirst
-              
-              (* if x then false else y == not x *)
-              else if wordEq (c2, False) andalso wordEq (c3, True)
-                then simpleOptVal (mkNot insFirst)
-              
-              else (* can't optimise *)
-                simpleOptVal (mkIf (insFirst, second, third))
-
-           | (Recconstr thenRec, _, Recconstr elseRec, _) =>
-                (* Both tuples - are they the same size?  They may not be if they
-                   are actually datatypes. *)
-                if List.length thenRec = List.length elseRec
-                then (* We can transform this into an operation which creates space
-                        on the stack, side-effects it and then picks up the result
-                        from it. *)
+            |   _ => (* Condition is not a constant. *)
                 let
-                    val size = List.length thenRec (* = List.length elseRec *)
-                    (* Create a new address for the container. *)
-                    val containerAddr = let val ad = !spval in spval := ad + 1; ad end
-                in
-                    combineTuples(containerAddr, NONE, NONE, thenRec, elseRec, size)
-                end
-                else (* Different sizes - use default. *)
-                   simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+                    (* Perhaps the "if" is really a simpler expression?
+                       Unfortunately, we don't know whether we're returning
+                       a boolean result here so we can't optimise to
+                       andalso/orelse but we can at least look for the
+                       case where both results are constants. *)
+                    val insSecond = optimise(condThen, tailCall)
+                    val insThird  = optimise(condElse, tailCall)
 
-           | (TupleFromContainer(Extract{addr=thenAddr,level=0,fpRel=true, ...}, thenSize), _,
-              TupleFromContainer(Extract{addr=elseAddr,level=0,fpRel=true, ...}, elseSize), _) =>
-                (* Have both been converted already.  If we are returning a tuple from
-                   a container the container must be declared locally. *)
-                if thenSize = elseSize
-                then (* We can combine the containers.  We can't if these are actually
-                        datatypes in which case they could be different sizes. *)
-                let
-                    (* If we have already transformed this we will have a
-                       declaration of a container somewhere in the list. *)
-                    (* Use the address which has already been allocated for the else part.
-                       That makes it easier for the subsequent pass to convert this into
-                       a "case" if appropriate. *)
-                    val containerAddr = elseAddr
-                in
-                    combineTuples(containerAddr, SOME thenAddr, SOME elseAddr, [], [], thenSize)
-                end
-                else (* Different sizes - use default. *)
-                   simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
-
-           | (TupleFromContainer(Extract{addr=thenAddr,level=0,fpRel=true, ...}, thenSize), _,
-              Recconstr elseRec, _) =>
-                (* The then-part has already been converted *)
-                if thenSize = List.length elseRec
-                then combineTuples(thenAddr, SOME thenAddr, NONE, [], elseRec, thenSize)
-                else (* Different sizes - use default. *)
-                   simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
-
-           | (Recconstr thenRec, _,
-              TupleFromContainer(Extract{addr=elseAddr,level=0,fpRel=true, ...}, elseSize), _) =>
-                (* The else-part has already been converted *)
-                if elseSize = List.length thenRec
-                then
-                    combineTuples(elseAddr, NONE, SOME elseAddr, thenRec, [], elseSize)
-                else (* Different sizes - use default. *)
-                   simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
-
-           | _ => (* Not constants or records. *)
-            simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
-          end
-        end (* isCond pt *)
-         
-     |  optimise (Newenv envDecs, tailCall) =
-        let (* Process the body. *)
-          (* Recurses down the list of declarations and expressions processing
-             each, and then reconstructs the list on the way back. *)
-
-          (* Only if we have an empty block or a block containing only
-             declarations i.e. a declaration is used to discard the result
-             of a function and only perform its side-effects. *)
-          fun copyDeclarations []  = simpleOptVal (mkEnv [])
-            | copyDeclarations (Declar{addr=caddr, value, ...} :: vs) = 
-              let
-                (* Add the declaration to the table. *)
-                val dec =
-                  newDecl (enterDec, optimise(value, NONE), caddr, true);
-                  
-                (* Deal with the rest of the block. *)
-                val rest = copyDeclarations vs;
-             in
-                case dec of
-                  [] => rest
-                | _  => (* Must put these declarations onto the list. *)
-                  optVal 
-                    {
-                      general = optGeneral rest,
-                      special = optSpecial rest,
-                      environ = optEnviron rest,
-                      decs    = dec @ optDecs rest,
-                      recCall = optRec rest
-                    }
-            end
-
-            | copyDeclarations (MutualDecs mutualDecs :: vs) = 
-            (* Mutually recursive declarations. Any of the declarations may
-               refer to any of the others. They should all be lambdas.
-
-               The front end generates functions with more than one argument
-               (either curried or tupled) as pairs of mutually recursive
-               functions.  The main function body takes its arguments on
-               the stack (or in registers) and the auxiliary inline function,
-               possibly nested, takes the tupled or curried arguments and
-               calls it.  If the main function is recursive it will first
-               call the inline function which is why the pair are mutually
-               recursive.
-               As far as possible we want to use the main function since that
-               uses the least memory.  Specifically, if the function recurses
-               we want the recursive call to pass all the arguments if it
-               can.  We force the inline functions to be macros while
-               processing the non-inline functions and then process the
-               inlines. DCJM 23/1/01. *)
-            let
-                (* Split the inline and non-inline functions. *)
-                val (inlines, nonInlines) =
-                    List.partition (
-                        fn Declar{value = Lambda{ isInline=MaybeInline, ...}, ... } => true | _ => false) mutualDecs
-                    
-                (* Go down the non-inline functions creating new addresses
-                   for them and entering them in the table. *)
-                val startAddr = !spval
-                val addresses =
-                    map (fn Declar{addr, ... } =>
-                        let
-                            val decSpval   = !spval;
-                        in
-                            enterDec (addr, simpleOptVal (mkLoad (decSpval, 0)));
-                            spval := !spval + 1;
-                            decSpval
-                        end
-                      | _ => raise InternalError "mutualDecs: not Declar")
-                    nonInlines
-                val endAddr = !spval
-                (* We can now process the inline functions.  Since these
-                   can't be directly recursive we don't need to do anything
-                   special. *)
-                val _ =
-                    List.app (fn Declar{ value, addr, ... } =>
-                                enterDec (addr, optimise(value, NONE))
-                          | _ => raise InternalError "mutualDecs: not Declar")
-                    inlines
-
-                (* Next process the non-inlines.  We really want to be able to
-                   compile the functions now if we can and get a constant for
-                   the code address.  We can do that for functions which make
-                   no non-local references or whose non-local references are
-                   by means of constants.  For non-recursive declarations this
-                   is easy since an earlier declaration cannot depend on a later
-                   one but for mutually recursive declarations we don't know
-                   the dependencies.
-                   The simple case is where we have a function which does not
-                   depend on anything and so can be code-generated in the Lambda
-                   case.  Code-generating that may allow others to be code-generated.
-                   Another case is where the functions depend on each other but not
-                   on anything else.  We can compile them together but not
-                   individually.  There are various versions of this second case.
-                   The only one we consider here is if all the (non-constant)
-                   functions are of that form in which case we process the
-                   whole mutually-recursive declaration. *)
-                val hasNonLocalReference = ref false
-
-                fun checkClosure (Extract{addr, level=0, fpRel=true, ...}) =
-                    if addr >= startAddr andalso addr < endAddr
-                    then ()
-                    else hasNonLocalReference := true
-                |   checkClosure _ = hasNonLocalReference := true
-
-                fun processNonInlines (Declar{ value = decVal, addr = decAddr, ... },
-                                       decSpval, (decs, otherChanges)) =
-                (* Have a look at the old entry to see if it's a constant. *)
-                let
-                    val oldEntry =
-                        lookupOldAddr(
-                                {addr=decAddr, level=0, fpRel=true, lastRef=false},
-                                nestingOfThisProcedure, 0)
-                in
-                    case optGeneral oldEntry of
-                        oldGen as Constnt _ =>
-                            (mkDec (decSpval, oldGen) :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
-                    |   _ =>
-                        let
-                            (* Set this entry to create a recursive call if we load
-                               the address while processing the function. The recursive
-                               call may come about as a result of expanding an inline
-                               function which then makes the recursive call. *)
-                            local
-                                val recursive = simpleOptVal (mkGenLoad (0, ~1, false, false))
-                            in
-                                val _ = enterDec(decAddr, recursive);
-                                val _ = enterNewDec(decSpval, recursive)
-                            end;
-                       
-                            (* Now copy this entry. *)
-                            val ins  = optimise(decVal, NONE)
-
-                            val gen  = optGeneral ins;
-                            val spec = optSpecial ins;
-
-                            (* The general value is either a reference to the
-                               declaration or a constant if the function has just
-                               been compiled into a code segment. *)
-                            val isConstant = isConstnt gen
-                            val optGen =
-                                case gen of
-                                    Constnt _ => gen
-                                |   Lambda{closure, ...} => (
-                                        List.app checkClosure closure;
-                                        mkLoad (decSpval, 0)
-                                    )
-                                |   _ => raise InternalError "processNonInlines: Not a function";
-
-                            (* Explicitly reset the entry in the new table. *)
-                            val _  = enterNewDec(decSpval, simpleOptVal optGen);
-              
-                            (* If this is a small function we leave the special
-                               value so it can be inserted inline.  Otherwise
-                               we clear it. *)
-                            val optSpec =
-                                 case spec of
-                                    Lambda{ isInline=NonInline, ...} => CodeNil
-                                   | _ => optSpecial ins;
-                            val nowInline =
-                                not (isCodeNil optSpec) andalso isCodeNil(optSpecial oldEntry)
-                            (* If this is now a constant or it is a small function when it
-                               wasn't before we need to reprocess everything
-                               which depends on it to try to get the constant inserted
-                               everywhere it can be. *)
-                      in
-                              enterDec 
-                                (decAddr,
-                                 optVal 
-                                    {
-                                      general = optGen,
-                                      special = optSpec,
-                                      environ = optEnviron ins,
-                                      decs    = optDecs ins, (* Should be nil. *)
-                                      recCall = optRec ins
-                                    });
-                            (
-                             mkDec (decSpval, gen) :: decs,
-                             otherChanges orelse isConstant orelse nowInline
-                            )
-                      end
-               end
-
-              | processNonInlines _ =
-                    raise InternalError "processNonInlines: not Declar"
-
-              fun repeatProcess () =
-              let
-                  val (decs, haveChanged) =
-                     (* Use foldr here to keep the result in the same order
-                        in case we can compile them immediately below. *)
-                     ListPair.foldr processNonInlines
-                        ([], false) (nonInlines, addresses);
-              in
-                 if haveChanged
-                 then repeatProcess ()
-                 else decs
-              end
-
-              val decs = repeatProcess ()
-
-              val allAreConstants =
-                List.foldl
-                    (fn(Declar{value=Constnt _, ...}, others) => others
-                      | _ => false) true decs
-
-              (* If hasNonLocalReference is still false we can code-generate
-                 the mutual declarations. *)
-              val decs =
-                 if ! hasNonLocalReference orelse allAreConstants
-                 then decs
-                 else
+                    (* If we have tuples on both arms we can probably combine them.  If we have
+                       a container on a branch we will have declared it at some point so we
+                       have to remove that declaration and "lift" it outside the "if-". *)
+                    fun combineTuples(containerAddr, thenAddr, elseAddr, thenRec, elseRec, size) =
                     let
-                        (* Create a tuple of Extract entries to get the result. *)
-                        val extracts =
-                            List.map (
-                                fn (Declar{addr, ...}) => mkLoad(addr, 0)
-                                 | _ => raise InternalError "extracts: not Declar")
-                                decs
-                        val code = mkEnv[mkMutualDecs decs, mkTuple extracts]
-                        (* Code generate it. *)
-                        val results = evaluate(code, !spval+1)
+                        val thenDecs = optDecs insSecond and elseDecs = optDecs insThird
 
-                        fun reprocessDec(Declar{addr=decAddr, ...}, decSpval, (offset, others)) =
+                        fun replaceContainerDec([], _) =
+                            raise InternalError "replaceContainerDec"
+                         |  replaceContainerDec((hd as Declar{addr, ...})::tl, ad)=
+                                if addr = ad
+                                then
+                                    (* Found the declaration. If we are using this
+                                       container address we remove this declaration
+                                       because we are using the container created outside
+                                       the if-.  If we have containers on both branches
+                                       and we are using a different container on this branch
+                                       we replace the creation of the continer here with a
+                                       reference to the outer container. *)
+                                    if addr = containerAddr
+                                    then tl
+                                    else mkDec(addr, mkLoad(containerAddr, 0)) :: tl
+                                else hd :: replaceContainerDec(tl, ad) 
+                        | replaceContainerDec(hd :: tl, ad) =
+                                hd :: replaceContainerDec(tl, ad)
+
+                        fun createBranch(recEntries, decEntries, cAddr) =
+                            case cAddr of
+                                SOME ad => (* We have a container on that branch ... *)
+                                    (* TODO: We add a CodeZero here to balance things up but
+                                       really we have a NullBinding(SetContainer ...) at the
+                                       end of the list which we could extract. *)
+                                    mkEnv(replaceContainerDec(decEntries, ad), CodeZero)
+                            |   NONE => 
+                                    mkEnv(decEntries,
+                                        mkSetContainer(
+                                            mkLoad(containerAddr, 0), Recconstr recEntries,
+                                            size))
+
+                        val thenPart = createBranch(thenRec, thenDecs, thenAddr)
+                        and elsePart = createBranch(elseRec, elseDecs, elseAddr)
+                        (* The result is a block which declares the container, side-effects it
+                           in the "if" and makes a tuple from the result.  If we're lucky
+                           the resulting tuple will be optimised away. *)
+                        (* This code is the same as that used to optimise TupleFromContainer
+                           and is designed to allow us to optimise away the tuple creation
+                           if we use the individual fields. *)
+                        val baseAddr = !spval
+                        val _ = spval := baseAddr + size
+                        val specialDecs =
+                            List.tabulate(size,
+                                fn n => mkDec(n+baseAddr, mkInd(n, mkLoad(containerAddr, 0))))
+                        val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
+                        fun env (l:loadForm, depth, _) : optVal =
+                            changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisProcedure)
+                    in
+                        optVal 
+                            {
+                              general = TupleFromContainer(mkLoad(containerAddr, 0), size),
+                              special = Recconstr specialEntries,
+                              environ = env,
+                              decs    =
+                                  mkDec(containerAddr, Container size) ::
+                                  NullBinding(mkIf(insFirst, thenPart, elsePart)) :: specialDecs,
+                              recCall = ref false
+                            }
+                    end (* combineTuples *)
+                in
+                    (* Optimise various cases depending on what the then- and else-parts return. *)
+                    case (optGeneral insSecond, optDecs insSecond, optGeneral insThird, optDecs insThird) of
+                        (second as Constnt c2, [], third as Constnt c3, []) =>
+                            (* The results of the then- and else-parts are just constants. *)
+                            (* if x then y else y == (x; y) *)
+                        if wordEq (c2, c3)
+                        then if sideEffectFree insFirst
+                        then insSecond
+                        else (* Must put insFirst in decs, so it gets executed *) 
+                            optVal 
+                            {
+                                general = second,
+                                special = CodeNil,
+                                environ = errorEnv,
+                                decs    = [NullBinding insFirst],
+                                recCall = ref false
+                            }
+                  
+                        (* if x then true else false == x *)
+                        else if wordEq (c2, True) andalso wordEq (c3, False)
+                        then simpleOptVal insFirst
+              
+                        (* if x then false else y == not x *)
+                        else if wordEq (c2, False) andalso wordEq (c3, True)
+                        then simpleOptVal (mkNot insFirst)
+              
+                        else (* can't optimise *) simpleOptVal (mkIf (insFirst, second, third))
+
+                    |   (Recconstr thenRec, _, Recconstr elseRec, _) =>
+                        (* Both tuples - are they the same size?  They may not be if they
+                           are actually datatypes. *)
+                        if List.length thenRec = List.length elseRec
+                        then (* We can transform this into an operation which creates space
+                                on the stack, side-effects it and then picks up the result
+                                from it. *)
                         let
-                            val oldEntry =
-                                lookupOldAddr(
-                                        {addr=decAddr, level=0, fpRel=true, lastRef=false},
-                                        nestingOfThisProcedure, 0)
+                            val size = List.length thenRec (* = List.length elseRec *)
+                            (* Create a new address for the container. *)
+                            val containerAddr = let val ad = !spval in spval := ad + 1; ad end
                         in
+                            combineTuples(containerAddr, NONE, NONE, thenRec, elseRec, size)
+                        end
+                        else (* Different sizes - use default. *)
+                           simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+
+                    |   (TupleFromContainer(Extract{addr=thenAddr,level=0,fpRel=true, ...}, thenSize), _,
+                         TupleFromContainer(Extract{addr=elseAddr,level=0,fpRel=true, ...}, elseSize), _) =>
+                        (* Have both been converted already.  If we are returning a tuple from
+                           a container the container must be declared locally. *)
+                        if thenSize = elseSize
+                        then (* We can combine the containers.  We can't if these are actually
+                                datatypes in which case they could be different sizes. *)
+                        let
+                            (* If we have already transformed this we will have a
+                               declaration of a container somewhere in the list. *)
+                            (* Use the address which has already been allocated for the else part.
+                               That makes it easier for the subsequent pass to convert this into
+                               a "case" if appropriate. *)
+                            val containerAddr = elseAddr
+                        in
+                            combineTuples(containerAddr, SOME thenAddr, SOME elseAddr, [], [], thenSize)
+                        end
+                        else (* Different sizes - use default. *)
+                           simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+
+                    |   (TupleFromContainer(Extract{addr=thenAddr,level=0,fpRel=true, ...}, thenSize), _,
+                         Recconstr elseRec, _) =>
+                        (* The then-part has already been converted *)
+                        if thenSize = List.length elseRec
+                        then combineTuples(thenAddr, SOME thenAddr, NONE, [], elseRec, thenSize)
+                        else (* Different sizes - use default. *)
+                           simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+
+                    |   (Recconstr thenRec, _,
+                         TupleFromContainer(Extract{addr=elseAddr,level=0,fpRel=true, ...}, elseSize), _) =>
+                        (* The else-part has already been converted *)
+                        if elseSize = List.length thenRec
+                        then
+                            combineTuples(elseAddr, NONE, SOME elseAddr, thenRec, [], elseSize)
+                        else (* Different sizes - use default. *)
+                           simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+
+                     |   _ => (* Not constants or records. *)
+                         simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+                end
+        end (* Cond ... *)
+         
+     |  optimise (Newenv(envDecs, envExp), tailCall) =
+        let
+            (* Recurses down the list of declarations and expressions processing
+               each, and then reconstructs the list on the way back. *)
+            fun copyDeclarations []  =
+                (* End of the list - process the result expression. *)
+                    optimise(envExp, tailCall)
+
+            |   copyDeclarations (Declar{addr=caddr, value, ...} :: vs) = 
+                let
+                    (* Add the declaration to the table. *)
+                    val dec =
+                        newDecl (enterDec, optimise(value, NONE), caddr, true);
+                  
+                    (* Deal with the rest of the block. *)
+                    val rest = copyDeclarations vs;
+                in
+                    case dec of
+                      [] => rest
+                    | _  => (* Must put these declarations onto the list. *)
+                      optVal 
+                        {
+                          general = optGeneral rest,
+                          special = optSpecial rest,
+                          environ = optEnviron rest,
+                          decs    = dec @ optDecs rest,
+                          recCall = optRec rest
+                        }
+                end
+
+            |   copyDeclarations (MutualDecs mutualDecs :: vs) = 
+                (* Mutually recursive declarations. Any of the declarations may
+                   refer to any of the others. They should all be lambdas.
+
+                   The front end generates functions with more than one argument
+                   (either curried or tupled) as pairs of mutually recursive
+                   functions.  The main function body takes its arguments on
+                   the stack (or in registers) and the auxiliary inline function,
+                   possibly nested, takes the tupled or curried arguments and
+                   calls it.  If the main function is recursive it will first
+                   call the inline function which is why the pair are mutually
+                   recursive.
+                   As far as possible we want to use the main function since that
+                   uses the least memory.  Specifically, if the function recurses
+                   we want the recursive call to pass all the arguments if it
+                   can.  We force the inline functions to be macros while
+                   processing the non-inline functions and then process the
+                   inlines. DCJM 23/1/01. *)
+                let
+                    (* Split the inline and non-inline functions. *)
+                    val (inlines, nonInlines) =
+                        List.partition (
+                            fn {value = Lambda{ isInline=MaybeInline, ...}, ... } => true | _ => false) mutualDecs
+                    
+                    (* Go down the non-inline functions creating new addresses
+                       for them and entering them in the table. *)
+                    val startAddr = !spval
+                    val addresses =
+                        map (fn {addr, ... } =>
                             let
-                                val newConstant = findEntryInBlock results offset
+                                val decSpval   = !spval;
                             in
-                                (* Replace the entry by an entry with a constant. *)
-                                enterNewDec(decSpval, simpleOptVal newConstant);
-                                enterDec 
+                                enterDec (addr, simpleOptVal (mkLoad (decSpval, 0)));
+                                spval := !spval + 1;
+                                decSpval
+                            end)
+                        nonInlines
+                    val endAddr = !spval
+                    (* We can now process the inline functions.  Since these
+                       can't be directly recursive we don't need to do anything
+                       special. *)
+                    val _ =
+                        List.app (fn { value, addr, ... } =>
+                                    enterDec (addr, optimise(value, NONE)))
+                        inlines
+
+                    (* Next process the non-inlines.  We really want to be able to
+                       compile the functions now if we can and get a constant for
+                       the code address.  We can do that for functions which make
+                       no non-local references or whose non-local references are
+                       by means of constants.  For non-recursive declarations this
+                       is easy since an earlier declaration cannot depend on a later
+                       one but for mutually recursive declarations we don't know
+                       the dependencies.
+                       The simple case is where we have a function which does not
+                       depend on anything and so can be code-generated in the Lambda
+                       case.  Code-generating that may allow others to be code-generated.
+                       Another case is where the functions depend on each other but not
+                       on anything else.  We can compile them together but not
+                       individually.  There are various versions of this second case.
+                       The only one we consider here is if all the (non-constant)
+                       functions are of that form in which case we process the
+                       whole mutually-recursive declaration. *)
+                    val hasNonLocalReference = ref false
+
+                    fun checkClosure (Extract{addr, level=0, fpRel=true, ...}) =
+                        if addr >= startAddr andalso addr < endAddr
+                        then ()
+                        else hasNonLocalReference := true
+                    |   checkClosure _ = hasNonLocalReference := true
+
+                    fun processNonInlines ({ value = decVal, addr = decAddr, ... },
+                                           decSpval, (decs, otherChanges)) =
+                    (* Have a look at the old entry to see if it's a constant. *)
+                    let
+                        val oldEntry =
+                            lookupOldAddr(
+                                    {addr=decAddr, level=0, fpRel=true, lastRef=false},
+                                    nestingOfThisProcedure, 0)
+                    in
+                        case optGeneral oldEntry of
+                            oldGen as Constnt _ =>
+                                ({addr=decSpval, value=oldGen, references=0} :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
+                        |   _ =>
+                            let
+                                (* Set this entry to create a recursive call if we load
+                                   the address while processing the function. The recursive
+                                   call may come about as a result of expanding an inline
+                                   function which then makes the recursive call. *)
+                                local
+                                    val recursive = simpleOptVal (mkGenLoad (0, ~1, false, false))
+                                in
+                                    val _ = enterDec(decAddr, recursive);
+                                    val _ = enterNewDec(decSpval, recursive)
+                                end;
+                       
+                                (* Now copy this entry. *)
+                                val ins  = optimise(decVal, NONE)
+
+                                val gen  = optGeneral ins;
+                                val spec = optSpecial ins;
+
+                                (* The general value is either a reference to the
+                                   declaration or a constant if the function has just
+                                   been compiled into a code segment. *)
+                                val isConstant = isConstnt gen
+                                val optGen =
+                                    case gen of
+                                        Constnt _ => gen
+                                    |   Lambda{closure, ...} => (
+                                            List.app checkClosure closure;
+                                            mkLoad (decSpval, 0)
+                                        )
+                                    |   _ => raise InternalError "processNonInlines: Not a function";
+
+                                (* Explicitly reset the entry in the new table. *)
+                                val _  = enterNewDec(decSpval, simpleOptVal optGen);
+              
+                                (* If this is a small function we leave the special
+                                   value so it can be inserted inline.  Otherwise
+                                   we clear it. *)
+                                val optSpec =
+                                     case spec of
+                                        Lambda{ isInline=NonInline, ...} => CodeNil
+                                       | _ => optSpecial ins;
+                                val nowInline =
+                                    not (isCodeNil optSpec) andalso isCodeNil(optSpecial oldEntry)
+                                (* If this is now a constant or it is a small function when it
+                                   wasn't before we need to reprocess everything
+                                   which depends on it to try to get the constant inserted
+                                   everywhere it can be. *)
+                          in
+                                  enterDec 
                                     (decAddr,
                                      optVal 
                                         {
-                                          general = newConstant,
-                                          special = optSpecial oldEntry,
-                                          environ = optEnviron oldEntry,
-                                          decs    = optDecs oldEntry, (* Should be nil. *)
-                                          recCall = optRec oldEntry
+                                          general = optGen,
+                                          special = optSpec,
+                                          environ = optEnviron ins,
+                                          decs    = optDecs ins, (* Should be nil. *)
+                                          recCall = optRec ins
                                         });
-                                (offset+1, mkDec(decSpval, newConstant) :: others)
+                                (
+                                 {addr=decSpval, value=gen, references=0} :: decs,
+                                 otherChanges orelse isConstant orelse nowInline
+                                )
+                          end
+                   end
+
+                  fun repeatProcess () =
+                  let
+                      val (decs, haveChanged) =
+                         (* Use foldr here to keep the result in the same order
+                            in case we can compile them immediately below. *)
+                         ListPair.foldr processNonInlines
+                            ([], false) (nonInlines, addresses);
+                  in
+                     if haveChanged
+                     then repeatProcess ()
+                     else decs
+                  end
+
+                  val decs = repeatProcess ()
+
+                  val allAreConstants =
+                    List.foldl
+                        (fn({value=Constnt _, ...}, others) => others
+                          | _ => false) true decs
+
+                  (* If hasNonLocalReference is still false we can code-generate
+                     the mutual declarations. *)
+                  val decs =
+                     if ! hasNonLocalReference orelse allAreConstants
+                     then decs
+                     else
+                        let
+                            (* Create a tuple of Extract entries to get the result. *)
+                            val extracts =
+                                List.map (
+                                    fn ({addr, ...}) => mkLoad(addr, 0))
+                                    decs
+                            val code = mkEnv([MutualDecs decs], mkTuple extracts)
+                            (* Code generate it. *)
+                            val results = evaluate(code, !spval+1)
+
+                            fun reprocessDec({addr=decAddr, ...}, decSpval, (offset, others)) =
+                            let
+                                val oldEntry =
+                                    lookupOldAddr(
+                                            {addr=decAddr, level=0, fpRel=true, lastRef=false},
+                                            nestingOfThisProcedure, 0)
+                            in
+                                let
+                                    val newConstant = findEntryInBlock results offset
+                                in
+                                    (* Replace the entry by an entry with a constant. *)
+                                    enterNewDec(decSpval, simpleOptVal newConstant);
+                                    enterDec 
+                                        (decAddr,
+                                         optVal 
+                                            {
+                                              general = newConstant,
+                                              special = optSpecial oldEntry,
+                                              environ = optEnviron oldEntry,
+                                              decs    = optDecs oldEntry, (* Should be nil. *)
+                                              recCall = optRec oldEntry
+                                            });
+                                    (offset+1, {addr=decSpval, value=newConstant,references=0} :: others)
+                                end
                             end
-                        end
-                        |   reprocessDec _ = raise InternalError "reprocessDec: not Declar"
                         
-                        val (_, newDecs) = ListPair.foldl reprocessDec (0, []) (nonInlines, addresses);
-                    in
-                        newDecs (* We've converted them all to constants. *)
-                    end
+                            val (_, newDecs) = ListPair.foldl reprocessDec (0, []) (nonInlines, addresses);
+                        in
+                            newDecs (* We've converted them all to constants. *)
+                        end
 
-              (* Deal with the rest of the block *)
-              val rest = copyDeclarations vs
+                    (* Deal with the rest of the block *)
+                    val rest = copyDeclarations vs
 
-                (* Separate out the constants.  They don't need to be mutually declared and putting them earlier
-                   may mean that they can be inserted into the code. *)
-                val (constnts, nonConsts) =
-                    List.partition(fn Declar{value=Constnt _, ...} => true | _ => false) decs
+                    (* Separate out the constants.  They don't need to be mutually declared and putting them earlier
+                       may mean that they can be inserted into the code. *)
+                    val (constnts, nonConsts) =
+                        List.partition(fn {value=Constnt _, ...} => true | _ => false) decs
 
-                val mutuals =
-                    case nonConsts of
-                        [] => []
-                    |   [singleton] => [singleton]
-                    |   multiple => [mkMutualDecs multiple]
-            in
-              (* and put these declarations onto the list. *)
-              optVal
-                {
-                  general = optGeneral rest,
-                  special = optSpecial rest,
-                  environ = optEnviron rest,
-                  decs    = constnts @ mutuals @ optDecs rest,
-                  recCall = optRec rest
-                }
-            end
-          
-            | copyDeclarations [v] =
-                (* Last expression. *) optimise(v, tailCall)
-
-            | copyDeclarations (v :: vs) = 
-            let (* Not a declaration - process this and the rest.*)
-                val copiedNode = optimise(v, NONE);
-                val rest = copyDeclarations vs;
-            in  (* This must be a statement whose
-                   result is ignored. Put it into the declaration list. *)
-                optVal 
+                    val mutuals =
+                        case nonConsts of
+                            [] => []
+                        |   [singleton] => [Declar singleton]
+                        |   multiple => [MutualDecs multiple]
+                in
+                    (* and put these declarations onto the list. *)
+                    optVal
                     {
-                      general = optGeneral rest,
-                      special = optSpecial rest,
-                      environ = optEnviron rest,
-                      decs    = optDecs copiedNode @ 
-                        (optGeneral copiedNode :: optDecs rest),
-                      recCall = optRec rest
+                        general = optGeneral rest,
+                        special = optSpecial rest,
+                        environ = optEnviron rest,
+                        decs    = List.map Declar constnts @ mutuals @ optDecs rest,
+                        recCall = optRec rest
                     }
-          end; (* copyDeclarations *)
+                end
+
+            |   copyDeclarations (NullBinding v :: vs) =
+                let (* Not a declaration - process this and the rest.*)
+                    val copiedNode = optimise(v, NONE)
+                    val rest = copyDeclarations vs
+                in  (* This must be a statement whose
+                       result is ignored. Put it into the declaration list. *)
+                    optVal 
+                        {
+                          general = optGeneral rest,
+                          special = optSpecial rest,
+                          environ = optEnviron rest,
+                          decs    = optDecs copiedNode @ 
+                            (NullBinding(optGeneral copiedNode) :: optDecs rest),
+                          recCall = optRec rest
+                        }
+                end (* copyDeclarations *)
+
         in
-          copyDeclarations envDecs
-        end (* isNewenv *)
+            copyDeclarations envDecs
+        end (* Newenv(... *)
           
     |   optimise (Recconstr entries, _) =
          (* The main reason for optimising record constructions is that they
@@ -2074,75 +2058,66 @@ struct
                 }
         end
 
+      |  optimise (SetContainer{container, tuple as Cond _ , size}, _) =
+            (* mkSetContainer transforms this. *)
+            optimise(mkSetContainer(container, tuple, size), NONE)
+
+      |  optimise (SetContainer{container, tuple as Newenv _ , size}, _) =
+            (* mkSetContainer transforms this. *)
+            optimise(mkSetContainer(container, tuple, size), NONE)
+
       |  optimise (SetContainer{container, tuple, size}, _) =
-            (
-                (* Push the set-container down the tree and then process it. If we've
-                   expanded an inline function we want to be able to find any
-                   tuple we're creating. *)
-                case tuple of
-                    Cond _ => optimise(mkSetContainer(container, tuple, size), NONE)
-                |   Newenv _ => optimise(mkSetContainer(container, tuple, size), NONE)
-                |   _ =>
-                    let
-                        val optCont = general container
-                        and optTuple = general tuple
-                        (* If the "tuple" is an expanded inline function it may well
-                           contain an if-expression.  If both branches were tuples
-                           we will have expanded it already and the result will be
-                           a TupleFromContainer. *)
-                        fun pushSetContainer(Cond(ifpt, thenpt, elsept), decs) =
-                            Cond(ifpt,
-                                wrapEnv(List.rev(pushSetContainer(thenpt, []))),
-                                wrapEnv(List.rev(pushSetContainer(elsept, [])))
-                            ) :: decs
+            (* Push the set-container down the tree and then process it. If we've
+               expanded an inline function we want to be able to find any
+               tuple we're creating. *)
+            let
+                val optCont = general container
+                and optTuple = general tuple
+                (* If the "tuple" is an expanded inline function it may well
+                   contain an if-expression.  If both branches were tuples
+                   we will have expanded it already and the result will be
+                   a TupleFromContainer. *)
+                fun pushSetContainer(Cond(ifpt, thenpt, elsept)) =
+                        Cond(ifpt, pushSetContainer thenpt, pushSetContainer elsept)
 
-                        |   pushSetContainer(Newenv env, decs) =
+                |   pushSetContainer(Newenv(envDecs, envExp)) =
+                        Newenv(envDecs, pushSetContainer envExp)
+
+                (* TODO: This required us to be able to process the previous declarations
+                   i.e. in the Newenv case we need to be able to retain the list of
+                   declarations and reprocess it. *)
+                (*|   pushSetContainer(tuple as
+                        TupleFromContainer(
+                            Extract{addr=innerAddr, level=0, fpRel=true, ...}, innerSize)) =
+                    if innerSize = size
+                    then
+                        (
+                        case optCont of
+                            Extract{addr=containerAddr, level=0, fpRel=true, ...} =>
                             let
-                                (* Get the declarations off the block and apply
-                                   pushSetContainer to the last. *)
-                                fun applyToLast (_, []) = raise List.Empty
-                                  | applyToLast (d, [last]) = pushSetContainer(last, d)
-                                  | applyToLast (d, hd :: tl) =
-                                        applyToLast(hd :: d, tl)
+                                (* We can remove the inner container and replace it by
+                                   a reference to the outer. *)
+                                fun replaceContainerDec [] =
+                                    raise InternalError "replaceContainerDec"
+                                  | replaceContainerDec ((hd as Declar{addr, ...}) :: tl) =
+                                            if addr = innerAddr
+                                            then mkDec(addr, mkLoad(containerAddr, 0)) :: tl
+                                            else hd :: replaceContainerDec tl 
+                                  | replaceContainerDec(hd :: tl) =
+                                        hd :: replaceContainerDec tl
                             in
-                                applyToLast(decs, env)
+                                (* Just replace the declaration. *)
+                                replaceContainerDec decs 
                             end
+                        | _ => SetContainer{container = optCont, tuple = tuple, size = size}
+                        )
+                    else  SetContainer{container = optCont, tuple = tuple, size = size} *)
 
-                        |   pushSetContainer(tuple as
-                                TupleFromContainer(
-                                    Extract{addr=innerAddr, level=0, fpRel=true, ...}, innerSize),
-                                decs) =
-                            if innerSize = size
-                            then
-                                (
-                                case optCont of
-                                    Extract{addr=containerAddr, level=0, fpRel=true, ...} =>
-                                    let
-                                        (* We can remove the inner container and replace it by
-                                           a reference to the outer. *)
-                                        fun replaceContainerDec [] =
-                                            raise InternalError "replaceContainerDec"
-                                          | replaceContainerDec ((hd as Declar{addr, ...}) :: tl) =
-                                                    if addr = innerAddr
-                                                    then mkDec(addr, mkLoad(containerAddr, 0)) :: tl
-                                                    else hd :: replaceContainerDec tl 
-                                          | replaceContainerDec(hd :: tl) =
-                                                hd :: replaceContainerDec tl
-                                    in
-                                        (* Just replace the declaration. *)
-                                        replaceContainerDec decs 
-                                    end
-                                | _ => SetContainer{container = optCont, tuple = tuple, size = size}
-                                         :: decs
-                                )
-                            else SetContainer{container = optCont, tuple = tuple, size = size} :: decs
-
-                        |   pushSetContainer(tuple, decs) =
-                                SetContainer{container = optCont, tuple = tuple, size = size} :: decs
-                    in
-                        simpleOptVal(wrapEnv(List.rev(pushSetContainer(optTuple, []))))
-                    end
-            )
+                |   pushSetContainer tuple =
+                        SetContainer{container = optCont, tuple = tuple, size = size}
+            in
+                simpleOptVal(pushSetContainer optTuple)
+            end
 
       |  optimise (Global g, _) = g
 
@@ -2299,10 +2274,6 @@ struct
             end
 
       |  optimise (Case _, _) = raise InternalError "optimise: Case"
-
-      |  optimise (Declar _, _) = raise InternalError "optimise: Declar"
-
-      |  optimise (MutualDecs _, _) = raise InternalError "optimise: MutualDecs"
 
       |  optimise (KillItems _, _) = raise InternalError "optimise: StaticLinkCall"
 

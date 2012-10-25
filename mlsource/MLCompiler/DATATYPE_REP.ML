@@ -503,7 +503,7 @@ struct
         val globalCode =
             genCode(
                 mkEnv(
-                    declConstrs @ TypeVarMap.getCachedTypeValues defMap @ dtCode @ [mkTuple(codeId(id, 0) :: loadConstrs)]),
+                    declConstrs @ TypeVarMap.getCachedTypeValues defMap @ dtCode, mkTuple(codeId(id, 0) :: loadConstrs)),
                 [])()
         val newId = makeFreeId(Global(mkInd(0, globalCode)), isEqType, description)
         

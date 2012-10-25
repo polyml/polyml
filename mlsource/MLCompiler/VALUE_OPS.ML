@@ -487,7 +487,7 @@ struct
                 false)
         val pretty =
             RunCall.unsafeCast(
-                valOf(evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap @ [printerCode]), [])())))
+                valOf(evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, printerCode), [])())))
     in
         pretty
     end
@@ -914,13 +914,17 @@ struct
             mkProc(
                 mkProc(
                     CODETREE.mkEnv
-                    [
-                        mkEval(
-                            mkConst(toMachineWord prettyOut),
-                            [ mkConst(toMachineWord(PrettyString "?")) ],
-                            false),
+                    (
+                        [
+                            mkNullDec
+                            (mkEval(
+                                mkConst(toMachineWord prettyOut),
+                                [ mkConst(toMachineWord(PrettyString "?")) ],
+                                false)
+                            )
+                        ],
                         arg1 (* Returns its argument. *)
-                    ],
+                    ),
                     1, "print()"),
                 1, "print(P)")
         end
@@ -938,21 +942,25 @@ struct
                its argument. *)
             mkProc(
                 CODETREE.mkEnv
-                [
-                    mkEval(
-                        mkConst(toMachineWord prettyOut),
-                        [
+                (
+                    [
+                        mkNullDec (
                             mkEval(
-                                printerForType(argType, level+1, typeVarMap),
+                                mkConst(toMachineWord prettyOut),
                                 [
-                                    mkTuple[arg1,
-                                        mkEval(mkConst(toMachineWord printDepthFun), [CodeZero], false)]
+                                    mkEval(
+                                        printerForType(argType, level+1, typeVarMap),
+                                        [
+                                            mkTuple[arg1,
+                                                mkEval(mkConst(toMachineWord printDepthFun), [CodeZero], false)]
+                                        ],
+                                        false)
                                 ],
                                 false)
-                        ],
-                        false),
+                        )
+                    ],
                     arg1 (* Returns its argument. *)
-                ],
+                ),
                 1, "print()")
         end
 

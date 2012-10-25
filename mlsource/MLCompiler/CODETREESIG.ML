@@ -22,6 +22,7 @@ sig
     type machineWord
     type codetree
     type pretty
+    type codeBinding
 
     datatype argumentType =
         GeneralType
@@ -48,17 +49,15 @@ sig
     val mkRecLoad:          int-> codetree;
     val mkLoad:             int * int -> codetree;
     val mkConst:            machineWord -> codetree;
-    val mkDec:              int * codetree -> codetree;
     val mkInd:              int * codetree -> codetree;
     val mkProc:             codetree * int * string -> codetree;
     val mkInlproc:          codetree * int * string -> codetree;
     val mkMacroProc:        codetree * int * string -> codetree;
     val mkIf:               codetree * codetree * codetree -> codetree;
     val mkWhile:            codetree * codetree -> codetree;
-    val mkEnv:              codetree list -> codetree;
+    val mkEnv:              codeBinding list * codetree -> codetree
     val mkStr:              string -> codetree;
     val mkTuple:            codetree list -> codetree;
-    val mkMutualDecs:       codetree list -> codetree;
     val mkRaise:            codetree -> codetree;
     val mkNot:              codetree -> codetree;
     val mkTestnull:         codetree -> codetree;
@@ -78,10 +77,16 @@ sig
     val mkIndirectVariable: { base: codetree, offset: codetree } -> codetree
     val mkTupleSlice:       { base: codetree, offset: codetree, length: codetree } -> codetree
     val mkTupleVariable:    varTuple list * codetree -> codetree
-    val mkBeginLoop:        codetree * codetree list -> codetree
+    val mkBeginLoop:        codetree * (int * codetree) list -> codetree
     val mkLoop:             codetree list -> codetree
 
-    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codetree list}
+    val mkDec:              int * codetree -> codeBinding
+    val mkMutualDecs:       (int * codetree) list -> codeBinding
+    val mkNullDec:          codetree -> codeBinding
+
+    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codeBinding list}
+
+    val decSequenceWithFinalExp: codeBinding list -> codetree
 
     val pretty:    codetree -> pretty;
     val evalue:    codetree -> machineWord option
@@ -95,6 +100,7 @@ sig
         type codetree    = codetree
         type pretty      = pretty
         type argumentType=argumentType
+        type codeBinding     = codeBinding
     end
 
 end;

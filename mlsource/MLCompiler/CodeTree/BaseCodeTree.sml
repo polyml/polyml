@@ -41,9 +41,7 @@ struct
     
     |   AltMatch of codetree * codetree(* Pattern-match alternative choices *)
 
-    |   Declar of declarForm (* Make a local declaration or push an argument *)
-     
-    |   Newenv of codetree list (* Start a block *)
+    |   Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
     |   Constnt of machineWord (* Load a constant *)
 
@@ -61,8 +59,6 @@ struct
         }
     
     |   Lambda of lambdaForm (* Lambda expressions. *)
-    
-    |   MutualDecs of codetree list (* Set of mutually recursive declarations. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)
 
@@ -75,11 +71,15 @@ struct
         }
     
     |   BeginLoop of (* Start of tail-recursive inline function. *)
-        { loop: codetree, arguments: (codetree * argumentType) list }
+        { loop: codetree, arguments: (simpleBinding * argumentType) list }
 
     |   Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    |   KillItems of { expression: codetree, killSet: codetree list, killBefore: bool }
+    |   KillItems of
+            (* Kill entries.  Used to mark a branch where a binding is no longer required.
+               "killSet" is always an Extract with lastRef=true so the type should
+               be loadForm list rather than codetree list. *)
+            { expression: codetree, killSet: codetree list, killBefore: bool }
 
     |   Raise of codetree (* Raise an exception *)
 
@@ -115,7 +115,7 @@ struct
     and optVal = (* Global values - Also used in the optimiser. *)
         JustTheVal of codetree
     
-    |   ValWithDecs of {general : codetree, decs : codetree list}
+    |   ValWithDecs of {general : codetree, decs : codeBinding list}
     
     |   OptVal of
         {
@@ -127,10 +127,15 @@ struct
             (* Environment for the special value. *)
             environ : loadForm * int * int -> optVal,
             (* Declarations to precede the value - Always nil for global values. *)
-            decs : codetree list,
+            decs : codeBinding list,
             (* A reference which is used to detect recursive inline expansions. *)
             recCall: bool ref
         }
+
+    and codeBinding =
+        Declar  of simpleBinding (* Make a local declaration or push an argument *)
+    |   MutualDecs of simpleBinding list (* Set of mutually recursive declarations. *)
+    |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and caseType =
         CaseInt
@@ -150,7 +155,7 @@ struct
         lastRef: bool
     }
     
-    and declarForm = 
+    and simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
         addr:       int,
@@ -331,26 +336,28 @@ struct
             else "LIT <long>"
         end
     else "LIT <long>"
-  
+
+
+    fun pList ([]: 'b list, _: string, _: 'b->pretty) = []
+    |   pList ([h],    _, disp) = [disp h]
+    |   pList (h::t, sep, disp) =
+        PrettyBlock (0, false, [],
+            [
+                disp h,
+                PrettyBreak (0, 0),
+                PrettyString sep
+            ]
+        ) ::
+        PrettyBreak (1, 0) ::
+        pList (t, sep, disp)
+
     fun pretty (pt : codetree) : pretty =
     let
-        fun pList ([]: 'b list, _: string, _: 'b->pretty) = []
-        |   pList ([h],    _, disp) = [disp h]
-        |   pList (h::t, sep, disp) =
-            PrettyBlock (0, false, [],
-                [
-                    disp h,
-                    PrettyBreak (0, 0),
-                    PrettyString sep
-                ]
-            ) ::
-            PrettyBreak (1, 0) ::
-            pList (t, sep, disp)
         
         fun printList(start, lst, sep) : pretty =
             PrettyBlock (1, true, [],
                 PrettyString (start ^ "(") ::
-                pList(lst, sep, fn x => (pretty x)) @
+                pList(lst, sep, pretty) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
         
@@ -405,6 +412,7 @@ struct
                 pList(lst, sep, prettyArg) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
+
     in
         case pt of
             CodeNil => PrettyString "NIL"
@@ -445,17 +453,7 @@ struct
                     PrettyString ")"
                 ]
             )
-        
-        | Declar {value, addr, references} =>
-            PrettyBlock (1, false, [],
-                [
-                    PrettyString (concat
-                        ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
-                    PrettyBreak (1, 0),
-                    pretty value
-                ]
-            )
-        
+         
         | Extract {addr, level, fpRel, lastRef} =>
             let
                 val last = if lastRef then ", last" else "";
@@ -522,20 +520,35 @@ struct
         
         | Cond triple => printTriad "IF" triple
         
-        | Newenv ptl => printList ("BLOCK", ptl, ";")
-        
-        | BeginLoop{loop=loopExp, arguments=args } =>
-            PrettyBlock (3, false, [],
-                [
-                    prettyArgs("BEGINLOOP", args, ","),
-                    PrettyBreak (0, 0),
-                    PrettyString "(",
-                    PrettyBreak (0, 0),
-                    pretty loopExp,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
+        | Newenv(decs, final) =>
+            PrettyBlock (1, true, [],
+                PrettyString ("BLOCK" ^ "(") ::
+                pList(decs, ";", prettyBinding) @
+                [ PrettyBreak (1, 0), pretty final, PrettyBreak (0, 0), PrettyString (")") ]
             )
+
+        | BeginLoop{loop=loopExp, arguments=args } =>
+            let
+                fun prettyArg (c, t) =
+                    PrettyBlock(1, false, [],
+                        [prettySimpleBinding c, PrettyBreak (1, 0), prettyArgType t])
+            in
+                PrettyBlock (3, false, [],
+                    [
+                        PrettyBlock (1, true, [],
+                            PrettyString ("BEGINLOOP(") ::
+                            pList(args, ",", prettyArg) @
+                            [ PrettyBreak (0, 0), PrettyString (")") ]
+                        ),
+                        PrettyBreak (0, 0),
+                        PrettyString "(",
+                        PrettyBreak (0, 0),
+                        pretty loopExp,
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ]
+                )
+            end
         
         | Loop ptl => prettyArgs("LOOP", ptl, ",")
         
@@ -591,9 +604,7 @@ struct
                 ) @
                 [ PrettyBreak (1, 0), PrettyString (") {"^"CASE"^"}") ]
             )
-        
-        | MutualDecs ptl => printList("MUTUAL", ptl, " AND ")
-        
+         
         | Recconstr ptl => printList("RECCONSTR", ptl, ",")
         
         | Container size => PrettyString ("CONTAINER " ^ Int.toString size)
@@ -706,7 +717,27 @@ struct
 
         (* That list should be exhaustive! *)
     end (* pretty *)
-   
+
+    and prettyBinding(Declar dec) = prettySimpleBinding dec
+       
+    |   prettyBinding(MutualDecs ptl) =
+            PrettyBlock (1, true, [],
+                PrettyString ("MUTUAL" ^ "(") ::
+                pList(ptl, " AND ", prettySimpleBinding) @
+                [ PrettyBreak (0, 0), PrettyString (")") ]
+            )
+    |   prettyBinding(NullBinding c) = pretty c
+
+    and prettySimpleBinding{value, addr, references} =
+        PrettyBlock (1, false, [],
+            [
+                PrettyString (concat
+                    ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                PrettyBreak (1, 0),
+                pretty value
+            ]
+        )
+
     and optGeneral (OptVal {general,...})       = general 
       | optGeneral (ValWithDecs {general, ...}) = general
       | optGeneral (JustTheVal ct)              = ct
@@ -769,8 +800,7 @@ struct
                 CodeNil                         => 0
             |   MatchFail                       => 1
             |   AltMatch (m1, m2)               => size m1 + size m2 + 1
-            |   Declar {value, ...}             => size value
-            |   Newenv cl                       => sizeList cl
+            |   Newenv(decs, exp)               => List.foldl (fn (p, s) => sizeBinding p + s) (size exp) decs
             |   Constnt w                       => if isShort w then 0 else 1
 (*            |   Extract {level=0, fpRel=true, ...} => 0 (* Probably in a register*)*)
             |   Extract _                       => 1
@@ -784,9 +814,9 @@ struct
                     else sizeList(List.map #1 argList) + 2*)
             |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2
             |   KillItems{expression, ...}     => size expression
-            |   MutualDecs decs                 => sizeList decs (*!maxInlineSize*)
             |   Cond (i,t,e)                    => size i + size t + size e + 2
-            |   BeginLoop {loop, arguments, ...}=> size loop + sizeList(List.map #1 arguments)
+            |   BeginLoop {loop, arguments, ...}=> size loop + 
+                                                      sizeList(List.map (fn ({value, ...}, _) => value) arguments)
             |   Loop args                       => sizeList(List.map #1 args) + 1
             |   Raise c                         => size c + 1
             |   Ldexc                           => 1
@@ -811,6 +841,13 @@ struct
                 in
                     List.foldl (fn (p, s) => sizeTuple p + s) 0 vars
                 end
+
+        and sizeBinding(Declar dec) = sizeSimpleBinding dec
+        |   sizeBinding(MutualDecs decs) = List.foldl (fn (p, s) => sizeSimpleBinding p + s) 0 decs
+        |   sizeBinding(NullBinding c) = size c
+        
+        and sizeSimpleBinding{value, ...} = size value
+
 (*        and size pt =
             case pt of
                 CodeNil                         => 0
@@ -907,6 +944,8 @@ struct
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType
         and  varTuple = varTuple
+        and  codeBinding = codeBinding
+        and  simpleBinding = simpleBinding
     end
 
 end;
