@@ -379,8 +379,6 @@ local
                 val topBitAsLargeWord: largeword =
                     (* The top bit *) shortToWord 1 << Word.fromInt(largeWordSize - 1)
 
-                fun topIntBitClear(x : int) : bool = andbInt(x, largeWordTopBit) = 0
-
                 fun topBitClear (x: largeword) : bool = (x andb topBitAsLargeWord) = zero 
             in
                 (* If it is short we just need to sign-extend it when storing it into
@@ -390,10 +388,16 @@ local
                 fun fromInt x = 
                     if LibrarySupport.isShortInt x
                     then shortToWord x
-                    else if topIntBitClear x <> (x < 0)
-                    then Word.toLargeWord(getFirstWord x)
-                    else topBitAsLargeWord orb (Word.toLargeWord(getFirstWord x))
-
+                    else
+                    let
+                        val lo = Word.toLargeWord(getFirstWord x)
+                    in
+                        (* TODO: Testing this bit will currently require an RTS call *)
+                        if andbInt(x, largeWordTopBit) = 0
+                        then lo
+                        else topBitAsLargeWord orb lo
+                    end
+ 
                 and toInt x =
                 let
                     val asInt: int = longToInt x
