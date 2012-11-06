@@ -391,41 +391,31 @@ struct
                recursion and fill them in. *)
             fun genMutualDecs ([], _) = ()
 
-            |   genMutualDecs ({value = Lambda(lam as {makeClosure = false, ...}), addr, ...} :: otherDecs, matchFailFn) =
+            |   genMutualDecs ({lambda as {makeClosure = false, name, ...}, addr, ...} :: otherDecs, matchFailFn) =
                 let (* Static link. *)
                     (* Create a code-segment and put it in the table in case of
                      mutually recursive references. *)
-                    val newCode : code = codeCreate(true, #name lam, parameters);
+                    val newCode : code = codeCreate(true, name, parameters);
                     val () = STRETCHARRAY.update (decVec, addr, ProcConst newCode);
                     (* Deal with any other possible references. *)
                     val () = genMutualDecs (otherDecs, matchFailFn);
                 in
                     (* Can now process this procedure since we have made an entry
                        in the table for everything it could refer to. *)
-                    genSlProc (lam, newCode)
+                    genSlProc (lambda, newCode)
                 end
        
-            |   genMutualDecs ({value = Lambda(lam as {makeClosure = true, ...}), addr, ...} :: otherDecs, matchFailFn) =
-                let (* Closure. *)
-                    fun doRest () : unit  = 
-                    let
-                        val () = STRETCHARRAY.update (decVec, addr, StackAddr (! realstackptr));
-                    in
-                        (* Now time to do the other closures. *)
-                        genMutualDecs (otherDecs, matchFailFn)
-                    end
-                in
-                    genProc (lam, true, doRest, matchFailFn)
-                end
-     
-            |   genMutualDecs ({value =dec, addr, ...} :: otherDecs, matchFailFn) =
-                (
-                    gencde (dec, ToStack, NotEnd, matchFailFn, NONE);
-                    STRETCHARRAY.update (decVec, addr, StackAddr (!realstackptr));
-                    genMutualDecs (otherDecs, matchFailFn)
-                )
+            |   genMutualDecs ({lambda as {makeClosure = true, ...}, addr, ...} :: otherDecs, matchFailFn) =
+                    (* Closure. *)
+                    genProc (lambda, true,
+                        fn() =>
+                        (
+                            STRETCHARRAY.update (decVec, addr, StackAddr (! realstackptr));
+                            genMutualDecs (otherDecs, matchFailFn)
+                        ),
+                        matchFailFn)
 
-            fun codeDecls(MutualDecs dl) = genMutualDecs (dl, matchFailFn)
+            fun codeDecls(RecDecs dl) = genMutualDecs (dl, matchFailFn)
             |   codeDecls(Declar{value, addr, ...}) =
                 (
                     case value of

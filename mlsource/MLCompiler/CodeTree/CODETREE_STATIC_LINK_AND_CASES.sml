@@ -77,7 +77,7 @@ struct
                     end
             )
 
-            fun makeDecl({addr, ...}: simpleBinding) =
+            fun makeDecl addr =
             (let
                 val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
                 val () = Array.update (closuresForLocals, addr, false)
@@ -140,7 +140,7 @@ struct
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
                     (* Make entries in the tables for the arguments. *)
-                    val newAddrs = List.map (fn (d, _) => makeDecl d) argList
+                    val newAddrs = List.map (fn ({addr, ...}, _) => makeDecl addr) argList
 
                     (* Process the body. *)
                     val insBody = insert body
@@ -174,9 +174,9 @@ struct
                        list on the way back. *)
                     fun copyDeclarations ([])   = []
 
-                    |   copyDeclarations (Declar(dec as {addr=caddr, value = pt, ...}) :: vs)  =
+                    |   copyDeclarations (Declar({addr=caddr, value = pt, ...}) :: vs)  =
                         let
-                            val newAddr = makeDecl dec
+                            val newAddr = makeDecl caddr
                             val () =
                                 case pt of
                                     Constnt _ => Array.update (localConsts, caddr, SOME pt)
@@ -206,7 +206,7 @@ struct
                             end
                         end (* copyDeclarations.isDeclar *)
 
-                    |   copyDeclarations (MutualDecs mutualDecs :: vs)  =
+                    |   copyDeclarations (RecDecs mutualDecs :: vs)  =
                         let
                           (* Mutually recursive declarations. Any of the declarations
                              may refer to any of the others. This causes several problems
@@ -226,16 +226,16 @@ struct
                               This makes sure there is a table entry for all the
                               declarations. *)
 
-                            val _ = List.map makeDecl mutualDecs
+                            val _ = List.map (fn {addr, ...} => makeDecl addr) mutualDecs
 
-                            fun applyFn ({addr=caddr, value=dv, ...}) =     
+(*                            fun applyFn ({addr=caddr, value=dv, ...}) =     
                                 (
                                     case dv of
                                         Constnt _ => Array.update (localConsts, caddr, SOME dv) 
                                     |   _ => ()
                                 )
 
-                            val () = List.app applyFn mutualDecs;
+                            val () = List.app applyFn mutualDecs;*)
                   
                             (* Process the rest of the block. Identifies all other
                                references to these declarations. *)
@@ -244,13 +244,10 @@ struct
                             (* We now want to find out which of the declarations require
                                closures. First we copy all the declarations, except that
                                we don't copy the non-local lists of procedures. *)
-                            fun copyDec ({addr=caddr, value=dv, ...}) = 
+                            fun copyDec ({addr=caddr, lambda, ...}) = 
                                 let
                                     val closure = ref (Array.sub(closuresForLocals, caddr))
-                                    val dec     =
-                                        case dv of
-                                            Lambda lam => copyLambda lam closure
-                                        |   _ => insert dv;
+                                    val dec     = copyLambda lambda closure
                                     (* Check whether we now have a constant *)
                                     val () =
                                         case dec of
@@ -263,12 +260,12 @@ struct
                                     {addr=caddr, value = dec, references = 0}
                                 end             
 
-                            val copiedDecs = map copyDec mutualDecs
+                            val copiedDecs: simpleBinding list = map copyDec mutualDecs
                    
                             (* We now have identified all possible references to the
-                               procedures apart from those of the closures themselves.
-                               Any of closures may refer to any other procedure so we must 
-                               iterate until all the procedures which need full closures
+                               functions apart from those of the closures themselves.
+                               Any of closures may refer to any other function so we must 
+                               iterate until all the functions which need full closures
                                have been processed. *)
                             fun processClosures([], outlist, true) =
                                 (* Sweep completed. - Must repeat. *)
@@ -303,12 +300,21 @@ struct
                                 else processClosures(t, h :: outlist, someFound)
                   
                             val decs = processClosures(copiedDecs, [], false)
+
+                            local
+                                fun isLambda{value=Lambda _, ...} = true
+                                |   isLambda _ = false
+                            in
+                                val (lambdas, nonLambdas) = List.partition isLambda decs
+                            end
+                            fun asMutual{addr, value=Lambda lambda, references} = {addr=addr, lambda=lambda, references=references}
+                            |   asMutual _ = raise InternalError "asMutual"
                         in
                             (* Return the mutual declarations and the rest of the block. *)
-                            case decs of
-                                []   => restOfBlock         (* None left *)
-                            |   [d]  => Declar d :: restOfBlock    (* Just one *)
-                            |   _    => MutualDecs decs :: restOfBlock
+                            case lambdas of
+                                []   => map Declar nonLambdas @ restOfBlock         (* None left *)
+                            |   [d]  => Declar d :: (map Declar nonLambdas @ restOfBlock)    (* Just one *)
+                            |   _    => RecDecs (map asMutual lambdas) :: (map Declar nonLambdas @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
           
                     |   copyDeclarations (NullBinding v :: vs)  =

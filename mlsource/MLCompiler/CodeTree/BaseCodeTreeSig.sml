@@ -62,20 +62,7 @@ sig
             earlyEval: bool
         }
     
-    |   Lambda of (* Lambda expressions. *)
-        { (* Lambda expressions. *)
-            body          : codetree,           (* The body of the function. *)
-            isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
-            name          : string,             (* Text name for profiling etc. *)
-            closure       : codetree list,      (* List of items for closure/static link.  Added by preCode. *)
-            argTypes      : argumentType list,  (* "Types" of arguments. *)
-            resultType    : argumentType,       (* Result "type" of the function. *)
-            level         : int,                (* Nesting depth.  Added by optimiser. *)
-            closureRefs   : int,                (* Lifetime data for the closure. 0 = no closure. Added by preCode. *)
-            localCount    : int,                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
-            makeClosure   : bool,               (* Whether it has a full closure.  Added by preCode. *)
-            argLifetimes  : int list            (* Lifetime data for arguments.  Added by preCode. *)
-        }
+    |   Lambda of lambdaForm (* Lambda expressions. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)
 
@@ -147,7 +134,7 @@ sig
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
-    |   MutualDecs of simpleBinding list (* Set of mutually recursive declarations. *)
+    |   RecDecs of { addr: int, references: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and caseType =
@@ -173,6 +160,21 @@ sig
         value:      codetree,
         addr:       int,
         references: int
+    }
+
+    and lambdaForm =
+    { (* Lambda expressions. *)
+        body          : codetree,           (* The body of the function. *)
+        isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
+        name          : string,             (* Text name for profiling etc. *)
+        closure       : codetree list,      (* List of items for closure/static link.  Added by preCode. *)
+        argTypes      : argumentType list,  (* "Types" of arguments. *)
+        resultType    : argumentType,       (* Result "type" of the function. *)
+        level         : int,                (* Nesting depth.  Added by optimiser. *)
+        closureRefs   : int,                (* Lifetime data for the closure. 0 = no closure. Added by preCode. *)
+        localCount    : int,                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
+        makeClosure   : bool,               (* Whether it has a full closure.  Added by preCode. *)
+        argLifetimes  : int list            (* Lifetime data for arguments.  Added by preCode. *)
     }
 
     (* Return the "size" of the codetree used as a way of estimating whether to insert

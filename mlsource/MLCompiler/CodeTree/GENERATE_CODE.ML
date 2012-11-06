@@ -384,13 +384,13 @@ struct
                             StretchArray.update (newDecs, addr, true);
                             loads value (* Check the expression. *)
                         )
-                    |   loadDecs(MutualDecs decs) =
+                    |   loadDecs(RecDecs decs) =
                         (
                             (* First process the declarations to ensure that new declarations
                                are marked as such then process the values being declared. *)
                             List.app(
                                 fn {addr, ...} => StretchArray.update (newDecs, addr, true)) decs;
-                            List.app (fn{value, ...} => loads value) decs
+                            List.app (fn{lambda, ...} => loads (Lambda lambda)) decs
                         )
                     |   loadDecs(NullBinding c) = loads c
                 in
@@ -2867,7 +2867,7 @@ struct
                     end
             end
 
-        |   codeBinding (matchFailFn, _) (MutualDecs dl) =
+        |   codeBinding (matchFailFn, _) (RecDecs dl) =
             let
                 (* Mutually recursive declarations. These can only be functions.
                    Recurse down the list
@@ -2883,32 +2883,21 @@ struct
                 end
 
                 fun genMutualDecs []      = ()
-                |   genMutualDecs (({value=dec, addr, references, ...})::ds) =
-                (
-                    case dec of
-                        Lambda lam =>
+                |   genMutualDecs (({lambda, addr, references, ...})::ds) =
+                    let
+                        (* This procedure is called once the closure has been
+                           created but before the entries have been filled in. *) 
+                        fun nextMutual(r, slEntries) =
                         let
-                            (* This procedure is called once the closure has been
-                               created but before the entries have been filled in. *) 
-                            fun nextMutual(r, slEntries) =
-                            let
-                                val () = codeGenerate(localDeclaration (r, addr, references, slEntries), cvec)
-                            in (* Now time to do the other closures. *)
-                                genMutualDecs ds
-                            end
-                            val _ =
-                                genProc(lam, nextMutual, null ds, (* Last one? *) NoHint, matchFailFn)
-                        in
-                            ()
+                            val () = codeGenerate(localDeclaration (r, addr, references, slEntries), cvec)
+                        in (* Now time to do the other closures. *)
+                            genMutualDecs ds
                         end
-                        |   _ =>
-                        let (* should only be constants i.e. procedures already compiled. *)
-                            val decEntry = genToStack (dec, matchFailFn)
-                            val () = codeGenerate(localDeclaration (decEntry, addr, references, NONE), cvec)
-                        in
-                          genMutualDecs ds
-                        end
-                ) (* genMutualDecs *)
+                        val _ =
+                            genProc(lambda, nextMutual, null ds, (* Last one? *) NoHint, matchFailFn)
+                    in
+                        ()
+                    end
             in
                 genMutualDecs dl
             end

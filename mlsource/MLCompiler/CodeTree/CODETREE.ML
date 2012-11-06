@@ -112,36 +112,6 @@ struct
     val isConstnt    = fn (Constnt _)    => true | _ => false;
     val isCodeNil    = fn CodeNil        => true | _ => false; (* Exported *)
 
-    type loadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool,
-        lastRef: bool
-    }
-    
-    and declarForm = 
-    { (* Declare a value or push an argument. *)
-        value:      codetree,
-        addr:       int,
-        references: int
-    }
-   
-    and lambdaForm =
-    { (* Lambda expressions. *)
-        body          : codetree,
-        isInline      : inlineStatus,
-        name          : string,
-        closure       : codetree list,
-        argTypes      : argumentType list,
-        resultType    : argumentType,
-        level         : int,
-        closureRefs   : int,
-        localCount    : int,
-        makeClosure   : bool,
-        argLifetimes  : int list
-    }
-
     (* gets a value from the run-time system *)
     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
     
@@ -302,13 +272,6 @@ DCJM 2000.
                we execute the code. Expand out any mutual declarations and
                remove any expressions which are being evaluated only for their
                side-effects. *)
-            fun expandMutual [] = []
-              | expandMutual (MutualDecs dec :: decs) =
-                    dec @ expandMutual decs
-              | expandMutual ((Declar dec) :: decs) =
-                    dec :: expandMutual decs
-              | expandMutual (_ :: decs) =
-                    expandMutual decs; (* expression *)
          
             (* There seems to be a problem with this code - we put declarations
                in the tuple even if those declarations are unused. In fact we can't
@@ -333,16 +296,17 @@ DCJM 2000.
                a block with declarations in it. The gaps are replaced with zero
                values. However mutually recursive declarations may be in a random
                order so the list may have to be sorted. *)
+
             fun getValues [] _ : codetree list =
                 [] (* Last of all the general value. *)
           
-            |   getValues (decs as ({addr=declAddr, ...} :: vs)) (addr: int): codetree list =
+            |   getValues (decs as ((declAddr, _) :: vs)) (addr: int): codetree list =
                 if declAddr < addr (* Already done? *)
                 then getValues vs addr (* remove *)
                 else
                 let
                     fun findEntry [] = CodeZero (* Not found. *)
-                    |   findEntry ({addr=dAddr, value, ...} :: rest) =
+                    |   findEntry ((dAddr, value) :: rest) =
                         if dAddr <> addr
                         then findEntry rest
                         else (* Found the declaration. *)
@@ -359,7 +323,14 @@ DCJM 2000.
                 in
                     findEntry decs  :: getValues decs (addr + 1)
                 end
-    
+
+             fun expandMutual [] = []
+              | expandMutual (RecDecs dec :: decs) = map(fn{addr, lambda, ...} => (addr, Lambda lambda)) dec @ expandMutual decs
+              | expandMutual ((Declar{addr, value, ...}) :: decs) =
+                    (addr, value) :: expandMutual decs
+              | expandMutual (_ :: decs) =
+                    expandMutual decs; (* expression *)
+   
             val ext     = gen :: getValues (expandMutual decs) 1
             val newDecs = mkEnv (decs, mkTuple ext)
             val code    = codeGenAndPrint (preCodeAndPrint(newDecs, localCount), localCount)

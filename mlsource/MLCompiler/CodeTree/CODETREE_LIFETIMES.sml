@@ -401,7 +401,7 @@ struct
                             end
                         end (* copyDeclarations.isDeclar *)
 
-                    |   copyDeclarations (MutualDecs mutualDecs :: vs)  =
+                    |   copyDeclarations (RecDecs mutualDecs :: vs)  =
                         let
                             (* Mutually recursive declarations. *)
                             (* This is a bit messy.  For static-link functions we need to
@@ -413,11 +413,10 @@ struct
                                any of these can call any of the others so we just accumulate
                                them into a single list. *)
                             local
-                                fun getClosure({value=Lambda{makeClosure, closure, ...}, ...},
+                                fun getClosure({lambda={makeClosure, closure, ...}, ...},
                                         (slClosures, fcClosures)) =
                                     if makeClosure
                                     then (slClosures, closure @ fcClosures) else (closure @ slClosures, fcClosures)
-                                |   getClosure(_, (slClosures, fcClosures)) = (slClosures, fcClosures)
                                 val (slClosures, fcClosures) = List.foldl getClosure ([], []) mutualDecs
                                 (* Include any statically linked functions this references. *)
                                 fun closureTrans (Extract{fpRel=true, addr, ...}, l) =
@@ -453,17 +452,21 @@ struct
                                     (List.filter (fn Extract{lastRef=true, ...} => true | _ => false)
                                         (map insert fullClosureList))
 
-                            fun copyDec ({addr=caddr, value=dv, ...}) = {addr=caddr, value=insert dv, references = 0}
-                            val copiedDecs = map copyDec mutualDecs;
+                            fun copyDec ({addr, lambda=dv, ...}) =
+                                
+                                case insert(Lambda dv) of
+                                    Lambda v => {addr=addr, lambda=v, references= 0}
+                                |   _ => raise InternalError "copyDec: not a lambda"
+                            val copiedDecs = map copyDec mutualDecs
            
                             (* Now we know all the references we can complete
                                the declaration and put on the use-count. *)
                             fun copyEntries []      = []
-                            |   copyEntries ({ addr, value, ...} ::ds) =
+                            |   copyEntries ({ addr, lambda, ...} ::ds) =
                                 let
                                     val wasUsed = Array.sub(localUses, addr)
                                 in
-                                    if wasUsed = 0 andalso sideEffectFree value
+                                    if wasUsed = 0 (*andalso sideEffectFree value*)
                                     then copyEntries ds
                                     else 
                                     (
@@ -471,7 +474,7 @@ struct
                                            entry would become part of the kill set for the
                                            surrounding expression. *)
                                         Array.update(localUses, addr, 0);
-                                        {value=value, addr=addr, references=wasUsed} :: copyEntries ds
+                                        {lambda=lambda, addr=addr, references=wasUsed} :: copyEntries ds
                                     )
                                 end
 
@@ -480,8 +483,9 @@ struct
                             (* Return the mutual declarations and the rest of the block. *)
                             case decs of
                                 []   => lastRefsForClosure @ restOfBlock         (* None left *)
-                            |   [d]  => Declar d :: (lastRefsForClosure @ restOfBlock)    (* Just one *)
-                            |   _    => MutualDecs decs :: (lastRefsForClosure @ restOfBlock)
+                            |   [{lambda, addr, references}]  =>
+                                    Declar{addr=addr, references=references, value = Lambda lambda} :: (lastRefsForClosure @ restOfBlock)    (* Just one *)
+                            |   _    => RecDecs decs :: (lastRefsForClosure @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
 
                     |   copyDeclarations (NullBinding v :: vs)  =

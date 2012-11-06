@@ -98,14 +98,14 @@ struct
             val newLocals = Array.array (localCount (* Initial size. *), false);
             val bodyCode = cleanProc(body, lookup, nestingDepth, newLocals)
         in
-            Lambda{body=bodyCode, isInline=isInline, name=name,
-                   closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
-                   closureRefs=0, makeClosure=false, localCount=localCount, argLifetimes = []}
+            {body=bodyCode, isInline=isInline, name=name,
+               closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
+               closureRefs=0, makeClosure=false, localCount=localCount, argLifetimes = []}
         end
 
         and cleanCode (Newenv(decs, exp)) =
             let
-                fun cleanDec(myAddr, Lambda lam) = cleanLambda(myAddr, lam)
+                fun cleanDec(myAddr, Lambda lam) = Lambda(cleanLambda(myAddr, lam))
                 |   cleanDec(_, d) = cleanCode d
 
                 local
@@ -114,7 +114,7 @@ struct
                     fun clearEntry(Declar{addr, ...}) =
                             Array.update(locals, addr, false) (* Clear the entry *)
 
-                    |   clearEntry(MutualDecs decs) =
+                    |   clearEntry(RecDecs decs) =
                             List.app (fn {addr, ...} => Array.update(locals, addr, false)) decs
 
                     |   clearEntry(NullBinding _) = ()
@@ -141,7 +141,7 @@ struct
                         else processedRest
                     end
 
-                 |  processDecs(MutualDecs decs :: rest) =
+                 |  processDecs(RecDecs decs :: rest) =
                     let
                         val processedRest = processDecs rest
 
@@ -156,7 +156,7 @@ struct
                          |  processMutuals [] _ false =
                                 (* We didn't add anything more - finish *) []
                          |  processMutuals(
-                                (this as {addr, value, references}) :: rest)
+                                (this as {addr, lambda, references}) :: rest)
                                         excluded added =
                             if not (Array.sub(locals, addr))
                             then (* Put this on the excluded list. *)
@@ -166,8 +166,7 @@ struct
                                 (* Process this entry - it may cause other
                                    entries to become "used". *)
                                 val newEntry =
-                                    {value=cleanDec(addr, value), addr=addr,
-                                        references=references}
+                                    {lambda=cleanLambda(addr, lambda), addr=addr, references=references}
                             in
                                 newEntry :: processMutuals rest excluded true
                             end
@@ -175,8 +174,9 @@ struct
                     in
                         case processedDecs of
                             [] => processedRest (* None at all. *)
-                        |   [oneDec] => Declar oneDec :: processedRest
-                        |   mutuals => MutualDecs mutuals :: processedRest
+                        |   [{addr, lambda, references}] =>
+                                    Declar{addr=addr, value=Lambda lambda, references=references} :: processedRest
+                        |   mutuals => RecDecs mutuals :: processedRest
                     end
 
                  |  processDecs(NullBinding exp :: rest) =
@@ -208,7 +208,7 @@ struct
                 else (* Non-local.  This may be a recursive call. *)
                     prev(ext, level-1, nestingDepth)
 
-         |  cleanCode (Lambda lam) = cleanLambda(0, lam)
+         |  cleanCode (Lambda lam) = Lambda(cleanLambda(0, lam))
 
             (* All the other case simply map cleanCode over the tree. *)
          |  cleanCode MatchFail = MatchFail
@@ -1695,7 +1695,7 @@ struct
                         }
                 end
 
-            |   copyDeclarations (MutualDecs mutualDecs :: vs) = 
+            |   copyDeclarations (RecDecs mutualDecs :: vs) = 
                 (* Mutually recursive declarations. Any of the declarations may
                    refer to any of the others. They should all be lambdas.
 
@@ -1717,7 +1717,7 @@ struct
                     (* Split the inline and non-inline functions. *)
                     val (inlines, nonInlines) =
                         List.partition (
-                            fn {value = Lambda{ isInline=MaybeInline, ...}, ... } => true | _ => false) mutualDecs
+                            fn {lambda = { isInline=MaybeInline, ...}, ... } => true | _ => false) mutualDecs
                     
                     (* Go down the non-inline functions creating new addresses
                        for them and entering them in the table. *)
@@ -1737,8 +1737,8 @@ struct
                        can't be directly recursive we don't need to do anything
                        special. *)
                     val _ =
-                        List.app (fn { value, addr, ... } =>
-                                    enterDec (addr, optimise(value, NONE)))
+                        List.app (fn { lambda, addr, ... } =>
+                                    enterDec (addr, optimise(Lambda lambda, NONE)))
                         inlines
 
                     (* Next process the non-inlines.  We really want to be able to
@@ -1766,8 +1766,7 @@ struct
                         else hasNonLocalReference := true
                     |   checkClosure _ = hasNonLocalReference := true
 
-                    fun processNonInlines ({ value = decVal, addr = decAddr, ... },
-                                           decSpval, (decs, otherChanges)) =
+                    fun processNonInlines ({ lambda, addr = decAddr, ... }, decSpval, (decs, otherChanges)) =
                     (* Have a look at the old entry to see if it's a constant. *)
                     let
                         val oldEntry =
@@ -1792,7 +1791,7 @@ struct
                                 end;
                        
                                 (* Now copy this entry. *)
-                                val ins  = optimise(decVal, NONE)
+                                val ins  = optimise(Lambda lambda, NONE)
 
                                 val gen  = optGeneral ins;
                                 val spec = optSpecial ins;
@@ -1864,6 +1863,25 @@ struct
                         (fn({value=Constnt _, ...}, others) => others
                           | _ => false) true decs
 
+                    fun convertDecs(decs: simpleBinding list): codeBinding list =
+                    let
+                        (* Separate out those entries that have been converted
+                           to constants from those that are still lambdas. *)
+                        fun isLambda {value=Lambda _, ...} = true
+                        |   isLambda {value=Constnt _, ...} = false
+                        |   isLambda _ = raise InternalError "isLambda: not a lambda or a constant"
+                        val (lambdas, constants) = List.partition isLambda decs
+
+                        fun toLambda{addr, references, value=Lambda lambda} =
+                            {addr=addr, references=references, lambda=lambda}
+                        |   toLambda _ = raise InternalError "toLambda: not a lambda"
+                    in
+                        case lambdas of
+                            [] => map Declar constants
+                        |   [single] => map Declar constants @ [Declar single]
+                        |   lambdas => map Declar constants @ [RecDecs(map toLambda lambdas)]
+                    end
+
                   (* If hasNonLocalReference is still false we can code-generate
                      the mutual declarations. *)
                   val decs =
@@ -1876,7 +1894,7 @@ struct
                                 List.map (
                                     fn ({addr, ...}) => mkLoad(addr, 0))
                                     decs
-                            val code = mkEnv([MutualDecs decs], mkTuple extracts)
+                            val code = mkEnv(convertDecs decs, mkTuple extracts)
                             (* Code generate it. *)
                             val results = evaluate(code, !spval+1)
 
@@ -1913,17 +1931,6 @@ struct
 
                     (* Deal with the rest of the block *)
                     val rest = copyDeclarations vs
-
-                    (* Separate out the constants.  They don't need to be mutually declared and putting them earlier
-                       may mean that they can be inserted into the code. *)
-                    val (constnts, nonConsts) =
-                        List.partition(fn {value=Constnt _, ...} => true | _ => false) decs
-
-                    val mutuals =
-                        case nonConsts of
-                            [] => []
-                        |   [singleton] => [Declar singleton]
-                        |   multiple => [MutualDecs multiple]
                 in
                     (* and put these declarations onto the list. *)
                     optVal
@@ -1931,7 +1938,7 @@ struct
                         general = optGeneral rest,
                         special = optSpecial rest,
                         environ = optEnviron rest,
-                        decs    = List.map Declar constnts @ mutuals @ optDecs rest,
+                        decs    = convertDecs decs @ optDecs rest,
                         recCall = optRec rest
                     }
                 end

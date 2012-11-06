@@ -134,7 +134,7 @@ struct
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
-    |   MutualDecs of simpleBinding list (* Set of mutually recursive declarations. *)
+    |   RecDecs of { addr: int, references: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and caseType =
@@ -720,12 +720,24 @@ struct
 
     and prettyBinding(Declar dec) = prettySimpleBinding dec
        
-    |   prettyBinding(MutualDecs ptl) =
+    |   prettyBinding(RecDecs ptl) =
+        let
+            fun prettyRDec {lambda, addr, references} =
+            PrettyBlock (1, false, [],
+                [
+                    PrettyString (concat
+                        ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                    PrettyBreak (1, 0),
+                    pretty(Lambda lambda)
+                ]
+            )
+        in
             PrettyBlock (1, true, [],
                 PrettyString ("MUTUAL" ^ "(") ::
-                pList(ptl, " AND ", prettySimpleBinding) @
+                pList(ptl, " AND ", prettyRDec) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
+        end
     |   prettyBinding(NullBinding c) = pretty c
 
     and prettySimpleBinding{value, addr, references} =
@@ -842,11 +854,9 @@ struct
                     List.foldl (fn (p, s) => sizeTuple p + s) 0 vars
                 end
 
-        and sizeBinding(Declar dec) = sizeSimpleBinding dec
-        |   sizeBinding(MutualDecs decs) = List.foldl (fn (p, s) => sizeSimpleBinding p + s) 0 decs
+        and sizeBinding(Declar{value, ...}) = size value
+        |   sizeBinding(RecDecs decs) = List.foldl (fn ({lambda, ...}, s) => size(Lambda lambda) + s) 0 decs
         |   sizeBinding(NullBinding c) = size c
-        
-        and sizeSimpleBinding{value, ...} = size value
 
 (*        and size pt =
             case pt of

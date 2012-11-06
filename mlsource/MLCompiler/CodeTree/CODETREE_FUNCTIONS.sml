@@ -34,7 +34,15 @@ struct
  
     fun mkDecRef(ct, i1, i2) = Declar{value = ct, addr = i1, references = i2};
     fun mkDec (laddr, res) = mkDecRef(res, laddr, 0)
-    fun mkMutualDecs l = MutualDecs(List.map(fn (a, v) => {value = v, addr = a, references = 0}) l)
+
+    fun mkMutualDecs l =
+    let
+        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a, references = 0}
+        |   convertDec _ = raise InternalError "mkMutualDecs: Recursive declaration is not a function"
+    in
+        RecDecs(List.map convertDec l)
+    end
+
     val mkNullDec = NullBinding
 
     val mkIf                = Cond
@@ -208,8 +216,7 @@ struct
     and testList t = List.all sideEffectFree t
     
     and sideEffectBinding(Declar{value, ...}) = sideEffectFree value
-    |   sideEffectBinding(MutualDecs decs) = (* These should all be lambdas *)
-            List.all (fn {value, ...} => sideEffectFree value) decs
+    |   sideEffectBinding(RecDecs _) = true (* These should all be lambdas *)
     |   sideEffectBinding(NullBinding c) = sideEffectFree c
 
     and sideEffectFreeRTSCall(function: machineWord, args: (codetree * argumentType) list): bool =

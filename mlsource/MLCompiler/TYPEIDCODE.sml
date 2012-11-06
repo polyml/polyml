@@ -878,8 +878,9 @@ struct
                 otherFns
             end
         end
-        else (* Not an equality type.  This will not be called. *)
-            (addr, CodeZero) :: otherFns
+        else (* Not an equality type.  This will not be called but it still needs to
+                be a function to ensure it's valid inside mkMutualDecs. *)
+            (addr, mkProc(CodeZero, 2, "no-eq")) :: otherFns
     in
         List.foldl equalityForDatatype [] typesAndAddresses
     end
