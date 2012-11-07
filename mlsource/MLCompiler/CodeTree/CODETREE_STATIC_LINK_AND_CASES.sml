@@ -311,10 +311,9 @@ struct
                             |   asMutual _ = raise InternalError "asMutual"
                         in
                             (* Return the mutual declarations and the rest of the block. *)
-                            case lambdas of
-                                []   => map Declar nonLambdas @ restOfBlock         (* None left *)
-                            |   [d]  => Declar d :: (map Declar nonLambdas @ restOfBlock)    (* Just one *)
-                            |   _    => RecDecs (map asMutual lambdas) :: (map Declar nonLambdas @ restOfBlock)
+                            if null lambdas
+                            then map Declar nonLambdas @ restOfBlock         (* None left *)
+                            else RecDecs (map asMutual lambdas) :: (map Declar nonLambdas @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
           
                     |   copyDeclarations (NullBinding v :: vs)  =

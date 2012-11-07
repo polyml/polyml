@@ -481,11 +481,9 @@ struct
                             val decs = copyEntries copiedDecs
                         in
                             (* Return the mutual declarations and the rest of the block. *)
-                            case decs of
-                                []   => lastRefsForClosure @ restOfBlock         (* None left *)
-                            |   [{lambda, addr, references}]  =>
-                                    Declar{addr=addr, references=references, value = Lambda lambda} :: (lastRefsForClosure @ restOfBlock)    (* Just one *)
-                            |   _    => RecDecs decs :: (lastRefsForClosure @ restOfBlock)
+                            if null decs
+                            then lastRefsForClosure @ restOfBlock
+                            else RecDecs decs :: (lastRefsForClosure @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
 
                     |   copyDeclarations (NullBinding v :: vs)  =

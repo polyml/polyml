@@ -693,7 +693,7 @@ struct
                             (* Length of the items. *)
                             mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
                             mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false)),
-                            mkDec(3, (* Loop function. *)
+                            mkMutualDecs[(3, (* Loop function. *)
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
@@ -708,7 +708,7 @@ struct
                                                     mkEval(rtsFunction POLY_SYS_load_word,
                                                         [mkLoad(~1, 1), mkLoad(~1, 0)], false)
                                                 ], false),
-                                            mkEval(mkRecLoad 0, (* Recursive call with index+1. *)
+                                            mkEval(mkLoad(3, 1), (* Recursive call with index+1. *)
                                                 [
                                                     mkEval(rtsFunction POLY_SYS_plus_word,
                                                         [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
@@ -716,7 +716,7 @@ struct
                                             CodeFalse (* Not equal elements - result false *)
                                         )
                                     ),
-                                1, "vector-loop"))
+                                1, "vector-loop"))]
                             ],
                             mkIf(
                                 (* Test the lengths. *)
@@ -1303,7 +1303,6 @@ struct
                     mkProductType[CodeTree, Int, String] ->> CodeTree),
                 ("mkCall", toMachineWord simpleCall, CodeTree ** List CodeTree ->> CodeTree),
                 ("mkLoad", toMachineWord mkLoad, Int ** Int ->> CodeTree),
-                ("mkRecLoad", toMachineWord mkRecLoad, Int ->> CodeTree),
                 ("mkDec", toMachineWord mkDec, Int ** CodeTree ->> CodeBinding),
                 ("mkInd", toMachineWord mkInd, Int ** CodeTree ->> CodeTree),
                 ("mkIf", toMachineWord mkIf, mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),

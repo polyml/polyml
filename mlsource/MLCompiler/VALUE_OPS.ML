@@ -795,7 +795,7 @@ struct
        val levelDiff = level - locLevel;
      in
        if locAddr = 0
-       then mkRecLoad (levelDiff - 1)   (* Recursive *)
+       then raise InternalError "codeAccess: Old recursive form"
        else mkLoad (locAddr, levelDiff) (* Argument or local *)
      end
      
@@ -887,7 +887,7 @@ struct
             val levelDiff = level - locLevel
         in
             if locAddr = 0
-            then mkRecLoad (levelDiff - 1)   (* Recursive *)
+            then raise InternalError "codeVal: Old recursive form"
             else mkLoad (locAddr, levelDiff) (* Argument or local *)
         end
     in

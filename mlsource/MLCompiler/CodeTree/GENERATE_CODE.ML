@@ -516,7 +516,11 @@ struct
                 MergeIndex index
             end
 
-        | Lambda lam => MergeIndex(genProc (lam, fn _ => (), true, whereto, matchFailFn))
+        |   Lambda(lam as { makeClosure = true, ...}) => MergeIndex(genProc (lam, fn _ => (), whereto, matchFailFn))
+        
+        |   Lambda({makeClosure = false, ...}) =>
+                (* Functions using the static-link convention must always occur in bindings. *)
+                raise InternalError "Function with static link convention found as expression"
 
         | Constnt w => MergeIndex(pushConst (transtable, w))
 
@@ -1288,21 +1292,19 @@ struct
         |   (NoHint, _) => raise InternalError "genToRegister: not a register"
     end (* genToRegister *)
 
-    (* `mutualRecursive' is only used for mutually recursive procedures
-       where a procedure may not be able to fill in its closure if it does
-       not procedure address has been pushed but before the code is generated. 
-       `lastDec' is true if there are no more mutually recursive declarations.
-    *)
-    and genProc ({ closure=closureList, makeClosure, name=lambdaName, body=lambdaBody,
+    (* `mutualRecursive' is used for mutually recursive functions
+       where a function may not be able to fill in its closure if it does
+       not procedure address has been pushed but before the code is generated.
+       It is also used for functions that use the static-link calling convention
+       to record the release function for the non-locals that are referenced by
+       the function and must remain until after the last possible call to the
+       function. *)
+    and genProc ({ closure=closureList, makeClosure = false, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
-                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, _, whereto, matchFailFn) =
-    let
-        (* Finds the nth. item in the closure and returns the entry *)
-        fun findClosure l n = List.nth(l, n-1)
-    in
-        if not makeClosure
-        then
+                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, _, _) =
+                 
         let (* static link form *)
+            fun findClosure l n = List.nth(l, n-1)
             (* If a procedure can be called by static link references then
                non-locals can be loaded by following the static chain. The offset
                is the entry in the (pseudo-)closure as with a procedure that
@@ -1498,7 +1500,10 @@ struct
             result
         end
 
-      else (* Requires a closure but this may be a constant. *)
+     | genProc ({ closure=closureList, makeClosure = true, name=lambdaName, body=lambdaBody,
+                   argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
+                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, whereto, matchFailFn) =
+        (* Requires a closure but this may be a constant. *)
         let
             (* Frequently the closure is actually empty but it may be that there are
                constants or values that are now constants that haven't been picked out
@@ -1679,8 +1684,7 @@ struct
             in
                 vector
             end
-        end
-    end (* genProc *)
+        end (* genProc *)
 
     (* Generates test for if..then..else or while..do. Returns address of address field of jump.
        If jumpOn is true the jump is taken if the condition is true,
@@ -2849,9 +2853,13 @@ struct
                 case value of
                     Lambda lam =>
                     let
+                        (* If this is a function using static-link calling then we have to
+                           record a release function for the items in the "closure" i.e.
+                           those other bindings that must exist on the stack whenever
+                           the function may be called. *)
                         fun nextMutual(dec, slRelease) =
                             codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
-                        val _ = genProc (lam, nextMutual, true, dest, matchFailFn)
+                        val _ = genProc (lam, nextMutual, dest, matchFailFn)
                     in
                         ()
                     end
@@ -2894,7 +2902,7 @@ struct
                             genMutualDecs ds
                         end
                         val _ =
-                            genProc(lambda, nextMutual, null ds, (* Last one? *) NoHint, matchFailFn)
+                            genProc(lambda, nextMutual, NoHint, matchFailFn)
                     in
                         ()
                     end

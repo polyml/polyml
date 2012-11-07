@@ -6002,11 +6002,6 @@ struct
                     val noInlineFunction =
                         numOfPats = 1 andalso totalArgs = 1 andalso tupleSeq = [[GeneralType]] andalso resultType = GeneralType
 
-                    (* If there is only one pattern and it is not a tuple we
-                       generate only one function so we recurse directly.
-                       Set the address to zero to mark it. *)
-                    val () = if noInlineFunction then setValueAddress(fb, 0, level) else ();
-
                     (* Turn the list of clauses into a match. *)
                     val matches = 
                         map (fn FValClause {dec={ args, ...}, exp, line, ...} =>
@@ -6280,10 +6275,8 @@ struct
                 else ()
 
         in
-            case loaded of
-                [singleton] => (mkDec singleton :: decEnv, newDebugEnv)
-            |  _ => (* Put the declarations into a package of mutual decs. *)
-                    (mkMutualDecs loaded :: decEnv, newDebugEnv)
+            (* Put the declarations into a package of mutual decs. *)
+            (mkMutualDecs loaded :: decEnv, newDebugEnv)
         end (* codeFunBindings *)
 
     (* Recursive val declarations.  Turn them into fun-bindings.  This avoids duplicating a lot

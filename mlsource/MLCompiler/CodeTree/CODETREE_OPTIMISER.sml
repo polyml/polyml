@@ -72,28 +72,22 @@ struct
      done later in preCode but adding this function significantly
      reduced compilation time by reducing the amount of garbage
      created through inline expansion. DCJM 29/12/00. *)
-  (* This also ensures that recursive references are converted into
-     the correct CLOS(0,0) form. DCJM 23/1/01. *)
    fun cleanProc (pt: codetree, prev: loadForm * int * int -> codetree,
                   nestingDepth, locals): codetree =
    let
-        fun cleanLambda(myAddr,
-            {body, isInline, name, argTypes, resultType, level=nestingDepth, localCount, ...}) =
+        fun cleanLambda({body, isInline, name, argTypes, resultType, level=nestingDepth, localCount, ...}) =
         let
             (* Start a new level. *)
-            fun lookup(ext as {addr, fpRel, ...}, level, depth) =
-                if level = 0
-                then if addr = myAddr andalso fpRel
-                then (* It's a recursive reference. *)
-                        mkRecLoad(depth-nestingDepth)
-                else 
+            fun lookup(ext as {addr, fpRel, ...}, 0, _) =
                 (
+                    (* Mark any access to local variables. *)
                     if addr >= 0 andalso fpRel
                     then Array.update(locals, addr, true)
-                    else (); (* Recursive *)
+                    else (); (* Argument or recursive reference. *)
                     Extract ext
                 )
-                else prev(ext, level-1, depth);
+
+            |   lookup(ext, level, depth) = prev(ext, level-1, depth);
 
             val newLocals = Array.array (localCount (* Initial size. *), false);
             val bodyCode = cleanProc(body, lookup, nestingDepth, newLocals)
@@ -105,17 +99,14 @@ struct
 
         and cleanCode (Newenv(decs, exp)) =
             let
-                fun cleanDec(myAddr, Lambda lam) = Lambda(cleanLambda(myAddr, lam))
-                |   cleanDec(_, d) = cleanCode d
-
                 local
-                    (* Clear the entries.  I think it's possible that addresses could be reused in other
-                       blocks so do this just in case. *)
-                    fun clearEntry(Declar{addr, ...}) =
-                            Array.update(locals, addr, false) (* Clear the entry *)
+                    (* This used to clear entries in case they were reused. Now check they aren't reused. *)
+                    fun checkAddr addr =
+                        if Array.sub(locals, addr) then raise InternalError "checkAddr: Reused" else ()
 
-                    |   clearEntry(RecDecs decs) =
-                            List.app (fn {addr, ...} => Array.update(locals, addr, false)) decs
+                    fun clearEntry(Declar{addr, ...}) = checkAddr addr
+
+                    |   clearEntry(RecDecs decs) = List.app (checkAddr o #addr) decs
 
                     |   clearEntry(NullBinding _) = ()
                 in
@@ -136,7 +127,7 @@ struct
                         (* If this is used or if it has side-effects we
                            must include it otherwise we can ignore it. *)
                         if Array.sub(locals, addr) orelse not (sideEffectFree value)
-                        then Declar{value=cleanDec(addr, value), addr=addr,
+                        then Declar{value=cleanCode value, addr=addr,
                                     references=references} :: processedRest
                         else processedRest
                     end
@@ -166,17 +157,15 @@ struct
                                 (* Process this entry - it may cause other
                                    entries to become "used". *)
                                 val newEntry =
-                                    {lambda=cleanLambda(addr, lambda), addr=addr, references=references}
+                                    {lambda=cleanLambda lambda, addr=addr, references=references}
                             in
                                 newEntry :: processMutuals rest excluded true
                             end
                         val processedDecs = processMutuals decs nil false
                     in
-                        case processedDecs of
-                            [] => processedRest (* None at all. *)
-                        |   [{addr, lambda, references}] =>
-                                    Declar{addr=addr, value=Lambda lambda, references=references} :: processedRest
-                        |   mutuals => RecDecs mutuals :: processedRest
+                        if null processedDecs
+                        then processedRest
+                        else RecDecs processedDecs :: processedRest
                     end
 
                  |  processDecs(NullBinding exp :: rest) =
@@ -208,7 +197,7 @@ struct
                 else (* Non-local.  This may be a recursive call. *)
                     prev(ext, level-1, nestingDepth)
 
-         |  cleanCode (Lambda lam) = Lambda(cleanLambda(0, lam))
+         |  cleanCode (Lambda lam) = Lambda(cleanLambda lam)
 
             (* All the other case simply map cleanCode over the tree. *)
          |  cleanCode MatchFail = MatchFail
@@ -1876,10 +1865,7 @@ struct
                             {addr=addr, references=references, lambda=lambda}
                         |   toLambda _ = raise InternalError "toLambda: not a lambda"
                     in
-                        case lambdas of
-                            [] => map Declar constants
-                        |   [single] => map Declar constants @ [Declar single]
-                        |   lambdas => map Declar constants @ [RecDecs(map toLambda lambdas)]
+                        map Declar constants @ (if null lambdas then nil else [RecDecs(map toLambda lambdas)])
                     end
 
                   (* If hasNonLocalReference is still false we can code-generate

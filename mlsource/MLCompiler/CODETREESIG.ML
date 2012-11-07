@@ -46,7 +46,6 @@ sig
     val MatchFail:          codetree; (* pattern match has failed *)
     val mkAltMatch:         codetree * codetree -> codetree;
 
-    val mkRecLoad:          int-> codetree;
     val mkLoad:             int * int -> codetree;
     val mkConst:            machineWord -> codetree;
     val mkInd:              int * codetree -> codetree;
