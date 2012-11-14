@@ -403,7 +403,7 @@ struct
 
                     |   copyDeclarations (RecDecs mutualDecs :: vs)  =
                         let
-                            (* Mutually recursive declarations. *)
+                            (* Recursive declarations. *)
                             (* This is a bit messy.  For static-link functions we need to
                                make sure the last reference to the closure entries is after
                                the last call to the function.  For full-closure functions
@@ -452,12 +452,9 @@ struct
                                     (List.filter (fn Extract{lastRef=true, ...} => true | _ => false)
                                         (map insert fullClosureList))
 
-                            fun copyDec ({addr, lambda=dv, ...}) =
-                                
-                                case insert(Lambda dv) of
-                                    Lambda v => {addr=addr, lambda=v, references= 0}
-                                |   _ => raise InternalError "copyDec: not a lambda"
-                            val copiedDecs = map copyDec mutualDecs
+                            val copiedDecs =
+                                map (fn {addr, lambda, ...} => {addr=addr, lambda=copyLambda lambda, references= 0})
+                                    mutualDecs
            
                             (* Now we know all the references we can complete
                                the declaration and put on the use-count. *)
@@ -511,36 +508,7 @@ struct
 
             |   insert(pt as Ldexc) = pt (* just a constant so return it *)
       
-            |   insert(Lambda{body=lambdaBody, level=nesting, argTypes, isInline,
-                             name=lambdaName, resultType, localCount, closure, makeClosure, ...}) = 
-                let
-                    val numArgs = List.length argTypes
-                    (* The size is one more than the number of arguments because the
-                       arguments are numbered from ~1 .. ~n and we use the entries
-                       as ~arg.  Entry zero is used for the closure. *)
-                    val argUses      = Array.array(numArgs+1, 0);
-
-                    (* process the body *)
-                    val insertedCode = copyCode (lambdaBody, argUses, localCount);
-                    val copiedClosure = mapright insert closure
-                
-                    val argUseList = Array.foldr(op ::) [] argUses
-                in
-                    Lambda 
-                    {
-                        body          = insertedCode,
-                        isInline      = isInline,
-                        name          = lambdaName,
-                        closure       = copiedClosure,
-                        argTypes      = argTypes,
-                        resultType    = resultType,
-                        level         = nesting,
-                        closureRefs   = hd argUseList,
-                        localCount    = localCount,
-                        makeClosure   = makeClosure,
-                        argLifetimes  = List.rev(tl argUseList)
-                    }
-                end
+            |   insert(Lambda lambda) = Lambda(copyLambda lambda)
     
             |   insert(Handle { exp, handler }) =
                 let
@@ -610,6 +578,38 @@ struct
                 end
 
             |   insert(KillItems _) = raise InternalError "insert:KillItems"
+
+
+            and copyLambda{body=lambdaBody, level=nesting, argTypes, isInline,
+                             name=lambdaName, resultType, localCount, closure, makeClosure, ...} = 
+            let
+                val numArgs = List.length argTypes
+                (* The size is one more than the number of arguments because the
+                   arguments are numbered from ~1 .. ~n and we use the entries
+                   as ~arg.  Entry zero is used for the closure. *)
+                val argUses      = Array.array(numArgs+1, 0);
+
+                (* process the body *)
+                val insertedCode = copyCode (lambdaBody, argUses, localCount);
+                val copiedClosure = mapright insert closure
+            
+                val argUseList = Array.foldr(op ::) [] argUses
+            in
+                {
+                    body          = insertedCode,
+                    isInline      = isInline,
+                    name          = lambdaName,
+                    closure       = copiedClosure,
+                    argTypes      = argTypes,
+                    resultType    = resultType,
+                    level         = nesting,
+                    closureRefs   = hd argUseList,
+                    localCount    = localCount,
+                    makeClosure   = makeClosure,
+                    argLifetimes  = List.rev(tl argUseList)
+                }
+            end
+
 
           and copyCond (condTest, condThen, condElse) =
             let
