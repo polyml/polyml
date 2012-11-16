@@ -677,6 +677,8 @@ POLY_SYS_int_geq             EQU 231
 POLY_SYS_int_leq             EQU 232
 POLY_SYS_int_gtr             EQU 233
 POLY_SYS_int_lss             EQU 234
+POLY_SYS_load_byte_immut     EQU 235
+POLY_SYS_load_word_immut     EQU 236
 POLY_SYS_mul_word            EQU 238
 POLY_SYS_plus_word           EQU 239
 POLY_SYS_minus_word          EQU 240

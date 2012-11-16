@@ -143,6 +143,8 @@ struct
   val POLY_SYS_int_leq             = 232
   val POLY_SYS_int_gtr             = 233
   val POLY_SYS_int_lss             = 234
+  val POLY_SYS_load_byte_immut     = 235
+  val POLY_SYS_load_word_immut     = 236
   val POLY_SYS_mul_word            = 238  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_plus_word           = 239  (* Reinstated DCJM 9/10/99 *)
   val POLY_SYS_minus_word          = 240  (* Reinstated DCJM 9/10/99 *)

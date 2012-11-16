@@ -1445,10 +1445,12 @@ Handle EnterPolyCode(TaskData *taskData)
                 break;
 
             case POLY_SYS_load_byte:
+            case POLY_SYS_load_byte_immut:
                 machineDependent->CallIO2(taskData, &load_byte_long_c);
                 break;
 
             case POLY_SYS_load_word:
+            case POLY_SYS_load_word_immut:
                 machineDependent->CallIO2(taskData, &load_word_long_c);
                 break;
 

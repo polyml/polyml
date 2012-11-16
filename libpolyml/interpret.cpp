@@ -569,13 +569,15 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         }
 
                     case POLY_SYS_load_byte:
+                    case POLY_SYS_load_byte_immut:
                         {
                             POLYUNSIGNED u = UNTAGGED(*sp++);
                             *sp = TAGGED((*sp).AsCodePtr()[u]);
                             break; 
                         }
 
-                    case POLY_SYS_load_word: 
+                    case POLY_SYS_load_word:
+                    case POLY_SYS_load_word_immut:
                         {
                             POLYUNSIGNED u = UNTAGGED(*sp++);
                             *sp = (*sp).AsObjPtr()->Get(u);
@@ -1423,7 +1425,9 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_word_lss, TAGGED(POLY_SYS_word_lss));
     add_word_to_io_area(POLY_SYS_word_eq, TAGGED(POLY_SYS_word_eq));
     add_word_to_io_area(POLY_SYS_load_byte, TAGGED(POLY_SYS_load_byte));
+    add_word_to_io_area(POLY_SYS_load_byte_immut, TAGGED(POLY_SYS_load_byte_immut));
     add_word_to_io_area(POLY_SYS_load_word, TAGGED(POLY_SYS_load_word));
+    add_word_to_io_area(POLY_SYS_load_word_immut, TAGGED(POLY_SYS_load_word_immut));
     add_word_to_io_area(POLY_SYS_assign_byte, TAGGED(POLY_SYS_assign_byte));
     add_word_to_io_area(POLY_SYS_assign_word, TAGGED(POLY_SYS_assign_word));
     add_word_to_io_area(POLY_SYS_timing_dispatch, TAGGED(POLY_SYS_timing_dispatch));

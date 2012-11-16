@@ -1839,6 +1839,8 @@ void X86Dependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_word_eq, &word_eq);
     add_function_to_io_area(POLY_SYS_load_byte, &load_byte);
     add_function_to_io_area(POLY_SYS_load_word, &load_word);
+    add_function_to_io_area(POLY_SYS_load_byte_immut, &load_byte);
+    add_function_to_io_area(POLY_SYS_load_word_immut, &load_word);
     
     add_function_to_io_area(POLY_SYS_is_big_endian, &is_big_endian);
     add_function_to_io_area(POLY_SYS_bytes_per_word, &bytes_per_word);
