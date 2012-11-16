@@ -96,71 +96,41 @@ struct
      Most arbitrary precision operations, word operations and
      real operations don't raise exceptions (we don't get overflow
      exceptions) so are safe.  *)
-  (* The application of ioOp has been moved out of the isInList since it
-     turned out to be a hot-spot. *)
+
     local
-        open RuntimeCalls
-        (* gets a value from the run-time system *)
-        val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
+        val doCall: int*machineWord -> Word.word
+            = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific
     in
-        val safeRTSCalls = map ioOp
-        [POLY_SYS_get_length,
-         POLY_SYS_teststrgtr,
-         POLY_SYS_teststrlss, POLY_SYS_teststrgeq, POLY_SYS_teststrleq,
-         POLY_SYS_is_short, POLY_SYS_aplus, POLY_SYS_aminus, POLY_SYS_amul,
-         POLY_SYS_aneg, POLY_SYS_xora,
-         POLY_SYS_equala, POLY_SYS_ora, POLY_SYS_anda,
-         POLY_SYS_Real_str, POLY_SYS_Real_geq, POLY_SYS_Real_leq,
-         POLY_SYS_Real_gtr, POLY_SYS_Real_lss, POLY_SYS_Real_eq,
-         POLY_SYS_Real_neq, POLY_SYS_Add_real, POLY_SYS_Sub_real,
-         POLY_SYS_Mul_real, POLY_SYS_Div_real, POLY_SYS_Abs_real, POLY_SYS_Neg_real,
-         POLY_SYS_sqrt_real, POLY_SYS_sin_real, POLY_SYS_cos_real,
-         POLY_SYS_arctan_real, POLY_SYS_exp_real, POLY_SYS_ln_real,
-         POLY_SYS_io_operation, POLY_SYS_shift_right_arith_word,
-         POLY_SYS_is_big_endian, POLY_SYS_bytes_per_word,
-         POLY_SYS_shift_right_word, POLY_SYS_word_neq, POLY_SYS_not_bool,
-         POLY_SYS_string_length,
-         POLY_SYS_int_geq, POLY_SYS_int_leq, POLY_SYS_int_gtr, POLY_SYS_int_lss,
-         POLY_SYS_mul_word, POLY_SYS_plus_word,
-         POLY_SYS_minus_word, POLY_SYS_or_word,
-         POLY_SYS_and_word, POLY_SYS_xor_word, POLY_SYS_shift_left_word,
-         POLY_SYS_word_geq, POLY_SYS_word_leq,
-         POLY_SYS_word_gtr, POLY_SYS_word_lss, POLY_SYS_word_eq,
-         POLY_SYS_get_first_long_word,
-         POLY_SYS_bytevec_eq]
-        val divisionOperations = map ioOp
-       [POLY_SYS_adiv, POLY_SYS_amod, POLY_SYS_div_word, POLY_SYS_mod_word]
+        (* The RTS has a table of properties for RTS functions.  The 103 call
+           returns these Or-ed into the register mask. *)
+        val PROPWORD_NORAISE  = 0wx40000000
+        and PROPWORD_NOUPDATE = 0wx20000000
+        and PROPWORD_NODEREF  = 0wx10000000
 
-        (* Operations that may raise exceptions. *)
-        val exceptionOperations = map ioOp
-            [POLY_SYS_conv_real, POLY_SYS_real_to_int, POLY_SYS_int_to_real]
-        val safeForImmutable =
-            map ioOp [POLY_SYS_get_flags, POLY_SYS_load_byte, POLY_SYS_load_word]
+        fun rtsProperties ioCall = doCall(103, ioCall)
     end
 
-    (* Tests whether an RTS call in which all the arguments are constants can
-       be evaluated immediately.  Normally this will be clear from the RTS
-       call itself but in a few cases we need to look at the arguments.
-       It's quite safe to evaluate a function which results in an exception.
-       It isn't safe to evaluate a function which might have a side-effect. *)
-    fun earlyRtsCall(function: machineWord, args: (codetree * argumentType) list): bool =
+    (* RTS calls that can be evaluated at compile-time i.e. they always return the
+       same result and have no side-effects but may raise an exception for
+       particular arguments. *)
+    fun earlyRtsCall function =
     let
-        fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioCall)
-        fun isImmutable ((Constnt w, _), sofar) =
-                sofar andalso (isShort w orelse not(isMutable(toAddress w)))
-        |   isImmutable _ = raise InternalError "isImmutable: arg not constant"
+        val props = rtsProperties function
+        val noUpdateNoDeref = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NODEREF)
     in
-        if List.foldl isInList false safeRTSCalls orelse
-            List.foldl isInList false exceptionOperations
-        then true
-        else if List.foldl isInList false safeForImmutable
-        then (* These are safe if the first argument is immutable.  If it's
-              mutable we might find that the value has changed when we
-              come to run the program. *)
-            List.foldl isImmutable true args
-        else false
+        Word.andb(props, noUpdateNoDeref) = noUpdateNoDeref
     end
 
+    (* RTS calls that have have no side-effects and do not raise exceptions.
+       They may return different results for different calls but that doesn't
+       matter if the result is going to be discarded. *)
+    and sideEffectFreeRTSCall function =
+    let
+        val props = rtsProperties function
+        val noUpdateNoRaise = Word.orb(PROPWORD_NOUPDATE, PROPWORD_NORAISE)
+    in
+        Word.andb(props, noUpdateNoRaise) = noUpdateNoRaise
+    end
 
   (* Note: This simply returns true or false.  For complex expressions,
      such as an RTS call whose argument has a side-effect, we could
@@ -189,7 +159,7 @@ struct
            (exp1; true) and we can eliminate exp1 if it is simply
            a comparison. *)
     | sideEffectFree (Eval{function=Constnt w, argList, ...}) =
-        isIoAddress(toAddress w) andalso sideEffectFreeRTSCall(w, argList)
+        isIoAddress(toAddress w) andalso sideEffectFreeRTSCall w
         andalso List.all (fn (c, _) => sideEffectFree c) argList
 
     | sideEffectFree(Container _) = true
@@ -218,22 +188,6 @@ struct
     and sideEffectBinding(Declar{value, ...}) = sideEffectFree value
     |   sideEffectBinding(RecDecs _) = true (* These should all be lambdas *)
     |   sideEffectBinding(NullBinding c) = sideEffectFree c
-
-    and sideEffectFreeRTSCall(function: machineWord, args: (codetree * argumentType) list): bool =
-    let
-      fun isInList(ioCall, sofar) = sofar orelse wordEq (function, ioCall)
-    in
-      List.foldl isInList false safeRTSCalls orelse
-        List.foldl isInList false safeForImmutable orelse
-        (* Division operations are safe if we know that the second argument
-           is not zero. If it's long it can't be zero and we can't have
-           long arguments for the word operations. *)
-        (List.foldl isInList false divisionOperations andalso
-            (case args of
-               [_, (Constnt c, _)] => not (isShort c) orelse toShort c <> 0w0
-             | _ => false)
-        )
-    end;
 
     (* Makes a constant value from an expression which is known to be *)
     (* constant but may involve inline procedures, types etc.         *)

@@ -102,7 +102,7 @@ sig
     
     val errorEnv: { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal
     
-    val earlyRtsCall: machineWord * (codetree * argumentType) list -> bool
+    val earlyRtsCall: machineWord -> bool
     
     val evaluate: codetree * (codetree * int -> unit -> machineWord) * int -> codetree
 

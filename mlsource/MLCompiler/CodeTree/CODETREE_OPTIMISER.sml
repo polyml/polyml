@@ -658,7 +658,7 @@ struct
                 (early orelse
                  (case optGeneral funct of
                     Constnt w =>
-                        isIoAddress(toAddress w) andalso earlyRtsCall(w, copiedArgs)
+                        isIoAddress(toAddress w) andalso earlyRtsCall w
                   | _ => false
                  )
                 )
