@@ -311,9 +311,12 @@ struct
     end
  
     fun pushRegisterToStack v = [PushR v]
-    and pushConstantToStack lit =
-            if isShort lit then [PushConst(tag(Word.toIntX(toShort lit)))] else [PushLongConst lit]
     and pushMemoryToStack(reg, offset) = [PushMem{base=reg, offset=offset}]
+    
+    fun pushConstantToStack lit =
+        if is31bitSigned lit (* Push only allows a 32-bit literal *)
+        then [PushConst(tag(Word.toIntX(toShort lit)))]
+        else [PushLongConst lit]
 
     fun resetStack 0 = []
     |   resetStack n =
