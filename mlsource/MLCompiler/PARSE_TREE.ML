@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-10 David C.J. Matthews
+    Copyright (c) 2000-12 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -4053,7 +4053,7 @@ struct
                 debugFunction(debuggerFun lex, DebugStep, decName, location) ctEnv
         in
             lastDebugLine := currLine;
-            mkEval(mkConst(toMachineWord debugger), [rtEnv level], false)
+            mkEval(mkConst(toMachineWord debugger), [rtEnv level])
         end
 
     (* Add a debug call if line has changed.  This is used between
@@ -4132,7 +4132,7 @@ struct
         in
             mkEnv(
                 (* Call the enter code. *)
-                [mkNullDec (mkEval(mkConst entryCode, [mkTuple[rtEnv level, argCode]], false))],
+                [mkNullDec (mkEval(mkConst entryCode, [mkTuple[rtEnv level, argCode]]))],
                 (* Call the exit code with the function result. The
                    function is wrapped in a handler that catches all
                    exceptions and calls the exception code. *)
@@ -4144,9 +4144,9 @@ struct
                                 (* Must save the exception packet first. *)
                                 [mkDec(ldexAddr, Ldexc)],
                                 mkEval(mkConst exceptionCode,
-                                    [mkTuple[rtEnv level, mkLoad(ldexAddr, 0)]], false))
+                                    [mkTuple[rtEnv level, mkLoad(ldexAddr, 0)]]))
                             )
-                    ]], false)
+                    ]])
             )
         end
 
@@ -4419,7 +4419,7 @@ struct
                    eqFun is a constant. *)
                 fun equalSpecials(SOME a, SOME b) =
                     let
-                        val eqCode = mkEval(eqFun, [mkTuple[mkConst a, mkConst b]], false)
+                        val eqCode = mkEval(eqFun, [mkTuple[mkConst a, mkConst b]])
                     in
                         RunCall.unsafeCast(valOf(evalue(genCode(eqCode, debugParams lex)())))
                     end
@@ -5086,8 +5086,7 @@ struct
                 (* Compare for equality.  The order of the arguments ought to be irrelevant but
                    this works better for string comparisons.  See comment on stringEquality
                    in TYPE_TREE. *)
-                val testCode =
-                    mkEval(#eqFun v, [mkTuple[declLoad, constVal]], true)
+                val testCode = mkEval(#eqFun v, [mkTuple[declLoad, constVal]])
                    
                 (* If it is a binding we turn the test round - see
                     comment in genConstrs. *)
@@ -5207,7 +5206,7 @@ struct
             val expCode =
                 if useCount <= insertDirectCount
                 then cgExpression (exp, matchContext |> repDebugEnv env)
-                else mkEval(mkLoad (baseAddr + pattChosenIndex, 0), argsForCall, false)
+                else mkEval(mkLoad (baseAddr + pattChosenIndex, 0), argsForCall)
         in
             makePatcode expCode pattChosen
         end
@@ -5378,7 +5377,7 @@ struct
                         applyFunction (function, argument, level, typeVarMap, polyVars, lex, location)
                     end
                 |   _ =>
-                    mkEval (codegen (f, context), [argument], false) (* not early *)
+                    mkEval (codegen (f, context), [argument])
             end
 
         | Cond {test, thenpt, elsept, ...} =>
@@ -5648,7 +5647,7 @@ struct
             val resProc =  (* Result procedure. *)
                 mkInlproc 
                     (mkEval(#load thisDec fnLevel,
-                        List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg)), false),
+                        List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg))),
                     1, decName ^ "(1)");
         in
             mkEnv(#dec thisDec, resProc)
@@ -6144,7 +6143,7 @@ struct
                                         (* Set the address to this so if we use this function we pick
                                            up this declaration. *)
                                     val () = setValueAddress(fVal, newAddr, fnLevel);
-                                    val newDecs = mkDec(newAddr, mkEval(polyFn, polyArgs, true)) :: otherDecs
+                                    val newDecs = mkDec(newAddr, mkEval(polyFn, polyArgs)) :: otherDecs
                                 in
                                     createApplications(fVals, addrList, polyVarList, newDecs)
                                 end
@@ -6425,7 +6424,7 @@ struct
                                     SOME (_, n) => mkLoad(n-nPVars, 0)
                                 |   NONE => defaultTypeCode
                         in
-                            mkEval(mkLoad(fnAddr, level-outerLevel), List.map getArg polyVars, true)
+                            mkEval(mkLoad(fnAddr, level-outerLevel), List.map getArg polyVars)
                         end
 
                         (* For each variable construct either a new function if it is polymorphic

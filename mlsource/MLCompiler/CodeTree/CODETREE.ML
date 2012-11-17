@@ -492,7 +492,6 @@ DCJM 2000.
     Eval {
         function = func,
         argList = argsAndTypes,
-        earlyEval = false,
         resultType=resultType
     }
 

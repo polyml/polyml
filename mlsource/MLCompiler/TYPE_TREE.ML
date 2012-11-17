@@ -208,7 +208,7 @@ struct
             fun make n = mkConst(Address.toMachineWord n)
             fun isCode n =
                 mkInlproc(
-                    mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoad(~1, 0), make n], true),
+                    mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoad(~1, 0), make n]),
                     1, "test-box")
         in
             val boxedNever  = make boxedRepNever
@@ -291,14 +291,14 @@ struct
             val stringEquality =
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                        mkEval(wordEq, [mkLoad(~1, 0), mkLoad(~2, 0)], true),
+                        mkEval(wordEq, [mkLoad(~1, 0), mkLoad(~2, 0)]),
                         (* ... or they're both long and ...*)
                         mkCand(
                             mkCand(
                                 mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~1, 0)], true)], true),
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~1, 0)])]),
                                 mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~2, 0)], true)], true)
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~2, 0)])])
                             ),
                             (* ... their contents are equal.  Because the first word contains the
                                length if we include this in the test we will have tested the length
@@ -312,9 +312,9 @@ struct
                                                better when we're using equality for pattern matching since it
                                                gets the length of the constant string.  It also works better
                                                for the, to me, more natural ordering of variable=constant. *)
-                                            mkEval(rtsFunction POLY_SYS_string_length, [mkLoad(~1, 0)], true)
-                                        ], true)
-                                ], true)
+                                            mkEval(rtsFunction POLY_SYS_string_length, [mkLoad(~1, 0)])
+                                        ])
+                                ])
                         )
                     ),
                     2, "stringEquality")

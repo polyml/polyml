@@ -673,7 +673,7 @@ struct
                     Eval {
                         function = Constnt(ioOp POLY_SYS_word_eq),
                         argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
-                        earlyEval = false, resultType=GeneralType }
+                        resultType=GeneralType }
             in
                 gencde (code, whereto, tailKind, matchFailFn, loopAddr)
             end

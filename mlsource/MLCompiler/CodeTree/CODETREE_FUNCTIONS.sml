@@ -339,11 +339,10 @@ struct
        default GeneralType arguments and results. *)
 
 
-    fun mkEval (ct, clist, bl)   =
+    fun mkEval (ct, clist)   =
     Eval {
         function = ct,
         argList = List.map(fn c => (c, GeneralType)) clist,
-        earlyEval = bl,
         resultType=GeneralType
     }
 
@@ -352,17 +351,17 @@ struct
         val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
         val rtsFunction = mkConst o ioOp
     in
-        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg], true)
+        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
         val testptreqFunction    = rtsFunction POLY_SYS_word_eq
         val testptrneqFunction   = rtsFunction POLY_SYS_word_neq
 
         (* N.B. int equality is SHORT integer equality *)
         fun mkTestinteq (xp1, xp2) = 
-            mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2], true);
+            mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2]);
     end
   
-    fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2], true);
-    fun mkTestptrneq (xp1, xp2) = mkEval (testptrneqFunction, [xp1,xp2], true);
+    fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2]);
+    fun mkTestptrneq (xp1, xp2) = mkEval (testptrneqFunction, [xp1,xp2]);
     fun mkTestnull xp1       = mkTestptreq  (xp1, CodeZero);
     fun mkTestnotnull xp1    = mkTestptrneq (xp1, CodeZero);
   

@@ -58,8 +58,7 @@ sig
         {
             function:  codetree,
             argList:   (codetree * argumentType) list,
-            resultType: argumentType,
-            earlyEval: bool
+            resultType: argumentType
         }
     
     |   Lambda of lambdaForm (* Lambda expressions. *)

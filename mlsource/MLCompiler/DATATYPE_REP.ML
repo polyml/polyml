@@ -118,8 +118,7 @@ struct
     fun refApplyCode (v: codetree) =
       mkEval
         (rtsFunction POLY_SYS_alloc_store,
-        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v],
-        false);
+        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), v]);
 
     local
         fun mkTag (tag:word) : codetree = mkConst (toMachineWord tag);
@@ -137,7 +136,7 @@ struct
             end;
 
             fun tagTupleApplyCode (tag: word, n:int, arg:codetree) : codetree =
-                mkEval (tagTupleCode(tag, n, ""), [arg], true);
+                mkEval (tagTupleCode(tag, n, ""), [arg]);
         in
             case test of
               UnboxedForm          => arg
@@ -164,7 +163,7 @@ struct
 
             fun testBoxed (v: codetree) : codetree = (* not (isShort v) *)
                 mkEval (rtsFunction POLY_SYS_not_bool,
-                    [mkEval (rtsFunction POLY_SYS_is_short, [v], true)], true);
+                    [mkEval (rtsFunction POLY_SYS_is_short, [v])]);
 
             (* get the tag from a TaggedBox or ConstForm *)
             fun loadTag (u: machineWord) : machineWord = 
@@ -196,12 +195,12 @@ struct
     
                 val proc = mkInlproc (mkTuple (getFields 1), 1, "")
             in  
-                mkEval (proc, [arg], true)
+                mkEval (proc, [arg])
             end;
 
             (* Use loadWord not indirect because the optimiser reorders indirections. *)
             fun refDestructCode (v : codetree) : codetree =
-               mkEval  (rtsFunction POLY_SYS_load_word, [v, CodeZero], false) (* NOT early *)
+               mkEval  (rtsFunction POLY_SYS_load_word, [v, CodeZero])
         in
             case test of
                 UnboxedForm          => value
@@ -693,7 +692,7 @@ struct
             val printerCode =
                 case ty of
                     FunctionType { arg, ...} =>
-                        mkEval(makeSome, [printerForType(arg, level, tvMap)], true)
+                        mkEval(makeSome, [printerForType(arg, level, tvMap)])
                 |   _ => makeNone
         in
             refApplyCode printerCode

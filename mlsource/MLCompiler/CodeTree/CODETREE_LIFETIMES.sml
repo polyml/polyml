@@ -240,7 +240,7 @@ struct
                     (* Process the arguments first. *)
                     val newargs = mapright(fn (c, t) => (insert c, t)) argList
                     val eval =
-                        Eval {function = insert function, argList = newargs, earlyEval = false, resultType=resultType}
+                        Eval {function = insert function, argList = newargs, resultType=resultType}
                 in
                     if null closureKills then eval
                     else KillItems{expression=eval, killSet=closureKills, killBefore=false}
@@ -253,7 +253,7 @@ struct
                     (* Then the body. *)
                     val func = insert function
                 in
-                    Eval {function = func, argList = newargs, earlyEval = false, resultType=resultType}
+                    Eval {function = func, argList = newargs, resultType=resultType}
                 end
 
             |   insert(Extract ext) = locaddr ext

@@ -209,9 +209,9 @@ struct
          |  cleanCode (Indirect{base, offset}) =
                 Indirect{base=cleanCode base, offset=offset}
 
-         |  cleanCode (Eval{function, argList, earlyEval, resultType}) =
+         |  cleanCode (Eval{function, argList, resultType}) =
                 Eval{function=cleanCode function, argList = map (fn (c, t) => (cleanCode c, t)) argList,
-                     earlyEval=earlyEval, resultType=resultType}
+                     resultType=resultType}
 
          |  cleanCode(Cond(test, thenpt, elsept)) =
                 Cond(cleanCode test, cleanCode thenpt, cleanCode elsept)
@@ -330,10 +330,10 @@ struct
                    level = level + correction, closureRefs = closureRefs,
                    makeClosure = makeClosure, localCount=localCount, argLifetimes = []}
 
-        | changeL(Eval{function, argList, earlyEval, resultType}, nesting) =
+        | changeL(Eval{function, argList, resultType}, nesting) =
             Eval{function = changeL(function, nesting),
                  argList = map (fn (a, t) => (changeL(a, nesting), t)) argList,
-                 earlyEval = earlyEval, resultType=resultType}
+                 resultType=resultType}
 
         | changeL(Indirect{ base, offset }, nesting) =
             Indirect{base = changeL(base, nesting), offset = offset }
@@ -395,16 +395,13 @@ struct
      enterNewDec : int * optVal -> unit,
      nestingOfThisProcedure : int,
      spval : int ref,
-     earlyInline : bool,
      evaluate : codetree * int -> codetree,
      tailCallEntry: bool ref option,
      recursiveExpansions:
         (((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref) list,
      maxInlineSize: int} =
-  (* earlyInline is true if we are expanding a procedure declared 
-     "early inline". *)
   (* spval is the Declaration counter. Normally ref(1) except when expanding
-     an inline procedure. *)
+     an inline function. *)
   (* tailCallEntry is NONE if this is not an inline function and SOME r if
      it is.  r is set to true if a tail recursive LOOP instruction is generated. *)
   let
@@ -412,7 +409,7 @@ struct
 (*                  newDecl (inside optimiseProc)                            *)
 (*****************************************************************************)
     (* Puts a new declaration into a table. Used for both local declarations
-       and also parameters to inline procedures. "setTab" is the table to
+       and also parameters to inline functions. "setTab" is the table to
        put the entry in and "pt" is the value to be put in the table. We try
        to optimise various cases, such as constants, where a value is declared 
        but where it is more efficient when it is used to return the value
@@ -439,7 +436,7 @@ struct
             let (* No need to generate code. *)
                 val spec = optSpecial ins
                 val ov = 
-                    (* If it is a non-inline procedure it must be declared. *)
+                    (* If it is a non-inline function it must be declared. *)
                     case (spec, pushProc) of
                         (Lambda{isInline=NonInline, ...}, true) => simpleOptVal gen
                     |   _ => stripDecs ins  (* Remove the declarations before entering it. *)
@@ -459,43 +456,6 @@ struct
                 optDecs ins
             end
 
-            (* This next case was commented out by AHL.  It could probably be reinstated. *)
-(*        |   Indirect {base, offset} =>
-            let
-                (* It is safe to defer an indirection if we can. For instance,
-                   in ML fun f (a as (b,c)) will generate declarations of b and c
-                   as indirections on a. If b and c are not used immediately there
-                   is no point in loading them  (it only uses up the registers).
-                   Once they are actually used they will be loaded into registers
-                   and those registers will be cached by the normal register caching
-                   scheme, so that if used again soon after they will not be
-                   reloaded. *)
-                fun optSetTab (i, v) =
-                    setTab
-                    (i,
-                    optVal 
-                    { (* Add on the indirection. *)
-                        general = mkInd (offset, optGeneral v),
-                        special = optSpecial v,
-                        environ = optEnviron v,
-                        decs    = optDecs v,
-                        recCall = optRec v
-                    })
-            in
-                (* Take off the indirection from the value to be declared and add
-                   it to the load instruction. This causes the indirection to be
-                   deferred until the value is actually used. *)
-                newDecl(optSetTab,
-                    optVal 
-                    {
-                        general = base,
-                        special = optSpecial ins,
-                        environ = optEnviron ins,
-                        decs    = optDecs ins,
-                        recCall = optRec ins
-                    }, addrs, pushProc)
-            end*)
-
         |   _ =>
             let (* Declare an identifier to have this value. *)
                 val decSpval = ! spval; 
@@ -505,13 +465,13 @@ struct
                     that the declarations are taken off and put into the containing
                     block, and the general value is put into a local variable and
                     replaced by an instruction to load from there. If the special
-                    is a non-inline procedure it is removed. Non-inline procedures
+                    is a non-inline function it is removed. Non-inline functions
                     are returned by copyLambda so that they can be inserted inline
                     if they are immediately called (e.g. a catch phrase) but if they
-                    are declared they are created as normal procedures. We don't do
-                    this for parameters to inline procedures so that lambda-expressions
-                    passed to inline procedures will be expanded inline if they are
-                    only called inside the inline procedure.
+                    are declared they are created as normal functions. We don't do
+                    this for parameters to inline functions so that lambda-expressions
+                    passed to inline functions will be expanded inline if they are
+                    only called inside the inline function.
                     e.g. for(..., proc(..)(...)) will be expanded inline. *)
                 val spec = optSpecial ins;
                 val optSpec =
@@ -562,7 +522,6 @@ struct
                     enterNewDec=enterNewDec, (* should not be used *)
                     nestingOfThisProcedure=nestingOfThisProcedure,
                     spval=spval,
-                    earlyInline=earlyInline,
                     evaluate=evaluate,
                     tailCallEntry=NONE,
                     recursiveExpansions=recursiveExpansions,
@@ -617,59 +576,40 @@ struct
     and optimise (pt as MatchFail, _) = simpleOptVal pt
 
      |  optimise (AltMatch(a, b), _) =
-        simpleOptVal(AltMatch(general a, general b))
+            simpleOptVal(AltMatch(general a, general b))
     
      |  optimise (CodeNil, _) = simpleOptVal CodeNil
         
-     |  optimise (Eval{function, argList, earlyEval, resultType}, tailCall) =
+     |  optimise (Eval{function, argList, resultType}, tailCall) =
         let
-          (* Get the function to be called and see if it is inline or
-             a lambda expression. *)
-          val funct : optVal = optimise(function, NONE);
-          val foptRec = optRec funct
+            (* Function call - This may involve inlining the function.
+               "earlyEval" is an indication that the function should be evaluated
+               at compile-time if possible.  It *)
+
+            (* Get the function to be called and see if it is inline or
+               a lambda expression. *)
+            val funct : optVal = optimise(function, NONE);
+            val foptRec = optRec funct
                
-          (* There are essentially two cases to consider - the procedure
-             may be "inline" in which case it must be expanded as a block,
-             or it must be called. *)
-          fun notInlineCall(recCall:( ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref)option) = 
+            (* There are essentially two cases to consider - the function
+               may be "inline" in which case it must be expanded as a block,
+               or it must be called. *)
+            fun notInlineCall(recCall:( ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref)option) = 
             let
-            val argsAreConstants = ref true;
+                val copiedArgs = map (fn (arg, argType) => (general arg, argType)) argList
+                val argsAreConstants = List.all (isConstnt o #1) copiedArgs
 
-            fun copyArg(arg, argType) =
-              let
-                 val copied = general arg;
-              in
-                (* Check for early evaluation. *)
-                if not (isConstnt copied) then argsAreConstants := false else ();
-                (copied, argType)
-             end
-   
-            val copiedArgs = map copyArg argList;
-            val gen = optGeneral funct
-            and early = earlyEval orelse earlyInline
-
-            (* If the procedure was declared as early or is inside an inline
-               procedure declared as early we can try to evaluate it now.
-               Also if it is a call to an RTS function (which may actually
-               be code-generated inline by G_CODE) we can evaluate it if
-               it's safe. *)
-            val evalEarly =
-                ! argsAreConstants andalso isConstnt (optGeneral funct) andalso
-                (early orelse
-                 (case optGeneral funct of
-                    Constnt w =>
-                        isIoAddress(toAddress w) andalso earlyRtsCall w
-                  | _ => false
-                 )
-                )
-            
-            val evCopiedCode = 
-              if evalEarly
-              then evaluate (Eval {function = gen, argList = copiedArgs, earlyEval = early, resultType=resultType}, !spval+1)
-              else case recCall of
-                (* This is a recursive call to a function we're expanding.
-                   Is it tail recursive?  We may have several levels of
-                   expansion. *)
+                val gen = optGeneral funct
+                
+                (* If the function is an RTS call that is safe to evaluate immediately do that. *)
+                val evCopiedCode = 
+                    if argsAreConstants andalso isConstnt (optGeneral funct) andalso
+                        (case optGeneral funct of Constnt w => isIoAddress(toAddress w) andalso earlyRtsCall w | _ => false)
+                    then evaluate (Eval {function = gen, argList = copiedArgs, resultType=resultType}, !spval+1)
+                    else case recCall of
+                        (* This is a recursive call to a function we're expanding.
+                           Is it tail recursive?  We may have several levels of
+                           expansion. *)
                 SOME (filterArgs, optr) =>
                     if (case tailCall of
                             SOME tCall => optr = tCall (* same reference? *)
@@ -677,9 +617,9 @@ struct
                     then Loop (filterArgs(copiedArgs, true, nestingOfThisProcedure))
                     else Eval {function = gen,
                             argList = filterArgs(copiedArgs, false, nestingOfThisProcedure),
-                            earlyEval = early, resultType=resultType}
+                            resultType=resultType}
                  (* Not a recursive expansion. *)
-               | NONE => Eval {function = gen, argList = copiedArgs, earlyEval = early, resultType=resultType}
+               | NONE => Eval {function = gen, argList = copiedArgs, resultType=resultType}
          in
             optVal 
               {
@@ -701,7 +641,7 @@ struct
             Lambda { isInline, body=lambdaBody, name=lambdaName, argTypes, ...}) =>
             let
            (* Calling inline proc or a lambda expression which is just called.
-              The procedure is replaced with a block containing declarations
+              The function is replaced with a block containing declarations
               of the parameters.  We need a new table here because the addresses
               we use to index it are the addresses which are local to the function.
               New addresses are created in the range of the surrounding function. *)
@@ -715,7 +655,7 @@ struct
               let
 			    fun setTab (index, v) = update (paramVec, ~index, SOME v);
                 (* Make the declaration, picking out constants, inline
-                   procedures and load-and-stores. These are entered in the
+                   functions and load-and-stores. These are entered in the
                    table, but nil is returned by "newDecl". *)
                 val lapt = newDecl (setTab, optimise(h, NONE), argAddress, false);
               in (* Now process the rest of the declarations. *)
@@ -757,7 +697,7 @@ struct
                        then calls it recursively) that's fine - the recursive
                        expansion will be stopped by the other function. *)
                 let            
-                    (* The environment for the expansion of this procedure
+                    (* The environment for the expansion of this function
                        is the table for local declarations and the original
                        environment in which the function was declared for
                        non-locals. *)
@@ -791,7 +731,6 @@ struct
                        enterNewDec=setNewTabForInline,
                        nestingOfThisProcedure=nestingOfThisProcedure,
                        spval=spval,
-                       earlyInline=earlyInline orelse earlyEval,
                        evaluate=evaluate,
                        tailCallEntry=tailCall,
                        recursiveExpansions=recursiveExpansions,
@@ -800,7 +739,7 @@ struct
 
                 else (* It's a "small" function. *)
                 let
-                (* Now load the procedure body itself.  We first process it assuming
+                (* Now load the function body itself.  We first process it assuming
                    that we won't need to treat any of the arguments specially.  If
                    we find that we generate a Loop instruction somewhere we have
                    to make sure that any arguments we change in the course of the
@@ -986,7 +925,6 @@ struct
                                enterNewDec=setNewTab,
                                nestingOfThisProcedure=nesting,
                                spval=newAddressAllocator,
-                               earlyInline=earlyInline orelse earlyEval,
                                evaluate=evaluate,
                                tailCallEntry=NONE, (* Don't generate loop instructions. *)
                                recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
@@ -1068,7 +1006,6 @@ struct
                                enterNewDec=setNewTabForInline,
                                nestingOfThisProcedure=nestingOfThisProcedure,
                                spval=spval,
-                               earlyInline=earlyInline orelse earlyEval,
                                evaluate=evaluate,
                                tailCallEntry=SOME foptRec,
                                recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
@@ -1121,7 +1058,7 @@ struct
                                 general =
                                     Eval {function = mkLoad(addr, 0), 
                                           argList = List.map (fn({value, ...}, t) => (value, t)) newDecs,
-                                          earlyEval = false, resultType=resultType},
+                                          resultType=resultType},
                                 special = CodeNil,
                                 decs = [mkDec(addr, getGeneral procBody)],
                                 recCall = ref false,
@@ -1141,12 +1078,12 @@ struct
           in
             StretchArray.freeze localVec;
             StretchArray.freeze localNewVec;
-           (* The result is the result of the body of the inline procedure. *)
-           (* The declarations needed for the inline procedure, the         *)
+           (* The result is the result of the body of the inline function. *)
+           (* The declarations needed for the inline function, the         *)
            (* declarations used to load the arguments and the declarations  *)
-           (* in the expanded procedure are all concatenated together. We   *)
-           (* do not attempt to evaluate "early inline" procedures. Instead *)
-           (* we try to ensure that all procedures inside are evaluated     *)
+           (* in the expanded function are all concatenated together. We   *)
+           (* do not attempt to evaluate "early inline" functions. Instead *)
+           (* we try to ensure that all functions inside are evaluated     *)
            (*"early". *)
           optVal 
           {
@@ -1191,12 +1128,12 @@ struct
      |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
                           argTypes, resultType, ...}), _) =
         let
-          (* The nesting of this new procedure is the current nesting level
+          (* The nesting of this new function is the current nesting level
              plus one. Normally this will be the same as lambda.level except
-             when we have a procedure inside an inline procedure. *)
+             when we have a function inside an inline function. *)
           val nesting = nestingOfThisProcedure + 1;
           
-          (* A new table for the new procedure. *)
+          (* A new table for the new function. *)
           val oldAddrTab = stretchArray (initTrans, NONE);
           val newAddrTab = stretchArray (initTrans, NONE);
 
@@ -1252,7 +1189,6 @@ struct
                 enterNewDec=setNewTab,
                 nestingOfThisProcedure=nesting,
                 spval=newAddressAllocator,
-                earlyInline=false,
                 evaluate=evaluate,
                 tailCallEntry=NONE,
                 recursiveExpansions=recursiveExpansions,
@@ -1419,7 +1355,7 @@ struct
                 optimiseProc 
                   {pt=mkEnv(List.map (Declar o #1) args, body), lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
                    enterDec=enterDec, enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure,
-                   spval=spval, earlyInline=earlyInline, evaluate=evaluate, tailCallEntry=SOME foptRec,
+                   spval=spval, evaluate=evaluate, tailCallEntry=SOME foptRec,
                    recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
                    maxInlineSize=maxInlineSize}
         in
@@ -1447,7 +1383,7 @@ struct
                     optimiseProc 
                       {pt=body, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
                        enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure, spval=spval,
-                       earlyInline=earlyInline, evaluate=evaluate, tailCallEntry=SOME foptRec,
+                       evaluate=evaluate, tailCallEntry=SOME foptRec,
                        recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
                        maxInlineSize=maxInlineSize}
             in
@@ -2215,7 +2151,7 @@ struct
                                                         val newOffset =
                                                             if n = 0 then varOffset
                                                             else mkEval(rtsFunction RuntimeCalls.POLY_SYS_plus_word,
-                                                                        [varOffset, mkConst(toMachineWord n)], true)
+                                                                        [varOffset, mkConst(toMachineWord n)])
                                                     in
                                                         simpleOptVal(
                                                             IndirectVariable{base=optGeneral thisArg, offset=newOffset})
@@ -2334,7 +2270,7 @@ struct
         val resultCode =
           optimiseProc
             {pt=pt, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
-             enterNewDec=enterNewDec, nestingOfThisProcedure=0, spval=localAddressAllocator, earlyInline=false,
+             enterNewDec=enterNewDec, nestingOfThisProcedure=0, spval=localAddressAllocator,
              evaluate=eval, tailCallEntry=NONE, recursiveExpansions=[], maxInlineSize=maxInlineSize }
 
     in

@@ -54,8 +54,7 @@ struct
         {
             function:  codetree,
             argList:   (codetree * argumentType) list,
-            resultType: argumentType,
-            earlyEval: bool
+            resultType: argumentType
         }
     
     |   Lambda of lambdaForm (* Lambda expressions. *)
@@ -421,7 +420,7 @@ struct
         
         | AltMatch pair => printDiad "ALTMATCH" pair
 
-        | Eval {function, argList, earlyEval, resultType} =>
+        | Eval {function, argList, resultType} =>
             let
                 val prettyArgs =
                     PrettyBlock (1, true, [],
@@ -431,14 +430,7 @@ struct
                     )
             in
                 PrettyBlock (3, false, [],
-                    pretty function ::
-                    PrettyBreak (0, 0) ::
-                    (
-                        if earlyEval
-                        then [ PrettyString "{early}", PrettyBreak (0, 0) ]
-                        else []
-                    ) @
-                    [ PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
+                    [ pretty function, PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
                 )
             end
 
@@ -769,9 +761,9 @@ struct
     |   mapCodeTreeNode _ (c as Constnt _) = c
     |   mapCodeTreeNode _ (c as Extract _) = c
     |   mapCodeTreeNode f (Indirect{base, offset}) = Indirect{base=f base, offset=offset}
-    |   mapCodeTreeNode f (Eval{function, argList, resultType, earlyEval}) =
+    |   mapCodeTreeNode f (Eval{function, argList, resultType}) =
             Eval{function=f function, argList=map(fn(c, t) => (f c, t)) argList,
-                 resultType=resultType, earlyEval=earlyEval}
+                 resultType=resultType}
     |   mapCodeTreeNode f
             (Lambda{ body, isInline, name, closure, argTypes, resultType, level, closureRefs, makeClosure}) =
             Lambda{ body=f body, isInline=isInline, name=name, closure=closure, argTypes=argTypes,
@@ -821,7 +813,7 @@ struct
 (*            |   Eval {function=Constnt w ,argList,...}     =>
                     (* If this is an RTS call it's probably really an instruction that
                        the code-generator will inline and if it isn't we're not going
-                       to greatly wrong.  *)
+                       to go greatly wrong.  *)
                     if isIoAddress(toAddress w) then 1 + sizeList(List.map #1 argList)
                     else sizeList(List.map #1 argList) + 2*)
             |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2

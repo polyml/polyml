@@ -123,7 +123,7 @@ struct
                     (* If we are calling a procedure which has been declared this
                        does not require it to have a closure. Any other use of the
                        procedure would. *) 
-                    Eval {function = func, argList = newargs, earlyEval = false, resultType=resultType}
+                    Eval {function = func, argList = newargs, resultType=resultType}
                 end
 
             |   insert(Extract ext) =
@@ -372,7 +372,7 @@ struct
 
             |   insert(IndirectVariable{base, offset, ...}) =
                 (* Convert this into a Load instruction. *)
-                    insert(mkEval(rtsFunction RuntimeCalls.POLY_SYS_load_word, [base, offset], false))
+                    insert(mkEval(rtsFunction RuntimeCalls.POLY_SYS_load_word, [base, offset]))
 
             |   insert(TupleVariable(vars, length)) =
                 (* Convert this into a set of RTS calls.  This currently uses POLY_SYS_alloc_store
@@ -384,17 +384,17 @@ struct
                     val allocTuple =
                         mkDec(newAddr,
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_alloc_store,
-                                [insert length, mkConst (toMachineWord mutableFlags), CodeZero], false)
+                                [insert length, mkConst (toMachineWord mutableFlags), CodeZero])
                         )
                     fun copyTuple(VarTupleSingle{source, destOffset}) =
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_assign_word,
-                                [mkLoad(newAddr, 0), insert destOffset, insert source], false)
+                                [mkLoad(newAddr, 0), insert destOffset, insert source])
                     |   copyTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_move_words,
                                 [insert base, insert sourceOffset, mkLoad(newAddr, 0),
-                                 insert destOffset, insert length], false)
+                                 insert destOffset, insert length])
                     (* Remove the mutable bit (needed by alloc_store). *)
-                    val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [mkLoad(newAddr, 0)], false)
+                    val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [mkLoad(newAddr, 0)])
                  in
                     mkEnv(allocTuple :: (map NullBinding (mapright copyTuple vars @ [lock])), mkLoad(newAddr, 0))
                 end
@@ -555,10 +555,10 @@ struct
                                     case caseType of
                                         CaseInt =>
                                             mkEval(Constnt(ioOp RuntimeCalls.POLY_SYS_equala),
-                                                   [test, Constnt(toMachineWord t)], true)
+                                                   [test, Constnt(toMachineWord t)])
                                     |   CaseWord =>
                                             mkEval(Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq),
-                                                   [test, Constnt(toMachineWord t)], true)
+                                                   [test, Constnt(toMachineWord t)])
                                     |   CaseTag maxTag => TagTest { test=test, tag=t, maxTag=maxTag }
                             in
                                 Cond(test, c, reconvert rest)

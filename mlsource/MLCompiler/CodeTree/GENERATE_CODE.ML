@@ -1164,7 +1164,7 @@ struct
                     Eval {
                         function = Constnt(ioOp POLY_SYS_word_eq),
                         argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
-                        earlyEval = false, resultType=GeneralType }
+                        resultType=GeneralType }
             in
                 gencde (code, true(* Try to put in-line *), whereto, tailKind, matchFailFn, loopAddr)
             end
@@ -1790,7 +1790,7 @@ struct
           val equalFun  : codetree = Constnt (ioOp POLY_SYS_equala);
           val arguments = [(test, GeneralType), (Constnt (toMachineWord tag), GeneralType)];
           val eqTest    : codetree = 
-             Eval {function = equalFun, argList = arguments, earlyEval = true, resultType=GeneralType};
+             Eval {function = equalFun, argList = arguments, resultType=GeneralType};
         in
           genTest (Cond (eqTest, result, default), jumpOn, matchFailFn) 
         end
@@ -1822,7 +1822,7 @@ struct
                     Eval {
                         function = Constnt(ioOp POLY_SYS_word_eq),
                         argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
-                        earlyEval = false, resultType=GeneralType }
+                        resultType=GeneralType }
             in
                 genTest(code, jumpOn, matchFailFn)
             end
@@ -2680,7 +2680,7 @@ struct
                          wordEq (oper,ioOp POLY_SYS_bytevec_eq))
                         then
                             genCond
-                                (Eval {function = evalFun, argList = argList, earlyEval = false, resultType=resultType},
+                                (Eval {function = evalFun, argList = argList, resultType=resultType},
                                  constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
                         else (* unoptimised I/O call *)
                             callClosure (SOME evalFun)

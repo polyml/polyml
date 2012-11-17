@@ -483,8 +483,7 @@ struct
         val printerCode =
             mkEval(
                 printerForType(types, 0, typeVarMap),
-                [mkTuple[polyCode, mkConst(toMachineWord depth)]],
-                false)
+                [mkTuple[polyCode, mkConst(toMachineWord depth)]])
         val pretty =
             RunCall.unsafeCast(
                 valOf(evalue(genCode(CODETREE.mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, printerCode), [])())))
@@ -919,8 +918,7 @@ struct
                             mkNullDec
                             (mkEval(
                                 mkConst(toMachineWord prettyOut),
-                                [ mkConst(toMachineWord(PrettyString "?")) ],
-                                false)
+                                [ mkConst(toMachineWord(PrettyString "?")) ])
                             )
                         ],
                         arg1 (* Returns its argument. *)
@@ -952,11 +950,9 @@ struct
                                         printerForType(argType, level+1, typeVarMap),
                                         [
                                             mkTuple[arg1,
-                                                mkEval(mkConst(toMachineWord printDepthFun), [CodeZero], false)]
-                                        ],
-                                        false)
-                                ],
-                                false)
+                                                mkEval(mkConst(toMachineWord printDepthFun), [CodeZero])]
+                                        ])
+                                ])
                         )
                     ],
                     arg1 (* Returns its argument. *)
@@ -983,10 +979,8 @@ struct
                         printerForType(argType, level+1, typeVarMap),
                         [
                             mkTuple[arg1, mkConst(toMachineWord 10000)]
-                        ],
-                        false)
-                ],
-                false),
+                        ])
+                ]),
             1, "makestring()")
 
   |  codeVal (Value{access = Overloaded MakeString, ...}, _, _, _, _, _) =
@@ -1098,9 +1092,9 @@ struct
                                             mkEval(
                                                 mkEval(
                                                     mkLoad(~1, 1) (* The user-supplied fn *),
-                                                    [mkInd(1, arg1)] (* The depth *), false),
-                                                [CodeZero], (* Ignored args. *) false),
-                                            [mkInd(0, arg1)] (* Value to print *), false),
+                                                    [mkInd(1, arg1)] (* The depth *)),
+                                                [CodeZero] (* Ignored args. *)),
+                                            [mkInd(0, arg1)] (* Value to print *)),
                                         1, "addPP-1")
 
                             |   arity =>
@@ -1117,9 +1111,9 @@ struct
                                                 mkEval(
                                                     mkEval(
                                                         mkLoad(~1, 2) (* The user-supplied fn *),
-                                                        [mkInd(1, arg1)] (* The depth *), false),
-                                                    args, (* Base fns. *) false),
-                                                [mkInd(0, arg1)] (* Value to print *), false),
+                                                        [mkInd(1, arg1)] (* The depth *)),
+                                                    args (* Base fns. *)),
+                                                [mkInd(0, arg1)] (* Value to print *)),
                                             1, "addPP-2"),
                                         arity, "addPP-1")
                                 end
@@ -1130,8 +1124,8 @@ struct
                             mkEval(
                                 rtsFunction POLY_SYS_assign_word,
                                 [TypeValue.extractPrinter(
-                                    codeAccess(idAccess typeId, level+1)), CodeZero, printFunction],
-                                false), 1, "addPP")
+                                    codeAccess(idAccess typeId, level+1)), CodeZero, printFunction]
+                                ), 1, "addPP")
                     end
 
             |   NONE =>
@@ -1274,7 +1268,7 @@ struct
                                   locations=locations, references=references, instanceTypes=instanceTypes},
                             level+1, typeVarMap,
                             [addStatus installType, addStatus argPrints], lex, loc),
-                    [mkEval(mkConst(toMachineWord createPretty), [arg1], false)], false),
+                    [mkEval(mkConst(toMachineWord createPretty), [arg1])]),
                 1, "installPP")
         end
 
@@ -1320,7 +1314,7 @@ struct
          (* Don't apply this "early".  It might be the ref constructor and that
            must not be applied until run-time.  The optimiser should take care
            of any other cases. *)
-        mkEval (polyConstr, [argument], false)
+        mkEval (polyConstr, [argument])
     end
 
   | applyFunction (value as Value{access = Overloaded oper, name = valName, ...},
@@ -1337,7 +1331,7 @@ struct
                 (* The instance type is a function so we have to get the first argument. *)
                 val code = equalityForType(argType, level, typeVarMap)
             in
-                mkEval (code, [argument], true) (* evaluate early *)
+                mkEval (code, [argument])
             end
         
         | NotEqual =>
@@ -1349,8 +1343,7 @@ struct
                     |   _ => raise InternalError "Overload NotEqual"
                 (* Use the "=" function to provide inequality as well as equality. *)
                 val code = equalityForType(argType, level, typeVarMap)
-                val isEqual =
-                    mkEval (code, [argument], true) (* evaluate early *)
+                val isEqual = mkEval (code, [argument])
             in
                 mkNot isEqual
             end
@@ -1363,7 +1356,7 @@ struct
                     |   _ => raise InternalError "Overload TypeDep"
              val (code, _) = getOverloadInstance(valName, argType, false)
            in
-             mkEval (code, [argument], true) (* evaluate early *)
+             mkEval (code, [argument])
            end
 
        | AddOverload =>
@@ -1423,19 +1416,19 @@ struct
                   possibly a piece of codetree to inline. *)
           case evalue(argument) of
             SOME _ => mkConst (toMachineWord (addOverloading argument))
-          | NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument], false)
+          | NONE => mkEval (mkConst (toMachineWord addOverloadGeneral), [argument])
         end
 
       | GetLocation => (* Return the current location. *) mkConst(toMachineWord lineno)
         
       | _ => (* Print, MakeString, InstallPP *)
          (* Just call as functions. *) (* not early *)
-            mkEval (codeVal (value, level, typeVarMap, instance, lex, lineno), [argument], false)
+            mkEval (codeVal (value, level, typeVarMap, instance, lex, lineno), [argument])
             
      ) (* overloaded *)
      
   | applyFunction (value, argument, level, typeVarMap, instance, lex, lineno) =
-        mkEval (codeVal (value, level, typeVarMap, instance, lex, lineno), [argument], false)
+        mkEval (codeVal (value, level, typeVarMap, instance, lex, lineno), [argument])
     (* end applyFunction *)
 
   (* If the exception is being used as a value we want an exception packet
@@ -1467,7 +1460,7 @@ struct
                 applyToInstance(if justForEqualityTypes then [] else List.map addStatus argVars,
                                 level, typeVarMap, tester)
         in
-            mkEval(testCode, [testing], true)
+            mkEval(testCode, [testing])
         end
 
     |   makeGuard (value as Value{class=Exception, ...}, _, testing, level, typeVarMap) =
@@ -1490,7 +1483,7 @@ struct
                 applyToInstance(if justForEqualityTypes then [] else List.map addStatus argVars,
                                 level, typeVarMap, getInverse)
         in
-            mkEval(loadCode, [arg], false) (* NOT "early" - this may be the "ref" constructor. *)
+            mkEval(loadCode, [arg])
         end
 
     |  makeInverse(Value{class=Constructor{nullary=true, ...}, ...}, _, _, _, _): codetree =

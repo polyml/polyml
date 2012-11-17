@@ -56,7 +56,7 @@ sig
     and mkTupleVariable: varTuple list * codetree -> codetree
     and mkAltMatch: codetree * codetree -> codetree
     and mkRecLoad: int -> codetree
-    and mkEval: codetree * codetree list * bool -> codetree
+    and mkEval: codetree * codetree list -> codetree
     and mkHandle: codetree * codetree -> codetree
     and mkLoad: int * int -> codetree
     and mkInd: int * codetree -> codetree

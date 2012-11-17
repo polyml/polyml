@@ -117,8 +117,7 @@ struct
     and codePrettyBlock(n: int, t: bool, c: context list, args: codetree) =
         mkEval(mkConst(toMachineWord(PrettyBlock)),
             [mkTuple[mkConst(toMachineWord n), mkConst(toMachineWord t),
-             mkConst(toMachineWord c), args]],
-            false)
+             mkConst(toMachineWord c), args]])
 
     (* Turn a list of codetrees into a run-time list. *)
     and codeList(c: codetree list, tail: codetree): codetree =
@@ -130,14 +129,13 @@ struct
         mkIf(
             mkEval(
                 rtsFunction POLY_SYS_int_lss,
-                [depthCode, mkConst(toMachineWord allowedDepth)],
-                true),
+                [depthCode, mkConst(toMachineWord allowedDepth)]),
             codeFail,
             codeOk)
 
     (* Subtract one from the current depth to produce the depth for sub-elements. *)
     and decDepth depthCode =
-        mkEval(rtsFunction POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)], true)
+        mkEval(rtsFunction POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)])
 
     structure TypeVarMap =
     struct
@@ -214,8 +212,8 @@ struct
                     val printFn = (* Create a function to load the printer ref and apply to the args. *)
                         mkProc(
                             mkEval(
-                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
-                                [arg1], false),
+                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
+                                [arg1]),
                             1, "print-" ^ tcName typConstr)
                 in
                     createTypeValue{
@@ -407,7 +405,7 @@ struct
                         TypeValue.extractBoxed(getTypeValueForID(tcIdentifier constr, args, level))
                 in
                     (* Apply the function we obtained to any type arguments. *)
-                    if null args then codeForId else mkEval(codeForId, map getArg args, true)
+                    if null args then codeForId else mkEval(codeForId, map getArg args)
                 end
             in
                 case ty of
@@ -459,7 +457,7 @@ struct
                         TypeValue.extractSize(getTypeValueForID(tcIdentifier constr, args, level))
                 in
                     (* Apply the function we obtained to any type arguments. *)
-                    if null args then codeForId else mkEval(codeForId, map getArg args, true)
+                    if null args then codeForId else mkEval(codeForId, map getArg args)
                 end
             in
                 case ty of
@@ -550,8 +548,8 @@ struct
                                          the reference and apply it the pair of the value and the depth. *)
                                     mkProc(
                                         mkEval(
-                                            mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
-                                            [arg1], false),
+                                            mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
+                                            [arg1]),
                                         1, "print-"^name)
                             |   _ =>  (* Construct a function, that when called, will extract the
                                          function from the reference and apply it first to the
@@ -559,9 +557,9 @@ struct
                                     mkProc(
                                         mkEval(
                                             mkEval(
-                                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero], false),
-                                                argList, false),
-                                            [arg1], false),
+                                                mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
+                                                argList),
+                                            [arg1]),
                                         1, "print-"^name)
                         end
 
@@ -586,9 +584,9 @@ struct
                                     (* Last or only field: no separator. *)
                                     if offset = 0
                                     then (* optimised unary records *)
-                                        mkEval(printCode(typeof, localLevel), [arg1], false)
+                                        mkEval(printCode(typeof, localLevel), [arg1])
                                     else mkEval(printCode(typeof, localLevel),
-                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]], false)
+                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]])
                                 val (start, terminator) =
                                     if isTuple then ([], ")")
                                     else ([codePrettyString(name^" ="), codePrettyBreak(1, 0)], "}")
@@ -608,8 +606,7 @@ struct
                                         [
                                             mkEval(
                                                 printCode(typeof, localLevel),
-                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]],
-                                                false),
+                                                [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]]),
                                             codePrettyString ",",
                                             codePrettyBreak (1, 0)
                                         ],
@@ -680,7 +677,7 @@ struct
                     (* Apply the function we obtained to any type arguments. *)
                     if null args
                     then codeForId
-                    else mkEval(codeForId, map getArg args, true)
+                    else mkEval(codeForId, map getArg args)
                 end
             end
         in
@@ -727,7 +724,7 @@ struct
                             makeEq(typeof, newLevel, getTypeValueForID, typeVarMap)
                     in
                         mkCand(
-                            mkEval(compareElements, [mkInd(n, arg2), mkInd(n, arg1)], true),
+                            mkEval(compareElements, [mkInd(n, arg2), mkInd(n, arg1)]),
                             combineEntries (t, n+1))
                     end
                 val tupleCode = combineEntries(recList, 0)
@@ -809,12 +806,11 @@ struct
                 else
                 let
                     fun addPolymorphism c =
-                        if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList, true)
+                        if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
                     val newLevel = baseLevel+1 (* We have one function. *)
                     val base = codeAccess(access, newLevel)
                     open ValueConstructor
-                    fun matches arg =
-                        mkEval(addPolymorphism(extractTest base), [arg], true)
+                    fun matches arg = mkEval(addPolymorphism(extractTest base), [arg])
                 in
                     case class of
                         Constructor{nullary=true, ...} =>
@@ -831,13 +827,13 @@ struct
                             (* Code to extract the value. *)
                             fun destruct argNo =
                                 mkEval(addPolymorphism(extractProjection(codeAccess(access, newLevel))),
-                                    [mkLoad(argNo, 0)], true)
+                                    [mkLoad(argNo, 0)])
 
                             (* Test whether the values match. *)
                             val eqValue =
                                 mkEval(
                                     makeEq(resType, newLevel, getEqFnForID, argTypeMap),
-                                    [destruct ~1, destruct ~2], true)
+                                    [destruct ~1, destruct ~2])
                         in
                             (* We have equality if both values match
                                this constructor and the values within
@@ -871,7 +867,7 @@ struct
                 (addr,
                     mkInlproc(
                         mkInlproc(
-                            mkEval(mkLoad(addr+1, 2), polyArgs @ [arg1, arg2], true), 2, "eq-" ^ tcName tyConstr ^ "(2)"),
+                            mkEval(mkLoad(addr+1, 2), polyArgs @ [arg1, arg2]), 2, "eq-" ^ tcName tyConstr ^ "(2)"),
                             nArgs, "eq-" ^ tcName tyConstr ^ "(2)(P)")) ::
                 (addr+1,
                     mkProc(mkEnv(getCachedTypeValues argTypeMap, eqCode), 2+nTypeVars, "eq-" ^ tcName tyConstr ^ "()")) ::
@@ -942,7 +938,7 @@ struct
                    functions.  For monotypes the fields contain the injection/test/projection
                    functions directly. *)
                 fun addPolymorphism c =
-                   if null argTypes  orelse justForEqualityTypes then c else mkEval(c, localArgList, true)
+                   if null argTypes  orelse justForEqualityTypes then c else mkEval(c, localArgList)
 
                 open ValueConstructor
 
@@ -955,7 +951,7 @@ struct
                             case typeOf of
                                 FunctionType{arg, ...} => arg
                             |   _ => raise InternalError "contructor not a function"
-                        val getValue = mkEval(addPolymorphism(extractProjection constructorCode), [argCode], true)
+                        val getValue = mkEval(addPolymorphism(extractProjection constructorCode), [argCode])
                         
                     in
                         codePrettyBlock(1, false, [],
@@ -968,10 +964,9 @@ struct
                                         [
                                             mkEval(
                                                 printerForType(typeOfArg, innerLevel, newTypeVarMap),
-                                                [mkTuple[getValue, decDepth depthCode]],
-                                                false
-                                            )],
-                                        false)
+                                                [mkTuple[getValue, decDepth depthCode]]
+                                            )]
+                                        )
                                 ], CodeZero))
                     end
             in
@@ -981,7 +976,7 @@ struct
                     then printCode
                     else
                     let
-                        val testValue = mkEval(addPolymorphism(extractTest constructorCode), [argCode], true)
+                        val testValue = mkEval(addPolymorphism(extractTest constructorCode), [argCode])
                     in
                         mkIf(testValue, printCode, printerForConstructors rest)
                     end,
@@ -1017,9 +1012,8 @@ struct
                         (rtsFunction POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
                          mkEval(rtsFunction POLY_SYS_load_word,
-                            [extractPrinter loadLocal, CodeZero], false)
-                          ],
-                    false)
+                            [extractPrinter loadLocal, CodeZero])
+                          ])
         in
             mkEnv(
                 dec,
@@ -1057,8 +1051,7 @@ struct
                     mkEval
                         (rtsFunction POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         printCode],
-                    false)
+                         printCode])
                 })
         end
 
@@ -1130,8 +1123,7 @@ struct
                     mkEval
                         (rtsFunction POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         printCode],
-                    false),
+                         printCode]),
                     sizeCode = sizeCode
                 })
         end
@@ -1176,8 +1168,8 @@ struct
                             mkEval
                                 (rtsFunction POLY_SYS_alloc_store,
                                 [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                                 CodeZero (* Temporary - replaced by setPrinter. *)],
-                            false),
+                                 CodeZero (* Temporary - replaced by setPrinter. *)]
+                            ),
                         boxedCode = boxedCode,
                         sizeCode = sizeCode
                     }
@@ -1197,8 +1189,8 @@ struct
                     mkEval(
                         rtsFunction POLY_SYS_assign_word,
                         [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
-                                  CodeZero, printerForDatatype(tc, level, typeVarMap)],
-                        false))
+                                  CodeZero, printerForDatatype(tc, level, typeVarMap)]
+                        ))
         in
             val printerCode = List.map setPrinter typeDatalist
         end
@@ -1216,7 +1208,7 @@ struct
             makeEq(ty, level+1, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
     in
         (* We need to wrap this up in a new inline function. *)
-        mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)], true),
+        mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)]),
                   1, "equality")
     end
 
@@ -1297,7 +1289,7 @@ struct
                     mkLoad(decAddr, level-decLevel)
                 end
     in
-        mkEval(code level, List.map makePolyParameter sourceTypes, true)
+        mkEval(code level, List.map makePolyParameter sourceTypes)
     end
 
     (* For now limit this to equality types. *)

@@ -66,7 +66,7 @@ sig
     val mkTestptreq:        codetree * codetree -> codetree;
     val mkTestinteq:        codetree * codetree -> codetree;
     val mkHandle:           codetree * codetree -> codetree
-    val mkEval:             codetree * codetree list * bool -> codetree;
+    val mkEval:             codetree * codetree list -> codetree;
     val identityFunction:   string -> codetree;
     val Ldexc:              codetree;
     val mkContainer:        int -> codetree

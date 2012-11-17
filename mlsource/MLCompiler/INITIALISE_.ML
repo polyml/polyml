@@ -366,8 +366,7 @@ struct
         local
             val plingCode = (* we load the zero'th word from the parameter *)
                 mkInlproc
-                    (mkEval (rtsFunction POLY_SYS_load_word, [(loadArg 1), CodeZero],
-                        false) (* NOT early *), 1, "!(1)");
+                    (mkEval (rtsFunction POLY_SYS_load_word, [(loadArg 1), CodeZero]), 1, "!(1)");
             val a = makeTV ()
             val plingType = Ref a ->> a
             val plingVal  = mkGvar ("!", plingType, makePolymorphic([a], plingCode), declInBasis);
@@ -467,7 +466,7 @@ struct
                 val ioOpEntry = rtsFunction POLY_SYS_io_operation;
                 val args  = 1;
                 val n     = mkLoad (~1, 0)                 (* the outer parameter *)
-                val body  = mkEval (ioOpEntry, [n], true); (* early! *)
+                val body  = mkEval (ioOpEntry, [n]);
             in
                 makePolymorphic([a, b], mkInlproc (body, args, name))
             end;
@@ -499,14 +498,14 @@ struct
                     val tuple = mkLoad (~1, 0);       (* the inner parameter *)
                     val args  = List.tabulate(width, fn n => mkInd (n, tuple))
                 in
-                    mkEval (f, args, false) (* no early evaluation (f may have side effects!) *)
+                    mkEval (f, args)
                 end
 
                 val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)")
                 val outerBody : codetree  =
                 let
                     val n = mkLoad (~1, 0)                 (* the outer parameter *)
-                    val f = mkEval (ioOpEntry, [n], true); (* early evaluation possible *)
+                    val f = mkEval (ioOpEntry, [n]);
                 in
                     mkEnv([mkDec (1, f)], innerLambda)
                 end
@@ -533,7 +532,7 @@ struct
                         List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoad(1, 0)]
                 in
                     mkInlproc(
-                        mkEnv([container, mkNullDec(mkEval (f, args, false))],
+                        mkEnv([container, mkNullDec(mkEval (f, args))],
                               mkTupleFromContainer(mkLoad(1, 0), containerWidth)),
                         1, name ^ "(1)")
                 end
@@ -541,7 +540,7 @@ struct
                 val outerLambda =
                 let
                     val n = mkLoad (~1, 0)                 (* the outer parameter *)
-                    val f = mkEval (ioOpEntry, [n], true) (* early evaluation possible *)
+                    val f = mkEval (ioOpEntry, [n])
                 in
                     mkInlproc(mkEnv([mkDec (1, f)], innerLambda), 1, name)
                 end
@@ -691,28 +690,28 @@ struct
                     mkProc(
                         mkEnv([
                             (* Length of the items. *)
-                            mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
-                            mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false)),
+                            mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)])),
+                            mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)])),
                             mkMutualDecs[(3, (* Loop function. *)
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 1), mkLoad(~1, 0)], false),
+                                        mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 1), mkLoad(~1, 0)]),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
                                                 TypeValue.extractEquality(mkLoad(~1, 2)), (* Base equality fn *)
                                                 [
                                                     mkEval(rtsFunction POLY_SYS_load_word,
-                                                        [mkLoad(~2, 1), mkLoad(~1, 0)], false),
+                                                        [mkLoad(~2, 1), mkLoad(~1, 0)]),
                                                     mkEval(rtsFunction POLY_SYS_load_word,
-                                                        [mkLoad(~1, 1), mkLoad(~1, 0)], false)
-                                                ], false),
+                                                        [mkLoad(~1, 1), mkLoad(~1, 0)])
+                                                ]),
                                             mkEval(mkLoad(3, 1), (* Recursive call with index+1. *)
                                                 [
                                                     mkEval(rtsFunction POLY_SYS_plus_word,
-                                                        [mkLoad(~1, 0), mkConst(toMachineWord 1)], false)
-                                                ], false),
+                                                        [mkLoad(~1, 0), mkConst(toMachineWord 1)])
+                                                ]),
                                             CodeFalse (* Not equal elements - result false *)
                                         )
                                     ),
@@ -720,9 +719,9 @@ struct
                             ],
                             mkIf(
                                 (* Test the lengths. *)
-                                mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
+                                mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)]),
                                 (* Equal - test the contents. *)
-                                mkEval(mkLoad(3, 0), [CodeZero], false),
+                                mkEval(mkLoad(3, 0), [CodeZero]),
                                 CodeFalse (* Not same length- result false *)
                             )
                         ),
@@ -757,15 +756,15 @@ struct
                 mkProc(
                     mkEnv([
                         (* Length of the items. *)
-                        mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)], false)),
-                        mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)], false))
+                        mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)])),
+                        mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)]))
                         ],
                         mkIf(
                             (* Test the lengths. *)
-                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)], false),
+                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)]),
                             (* Equal - test the contents. *)
                             mkEval(rtsFunction POLY_SYS_bytevec_eq,
-                                [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero, mkLoad(1, 0)], false),
+                                [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero, mkLoad(1, 0)]),
                             CodeFalse (* Not same length- result false *)
                         )
                     ),

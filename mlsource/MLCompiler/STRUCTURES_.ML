@@ -2666,7 +2666,7 @@ struct
             {
                 code =
                     argCodeSource @
-                    (mkDec(resAddr, mkEval (codeAccess (functorAccess functs, level), [argCode], false)) ::
+                    (mkDec(resAddr, mkEval (codeAccess (functorAccess functs, level), [argCode])) ::
                      loadIds),
                 load = mkLoad(resAddr, 0)
             }
