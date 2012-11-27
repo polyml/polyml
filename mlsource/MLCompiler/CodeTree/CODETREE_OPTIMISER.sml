@@ -384,55 +384,49 @@ struct
     end
   (* end changeLevel *)
 
-(*****************************************************************************)
-(*                  optimiseProc                                             *)
-(*****************************************************************************)
-  fun optimiseProc
-    {pt : codetree,
-     lookupNewAddr : loadForm * int * int -> optVal,
-     lookupOldAddr : loadForm * int * int -> optVal,
-     enterDec : int * optVal -> unit,
-     enterNewDec : int * optVal -> unit,
-     nestingOfThisProcedure : int,
-     spval : int ref,
-     evaluate : codetree * int -> codetree,
-     tailCallEntry: bool ref option,
-     recursiveExpansions:
-        (((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref) list,
-     maxInlineSize: int} =
-  (* spval is the Declaration counter. Normally ref(1) except when expanding
-     an inline function. *)
-  (* tailCallEntry is NONE if this is not an inline function and SOME r if
-     it is.  r is set to true if a tail recursive LOOP instruction is generated. *)
-  let
-(*****************************************************************************)
-(*                  newDecl (inside optimiseProc)                            *)
-(*****************************************************************************)
+
+    type optContext =
+        {lookupNewAddr : loadForm * int * int -> optVal,
+         lookupOldAddr : loadForm * int * int -> optVal,
+         enterDec : int * optVal -> unit,
+         enterNewDec : int * optVal -> unit,
+         nestingOfThisFunction : int,
+         spval : int ref,
+         evaluate : codetree * int -> codetree,
+         recursiveExpansions:
+            (((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref) list,
+         loopFilter: ((codetree * argumentType) list -> (codetree * argumentType) list),
+         maxInlineSize: int}
+
+    fun loopFilterError _ = raise InternalError "Loop instruction without BeginLoop"
+
+    fun getGeneral ov =
+        (
+        case optDecs ov of
+          []   => optGeneral ov
+        | decs => mkEnv (decs, optGeneral ov)
+        )
+
+    (* Replace the decs in a value.  Do this in a way that avoids creating unnecessary garbage. *)
+    fun repDecs [] (gen as JustTheVal _) = gen
+    |   repDecs [] (ValWithDecs {general, ...}) = JustTheVal general
+    |   repDecs decs (JustTheVal gen) = ValWithDecs {general = gen, decs = decs}
+    |   repDecs decs (ValWithDecs {general, ...}) = ValWithDecs {general = general, decs = decs}
+    |   repDecs decs (OptVal{general, special, environ, recCall, ...}) =
+            OptVal{general=general, special=special, environ=environ, recCall=recCall, decs=decs}
+
+    val stripDecs = repDecs []
+
     (* Puts a new declaration into a table. Used for both local declarations
        and also parameters to inline functions. "setTab" is the table to
        put the entry in and "pt" is the value to be put in the table. We try
        to optimise various cases, such as constants, where a value is declared 
        but where it is more efficient when it is used to return the value
        itself rather than an instruction to load the value. *)
-    fun stripDecs (ov : optVal) : optVal =
-      case optDecs ov of 
-        [] => ov
-      | _  =>
-        optVal 
-          {
-             general = optGeneral ov,
-             special = optSpecial ov,
-             environ = optEnviron ov,
-             decs    = [],
-             recCall = optRec ov
-          };
        
-    fun newDecl (setTab, ins, addrs, pushProc) : codeBinding list =
-    let
-        val gen  = optGeneral ins;
-    in
-        case gen of
-            Constnt _ => 
+    fun newDecl (setTab, ins, addrs, pushProc, context: optContext) : codeBinding list =
+        case optGeneral ins of
+            gen as Constnt _ => 
             let (* No need to generate code. *)
                 val spec = optSpecial ins
                 val ov = 
@@ -456,10 +450,10 @@ struct
                 optDecs ins
             end
 
-        |   _ =>
+        |   gen =>
             let (* Declare an identifier to have this value. *)
-                val decSpval = ! spval; 
-                val ()       = spval := decSpval + 1 ;
+                val decSpval = ! (#spval context); 
+                val ()       = (#spval context) := decSpval + 1 ;
             
                 (* The table entry is similar to the result of the expression except
                     that the declarations are taken off and put into the containing
@@ -467,12 +461,11 @@ struct
                     replaced by an instruction to load from there. If the special
                     is a non-inline function it is removed. Non-inline functions
                     are returned by copyLambda so that they can be inserted inline
-                    if they are immediately called (e.g. a catch phrase) but if they
-                    are declared they are created as normal functions. We don't do
+                    if they are immediately called but if they
+                    are bound they are created as normal functions. We don't do
                     this for parameters to inline functions so that lambda-expressions
                     passed to inline functions will be expanded inline if they are
-                    only called inside the inline function.
-                    e.g. for(..., proc(..)(...)) will be expanded inline. *)
+                    only called inside the inline function. *)
                 val spec = optSpecial ins;
                 val optSpec =
                     case (spec, pushProc) of
@@ -493,10 +486,10 @@ struct
             in
                 optDecs ins @ [mkDecRef(gen, decSpval, 0)]
             end
-        end (* newDecl *)
+      (* newDecl *)
 
     (* Handle an Indirect node or the equivalent in a variable tuple. *)
-    fun doIndirection(source, offset) =
+    fun doIndirection(source, offset, context: optContext) =
         case (optSpecial source, optGeneral source) of
           (spec as Recconstr _, _) =>
             let
@@ -514,73 +507,43 @@ struct
                    DCJM 9/1/01. *)
                 val specEntry = findEntryInBlock spec offset;
                 val newCode =
-                 optimiseProc 
-                   {pt=specEntry,
-                    lookupNewAddr=errorEnv, (* We must always look up old addresses. *)
+                 optimise(specEntry, NONE,
+                    {lookupNewAddr=errorEnv, (* We must always look up old addresses. *)
                     lookupOldAddr=optEnviron source,
-                    enterDec=enterDec, (* should not be used *)
-                    enterNewDec=enterNewDec, (* should not be used *)
-                    nestingOfThisProcedure=nestingOfThisProcedure,
-                    spval=spval,
-                    evaluate=evaluate,
-                    tailCallEntry=NONE,
-                    recursiveExpansions=recursiveExpansions,
-                    maxInlineSize=maxInlineSize}
+                    enterDec= #enterDec context, (* should not be used *)
+                    enterNewDec= #enterNewDec context, (* should not be used *)
+                    nestingOfThisFunction= #nestingOfThisFunction context,
+                    spval= #spval context,
+                    evaluate= #evaluate context,
+                    recursiveExpansions= #recursiveExpansions context,
+                    loopFilter= #loopFilter context,
+                    maxInlineSize= #maxInlineSize context})
             in
-              optVal 
-                {
-                  general = optGeneral newCode,
-                  special = optSpecial newCode,
-                  environ = optEnviron newCode,
-                  decs    = optDecs source @ optDecs newCode,
-                  recCall = optRec newCode
-                }
+                repDecs (optDecs source @ optDecs newCode) newCode
             end
 
         | (_ , gen as Constnt _ ) => (* General is a constant -  Do the selection now. *)
-            optVal 
-              {
-                general = findEntryInBlock gen offset,
-                special = CodeNil,
-                environ = errorEnv,
-                decs    = optDecs source,
-                recCall = ref false
-              }
+            simpleOptVal(findEntryInBlock gen offset)
                            
         | (_, _) => (* No special case possible. *)
-              optVal 
-            {
-              general = mkInd (offset, optGeneral source),
-              special = CodeNil,
-              environ = errorEnv,
-              decs    = optDecs source,
-              recCall = ref false
-            }
+            simpleOptVal(mkInd (offset, optGeneral source))
 
-(*****************************************************************************)
-(*                  optimise (inside optimiseProc)                           *)
-(*****************************************************************************)
-    fun getGeneral ov =
-        (
-        case optDecs ov of
-          []   => optGeneral ov
-        | decs => mkEnv (decs, optGeneral ov)
-        )
-
-    (* The main optimisation routine. *)
+     (* The main optimisation routine. *)
     (* Returns only the general value from an expression. *)
-    fun generalOptimise(pt, tailCall) = getGeneral(optimise(pt, tailCall))
+    and generalOptimise(pt, tailCall, context) = getGeneral(optimise(pt, tailCall, context))
 
-    and general pt = generalOptimise(pt, NONE)
+    and general context pt = generalOptimise(pt, NONE, context)
 
-    and optimise (pt as MatchFail, _) = simpleOptVal pt
+    and optimise (pt as MatchFail, _, _) = simpleOptVal pt
 
-     |  optimise (AltMatch(a, b), _) =
-            simpleOptVal(AltMatch(general a, general b))
+     |  optimise (AltMatch(a, b), _, context) =
+            simpleOptVal(AltMatch(general context a, general context b))
     
-     |  optimise (CodeNil, _) = simpleOptVal CodeNil
+     |  optimise (CodeNil, _, _) = simpleOptVal CodeNil
         
-     |  optimise (Eval{function, argList, resultType}, tailCall) =
+     |  optimise (Eval{function, argList, resultType}, tailCall,
+                    context as 
+                      {evaluate, spval, nestingOfThisFunction, recursiveExpansions, lookupNewAddr, maxInlineSize, ...}) =
         let
             (* Function call - This may involve inlining the function.
                "earlyEval" is an indication that the function should be evaluated
@@ -588,7 +551,7 @@ struct
 
             (* Get the function to be called and see if it is inline or
                a lambda expression. *)
-            val funct : optVal = optimise(function, NONE);
+            val funct : optVal = optimise(function, NONE, context);
             val foptRec = optRec funct
                
             (* There are essentially two cases to consider - the function
@@ -596,7 +559,7 @@ struct
                or it must be called. *)
             fun notInlineCall(recCall:( ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) * bool ref)option) = 
             let
-                val copiedArgs = map (fn (arg, argType) => (general arg, argType)) argList
+                val copiedArgs = map (fn (arg, argType) => (general context arg, argType)) argList
                 val argsAreConstants = List.all (isConstnt o #1) copiedArgs
 
                 val gen = optGeneral funct
@@ -610,26 +573,19 @@ struct
                         (* This is a recursive call to a function we're expanding.
                            Is it tail recursive?  We may have several levels of
                            expansion. *)
-                SOME (filterArgs, optr) =>
-                    if (case tailCall of
-                            SOME tCall => optr = tCall (* same reference? *)
-                        | NONE => false)
-                    then Loop (filterArgs(copiedArgs, true, nestingOfThisProcedure))
-                    else Eval {function = gen,
-                            argList = filterArgs(copiedArgs, false, nestingOfThisProcedure),
-                            resultType=resultType}
-                 (* Not a recursive expansion. *)
-               | NONE => Eval {function = gen, argList = copiedArgs, resultType=resultType}
-         in
-            optVal 
-              {
-                general = evCopiedCode,
-                special = CodeNil,
-                environ = errorEnv,
-                decs    = optDecs funct,
-                recCall = ref false
-              }
-          end (* notInlineCall *)
+                        SOME (filterArgs, optr) =>
+                            if (case tailCall of
+                                SOME tCall => optr = tCall (* same reference? *)
+                                | NONE => false)
+                            then Loop (filterArgs(copiedArgs, true, nestingOfThisFunction))
+                            else Eval {function = gen,
+                                    argList = filterArgs(copiedArgs, false, nestingOfThisFunction),
+                                    resultType=resultType}
+                        (* Not a recursive expansion. *)
+                    |   NONE => Eval {function = gen, argList = copiedArgs, resultType=resultType}
+            in
+                repDecs (optDecs funct) (simpleOptVal evCopiedCode)
+            end (* notInlineCall *)
 
         in
           case (List.find (fn (_, r) => r = foptRec) recursiveExpansions, optSpecial funct) of
@@ -657,7 +613,7 @@ struct
                 (* Make the declaration, picking out constants, inline
                    functions and load-and-stores. These are entered in the
                    table, but nil is returned by "newDecl". *)
-                val lapt = newDecl (setTab, optimise(h, NONE), argAddress, false);
+                val lapt = newDecl (setTab, optimise(h, NONE, context), argAddress, false, context);
               in (* Now process the rest of the declarations. *)
                 lapt @ copy t (argAddress + 1)
               end (* end copy *)
@@ -686,7 +642,7 @@ struct
                 if levels <> 0 orelse addr <= 0
                 then lookupNewAddr(ext, depth, levels)
                 else case localNewVec sub addr of
-                        SOME v => changeLevel v (depth - nestingOfThisProcedure)
+                        SOME v => changeLevel v (depth - nestingOfThisFunction)
                     |   NONE => lookupNewAddr(ext, depth, levels);
 
             val copiedBody =
@@ -717,24 +673,23 @@ struct
                                                     concat["Missing value address=", Int.toString index,
                                                            " level= ", Int.toString level, " while expanding ", lambdaName])
                          in
-                           changeLevel value (depth - nestingOfThisProcedure)
+                           changeLevel value (depth - nestingOfThisFunction)
                          end
                     |  lookupDec (ptr, depth, levels) =
                          (optEnviron funct) (ptr, depth, levels - 1);
 
                  in
-                     optimiseProc 
-                      {pt=lambdaBody,
-                       lookupNewAddr=lookupLocalNewAddr,
+                     optimise(lambdaBody, tailCall,
+                      {lookupNewAddr=lookupLocalNewAddr,
                        lookupOldAddr=lookupDec, 
                        enterDec=setTabForInline,
                        enterNewDec=setNewTabForInline,
-                       nestingOfThisProcedure=nestingOfThisProcedure,
+                       nestingOfThisFunction=nestingOfThisFunction,
                        spval=spval,
                        evaluate=evaluate,
-                       tailCallEntry=tailCall,
                        recursiveExpansions=recursiveExpansions,
-                       maxInlineSize=maxInlineSize}
+                       loopFilter=loopFilterError,
+                       maxInlineSize=maxInlineSize})
                   end
 
                 else (* It's a "small" function. *)
@@ -801,7 +756,7 @@ struct
                                     | (Extract {addr=aA, level=aL, fpRel=aFp, ...},
                                        Extract {addr=bA, level=bL, fpRel=bFp, ...}) =>
                                         aA = bA andalso aFp = bFp andalso
-                                        aL = bL+depth-nestingOfThisProcedure
+                                        aL = bL+depth-nestingOfThisFunction
                                     | _ => false
 
                             in
@@ -850,7 +805,7 @@ struct
                        a call to that function.  However we may well gain by inserting
                        in line arguments which don't change as a result of recursion. *)
                     let
-                        val nesting = nestingOfThisProcedure + 1
+                        val nesting = nestingOfThisFunction + 1
                         (* Find the parameter we're actually going to use. *)
                         fun getParamNo n =
                             if n = 0 then 0
@@ -917,18 +872,17 @@ struct
                         val newAddressAllocator = ref 1 (* Starts at one. *)
 
                         val copiedBody =
-                             optimiseProc 
-                              {pt=lambdaBody,
-                               lookupNewAddr=localNewAddr,
+                             optimise(lambdaBody, NONE, (* Don't generate loop instructions. *)
+                              {lookupNewAddr=localNewAddr,
                                lookupOldAddr=prev, 
                                enterDec=setTab,
                                enterNewDec=setNewTab,
-                               nestingOfThisProcedure=nesting,
+                               nestingOfThisFunction=nesting,
                                spval=newAddressAllocator,
                                evaluate=evaluate,
-                               tailCallEntry=NONE, (* Don't generate loop instructions. *)
                                recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
-                               maxInlineSize=maxInlineSize}
+                               loopFilter=loopFilterError,
+                               maxInlineSize=maxInlineSize})
 
                         val newModCount = countSet()
                     in
@@ -951,7 +905,7 @@ struct
                                     name = lambdaName,
                                     closure = [],
                                     argTypes = newArgList, resultType=resultType,
-                                    level = nestingOfThisProcedure + 1,
+                                    level = nestingOfThisFunction + 1,
                                     closureRefs = 0,
                                     localCount = ! newAddressAllocator + 1,
                                     makeClosure = false, argLifetimes = [] },
@@ -991,25 +945,24 @@ struct
                                 simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
                              else valOf (Vector.sub(frozenParams, ~index)) (* parameters *)
                          in
-                           changeLevel optVal (depth - nestingOfThisProcedure)
+                           changeLevel optVal (depth - nestingOfThisFunction)
                          end
                         | prev (ptr, depth, levels) : optVal =
                             (* On another level. *)
                             (optEnviron funct) (ptr, depth, levels - 1);
 
                         val copiedBody =
-                             optimiseProc 
-                              {pt=lambdaBody,
-                               lookupNewAddr=lookupLocalNewAddr,
+                             optimise(lambdaBody, SOME foptRec,
+                              {lookupNewAddr=lookupLocalNewAddr,
                                lookupOldAddr=prev, 
                                enterDec=setTabForInline,
                                enterNewDec=setNewTabForInline,
-                               nestingOfThisProcedure=nestingOfThisProcedure,
+                               nestingOfThisFunction=nestingOfThisFunction,
                                spval=spval,
                                evaluate=evaluate,
-                               tailCallEntry=SOME foptRec,
                                recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
-                               maxInlineSize=maxInlineSize}
+                               loopFilter=loopFilterError,
+                               maxInlineSize=maxInlineSize})
                     in
                         if ! needsRecursiveCall
                         then (* We need a fully recursive call. *)
@@ -1070,38 +1023,26 @@ struct
                     else if Array.exists(fn x => x) argModificationVec
                     then (* We could have reset needsBeginLoop to false and ended up not needing a loop.
                             Ifwe have declarations that we made earlier we have to include them. *)
-                        optVal{general = optGeneral procBody, special = optSpecial procBody,
-                               environ = optEnviron procBody, recCall = optRec procBody,
-                               decs = List.map (Declar o #1) newDecs @ optDecs procBody}
+                        repDecs (List.map (Declar o #1) newDecs @ optDecs procBody) procBody
                     else procBody
                 end           
           in
             StretchArray.freeze localVec;
             StretchArray.freeze localNewVec;
-           (* The result is the result of the body of the inline function. *)
-           (* The declarations needed for the inline function, the         *)
-           (* declarations used to load the arguments and the declarations  *)
-           (* in the expanded function are all concatenated together. We   *)
-           (* do not attempt to evaluate "early inline" functions. Instead *)
-           (* we try to ensure that all functions inside are evaluated     *)
-           (*"early". *)
-          optVal 
-          {
-            general = optGeneral copiedBody,
-            special = optSpecial copiedBody,
-            environ = optEnviron copiedBody,
-            decs    = optDecs funct @ (copiedArgs @ optDecs copiedBody),
-            recCall = optRec copiedBody
-          }
+            (* The result is the result of the body of the inline function.
+               The declarations needed for the inline function, the
+               declarations used to load the arguments and the declarations
+               in the expanded function are all concatenated together. *)
+            repDecs (optDecs funct @ (copiedArgs @ optDecs copiedBody)) copiedBody
           end
                 
           | _ => notInlineCall NONE (* Not a Lambda and not recursive. *)
         end (* Eval { } *)
         
-     |  optimise (Extract(ext as {level, ...}), _) =
-            lookupOldAddr (ext, nestingOfThisProcedure, level)
+     |  optimise (Extract(ext as {level, ...}), _, {lookupOldAddr, nestingOfThisFunction, ...}) =
+            lookupOldAddr (ext, nestingOfThisFunction, level)
 
-     |  optimise (original as Lambda({isInline=OnlyInline, ...}), _) =
+     |  optimise (original as Lambda({isInline=OnlyInline, ...}), _, { lookupOldAddr, ...} ) =
             (* Used only for functors.  Leave unchanged. *)
             optVal 
                 {
@@ -1126,12 +1067,13 @@ struct
                 }
 
      |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
-                          argTypes, resultType, ...}), _) =
+                          argTypes, resultType, ...}), _,
+                 { nestingOfThisFunction, lookupOldAddr, lookupNewAddr, recursiveExpansions, maxInlineSize, evaluate, spval, ... }) =
         let
           (* The nesting of this new function is the current nesting level
              plus one. Normally this will be the same as lambda.level except
              when we have a function inside an inline function. *)
-          val nesting = nestingOfThisProcedure + 1;
+          val nesting = nestingOfThisFunction + 1;
           
           (* A new table for the new function. *)
           val oldAddrTab = stretchArray (initTrans, NONE);
@@ -1181,18 +1123,18 @@ struct
           val newAddressAllocator = ref 1
 
           val newCode =
-             optimiseProc 
-               {pt=lambdaBody,
+             optimise (lambdaBody, NONE,
+                {
                 lookupNewAddr=localNewAddr,
                 lookupOldAddr=localOldAddr, 
                 enterDec=setTab,
                 enterNewDec=setNewTab,
-                nestingOfThisProcedure=nesting,
+                nestingOfThisFunction=nesting,
                 spval=newAddressAllocator,
                 evaluate=evaluate,
-                tailCallEntry=NONE,
                 recursiveExpansions=recursiveExpansions,
-                maxInlineSize=maxInlineSize}
+                loopFilter=loopFilterError,
+                maxInlineSize=maxInlineSize})
 
           (* nonLocals - a list of the non-local references made by this
              function.  If this is empty the function can be code-generated
@@ -1207,7 +1149,7 @@ struct
              (* The level will be correct relative to the use, which may be
                 in an inner function.  We want the level relative to the
                 scope in which this function is declared. *)
-             val correctedLevel = level - (depth - nestingOfThisProcedure)
+             val correctedLevel = level - (depth - nestingOfThisFunction)
              fun findNonLocal(Extract{addr=addr', level=level', fpRel=fpRel', ...}) =
                     addr = addr' andalso correctedLevel = level' andalso fpRel=fpRel'
               |  findNonLocal _ = raise InternalError "findNonLocal: not Extract"
@@ -1333,10 +1275,11 @@ struct
             resultCode
         end (* Lambda{...} *)
            
-     |  optimise (pt as Constnt _, _) =
+     |  optimise (pt as Constnt _, _, _) =
             simpleOptVal pt (* Return the original constant. *)
            
-     |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall) =
+     |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall,
+              context as { lookupNewAddr, lookupOldAddr, enterDec, enterNewDec, nestingOfThisFunction, spval, evaluate, recursiveExpansions, maxInlineSize, ...}) =
         let
              (* We could try extracting redundant loop variables but for
                 the time being we just see whether we actually need a loop
@@ -1346,31 +1289,33 @@ struct
                 optimise away the loop altogether. e.g. equality for lists where
                 we actually have   if x = nil then ... *)
              val loops = ref false
-             fun filterArgs (a, _, _) = (loops := true; a)
+             fun filterArgs a = (loops := true; a)
 
              val foptRec = ref false
              (* First process as though it was not a BeginLoop but just a
                 set of declarations followed by an expression. *)
              val _ =
-                optimiseProc 
-                  {pt=mkEnv(List.map (Declar o #1) args, body), lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
-                   enterDec=enterDec, enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure,
-                   spval=spval, evaluate=evaluate, tailCallEntry=SOME foptRec,
-                   recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
-                   maxInlineSize=maxInlineSize}
+                optimise
+                  (mkEnv(List.map (Declar o #1) args, body), SOME foptRec,
+                  {lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
+                   enterDec=enterDec, enterNewDec=enterNewDec, nestingOfThisFunction=nestingOfThisFunction,
+                   spval=spval, evaluate=evaluate,
+                   recursiveExpansions=recursiveExpansions,
+                   loopFilter=filterArgs,
+                   maxInlineSize=maxInlineSize})
         in
             if not (! loops)
             then (* The Loop instructions have been optimised away.  Since there's
                     no BeginLoop we can reprocess it with the surrounding
                     tail recursion. *)
-                optimise(mkEnv(List.map (Declar o #1) args, body), tailCall)
+                optimise(mkEnv(List.map (Declar o #1) args, body), tailCall, context)
             else (* It loops - have to reprocess. *)
             let
                 (* The arguments to the functions are Declar entries but they
                    must not be optimised. *)
                 fun declArg({addr, value, ...}, typ) =
                     let
-                        val optVal = optimise(value, NONE)
+                        val optVal = optimise(value, NONE, context)
                         val decSpval = ! spval
                         val _ = spval := decSpval + 1
                         val optV = simpleOptVal(mkLoad (decSpval, 0))
@@ -1380,38 +1325,32 @@ struct
                     end
                  val declArgs = map declArg args
                  val beginBody =
-                    optimiseProc 
-                      {pt=body, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
-                       enterNewDec=enterNewDec, nestingOfThisProcedure=nestingOfThisProcedure, spval=spval,
-                       evaluate=evaluate, tailCallEntry=SOME foptRec,
-                       recursiveExpansions=(filterArgs, foptRec) :: recursiveExpansions,
-                       maxInlineSize=maxInlineSize}
+                    optimise(body, SOME foptRec,
+                      {lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
+                       enterNewDec=enterNewDec, nestingOfThisFunction=nestingOfThisFunction, spval=spval,
+                       evaluate=evaluate,
+                       recursiveExpansions=recursiveExpansions,
+                       loopFilter=filterArgs,
+                       maxInlineSize=maxInlineSize})
             in
                 simpleOptVal (BeginLoop {loop=getGeneral beginBody, arguments=declArgs})
             end
         end
 
-     |  optimise (Loop args, tailCall) =
-        (
+     |  optimise (Loop args, _, context as { loopFilter, ... }) =
             (* The Loop instruction should be at the tail of the
                corresponding BeginLoop. *)
-            case (tailCall, recursiveExpansions) of
-                (SOME fopt, (filterArgs, fopt') :: _) =>
-                    let
-                        fun gen(c, t) = (general c, t)
-                    in
-                        if fopt <> fopt'
-                        then raise InternalError "Loop: mismatched BeginLoop"
-                        else simpleOptVal (Loop ((filterArgs(map gen args, true, nestingOfThisProcedure))))
-                    end
-            |   _ => raise InternalError "Loop: not at tail of BeginLoop"
-        )
+            let
+                fun gen(c, t) = (general context c, t)
+            in
+                simpleOptVal (Loop (loopFilter(map gen args)))
+            end
           
-     |  optimise (Raise x, _) = simpleOptVal (Raise (general x))
+     |  optimise (Raise x, _, context) = simpleOptVal (Raise (general context x))
          
-     |  optimise (Cond(condTest, condThen, condElse), tailCall) =
+     |  optimise (Cond(condTest, condThen, condElse), tailCall, context as { spval, nestingOfThisFunction, ...}) =
         let
-            val insFirst = general condTest
+            val insFirst = general context condTest
         in
             (* If the condition is a constant we need only
                return the appropriate arm. *)
@@ -1421,9 +1360,9 @@ struct
                     then (* if false then x else y == y *)
                         if isCodeNil condElse (* May be nil. (Pattern-matching) *)
                     then simpleOptVal CodeZero
-                    else optimise(condElse, tailCall)
+                    else optimise(condElse, tailCall, context)
                     (* if true then x else y == x *)
-                    else optimise(condThen, tailCall)  (* return then-part *)
+                    else optimise(condThen, tailCall, context)  (* return then-part *)
             
             |   _ => (* Condition is not a constant. *)
                 let
@@ -1432,8 +1371,8 @@ struct
                        a boolean result here so we can't optimise to
                        andalso/orelse but we can at least look for the
                        case where both results are constants. *)
-                    val insSecond = optimise(condThen, tailCall)
-                    val insThird  = optimise(condElse, tailCall)
+                    val insSecond = optimise(condThen, tailCall, context)
+                    val insThird  = optimise(condElse, tailCall, context)
 
                     (* If we have tuples on both arms we can probably combine them.  If we have
                        a container on a branch we will have declared it at some point so we
@@ -1489,7 +1428,7 @@ struct
                                 fn n => mkDec(n+baseAddr, mkInd(n, mkLoad(containerAddr, 0))))
                         val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
                         fun env (l:loadForm, depth, _) : optVal =
-                            changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisProcedure)
+                            changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisFunction)
                     in
                         optVal 
                             {
@@ -1511,15 +1450,8 @@ struct
                         if wordEq (c2, c3)
                         then if sideEffectFree insFirst
                         then insSecond
-                        else (* Must put insFirst in decs, so it gets executed *) 
-                            optVal 
-                            {
-                                general = second,
-                                special = CodeNil,
-                                environ = errorEnv,
-                                decs    = [NullBinding insFirst],
-                                recCall = ref false
-                            }
+                        else (* Must put insFirst in decs, so it gets executed *)
+                            repDecs [NullBinding insFirst] (simpleOptVal second)
                   
                         (* if x then true else false == x *)
                         else if wordEq (c2, True) andalso wordEq (c3, False)
@@ -1590,34 +1522,25 @@ struct
                 end
         end (* Cond ... *)
          
-     |  optimise (Newenv(envDecs, envExp), tailCall) =
+     |  optimise (Newenv(envDecs, envExp), tailCall,
+                  context as {enterDec, spval, lookupOldAddr, nestingOfThisFunction, enterNewDec, evaluate, ...}) =
         let
             (* Recurses down the list of declarations and expressions processing
                each, and then reconstructs the list on the way back. *)
             fun copyDeclarations []  =
                 (* End of the list - process the result expression. *)
-                    optimise(envExp, tailCall)
+                    optimise(envExp, tailCall, context)
 
             |   copyDeclarations (Declar{addr=caddr, value, ...} :: vs) = 
                 let
                     (* Add the declaration to the table. *)
                     val dec =
-                        newDecl (enterDec, optimise(value, NONE), caddr, true);
+                        newDecl (enterDec, optimise(value, NONE, context), caddr, true, context);
                   
                     (* Deal with the rest of the block. *)
-                    val rest = copyDeclarations vs;
+                    val rest = copyDeclarations vs
                 in
-                    case dec of
-                      [] => rest
-                    | _  => (* Must put these declarations onto the list. *)
-                      optVal 
-                        {
-                          general = optGeneral rest,
-                          special = optSpecial rest,
-                          environ = optEnviron rest,
-                          decs    = dec @ optDecs rest,
-                          recCall = optRec rest
-                        }
+                    repDecs (dec @ optDecs rest) rest
                 end
 
             |   copyDeclarations (RecDecs mutualDecs :: vs) = 
@@ -1663,7 +1586,7 @@ struct
                        special. *)
                     val _ =
                         List.app (fn { lambda, addr, ... } =>
-                                    enterDec (addr, optimise(Lambda lambda, NONE)))
+                                    enterDec (addr, optimise(Lambda lambda, NONE, context)))
                         inlines
 
                     (* Next process the non-inlines.  We really want to be able to
@@ -1697,7 +1620,7 @@ struct
                         val oldEntry =
                             lookupOldAddr(
                                     {addr=decAddr, level=0, fpRel=true, lastRef=false},
-                                    nestingOfThisProcedure, 0)
+                                    nestingOfThisFunction, 0)
                     in
                         case optGeneral oldEntry of
                             oldGen as Constnt _ =>
@@ -1716,7 +1639,7 @@ struct
                                 end;
                        
                                 (* Now copy this entry. *)
-                                val ins  = optimise(Lambda lambda, NONE)
+                                val ins  = optimise(Lambda lambda, NONE, context)
 
                                 val gen  = optGeneral ins;
                                 val spec = optSpecial ins;
@@ -1825,7 +1748,7 @@ struct
                                 val oldEntry =
                                     lookupOldAddr(
                                             {addr=decAddr, level=0, fpRel=true, lastRef=false},
-                                            nestingOfThisProcedure, 0)
+                                            nestingOfThisFunction, 0)
                             in
                                 let
                                     val newConstant = findEntryInBlock results offset
@@ -1855,38 +1778,24 @@ struct
                     val rest = copyDeclarations vs
                 in
                     (* and put these declarations onto the list. *)
-                    optVal
-                    {
-                        general = optGeneral rest,
-                        special = optSpecial rest,
-                        environ = optEnviron rest,
-                        decs    = convertDecs decs @ optDecs rest,
-                        recCall = optRec rest
-                    }
+                    repDecs (convertDecs decs @ optDecs rest) rest
                 end
 
             |   copyDeclarations (NullBinding v :: vs) =
                 let (* Not a declaration - process this and the rest.*)
-                    val copiedNode = optimise(v, NONE)
+                    val copiedNode = optimise(v, NONE, context)
                     val rest = copyDeclarations vs
                 in  (* This must be a statement whose
                        result is ignored. Put it into the declaration list. *)
-                    optVal 
-                        {
-                          general = optGeneral rest,
-                          special = optSpecial rest,
-                          environ = optEnviron rest,
-                          decs    = optDecs copiedNode @ 
-                            (NullBinding(optGeneral copiedNode) :: optDecs rest),
-                          recCall = optRec rest
-                        }
+                    repDecs (optDecs copiedNode @ 
+                            (NullBinding(optGeneral copiedNode) :: optDecs rest)) rest
                 end (* copyDeclarations *)
 
         in
             copyDeclarations envDecs
         end (* Newenv(... *)
           
-    |   optimise (Recconstr entries, _) =
+    |   optimise (Recconstr entries, _, context as { nestingOfThisFunction, ...}) =
          (* The main reason for optimising record constructions is that they
             appear as tuples in ML. We try to ensure that loads from locally
             created tuples do not involve indirecting from the tuple but can
@@ -1904,7 +1813,7 @@ struct
                 let
                     (* Declare this value. If it is anything but a constant
                        there will be some code. *)
-                    val newDecs = newDecl (setTab, optimise(h, NONE), addr, true)
+                    val newDecs = newDecl (setTab, optimise(h, NONE, context), addr, true, context)
                     val thisArg = valOf (Array.sub(newTab, addr)) (* Get the value back. *)
                     val {decs=restDecs, gen=genRest, spec=specRest} = makeDecs t (addr + 1)
                     val gen = optGeneral thisArg
@@ -1923,7 +1832,7 @@ struct
             (* Package up the declarations so we can extract the special values. *)
             val vec = Array.vector newTab
             fun env ({addr, ...}:loadForm, depth, _) : optVal =
-                changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisProcedure)
+                changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisFunction)
         in
             optVal 
             {
@@ -1936,21 +1845,21 @@ struct
             }
         end
           
-      |  optimise (Indirect{ base, offset }, _) = (* Try to do the selection now if possible. *)
-            doIndirection(optimise(base, NONE), offset)
+      |  optimise (Indirect{ base, offset }, _, context) = (* Try to do the selection now if possible. *)
+            doIndirection(optimise(base, NONE, context), offset, context)
        
-      |  optimise (pt as Ldexc, _) =
+      |  optimise (pt as Ldexc, _, _) =
             simpleOptVal pt (* just a constant so return it *)
         
-      |  optimise (Handle { exp, handler }, tailCall) =
+      |  optimise (Handle { exp, handler }, tailCall, context) =
         simpleOptVal 
-          (Handle {exp     = general exp,
-                   handler = generalOptimise(handler, tailCall)}
+          (Handle {exp     = general context exp,
+                   handler = generalOptimise(handler, tailCall, context)}
           )
 
-      |  optimise (c as Container _, _) = simpleOptVal c
+      |  optimise (c as Container _, _, _) = simpleOptVal c
 
-      |  optimise (TupleFromContainer(container, size), _) =
+      |  optimise (TupleFromContainer(container, size), _, context as { spval, nestingOfThisFunction, ...}) =
         let
             (* If possible we want to optimise this away in the same way as
                a tuple made with Recconstr.  We have to be careful, though,
@@ -1961,7 +1870,7 @@ struct
                use this tuple as a single entity it won't be created.
                If we don't actually use a field the corresponding declaration
                will be removed in cleanCode. *)
-            val optCont = optimise(container, NONE)
+            val optCont = optimise(container, NONE, context)
             (* Since "container" will always be an Extract entry we can have multiple
                references to it in the declarations.  Include an assertion to that
                effect just in case future changes make that no longer true. *)
@@ -1975,7 +1884,7 @@ struct
                 List.tabulate(size, fn n => mkDec(n+baseAddr, mkInd(n, optGeneral optCont)))
             val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
             fun env (l:loadForm, depth, _) : optVal =
-                changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisProcedure)
+                changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisFunction)
         in
             optVal 
                 {
@@ -1987,37 +1896,41 @@ struct
                 }
         end
 
-      |  optimise (SetContainer{container, tuple as Cond _ , size}, _) =
+      |  optimise (SetContainer{container, tuple as Cond _ , size}, _, context) =
             (* mkSetContainer transforms this. *)
-            optimise(mkSetContainer(container, tuple, size), NONE)
+            optimise(mkSetContainer(container, tuple, size), NONE, context)
 
-      |  optimise (SetContainer{container, tuple as Newenv _ , size}, _) =
+      |  optimise (SetContainer{container, tuple as Newenv _ , size}, _, context) =
             (* mkSetContainer transforms this. *)
-            optimise(mkSetContainer(container, tuple, size), NONE)
+            optimise(mkSetContainer(container, tuple, size), NONE, context)
 
-      |  optimise (SetContainer{container, tuple, size}, _) =
+      |  optimise (SetContainer{container, tuple, size}, _, context) =
             (* Push the set-container down the tree and then process it. If we've
                expanded an inline function we want to be able to find any
                tuple we're creating. *)
             let
-                val optCont = general container
-                and optTuple = general tuple
+                val optCont = general context container
+                and optTuple = general context tuple
+                val () =
+                    case optCont of
+                        Extract{level=0, fpRel=true, ...} => ()
+                    |   _ => raise InternalError "optimise: SetContainer - not local"
+                
                 (* If the "tuple" is an expanded inline function it may well
                    contain an if-expression.  If both branches were tuples
                    we will have expanded it already and the result will be
                    a TupleFromContainer. *)
-                fun pushSetContainer(Cond(ifpt, thenpt, elsept)) =
-                        Cond(ifpt, pushSetContainer thenpt, pushSetContainer elsept)
+                fun pushSetContainer(Cond(ifpt, thenpt, elsept), decs): codetree =
+                    mkEnv(List.rev decs,
+                           Cond(ifpt, pushSetContainer(thenpt, []), pushSetContainer(elsept, [])))
 
-                |   pushSetContainer(Newenv(envDecs, envExp)) =
-                        Newenv(envDecs, pushSetContainer envExp)
+                |   pushSetContainer(Newenv(envDecs, envExp), decs) =
+                        pushSetContainer(envExp, List.rev envDecs @ decs)
 
-                (* TODO: This required us to be able to process the previous declarations
-                   i.e. in the Newenv case we need to be able to retain the list of
-                   declarations and reprocess it. *)
-                (*|   pushSetContainer(tuple as
+                |   pushSetContainer(tuple as
                         TupleFromContainer(
-                            Extract{addr=innerAddr, level=0, fpRel=true, ...}, innerSize)) =
+                            Extract{addr=innerAddr, level=0, fpRel=true, ...}, innerSize),
+                        decs) =
                     if innerSize = size
                     then
                         (
@@ -2029,30 +1942,43 @@ struct
                                 fun replaceContainerDec [] =
                                     raise InternalError "replaceContainerDec"
                                   | replaceContainerDec ((hd as Declar{addr, ...}) :: tl) =
-                                            if addr = innerAddr
-                                            then mkDec(addr, mkLoad(containerAddr, 0)) :: tl
-                                            else hd :: replaceContainerDec tl 
+                                        if addr = innerAddr
+                                        then mkDec(addr, mkLoad(containerAddr, 0)) :: tl
+                                        else hd :: replaceContainerDec tl 
                                   | replaceContainerDec(hd :: tl) =
                                         hd :: replaceContainerDec tl
+                                (* Sometimes the TupleFromContainer is preceded by some
+                                   Declar entries.  We need to remove them so that the
+                                   last entry in the list is the NullBinding that contains the
+                                   code that sets the container, usually as the result of
+                                   passing it as an argument to a function.  For some reason
+                                   just adding a dummy CodeZero at the end results in a
+                                   reference to a non-local container.  I don't understand this. *)
+                                fun removeFinalDecs(Declar _ :: tl) = removeFinalDecs tl
+                                |   removeFinalDecs(RecDecs _ :: tl) = removeFinalDecs tl
+                                |   removeFinalDecs(NullBinding c :: tl) = (c, tl)
+                                |   removeFinalDecs [] = raise InternalError "removeFinalDecs: Empty"
+                                val (exp, rdecs) = removeFinalDecs(replaceContainerDec decs)
                             in
                                 (* Just replace the declaration. *)
-                                replaceContainerDec decs 
+                                mkEnv(List.rev rdecs, exp)
                             end
-                        | _ => SetContainer{container = optCont, tuple = tuple, size = size}
+                        | _ => mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
                         )
-                    else  SetContainer{container = optCont, tuple = tuple, size = size} *)
+                    else mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
 
-                |   pushSetContainer tuple =
-                        SetContainer{container = optCont, tuple = tuple, size = size}
+                |   pushSetContainer(tuple, decs) =
+                        mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
+              
             in
-                simpleOptVal(pushSetContainer optTuple)
+                simpleOptVal(pushSetContainer(optTuple, []))
             end
 
-      |  optimise (Global g, _) = g
+      |  optimise (Global g, _, _) = g
 
-      |  optimise (TagTest{test, tag, maxTag}, _) =
+      |  optimise (TagTest{test, tag, maxTag}, _, context) =
             let
-                val optTest = general test
+                val optTest = general context test
             in
                 case optTest of
                     Constnt testResult =>
@@ -2062,24 +1988,24 @@ struct
                 |   _ => simpleOptVal(TagTest{test=optTest, tag=tag, maxTag=maxTag})
             end
 
-      |   optimise(IndirectVariable{base, offset}, tailCall) =
+      |   optimise(IndirectVariable{base, offset}, tailCall, context) =
             (* If this is a constant offset turn it into a simple Indirect instr.
                TODO: If the "base" is actually a TupleVariable we may be able to
                optimise it away in the same way as with fixed-size tuples. *)
             let
-                val optOffset = general offset
+                val optOffset = general context offset
             in
                 case optOffset of
                     Constnt offs =>
-                        optimise(Indirect{base=base, offset=Word.toInt(toShort offs)}, tailCall)
+                        optimise(Indirect{base=base, offset=Word.toInt(toShort offs)}, tailCall, context)
                 |   _ =>
-                    simpleOptVal(IndirectVariable{base=general base, offset=optOffset})
+                    simpleOptVal(IndirectVariable{base=general context base, offset=optOffset})
             end
 
-      |   optimise(TupleVariable(vars, length), _) =
+      |   optimise(TupleVariable(vars, length), _, context as { nestingOfThisFunction, ...}) =
             (* Try to turn this into a fixed size tuple. *)
             let
-                val optLength = general length
+                val optLength = general context length
             in
                 case optLength of
                     Constnt _ =>
@@ -2098,7 +2024,7 @@ struct
                             fun makeOneEntry(optSource, addr) =
                             let
                                 (* Put the source into a local variable. *)
-                                val newDecs = newDecl (setTab, optSource, addr, true)
+                                val newDecs = newDecl (setTab, optSource, addr, true, context)
                                 val thisArg = valOf (StretchArray.sub(newTab, addr)) (* Get the value back. *)
                                 val gen = optGeneral thisArg
                                 (* If there's no "special" and the general is a constant use that for
@@ -2115,7 +2041,7 @@ struct
 
                             |   makeDecs (VarTupleSingle{source, ...} :: t, addr) =
                                 let
-                                    val {gen, spec, decs} = makeOneEntry(optimise(source, NONE), addr)
+                                    val {gen, spec, decs} = makeOneEntry(optimise(source, NONE, context), addr)
                                     val {decs=restDecs, gen=genRest, spec=specRest} = makeDecs(t, addr + 1)
                                 in
                                     {gen = gen :: genRest, spec = spec :: specRest, decs = decs @ restDecs }
@@ -2124,12 +2050,12 @@ struct
                             |   makeDecs (VarTupleMultiple{base, length, sourceOffset, ...} :: t, addr) =
                                 let
                                     val len =
-                                        case general length of
+                                        case general context length of
                                             Constnt l => Word.toInt(toShort l)
                                         |   _ => raise InternalError "makeDecs: not constant"
                                     (* Put the base address into a local variable.  We must do this because
                                        the base code could have side-effects which must be done exactly once. *)
-                                    val baseDecs = newDecl (setTab, optimise(base, NONE), addr, true)
+                                    val baseDecs = newDecl (setTab, optimise(base, NONE, context), addr, true, context)
                                     val thisArg = valOf (StretchArray.sub(newTab, addr)) (* Get the value back. *)
                                     val {decs=restDecs, gen=genRest, spec=specRest} = makeDecs(t, addr + len+ 1)
 
@@ -2141,8 +2067,8 @@ struct
                                             (* The offset could be a variable even if the resulting size is
                                                a constant. *)
                                             val indirectEntry =
-                                                case general sourceOffset of
-                                                    Constnt offset => doIndirection(thisArg, n + Word.toInt(toShort offset))
+                                                case general context sourceOffset of
+                                                    Constnt offset => doIndirection(thisArg, n + Word.toInt(toShort offset), context)
                                                 |   varOffset =>
                                                     let
                                                         (* This isn't currently generated so leave this in until it is. *)
@@ -2173,7 +2099,7 @@ struct
                             (* Package up the declarations so we can extract the special values. *)
                             val vec = StretchArray.vector newTab
                             fun env ({addr, ...}:loadForm, depth, _) : optVal =
-                                changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisProcedure)
+                                changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisFunction)
                         in
                             optVal 
                             {
@@ -2192,29 +2118,19 @@ struct
                            functions.  *)
                     let
                         fun optTuple(VarTupleSingle{source, destOffset}) =
-                                VarTupleSingle{source=general source, destOffset=general destOffset}
+                                VarTupleSingle{source=general context source, destOffset=general context destOffset}
                         |   optTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
-                                VarTupleMultiple{base=general base, length=general length,
-                                                 destOffset=general destOffset, sourceOffset=general sourceOffset}
+                                VarTupleMultiple{base=general context base, length=general context length,
+                                                 destOffset=general context destOffset, sourceOffset=general context sourceOffset}
                         val optFields = map optTuple vars
                     in
                         simpleOptVal(TupleVariable(optFields, optLength))
                     end
             end
 
-      |  optimise (Case _, _) = raise InternalError "optimise: Case"
+      |  optimise (Case _, _, _) = raise InternalError "optimise: Case"
 
-      |  optimise (KillItems _, _) = raise InternalError "optimise: StaticLinkCall"
-
-    (* optimise *);
-
-(*****************************************************************************)
-(*                  body of optimiseProc                                     *)
-(*****************************************************************************)
-  in
-    optimise(pt, tailCallEntry)
-  end (* optimiseProc *)
-
+      |  optimise (KillItems _, _, _) = raise InternalError "optimise: StaticLinkCall"
 
 
     fun codetreeOptimiser(pt, eval, maxInlineSize) =
@@ -2266,12 +2182,11 @@ struct
             update (oldAddrTab, addr, SOME tab)
         )
 
-
         val resultCode =
-          optimiseProc
-            {pt=pt, lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
-             enterNewDec=enterNewDec, nestingOfThisProcedure=0, spval=localAddressAllocator,
-             evaluate=eval, tailCallEntry=NONE, recursiveExpansions=[], maxInlineSize=maxInlineSize }
+          optimise(pt, NONE,
+            {lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterDec=enterDec,
+             enterNewDec=enterNewDec, nestingOfThisFunction=0, spval=localAddressAllocator,
+             evaluate=eval, recursiveExpansions=[], loopFilter=loopFilterError, maxInlineSize=maxInlineSize })
 
     in
         (* Turn the arrays into vectors. *)
