@@ -109,7 +109,6 @@ struct
   
     infix 9 sub;
 
-    val isConstnt    = fn (Constnt _)    => true | _ => false;
     val isCodeNil    = fn CodeNil        => true | _ => false; (* Exported *)
 
     (* gets a value from the run-time system *)
@@ -198,8 +197,6 @@ DCJM 2000.
         lifeTimes(pass1, localAddressCount)
     end
 
-
-
     fun genCode(pt, debugSwitches) =
     let
         val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
@@ -225,7 +222,7 @@ DCJM 2000.
 
         (* Optimise it. *)
 
-        val (insertedCode, localCount) =
+        val (optimisedCode, localCount) =
         let
             (* Function to code-generate and run expressions that can be evaluated
                at compile-time. *)
@@ -234,171 +231,147 @@ DCJM 2000.
             (* Optimise it. *)
             OPTIMISER.codetreeOptimiser(pt, eval, maxInlineSize)
         end
-    
-        val gen  = optGeneral insertedCode;
-        val spec = optSpecial insertedCode;
-        val decs = optDecs insertedCode;
-    
-        val notSpecial =
-            case spec of
-                Lambda{isInline, ...} => isInline = NonInline
-           |    CodeNil => true
-           |    _ => false
+
+        (* At this stage we have a "general" value and also, possibly a "special"
+           value.  We could simply create mkEnv(decs, gen) and run preCode
+           and genCode on that.  However, we would lose the ability to insert
+           any inline functions from this code into subsequent top-level
+           expressions.  We can't simply retain the "special" entry either
+           because that may refer to values that have to be created once when
+           the code is run.  Such values will be referenced by "load" entries
+           which refer to entries in the "decs".  We construct a tuple which
+           will contain the actual values after the code is run.  Then if
+           we want the value at some time in the future when we use something
+           from the "special" entry we can extract the corresponding value
+           from this tuple.
+           We check to see if the special entry contains a function and if
+           it does not we simply generate the version without any special
+           entry at all.  This speeds up compilation in certain pathological
+           cases. *)
+        val gen  = optGeneral optimisedCode
+        val spec = optSpecial optimisedCode
+        val decs = optDecs optimisedCode
+
+        local
+            (* See if there is an inline function in there. *)
+            fun containsFunction _ (_, true) = true
+            |   containsFunction _ (Lambda _, _) = true
+            |   containsFunction _ (Constnt _, _) = false
+            |   containsFunction _ (CodeNil, _) = false
+            |   containsFunction optEnv (Recconstr tuple, _) = List.foldl(containsFunction optEnv) false tuple
+            |   containsFunction optEnv (Extract ext, _) =
+                let
+                    val newVal = optEnv(ext, 0, 0)
+                in
+                    containsFunction(optEnviron newVal) (optSpecial newVal, false)
+                end
+            |   containsFunction _ _ = raise InternalError "containsFunction"
+
+        in
+            val hasFunction = containsFunction(optEnviron optimisedCode) (spec, false)
+        end
+
     in
-        if notSpecial 
+        if not hasFunction
         then
         let
-            (* Nothing special or it is a non-inline procedure - Code-generate it. *)
-            val optCode = mkEnv(decs, gen)
+            val code = codeGenAndPrint (preCodeAndPrint(mkEnv(decs, gen), localCount), localCount)
         in
-            if isConstnt optCode (* Save code-generating it. *)
-            then (fn () => optCode)
-            else
-            let
-                val code = codeGenAndPrint (preCodeAndPrint(optCode, localCount), localCount)
-            in (* Return procedure to execute it *)
-                fn () => Global (simpleOptVal (mkConst (code ())))
-            end
+            fn () => mkConst(code())
         end
-        
-        else (* There is something in "special". *)
-            if null decs
-        then  (* Simply return it - it can have no non-local references. *)
-            (fn () => Global insertedCode)
-    
         else
         let
-            (* We have some declarations to evaluate but we can't do that until
-               we execute the code. Expand out any mutual declarations and
-               remove any expressions which are being evaluated only for their
-               side-effects. *)
-         
-            (* There seems to be a problem with this code - we put declarations
-               in the tuple even if those declarations are unused. In fact we can't
-               tell whether the declarations are used, because we haven't computed
-               their reference counts yet. This means that we can generate a LOT
-               of junk if someone writes "open Motif" without first constraining
-               it with a signature. I'll have to come back and look at this some
-               time. SPF 3/4/97
-            *)
-            (* It's more difficult than that.  We need the declarations for
-               the "special" entries so the reference counts won't help.  Because
-               of the optimisations we may well have declarations which are unused
-               in the general entries but which are referred to by special entries.
-               The purpose of this vector is to provide the "general" value (always
-               a constant because it's been evaluated) for any declarations used
-               in the special values.  
-               DCJM 19/3/01. *)
-         
-            (* For each declaration in the sequence generate a corresponding load
-               instruction to get its value. The declarations will normally be in
-               ascending order but there may be gaps if a declaration contains
-               a block with declarations in it. The gaps are replaced with zero
-               values. However mutually recursive declarations may be in a random
-               order so the list may have to be sorted. *)
+            val decArray = Array.array(localCount, CodeZero)
+            
+            fun addDecs(Declar{addr, value = Container size, ...}) =
+                    Array.update(decArray, addr, TupleFromContainer(mkLoad (addr, 0), size))
+            |   addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoad (addr, 0))
+            |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoad (addr, 0))) decs
+            |   addDecs(NullBinding _) = ()
 
-            fun getValues [] _ : codetree list =
-                [] (* Last of all the general value. *)
-          
-            |   getValues (decs as ((declAddr, _) :: vs)) (addr: int): codetree list =
-                if declAddr < addr (* Already done? *)
-                then getValues vs addr (* remove *)
-                else
-                let
-                    fun findEntry [] = CodeZero (* Not found. *)
-                    |   findEntry ((dAddr, value) :: rest) =
-                        if dAddr <> addr
-                        then findEntry rest
-                        else (* Found the declaration. *)
-                        (
-                        case value of
-                            Container size =>
-                                (* We mustn't put container values in the result since
-                                   they won't persist after the code that creates them
-                                   has exited.  We replace them with TupleFromContainer
-                                   entries. *)
-                                TupleFromContainer(mkLoad (addr, 0), size)
-                        |   _ => mkLoad (addr, 0) (* Found - put in a load. *)
-                        )
-                in
-                    findEntry decs  :: getValues decs (addr + 1)
-                end
+            val () = List.app addDecs decs
 
-             fun expandMutual [] = []
-              | expandMutual (RecDecs dec :: decs) = map(fn{addr, lambda, ...} => (addr, Lambda lambda)) dec @ expandMutual decs
-              | expandMutual ((Declar{addr, value, ...}) :: decs) =
-                    (addr, value) :: expandMutual decs
-              | expandMutual (_ :: decs) =
-                    expandMutual decs; (* expression *)
-   
-            val ext     = gen :: getValues (expandMutual decs) 1
-            val newDecs = mkEnv (decs, mkTuple ext)
-            val code    = codeGenAndPrint (preCodeAndPrint(newDecs, localCount), localCount)
-        in (* We now have the values of the declarations. *)
+            (* Construct the tuple and drop the first entry which is never used.  Replace
+               it by the "general" value. *)
+            val tupleEntries = List.tl(Array.foldr(op ::) nil decArray)
+ 
+            val resultTuple = mkTuple(gen :: tupleEntries)
+            (* Now generate the machine code and return it as a function that can be called. *)
+            val code = codeGenAndPrint (preCodeAndPrint(mkEnv (decs, resultTuple), localCount), localCount)
+        in
+            (* Return a function that executes the compiled code and then creates the
+               final "global" value as the result. *)
             fn () =>
                 let
-                    (* Execute the code - the result is a vector with the
-                       declarations in it. *)
-                    val res = code ()
+                    local
+                        (* Execute the code.  This will perform any side-effects the user
+                           has programmed and may raise an exception if that is required. *)
+                        val resVector = code ()
 
-                    val decVals : address =
-                        if isShort res
-                        then raise InternalError "Result vector is not an address"
-                        else toAddress res
-        
+                        (* The result is a vector containing the "general" value as the
+                           first word and the evaluated declarations for any "special"
+                           entries in subsequent words. *)
+                        val decVals : address =
+                            if isShort resVector
+                            then raise InternalError "Result vector is not an address"
+                            else toAddress resVector
+                    in
+                        fun resultWordN n = loadWord (decVals, toShort n)
+                        (* Get the general value, the zero'th entry in the vector. *)
+                        val generalVal = resultWordN 0
+                    end
+
                     (* Construct a new environment so that when an entry is looked 
                        up the corresponding constant is returned. *) 
-                    fun newEnviron oldEnv (lval, depth, levels) =
+                    fun newEnviron oldEnv args =
                     let
-                        val oldVal = oldEnv (lval, depth, levels)
-          
-                        (* Get the constant out of the table. *)
-                        fun look (Extract{addr, ...}) = 
-                            mkConst (loadWord (decVals, toShort addr))
-            
-                        |   look (g as Indirect{base, offset}) =
-                            let
-                                val v   = look base
-                            in
-                                case v of
-                                    Constnt caddr => mkConst(loadWord (toAddress caddr, toShort offset))
-                                | _ => g
-                            end
-            
-                        |   look g = g
-           
+                        val oldVal = oldEnv args
+                    
+                        val genVal =
+                            case optGeneral oldVal of
+                                Extract{addr, ...} => mkConst (resultWordN addr)
+                            |   c as Constnt _ => c
+                            |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
+         
                         val specVal = optSpecial oldVal
-           
+
+                        (* If we return a special value here we need to construct a
+                           suitable environment for it which wraps the original environment
+                           with this one. *)
                         val envVal =
                             if isCodeNil specVal
                             then errorEnv
                             else newEnviron (optEnviron oldVal)
+                   
+                        val () = (* Check the decs are empty. *)
+                            case optDecs oldVal of
+                                [] => ()
+                            |   _ => raise InternalError "codetree decVal: Not empty"
                     in                       
                         optVal 
                         {
-                            general = look (optGeneral oldVal),
+                            general = genVal,
                             special = specVal,
                             environ = envVal,
-                            decs    = optDecs oldVal, (* should be nil *)
+                            decs    = [],
                             recCall = optRec oldVal
                         }
                     end (* newEnviron *)
-            
-                    (* Get the general value, the zero'th entry in the vector. *)
-                    val generalVal = loadWord (decVals, toShort 0);
+        
                 in 
                     (* and return the whole lot as a global value. *)
                     Global
                       (optVal 
                          {
                            general = mkConst generalVal,
-                           special = spec, (* <> CodeNil *)
-                           environ = newEnviron (optEnviron insertedCode),
+                           special = spec,
+                           environ = newEnviron (optEnviron optimisedCode),
                            decs    = [],
-                           recCall = optRec insertedCode
+                           recCall = optRec optimisedCode
                          })
                 end
         end
+
     end (* genCode *)
 
 
