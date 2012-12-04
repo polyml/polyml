@@ -92,12 +92,11 @@ sig
     val optGeneral: optVal -> codetree
     and optSpecial: optVal -> codetree
     and optDecs: optVal -> codeBinding list
-    and optRec: optVal -> bool ref
     and optEnviron: optVal -> { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal
     and optVal:
         { general : codetree, special : codetree,
           environ : { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal,
-          decs : codeBinding list, recCall: bool ref } -> optVal
+          decs : codeBinding list } -> optVal
     and simpleOptVal : codetree -> optVal
     
     val errorEnv: { addr : int,  level: int,  fpRel: bool, lastRef: bool } * int * int -> optVal

@@ -353,8 +353,7 @@ DCJM 2000.
                             general = genVal,
                             special = specVal,
                             environ = envVal,
-                            decs    = [],
-                            recCall = optRec oldVal
+                            decs    = []
                         }
                     end (* newEnviron *)
         
@@ -366,8 +365,7 @@ DCJM 2000.
                            general = mkConst generalVal,
                            special = spec,
                            environ = newEnviron (optEnviron optimisedCode),
-                           decs    = [],
-                           recCall = optRec optimisedCode
+                           decs    = []
                          })
                 end
         end

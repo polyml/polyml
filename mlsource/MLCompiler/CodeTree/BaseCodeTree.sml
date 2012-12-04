@@ -126,9 +126,7 @@ struct
             (* Environment for the special value. *)
             environ : loadForm * int * int -> optVal,
             (* Declarations to precede the value - Always nil for global values. *)
-            decs : codeBinding list,
-            (* A reference which is used to detect recursive inline expansions. *)
-            recCall: bool ref
+            decs : codeBinding list
         }
 
     and codeBinding =

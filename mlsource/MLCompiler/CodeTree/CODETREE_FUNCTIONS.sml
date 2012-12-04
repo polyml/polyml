@@ -456,9 +456,6 @@ struct
       | optDecs    (ValWithDecs {decs, ...}) = decs
       | optDecs    (JustTheVal _)           = [];
   
-    fun optRec     (OptVal {recCall,...})       = recCall
-      | optRec     _ = ref false; (* Generate a temporary. *)
-  
     val simpleOptVal : codetree -> optVal = JustTheVal
 
     fun optVal{special=CodeNil, decs=[], general, ...} = JustTheVal general
