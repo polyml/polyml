@@ -32,10 +32,17 @@ structure CodetreeStaticLinkAndCases =
         structure CODETREE_FUNCTIONS = CodetreeFunctions
     )
 
+structure CodetreeRemoveRedundant =
+    CODETREE_REMOVE_REDUNDANT(
+        structure BASECODETREE = BaseCodeTree
+        structure CODETREE_FUNCTIONS = CodetreeFunctions
+    )
+
 structure CodetreeOptimiser =
     CODETREE_OPTIMISER(
         structure BASECODETREE = BaseCodeTree
         structure CODETREE_FUNCTIONS = CodetreeFunctions
+        structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
     )
 
 structure CodeTree = 
