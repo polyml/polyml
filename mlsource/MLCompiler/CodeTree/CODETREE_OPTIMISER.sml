@@ -390,18 +390,30 @@ struct
        but when we create a "special" entry the context (environ) for it may be the Old or
        New lookup function depending on whether we use the unprocessed or processed
        codetree as the "special" entry. *)
+    type nameEnv = 
+    { 
+        (* Look-up.  This takes a "load" entry as used in Extract, the nesting depth of
+           the point where the result value will be used and the "level" count in
+           the loadForm. *)
+        lookup: (*{ load: loadForm, callerNesting: int, level: int }*) loadForm * int * int -> optVal,
+        enter: int * optVal -> unit
+    }
+    
+    fun errorEnter (_:int * optVal): unit = raise InternalError "errorEnter"
+
     type optContext =
-        {lookupNewAddr : loadForm * int * int -> optVal,
-         lookupOldAddr : loadForm * int * int -> optVal,
-         enterOldDec : int * optVal -> unit,
-         enterNewDec : int * optVal -> unit,
+    {
+         oldEnv: nameEnv,
+         newEnv: nameEnv,
          nestingOfThisFunction : int,
          spval : int ref,
          evaluate : codetree * int -> codetree,
          recursiveExpansions:
             ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) option,
-         loopFilter: ((codetree * argumentType) list -> (codetree * argumentType) list),
-         maxInlineSize: int}
+         loopFilter: (codetree * argumentType) list -> (codetree * argumentType) list,
+         maxInlineSize: int,
+         inlineExpansionDepth: int
+    }
 
     fun loopFilterError _ = raise InternalError "Loop instruction without BeginLoop"
 
@@ -462,7 +474,8 @@ struct
 
     (* Handle an Indirect node or the equivalent in a variable tuple. *)
     fun doIndirection(source, offset,
-            {nestingOfThisFunction,  spval, evaluate, recursiveExpansions, loopFilter, maxInlineSize, ... }) =
+            {nestingOfThisFunction,  spval, evaluate, recursiveExpansions, loopFilter, maxInlineSize, 
+             inlineExpansionDepth, ... }) =
         case (optSpecial source, optGeneral source) of
           (spec as Recconstr _, _) =>
             let
@@ -479,16 +492,16 @@ struct
                    in here we simply call "optimise" which will deal with them. *)
                 val newCode =
                  optimise(findEntryInBlock spec offset, false,
-                    {lookupNewAddr=errorEnv, (* We must always look up old addresses. *)
-                    lookupOldAddr=optEnviron source,
-                    enterOldDec=  fn _ => raise InternalError "enterOldDec", (* should not be used *)
-                    enterNewDec = fn _ => raise InternalError "enterNewDec", (* should not be used *)
+                    {
+                    newEnv = { lookup = errorEnv, enter = errorEnter }, (* We must always look up old addresses. *)
+                    oldEnv = { lookup = optEnviron source, enter = errorEnter },
                     nestingOfThisFunction= nestingOfThisFunction,
                     spval= spval,
                     evaluate= evaluate,
                     recursiveExpansions= recursiveExpansions,
                     loopFilter= loopFilter,
-                    maxInlineSize= maxInlineSize})
+                    maxInlineSize= maxInlineSize,
+                    inlineExpansionDepth = inlineExpansionDepth})
             in
                 repDecs (optDecs source @ optDecs newCode) newCode
             end
@@ -513,18 +526,26 @@ struct
      |  optimise (CodeNil, _, _) = simpleOptVal CodeNil
         
      |  optimise (Eval {function, argList, resultType}, tailCall,
-                    context as {evaluate, spval, nestingOfThisFunction, recursiveExpansions, ...}) =
+                    context as {evaluate, spval, nestingOfThisFunction, recursiveExpansions, inlineExpansionDepth, ...}) =
         let
             (* Function call - This may involve inlining the function. *)
 
             (* Get the function to be called and see if it is inline or
                a lambda expression. *)
             val funct : optVal = optimise(function, false, context)
-               
+            
+(*            val () = case (function, optGeneral funct) of
+                (Extract{addr=0, fpRel = false, level = fLevel, ...}, Extract{addr=0, fpRel = false, level = gLevel, ...}) =>
+                    if fLevel = gLevel then () else print "different levels\n"
+            |   (Extract{addr=0, fpRel = false, ...}, _) =>
+                    raise InternalError "recursive before but not after\n"
+            |   (_, Extract{addr=0, fpRel = false, ...}) =>
+                    print "recursive after but not before\n"
+            |   _ => ()*)
+ 
             (* There are essentially two cases to consider - the function
                may be "inline" in which case it must be expanded as a block,
                or it must be called. *)
-
         in
             case (function, optSpecial funct, optGeneral funct) of
                 (Extract{addr=0, fpRel = false, level = 0, ...}, _, _) =>
@@ -541,6 +562,7 @@ struct
                                 if tailCall
                                 then Loop (filterArgs(copiedArgs, true, nestingOfThisFunction))
                                 else Eval {function = optGeneral funct,
+                                        (* N.B. We still need to use "filterArgs" even if this is a call. *)
                                         argList = filterArgs(copiedArgs, false, nestingOfThisFunction),
                                         resultType=resultType}
                             (* Not a recursive expansion. *)
@@ -560,15 +582,33 @@ struct
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
                 end
 
-            |   (_, Lambda (lambda as { isInline = MaybeInline, ...}), _) =>
-                    inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
+            |   (_, Lambda (lambda as { isInline = MaybeInline, ...}), gen) =>
+                    if inlineExpansionDepth < 5
+                    then inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
+                    else
+                    let
+                        val copiedArgs = map (fn (arg, argType) => (general context arg, argType)) argList
+                        val evCopiedCode = 
+                            Eval {function = gen, argList = copiedArgs, resultType=resultType}
+                    in
+                        repDecs (optDecs funct) (simpleOptVal evCopiedCode)
+                    end
 
             |   (_, Lambda (lambda as { isInline = OnlyInline, ...}), _) =>
                     inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
 
-            |   (_, Lambda lambda, _) =>
-                    inlineSmallFunction(funct, lambda, argList, resultType, context)
-                
+            |   (_, Lambda lambda, gen) =>
+                    if inlineExpansionDepth < 5
+                    then inlineSmallFunction(funct, lambda, argList, resultType, context)
+                    else
+                    let
+                        val copiedArgs = map (fn (arg, argType) => (general context arg, argType)) argList
+                        val evCopiedCode = 
+                            Eval {function = gen, argList = copiedArgs, resultType=resultType}
+                    in
+                        repDecs (optDecs funct) (simpleOptVal evCopiedCode)
+                    end
+
             | (_, _, gen as Constnt w) => (* Not inlinable - constant function. *)
                 let
                     val copiedArgs = map (fn (arg, argType) => (general context arg, argType)) argList
@@ -593,10 +633,10 @@ struct
 
         end (* Eval { } *)
         
-     |  optimise (Extract(ext as {level, ...}), _, {lookupOldAddr, nestingOfThisFunction, ...}) =
+     |  optimise (Extract(ext as {level, ...}), _, {oldEnv = {lookup=lookupOldAddr, ...}, nestingOfThisFunction, ...}) =
             lookupOldAddr (ext, nestingOfThisFunction, level)
 
-     |  optimise (original as Lambda({isInline=OnlyInline, ...}), _, { lookupOldAddr, ...} ) =
+     |  optimise (original as Lambda({isInline=OnlyInline, ...}), _, { oldEnv = {lookup=lookupOldAddr, ...}, ...} ) =
             (* Used only for functors.  Leave unchanged. *)
             optVal 
                 {
@@ -621,7 +661,8 @@ struct
 
      |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
                           argTypes, resultType, ...}), _,
-                 { nestingOfThisFunction, lookupOldAddr, lookupNewAddr, maxInlineSize, evaluate, spval, ... }) =
+                 { nestingOfThisFunction, oldEnv = {lookup=lookupOldAddr, ...}, newEnv = {lookup=lookupNewAddr, ...},
+                   maxInlineSize, evaluate, spval, inlineExpansionDepth, ... }) =
         let
             (* The nesting of this new function is the current nesting level
              plus one. Normally this will be the same as lambda.level except
@@ -632,54 +673,59 @@ struct
             val oldAddrTab = stretchArray (initTrans, NONE)
             and newAddrTab = stretchArray (initTrans, NONE)
 
-            fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
-                (* local declaration or argument. *)
-                if index > 0 
-                (* Local declaration. *)
-                then
-                case  oldAddrTab sub index of
-                    SOME v => changeLevel v (depth - nesting)
-                |   NONE => raise InternalError(
-                                    concat["localOldAddr: Not found. Addr=", Int.toString index,
-                                           " Level=", Int.toString level])
-                (* Argument or closure. *)
-                else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
-            |   localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1)
+            local
+                fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
+                    (* local declaration or argument. *)
+                    if index > 0 
+                    (* Local declaration. *)
+                    then
+                    case  oldAddrTab sub index of
+                        SOME v => changeLevel v (depth - nesting)
+                    |   NONE => raise InternalError(
+                                        concat["localOldAddr: Not found. Addr=", Int.toString index,
+                                               " Level=", Int.toString level])
+                    (* Argument or closure. *)
+                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
+                |   localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1)
+                and setTab (index, v) = update (oldAddrTab, index, SOME v)
+            in
+                val oldEnv = { lookup = localOldAddr, enter = setTab }
+            end
 
-            (* localNewAddr is used as the environment of inline functions within
-               the function we're processing.  All the entries in this table will
-               have their "general" entries as simply Extract entries with the
-               original address.  Their "special" entries may be different. The
-               only entries in the table will be those which correspond to
-               declarations in the original code so there may be new declarations
-               which aren't in the table. *)
-            fun localNewAddr ({ addr=index, ...}, depth, 0) =
-                if index > 0 
-                then case newAddrTab sub index of
-                    NONE => (* Return the original entry if it's not there. *)
-                        simpleOptVal(mkGenLoad (index, depth - nesting, true, false))
-                |   SOME v => changeLevel v (depth - nesting) 
-                else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
-            |   localNewAddr (ptr, depth, levels) = lookupNewAddr (ptr, depth, levels - 1);
+            local
+                (* localNewAddr is used as the environment of inline functions within
+                   the function we're processing.  All the entries in this table will
+                   have their "general" entries as simply Extract entries with the
+                   original address.  Their "special" entries may be different. The
+                   only entries in the table will be those which correspond to
+                   declarations in the original code so there may be new declarations
+                   which aren't in the table. *)
+                fun localNewAddr ({ addr=index, ...}, depth, 0) =
+                    if index > 0 
+                    then case newAddrTab sub index of
+                        NONE => (* Return the original entry if it's not there. *)
+                            simpleOptVal(mkGenLoad (index, depth - nesting, true, false))
+                    |   SOME v => changeLevel v (depth - nesting) 
+                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
+                |   localNewAddr (ptr, depth, levels) = lookupNewAddr (ptr, depth, levels - 1);
 
-            fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
-            and setTab (index, v) = update (oldAddrTab, index, SOME v)
+                fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
+            in
+                val newEnv = {lookup=localNewAddr, enter=setNewTab}
+            end
 
-            val newAddressAllocator = ref 1
-
-            val newCode =
+            val newAddressAllocator = ref 1      val newCode =
                 optimise (lambdaBody, false,
                 {
-                lookupNewAddr=localNewAddr,
-                lookupOldAddr=localOldAddr, 
-                enterOldDec=setTab,
-                enterNewDec=setNewTab,
+                newEnv=newEnv,
+                oldEnv=oldEnv,
                 nestingOfThisFunction=nesting,
                 spval=newAddressAllocator,
                 evaluate=evaluate,
                 recursiveExpansions=NONE,
                 loopFilter=loopFilterError,
-                maxInlineSize=maxInlineSize})
+                maxInlineSize=maxInlineSize,
+                inlineExpansionDepth=inlineExpansionDepth})
 
           (* nonLocals - a list of the non-local references made by this
              function.  If this is empty the function can be code-generated
@@ -827,7 +873,8 @@ struct
             simpleOptVal pt (* Return the original constant. *)
            
      |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall,
-              context as { lookupNewAddr, lookupOldAddr, enterOldDec, enterNewDec, nestingOfThisFunction, spval, evaluate, recursiveExpansions, maxInlineSize, ...}) =
+              context as { newEnv, oldEnv as {enter = enterOldDec, ...}, nestingOfThisFunction, spval,
+                            evaluate, recursiveExpansions, maxInlineSize, inlineExpansionDepth, ...}) =
         let
              (* We could try extracting redundant loop variables but for
                 the time being we just see whether we actually need a loop
@@ -844,12 +891,13 @@ struct
              val _ =
                 optimise
                   (mkEnv(List.map (Declar o #1) args, body), true,
-                  {lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr,
-                   enterOldDec=enterOldDec, enterNewDec=enterNewDec, nestingOfThisFunction=nestingOfThisFunction,
+                  {newEnv = newEnv, oldEnv = oldEnv,
+                   nestingOfThisFunction=nestingOfThisFunction,
                    spval=spval, evaluate=evaluate,
                    recursiveExpansions=recursiveExpansions,
                    loopFilter=filterArgs,
-                   maxInlineSize=maxInlineSize})
+                   maxInlineSize=maxInlineSize,
+                   inlineExpansionDepth=inlineExpansionDepth})
         in
             if not (! loops)
             then (* The Loop instructions have been optimised away.  Since there's
@@ -873,12 +921,13 @@ struct
                  val declArgs = map declArg args
                  val beginBody =
                     optimise(body, true,
-                      {lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterOldDec=enterOldDec,
-                       enterNewDec=enterNewDec, nestingOfThisFunction=nestingOfThisFunction, spval=spval,
+                      {newEnv = newEnv, oldEnv = oldEnv,
+                       nestingOfThisFunction=nestingOfThisFunction, spval=spval,
                        evaluate=evaluate,
                        recursiveExpansions=recursiveExpansions,
                        loopFilter=filterArgs,
-                       maxInlineSize=maxInlineSize})
+                       maxInlineSize=maxInlineSize,
+                       inlineExpansionDepth=inlineExpansionDepth})
             in
                 simpleOptVal (BeginLoop {loop=getGeneral beginBody, arguments=declArgs})
             end
@@ -1069,7 +1118,10 @@ struct
         end (* Cond ... *)
          
      |  optimise (Newenv(envDecs, envExp), tailCall,
-                  context as {enterOldDec, spval, lookupOldAddr, nestingOfThisFunction, enterNewDec, evaluate, ...}) =
+                  context as 
+                    {oldEnv = {enter = enterOldDec, lookup = lookupOldAddr },
+                     newEnv = { enter =  enterNewDec, ...}, 
+                     spval, nestingOfThisFunction, evaluate, ...}) =
         let
             (* Recurses down the list of declarations and expressions processing
                each, and then reconstructs the list on the way back. *)
@@ -1663,7 +1715,7 @@ struct
        either functors or auxiliary functions in curried or tupled fun bindings.
        They are never directly recursive but could contain "small" functions that are. *)
     and inlineInlineOnlyFunction(funct, {body=lambdaBody, name=lambdaName, ...}, argList, tailCall,
-            context as {evaluate, spval, nestingOfThisFunction, recursiveExpansions, lookupNewAddr, maxInlineSize, ...}) =
+            context as {evaluate, spval, nestingOfThisFunction, recursiveExpansions, newEnv = { lookup = lookupNewAddr, ...}, maxInlineSize, inlineExpansionDepth, ...}) =
         let
             (* Calling inline proc or a lambda expression which is just called.
                The function is replaced with a block containing declarations
@@ -1688,18 +1740,20 @@ struct
                 val copiedArgs = List.foldr (op @) [] bindings
             end
 
-            (* All declarations should be of positive addresses. *)
-            fun setNewTabForInline (addr, v) = update (localNewVec, addr, SOME v)
-            and setTabForInline (index, v) = update (localVec, index, SOME v)
+            val newEnv =
+            { 
+                enter = fn (addr, v) => update (localNewVec, addr, SOME v),
+                lookup = 
+                    fn (ext as { addr, ...}, depth, levels) =>
+                        (* It may be local to this function or to the surrounding scope. *)
+                    if levels <> 0 orelse addr <= 0
+                    then lookupNewAddr(ext, depth, levels)
+                    else case localNewVec sub addr of
+                            SOME v => changeLevel v (depth - nestingOfThisFunction)
+                        |   NONE => lookupNewAddr(ext, depth, levels)
+            }
 
-            fun lookupLocalNewAddr (ext as { addr, ...}, depth, levels) =
-                    (* It may be local to this function or to the surrounding scope. *)
-                if levels <> 0 orelse addr <= 0
-                then lookupNewAddr(ext, depth, levels)
-                else case localNewVec sub addr of
-                        SOME v => changeLevel v (depth - nestingOfThisFunction)
-                    |   NONE => lookupNewAddr(ext, depth, levels);
-
+            local
                 (* The environment for the expansion of this function
                    is the table for local declarations and the original
                    environment in which the function was declared for
@@ -1723,20 +1777,22 @@ struct
                        changeLevel value (depth - nestingOfThisFunction)
                      end
                 |  lookupDec (ptr, depth, levels) =
-                     (optEnviron funct) (ptr, depth, levels - 1);
+                     (optEnviron funct) (ptr, depth, levels - 1)
+            in
+                val oldEnv = 
+                    { lookup = lookupDec, enter = fn (index, v) => update (localVec, index, SOME v) }
+            end
 
             val copiedBody =
                 optimise(lambdaBody, tailCall,
-                      {lookupNewAddr=lookupLocalNewAddr,
-                       lookupOldAddr=lookupDec, 
-                       enterOldDec=setTabForInline,
-                       enterNewDec=setNewTabForInline,
-                       nestingOfThisFunction=nestingOfThisFunction,
-                       spval=spval,
-                       evaluate=evaluate,
-                       recursiveExpansions=recursiveExpansions,
-                       loopFilter=loopFilterError,
-                       maxInlineSize=maxInlineSize})
+                    {newEnv = newEnv, oldEnv = oldEnv,
+                     nestingOfThisFunction=nestingOfThisFunction,
+                     spval=spval,
+                     evaluate=evaluate,
+                     recursiveExpansions=recursiveExpansions,
+                     loopFilter=loopFilterError,
+                     maxInlineSize=maxInlineSize,
+                     inlineExpansionDepth=inlineExpansionDepth+1})
         in
             StretchArray.freeze localVec;
             StretchArray.freeze localNewVec;
@@ -1750,8 +1806,10 @@ struct
     (* Expand inline a "small" function i.e. a normal function that appears to be small
        enough to expand inline. *)
     and inlineSmallFunction(funct, {body=lambdaBody, name=lambdaName, argTypes, ...}, argList, resultType,
-            context as {evaluate, spval, nestingOfThisFunction, lookupNewAddr, maxInlineSize, ...}) =
+            context as {evaluate, spval, nestingOfThisFunction, newEnv = { lookup = lookupNewAddr, ...}, maxInlineSize, 
+            inlineExpansionDepth, ...}) =
         let
+            val _ = inlineExpansionDepth < 5 orelse raise InternalError "too deep"
             (* Calling inline proc or a lambda expression which is just called.
                The function is replaced with a block containing declarations
                of the parameters.  We need a new table here because the addresses
@@ -1776,10 +1834,6 @@ struct
                 val copiedArgs = List.foldr (op @) [] bindings
             end
 
-            (* All declarations should be of positive addresses. *)
-            fun setNewTabForInline (addr, v) = update (localNewVec, addr, SOME v)
-            and setTabForInline (index, v) = update (localVec, index, SOME v)
-
             fun lookupLocalNewAddr (ext as { addr, ...}, depth, levels) =
                     (* It may be local to this function or to the surrounding scope. *)
                 if levels <> 0 orelse addr <= 0
@@ -1788,348 +1842,354 @@ struct
                         SOME v => changeLevel v (depth - nestingOfThisFunction)
                     |   NONE => lookupNewAddr(ext, depth, levels);
 
-            val copiedBody =
+            (* Now load the function body itself.  We first process it assuming
+               that we won't need to treat any of the arguments specially.  If
+               we find that we generate a Loop instruction somewhere we have
+               to make sure that any arguments we change in the course of the
+               loop are taken out.  For example:
+               fun count'(n, []) = n | count' (n, _::t) = count'(n+1, t);
+               fun count l = count'(0, l).
+               In this case we would start by expanding count' using 0 for n
+               throughout, since it's a constant.  When we find the recursive
+               call in which n becomes n+1 we find we have to take n out of the
+               loop and treat it as a variable.
+               We don't need to do this if the argument is passed through unchanged
+               e.g. fun foldl f b [] = b  | foldl f b (x::y) = foldl f (f(x, b)) y;
+               where the same value for f is used everywhere and by treating it
+               specially we can expand its call. 
+               This two-pass (it will normally be two-pass but could be more) approach
+               allows us to optimise cases where we have a recursive function which
+               happens to be non-recursive with particular constant values of the
+               arguments.
+               e.g. if x = nil ... generates a general recursive function for
+               equality on lists but because of the nil argument this optimises
+               down to a simple test. *)
+            (*
+               I'm now extending this to the general recursive case not just tail
+               recursion.  If we discover a recursive call while processing the
+               function we turn this expansion into a function call and give up
+               trying to inline it.  Instead we create a special-purpose function
+               for this call but with only the arguments that change as a
+               result of the recursive calls actually passed as arguments.  Other
+               arguments can be inserted inline in function.
+               e.g. fun map f [] = [] | map f (a::b) = f a :: map f b
+               where when we map a function over a list we compile a specialised
+               mapping function with the actual value of f inserted in it.
+            *)
+                val needsBeginLoop = ref false
+                val needsRecursiveCall = ref false
+                val argModificationVec = Array.array(nArgs, false);
+                (* Create addresses for the new variables for modified arguments.
+                   If newdecl created a variable we might be able to reuse that
+                   but it's easier to create new ones. *)
+                val argBaseAddr = ! spval; val _ = spval := argBaseAddr + nArgs
+
+                (* filterArgs is called whenever a recursive call is made to
+                   this function. *)
+                fun filterArgs (argList: (codetree * argumentType) list, isTail, depth) =
                 let
-                (* Now load the function body itself.  We first process it assuming
-                   that we won't need to treat any of the arguments specially.  If
-                   we find that we generate a Loop instruction somewhere we have
-                   to make sure that any arguments we change in the course of the
-                   loop are taken out.  For example:
-                   fun count'(n, []) = n | count' (n, _::t) = count'(n+1, t);
-                   fun count l = count'(0, l).
-                   In this case we would start by expanding count' using 0 for n
-                   throughout, since it's a constant.  When we find the recursive
-                   call in which n becomes n+1 we find we have to take n out of the
-                   loop and treat it as a variable.
-                   We don't need to do this if the argument is passed through unchanged
-                   e.g. fun foldl f b [] = b  | foldl f b (x::y) = foldl f (f(x, b)) y;
-                   where the same value for f is used everywhere and by treating it
-                   specially we can expand its call. 
-                   This two-pass (it will normally be two-pass but could be more) approach
-                   allows us to optimise cases where we have a recursive function which
-                   happens to be non-recursive with particular constant values of the
-                   arguments.
-                   e.g. if x = nil ... generates a general recursive function for
-                   equality on lists but because of the nil argument this optimises
-                   down to a simple test. *)
-                (*
-                   I'm now extending this to the general recursive case not just tail
-                   recursion.  If we discover a recursive call while processing the
-                   function we turn this expansion into a function call and give up
-                   trying to inline it.  Instead we create a special-purpose function
-                   for this call but with only the arguments that change as a
-                   result of the recursive calls actually passed as arguments.  Other
-                   arguments can be inserted inline in function.
-                   e.g. fun map f [] = [] | map f (a::b) = f a :: map f b
-                   where when we map a function over a list we compile a specialised
-                   mapping function with the actual value of f inserted in it.
-                *)
-                    val needsBeginLoop = ref false
-                    val needsRecursiveCall = ref false
-                    val argModificationVec = Array.array(nArgs, false);
-                    (* Create addresses for the new variables for modified arguments.
-                       If newdecl created a variable we might be able to reuse that
-                       but it's easier to create new ones. *)
-                    val argBaseAddr = ! spval; val _ = spval := argBaseAddr + nArgs
+                    fun filterArgs' 0 [] = []
+                      | filterArgs' _ [] =
+                            raise InternalError "filterArgs: wrong number of args"
+                      | filterArgs' n ((arg, argType) :: rest) =
+                        let
+                            (* Is this simply passing the original argument value?  *)
+                            val original = getParameter(~n)
+                            val unChanged =
+                                case (arg, optGeneral original) of
+                                    (Constnt w, Constnt w') =>
+                                        (* These may well be functions so don't use
+                                           structure equality. *)
+                                        wordEq(w, w')
+                                | (Extract {addr=aA, level=aL, fpRel=aFp, ...},
+                                   Extract {addr=bA, level=bL, fpRel=bFp, ...}) =>
+                                    aA = bA andalso aFp = bFp andalso
+                                    aL = bL+depth-nestingOfThisFunction
+                                | _ => false
 
-                    (* filterArgs is called whenever a recursive call is made to
-                       this function. *)
-                    fun filterArgs (argList: (codetree * argumentType) list, isTail, depth) =
+                        in
+                            if unChanged
+                            then ()
+                            else Array.update(argModificationVec, n-1, true);
+                            (* If any recursive call has changed it we need
+                               to include this argument even if it didn't
+                               change on this particular call. *)
+                            if Array.sub(argModificationVec, n-1)
+                            then (arg, argType) :: filterArgs' (n-1) rest
+                            else (* Not modified *) filterArgs' (n-1) rest
+                        end
+                in
+                    needsBeginLoop := true; (* Indicate we generated a Loop instr. *)
+                    (* If this isn't tail recursion we need a full call. *)
+                    if isTail then () else needsRecursiveCall := true;
+                    (* If we have a recursive inline function containing a
+                       local recursive inline function which calls the outer
+                       function
+                       (e.g. fun f a b = .... map (f a) ....) we may process
+                       the body of the inner function twice, once as a lambda
+                       and once when we attempt to expand it inline.  That
+                       means we will process the recursive call to the outer
+                       function twice.  The first call may filter out redundant
+                       arguments (e.g. "a" in the above example).  *)
+                    if List.length argList <> nArgs
+                    then argList
+                    else filterArgs' nArgs argList
+                end
+
+                (* See how many arguments changed. *)
+                fun countSet() =
+                    Array.foldl(fn (true, n) => n+1 | (false, n) => n) 0 argModificationVec
+
+                fun checkForLoopInstrs lastModCount =
+                (* Try inlining the function.  Called initially or while we only have
+                   tail recursive calls.  Returns SOME code if this is possible or NONE
+                   if we will have to construct an auxiliary function. *)
+                let
+                    (* There's still something strange going on where we end up with
+                       a BeginLoop that doesn't contain any Loop.  See regression
+                       test Succeed/Test108.ML. *)
+                    val _ = needsBeginLoop := false
+
+                    fun localOldAddr({ addr=0, ...}, depth, 0) =
+                         (* Recursive reference - return the copied function after removing
+                            the declarations.  These will be put on in the surrounding
+                            scope.  Since we're not actually inside the function (we're
+                            expanding it) we can't return a recursive reference so we
+                            return the reference to the function that was passed in.
+                            This cannot be a recursive or tail recursive call because
+                            that case is dealt with specially in the Eval case of
+                            "optimise". *)
+                         changeLevel (stripDecs funct) (depth - nestingOfThisFunction)
+
+                    |   localOldAddr ({ addr=index, ...}, depth, 0) =
+                        let (* On this level. *)
+                            val optVal =
+                                if index > 0
+                                then valOf (localVec sub index)  (* locals *)
+                                else (* index < 0 *) if Array.sub(argModificationVec, ~index-1)
+                                then (* This argument changes - must use a variable even if
+                                        the original argument was a constant. *)
+                                    simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
+                                else getParameter index (* parameters *)
+                        in
+                            changeLevel optVal (depth - nestingOfThisFunction)
+                        end
+
+                    | localOldAddr (ptr, depth, levels) = (* On another level. *)
+                            (optEnviron funct) (ptr, depth, levels - 1)
+
+                    (* All declarations should be of positive addresses. *)
+                    fun setNewTabForInline (addr, v) = update (localNewVec, addr, SOME v)
+                    and setTabForInline (index, v) = update (localVec, index, SOME v)
+
+                    val copiedBody =
+                         optimise(lambdaBody, true,
+                          {newEnv = {lookup=lookupLocalNewAddr, enter = setNewTabForInline },
+                           oldEnv = {lookup=localOldAddr, enter =setTabForInline },
+                           nestingOfThisFunction=nestingOfThisFunction,
+                           spval=spval,
+                           evaluate=evaluate,
+                           recursiveExpansions=SOME(filterArgs),
+                           loopFilter=loopFilterError,
+                           maxInlineSize=maxInlineSize,
+                           inlineExpansionDepth=inlineExpansionDepth+1})
+                  
+                 in
+                    if ! needsRecursiveCall
+                    then (* We need a fully recursive call. *)
+                        NONE (* *)
+                    else if ! needsBeginLoop 
+                    then (* We've found at least one recursive call which changes its
+                            argument value. *)
                     let
-                        fun filterArgs' 0 [] = []
-                          | filterArgs' _ [] =
-                                raise InternalError "filterArgs': wrong number of args"
-                          | filterArgs' n ((arg, argType) :: rest) =
-                            let
-                                (* Is this simply passing the original argument value?  *)
-                                val original = getParameter(~n)
-                                val unChanged =
-                                    case (arg, optGeneral original) of
-                                        (Constnt w, Constnt w') =>
-                                            (* These may well be functions so don't use
-                                               structure equality. *)
-                                            wordEq(w, w')
-                                    | (Extract {addr=aA, level=aL, fpRel=aFp, ...},
-                                       Extract {addr=bA, level=bL, fpRel=bFp, ...}) =>
-                                        aA = bA andalso aFp = bFp andalso
-                                        aL = bL+depth-nestingOfThisFunction
-                                    | _ => false
-
-                            in
-                                if unChanged
-                                then ()
-                                else Array.update(argModificationVec, n-1, true);
-                                (* If any recursive call has changed it we need
-                                   to include this argument even if it didn't
-                                   change on this particular call. *)
-                                if Array.sub(argModificationVec, n-1)
-                                then (arg, argType) :: filterArgs' (n-1) rest
-                                else (* Not modified *) filterArgs' (n-1) rest
-                            end
-                    in
-                        needsBeginLoop := true; (* Indicate we generated a Loop instr. *)
-                        (* If this isn't tail recursion we need a full call. *)
-                        if isTail then () else needsRecursiveCall := true;
-                        (* If we have a recursive inline function containing a
-                           local recursive inline function which calls the outer
-                           function
-                           (e.g. fun f a b = .... map (f a) ....) we may process
-                           the body of the inner function twice, once as a lambda
-                           and once when we attempt to expand it inline.  That
-                           means we will process the recursive call to the outer
-                           function twice.  The first call may filter out redundant
-                           arguments (e.g. "a" in the above example).  *)
-                        if List.length argList <> nArgs
-                        then argList
-                        else filterArgs' nArgs argList
-                    end
-
-                    (* See how many arguments changed. *)
-                    fun countSet() =
-                        Array.foldl(fn (true, n) => n+1 | (false, n) => n) 0 argModificationVec
-
-                    fun checkRecursiveCalls lastModCount =
-                    (* We've found at least one non-tail recursive call so we're
-                       going to have to generate this function as a function and
-                       a call to that function.  However we may well gain by inserting
-                       in line arguments which don't change as a result of recursion. *)
-                    let
-                        val nesting = nestingOfThisFunction + 1
-                        (* Find the parameter we're actually going to use. *)
-                        fun getParamNo n =
-                            if n = 0 then 0
-                            else if Array.sub(argModificationVec, ~n -1)
-                            then getParamNo (n+1) - 1
-                            else getParamNo (n+1)
-
-                        fun prev ({ addr=0, ...}, depth, 0) =
-                             (* Recursive reference.  We're going to generate this
-                                as a function so return a reference to the closure.
-                                I've ensured that we pass the appropriate value for
-                                recCall here although I don't know if it's necessary. *)
-                             optVal {
-                                general = mkGenLoad (0, depth - nesting, false, false),
-                                (* This is a bit of a mess.  We need a non-nil value for
-                                   special here in order to pass recCall correctly
-                                   because optVal filters it otherwise. *)
-                                special = (*optSpecial funct *)
-                                    mkGenLoad (0, depth - nesting, false, false),
-                                decs = [],
-                                environ = errorEnv
-                                }
-                        |   prev ({ addr=index, ...}, depth, 0) =
-                             if index > 0  (* locals *)
-                             then changeLevel(valOf (localVec sub index)) (depth - nesting)
-                             else (* index < 0 - parameters *)
-                                if Array.sub(argModificationVec, ~index -1)
-                             then (* This argument has changed - find the corresponding
-                                     actual argument. *)
-                                simpleOptVal(mkLoad(getParamNo index, depth-nesting))
-                             else (* Unchanged - get the entry from the table, converting
-                                     the level because it's in the surrounding scope. *)
-                                changeLevel (getParameter index) (depth-nesting+1)
-                        |   prev (ptr, depth, levels) =
-                                (optEnviron funct) (ptr, depth, levels - 1)
-
-                        val newAddrTab = stretchArray (initTrans, NONE);
-
-                        (* localNewAddr is used as the environment of inline functions within
-                           the function we're processing. *)
-                        fun localNewAddr ({ addr=index, ...}, depth, 0) =
-                            if index > 0 
-                            then case newAddrTab sub index of
-                                NONE => (* Return the original entry if it's not there. *)
-                                    simpleOptVal(
-                                        mkGenLoad (index, depth - nesting, true, false))
-                            |   SOME v => changeLevel v (depth - nesting) 
-                            else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
-                        |   localNewAddr (ptr, depth, levels) =
-                                lookupNewAddr (ptr, depth, levels - 1)
-    
-                        fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
-                        and setTab (index, v) = update (localVec, index, SOME v)
-
-                        val newAddressAllocator = ref 1 (* Starts at one. *)
-
-                        val copiedBody =
-                             optimise(lambdaBody, false, (* Don't generate loop instructions. *)
-                              {lookupNewAddr=localNewAddr,
-                               lookupOldAddr=prev, 
-                               enterOldDec=setTab,
-                               enterNewDec=setNewTab,
-                               nestingOfThisFunction=nesting,
-                               spval=newAddressAllocator,
-                               evaluate=evaluate,
-                               recursiveExpansions=SOME filterArgs,
-                               loopFilter=loopFilterError,
-                               maxInlineSize=maxInlineSize})
-
                         val newModCount = countSet()
                     in
                         if newModCount > lastModCount
-                        then (* We have some (more) arguments to include. *)
-                            checkRecursiveCalls newModCount
-                        else
-                        let
-                            fun filterArgTypes([], _) = []
-                            |   filterArgTypes(hd:: tl, n) =
-                                    if Array.sub(argModificationVec, n-1)
-                                    then hd :: filterArgTypes(tl, n-1)
-                                    else filterArgTypes(tl, n-1)
-                            val newArgList = filterArgTypes(argTypes, nArgs)
-                        in
-                            optVal {
-                                general = Lambda {
-                                    body = getGeneral copiedBody,
-                                    isInline = NonInline,
-                                    name = lambdaName,
-                                    closure = [],
-                                    argTypes = newArgList, resultType=resultType,
-                                    level = nestingOfThisFunction + 1,
-                                    closureRefs = 0,
-                                    localCount = ! newAddressAllocator + 1,
-                                    makeClosure = false, argLifetimes = [] },
-                                special = CodeNil,
-                                decs = [],
-                                environ = localNewAddr
-                            }
-                        end
+                        then checkForLoopInstrs newModCount
+                        else SOME copiedBody
                     end
+                    else SOME copiedBody
+                end
 
-                    fun checkForLoopInstrs lastModCount =
-                    (* Called initially or while we only have tail recursive
-                       calls.  We can inline the function. *)
-                    let
-                        (* There's still something strange going on where we end up with
-                           a BeginLoop that doesn't contain any Loop.  See regression
-                           test Succeed/Test108.ML. *)
-                        val _ = needsBeginLoop := false;
-                        fun prev ({ addr=index, ...}, depth, 0) : optVal =
-                         let (* On this level. *)
-                           val optVal =
-                             if index = 0
-                             (* Recursive reference - return the copied function after removing
-                                the declarations.  These will be put on in the surrounding
-                                scope.  We can't at this stage tell whether it's a call or
-                                some other recursive use (e.g. passing it as an argument) and
-                                it could be that it's an argument to an inline function which
-                                actually calls it.  Since we include the original optRec value
-                                it can be sorted out later. *)
-                             then stripDecs funct
-                             else if index > 0
-                             then valOf (localVec sub index)  (* locals *)
-                             else (* index < 0 *) if Array.sub(argModificationVec, ~index-1)
-                             then (* This argument changes - must use a variable even if
-                                     the original argument was a constant. *)
-                                simpleOptVal(mkLoad(argBaseAddr + nArgs + index, 0))
-                             else getParameter index (* parameters *)
-                         in
-                           changeLevel optVal (depth - nestingOfThisFunction)
-                         end
-                        | prev (ptr, depth, levels) : optVal =
-                            (* On another level. *)
+                fun checkRecursiveCalls lastModCount =
+                (* Called if a simple inline expansion won't work.  We're
+                   going to have to generate this function as a function and
+                   a call to that function.  However we may well gain by inserting
+                   in line arguments which don't change as a result of recursion.
+                   TODO: If all the arguments are modified we could just as
+                   well fall back to calling the general function. *)
+                let
+                    val nesting = nestingOfThisFunction + 1
+                    (* Find the parameter we're actually going to use. *)
+                    fun getParamNo n =
+                        if n = 0 then 0
+                        else if Array.sub(argModificationVec, ~n -1)
+                        then getParamNo (n+1) - 1
+                        else getParamNo (n+1)
+
+                    fun localOldAddr ({ addr=0, ...}, depth, 0) =
+                         (* Recursive reference.  We're going to generate this
+                            as a function so return a reference to the closure. *)
+                         simpleOptVal(mkGenLoad (0, depth - nesting, false, false))
+
+                    |   localOldAddr ({ addr=index, ...}, depth, 0) =
+                         if index > 0  (* locals *)
+                         then changeLevel(valOf (localVec sub index)) (depth - nesting)
+                         else (* index < 0 - parameters *)
+                            if Array.sub(argModificationVec, ~index -1)
+                         then (* This argument has changed - find the corresponding
+                                 actual argument. *)
+                            simpleOptVal(mkLoad(getParamNo index, depth-nesting))
+                         else (* Unchanged - get the entry from the table, converting
+                                 the level because it's in the surrounding scope. *)
+                            changeLevel (getParameter index) (depth-nesting+1)
+
+                    |   localOldAddr (ptr, depth, levels) =
                             (optEnviron funct) (ptr, depth, levels - 1)
 
-                        val copiedBody =
-                             optimise(lambdaBody, true,
-                              {lookupNewAddr=lookupLocalNewAddr,
-                               lookupOldAddr=prev, 
-                               enterOldDec=setTabForInline,
-                               enterNewDec=setNewTabForInline,
-                               nestingOfThisFunction=nestingOfThisFunction,
-                               spval=spval,
-                               evaluate=evaluate,
-                               recursiveExpansions=SOME(filterArgs),
-                               loopFilter=loopFilterError,
-                               maxInlineSize=maxInlineSize})
-                    in
-                        if ! needsRecursiveCall
-                        then (* We need a fully recursive call. *)
-                            checkRecursiveCalls (countSet())
-                        else if ! needsBeginLoop 
-                        then (* We've found at least one recursive call which changes its
-                                argument value. *)
-                        let
-                            val newModCount = countSet()
-                        in
-                            if newModCount > lastModCount
-                            then checkForLoopInstrs newModCount
-                            else copiedBody
-                        end
-                        else copiedBody
-                    end
+                    val newAddrTab = stretchArray (initTrans, NONE);
 
-                    val procBody = checkForLoopInstrs 0
+                    (* localNewAddr is used as the environment of inline functions within
+                       the function we're processing. *)
+                    fun localNewAddr ({ addr=index, ...}, depth, 0) =
+                        if index > 0 
+                        then case newAddrTab sub index of
+                            NONE => (* Return the original entry if it's not there. *)
+                                simpleOptVal(
+                                    mkGenLoad (index, depth - nesting, true, false))
+                        |   SOME v => changeLevel v (depth - nesting) 
+                        else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
+                    |   localNewAddr (ptr, depth, levels) =
+                            lookupNewAddr (ptr, depth, levels - 1)
 
-                    (* If we need to make the declarations put them in at the
-                       beginning of the loop. *)
-                    fun makeDecs(0, []) = []
-                      | makeDecs(n, (_, typ):: rest) =
-                            if not (Array.sub(argModificationVec, n-1))
-                            then makeDecs (n-1, rest)
-                            else
-                            let
-                                val argVal = getGeneral(getParameter(~n))
-                                val argDec =
-                                    (* Include the address at this stage even if it's a call *)
-                                    {value = argVal, addr=argBaseAddr+nArgs-n, references=0}
-                            in
-                                (argDec, typ) :: makeDecs (n-1, rest)
-                            end
-                     |  makeDecs _ = raise InternalError "Unequal lengths"
-                    val newDecs = makeDecs(nArgs, argList)
+                    fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
+                    and setTab (index, v) = update (localVec, index, SOME v)
+
+                    val newAddressAllocator = ref 1 (* Starts at one. *)
+
+                    val copiedBody =
+                         optimise(lambdaBody, false, (* Don't generate loop instructions. *)
+                          {newEnv = {lookup=localNewAddr, enter=setNewTab },
+                           oldEnv = {lookup=localOldAddr, enter=setTab },
+                           nestingOfThisFunction=nesting,
+                           spval=newAddressAllocator,
+                           evaluate=evaluate,
+                           recursiveExpansions=SOME filterArgs,
+                           loopFilter=loopFilterError,
+                           maxInlineSize=maxInlineSize,
+                           inlineExpansionDepth = inlineExpansionDepth+1})
+
+                    val newModCount = countSet()
                 in
-                    if ! needsRecursiveCall
-                    then (* We need to put in a call to this function. *)
-                        let
-                            (* Put the function into the declarations. *)
-                            val addr = ! spval
-                        in
-                            spval := addr + 1;
-                            optVal{
-                                general =
-                                    Eval {function = mkLoad(addr, 0), 
-                                          argList = List.map (fn({value, ...}, t) => (value, t)) newDecs,
-                                          resultType=resultType},
-                                special = CodeNil,
-                                decs = [mkDec(addr, getGeneral procBody)],
-                                environ = lookupNewAddr
-                            }
-                        end
-                    else if ! needsBeginLoop
-                    then simpleOptVal(BeginLoop{loop=getGeneral procBody, arguments=newDecs})
-                    else if Array.exists(fn x => x) argModificationVec
-                    then (* We could have reset needsBeginLoop to false and ended up not needing a loop.
-                            Ifwe have declarations that we made earlier we have to include them. *)
-                        repDecs (List.map (Declar o #1) newDecs @ optDecs procBody) procBody
-                    else procBody
-                end (* val copiedBody = *)
+                    if newModCount > lastModCount
+                    then (* We have some (more) arguments to include. *)
+                        checkRecursiveCalls newModCount
+                    else
+                    let
+                        fun filterArgTypes([], _) = []
+                        |   filterArgTypes(hd:: tl, n) =
+                                if Array.sub(argModificationVec, n-1)
+                                then hd :: filterArgTypes(tl, n-1)
+                                else filterArgTypes(tl, n-1)
+                        val newArgList = filterArgTypes(argTypes, nArgs)
+                    in
+                        simpleOptVal(Lambda {
+                                body = getGeneral copiedBody,
+                                isInline = NonInline,
+                                name = lambdaName,
+                                closure = [],
+                                argTypes = newArgList, resultType=resultType,
+                                level = nestingOfThisFunction + 1,
+                                closureRefs = 0,
+                                localCount = ! newAddressAllocator + 1,
+                                makeClosure = false, argLifetimes = [] })
+                    end
+                end
+
+            (* If we need to make the declarations put them in at the
+               beginning of the loop. *)
+            fun makeDecs(0, []) = []
+              | makeDecs(n, (_, typ):: rest) =
+                    if not (Array.sub(argModificationVec, n-1))
+                    then makeDecs (n-1, rest)
+                    else
+                    let
+                        val argVal = getGeneral(getParameter(~n))
+                        val argDec =
+                            (* Include the address at this stage even if it's a call *)
+                            {value = argVal, addr=argBaseAddr+nArgs-n, references=0}
+                    in
+                        (argDec, typ) :: makeDecs (n-1, rest)
+                    end
+             |  makeDecs _ = raise InternalError "Unequal lengths"
+
         in
-            StretchArray.freeze localVec;
-            StretchArray.freeze localNewVec;
-            (* The result is the result of the body of the inline function.
-               The declarations needed for the inline function, the
-               declarations used to load the arguments and the declarations
-               in the expanded function are all concatenated together. *)
-            repDecs (optDecs funct @ (copiedArgs @ optDecs copiedBody)) copiedBody
+            case checkForLoopInstrs 0 of
+                SOME procBody =>
+                let
+                    (* Simple inline expansion is possible. *)
+                    val newDecs = makeDecs(nArgs, argList)
+                    val copiedBody =
+                        if ! needsBeginLoop
+                        then simpleOptVal(BeginLoop{loop=getGeneral procBody, arguments=newDecs})
+                        else if Array.exists(fn x => x) argModificationVec
+                        then (* We could have reset needsBeginLoop to false and ended up not needing a loop.
+                                If we have declarations that we made earlier we have to include them. *)
+                            repDecs (List.map (Declar o #1) newDecs @ optDecs procBody) procBody
+                        else procBody
+                in
+                    StretchArray.freeze localVec;
+                    StretchArray.freeze localNewVec;
+                    (* The result is the result of the body of the inline function.
+                       The declarations needed for the inline function, the
+                       declarations used to load the arguments and the declarations
+                       in the expanded function are all concatenated together. *)
+                    repDecs (optDecs funct @ (copiedArgs @ optDecs copiedBody)) copiedBody
+                end
+
+            |   NONE =>
+                let
+                    (* Need to build a function. *)
+                    val procBody = checkRecursiveCalls (countSet())
+                    val newDecs = makeDecs(nArgs, argList)
+                    (* Put the function into the declarations. *)
+                    val addr = ! spval before spval := !spval+1
+                in
+                    optVal{
+                        general =
+                            Eval {function = mkLoad(addr, 0), 
+                                  argList = List.map (fn({value, ...}, t) => (value, t)) newDecs,
+                                  resultType=resultType},
+                        special = CodeNil,
+                        decs = (optDecs funct @ (copiedArgs @  [mkDec(addr, getGeneral procBody)])),
+                        environ = errorEnv
+                    }
+                end
         end
-
-
-
 
     fun codetreeOptimiser(pt, eval, maxInlineSize) =
     let
         val localAddressAllocator = ref 1
-        val oldAddrTab = stretchArray (initTrans, NONE);
-        val newAddrTab = stretchArray (initTrans, NONE);
-
-        (* Return the entry from the "old" table with the depth adjusted if necessary.
-           The entry must exist. *)
-        fun lookupOldAddr ({addr, level, fpRel, ...}: loadForm, depth, 0) =
-        (
-            case oldAddrTab sub addr of
-                SOME v => changeLevel v depth
-            |   NONE =>
+        val oldAddrTab = stretchArray (initTrans, NONE)
+        val newAddrTab = stretchArray (initTrans, NONE)
+        
+        local
+            (* Return the entry from the "old" table with the depth adjusted if necessary.
+               The entry must exist. *)
+            fun lookupOldAddr ({addr, level, fpRel, ...}: loadForm, depth, 0) =
+            (
+                case oldAddrTab sub addr of
+                    SOME v => changeLevel v depth
+                |   NONE =>
+                    let
+                        val msg =
+                            concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
+                                " Level=", Int.toString level, " Fprel=", Bool.toString fpRel, ")"]
+                    in
+                        raise InternalError msg
+                    end
+            )
+            |   lookupOldAddr ({addr, level, fpRel, ...}, _, _) =
                 let
                     val msg =
                         concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
@@ -2137,36 +2197,36 @@ struct
                 in
                     raise InternalError msg
                 end
-        )
-        |   lookupOldAddr ({addr, level, fpRel, ...}, _, _) =
-            let
-                val msg =
-                    concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
-                        " Level=", Int.toString level, " Fprel=", Bool.toString fpRel, ")"]
-            in
-                raise InternalError msg
-            end
 
-        (* Return the entry from the "new" table.  If the entry does not exist
-           just return a "load" entry with the depth adjusted as necessary. *)
-        fun lookupNewAddr ({addr, ...}: loadForm, depth, 0) =
-        (
-            case newAddrTab sub addr of
-                NONE => simpleOptVal(mkGenLoad (addr, depth, true, false))
-            |   SOME v => changeLevel v depth 
-            )
-        |  lookupNewAddr _ = raise InternalError "outer level reached in lookupNewAddr"
+            (* Make an entry in the "old" table *)
+            and enterOldDec (addr, tab) = update (oldAddrTab, addr, SOME tab)
+        in
+            val oldEnv = { lookup = lookupOldAddr, enter = enterOldDec }
+        end
 
-        (* Make an entry in the "new" table. *)
-        fun enterNewDec (addr, tab) = update (newAddrTab, addr, SOME tab)
-        (* Make an entry in the "old" table *)
-        and enterOldDec (addr, tab) = update (oldAddrTab, addr, SOME tab)
+        local
+            (* Return the entry from the "new" table.  If the entry does not exist
+               just return a "load" entry with the depth adjusted as necessary. *)
+            fun lookupNewAddr ({addr, ...}: loadForm, depth, 0) =
+            (
+                case newAddrTab sub addr of
+                    NONE => simpleOptVal(mkGenLoad (addr, depth, true, false))
+                |   SOME v => changeLevel v depth 
+                )
+            |  lookupNewAddr _ = raise InternalError "outer level reached in lookupNewAddr"
+
+            (* Make an entry in the "new" table. *)
+            fun enterNewDec (addr, tab) = update (newAddrTab, addr, SOME tab)
+        in
+            val newEnv = { lookup = lookupNewAddr, enter = enterNewDec }
+        end
 
         val resultCode =
           optimise(pt, false,
-            {lookupNewAddr=lookupNewAddr, lookupOldAddr=lookupOldAddr, enterOldDec=enterOldDec,
-             enterNewDec=enterNewDec, nestingOfThisFunction=0, spval=localAddressAllocator,
-             evaluate=eval, recursiveExpansions=NONE, loopFilter=loopFilterError, maxInlineSize=maxInlineSize })
+            {newEnv = newEnv, oldEnv = oldEnv,
+             nestingOfThisFunction=0, spval=localAddressAllocator,
+             evaluate=eval, recursiveExpansions=NONE, loopFilter=loopFilterError, maxInlineSize=maxInlineSize,
+             inlineExpansionDepth = 0})
 
     in
         (* Turn the arrays into vectors. *)
