@@ -27,17 +27,29 @@ struct
     open Address
     exception InternalError = Misc.InternalError
 
-    fun mkGenLoad  (i1, i2, bl, lf) =
-        Extract {addr  = i1, level = i2, fpRel = bl, lastRef = lf};
+    datatype optVal =
+        JustTheVal of codetree
+    
+    |   ValWithDecs of {general : codetree, decs : codeBinding list}
+    
+    |   OptVal of
+        {
+            (* Expression to load this value - always a constant in global values. *)
+            general : codetree,
+            (* If it is not CodeNil it is the code which generated the general
+               value - either an inline procedure, a type constructor or a tuple. *)
+            special : codetree,
+            (* Environment for the special value. *)
+            environ : loadForm * int * int -> optVal,
+            (* Declarations to precede the value - Always nil for global values. *)
+            decs : codeBinding list
+        }
 
-    fun mkClosLoad(addr, last) = Extract {level = 0, addr = addr, fpRel = false, lastRef = last}
- 
-    fun mkDecRef(ct, i1, i2) = Declar{value = ct, addr = i1, references = i2};
-    fun mkDec (laddr, res) = mkDecRef(res, laddr, 0)
+    fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
 
     fun mkMutualDecs l =
     let
-        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a, references = 0}
+        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a}
         |   convertDec _ = raise InternalError "mkMutualDecs: Recursive declaration is not a function"
     in
         RecDecs(List.map convertDec l)
@@ -71,7 +83,7 @@ struct
     (* For the moment limit these to general arguments. *)
     fun mkLoop args = Loop (List.map(fn c => (c, GeneralType)) args)
     and mkBeginLoop(exp, args) =
-        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i, references=0}, GeneralType)) args}
+        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i}, GeneralType)) args}
 
     fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
         mkBeginLoop(mkIf(b, mkEnv([NullBinding e], mkLoop[]), CodeZero), [])
@@ -234,90 +246,6 @@ struct
 
 
 
-    (* Evaluates expressions by code-generating and running them.
-       "resultCode" is a copied code expression. The result is either
-       a constant or an exception. *)
-    local
-        exception Interrupt = Thread.Thread.Interrupt
-
-        fun evaluateDefault(resultCode, codegen, localCount) =
-            let
-                (* Compile the expression. *)
-                val code = codegen(resultCode, localCount)
-            in
-                mkConst (code()) (* Evaluate it and convert any exceptions into Raise instrs. *)
-                    handle Interrupt => raise Interrupt (* Must not handle this *)
-                    | exn => Raise (Constnt(toMachineWord exn))
-            end
-    in
-        fun evaluate (resultCode as Constnt _, _, _) =
-            (* May already have been reduced to a constant. *)
-            resultCode
-
-        |   evaluate (resultCode as Eval { function=evalFunction, argList, resultType, ...}, codegen, localCount) =
-            (* It's a function call - generate a call. This should only be
-              as a result of "early" evaluation when all the arguments are
-              constants or inline procedures. *)
-            if List.all(fn (_, GeneralType) => true | _ => false) argList andalso
-                (case resultType of GeneralType => true | _ => false)
-            then
-            (
-                case evaluate(evalFunction, codegen, localCount) of
-                    function as Raise _ => function (* Could be an exception. *)
-
-                |   function =>
-                    let (* Evaluate each argument. *)
-                        val funcAddress =
-                            case function of
-                                Constnt addr =>
-                                    if isShort addr
-                                    then raise InternalError "Code address is not an address"
-                                    else toAddress addr
-                            |   _ => raise InternalError "Code address is not a constant";
-       
-                        (* Finished loading the args; call the function.  If it raises an
-                           exception pass back the exception packet.  We've got a problem
-                           here if the code happens to raise Interrupt.  We assume that
-                           Interrupt can only occur through user intervention during
-                           compilation rather than as a result of executing the code.
-                           It would be better to use the Thread.Thread functions to
-                           mask off interrupts. *)
-                        fun callFunction (argTuple:machineWord) = 
-                            mkConst (call (funcAddress, argTuple))
-                                handle Interrupt => raise Interrupt (* Must not handle this *)
-                                | exn as InternalError _ => raise exn
-                                | exn => Raise (Constnt(toMachineWord exn))
-
-                        fun loadArgs (argVec : address, [],  _) =
-                            ( lock argVec; callFunction (toMachineWord argVec) )
-               
-                        |   loadArgs (argVec : address, (h, _) :: t, locn) =
-                            case evaluate(h, codegen, localCount) of
-                                arg as Raise _ => arg
-                                (* if argument is a "raise" expression, so is final result *)
-                            |   Constnt cv =>
-                                ( 
-                                    assignWord (argVec, toShort locn, cv);
-                                    loadArgs(argVec, t, locn + 1)
-                                )
-                            |   _ => raise InternalError "Result of evaluate is not a constant"
-
-                    in
-                        case argList of
-                            []      => callFunction word0  (* empty tuple - don't allocate *)
-          
-                        |   argList =>
-                            let 
-                                val argVec = alloc (toShort (List.length argList), F_mutable_words, word0);
-                            in
-                                loadArgs(argVec, argList, 0)
-                            end
-                    end
-                )
-                else evaluateDefault(resultCode, codegen, localCount)
-        |   evaluate(resultCode, codegen, localCount) = evaluateDefault(resultCode, codegen, localCount)
-    end
-
     fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
 
     (* Used for recursive functions - setting the "closure" flag
@@ -328,11 +256,11 @@ struct
        hack!  SPF 11/4/96
      *)
     fun mkRecLoad level =
-        Extract {level = level, addr = 0, fpRel = false, lastRef = false};
+        Extract {level = level, addr = 0, fpRel = false};
   
     fun mkLoad (addr,level) =
     if level < 0 then raise InternalError "mkLoad: level must be non-negative"
-    else Extract {level = level, addr = addr, fpRel = true, lastRef = false}
+    else Extract {level = level, addr = addr, fpRel = true}
   
 
     (* Old form operations for backwards compatibility.  These all create
@@ -490,21 +418,18 @@ struct
             then raiseError
             else mkConst (loadWord (toAddress b, toShort offset))
     
-        |  findEntryInBlock (Global glob) offset =
+        |  findEntryInBlock (Global(GVal(_, SOME((recc as Recconstr _, env))))) offset =
             (* Do the selection now.  This is especially useful if we
                have a global structure  *)
             (
-                case optSpecial glob of
-                    recc as Recconstr _ =>
-                    (
-                        case findEntryInBlock recc offset of
-                            Extract (ext as {level, ...}) =>
-                                Global (optEnviron glob (ext, 0, (* global *) level))
-                        |   selection => selection (* Normally a constant *)
-                    )
-      
-                |   _ => findEntryInBlock (optGeneral glob) offset
+                case findEntryInBlock recc offset of
+                    Extract (ext as {level, ...}) =>
+                        Global (env (ext, 0, (* global *) level))
+                |   selection => selection (* Normally a constant *)
             )
+ 
+        |   findEntryInBlock (Global(GVal(general, _))) offset =
+                 findEntryInBlock (Constnt general) offset
     
         |   findEntryInBlock base offset =
                 Indirect {base = base, offset = offset} (* anything else *)
@@ -521,7 +446,7 @@ struct
         
     (* Get the value from the code. *)
     fun evalue (Constnt c) = SOME c
-    |   evalue (Global g) = evalue(optGeneral g)
+    |   evalue (Global(GVal(g, _))) = SOME g
     |   evalue _ = NONE
 
     (* This is really to simplify the change from mkEnv taking a codetree list to
@@ -540,6 +465,7 @@ struct
     structure Sharing =
     struct
         type codetree = codetree
+        and  globalVal = globalVal
         and  optVal = optVal
         and  argumentType = argumentType
         and  varTuple = varTuple

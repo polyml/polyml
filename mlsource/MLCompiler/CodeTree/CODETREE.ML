@@ -29,24 +29,12 @@
 *)
 functor CODETREE (
 
-(*****************************************************************************)
-(*                  GCODE                                                    *)
-(*****************************************************************************)
-structure GCODE :
-sig
-    type machineWord = Address.machineWord
-    type codetree
-    val gencode: codetree * Universal.universal list * int -> unit -> machineWord;
-end (* GCODE *);
-
 structure DEBUG :
 sig
     val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
-    val codetreeAfterOptTag:    bool Universal.tag (* If true then print the optimised code. *)
     val maxInlineSizeTag:       int  Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end (* DEBUG *);
+    val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
+end
 
 structure PRETTY : PRETTYSIG
 
@@ -54,24 +42,18 @@ structure BASECODETREE: BaseCodeTreeSig
 
 structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
 
-structure LIFETIMES:
+structure BACKEND:
 sig
     type codetree
-    val lifeTimes: codetree * int -> codetree
-    structure Sharing: sig type codetree = codetree end
-end
-
-structure STATIC_LINK_AND_CASES:
-sig
-    type codetree
-    val staticLinkAndCases: (codetree * int -> unit -> Address.machineWord) * codetree * int -> codetree
-    structure Sharing: sig type codetree = codetree end
+    type machineWord = Address.machineWord
+    val codeGenerate: codetree * int * Universal.universal list -> unit -> machineWord
+    structure Sharing : sig type codetree = codetree end
 end
 
 structure OPTIMISER:
 sig
     type codetree and optVal
-    val codetreeOptimiser: codetree  * (codetree * int -> codetree) * int -> optVal * int
+    val codetreeOptimiser: codetree  * Universal.universal list -> optVal * int
     structure Sharing: sig type codetree = codetree and optVal = optVal end
 end
 
@@ -79,15 +61,10 @@ sharing type
     PRETTY.pretty
 =   BASECODETREE.pretty
 
-sharing type
-  BASECODETREE.codetree
-= GCODE.codetree
-
 sharing
-    BASECODETREE.Sharing 
+    BASECODETREE.Sharing
 =   CODETREE_FUNCTIONS.Sharing
-=   LIFETIMES.Sharing
-=   STATIC_LINK_AND_CASES.Sharing
+=   BACKEND.Sharing
 =   OPTIMISER.Sharing
 
 ) : CODETREESIG =
@@ -96,7 +73,6 @@ sharing
 (*                  CODETREE functor body                                    *)
 (*****************************************************************************)
 struct
-    open GCODE;
     open Address;
     open StretchArray;
     open RuntimeCalls; (* for POLY_SYS numbers and EXC_nil *)
@@ -183,54 +159,26 @@ fun f (a, b) = if a then (b<last>; g (a<last>) + 1) else (a<last>; b<last>)
 DCJM 2000.
 *)
 
-    (* Look for static link functions and convert conditionals to cases then
-       compute the lifetimes of declarations. *)
-    fun preCode (codegen, pt, localAddressCount) =
-    let
-    
-        val lifeTimes = LIFETIMES.lifeTimes
-        and staticLinkAndCases = STATIC_LINK_AND_CASES.staticLinkAndCases
-
-        fun pass1Cg(pt, localCount) = codegen(lifeTimes(pt, localCount), localCount)
-        val pass1 = staticLinkAndCases(pass1Cg, pt, localAddressCount)
-    in
-        lifeTimes(pass1, localAddressCount)
-    end
-
     fun genCode(pt, debugSwitches) =
     let
         val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
-        and printCodeTreeAfter = DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
-        and maxInlineSize      = DEBUG.getParameter DEBUG.maxInlineSizeTag debugSwitches
         and compilerOut        = PRETTY.getCompilerOutput debugSwitches
 
-        val () = if printCodeTree then compilerOut(pretty pt) else ();
+        (* If required, print it first.  This is the code that the front-end
+           has produced. *)
+        val () = if printCodeTree then compilerOut(pretty pt) else ()
 
         (* This ensures that everything is printed just before
-           it is code-generated. *)
-        fun codeGenAndPrint(code, localCount) =
-        (
-            if printCodeTreeAfter then compilerOut(pretty code) else ();
-            GCODE.gencode(code, debugSwitches, localCount)
-        )
-    
-        fun preCodeAndPrint(code, localCount) =
-        (
-            if printCodeTree then compilerOut(pretty code) else ();
-            preCode (codeGenAndPrint, code, localCount)
-        )
+           it is code-generated. *) 
+        fun codeAndPrint(code, localCount) =
+        let
+            val () = if printCodeTree then compilerOut (BASECODETREE.pretty code) else ();
+        in
+            BACKEND.codeGenerate(code, localCount, debugSwitches)
+        end
 
         (* Optimise it. *)
-
-        val (optimisedCode, localCount) =
-        let
-            (* Function to code-generate and run expressions that can be evaluated
-               at compile-time. *)
-            fun eval(pt, localCount) = evaluate (preCodeAndPrint(pt, localCount), codeGenAndPrint, localCount)
-        in
-            (* Optimise it. *)
-            OPTIMISER.codetreeOptimiser(pt, eval, maxInlineSize)
-        end
+        val (optimisedCode, localCount) = OPTIMISER.codetreeOptimiser(pt, debugSwitches)
 
         (* At this stage we have a "general" value and also, possibly a "special"
            value.  We could simply create mkEnv(decs, gen) and run preCode
@@ -275,7 +223,7 @@ DCJM 2000.
         if not hasFunction
         then
         let
-            val code = codeGenAndPrint (preCodeAndPrint(mkEnv(decs, gen), localCount), localCount)
+            val code = codeAndPrint (mkEnv(decs, gen), localCount)
         in
             fn () => mkConst(code())
         end
@@ -297,7 +245,7 @@ DCJM 2000.
  
             val resultTuple = mkTuple(gen :: tupleEntries)
             (* Now generate the machine code and return it as a function that can be called. *)
-            val code = codeGenAndPrint (preCodeAndPrint(mkEnv (decs, resultTuple), localCount), localCount)
+            val code = codeAndPrint (mkEnv (decs, resultTuple), localCount)
         in
             (* Return a function that executes the compiled code and then creates the
                final "global" value as the result. *)
@@ -329,44 +277,20 @@ DCJM 2000.
                     
                         val genVal =
                             case optGeneral oldVal of
-                                Extract{addr, ...} => mkConst (resultWordN addr)
-                            |   c as Constnt _ => c
+                                Extract{addr, ...} => resultWordN addr
+                            |   Constnt c => c
                             |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
          
-                        val specVal = optSpecial oldVal
-
-                        (* If we return a special value here we need to construct a
-                           suitable environment for it which wraps the original environment
-                           with this one. *)
-                        val envVal =
-                            if isCodeNil specVal
-                            then errorEnv
-                            else newEnviron (optEnviron oldVal)
-                   
-                        val () = (* Check the decs are empty. *)
-                            case optDecs oldVal of
-                                [] => ()
-                            |   _ => raise InternalError "codetree decVal: Not empty"
-                    in                       
-                        optVal 
-                        {
-                            general = genVal,
-                            special = specVal,
-                            environ = envVal,
-                            decs    = []
-                        }
-                    end (* newEnviron *)
-        
+                        val specVal =
+                            case optSpecial oldVal of
+                                CodeNil => NONE
+                            |   spec => SOME(spec, newEnviron (optEnviron oldVal))
+                    in
+                        GVal(genVal,specVal)
+                    end
                 in 
                     (* and return the whole lot as a global value. *)
-                    Global
-                      (optVal 
-                         {
-                           general = mkConst generalVal,
-                           special = spec,
-                           environ = newEnviron (optEnviron optimisedCode),
-                           decs    = []
-                         })
+                    Global(GVal(generalVal, SOME(spec, newEnviron (optEnviron optimisedCode))))
                 end
         end
 
@@ -386,10 +310,8 @@ DCJM 2000.
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
         level         = 0,
-        closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false,
-        argLifetimes  = []
+        makeClosure   = false
       }                     
 
     (* inline lambda operation: returns an inline procedure *)
@@ -403,10 +325,8 @@ DCJM 2000.
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
         level         = 0,
-        closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false,
-        argLifetimes  = []
+        makeClosure   = false
       };
 
     (* OnlyInline: used for functors unless inlineFunctors is false. *)
@@ -420,10 +340,8 @@ DCJM 2000.
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
         level         = 0,
-        closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false,
-        argLifetimes  = []
+        makeClosure   = false
       }
 
 
@@ -437,10 +355,8 @@ DCJM 2000.
         argTypes      = argsAndTypes,
         resultType    = resultType,
         level         = 0,
-        closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false,
-        argLifetimes  = []
+        makeClosure   = false
       }
 
     fun mkInlineFunction(body, argsAndTypes, resultType, name) =
@@ -453,10 +369,8 @@ DCJM 2000.
         argTypes      = argsAndTypes,
         resultType    = resultType,
         level         = 0,
-        closureRefs   = 0,
         localCount    = 0,
-        makeClosure   = false,
-        argLifetimes  = []
+        makeClosure   = false
       }
 
     fun mkCall(func, argsAndTypes, resultType) =

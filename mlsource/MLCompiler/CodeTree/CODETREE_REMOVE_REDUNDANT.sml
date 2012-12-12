@@ -24,7 +24,7 @@ functor CODETREE_REMOVE_REDUNDANT(
 ) :
     sig
         type codetree
-        type loadForm = { addr : int, level: int, fpRel: bool, lastRef: bool }
+        type loadForm = { addr : int, level: int, fpRel: bool }
         val cleanProc : (codetree * (loadForm * int * int -> codetree) * int * bool array) -> codetree
         structure Sharing: sig type codetree = codetree end
     end
@@ -65,7 +65,7 @@ struct
         in
             {body=bodyCode, isInline=isInline, name=name,
                closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
-               closureRefs=0, makeClosure=false, localCount=localCount, argLifetimes = []}
+               makeClosure=false, localCount=localCount}
         end
 
         and cleanCode (Newenv(decs, exp)) =
@@ -91,15 +91,14 @@ struct
                    a later declaration but apart from mutually-recursive functions no binding
                    can be used in an earlier one. *)
                 fun processDecs [] = []
-                 |  processDecs(Declar{value, addr, references} :: rest) =
+                 |  processDecs(Declar{value, addr} :: rest) =
                     let
                         val processedRest = processDecs rest
                     in
                         (* If this is used or if it has side-effects we
                            must include it otherwise we can ignore it. *)
                         if Array.sub(locals, addr) orelse not (sideEffectFree value)
-                        then Declar{value=cleanCode value, addr=addr,
-                                    references=references} :: processedRest
+                        then Declar{value=cleanCode value, addr=addr} :: processedRest
                         else processedRest
                     end
 
@@ -118,8 +117,7 @@ struct
                          |  processMutuals [] _ false =
                                 (* We didn't add anything more - finish *) []
                          |  processMutuals(
-                                (this as {addr, lambda, references}) :: rest)
-                                        excluded added =
+                                (this as {addr, lambda}) :: rest) excluded added =
                             if not (Array.sub(locals, addr))
                             then (* Put this on the excluded list. *)
                                 processMutuals rest (this::excluded) added
@@ -127,8 +125,7 @@ struct
                             let
                                 (* Process this entry - it may cause other
                                    entries to become "used". *)
-                                val newEntry =
-                                    {lambda=cleanLambda lambda, addr=addr, references=references}
+                                val newEntry = {lambda=cleanLambda lambda, addr=addr}
                             in
                                 newEntry :: processMutuals rest excluded true
                             end
@@ -191,7 +188,7 @@ struct
             let
                 val processedBody = cleanCode body
                 fun copyDec({addr, value, ...}, typ) =
-                        ({addr=addr, value=cleanCode value, references=0}, typ)
+                        ({addr=addr, value=cleanCode value}, typ)
                 val newargs = map copyDec argList
             in
                 BeginLoop{loop=processedBody, arguments=newargs}
@@ -267,9 +264,7 @@ struct
          |  cleanCode (Case _) = raise InternalError "cleanCode: Case"
 
          |  cleanCode (Global _) = raise InternalError "cleanCode: Global"
-         
-         |  cleanCode (KillItems _) = raise InternalError "cleanCode: StaticLinkCall"
-   in
+    in
         cleanCode pt
    end (* cleanProc *);
 

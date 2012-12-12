@@ -26,7 +26,7 @@
 functor GENERATE_CODE (
     structure CODECONS : CODECONSSIG
     structure CODEGEN_TABLE : CODEGEN_TABLESIG where type machineWord = Address.machineWord
-    structure BASECODETREE: BaseCodeTreeSig
+    structure BACKENDTREE: BackendIntermediateCodeSig
 
     structure DEBUG :
     sig
@@ -35,16 +35,17 @@ functor GENERATE_CODE (
            'a Universal.tag -> Universal.universal list -> 'a
     end
 
-    sharing CODECONS.Sharing = CODEGEN_TABLE.Sharing = BASECODETREE.Sharing
+    sharing CODECONS.Sharing = CODEGEN_TABLE.Sharing = BACKENDTREE.Sharing
 ) :  
   
 (*****************************************************************************)
 (*                  GCODE export signature                                   *)
 (*****************************************************************************)
 sig
-  type codetree
+  type backendIC
   type machineWord
-  val gencode: codetree * Universal.universal list * int -> unit -> machineWord;
+  val gencode: backendIC * Universal.universal list * int -> unit -> machineWord
+  structure Sharing: sig type backendIC = backendIC end
 end =
 
 (*****************************************************************************)
@@ -56,7 +57,7 @@ struct
     open Address;
     open Misc; (* after address, so we get Misc.length, not Address.length *)
     open RuntimeCalls; (* for POLY_SYS numbers *)
-    open BASECODETREE;
+    open BACKENDTREE;
     
     open RegSet
 
@@ -80,8 +81,8 @@ struct
     val True  : machineWord = word1;     (* true *)
     val Zero  : machineWord = word0;     (* 0 *)
 
-    val constntTrue  = Constnt True;
-    val constntFalse = Constnt False;
+    val constntTrue  = BICConstnt True;
+    val constntFalse = BICConstnt False;
 
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
@@ -107,7 +108,7 @@ struct
 
     (* Code generate a procedure or global declaration *)
     fun codegen
-       (pt               : codetree,
+       (pt               : backendIC,
         declOnPrevLevel  : int * (unit -> stackIndex * operations) * ttab -> stackIndex * operations,
         isStaticLink     : int -> bool,
         loadStaticLink   : int * (unit -> stackIndex * operations) * ttab -> stackIndex * stackIndex * operations,
@@ -274,9 +275,8 @@ struct
            N.B. In the case of non-local variables lastRef is true only for
            the last non-local variable, not the last use of this particular
            variable. *)
-        fun locaddr ({ addr, fpRel, lastRef, ...}) =
-        if fpRel 
-        then if addr < 0 (* Args. *)
+        fun locaddr (BICLoadStack addr, lastRef) =
+        if addr < 0 (* Args. *)
         then
         ( (* The arguments are numbered from -n upto -1.  The first few arguments are
                in registers and the rest on the stack. *)
@@ -313,7 +313,7 @@ struct
             (resIndex, freeCode)
         end
 
-        else  (* cp relative *)
+        | locaddr(BICLoadClosure addr, lastRef) =  (* cp relative *)
         let
             (* If this is the last reference to the closure we want
                it to be removed afterwards.  makeSl is not always called
@@ -343,11 +343,11 @@ struct
            
             fun loads pt =
             case pt of
-                MatchFail => ()
+                BICMatchFail => ()
             
-            |   AltMatch (exp1, exp2) => (loads exp1; loads exp2 )
+            |   BICAltMatch (exp1, exp2) => (loads exp1; loads exp2 )
           
-            |   Extract {fpRel = true, addr = locn, lastRef, ...} =>
+            |   BICExtract (BICLoadStack locn, lastRef) =>
                 if locn < 0 (* args - only look at those in the registers. *)
                 then
                 (
@@ -363,48 +363,48 @@ struct
                (* If discardClosure is true, then we've already zeroed the
                   use-count for closureOrSlAddr, so don't adjust it now.
                   SPF 22/5/95 *)
-            |   Extract {fpRel = false, addr = _, level = _, lastRef, ...} =>
+            |   BICExtract (BICLoadClosure _, lastRef) =>
                 if closureLifetime <> 0 (* Non-local *) andalso lastRef
                 then add closureOrSlAddr (* Reference to the closure. *)
                 else ()
           
-            |   Eval {function, argList, ...} =>
+            |   BICEval {function, argList, ...} =>
                 (
                     loads function;
                     List.app (fn (l, _) => loads l) argList
                 )
             
-            |   Indirect {base, ...} => loads base
+            |   BICField {base, ...} => loads base
             
-            |   Newenv(decs, exp) =>
+            |   BICNewenv(decs, exp) =>
                 let
-                    fun loadDecs(Declar {addr, value, ...}) =
+                    fun loadDecs(BICDeclar {addr, value, ...}) =
                         (
                             (* Indicate that this is a new declaration. *)
                             StretchArray.update (newDecs, addr, true);
                             loads value (* Check the expression. *)
                         )
-                    |   loadDecs(RecDecs decs) =
+                    |   loadDecs(BICRecDecs decs) =
                         (
                             (* First process the declarations to ensure that new declarations
                                are marked as such then process the values being declared. *)
                             List.app(
                                 fn {addr, ...} => StretchArray.update (newDecs, addr, true)) decs;
-                            List.app (fn{lambda, ...} => loads (Lambda lambda)) decs
+                            List.app (fn{lambda, ...} => loads (BICLambda lambda)) decs
                         )
-                    |   loadDecs(NullBinding c) = loads c
+                    |   loadDecs(BICNullBinding c) = loads c
                 in
                     List.app loadDecs decs;
                     loads exp
                 end
             
-            |   Recconstr vl => List.app loads vl
+            |   BICTuple vl => List.app loads vl
 
-            |   BeginLoop{loop, arguments, ...} => (List.app (fn ({value, ...}, _) => loads value) arguments; loads loop)
+            |   BICBeginLoop{loop, arguments, ...} => (List.app (fn ({value, ...}, _) => loads value) arguments; loads loop)
 
-            |   Loop argList => List.app (fn (l, _) => loads l) argList
+            |   BICLoop argList => List.app (fn (l, _) => loads l) argList
 
-            |   Handle{exp, handler} => (loads exp; loads handler)
+            |   BICHandle{exp, handler} => (loads exp; loads handler)
 
             |   _ => ()
         in
@@ -433,7 +433,7 @@ struct
       
       val result : mergeResult = 
         case pt of
-          MatchFail => (* A bit like Raise *)
+          BICMatchFail => (* A bit like Raise *)
           let
                 val matchFailCode = matchFailFn ()
                 val () = codeGenerate(matchFailCode, cvec)
@@ -443,7 +443,7 @@ struct
                 else NoMerge (* Unused. *)
           end
         
-        | AltMatch (exp1, exp2) => (* A bit like Cond *)
+        | BICAltMatch (exp1, exp2) => (* A bit like Cond *)
           let
             val mark1 : stackMark = markStack transtable;
             val mark2 : stackMark = markStack transtable;
@@ -489,10 +489,10 @@ struct
             mergeRes
           end
             
-        | Eval {function, argList, resultType, ...} =>
+        | BICEval {function, argList, resultType, ...} =>
             genEval (function, argList, resultType, primBoolOps, whereto, tailKind, matchFailFn)
 
-        | Extract ext =>
+        | BICExtract ext =>
             let
                 val (loc, locCode) = locaddr ext
                 val () = codeGenerate(locCode, cvec)
@@ -507,7 +507,7 @@ struct
                 )
             end
 
-        | Indirect {base, offset} =>
+        | BICField {base, offset} =>
             let
                 val baseCode = genToStack (base, matchFailFn)
                 val (index, indCode) = indirect (offset, baseCode, transtable)
@@ -516,26 +516,26 @@ struct
                 MergeIndex index
             end
 
-        |   Lambda(lam as { makeClosure = true, ...}) => MergeIndex(genProc (lam, fn _ => (), whereto, matchFailFn))
+        |   BICLambda(lam as { makeClosure = true, ...}) => MergeIndex(genProc (lam, fn _ => (), whereto, matchFailFn))
         
-        |   Lambda({makeClosure = false, ...}) =>
+        |   BICLambda({makeClosure = false, ...}) =>
                 (* Functions using the static-link convention must always occur in bindings. *)
                 raise InternalError "Function with static link convention found as expression"
 
-        | Constnt w => MergeIndex(pushConst (transtable, w))
+        | BICConstnt w => MergeIndex(pushConst (transtable, w))
 
-        | Cond (testPart, thenPart, elsePart) =>
+        | BICCond (testPart, thenPart, elsePart) =>
             genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
 
-        | Newenv(decs, exp) =>
+        | BICNewenv(decs, exp) =>
             let (* Processes a list of entries. *)
                 val startMark = markStack transtable
                 (* We may have the situation where we want the result in a specific register
-                   but we actually have a Decl entry followed by an Extract.
+                   but we actually have a Decl entry followed by an BICExtract.
                    Don't do this unless we've asked for a specific register. *)
                 val specificLoc =
                     case (exp, whereto) of
-                        (Extract{addr, level=0, fpRel=true, ...}, UseReg _) => SOME(addr, whereto)
+                        (BICExtract(BICLoadStack addr, _), UseReg _) => SOME(addr, whereto)
                     |   _ => NONE
 
                 val () = List.app (codeBinding (matchFailFn, specificLoc)) decs
@@ -546,7 +546,7 @@ struct
                 resultPosn
             end
 
-        | BeginLoop{loop=body, arguments=args} =>
+        | BICBeginLoop{loop=body, arguments=args} =>
           let
             (* Execute the body which will contain at least one Loop instruction.
                There will also be path(s) which don't contain Loops and these
@@ -579,7 +579,7 @@ struct
                 (* It should not be a static-link function - just check. *) 
                 val _ = 
                   case value of
-                    Lambda {makeClosure = false, ...} => 
+                    BICLambda {makeClosure = false, ...} => 
                         raise InternalError "LoopArg: static link function"
                   | _ => ()
             in
@@ -651,7 +651,7 @@ struct
             reprocessLoop 0
           end
 
-        | Loop argList =>
+        | BICLoop argList =>
             let
                 val (startLoop, onLoop, argDestList) =
                     case loopAddr of
@@ -725,7 +725,7 @@ struct
                 else NoMerge (* Unused. *)
             end
 
-        | Raise exp =>
+        | BICRaise exp =>
           let (* movl <exception>,resultReg; jmp raisex *)
             val () =
                (* Ensure the return address is on the stack in case
@@ -749,7 +749,7 @@ struct
             else NoMerge (* Unused. *)
           end
 
-        | Handle {exp, handler} =>
+        | BICHandle {exp, handler} =>
             let
                 (* Push all regs - we don't know what the state will be when 
                    we reach the handler. *)
@@ -832,7 +832,7 @@ struct
                 mergeRes
             end
         
-        | Ldexc =>
+        | BICLdexc =>
             let
                 val regResult = resultReg ArgGeneral
                 (* Exception packet is returned in result register. *)
@@ -842,7 +842,7 @@ struct
                 MergeIndex(pushReg (transtable, regResult))
             end
 
-        | Case {cases, test, default, caseType} =>
+        | BICCase {cases, test, default, caseType} =>
             let
                 (* Cases are constructed by the optimiser out of if-then-else expressions. *)                
                 val whereto = chooseMergeRegister(whereto, tailKind)
@@ -1001,7 +1001,7 @@ struct
                 mergeRes
             end      
 
-        | Recconstr reclist =>
+        | BICTuple reclist =>
             let
                 val vecsize = List.length reclist
                 val () =
@@ -1061,7 +1061,7 @@ struct
                 end
             end
         
-        | Container size =>
+        | BICContainer size =>
             (* Reserve a number of words on the stack for use as a tuple on the
                stack.  The result is the address of this space. *)
             let
@@ -1071,13 +1071,13 @@ struct
                 MergeIndex reserveEntry
             end
 
-        | SetContainer{container, tuple, size} =>
+        | BICSetContainer{container, tuple, size} =>
             (* Copy the contents of a tuple into a container. *)
             let
                 val vec = genToStack (container, matchFailFn);
             in
                 case tuple of
-                    Recconstr cl =>
+                    BICTuple cl =>
                         (* Simply set the container from the values. *)
                     let
                         fun setValue(v, wordOffset) =
@@ -1126,7 +1126,7 @@ struct
                 else MergeIndex(pushConst (transtable, DummyValue))
             end
 
-        | TupleFromContainer(container, size) =>
+        | BICTupleFromContainer(container, size) =>
             (* Create a tuple from the contents of a container. *)
             let
                 val vec = genToStack (container, matchFailFn);
@@ -1157,22 +1157,22 @@ struct
                 MergeIndex tup (* Result is the tuple. *)
             end
 
-        |   TagTest { test, tag, ... } =>
+        |   BICTagTest { test, tag, ... } =>
             let
                 (* Convert this into a simple equality function. *)
                 val code =
-                    Eval {
-                        function = Constnt(ioOp POLY_SYS_word_eq),
-                        argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
+                    BICEval {
+                        function = BICConstnt(ioOp POLY_SYS_word_eq),
+                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
                         resultType=GeneralType }
             in
                 gencde (code, true(* Try to put in-line *), whereto, tailKind, matchFailFn, loopAddr)
             end
 
-        |   KillItems { expression, killSet, killBefore } =>
+        |   BICKillItems { expression, killSet, killBefore } =>
             let 
                 (* This is inserted by the higher level code to get the use-counts
-                   correct.  Kill entries are Extract entries with lastRef true. *)
+                   correct.  Kill entries are BICExtract entries with lastRef true. *)
                 fun cgKill toKill =
                     (gencde(toKill, true, NoResult, NotEnd, matchFailFn, loopAddr); ())
             in
@@ -1193,17 +1193,11 @@ struct
             end
 
 
-        |   IndirectVariable{ base=_, offset=_, ... } =>
+        |   BICIndirectVariable{ base=_, offset=_, ... } =>
                 raise InternalError "TODO: IndirectVariable"
 
-        |   TupleVariable(_(* varList*), _(* length *)) =>
+        |   BICTupleVariable(_(* varList*), _(* length *)) =>
                 raise InternalError "TODO: TupleVariable"
-
-        | CodeNil => 
-            raise InternalError "gencde: can't code-generate CodeNil value"
-
-        | Global _ =>
-            raise InternalError "gencde: can't code-generate Global value"
     in
         (* Various cases create results even if they're not required.  Remove them. *)
         case (result, whereto) of
@@ -1215,7 +1209,7 @@ struct
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
-    and genToStack (pt : codetree, matchFailFn) : stackIndex =
+    and genToStack (pt : backendIC, matchFailFn) : stackIndex =
         let
             val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
         in
@@ -1230,7 +1224,7 @@ struct
        newly allocated object.  The floating point value will have to be
        moved into memory and that must be done before we allocate the new
        object. *)
-    and genToStackOrGeneralRegister(pt : codetree, matchFailFn) : stackIndex =
+    and genToStackOrGeneralRegister(pt : backendIC, matchFailFn) : stackIndex =
         let
             val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
         in
@@ -1330,16 +1324,16 @@ struct
             if prevloc = 0 then makeSl()
             else
             let
-                (* The closure entry will usually be an Extract, but may have been
+                (* The closure entry will usually be an BICExtract, but may have been
                    compiled down to a real constant. This wouldn't happen if earlier
                    phases were better at keeping constants out of closures (but that
                    requires "sophisticated" analysis of mutually recursive declarations). *)
                 val closureEntry = findClosure closureList prevloc;
             in
                 case closureEntry of
-                    Constnt w => (pushConst (newtab, w), [])
+                    BICConstnt w => (pushConst (newtab, w), [])
           
-                |   Extract {fpRel = true, addr = locn, ...} => (* argument or on stack *)
+                |   BICExtract(BICLoadStack locn, _) => (* argument or on stack *)
                     if locn < 0 (* argument *)
                     then
                     (
@@ -1356,12 +1350,12 @@ struct
                     else (* on the stack *)
                         pushNonLocal (transtable, newtab, Array.sub(decToPstack, locn), makeSl)
  
-                |   Extract {fpRel = false, addr = locn, ...} => (* Try the next level *)
+                |   BICExtract(BICLoadClosure locn, _) => (* Try the next level *)
                         declOnPrevLevel(locn,
                             fn () => pushNonLocal (transtable, newtab, closureOrSlAddr, makeSl),
                             newtab)
      
-                |   _ => raise InternalError "previous: bad codetree in closure"
+                |   _ => raise InternalError "previous: bad backendIC in closure"
             end
 
             (* Returns true if the procedure is to be called with a static link *)
@@ -1376,15 +1370,15 @@ struct
                    (This wouldn't occur if the earlier stages were better at
                    removing such fake dependencies.) *)
                 case closureEntry of
-                    Constnt (w : machineWord) => isCode (toAddress w)
+                    BICConstnt (w : machineWord) => isCode (toAddress w)
 
-                |   Extract {fpRel = true, addr = correctedLoc, ...} =>
+                |   BICExtract(BICLoadStack correctedLoc, _) =>
                         correctedLoc > 0 andalso isSome(Array.sub(staticLinkEntries, correctedLoc))
               
-                |   Extract {fpRel = false, addr = correctedLoc, ...} =>
+                |   BICExtract(BICLoadClosure correctedLoc, _) =>
                         isStaticLink correctedLoc (* Non-local *)
             
-                | _ => raise InternalError "isSl: bad codetree in function closure"
+                | _ => raise InternalError "isSl: bad backendIC in function closure"
             end
          
             (* Loads the static link if the procedure is called with one
@@ -1401,9 +1395,7 @@ struct
 
             |   loadSl (prevloc, makeSl, callingTab) = (* Non-recursive. *)
                 case findClosure closureList prevloc of
-                    Extract { addr=correctedLoc, fpRel, ...} =>
-                    if fpRel
-                    then (* On this level *)
+                    BICExtract(BICLoadStack _, _) => (* On this level *)
                         let
                             val (sl, slCode) = makeSl()
                             val (closureIndex, closureCode) =
@@ -1414,7 +1406,7 @@ struct
                         in
                             (procAddr, closureIndex, prevCode @ closureCode @ slCode)
                         end
-                    else (* Non-local *)
+                 |   BICExtract(BICLoadClosure correctedLoc, _) => (* Non-local *)
                         let
                             val (procAddr, staticLink, code) =
                                 loadStaticLink(correctedLoc,
@@ -1433,21 +1425,21 @@ struct
                 val closureEntry = findClosure closureList prevloc;
             in
                 case closureEntry of
-                    Constnt (w : machineWord) => getRegisterSetForFunction w
-                |   Extract {fpRel = true, addr, ...} =>
+                    BICConstnt (w : machineWord) => getRegisterSetForFunction w
+                |   BICExtract (BICLoadStack addr, _) =>
                     if addr > 0
                     then getFunctionRegSet(Array.sub(decToPstack, addr), transtable)
                     else raise InternalError "slRegSet: argument"
-                |   Extract {fpRel = false, addr, ...} =>
+                |   BICExtract(BICLoadClosure addr, _) =>
                     staticLinkRegSet addr (* Non-local *)
-                |   _ => raise InternalError "slRegSet: bad codetree in function closure"
+                |   _ => raise InternalError "slRegSet: bad backendIC in function closure"
             end
         
             (* Make sure all the closure values in registers are on the stack,
                in case they are used as non-locals.  Changed this from the
                original code which pushed everything. *)
             local
-                fun pushClosure (Extract{fpRel=true, addr, ...}) =
+                fun pushClosure (BICExtract(BICLoadStack addr, _)) =
                     (* Local *)
                     if addr < 0
                     then
@@ -1458,7 +1450,7 @@ struct
                     )
                     else (* on the stack *)
                         codeGenerate(pushSpecificEntry(transtable, Array.sub(decToPstack, addr)), cvec)
-                |   pushClosure (Extract{fpRel=false, ...}) =
+                |   pushClosure (BICExtract(BICLoadClosure _, _)) =
                         (* Non-local or recursive reference: make sure the closure/static
                            link pointer is on the stack. *)
                         if closureLifetime = 0 
@@ -1475,7 +1467,7 @@ struct
                because we need the entries to remain until the last call to the function. *)
             fun releaseClosure () =
             let
-                fun releaseEntry(Extract(ext as {lastRef=true, ...}), l) =
+                fun releaseEntry(BICExtract(ext as (_, true)), l) =
                        incrUseCount(transtable, #1(locaddr ext), ~1) @ l
                 |   releaseEntry (_, l) = l
             in
@@ -1510,13 +1502,13 @@ struct
                by previous passes.  First try loading all the items of the closure.  If
                there are mutually recursive references we may not be able to load them
                at this point.  *)
-            fun loadClosure(c as Extract{fpRel=true, addr, ...}) =
+            fun loadClosure(c as BICExtract(BICLoadStack addr, _)) =
                 if addr >= 0 andalso Array.sub(decToPstack, addr) = noIndex
                 then noIndex
                 else genToStackOrGeneralRegister (c, matchFailFn)
             |   loadClosure c = genToStackOrGeneralRegister (c, matchFailFn)
             val initialLocs = List.map loadClosure closureList
-            (* Extract any constants. *)
+            (* BICExtract any constants. *)
             val constants =
                 List.map(fn i => if i = noIndex then NotConst else isConstant(i, transtable)) initialLocs
             val nonConstCount = List.foldl(fn (NotConst, n) => n+1 | (_, n) => n) 0 constants
@@ -1693,8 +1685,8 @@ struct
     let (* See if we can generate a conditional instruction. *)
         (* Those we can't deal with specially are evaluated to the stack and tested. *)
         fun genOtherTests () =
-            case checkAndReduceBranches(if jumpOn then testNeqW else testEqW, [pt, Constnt False],
-                                        fn (Constnt w) => SOME w | _ => NONE) of
+            case checkAndReduceBranches(if jumpOn then testNeqW else testEqW, [pt, BICConstnt False],
+                                        fn (BICConstnt w) => SOME w | _ => NONE) of
                 SOME (tst, args) =>
                     let
                         (* We can't use genToStack here because we need primBoolOps to be false. *)
@@ -1715,7 +1707,7 @@ struct
             |   NONE => raise InternalError "compareAndBranch returned failure"
     in
       case pt of
-        Cond (testPart, thenPart, elsePart) =>
+        BICCond (testPart, thenPart, elsePart) =>
         let
           val mark1 = markStack transtable
           val mark2 = markStack transtable
@@ -1785,18 +1777,18 @@ struct
             (* Previously Cases were generated from almost all simple comparisons.
                Now that they are only generated if there are sufficient numbers of
                branches this can probably be removed. *)
-      | Case {cases = [(result, tag)], test, default, ...} =>
+      | BICCase {cases = [(result, tag)], test, default, ...} =>
         let
-          val equalFun  : codetree = Constnt (ioOp POLY_SYS_equala);
-          val arguments = [(test, GeneralType), (Constnt (toMachineWord tag), GeneralType)];
-          val eqTest    : codetree = 
-             Eval {function = equalFun, argList = arguments, resultType=GeneralType};
+          val equalFun  : backendIC = BICConstnt (ioOp POLY_SYS_equala);
+          val arguments = [(test, GeneralType), (BICConstnt (toMachineWord tag), GeneralType)];
+          val eqTest    : backendIC = 
+             BICEval {function = equalFun, argList = arguments, resultType=GeneralType};
         in
-          genTest (Cond (eqTest, result, default), jumpOn, matchFailFn) 
+          genTest (BICCond (eqTest, result, default), jumpOn, matchFailFn) 
         end
 
       (* Constants - primarily for andalso/orelse. *)
-      | Constnt w =>
+      | BICConstnt w =>
           (* If true and we jump on true or false and jump on false *)
           (* then put in an unconditional jump. *)
           if wordEq (w, True) = jumpOn
@@ -1809,25 +1801,25 @@ struct
             end
           else noJump (* else drop through. *)
 
-        |   Newenv(decs, exp) =>
+        |   BICNewenv(decs, exp) =>
             (
                 List.app (codeBinding (matchFailFn, NONE)) decs;
                 genTest (exp, jumpOn, matchFailFn)
             )
 
-        |   TagTest { test, tag, ... } =>
+        |   BICTagTest { test, tag, ... } =>
             let
                 (* Convert this into a simple equality function. *)
                 val code =
-                    Eval {
-                        function = Constnt(ioOp POLY_SYS_word_eq),
-                        argList=[(test, GeneralType), (Constnt(toMachineWord tag), GeneralType)],
+                    BICEval {
+                        function = BICConstnt(ioOp POLY_SYS_word_eq),
+                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
                         resultType=GeneralType }
             in
                 genTest(code, jumpOn, matchFailFn)
             end
 
-      | Eval {function = Constnt oper, argList = args, ...} =>
+      | BICEval {function = BICConstnt oper, argList = args, ...} =>
       (* May be an interface operation which can be put in line. *)
       let
         (* Generate a compare instruction. *)
@@ -1836,7 +1828,7 @@ struct
             val test    = if jumpOn then t else f;
         in
             (* Check that the instruction is implemented. *)
-            case checkAndReduceBranches(test, args, fn (Constnt w) => SOME w | _ => NONE) of
+            case checkAndReduceBranches(test, args, fn (BICConstnt w) => SOME w | _ => NONE) of
                 SOME (test, args) =>
                    let (* Generate the instruction and get the direction. *)
                         (* Code generate each argument to the pstack. *)
@@ -1864,7 +1856,7 @@ struct
             then
             (
               case arg of
-                Constnt (w : machineWord) =>
+                BICConstnt (w : machineWord) =>
                   if isShort w
                   then genTest (constntTrue,  jumpOn, matchFailFn)
                   else genTest (constntFalse, jumpOn, matchFailFn)
@@ -1872,7 +1864,7 @@ struct
               | _ =>
                 (
                     case checkAndReduceBranches(if jumpOn then Short else Long, [arg],
-                                                fn (Constnt w) => SOME w | _ => NONE) of
+                                                fn (BICConstnt w) => SOME w | _ => NONE) of
                         SOME (testOp, [arg]) =>
                         let
                             val locnOfArg1 = genToStack (arg, matchFailFn);
@@ -1959,32 +1951,16 @@ struct
 
     (* if/then/else, cand and cor. NB if/then/else may be translated
        into a CASE by the optimiser and code-generated there. *)
-    and genCond (testExp, thenExp, CodeNil, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
-        (* No else-part.  This is used only in pattern matching bindings. *)
-        let
-            val needsResult = not (isNoResult whereto)
-            val mark = markStack transtable
-            val lab  = genTest (testExp, false, matchFailFn) (* code for condition *)
-             (* code for "then part" - noResult 'cos we generate "void" below*)
-            val _ = genToRegister (thenExp, NoResult, tailKind, matchFailFn, loopAddr);
-            val (_, mergeCode)  = merge (lab, transtable, NoMerge, mark)
-            val () = codeGenerate(mergeCode, cvec)
-        in
-            if needsResult
-            then MergeIndex(pushConst (transtable, DummyValue)) (* Generate a void result. *)
-            else NoMerge (* Unused *) 
-        end
-    
-    |   genCond (testExp, thenPt, elsePt, whereto, tailKind, matchFailFn, loopAddr) =
+    and genCond (testExp, thenPt, elsePt, whereto, tailKind, matchFailFn, loopAddr) =
         let
             val mark = markStack transtable
             (* We use the then-part to determine the register for the result so if
                it's simple we probably want to swap the else- and then-parts  *)
             val reverse =
                 case thenPt of
-                    Constnt _ => true
-                |   Extract _ => true
-                |   Raise _ => true
+                    BICConstnt _ => true
+                |   BICExtract _ => true
+                |   BICRaise _ => true
                 |   _ => false
             val (direction, thenExp, elseExp) =
                 if reverse
@@ -2098,7 +2074,7 @@ struct
            to do simple operations such as int arithmetic and generates the
            instructions directly. For ordinary calls it has to distinguish between
            those called with a static-link and those called with a closure. *) 
-        and genEval (evalFun, argList: (codetree * argumentType) list, resultType, primBoolOps, whereto, tailKind, matchFailFn) : mergeResult =
+        and genEval (evalFun, argList: (backendIC * argumentType) list, resultType, primBoolOps, whereto, tailKind, matchFailFn) : mergeResult =
         let
             (* This is used if we have a real function call rather than an RTS function we can
                code-generate directly. *)
@@ -2128,7 +2104,7 @@ struct
                                      there because loading other arguments may involve function
                                      calls which will use these registers. For that reason we
                                      don't put constants in yet. *)
-                                  val whereto = case arg of Constnt _ => NoHint | _ => UseReg(singleton argReg)
+                                  val whereto = case arg of BICConstnt _ => NoHint | _ => UseReg(singleton argReg)
                                 in
                                     case gencde (arg, true, whereto, NotEnd, matchFailFn, NONE) of
                                         MergeIndex index => index
@@ -2351,7 +2327,7 @@ struct
             end (* realFunctionCall *)
 
             (* Call a closure function, i.e. not one that requires a static link. *)
-            fun callClosure (clos : codetree option): mergeResult =
+            fun callClosure (clos : backendIC option): mergeResult =
             let
                 (* If we're actually calling the function where do the arguments go? *)
                 val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
@@ -2362,7 +2338,7 @@ struct
                    modified because otherwise we may find that we've locked them. *)
                 val registerSet =
                     case clos of
-                        SOME (Constnt w) =>
+                        SOME (BICConstnt w) =>
                             regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
                       | _ (* Recursive or not a constant. *) => allRegisters;
 
@@ -2382,7 +2358,7 @@ struct
                    is set by the caller. DCJM 1/12/99. *)
                 val procLocn = 
                   case clos of
-                    SOME(Constnt _) => noIndex (* Unused. *)
+                    SOME(BICConstnt _) => noIndex (* Unused. *)
                   | SOME c          => genToStack (c, matchFailFn) (* the closure *)
                   | NONE            => noIndex  (* Unused. *);
 
@@ -2406,7 +2382,7 @@ struct
                 in
                     fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
                       case clos of
-                         SOME(Constnt w) =>
+                         SOME(BICConstnt w) =>
                             (* Do we need to load the closure register? *)
                             let
                                 val addr = toAddress w;
@@ -2458,7 +2434,7 @@ struct
             end (* callClosure *)
 
             fun codeRTSFunction(instr, arguments, whereto) =
-                case checkAndReduce(instr, arguments, fn (Constnt w) => SOME w | _ => NONE) of
+                case checkAndReduce(instr, arguments, fn (BICConstnt w) => SOME w | _ => NONE) of
                     SOME(i, args) =>
                     let
                         (* Code generate each argument to the pstack. *)
@@ -2475,7 +2451,7 @@ struct
 
         in (* body of genEval *)
             case evalFun of
-                Constnt (oper : machineWord) =>
+                BICConstnt (oper : machineWord) =>
                 let
                     val args = List.map #1 argList
                     val addr = toAddress oper
@@ -2512,11 +2488,11 @@ struct
 
                         (* Negation is coded as 0 - X. *)
                         else if wordEq (oper,ioOp POLY_SYS_aneg)
-                        then codeRTSFunction(instrSubA, Constnt Zero :: args, whereto)
+                        then codeRTSFunction(instrSubA, BICConstnt Zero :: args, whereto)
 
                         (* Boolean "not" is coded as xor with "true" *)
                         else if wordEq (oper,ioOp POLY_SYS_not_bool)
-                        then codeRTSFunction(instrXorW, args @ [Constnt True], whereto)
+                        then codeRTSFunction(instrXorW, args @ [BICConstnt True], whereto)
 
                         else if  wordEq (oper,ioOp POLY_SYS_or_word)
                         then codeRTSFunction(instrOrW, args, whereto)
@@ -2574,7 +2550,7 @@ struct
                                allocation of refs so we consider them specially. *)
                         in
                             case args of
-                                [Constnt len, Constnt flag, initValArg] =>
+                                [BICConstnt len, BICConstnt flag, initValArg] =>
                                     if isShort len andalso toShort len = 0w1
                                        andalso isShort flag
                                        andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
@@ -2680,7 +2656,7 @@ struct
                          wordEq (oper,ioOp POLY_SYS_bytevec_eq))
                         then
                             genCond
-                                (Eval {function = evalFun, argList = argList, resultType=resultType},
+                                (BICEval {function = evalFun, argList = argList, resultType=resultType},
                                  constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
                         else (* unoptimised I/O call *)
                             callClosure (SOME evalFun)
@@ -2689,7 +2665,7 @@ struct
                     else (* All other constant functions. *) callClosure (SOME evalFun)
                 end
 
-            |   Extract {fpRel, addr, lastRef, ...} =>
+            |   BICExtract (ext, lastRef) =>
                 let (* Local function with non-empty closure. *)
                     (* The procedure is being loaded from the stack or closure
                        so it may be a static-link procedure. *)
@@ -2709,6 +2685,10 @@ struct
                      a function where the last reference to the function was within
                      the argument.  DCJM 21/12/00.
                      *)
+                    val (fpRel, addr) =
+                        case ext of
+                            BICLoadStack addr => (true, addr)
+                        |   BICLoadClosure addr => (false, addr)
 
                     val selfCall = not fpRel andalso addr = 0 
       
@@ -2750,7 +2730,7 @@ struct
                             (* We have already incremented the reference count when
                                this is not the last reference so we don't need to do
                                anything here.  DCJM 21/12/00. *)
-            
+        
                             (* Get the static link register. Will set its value later. *)
                             val () = codeGenerate(getRegister (transtable, regClosure), cvec);
                             val closureIndex = pushReg (transtable, regClosure);
@@ -2763,7 +2743,7 @@ struct
                                 cvec);
                             (SOME entryPt, false, [closureIndex], [regClosure])
                         end
-          
+      
                         else
                         let (* Non-local or recursive. *)
                             fun pushIt () = (closureOrSlAddr, [])
@@ -2828,21 +2808,21 @@ struct
                     (
                         (* Set the use count on the closure register if this is a
                            recursive call.  We have to do that for the recursive case
-                           because we don't pass the Extract entry in to callClosure.
+                           because we don't pass the BICExtract entry in to callClosure.
                            DCJM 1/12/99. *)
                         if selfCall andalso not lastRef andalso closureLifetime <>0 
                         then codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
                         else ();
                         callClosure (if selfCall then NONE else SOME evalFun)
                     )
-                end (* Extract *)
+                end (* BICExtract *)
 
             |   _ => (* The procedure is not being found by simply loading a value
                         from the stack or the closure and is not a constant. *)
                     callClosure (SOME evalFun)
         end (* genEval *)
 
-        and codeBinding (matchFailFn, specific) (Declar{addr, value, references}) = (* Declaration. *)
+        and codeBinding (matchFailFn, specific) (BICDeclar{addr, value, references}) = (* Declaration. *)
             let
                 (* If the result of this block is this declaration choose a preferred register. *)
                 val dest =
@@ -2851,7 +2831,7 @@ struct
                     |   NONE => NoHint
             in
                 case value of
-                    Lambda lam =>
+                    BICLambda lam =>
                     let
                         (* If this is a function using static-link calling then we have to
                            record a release function for the items in the "closure" i.e.
@@ -2875,7 +2855,7 @@ struct
                     end
             end
 
-        |   codeBinding (matchFailFn, _) (RecDecs dl) =
+        |   codeBinding (matchFailFn, _) (BICRecDecs dl) =
             let
                 (* Mutually recursive declarations. These can only be functions.
                    Recurse down the list
@@ -2910,7 +2890,7 @@ struct
                 genMutualDecs dl
             end
 
-        |   codeBinding  (matchFailFn, _) (NullBinding valu) = (* Expression in a sequence. *)
+        |   codeBinding  (matchFailFn, _) (BICNullBinding valu) = (* Expression in a sequence. *)
             (
                 gencde (valu, true, NoResult, NotEnd, matchFailFn, NONE);
                 ()
@@ -2927,7 +2907,7 @@ struct
         (!cvec, maxstack transtable, getModifedRegSet transtable, !callsAFunction)
     end (* codegen *)
 
-    fun gencode (Lambda { name, body, argTypes, resultType, argLifetimes, localCount, ...}, debugSwitches, _) =
+    fun gencode (BICLambda { name, body, argTypes, resultType, argLifetimes, localCount, ...}, debugSwitches, _) =
         let (* We are compiling a procedure. *)
             (* It is not essential to treat this specially, but it saves generating
              a piece of code whose only function is to return the address of the

@@ -20,12 +20,45 @@ functor CODETREE_STATIC_LINK_AND_CASES(
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
 
-    sharing BASECODETREE.Sharing = CODETREE_FUNCTIONS.Sharing
+    structure LIFETIMES:
+    sig
+        type codetree
+        type backendIC
+        val lifeTimes: codetree * int -> backendIC
+        structure Sharing: sig type codetree = codetree and backendIC = backendIC end
+    end
 
+    structure GCODE :
+    sig
+      type backendIC
+      type machineWord = Address.machineWord
+      val gencode: backendIC * Universal.universal list * int -> unit -> machineWord
+      structure Sharing: sig type backendIC = backendIC end
+    end
+
+    structure DEBUG :
+    sig
+        val codetreeAfterOptTag:    bool Universal.tag (* If true then print the optimised code. *)
+        val maxInlineSizeTag:       int  Universal.tag
+        val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
+    end
+
+    structure PRETTY : PRETTYSIG
+
+    structure BACKENDTREE: BackendIntermediateCodeSig
+
+    sharing
+        BASECODETREE.Sharing
+    =   CODETREE_FUNCTIONS.Sharing
+    =   LIFETIMES.Sharing
+    =   GCODE.Sharing
+    =   PRETTY.Sharing
+    =   BACKENDTREE.Sharing
 ) : 
 sig
     type codetree
-    val staticLinkAndCases: (codetree * int -> unit -> Address.machineWord) * codetree * int -> codetree
+    type machineWord = Address.machineWord
+    val codeGenerate: codetree * int * Universal.universal list -> unit -> machineWord
     structure Sharing : sig type codetree = codetree end
 end
 =
@@ -40,7 +73,21 @@ struct
     val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
     val rtsFunction = mkConst o ioOp
 
-    fun staticLinkAndCases (codegen, pt, localAddressCount) =
+    fun mkGenLoad  (i1, i2, bl) =
+        Extract {addr  = i1, level = i2, fpRel = bl}
+
+    fun mkClosLoad addr = Extract {level = 0, addr = addr, fpRel = false }
+
+    fun codeGenAndPrint debugSwitches (code, localCount) =
+    let
+        val backendCode = LIFETIMES.lifeTimes(code, localCount)
+    in
+        if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
+        then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ();
+        GCODE.gencode(backendCode, debugSwitches, localCount)
+    end
+
+    fun staticLinkAndCases (pt, localAddressCount, debugArgs) =
     let
         fun copyCode (pt, previous, localCount, localAddresses) =
         let
@@ -61,7 +108,7 @@ struct
                 then (* non-local *) previous (ptr, lev, closure)
            
                 else if laddr < 0
-                then mkGenLoad (laddr, 0, true, false)
+                then mkGenLoad (laddr, 0, true)
           
                 (* isOnstack *)
                 else case Array.sub(localConsts, laddr) of
@@ -73,7 +120,7 @@ struct
                         val newAddr = Array.sub(newLocalAddresses, laddr)
                         val _ = newAddr <> 0 orelse raise InternalError "copyCode: Not set"
                     in
-                        mkGenLoad (newAddr, 0, true, false)
+                        mkGenLoad (newAddr, 0, true)
                     end
             )
 
@@ -147,7 +194,7 @@ struct
                     (* Finally the initial argument values. *)
                     local
                         fun copyDec(({value, ...}, t), addr) =
-                                ({value = insert value, addr = addr, references = 0}, t)
+                                ({value = insert value, addr = addr}, t)
                     in
                         val newargs = ListPair.map copyDec (argList, newAddrs)
                     end
@@ -257,7 +304,7 @@ struct
                                     (* copyLambda may set "closure" to true. *)
                                     val () = Array.update (closuresForLocals, caddr, !closure);
                                 in
-                                    {addr=caddr, value = dec, references = 0}
+                                    {addr=caddr, value = dec}
                                 end             
 
                             val copiedDecs: simpleBinding list = map copyDec mutualDecs
@@ -281,7 +328,7 @@ struct
                                             val clos = copyProcClosure value false
                                             val newAddr = Array.sub(newLocalAddresses, addr)
                                         in
-                                            {value=clos, addr=newAddr, references=0}
+                                            {value=clos, addr=newAddr}
                                         end          
                                 in
                                     map mkLightClosure outlist
@@ -294,7 +341,7 @@ struct
                                     val clos = copyProcClosure value true
                                     val newAddr = Array.sub(newLocalAddresses, caddr)
                                 in
-                                    {value=clos, addr=newAddr, references=0} :: processClosures(t, outlist, true)
+                                    {value=clos, addr=newAddr} :: processClosures(t, outlist, true)
                                 end
                                     (* Leave it for the moment. *)
                                 else processClosures(t, h :: outlist, someFound)
@@ -307,7 +354,7 @@ struct
                             in
                                 val (lambdas, nonLambdas) = List.partition isLambda decs
                             end
-                            fun asMutual{addr, value=Lambda lambda, references} = {addr=addr, lambda=lambda, references=references}
+                            fun asMutual{addr, value=Lambda lambda} = {addr=addr, lambda=lambda}
                             |   asMutual _ = raise InternalError "asMutual"
                         in
                             (* Return the mutual declarations and the rest of the block. *)
@@ -364,9 +411,8 @@ struct
             |   insert(TupleFromContainer(container, size)) =
                     TupleFromContainer(insert container, size)
          
-            |   insert(Global g) =
+            |   insert(Global(GVal (g, _))) = Constnt g
                    (* Should have been taken off by the optimiser. *)
-                   optGeneral g : codetree
 
             |   insert(TagTest{test, tag, maxTag}) = TagTest{test=insert test, tag=tag, maxTag=maxTag}
 
@@ -400,7 +446,6 @@ struct
                 end
 
             |   insert(Case _) = raise InternalError "insert:Case"
-            |   insert(KillItems _) = raise InternalError "insert:KillItems"
 
           and copyCond (condTest, condThen, condElse) =
             let
@@ -420,16 +465,15 @@ struct
               (* True if both instructions are loads or indirections with the
                  same effect. More complicated cases could be considered but
                  function calls must always be treated as different.
-                 Now returns the variable, choosing the one which has lastRef set
-                 if possible.  Note: the reason we consider Indirect entries here
+                 Note: the reason we consider Indirect entries here
                  as well as Extract is because we (used to) defer Indirect entries.  *)
               datatype similarity =
-                Different | Similar of { addr : int, level: int, fpRel: bool, lastRef: bool }
+                Different | Similar of { addr : int, level: int, fpRel: bool }
 
-              fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel, lastRef=aRef}),
-                           Extract (b as {addr=bAddr, level=bLevel, fpRel=bFpRel, lastRef=_})) =
+              fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel}),
+                           Extract ({addr=bAddr, level=bLevel, fpRel=bFpRel})) =
                     if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
-                    then if aRef then Similar a else Similar b
+                    then Similar a
                     else Different
               
                |  similar (Indirect{offset=aOff, base=aBase}, Indirect{offset=bOff, base=bBase}) =
@@ -585,17 +629,17 @@ struct
                     (* Returns the closure address of the non-local *)
                     fun makeClosureEntry([], _) = (* not found - construct new entry *)
                         let
-                            val () = newGrefs := mkGenLoad (addr, lev - 1, fpRel, false) ::  !newGrefs;
+                            val () = newGrefs := mkGenLoad (addr, lev - 1, fpRel) ::  !newGrefs;
                             val newAddr = !newNorefs + 1;
                         in
                             newNorefs := newAddr; (* increment count *)
-                            mkClosLoad(newAddr, false)
+                            mkClosLoad newAddr
                         end
         
                     |   makeClosureEntry(Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t,
                                          newAddr) =
                         if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
-                        then mkClosLoad(newAddr, false)
+                        then mkClosLoad newAddr
                         else makeClosureEntry(t, newAddr - 1)
 
                     | makeClosureEntry _ =
@@ -619,7 +663,7 @@ struct
             
                     val () = if closure then makeClosure := true else ();
                 in
-                    mkClosLoad(0, false)
+                    mkClosLoad 0
                 end
         
                 else if lev = 1 andalso addr > 0
@@ -675,52 +719,50 @@ struct
               val newLocalAddresses = ref 1
               val insertedCode = copyCode (lambdaBody, prev, localCount, newLocalAddresses)
             in
-              if null (!newGrefs) (* no external references *)
-              then
-              let
-                val copiedProc =
-                  Lambda
-                    {
-                      body          = insertedCode,
-                      isInline      = isInline,
-                      name          = lambdaName,
-                      closure       = [],
-                      argTypes      = argTypes,
-                      resultType    = resultType,
-                      level         = nesting,
-                      closureRefs   = 0,
-                      localCount    = ! newLocalAddresses,
-                      makeClosure   = true,
-                      argLifetimes  = []
-                    }
-              in
-               (* Code generate it now so we get a constant. *)
-                evaluate(copiedProc, codegen, 1)
-              end
+                case !newGrefs of
+                    [] => (* no external references *)
+                    let
+                        val copiedProc =
+                        Lambda
+                        {
+                            body          = insertedCode,
+                            isInline      = isInline,
+                            name          = lambdaName,
+                            closure       = [],
+                            argTypes      = argTypes,
+                            resultType    = resultType,
+                            level         = nesting,
+                            localCount    = ! newLocalAddresses,
+                            makeClosure   = true
+                        }
+
+                        val cnstnt = codeGenAndPrint debugArgs (copiedProc, 1) ()
+                    in
+                        (* Code generate it now so we get a constant. *)
+                        Constnt cnstnt
+                    end
       
-              else
-                (* External references present. The closure will be copied
-                   later with copyProcClosure. *)
-                Lambda 
-                  {
-                    body          = insertedCode,
-                    isInline      = isInline,
-                    name          = lambdaName,
-                    closure       = !newGrefs,
-                    argTypes      = argTypes,
-                    resultType    = resultType,
-                    level         = nesting,
-                    closureRefs   = 0,
-                    localCount    = ! newLocalAddresses,
-                    makeClosure   = false,
-                    argLifetimes  = []
-                  }
+                |   globalRefs =>
+                    (* External references present. The closure will be copied
+                        later with copyProcClosure. *)
+                    Lambda 
+                    {
+                        body          = insertedCode,
+                        isInline      = isInline,
+                        name          = lambdaName,
+                        closure       = globalRefs,
+                        argTypes      = argTypes,
+                        resultType    = resultType,
+                        level         = nesting,
+                        localCount    = ! newLocalAddresses,
+                        makeClosure   = false
+                    }
             end (* copyLambda *)
 
                 (* Copy the closure of a procedure which has previously been
                 processed by copyLambda. *)
-            and copyProcClosure (Lambda{ body, isInline, name, argTypes, level, closureRefs,
-                                         closure, resultType, localCount, argLifetimes, ...}) makeClosure =
+            and copyProcClosure (Lambda{ body, isInline, name, argTypes, level,
+                                         closure, resultType, localCount, ...}) makeClosure =
                 let
                     (* process the non-locals in this procedure *)
                     (* If a closure is needed then any procedures referred to
@@ -739,10 +781,8 @@ struct
                         argTypes      = argTypes,
                         resultType    = resultType,
                         level         = level,
-                        closureRefs   = closureRefs,
                         localCount    = localCount,
-                        makeClosure   = makeClosure,
-                        argLifetimes  = argLifetimes
+                        makeClosure   = makeClosure
                       }
                 end
             |  copyProcClosure pt _ = pt (* may now be a constant *)
@@ -757,6 +797,9 @@ struct
     in
         insertedCode
     end (* staticLinkAndCases *)
+
+    fun codeGenerate(code, localCount, debugArgs) =
+        codeGenAndPrint debugArgs (staticLinkAndCases(code, localCount, debugArgs), localCount)
 
     structure Sharing = struct type codetree = codetree end
 end;

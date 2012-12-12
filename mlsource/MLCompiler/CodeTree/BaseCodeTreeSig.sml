@@ -47,8 +47,7 @@ sig
         { (* Load a value. *)
             addr : int, 
             level: int, 
-            fpRel: bool,
-            lastRef: bool
+            fpRel: bool
         }
     
     |   Indirect of {base: codetree, offset: int }
@@ -78,12 +77,6 @@ sig
 
     |   Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    |   KillItems of
-            (* Kill entries.  Used to mark a branch where a binding is no longer required.
-               "killSet" is always an Extract with lastRef=true so the type should
-               be loadForm list rather than codetree list. *)
-            { expression: codetree, killSet: codetree list, killBefore: bool }
-
     |   Raise of codetree (* Raise an exception *)
 
     |   Ldexc (* Load the exception (used at the start of a handler) *)
@@ -107,31 +100,22 @@ sig
     |   TupleVariable of varTuple list * codetree (* total length *)
         (* Construct a tuple using one or more multi-word items. *)
 
-    |   Global of optVal (* Global value *)
+    |   Global of globalVal (* Global value *)
 
     |   CodeNil
-    
-    and optVal = (* Global values - Also used in the optimiser. *)
-        JustTheVal of codetree
-    
-    |   ValWithDecs of {general : codetree, decs : codeBinding list}
-    
-    |   OptVal of
-    {
-        (* Expression to load this value - always a constant in global values. *)
-        general : codetree,
-        (* If it is not CodeNil it is the code which generated the general
-           value - either an inline procedure, a type constructor or a tuple. *)
-        special : codetree,
-        (* Environment for the special value. *)
-        environ : { addr : int,  level: int, fpRel: bool, lastRef: bool } * int * int -> optVal,
-        (* Declarations to precede the value - Always nil for global values. *)
-        decs : codeBinding list
-    }
+
+    and globalVal =
+        (* A global value is a constant but it may also contain the code for an
+           inline function or a tuple of (tuples of) inline functions along
+           with an environment to map the free variables.  We could get rid of
+           the environment by transforming the inlinable code so that it
+           had no free variables (they're always constants after the code
+           has been run). *)
+        GVal of machineWord * (codetree * (loadForm * int * int -> globalVal)) option
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
-    |   RecDecs of { addr: int, references: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
+    |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and caseType =
@@ -148,15 +132,13 @@ sig
     { (* Load a value. *)
         addr : int, 
         level: int, 
-        fpRel: bool,
-        lastRef: bool
+        fpRel: bool
     }
     
     and simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
-        addr:       int,
-        references: int
+        addr:       int
     }
 
     and lambdaForm =
@@ -168,10 +150,8 @@ sig
         argTypes      : argumentType list,  (* "Types" of arguments. *)
         resultType    : argumentType,       (* Result "type" of the function. *)
         level         : int,                (* Nesting depth.  Added by optimiser. *)
-        closureRefs   : int,                (* Lifetime data for the closure. 0 = no closure. Added by preCode. *)
         localCount    : int,                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
-        makeClosure   : bool,               (* Whether it has a full closure.  Added by preCode. *)
-        argLifetimes  : int list            (* Lifetime data for arguments.  Added by preCode. *)
+        makeClosure   : bool                (* Whether it has a full closure.  Added by preCode. *)
     }
 
     (* Return the "size" of the codetree used as a way of estimating whether to insert
@@ -185,7 +165,7 @@ sig
     structure Sharing:
     sig
         type codetree = codetree
-        and  optVal = optVal
+        and  globalVal = globalVal
         and  caseType = caseType
         and  pretty = pretty
         and  inlineStatus = inlineStatus

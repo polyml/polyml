@@ -29,7 +29,7 @@ in
 structure GCode = 
   INTGCODE (
     structure CODECONS     = CodeCons
-    structure BASECODETREE = BaseCodeTree
+    structure BACKENDTREE  = BackendIntermediateCode
     structure MISC         = Boot.Misc
   )
  end;

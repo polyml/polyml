@@ -19,20 +19,29 @@
 functor CODETREE_LIFETIMES(
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
+    structure BACKENDTREE: BackendIntermediateCodeSig
 
-    sharing BASECODETREE.Sharing = CODETREE_FUNCTIONS.Sharing
+    sharing BASECODETREE.Sharing = CODETREE_FUNCTIONS.Sharing = BACKENDTREE.Sharing
 
 ) :
 sig 
     type codetree
-    val lifeTimes: codetree * int -> codetree
-    structure Sharing: sig type codetree = codetree end
+    type backendIC
+    val lifeTimes: codetree * int -> backendIC
+    structure Sharing: sig type codetree = codetree and backendIC = backendIC end
 end
 =
 struct
     open BASECODETREE
     open Address
-    open CODETREE_FUNCTIONS
+    open BACKENDTREE
+
+    fun mkGenLoad (i1, bl, lf) =
+        BICExtract (if bl then BICLoadStack i1 else BICLoadClosure i1, lf)
+    and mkClosLoad(addr, last) =
+        BICExtract(BICLoadClosure addr, last)
+    and mkDecRef(ct, i1, i2) =
+        BICDeclar{value = ct, addr = i1, references = i2}
 
     exception InternalError = Misc.InternalError
 
@@ -46,9 +55,9 @@ struct
        generate extra bindings and rely on this pass to remove them
        if they are not actually used. *)
 
-    fun lifeTimes (pt, localAddressCount) =
+    fun lifeTimes (pt, localAddressCount): backendIC =
     let
-        fun copyCode (pt, argUses, localCount) =
+        fun copyCode (pt: codetree, argUses, localCount): backendIC =
         let
             (* Tables for local declarations. "localUses" is the last reference
                for the declaration.  *)
@@ -135,24 +144,24 @@ struct
                                 if n = 0 orelse n = fullSet orelse Vector.sub(args, addr) <> 0 orelse ! outsideLoopRef
                                 then l 
                                 else if addr = 0 then mkClosLoad(0, true) :: l
-                                else mkGenLoad(~addr, 0, true, true) :: l) [] sumArgSet
+                                else mkGenLoad(~addr, true, true) :: l) [] sumArgSet
                     in
                         Vector.foldli (fn (addr, n, l) =>
                                 if n = 0 orelse n = fullSet orelse Vector.sub(locals, addr) <> 0 orelse Array.sub(outsideLoop, addr)
                                 then l 
-                                else mkGenLoad(addr, 0, true, true) :: l) killArgs sumLocalSet
+                                else mkGenLoad(addr, true, true) :: l) killArgs sumLocalSet
                     end
                 in
                     List.map computeKills usages
                 end
             end
 
-            fun addKillSet(original, []) = original (* No change *)
-            |   addKillSet(Newenv(decs, exp), killSet) = Newenv(map mkNullDec killSet @ decs, exp)
-            |   addKillSet(original, killSet) = Newenv(map mkNullDec killSet, original)
+            fun addKillSet(original, []): backendIC = original (* No change *)
+            |   addKillSet(BICNewenv(decs, exp), killSet) = BICNewenv(map BICNullBinding killSet @ decs, exp)
+            |   addKillSet(original, killSet) = BICNewenv(map BICNullBinding killSet, original)
 
             (* returns the translated node *)
-            fun locaddr { addr=laddr, fpRel=true, ...} =
+            fun locaddr { addr=laddr, fpRel=true, ...}: backendIC =
             (
                 instrCount := !instrCount+1;
 
@@ -165,7 +174,7 @@ struct
                 in 
                     (* Mark the argument as used. *)
                     Array.update (argUses, argNo, maxUse(! instrCount, Array.sub(argUses, argNo)));
-                    mkGenLoad (laddr, 0, true, lastReference)
+                    mkGenLoad (laddr, true, lastReference)
                 end
           
                 (* isOnstack *)
@@ -177,7 +186,7 @@ struct
                         Array.sub(localUses, laddr) = 0 andalso not (Array.sub(outsideLoop, laddr))
                 in
                     Array.update (localUses, laddr, maxUse(! instrCount, Array.sub(localUses, laddr)));
-                    mkGenLoad (laddr, 0, true, lastReference)
+                    mkGenLoad (laddr, true, lastReference)
                 end
             )
             | locaddr { addr=laddr, fpRel=false, ...} =
@@ -187,7 +196,7 @@ struct
                 in
                     (* Mark the closure as used. *)
                     Array.update (argUses, 0, maxUse(! instrCount, Array.sub(argUses, 0)));
-                    mkGenLoad (laddr, 0, false, lastReference)
+                    mkGenLoad (laddr, false, lastReference)
                 end
           (* locaddr *)
 
@@ -202,17 +211,17 @@ struct
                     f a :: rest
                 end
 
-            fun insert (pt as MatchFail) = pt
+            fun insert MatchFail = BICMatchFail
           
             |   insert(AltMatch(x, y)) =
                 let
                     val insY = insert y
                     val insX = insert x
                 in
-                    AltMatch (insX, insY)
+                    BICAltMatch (insX, insY)
                 end
        
-            |   insert CodeNil = CodeNil
+            |   insert CodeNil = raise InternalError "insert: CodeNil"
 
             |   insert(Eval { function as Extract{addr, fpRel=true, ...}, argList, resultType, ...}) =
                 let
@@ -228,7 +237,7 @@ struct
                             fun getKill (Extract ext) =
                                 (
                                     case locaddr ext of
-                                        ext as Extract{lastRef=true, ...} => SOME ext
+                                        ext as BICExtract(_, true) => SOME ext
                                     |   _ => NONE
                                 )
                             |   getKill _ = NONE
@@ -240,10 +249,10 @@ struct
                     (* Process the arguments first. *)
                     val newargs = mapright(fn (c, t) => (insert c, t)) argList
                     val eval =
-                        Eval {function = insert function, argList = newargs, resultType=resultType}
+                        BICEval {function = insert function, argList = newargs, resultType=resultType}
                 in
                     if null closureKills then eval
-                    else KillItems{expression=eval, killSet=closureKills, killBefore=false}
+                    else BICKillItems{expression=eval, killSet=closureKills, killBefore=false}
                 end
 
             |   insert(Eval { function, argList, resultType, ...}) =
@@ -253,15 +262,14 @@ struct
                     (* Then the body. *)
                     val func = insert function
                 in
-                    Eval {function = func, argList = newargs, resultType=resultType}
+                    BICEval {function = func, argList = newargs, resultType=resultType}
                 end
 
             |   insert(Extract ext) = locaddr ext
 
-            |   insert(Indirect {base, offset}) = Indirect {base = insert base, offset = offset}
+            |   insert(Indirect {base, offset}) = BICField {base = insert base, offset = offset}
 
-            |   insert(pt as Constnt _) = 
-                    pt (* Constants can be returned untouched. *)
+            |   insert(Constnt c) = BICConstnt c (* Constants can be returned untouched. *)
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
@@ -318,10 +326,10 @@ struct
                        end of the loop.  Since their last references are inside the loop
                        this means extending the lifetime until the end. *)
                     local
-                        fun extendLife(Extract{addr, level=0, fpRel=true, ...}) =
+                        fun extendLife(BICExtract(BICLoadStack addr, _)) =
                                 if addr < 0 then Array.update (argUses, ~addr, loopEndPosition)
                                 else Array.update (localUses, addr, loopEndPosition)
-                        |   extendLife(Extract{addr=0, level=0, fpRel=false, ...}) =
+                        |   extendLife(BICExtract(BICLoadClosure 0, _)) =
                                 Array.update (argUses, 0, loopEndPosition)
                         |   extendLife _ = raise InternalError "Not an Extract"
                     in
@@ -335,17 +343,17 @@ struct
                         val newargs = mapright copyDec (ListPair.zipEq(argList, loopArgUses))
                     end
                     val loop =
-                        BeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList)}
+                        BICBeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #2 argList)}
                 in
                     (* Add the kill entries on after the loop. *)
                     if null killAfter then loop
-                    else KillItems{expression=loop, killSet=killAfter, killBefore=false}
+                    else BICKillItems{expression=loop, killSet=killAfter, killBefore=false}
                 end
     
             |   insert(Loop argList) = (* Jump back to start of tail-recursive function. *)
-                        Loop(mapright(fn (c, t) => (insert c, t)) argList)
+                        BICLoop(mapright(fn (c, t) => (insert c, t)) argList)
 
-            |   insert(Raise x) = Raise (insert x)
+            |   insert(Raise x) = BICRaise (insert x)
 
                 (* See if we can use a case-instruction. Arguably this belongs
                    in the optimiser but it is only really possible when we have
@@ -387,7 +395,7 @@ struct
                             val () = instrCount := !instrCount+1
                         in
                             (* It is never used and it has no side-effects so we can ignore it. *)
-                            if wasUsed = 0 andalso sideEffectFree pt
+                            if wasUsed = 0 andalso CODETREE_FUNCTIONS.sideEffectFree pt
                             then rest
                             else
                             let
@@ -448,8 +456,8 @@ struct
 
                             (* Process the closure entries and extract the ones that are the last refs. *)
                             val lastRefsForClosure =
-                                List.map NullBinding
-                                    (List.filter (fn Extract{lastRef=true, ...} => true | _ => false)
+                                List.map BICNullBinding
+                                    (List.filter (fn BICExtract(_, true) => true | _ => false)
                                         (map insert fullClosureList))
 
                             val copiedDecs =
@@ -480,7 +488,7 @@ struct
                             (* Return the mutual declarations and the rest of the block. *)
                             if null decs
                             then lastRefsForClosure @ restOfBlock
-                            else RecDecs decs :: (lastRefsForClosure @ restOfBlock)
+                            else BICRecDecs decs :: (lastRefsForClosure @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
 
                     |   copyDeclarations (NullBinding v :: vs)  =
@@ -493,22 +501,30 @@ struct
                         in
                             (* Expand out blocks *)
                             case copiedNode of
-                                Newenv(decs, exp) => decs @ (NullBinding exp :: copiedRest)
-                            |   _ => NullBinding copiedNode :: copiedRest
+                                BICNewenv(decs, exp) => decs @ (BICNullBinding exp :: copiedRest)
+                            |   _ => BICNullBinding copiedNode :: copiedRest
                         end (* copyDeclarations *)
 
                     val insElist = copyDeclarations(ptElistDecs @ [NullBinding ptExp])
-                in
+
                     (* TODO: Tidy this up. *)
-                    decSequenceWithFinalExp insElist
+                    fun splitLast _ [] = raise InternalError "decSequenceWithFinalExp: empty"
+                    |   splitLast decs [BICNullBinding exp] = (List.rev decs, exp)
+                    |   splitLast _ [_] = raise InternalError "decSequenceWithFinalExp: last is not a NullDec"
+                    |   splitLast decs (hd::tl) = splitLast (hd:: decs) tl
+
+                in
+                    case splitLast [] insElist of
+                        ([], exp) => exp
+                    |   (decs, exp) => BICNewenv(decs, exp)
                 end (* isNewEnv *)
                 
             |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
-                    mkTuple (mapright insert recs) 
+                    BICTuple (mapright insert recs) 
 
-            |   insert(pt as Ldexc) = pt (* just a constant so return it *)
+            |   insert Ldexc = BICLdexc (* just a constant so return it *)
       
-            |   insert(Lambda lambda) = Lambda(copyLambda lambda)
+            |   insert(Lambda lambda) = BICLambda(copyLambda lambda)
     
             |   insert(Handle { exp, handler }) =
                 let
@@ -517,22 +533,21 @@ struct
                    val hand = insert handler
                    val exp = insert exp
                 in
-                  Handle {exp = exp, handler = hand}
+                  BICHandle {exp = exp, handler = hand}
                 end
 
-            |   insert(c as Container _) = c
+            |   insert(Container c) = BICContainer c
 
             |   insert(SetContainer {container, tuple, size}) =
-                    SetContainer{container = insert container, tuple = insert tuple, size = size}
+                    BICSetContainer{container = insert container, tuple = insert tuple, size = size}
 
             |   insert(TupleFromContainer(container, size)) =
-                    TupleFromContainer(insert container, size)
+                    BICTupleFromContainer(insert container, size)
          
-            |   insert(Global g) =
+            |   insert(Global(GVal(g, _))) = BICConstnt g
                    (* Should have been taken off by the optimiser. *)
-                   optGeneral g : codetree
 
-            |   insert(TagTest{test, tag, maxTag}) = TagTest{test=insert test, tag=tag, maxTag=maxTag}
+            |   insert(TagTest{test, tag, maxTag}) = BICTagTest{test=insert test, tag=tag, maxTag=maxTag}
             
             |   insert(Case{cases, test, caseType, default}) =
                 let
@@ -559,28 +574,25 @@ struct
                     (* Restore the overall usage by setting the reference to the union of all the branches. *)
                     val () = List.app addFromSaved(defaultUsage :: usageList)
                 in
-                    Case{cases=casePlusKills, test=insert test, caseType=caseType,
+                    BICCase{cases=casePlusKills, test=insert test, caseType=caseType,
                          default=addKillSet(insDefault, hd kills)}
                 end
 
             |   insert(IndirectVariable{base, offset}) =
-                    IndirectVariable{base=insert base, offset=insert offset}
+                    BICIndirectVariable{base=insert base, offset=insert offset}
 
             |   insert(TupleVariable(vars, length)) =
                 let
                     fun insertTuple(VarTupleSingle{source, destOffset}) =
-                            VarTupleSingle{source=insert source, destOffset=insert destOffset}
+                            BICVarTupleSingle{source=insert source, destOffset=insert destOffset}
                     |   insertTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
-                            VarTupleMultiple{base=insert base, length=insert length,
+                            BICVarTupleMultiple{base=insert base, length=insert length,
                                              destOffset=insert destOffset, sourceOffset=insert sourceOffset}
                 in
-                    TupleVariable(mapright insertTuple vars, insert length)
+                    BICTupleVariable(mapright insertTuple vars, insert length)
                 end
 
-            |   insert(KillItems _) = raise InternalError "insert:KillItems"
-
-
-            and copyLambda{body=lambdaBody, level=nesting, argTypes, isInline,
+            and copyLambda{body=lambdaBody, level=nesting, argTypes,
                              name=lambdaName, resultType, localCount, closure, makeClosure, ...} = 
             let
                 val numArgs = List.length argTypes
@@ -590,14 +602,17 @@ struct
                 val argUses      = Array.array(numArgs+1, 0);
 
                 (* process the body *)
-                val insertedCode = copyCode (lambdaBody, argUses, localCount);
-                val copiedClosure = mapright insert closure
+                val insertedCode: backendIC = copyCode (lambdaBody, argUses, localCount)
+                (* All the closure entries ought to be loads but there used to be cases
+                   where functions were compiled late in the process and then appeared
+                   as constants in the closure.  Include this check for the moment. *)
+                val copiedClosure =
+                    map(fn BICExtract a => BICExtract a | _ => raise InternalError "map closure") (mapright insert closure)
             
                 val argUseList = Array.foldr(op ::) [] argUses
             in
                 {
                     body          = insertedCode,
-                    isInline      = isInline,
                     name          = lambdaName,
                     closure       = copiedClosure,
                     argTypes      = argTypes,
@@ -657,16 +672,16 @@ struct
                 (* Process the condition AFTER the then- and else-parts. *)
                 val insFirst = insert condTest
             in
-                mkIf (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
+                BICCond (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
             end
         in     
             insert pt
         end (* copyCode *)
          
-        val insertedCode = copyCode (pt, Array.array(0, 0), localAddressCount);
+        val insertedCode: backendIC = copyCode (pt, Array.array(0, 0), localAddressCount);
     in
         insertedCode
     end (* lifeTimes *)
 
-    structure Sharing = struct type codetree = codetree end
+    structure Sharing = struct type codetree = codetree and backendIC = backendIC end
 end;

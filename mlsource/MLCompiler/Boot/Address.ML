@@ -34,6 +34,8 @@ sig
   type handler
   type short = Word.word
   
+  val stringOfWord: machineWord -> string
+  
   val wordEq : 'a * 'a -> bool
 
   val isShort   : 'a -> bool
@@ -80,8 +82,8 @@ sig
 
   val isIoAddress : address -> bool
 
-(* The following function is VERY unsafe and should only be *)
-(* used by the Poly/ML code generator (ML version).         *)    
+    (* The following function is VERY unsafe and should only be
+    used by the Poly/ML code generator *)    
   val offsetAddr : address * short -> handler
 end =
 
@@ -232,6 +234,160 @@ struct
     (* The mutable flag may be used with any of the others. *)
     fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
   end;
+
+    local
+        val rtsTable =
+            [
+            (POLY_SYS_exit,"POLY_SYS_exit"),
+            (POLY_SYS_chdir,"POLY_SYS_chdir"),
+            (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
+            (POLY_SYS_raisex,"POLY_SYS_raisex"),
+            (POLY_SYS_get_length,"POLY_SYS_get_length"),
+            (POLY_SYS_get_flags,"POLY_SYS_get_flags"),
+            (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
+            (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
+            (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
+            (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
+            (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
+            (POLY_SYS_exception_trace,"POLY_SYS_exception_trace"),
+            (POLY_SYS_give_ex_trace,"POLY_SYS_give_ex_trace"),
+            (POLY_SYS_lockseg,"POLY_SYS_lockseg"),
+            (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
+            (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
+            (POLY_SYS_network,"POLY_SYS_network"),
+            (POLY_SYS_os_specific,"POLY_SYS_os_specific"),
+            (POLY_SYS_io_dispatch,"POLY_SYS_io_dispatch"),
+            (POLY_SYS_signal_handler,"POLY_SYS_signal_handler"),
+            (POLY_SYS_atomic_incr,"POLY_SYS_atomic_incr"),
+            (POLY_SYS_atomic_decr,"POLY_SYS_atomic_decr"),
+            (POLY_SYS_thread_self,"POLY_SYS_thread_self"),
+            (POLY_SYS_thread_dispatch,"POLY_SYS_thread_dispatch"),
+            (POLY_SYS_kill_self,"POLY_SYS_kill_self"),
+            (POLY_SYS_profiler,"POLY_SYS_profiler"),
+            (POLY_SYS_full_gc,"POLY_SYS_full_gc"),
+            (POLY_SYS_stack_trace,"POLY_SYS_stack_trace"),
+            (POLY_SYS_timing_dispatch,"POLY_SYS_timing_dispatch"),
+            (POLY_SYS_objsize,"POLY_SYS_objsize"),
+            (POLY_SYS_showsize,"POLY_SYS_showsize"),
+            (POLY_SYS_is_short,"POLY_SYS_is_short"),
+            (POLY_SYS_aplus,"POLY_SYS_aplus"),
+            (POLY_SYS_aminus,"POLY_SYS_aminus"),
+            (POLY_SYS_amul,"POLY_SYS_amul"),
+            (POLY_SYS_adiv,"POLY_SYS_adiv"),
+            (POLY_SYS_amod,"POLY_SYS_amod"),
+            (POLY_SYS_aneg,"POLY_SYS_aneg"),
+            (POLY_SYS_xora,"POLY_SYS_xora"),
+            (POLY_SYS_equala,"POLY_SYS_equala"),
+            (POLY_SYS_ora,"POLY_SYS_ora"),
+            (POLY_SYS_anda,"POLY_SYS_anda"),
+            (POLY_SYS_Real_str,"POLY_SYS_Real_str"),
+            (POLY_SYS_Real_geq,"POLY_SYS_Real_geq"),
+            (POLY_SYS_Real_leq,"POLY_SYS_Real_leq"),
+            (POLY_SYS_Real_gtr,"POLY_SYS_Real_gtr"),
+            (POLY_SYS_Real_lss,"POLY_SYS_Real_lss"),
+            (POLY_SYS_Real_eq,"POLY_SYS_Real_eq"),
+            (POLY_SYS_Real_neq,"POLY_SYS_Real_neq"),
+            (POLY_SYS_Real_Dispatch,"POLY_SYS_Real_Dispatch"),
+            (POLY_SYS_Add_real,"POLY_SYS_Add_real"),
+            (POLY_SYS_Sub_real,"POLY_SYS_Sub_real"),
+            (POLY_SYS_Mul_real,"POLY_SYS_Mul_real"),
+            (POLY_SYS_Div_real,"POLY_SYS_Div_real"),
+            (POLY_SYS_Abs_real,"POLY_SYS_Abs_real"),
+            (POLY_SYS_Neg_real,"POLY_SYS_Neg_real"),
+            (POLY_SYS_Repr_real,"POLY_SYS_Repr_real"),
+            (POLY_SYS_conv_real,"POLY_SYS_conv_real"),
+            (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
+            (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
+            (POLY_SYS_sqrt_real,"POLY_SYS_sqrt_real"),
+            (POLY_SYS_sin_real,"POLY_SYS_sin_real"),
+            (POLY_SYS_cos_real,"POLY_SYS_cos_real"),
+            (POLY_SYS_arctan_real,"POLY_SYS_arctan_real"),
+            (POLY_SYS_exp_real,"POLY_SYS_exp_real"),
+            (POLY_SYS_ln_real,"POLY_SYS_ln_real"),
+            (POLY_SYS_stdin,"POLY_SYS_stdin"),
+            (POLY_SYS_stdout,"POLY_SYS_stdout"),
+            (POLY_SYS_process_env,"POLY_SYS_process_env"),
+            (POLY_SYS_set_string_length,"POLY_SYS_set_string_length"),
+            (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
+            (POLY_SYS_poly_specific,"POLY_SYS_poly_specific"),
+            (POLY_SYS_bytevec_eq, "POLY_SYS_bytevec_eq"),
+            (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
+            (POLY_SYS_set_code_constant,"POLY_SYS_set_code_constant"),
+            (POLY_SYS_move_words,"POLY_SYS_move_words"),
+            (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
+            (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
+            (POLY_SYS_code_flags,"POLY_SYS_code_flags"),
+            (POLY_SYS_shrink_stack,"POLY_SYS_shrink_stack"),
+            (POLY_SYS_stderr,"POLY_SYS_stderr"),
+            (POLY_SYS_callcode_tupled,"POLY_SYS_callcode_tupled"),
+            (POLY_SYS_foreign_dispatch,"POLY_SYS_foreign_dispatch"),
+            (POLY_SYS_XWindows,"POLY_SYS_XWindows"),
+            (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
+            (POLY_SYS_bytes_per_word,"POLY_SYS_bytes_per_word"),
+            (POLY_SYS_offset_address,"POLY_SYS_offset_address"),
+            (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
+            (POLY_SYS_word_neq,"POLY_SYS_word_neq"),
+            (POLY_SYS_not_bool,"POLY_SYS_not_bool"),
+            (POLY_SYS_string_length,"POLY_SYS_string_length"),
+            (POLY_SYS_int_geq,"POLY_SYS_int_geq"),
+            (POLY_SYS_int_leq,"POLY_SYS_int_leq"),
+            (POLY_SYS_int_gtr,"POLY_SYS_int_gtr"),
+            (POLY_SYS_int_lss,"POLY_SYS_int_lss"),
+            (POLY_SYS_mul_word,"POLY_SYS_mul_word"),
+            (POLY_SYS_plus_word,"POLY_SYS_plus_word"),
+            (POLY_SYS_minus_word,"POLY_SYS_minus_word"),
+            (POLY_SYS_div_word,"POLY_SYS_div_word"),
+            (POLY_SYS_or_word,"POLY_SYS_or_word"),
+            (POLY_SYS_and_word,"POLY_SYS_and_word"),
+            (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
+            (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word"),
+            (POLY_SYS_mod_word,"POLY_SYS_mod_word"),
+            (POLY_SYS_word_geq,"POLY_SYS_word_geq"),
+            (POLY_SYS_word_leq,"POLY_SYS_word_leq"),
+            (POLY_SYS_word_gtr,"POLY_SYS_word_gtr"),
+            (POLY_SYS_word_lss,"POLY_SYS_word_lss"),
+            (POLY_SYS_word_eq,"POLY_SYS_word_eq"),
+            (POLY_SYS_load_byte,"POLY_SYS_load_byte"),
+            (POLY_SYS_load_word,"POLY_SYS_load_word"),
+            (POLY_SYS_assign_byte,"POLY_SYS_assign_byte"),
+            (POLY_SYS_assign_word,"POLY_SYS_assign_word")
+            ]
+    in
+        val rtsNames =
+            Vector.tabulate(256,
+                fn n => case List.find(fn (rtsNo, _) => rtsNo=n) rtsTable of
+                    SOME(_, name) => name | _ => " RTS" ^ Int.toString n)
+    end
+
+    fun stringOfWord w =
+    if isShort w
+    then "LIT" ^ Word.toString (toShort w)
+    else if isIoAddress(toAddress w)
+    then (* RTS call - print the number. *)
+        let
+            val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+
+            fun matchIo n =
+                if n = 256 then raise Fail "Unknown RTS entry"
+                else if wordEq (w, ioOp n)
+                then Vector.sub(rtsNames, n)
+                else matchIo (n+1)
+        in
+            matchIo 0
+        end
+    else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
+    then (* If it's the closure of a function try to print that. *)
+        let
+            val firstWord = loadWord(toAddress w, toShort 0)
+            val doCall: int*machineWord -> string
+                = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+        in
+            if not (isShort firstWord) andalso isCode(toAddress firstWord)
+            then "FUN \"" ^ doCall(105, firstWord) ^ "\"" (* Get the function name. *)
+            else "LIT <long>"
+        end
+    else "LIT <long>"
+
 end
 
 end; (* open RuntimeCalls *)

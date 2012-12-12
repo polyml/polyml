@@ -18,21 +18,45 @@
 
 functor CODETREE_OPTIMISER(
     structure BASECODETREE: BaseCodeTreeSig
+
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
+
     structure REMOVE_REDUNDANT:
     sig
         type codetree
-        type loadForm = { addr : int, level: int, fpRel: bool, lastRef: bool }
+        type loadForm = { addr : int, level: int, fpRel: bool }
         val cleanProc : (codetree * (loadForm * int * int -> codetree) * int * bool array) -> codetree
         structure Sharing: sig type codetree = codetree end
     end
 
-    sharing BASECODETREE.Sharing = CODETREE_FUNCTIONS.Sharing = REMOVE_REDUNDANT.Sharing
+    structure DEBUG :
+    sig
+        val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
+        val maxInlineSizeTag:       int  Universal.tag
+        val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
+    end
+
+    structure PRETTY : PRETTYSIG
+
+    structure BACKEND:
+    sig
+        type codetree
+        type machineWord = Address.machineWord
+        val codeGenerate: codetree * int * Universal.universal list -> unit -> machineWord
+        structure Sharing : sig type codetree = codetree end
+    end
+
+    sharing 
+        BASECODETREE.Sharing 
+    =   CODETREE_FUNCTIONS.Sharing
+    =   REMOVE_REDUNDANT.Sharing
+    =   PRETTY.Sharing
+    =   BACKEND.Sharing
 
 ) :
     sig
         type codetree and optVal
-        val codetreeOptimiser: codetree  * (codetree * int -> codetree) * int -> optVal * int
+        val codetreeOptimiser: codetree  * Universal.universal list -> optVal * int
         structure Sharing: sig type codetree = codetree and optVal = optVal end
     end
 =
@@ -53,8 +77,7 @@ struct
     { (* Load a value. *)
         addr : int, 
         level: int, 
-        fpRel: bool,
-        lastRef: bool
+        fpRel: bool
     }
 
     (* gets a value from the run-time system *)
@@ -70,7 +93,8 @@ struct
        we may as well export them *)
     val rtsFunction = mkConst o ioOp
 
-
+    fun mkGenLoad  (i1, i2, bl) =
+        Extract {addr  = i1, level = i2, fpRel = bl}
 
 (************************************************************************)
 
@@ -89,14 +113,14 @@ struct
                 (* We enter declarations with level = ~1 for recursive
                    calls when processing mutual recursion. *)
             then ext (* It's local to the function(s) we're processing. *)
-            else mkGenLoad (addr, level + correction, fpRel, false)
+            else mkGenLoad (addr, level + correction, fpRel)
 
         | changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
-                         level, closureRefs, makeClosure, localCount, ...}, nesting) =
+                         level, makeClosure, localCount, ...}, nesting) =
             Lambda{body = changeL(body, nesting+1), isInline = isInline,
                    name = name, closure = closure, argTypes = argTypes, resultType=resultType,
-                   level = level + correction, closureRefs = closureRefs,
-                   makeClosure = makeClosure, localCount=localCount, argLifetimes = []}
+                   level = level + correction,
+                   makeClosure = makeClosure, localCount=localCount}
 
         | changeL(Eval{function, argList, resultType}, nesting) =
             Eval{function = changeL(function, nesting),
@@ -150,6 +174,49 @@ struct
     end
   (* end changeLevel *)
 
+    (* Code-generate a function or set of mutually recursive functions that contain no free variables
+       and run the code to return the address.  This allows us to further fold the address as
+       a constant if, for example, it is used in a tuple. *)
+    local
+        exception Interrupt = Thread.Thread.Interrupt
+    in
+        fun codeGenerateToConstant debugSwitches (pt, localCount) =
+        let
+            val () =
+                if DEBUG.getParameter DEBUG.codetreeTag debugSwitches
+                then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty pt) else ()
+
+            val code = BACKEND.codeGenerate(pt, localCount, debugSwitches)
+        in
+            Constnt (code()) (* Evaluate it and convert any exceptions into Raise instrs. *)
+                handle Interrupt => raise Interrupt (* Must not handle this *)
+                | exn => Raise (Constnt(toMachineWord exn))
+        end
+    end
+
+    (* Call and RTS function to fold constants.  The function must be safe to evaluate "early". *)
+    fun callRTSFunction(rtsCall: machineWord, argList: machineWord list) =
+    let
+        exception Interrupt = Thread.Thread.Interrupt
+        val _ = (isIoAddress(toAddress rtsCall) andalso earlyRtsCall rtsCall)
+                    orelse raise InternalError "not early rts"
+
+        (* Turn the arguments into a vector.  *)
+        val argVector = Vector.fromList argList
+
+        (* Call the function.  If it raises an
+           exception pass back the exception packet.  We've got a problem
+           here if the code happens to raise Interrupt.  We assume that
+           Interrupt can only occur through user intervention during
+           compilation rather than as a result of executing the code.
+           It would be better to use the Thread.Thread functions to
+           mask off interrupts. *)
+    in
+        Constnt (call(toAddress rtsCall, toMachineWord argVector))
+            handle exn as Interrupt => raise exn (* Must not handle this *)
+            | exn as Misc.InternalError _ => raise exn
+            | exn => Raise (Constnt(toMachineWord exn))
+    end
 
     (* Optimiser context.  The optimiser may add or remove bindings so the "name" space
        is different for codetree elements before and after processing.  The "Old" environment
@@ -175,11 +242,10 @@ struct
          newEnv: nameEnv,
          nestingOfThisFunction : int,
          spval : int ref,
-         evaluate : codetree * int -> codetree,
          recursiveExpansions:
             ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) option,
          loopFilter: (codetree * argumentType) list -> (codetree * argumentType) list,
-         maxInlineSize: int,
+         debugArgs: Universal.universal list,
          inlineExpansionDepth: int
     }
 
@@ -237,12 +303,12 @@ struct
                         decs    = []
                     }
             in
-                (optV, optDecs ins @ [mkDecRef(gen, decSpval, 0)])
+                (optV, optDecs ins @ [mkDec(decSpval, gen)])
             end
 
     (* Handle an Indirect node or the equivalent in a variable tuple. *)
     fun doIndirection(source, offset,
-            {nestingOfThisFunction,  spval, evaluate, recursiveExpansions, loopFilter, maxInlineSize, 
+            {nestingOfThisFunction,  spval, recursiveExpansions, loopFilter, debugArgs, 
              inlineExpansionDepth, ... }) =
         case (optSpecial source, optGeneral source) of
           (spec as Recconstr _, _) =>
@@ -265,10 +331,9 @@ struct
                     oldEnv = { lookup = optEnviron source, enter = errorEnter },
                     nestingOfThisFunction= nestingOfThisFunction,
                     spval= spval,
-                    evaluate= evaluate,
                     recursiveExpansions= recursiveExpansions,
                     loopFilter= loopFilter,
-                    maxInlineSize= maxInlineSize,
+                    debugArgs= debugArgs,
                     inlineExpansionDepth = inlineExpansionDepth})
             in
                 repDecs (optDecs source @ optDecs newCode) newCode
@@ -294,7 +359,7 @@ struct
      |  optimise (CodeNil, _, _) = simpleOptVal CodeNil
         
      |  optimise (Eval {function, argList, resultType}, tailCall,
-                    context as {evaluate, spval, nestingOfThisFunction, recursiveExpansions, inlineExpansionDepth, ...}) =
+                    context as {nestingOfThisFunction, recursiveExpansions, inlineExpansionDepth, ...}) =
         let
             (* Function call - This may involve inlining the function. *)
 
@@ -384,7 +449,7 @@ struct
                        arguments are constants evaluate it now. *)
                     val evCopiedCode = 
                         if isIoAddress(toAddress w) andalso earlyRtsCall w andalso List.all (isConstnt o #1) copiedArgs
-                        then evaluate (Eval {function = gen, argList = copiedArgs, resultType=resultType}, !spval+1)
+                        then callRTSFunction(w, List.map(fn (Constnt w, _) => w | _ => raise InternalError "not const") copiedArgs)
                         else Eval {function = gen, argList = copiedArgs, resultType=resultType}
                 in
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
@@ -430,7 +495,7 @@ struct
      |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
                           argTypes, resultType, ...}), _,
                  { nestingOfThisFunction, oldEnv = {lookup=lookupOldAddr, ...}, newEnv = {lookup=lookupNewAddr, ...},
-                   maxInlineSize, evaluate, spval, inlineExpansionDepth, ... }) =
+                   debugArgs, spval, inlineExpansionDepth, ... }: optContext) =
         let
             (* The nesting of this new function is the current nesting level
              plus one. Normally this will be the same as lambda.level except
@@ -453,7 +518,7 @@ struct
                                         concat["localOldAddr: Not found. Addr=", Int.toString index,
                                                " Level=", Int.toString level])
                     (* Argument or closure. *)
-                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
+                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
                 |   localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1)
                 and setTab (index, v) = update (oldAddrTab, index, SOME v)
             in
@@ -472,9 +537,9 @@ struct
                     if index > 0 
                     then case newAddrTab sub index of
                         NONE => (* Return the original entry if it's not there. *)
-                            simpleOptVal(mkGenLoad (index, depth - nesting, true, false))
+                            simpleOptVal(mkGenLoad (index, depth - nesting, true))
                     |   SOME v => changeLevel v (depth - nesting) 
-                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
+                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
                 |   localNewAddr (ptr, depth, levels) = lookupNewAddr (ptr, depth, levels - 1);
 
                 fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
@@ -489,10 +554,9 @@ struct
                 oldEnv=oldEnv,
                 nestingOfThisFunction=nesting,
                 spval=newAddressAllocator,
-                evaluate=evaluate,
                 recursiveExpansions=NONE,
                 loopFilter=loopFilterError,
-                maxInlineSize=maxInlineSize,
+                debugArgs=debugArgs,
                 inlineExpansionDepth=inlineExpansionDepth})
 
           (* nonLocals - a list of the non-local references made by this
@@ -515,7 +579,7 @@ struct
           in
              if List.exists findNonLocal (!nonLocals)
              then () (* Already there. *)
-             else nonLocals := mkGenLoad(addr, correctedLevel, fpRel, false) :: ! nonLocals
+             else nonLocals := mkGenLoad(addr, correctedLevel, fpRel) :: ! nonLocals
           end
 
           fun checkRecursion(ext as {fpRel=oldfpRel, ...}, levels, depth) =
@@ -561,9 +625,8 @@ struct
                            argTypes      = argTypes,
                            resultType    = resultType,
                            level         = nesting,
-                           closureRefs   = 0,
                            localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false, argLifetimes = []
+                           makeClosure   = false
                          },
                       special = original,
                       environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
@@ -581,7 +644,8 @@ struct
               let
                     val inlineType =
                         if lambdaInline = NonInline
-                        then if (* Is it small? *) codeSize(cleanedBody, true) < maxInlineSize
+                        then if (* Is it small? *) codeSize(cleanedBody, true) < 
+                                DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs
                         then SmallFunction else NonInline
                         else lambdaInline
 
@@ -595,14 +659,13 @@ struct
                        argTypes      = argTypes,
                        resultType    = resultType,
                        level         = nesting,
-                       closureRefs   = 0,
                        localCount    = ! newAddressAllocator + 1,
-                       makeClosure   = false, argLifetimes = []
+                       makeClosure   = false
                      };
                  val general = 
                    (* If this has no free variables we can code-generate it now. *)
                    if null (!nonLocals)
-                   then evaluate(copiedLambda, !spval+1)
+                   then codeGenerateToConstant debugArgs (copiedLambda, !spval+1)
                    else copiedLambda
               in
                   optVal 
@@ -623,9 +686,8 @@ struct
                            argTypes      = argTypes,
                            resultType    = resultType,
                            level         = nesting,
-                           closureRefs   = 0,
                            localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false, argLifetimes = []
+                           makeClosure   = false
                          },
                       environ = lookupNewAddr,
                       decs    = []
@@ -642,7 +704,7 @@ struct
            
      |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall,
               context as { newEnv, oldEnv as {enter = enterOldDec, ...}, nestingOfThisFunction, spval,
-                            evaluate, recursiveExpansions, maxInlineSize, inlineExpansionDepth, ...}) =
+                            recursiveExpansions, debugArgs, inlineExpansionDepth, ...}) =
         let
              (* We could try extracting redundant loop variables but for
                 the time being we just see whether we actually need a loop
@@ -661,10 +723,10 @@ struct
                   (mkEnv(List.map (Declar o #1) args, body), true,
                   {newEnv = newEnv, oldEnv = oldEnv,
                    nestingOfThisFunction=nestingOfThisFunction,
-                   spval=spval, evaluate=evaluate,
+                   spval=spval,
                    recursiveExpansions=recursiveExpansions,
                    loopFilter=filterArgs,
-                   maxInlineSize=maxInlineSize,
+                   debugArgs=debugArgs,
                    inlineExpansionDepth=inlineExpansionDepth})
         in
             if not (! loops)
@@ -684,17 +746,16 @@ struct
                         val optV = simpleOptVal(mkLoad (decSpval, 0))
                     in
                         enterOldDec(addr, optV);
-                        ({addr = decSpval, value = getGeneral optVal, references = 0}, typ)
+                        ({addr = decSpval, value = getGeneral optVal}, typ)
                     end
                  val declArgs = map declArg args
                  val beginBody =
                     optimise(body, true,
                       {newEnv = newEnv, oldEnv = oldEnv,
                        nestingOfThisFunction=nestingOfThisFunction, spval=spval,
-                       evaluate=evaluate,
                        recursiveExpansions=recursiveExpansions,
                        loopFilter=filterArgs,
-                       maxInlineSize=maxInlineSize,
+                       debugArgs=debugArgs,
                        inlineExpansionDepth=inlineExpansionDepth})
             in
                 simpleOptVal (BeginLoop {loop=getGeneral beginBody, arguments=declArgs})
@@ -886,10 +947,10 @@ struct
         end (* Cond ... *)
          
      |  optimise (Newenv(envDecs, envExp), tailCall,
-                  context as 
+                  context: optContext as 
                     {oldEnv = {enter = enterOldDec, lookup = lookupOldAddr },
                      newEnv = { enter =  enterNewDec, ...}, 
-                     spval, nestingOfThisFunction, evaluate, ...}) =
+                     spval, nestingOfThisFunction, debugArgs, ...}) =
         let
             (* Recurses down the list of declarations and expressions processing
                each, and then reconstructs the list on the way back. *)
@@ -984,12 +1045,12 @@ struct
                     let
                         val oldEntry =
                             lookupOldAddr(
-                                    {addr=decAddr, level=0, fpRel=true, lastRef=false},
+                                    {addr=decAddr, level=0, fpRel=true},
                                     nestingOfThisFunction, 0)
                     in
                         case optGeneral oldEntry of
                             oldGen as Constnt _ =>
-                                ({addr=decSpval, value=oldGen, references=0} :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
+                                ({addr=decSpval, value=oldGen} :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
                         |   _ =>
                             let
                                 (* Set this entry to create a recursive call if we load
@@ -997,7 +1058,7 @@ struct
                                    call may come about as a result of expanding an inline
                                    function which then makes the recursive call. *)
                                 local
-                                    val recursive = simpleOptVal (mkGenLoad (0, ~1, false, false))
+                                    val recursive = simpleOptVal (mkGenLoad (0, ~1, false))
                                 in
                                     val _ = enterOldDec(decAddr, recursive);
                                     val _ = enterNewDec(decSpval, recursive)
@@ -1049,7 +1110,7 @@ struct
                                           decs    = optDecs ins (* Should be nil. *)
                                         });
                                 (
-                                 {addr=decSpval, value=gen, references=0} :: decs,
+                                 {addr=decSpval, value=gen} :: decs,
                                  otherChanges orelse isConstant orelse nowInline
                                 )
                           end
@@ -1084,8 +1145,8 @@ struct
                         |   isLambda _ = raise InternalError "isLambda: not a lambda or a constant"
                         val (lambdas, constants) = List.partition isLambda decs
 
-                        fun toLambda{addr, references, value=Lambda lambda} =
-                            {addr=addr, references=references, lambda=lambda}
+                        fun toLambda{addr, value=Lambda lambda} =
+                            {addr=addr, lambda=lambda}
                         |   toLambda _ = raise InternalError "toLambda: not a lambda"
                     in
                         map Declar constants @ (if null lambdas then nil else [RecDecs(map toLambda lambdas)])
@@ -1105,13 +1166,13 @@ struct
                                     decs
                             val code = mkEnv(convertDecs decs, mkTuple extracts)
                             (* Code generate it. *)
-                            val results = evaluate(code, !spval+1)
+                            val results = codeGenerateToConstant debugArgs (code, !spval+1)
 
                             fun reprocessDec({addr=decAddr, ...}, decSpval, (offset, others)) =
                             let
                                 val oldEntry =
                                     lookupOldAddr(
-                                            {addr=decAddr, level=0, fpRel=true, lastRef=false},
+                                            {addr=decAddr, level=0, fpRel=true},
                                             nestingOfThisFunction, 0)
                             in
                                 let
@@ -1128,7 +1189,7 @@ struct
                                               environ = optEnviron oldEntry,
                                               decs    = optDecs oldEntry (* Should be nil. *)
                                             });
-                                    (offset+1, {addr=decSpval, value=newConstant,references=0} :: others)
+                                    (offset+1, {addr=decSpval, value=newConstant} :: others)
                                 end
                             end
                         
@@ -1322,7 +1383,14 @@ struct
                 simpleOptVal(pushSetContainer(optTuple, []))
             end
 
-      |  optimise (Global g, _, _) = g
+      |  optimise (Global gval, _, _) =
+            let
+                fun gValToSpec(GVal(g, NONE)) = simpleOptVal(Constnt g)
+                |   gValToSpec(GVal(g, SOME(spec, env))) =
+                        optVal { general = Constnt g, special = spec, environ = gValToSpec o env, decs=[] }
+            in
+                gValToSpec gval
+            end
 
       |  optimise (TagTest{test, tag, maxTag}, _, context) =
             let
@@ -1477,13 +1545,11 @@ struct
 
       |  optimise (Case _, _, _) = raise InternalError "optimise: Case"
 
-      |  optimise (KillItems _, _, _) = raise InternalError "optimise: StaticLinkCall"
-
     (* Inline a function that has been explicitly marked by the frontend.  These are
        either functors or auxiliary functions in curried or tupled fun bindings.
        They are never directly recursive but could contain "small" functions that are. *)
     and inlineInlineOnlyFunction(funct, {body=lambdaBody, name=lambdaName, ...}, argList, tailCall,
-            context as {evaluate, spval, nestingOfThisFunction, recursiveExpansions, newEnv = { lookup = lookupNewAddr, ...}, maxInlineSize, inlineExpansionDepth, ...}) =
+            context as {spval, nestingOfThisFunction, recursiveExpansions, newEnv = { lookup = lookupNewAddr, ...}, debugArgs, inlineExpansionDepth, ...}) =
         let
             (* Calling inline proc or a lambda expression which is just called.
                The function is replaced with a block containing declarations
@@ -1556,10 +1622,9 @@ struct
                     {newEnv = newEnv, oldEnv = oldEnv,
                      nestingOfThisFunction=nestingOfThisFunction,
                      spval=spval,
-                     evaluate=evaluate,
                      recursiveExpansions=recursiveExpansions,
                      loopFilter=loopFilterError,
-                     maxInlineSize=maxInlineSize,
+                     debugArgs=debugArgs,
                      inlineExpansionDepth=inlineExpansionDepth+1})
         in
             StretchArray.freeze localVec;
@@ -1574,7 +1639,7 @@ struct
     (* Expand inline a "small" function i.e. a normal function that appears to be small
        enough to expand inline. *)
     and inlineSmallFunction(funct, {body=lambdaBody, name=lambdaName, argTypes, ...}, argList, resultType,
-            context as {evaluate, spval, nestingOfThisFunction, newEnv = { lookup = lookupNewAddr, ...}, maxInlineSize, 
+            context as {spval, nestingOfThisFunction, newEnv = { lookup = lookupNewAddr, ...}, debugArgs, 
             inlineExpansionDepth, ...}) =
         let
             val _ = inlineExpansionDepth < 5 orelse raise InternalError "too deep"
@@ -1756,10 +1821,9 @@ struct
                            oldEnv = {lookup=localOldAddr, enter =setTabForInline },
                            nestingOfThisFunction=nestingOfThisFunction,
                            spval=spval,
-                           evaluate=evaluate,
                            recursiveExpansions=SOME(filterArgs),
                            loopFilter=loopFilterError,
-                           maxInlineSize=maxInlineSize,
+                           debugArgs=debugArgs,
                            inlineExpansionDepth=inlineExpansionDepth+1})
                   
                  in
@@ -1798,7 +1862,7 @@ struct
                     fun localOldAddr ({ addr=0, ...}, depth, 0) =
                          (* Recursive reference.  We're going to generate this
                             as a function so return a reference to the closure. *)
-                         simpleOptVal(mkGenLoad (0, depth - nesting, false, false))
+                         simpleOptVal(mkGenLoad (0, depth - nesting, false))
 
                     |   localOldAddr ({ addr=index, ...}, depth, 0) =
                          if index > 0  (* locals *)
@@ -1824,9 +1888,9 @@ struct
                         then case newAddrTab sub index of
                             NONE => (* Return the original entry if it's not there. *)
                                 simpleOptVal(
-                                    mkGenLoad (index, depth - nesting, true, false))
+                                    mkGenLoad (index, depth - nesting, true))
                         |   SOME v => changeLevel v (depth - nesting) 
-                        else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0, false))
+                        else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
                     |   localNewAddr (ptr, depth, levels) =
                             lookupNewAddr (ptr, depth, levels - 1)
 
@@ -1841,10 +1905,9 @@ struct
                            oldEnv = {lookup=localOldAddr, enter=setTab },
                            nestingOfThisFunction=nesting,
                            spval=newAddressAllocator,
-                           evaluate=evaluate,
                            recursiveExpansions=SOME filterArgs,
                            loopFilter=loopFilterError,
-                           maxInlineSize=maxInlineSize,
+                           debugArgs=debugArgs,
                            inlineExpansionDepth = inlineExpansionDepth+1})
 
                     val newModCount = countSet()
@@ -1868,9 +1931,8 @@ struct
                                 closure = [],
                                 argTypes = newArgList, resultType=resultType,
                                 level = nestingOfThisFunction + 1,
-                                closureRefs = 0,
                                 localCount = ! newAddressAllocator + 1,
-                                makeClosure = false, argLifetimes = [] })
+                                makeClosure = false })
                     end
                 end
 
@@ -1885,7 +1947,7 @@ struct
                         val argVal = getGeneral(getParameter(~n))
                         val argDec =
                             (* Include the address at this stage even if it's a call *)
-                            {value = argVal, addr=argBaseAddr+nArgs-n, references=0}
+                            {value = argVal, addr=argBaseAddr+nArgs-n}
                     in
                         (argDec, typ) :: makeDecs (n-1, rest)
                     end
@@ -1935,7 +1997,7 @@ struct
                 end
         end
 
-    fun codetreeOptimiser(pt, eval, maxInlineSize) =
+    fun codetreeOptimiser(pt, debugSwitches) =
     let
         val localAddressAllocator = ref 1
         val oldAddrTab = stretchArray (initTrans, NONE)
@@ -1978,7 +2040,7 @@ struct
             fun lookupNewAddr ({addr, ...}: loadForm, depth, 0) =
             (
                 case newAddrTab sub addr of
-                    NONE => simpleOptVal(mkGenLoad (addr, depth, true, false))
+                    NONE => simpleOptVal(mkGenLoad (addr, depth, true))
                 |   SOME v => changeLevel v depth 
                 )
             |  lookupNewAddr _ = raise InternalError "outer level reached in lookupNewAddr"
@@ -1993,7 +2055,7 @@ struct
           optimise(pt, false,
             {newEnv = newEnv, oldEnv = oldEnv,
              nestingOfThisFunction=0, spval=localAddressAllocator,
-             evaluate=eval, recursiveExpansions=NONE, loopFilter=loopFilterError, maxInlineSize=maxInlineSize,
+             recursiveExpansions=NONE, loopFilter=loopFilterError, debugArgs=debugSwitches,
              inlineExpansionDepth = 0})
 
     in

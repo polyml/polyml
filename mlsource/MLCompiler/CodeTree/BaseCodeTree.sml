@@ -26,15 +26,14 @@ structure BaseCodeTree: BaseCodeTreeSig =
 struct
     open Address
 
+    datatype caseType = datatype BackendIntermediateCode.caseType
+    datatype argumentType = datatype BackendIntermediateCode.argumentType
+
     datatype inlineStatus =
         NonInline
     |   MaybeInline
     |   SmallFunction
     |   OnlyInline
-
-    datatype argumentType =
-        GeneralType
-    |   FloatingPtType
     
     datatype codetree =
         MatchFail    (* Pattern-match failure *)
@@ -74,12 +73,6 @@ struct
 
     |   Loop of (codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
 
-    |   KillItems of
-            (* Kill entries.  Used to mark a branch where a binding is no longer required.
-               "killSet" is always an Extract with lastRef=true so the type should
-               be loadForm list rather than codetree list. *)
-            { expression: codetree, killSet: codetree list, killBefore: bool }
-
     |   Raise of codetree (* Raise an exception *)
 
     |   Ldexc (* Load the exception (used at the start of a handler) *)
@@ -107,37 +100,23 @@ struct
     |   TupleVariable of varTuple list * codetree (* total length *)
         (* Construct a tuple using one or more multi-word items. *)
 
-    |   Global of optVal (* Global value *)
+    |   Global of globalVal (* Global value *)
 
     |   CodeNil
-
-    and optVal = (* Global values - Also used in the optimiser. *)
-        JustTheVal of codetree
     
-    |   ValWithDecs of {general : codetree, decs : codeBinding list}
-    
-    |   OptVal of
-        {
-            (* Expression to load this value - always a constant in global values. *)
-            general : codetree,
-            (* If it is not CodeNil it is the code which generated the general
-               value - either an inline procedure, a type constructor or a tuple. *)
-            special : codetree,
-            (* Environment for the special value. *)
-            environ : loadForm * int * int -> optVal,
-            (* Declarations to precede the value - Always nil for global values. *)
-            decs : codeBinding list
-        }
+    and globalVal =
+        (* A global value is a constant but it may also contain the code for an
+           inline function or a tuple of (tuples of) inline functions along
+           with an environment to map the free variables.  We could get rid of
+           the environment by transforming the inlinable code so that it
+           had no free variables (they're always constants after the code
+           has been run). *)
+        GVal of machineWord * (codetree * (loadForm * int * int -> globalVal)) option
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
-    |   RecDecs of { addr: int, references: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
+    |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
-
-    and caseType =
-        CaseInt
-    |   CaseWord
-    |   CaseTag of word
 
     and varTuple =
         VarTupleSingle of { source: codetree, destOffset: codetree }
@@ -148,20 +127,14 @@ struct
     { (* Load a value. *)
         addr : int, 
         level: int, 
-        fpRel: bool,
-        lastRef: bool
+        fpRel: bool
     }
     
     and simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
-        addr:       int,
-        references: int
+        addr:       int
     }
-    
-    and diadic = codetree * codetree
-    
-    and triadic =  codetree * codetree * codetree
     
     and lambdaForm =
     { (* Lambda expressions. *)
@@ -172,168 +145,11 @@ struct
         argTypes      : argumentType list,
         resultType    : argumentType,
         level         : int,
-        closureRefs   : int,
         localCount    : int,
-        makeClosure   : bool,
-        argLifetimes  : int list
+        makeClosure   : bool
     }
 
     open Pretty
-
-    val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation;
-
-    local
-        open RuntimeCalls
-        val rtsTable =
-            [
-            (POLY_SYS_exit,"POLY_SYS_exit"),
-            (POLY_SYS_chdir,"POLY_SYS_chdir"),
-            (POLY_SYS_alloc_store,"POLY_SYS_alloc_store"),
-            (POLY_SYS_raisex,"POLY_SYS_raisex"),
-            (POLY_SYS_get_length,"POLY_SYS_get_length"),
-            (POLY_SYS_get_flags,"POLY_SYS_get_flags"),
-            (POLY_SYS_str_compare,"POLY_SYS_str_compare"),
-            (POLY_SYS_teststrgtr,"POLY_SYS_teststrgtr"),
-            (POLY_SYS_teststrlss,"POLY_SYS_teststrlss"),
-            (POLY_SYS_teststrgeq,"POLY_SYS_teststrgeq"),
-            (POLY_SYS_teststrleq,"POLY_SYS_teststrleq"),
-            (POLY_SYS_exception_trace,"POLY_SYS_exception_trace"),
-            (POLY_SYS_give_ex_trace,"POLY_SYS_give_ex_trace"),
-            (POLY_SYS_lockseg,"POLY_SYS_lockseg"),
-            (POLY_SYS_emptystring,"POLY_SYS_emptystring"),
-            (POLY_SYS_nullvector,"POLY_SYS_nullvector"),
-            (POLY_SYS_network,"POLY_SYS_network"),
-            (POLY_SYS_os_specific,"POLY_SYS_os_specific"),
-            (POLY_SYS_io_dispatch,"POLY_SYS_io_dispatch"),
-            (POLY_SYS_signal_handler,"POLY_SYS_signal_handler"),
-            (POLY_SYS_atomic_incr,"POLY_SYS_atomic_incr"),
-            (POLY_SYS_atomic_decr,"POLY_SYS_atomic_decr"),
-            (POLY_SYS_thread_self,"POLY_SYS_thread_self"),
-            (POLY_SYS_thread_dispatch,"POLY_SYS_thread_dispatch"),
-            (POLY_SYS_kill_self,"POLY_SYS_kill_self"),
-            (POLY_SYS_profiler,"POLY_SYS_profiler"),
-            (POLY_SYS_full_gc,"POLY_SYS_full_gc"),
-            (POLY_SYS_stack_trace,"POLY_SYS_stack_trace"),
-            (POLY_SYS_timing_dispatch,"POLY_SYS_timing_dispatch"),
-            (POLY_SYS_objsize,"POLY_SYS_objsize"),
-            (POLY_SYS_showsize,"POLY_SYS_showsize"),
-            (POLY_SYS_is_short,"POLY_SYS_is_short"),
-            (POLY_SYS_aplus,"POLY_SYS_aplus"),
-            (POLY_SYS_aminus,"POLY_SYS_aminus"),
-            (POLY_SYS_amul,"POLY_SYS_amul"),
-            (POLY_SYS_adiv,"POLY_SYS_adiv"),
-            (POLY_SYS_amod,"POLY_SYS_amod"),
-            (POLY_SYS_aneg,"POLY_SYS_aneg"),
-            (POLY_SYS_xora,"POLY_SYS_xora"),
-            (POLY_SYS_equala,"POLY_SYS_equala"),
-            (POLY_SYS_ora,"POLY_SYS_ora"),
-            (POLY_SYS_anda,"POLY_SYS_anda"),
-            (POLY_SYS_Real_str,"POLY_SYS_Real_str"),
-            (POLY_SYS_Real_geq,"POLY_SYS_Real_geq"),
-            (POLY_SYS_Real_leq,"POLY_SYS_Real_leq"),
-            (POLY_SYS_Real_gtr,"POLY_SYS_Real_gtr"),
-            (POLY_SYS_Real_lss,"POLY_SYS_Real_lss"),
-            (POLY_SYS_Real_eq,"POLY_SYS_Real_eq"),
-            (POLY_SYS_Real_neq,"POLY_SYS_Real_neq"),
-            (POLY_SYS_Real_Dispatch,"POLY_SYS_Real_Dispatch"),
-            (POLY_SYS_Add_real,"POLY_SYS_Add_real"),
-            (POLY_SYS_Sub_real,"POLY_SYS_Sub_real"),
-            (POLY_SYS_Mul_real,"POLY_SYS_Mul_real"),
-            (POLY_SYS_Div_real,"POLY_SYS_Div_real"),
-            (POLY_SYS_Abs_real,"POLY_SYS_Abs_real"),
-            (POLY_SYS_Neg_real,"POLY_SYS_Neg_real"),
-            (POLY_SYS_Repr_real,"POLY_SYS_Repr_real"),
-            (POLY_SYS_conv_real,"POLY_SYS_conv_real"),
-            (POLY_SYS_real_to_int,"POLY_SYS_real_to_int"),
-            (POLY_SYS_int_to_real,"POLY_SYS_int_to_real"),
-            (POLY_SYS_sqrt_real,"POLY_SYS_sqrt_real"),
-            (POLY_SYS_sin_real,"POLY_SYS_sin_real"),
-            (POLY_SYS_cos_real,"POLY_SYS_cos_real"),
-            (POLY_SYS_arctan_real,"POLY_SYS_arctan_real"),
-            (POLY_SYS_exp_real,"POLY_SYS_exp_real"),
-            (POLY_SYS_ln_real,"POLY_SYS_ln_real"),
-            (POLY_SYS_stdin,"POLY_SYS_stdin"),
-            (POLY_SYS_stdout,"POLY_SYS_stdout"),
-            (POLY_SYS_process_env,"POLY_SYS_process_env"),
-            (POLY_SYS_set_string_length,"POLY_SYS_set_string_length"),
-            (POLY_SYS_get_first_long_word,"POLY_SYS_get_first_long_word"),
-            (POLY_SYS_poly_specific,"POLY_SYS_poly_specific"),
-            (POLY_SYS_bytevec_eq, "POLY_SYS_bytevec_eq"),
-            (POLY_SYS_io_operation,"POLY_SYS_io_operation"),
-            (POLY_SYS_set_code_constant,"POLY_SYS_set_code_constant"),
-            (POLY_SYS_move_words,"POLY_SYS_move_words"),
-            (POLY_SYS_shift_right_arith_word,"POLY_SYS_shift_right_arith_word"),
-            (POLY_SYS_move_bytes,"POLY_SYS_move_bytes"),
-            (POLY_SYS_code_flags,"POLY_SYS_code_flags"),
-            (POLY_SYS_shrink_stack,"POLY_SYS_shrink_stack"),
-            (POLY_SYS_stderr,"POLY_SYS_stderr"),
-            (POLY_SYS_callcode_tupled,"POLY_SYS_callcode_tupled"),
-            (POLY_SYS_foreign_dispatch,"POLY_SYS_foreign_dispatch"),
-            (POLY_SYS_XWindows,"POLY_SYS_XWindows"),
-            (POLY_SYS_is_big_endian,"POLY_SYS_is_big_endian"),
-            (POLY_SYS_bytes_per_word,"POLY_SYS_bytes_per_word"),
-            (POLY_SYS_offset_address,"POLY_SYS_offset_address"),
-            (POLY_SYS_shift_right_word,"POLY_SYS_shift_right_word"),
-            (POLY_SYS_word_neq,"POLY_SYS_word_neq"),
-            (POLY_SYS_not_bool,"POLY_SYS_not_bool"),
-            (POLY_SYS_string_length,"POLY_SYS_string_length"),
-            (POLY_SYS_int_geq,"POLY_SYS_int_geq"),
-            (POLY_SYS_int_leq,"POLY_SYS_int_leq"),
-            (POLY_SYS_int_gtr,"POLY_SYS_int_gtr"),
-            (POLY_SYS_int_lss,"POLY_SYS_int_lss"),
-            (POLY_SYS_mul_word,"POLY_SYS_mul_word"),
-            (POLY_SYS_plus_word,"POLY_SYS_plus_word"),
-            (POLY_SYS_minus_word,"POLY_SYS_minus_word"),
-            (POLY_SYS_div_word,"POLY_SYS_div_word"),
-            (POLY_SYS_or_word,"POLY_SYS_or_word"),
-            (POLY_SYS_and_word,"POLY_SYS_and_word"),
-            (POLY_SYS_xor_word,"POLY_SYS_xor_word"),
-            (POLY_SYS_shift_left_word,"POLY_SYS_shift_left_word"),
-            (POLY_SYS_mod_word,"POLY_SYS_mod_word"),
-            (POLY_SYS_word_geq,"POLY_SYS_word_geq"),
-            (POLY_SYS_word_leq,"POLY_SYS_word_leq"),
-            (POLY_SYS_word_gtr,"POLY_SYS_word_gtr"),
-            (POLY_SYS_word_lss,"POLY_SYS_word_lss"),
-            (POLY_SYS_word_eq,"POLY_SYS_word_eq"),
-            (POLY_SYS_load_byte,"POLY_SYS_load_byte"),
-            (POLY_SYS_load_word,"POLY_SYS_load_word"),
-            (POLY_SYS_assign_byte,"POLY_SYS_assign_byte"),
-            (POLY_SYS_assign_word,"POLY_SYS_assign_word")
-            ]
-    in
-        val rtsNames =
-            Vector.tabulate(256,
-                fn n => case List.find(fn (rtsNo, _) => rtsNo=n) rtsTable of
-                    SOME(_, name) => name | _ => " RTS" ^ Int.toString n)
-    end
-
-    fun stringOfWord w =
-    if isShort w
-    then "LIT" ^ Word.toString (toShort w)
-    else if isIoAddress(toAddress w)
-    then (* RTS call - print the number. *)
-        let
-            fun matchIo n =
-                if n = 256 then raise Misc.InternalError "Unknown RTS entry"
-                else if wordEq (w, ioOp n)
-                then Vector.sub(rtsNames, n)
-                else matchIo (n+1)
-        in
-            matchIo 0
-        end
-    else if isWords(toAddress w) andalso Word.toInt(Address.length(toAddress w)) >= 1
-    then (* If it's the closure of a function try to print that. *)
-        let
-            val firstWord = loadWord(toAddress w, toShort 0)
-            val doCall: int*machineWord -> string
-                = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-        in
-            if not (isShort firstWord) andalso isCode(toAddress firstWord)
-            then "FUN \"" ^ doCall(105, firstWord) ^ "\"" (* Get the function name. *)
-            else "LIT <long>"
-        end
-    else "LIT <long>"
-
 
     fun pList ([]: 'b list, _: string, _: 'b->pretty) = []
     |   pList ([h],    _, disp) = [disp h]
@@ -431,28 +247,15 @@ struct
                     [ pretty function, PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
                 )
             end
-
-        | KillItems {expression, killSet, killBefore} =>
-            PrettyBlock(1, false, [],
-                [
-                    PrettyString(if killBefore then "KILLBEFORE(" else "KILLAFTER("),
-                    PrettyBreak(1, 0),
-                    pretty expression,
-                    PrettyBreak(1, 0),
-                    printList (" KILL=", killSet, ","),
-                    PrettyString ")"
-                ]
-            )
          
-        | Extract {addr, level, fpRel, lastRef} =>
+        | Extract {addr, level, fpRel} =>
             let
-                val last = if lastRef then ", last" else "";
                 val str : string =
                     if not fpRel
-                    then concat ["CLOS(", Int.toString level, ",", Int.toString addr, last, ")"]
+                    then concat ["CLOS(", Int.toString level, ",", Int.toString addr, ")"]
                     else if addr < 0
-                    then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), last, ")"]
-                    else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, last, ")"]
+                    then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), ")"]
+                    else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, ")"]
             in
                 PrettyString str
             end
@@ -466,8 +269,8 @@ struct
                 )
             end
         
-        | Lambda {body, isInline, name, closure, argTypes, level, closureRefs,
-                  makeClosure, resultType, localCount, argLifetimes} =>
+        | Lambda {body, isInline, name, closure, argTypes, level,
+                  makeClosure, resultType, localCount} =>
             let
                 val inl = 
                     case isInline of
@@ -478,9 +281,6 @@ struct
                 fun prettyArgTypes [] = []
                 |   prettyArgTypes [last] = [prettyArgType last]
                 |   prettyArgTypes (hd::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
-                fun prettyArgLife [] = []
-                |   prettyArgLife [last] = [PrettyString(Int.toString last)]
-                |   prettyArgLife (hd::tl) = PrettyString(Int.toString hd) :: PrettyBreak(1, 0) :: prettyArgLife tl
             in
                 PrettyBlock (1, true, [],
                     [
@@ -489,13 +289,10 @@ struct
                         PrettyString name,
                         PrettyBreak (1, 0),
                         PrettyString ( "CL="  ^ Bool.toString makeClosure),
-                        PrettyString (" CR="  ^ Int.toString closureRefs),
                         PrettyString (" LEV=" ^ Int.toString level),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
-                        PrettyBreak(1, 0),
-                        PrettyBlock (1, false, [], PrettyString "ARGLIVES=" :: prettyArgLife argLifetimes),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], [PrettyString "RES=", prettyArgType resultType]),
                         printList (" CLOS=", closure, ","),
@@ -635,14 +432,25 @@ struct
                 ]
             )
 
-        | Global ov =>
+        | Global(GVal(w, NONE)) =>
             PrettyBlock (1, true, [],
                 [
                     PrettyString "GLOBAL (",
-                    pretty (optGeneral ov),
+                    PrettyString (stringOfWord w),
                     PrettyString ", ",
                     PrettyBreak (1, 0),
-                    pretty (optSpecial ov),
+                    PrettyString ") (*GLOBAL*)"
+                ]
+            )
+
+        | Global(GVal(w, SOME(spec, _))) =>
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "GLOBAL (",
+                    PrettyString (stringOfWord w),
+                    PrettyString ", ",
+                    PrettyBreak (1, 0),
+                    pretty (spec),
                     PrettyBreak (1, 0),
                     PrettyString ") (*GLOBAL*)"
                 ]
@@ -712,11 +520,11 @@ struct
        
     |   prettyBinding(RecDecs ptl) =
         let
-            fun prettyRDec {lambda, addr, references} =
+            fun prettyRDec {lambda, addr} =
             PrettyBlock (1, false, [],
                 [
                     PrettyString (concat
-                        ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                        ["DECL #", Int.toString addr, "="]),
                     PrettyBreak (1, 0),
                     pretty(Lambda lambda)
                 ]
@@ -730,23 +538,15 @@ struct
         end
     |   prettyBinding(NullBinding c) = pretty c
 
-    and prettySimpleBinding{value, addr, references} =
+    and prettySimpleBinding{value, addr} =
         PrettyBlock (1, false, [],
             [
                 PrettyString (concat
-                    ["DECL #", Int.toString addr, "{", Int.toString references, " uses} ="]),
+                    ["DECL #", Int.toString addr, "="]),
                 PrettyBreak (1, 0),
                 pretty value
             ]
         )
-
-    and optGeneral (OptVal {general,...})       = general 
-      | optGeneral (ValWithDecs {general, ...}) = general
-      | optGeneral (JustTheVal ct)              = ct
-      
-    and optSpecial (OptVal {special,...}) = special
-      | optSpecial _                      = CodeNil
-
 
     (* Map a function over the code-tree creating a new code tree from the results. *)
     (* Not currently used so it's commented out. *)
@@ -792,10 +592,6 @@ struct
         and sizeCaseList []           = 0
         |   sizeCaseList ((c,_)::cs) = size c + 1 + sizeCaseList cs
 
-        and sizeOptVal (OptVal {general,...})       = size general 
-        |   sizeOptVal (ValWithDecs {general, ...}) = size general
-        |   sizeOptVal (JustTheVal ct)              = size ct
-
         (* some very rough size estimates *)
         and size pt =
             case pt of
@@ -815,7 +611,6 @@ struct
                     if isIoAddress(toAddress w) then 1 + sizeList(List.map #1 argList)
                     else sizeList(List.map #1 argList) + 2*)
             |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2
-            |   KillItems{expression, ...}     => size expression
             |   Cond (i,t,e)                    => size i + size t + size e + 2
             |   BeginLoop {loop, arguments, ...}=> size loop + 
                                                       sizeList(List.map (fn ({value, ...}, _) => value) arguments)
@@ -829,7 +624,7 @@ struct
                             (* We can optimise this. *) sizeList cl + size container
             |   SetContainer{container, tuple, size=len} => size container + size tuple + len
             |   TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
-            |   Global glob                     => sizeOptVal glob
+            |   Global(GVal(glob, _))           => size(Constnt glob)
             |   TagTest { test, ... }           => 1 + size test
             |   Case {test,default,cases,...}   =>
                     size test + size default + sizeCaseList cases
@@ -938,7 +733,7 @@ struct
     structure Sharing =
     struct
         type codetree = codetree
-        and  optVal = optVal
+        and  globalVal = globalVal
         and  caseType = caseType
         and  pretty = pretty
         and  inlineStatus = inlineStatus

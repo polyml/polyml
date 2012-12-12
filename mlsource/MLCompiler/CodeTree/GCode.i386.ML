@@ -23,7 +23,6 @@ structure GCode =
   GENERATE_CODE (
     structure CODECONS      = CodeCons
     structure CODEGEN_TABLE = CodeGenTable
-    structure BASECODETREE  = BaseCodeTree
+    structure BACKENDTREE  = BackendIntermediateCode
     structure DEBUG = Debug
   );
-         
