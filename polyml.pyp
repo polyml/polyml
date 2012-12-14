@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=177
+NFiles=176
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -172,11 +172,11 @@ File165=mlsource\MLCompiler\CodeTree\X86OPTIMISE.ML
 File166=mlsource\MLCompiler\CodeTree\CODE_ARRAY.ML
 File167=basis\Word32In64.sml
 File168=mlsource\MLCompiler\CodeTree\CODETREE_FUNCTIONS.sml
-File169=mlsource\MLCompiler\CodeTree\CODETREE_LIFETIMES.sml
-File170=mlsource\MLCompiler\CodeTree\CodetreeFunctionsSig.sml
-File171=mlsource\MLCompiler\CodeTree\CODETREE_STATIC_LINK_AND_CASES.sml
-File172=mlsource\MLCompiler\CodeTree\CODETREE_OPTIMISER.sml
-File173=mlsource\MLCompiler\CodeTree\CODETREE_REMOVE_REDUNDANT.sml
-File174=mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml
-File175=mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml
+File169=mlsource\MLCompiler\CodeTree\CodetreeFunctionsSig.sml
+File170=mlsource\MLCompiler\CodeTree\CODETREE_STATIC_LINK_AND_CASES.sml
+File171=mlsource\MLCompiler\CodeTree\CODETREE_OPTIMISER.sml
+File172=mlsource\MLCompiler\CodeTree\CODETREE_REMOVE_REDUNDANT.sml
+File173=mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml
+File174=mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml
+File175=mlsource\MLCompiler\CodeTree\GCode.x86_64.ML
 File176=mlsource\MLCompiler\CodeTree\GCode.x86_64.ML

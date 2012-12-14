@@ -20,14 +20,6 @@ functor CODETREE_STATIC_LINK_AND_CASES(
     structure BASECODETREE: BaseCodeTreeSig
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
 
-    structure LIFETIMES:
-    sig
-        type codetree
-        type backendIC
-        val lifeTimes: codetree * int -> backendIC
-        structure Sharing: sig type codetree = codetree and backendIC = backendIC end
-    end
-
     structure GCODE :
     sig
       type backendIC
@@ -50,7 +42,6 @@ functor CODETREE_STATIC_LINK_AND_CASES(
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
-    =   LIFETIMES.Sharing
     =   GCODE.Sharing
     =   PRETTY.Sharing
     =   BACKENDTREE.Sharing
@@ -63,24 +54,814 @@ sig
 end
 =
 struct
+
     open BASECODETREE
-    open CODETREE_FUNCTIONS
-    
     open Address
-    
+
+    datatype caseType = datatype BACKENDTREE.caseType
+
     exception InternalError = Misc.InternalError
 
+    (* Internal version of code-tree used as the result of the earlier (closure/case)
+       pass and the input to the later (variable lifetimes) pass. *)
+
+    datatype p2Codetree =
+        P2MatchFail    (* Pattern-match failure *)
+    
+    |   P2AltMatch of p2Codetree * p2Codetree(* Pattern-match alternative choices *)
+
+    |   P2Newenv of p2CodeBinding list * p2Codetree (* Set of bindings with an expression. *)
+
+    |   P2Constnt of machineWord (* Load a constant *)
+
+    |   P2Extract of p2LoadForm (* Get a local variable, an argument or a closure value *)
+    
+    |   P2Field of {base: p2Codetree, offset: int }
+         (* Load a field from a tuple *)
+    
+    |   P2Eval of (* Evaluate a function with an argument list. *)
+        {
+            function:  p2Codetree,
+            argList:   (p2Codetree * argumentType) list,
+            resultType: argumentType
+        }
+    
+    |   P2Lambda of p2LambdaForm (* Lambda expressions. *)
+
+    |   P2Cond of p2Codetree * p2Codetree * p2Codetree (* If-statement *)
+
+    |   P2Case of (* Case expressions *)
+        {
+            cases   : (p2Codetree * word) list,
+            test    : p2Codetree,
+            caseType: caseType,
+            default : p2Codetree
+        }
+    
+    |   P2BeginLoop of (* Start of tail-recursive inline function. *)
+        { loop: p2Codetree, arguments: (int * p2Codetree * argumentType) list }
+
+    |   P2Loop of (p2Codetree * argumentType) list (* Jump back to start of tail-recursive function. *)
+
+    |   P2Raise of p2Codetree (* Raise an exception *)
+
+    |   P2Ldexc (* Load the exception (used at the start of a handler) *)
+
+    |   P2Handle of (* Exception handler. *) { exp: p2Codetree, handler: p2Codetree }
+
+    |   P2Tuple of p2Codetree list (* Records (tuples) *)
+
+    |   P2Container of int (* Create a container for a tuple on the stack. *)
+
+    |   P2SetContainer of (* Copy a tuple to a container. *)
+        {
+            container: p2Codetree,
+            tuple:     p2Codetree,
+            size:      int
+        }
+
+    |   P2TupleFromContainer of p2Codetree * int (* Make a tuple from the contents of a container. *)
+
+    |   P2TagTest of { test: p2Codetree, tag: word, maxTag: word }
+
+    |   P2IndirectVariable of { base: p2Codetree, offset: p2Codetree }
+        (* Similar to Indirect except the offset is a variable. *)
+
+    |   P2TupleVariable of p2VarTuple list * p2Codetree (* total length *)
+        (* Construct a tuple using one or more multi-word items. *)
+ 
+    and p2CodeBinding =
+        P2Declar  of int * p2Codetree (* Make a local declaration or push an argument *)
+    |   P2RecDecs of (int * p2LambdaForm) list (* Set of mutually recursive declarations. *)
+    |   P2NullBinding of p2Codetree (* Just evaluate the expression and discard the result. *)
+
+    and p2VarTuple =
+        P2VarTupleSingle of { source: p2Codetree, destOffset: p2Codetree }
+    |   P2VarTupleMultiple of
+            { base: p2Codetree, length: p2Codetree, destOffset: p2Codetree, sourceOffset: p2Codetree }
+
+    withtype p2LoadForm = 
+    { (* Load a value. *)
+        addr : int, 
+        level: int, 
+        fpRel: bool
+    }
+    
+    and p2LambdaForm =
+    { (* Lambda expressions. *)
+        body          : p2Codetree,
+        name          : string,
+        closure       : p2Codetree list,
+        argTypes      : argumentType list,
+        resultType    : argumentType,
+        level         : int,
+        localCount    : int,
+        makeClosure   : bool
+    }
+
     val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-    val rtsFunction = mkConst o ioOp
 
-    fun mkGenLoad  (i1, i2, bl) =
-        Extract {addr  = i1, level = i2, fpRel = bl}
+    local
+        open BACKENDTREE
 
-    fun mkClosLoad addr = Extract {level = 0, addr = addr, fpRel = false }
+        fun mkGenLoad (i1, bl, lf) =
+            BICExtract (if bl then BICLoadStack i1 else BICLoadClosure i1, lf)
+        and mkClosLoad(addr, last) =
+            BICExtract(BICLoadClosure addr, last)
+        and mkDecRef(ct, i1, i2) =
+            BICDeclar{value = ct, addr = i1, references = i2}
+
+        fun sideEffectFree (P2Lambda _) = true
+        |   sideEffectFree (P2Constnt _) = true
+        |   sideEffectFree (P2Extract _) = true
+        |   sideEffectFree (P2Cond(i, t, e)) =
+              sideEffectFree i andalso
+              sideEffectFree t andalso
+              sideEffectFree e
+        |   sideEffectFree (P2Newenv(decs, exp)) = List.all sideEffectBinding decs andalso sideEffectFree exp
+        |   sideEffectFree (P2Handle { exp, handler }) =
+              sideEffectFree exp andalso sideEffectFree handler
+        | sideEffectFree (P2Tuple recs) = testList recs
+        | sideEffectFree (P2Field{base, ...}) = sideEffectFree base
+
+            (* An RTS call, which may actually be code which is inlined
+               by the code-generator, may be side-effect free.  This can
+               occur if we have, for example, "if exp1 orelse exp2"
+               where exp2 can be reduced to "true", typically because it's
+               inside an inline function and some of the arguments to the
+               function are constants.  This then gets converted to
+               (exp1; true) and we can eliminate exp1 if it is simply
+               a comparison. *)
+        | sideEffectFree (P2Eval{function=P2Constnt w, argList, ...}) =
+            isIoAddress(toAddress w) andalso CODETREE_FUNCTIONS.sideEffectFreeRTSCall w
+            andalso List.all (fn (c, _) => sideEffectFree c) argList
+
+        | sideEffectFree(P2Container _) = true
+            (* But since SetContainer has a side-effect we'll always create the
+               container even if it isn't used.  *)
+
+        | sideEffectFree(P2TupleFromContainer(c, _)) = sideEffectFree c
+
+        | sideEffectFree(P2IndirectVariable{base, ...}) =
+                (* Offset is always side-effect free. *)
+                sideEffectFree base
+
+        | sideEffectFree(P2TupleVariable(vars, _ (* length - always side-effect free *))) =
+            let
+                fun testTuple(P2VarTupleSingle{source, ...}) = sideEffectFree source
+                |   testTuple(P2VarTupleMultiple{base, ...}) = sideEffectFree base
+            in
+                List.all testTuple vars
+            end
+
+        | sideEffectFree _ = false
+                 (* Rest are unsafe (or too rare to be worth checking) *)
+
+        and testList t = List.all sideEffectFree t
+    
+        and sideEffectBinding(P2Declar(_, value)) = sideEffectFree value
+        |   sideEffectBinding(P2RecDecs _) = true (* These should all be lambdas *)
+        |   sideEffectBinding(P2NullBinding c) = sideEffectFree c
+
+    in
+        (* This function transforms the codetree to add "lifetime" information
+           for bindings ("declarations").  The idea is to aid the code-generator
+           by indicating when a binding is no longer required and also to
+           distinguish short-lived bindings from longer-lived bindings
+           when deciding on register allocation.
+           It also causes unused bindings to be discarded if they are
+           not used and have no side-effects.  The previous passes may
+           generate extra bindings and rely on this pass to remove them
+           if they are not actually used. *)
+
+        fun lifeTimes (pt: p2Codetree, localAddressCount): backendIC =
+        let
+            fun copyCode (pt: p2Codetree, argUses, localCount): backendIC =
+            let
+                (* Tables for local declarations. "localUses" is the last reference
+                   for the declaration.  *)
+                val localUses         = Array.array(localCount, 0);
+                (* "Closure" tables for statically-linked functions.  If we have a
+                   function called with a static link we need the non-locals it refers
+                   to to remain on the stack until the last CALL of the function.  That
+                   requires setting the last-reference to those non-locals to at least
+                   the last call.  This is transitive.  If one of the functions calls
+                   another function then the called function and its "closure" are
+                   added to the calling function's "closure". *)
+                val slClosureTable    = Array.array(localCount, nil)
+
+                (* Because we count instructions from the end smaller values mean
+                   further away and we want to count the smallest non-zero value. *)
+                fun maxUse(m, 0) = m
+                |   maxUse(0, m) = m
+                |   maxUse(m, n) = Int.min(m, n)
+      
+                (* If we are inside a loop these entries indicate that
+                   the declaration was made outside so the entries must
+                   not be killed there. *)
+                val outsideLoop       = Array.array (localCount, false)
+                (* This also applies to all the parameters of the function which
+                   could be passed in registers. *)
+                val outsideLoopRef = ref false
+
+                (* This counts the number of "instructions" from the end of the code (because
+                   we process it depth first) to give a measure of how long a declaration is in
+                   use.  This is used to control register spilling in the code-generator. *)
+                val instrCount = ref 1
+
+                abstype usageSet = UsageSet of {locals: int Vector.vector, args: int Vector.vector}
+                with
+                  (* Used to give us a "kill set" for an expression.
+                     In the case of parallel flows of control (e.g. then- and else-parts
+                     of an if-then-else) we can explicitly kill variables if they
+                     appear in the kill set for one branch but not in another.
+                     e.g. in  if x then y else z  assuming that x, y, z are not
+                     used in subsequent expressions we can kill z in the then-branch
+                     and y in the else-branch.  The advantage of this is that we don't
+                     need to save variables if they are never used. *)
+                    fun saveUsages() =
+                        UsageSet{locals=Array.vector localUses, args=Array.vector argUses}
+
+                    (* Restore the table to the saved values. *)
+                    fun setToSaved(UsageSet{locals, args}): unit =
+                    (
+                        Array.copyVec{src=locals, dst=localUses, di=0};
+                        Array.copyVec{src=args, dst=argUses, di=0}
+                    )
+
+                    (* Similar to setToSaved except that it sets the current set
+                       to the union of the current set and the saved set. *)
+                    fun addFromSaved(UsageSet{locals=locals, args=args}): unit =
+                    (
+                        Array.modifyi(fn(i, v) => maxUse(v, Vector.sub(args, i))) argUses;
+                        Array.modifyi(fn(i, v) => maxUse(v, Vector.sub(locals, i))) localUses
+                    )
+
+                    (* Compute the differences between usage sets as kill entries. *)
+                    fun computeKillSetLists usages =
+                    let
+                        (* We want to find the cases where the value is zero in at least one branch and
+                           non-zero in at least one other branch.  Sum the zeros.  If the result is zero
+                           the variable is not referenced at all in the set and we can ignore it.  Similarly
+                           if it is the length of the list then it is referenced in all the branches
+                           and again we can ignore it. *)
+                        fun getAllLocals i =
+                            List.foldl(fn(UsageSet{locals, ...}, l) => if Vector.sub(locals, i) = 0 then l+1 else l) 0 usages
+                        val sumLocalSet = Vector.tabulate(localCount, getAllLocals)
+                        val argCount = Array.length argUses
+                        fun getAllArgs i =
+                            List.foldl(fn(UsageSet{args, ...}, l) => if Vector.sub(args, i) = 0 then l+1 else l) 0 usages
+                        val sumArgSet = Vector.tabulate(argCount, getAllArgs)
+                        val fullSet = List.length usages
+
+                        fun computeKills(UsageSet{locals, args}) =
+                        let
+                            (* Create lists of Extract entries with lastRef true to indicate that the
+                               item is no longer required. *)
+                            val killArgs =
+                                Vector.foldli (fn (addr, n, l) =>
+                                    if n = 0 orelse n = fullSet orelse Vector.sub(args, addr) <> 0 orelse ! outsideLoopRef
+                                    then l 
+                                    else if addr = 0 then mkClosLoad(0, true) :: l
+                                    else mkGenLoad(~addr, true, true) :: l) [] sumArgSet
+                        in
+                            Vector.foldli (fn (addr, n, l) =>
+                                    if n = 0 orelse n = fullSet orelse Vector.sub(locals, addr) <> 0 orelse Array.sub(outsideLoop, addr)
+                                    then l 
+                                    else mkGenLoad(addr, true, true) :: l) killArgs sumLocalSet
+                        end
+                    in
+                        List.map computeKills usages
+                    end
+                end
+
+                fun addKillSet(original, []): backendIC = original (* No change *)
+                |   addKillSet(BICNewenv(decs, exp), killSet) = BICNewenv(map BICNullBinding killSet @ decs, exp)
+                |   addKillSet(original, killSet) = BICNewenv(map BICNullBinding killSet, original)
+
+                (* returns the translated node *)
+                fun locaddr { addr=laddr, fpRel=true, ...}: backendIC =
+                (
+                    instrCount := !instrCount+1;
+
+                    if laddr < 0
+                    then
+                    let (* parameters *)
+                        val argNo = ~ laddr;
+                        val lastReference =
+                            Array.sub(argUses, argNo) = 0 andalso not (!outsideLoopRef)
+                    in 
+                        (* Mark the argument as used. *)
+                        Array.update (argUses, argNo, maxUse(! instrCount, Array.sub(argUses, argNo)));
+                        mkGenLoad (laddr, true, lastReference)
+                    end
+          
+                    (* isOnstack *)
+                    else
+                    let 
+                        (* If this was outside a loop we can't mark this as the last
+                           reference because it needs to be retained for the next time round. *)
+                        val lastReference =
+                            Array.sub(localUses, laddr) = 0 andalso not (Array.sub(outsideLoop, laddr))
+                    in
+                        Array.update (localUses, laddr, maxUse(! instrCount, Array.sub(localUses, laddr)));
+                        mkGenLoad (laddr, true, lastReference)
+                    end
+                )
+                | locaddr { addr=laddr, fpRel=false, ...} =
+                    let
+                        val () = instrCount := !instrCount+1;
+                        val lastReference = Array.sub(argUses, 0) = 0 andalso not (!outsideLoopRef)
+                    in
+                        (* Mark the closure as used. *)
+                        Array.update (argUses, 0, maxUse(! instrCount, Array.sub(argUses, 0)));
+                        mkGenLoad (laddr, false, lastReference)
+                    end
+              (* locaddr *)
+
+                (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
+                   Generally used to map "insert" over a list where we need to
+                   ensure that last references to variables are detected correctly. *)
+                fun mapright _ [] = []
+                |   mapright f (a::b) =
+                    let
+                        val rest = mapright f b
+                    in
+                        f a :: rest
+                    end
+
+                fun insert P2MatchFail = BICMatchFail
+          
+                |   insert(P2AltMatch(x, y)) =
+                    let
+                        val insY = insert y
+                        val insX = insert x
+                    in
+                        BICAltMatch (insX, insY)
+                    end
+
+                |   insert(P2Eval { function as P2Extract{addr, fpRel=true, ...}, argList, resultType, ...}) =
+                    let
+                        (* If this is a statically-linked function make references to the closure.
+                           If this is actually the last reference this may result in returning
+                           kill entries for some of the closure entries.  If we're in a loop we will
+                           still have made a reference and the kill entries will be put at the end of
+                           the loop. *)
+                        val closureKills =
+                            if addr > 0
+                            then
+                            let
+                                fun getKill (P2Extract ext) =
+                                    (
+                                        case locaddr ext of
+                                            ext as BICExtract(_, true) => SOME ext
+                                        |   _ => NONE
+                                    )
+                                |   getKill _ = NONE
+                            in
+                                List.mapPartial getKill (Array.sub(slClosureTable, addr))
+                            end
+                            else []
+                        val () = instrCount := !instrCount+1
+                        (* Process the arguments first. *)
+                        val newargs = mapright(fn (c, t) => (insert c, t)) argList
+                        val eval =
+                            BICEval {function = insert function, argList = newargs, resultType=resultType}
+                    in
+                        if null closureKills then eval
+                        else BICKillItems{expression=eval, killSet=closureKills, killBefore=false}
+                    end
+
+                |   insert(P2Eval { function, argList, resultType, ...}) =
+                    let
+                        (* Process the arguments first. *)
+                        val newargs = mapright(fn (c, t) => (insert c, t)) argList
+                        (* Then the body. *)
+                        val func = insert function
+                    in
+                        BICEval {function = func, argList = newargs, resultType=resultType}
+                    end
+
+                |   insert(P2Extract ext) = locaddr ext
+
+                |   insert(P2Field {base, offset}) = BICField {base = insert base, offset = offset}
+
+                |   insert(P2Constnt c) = BICConstnt c (* Constants can be returned untouched. *)
+
+                |   insert(P2BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
+                    let
+                        (* If we have declarations outside the loop that are last used inside it we
+                           must make sure they're not marked as last used within the loop.  That would
+                           cause the register containing the value to become available for reuse which
+                           could mean that when we jumped back to the start of the loop it was no
+                           longer there.  We lift all such last-uses out of the loop and add them
+                           after the loop. *)
+                        val () = instrCount := !instrCount+1
+                        val loopEndPosition = !instrCount
+                        (* Save the usage state before we process the loop.  Because we're processing
+                           the block tail first this indicates all the declarations that are in use
+                           AFTER the loop. *)
+                        val usagesAfterLoop = saveUsages()
+                        val oldLoopEntries = Array.vector outsideLoop
+                        (* Set every entry to the "outsideLoop" array to true. *)
+                        val () = Array.modify (fn _ => true) outsideLoop
+                        val wasInLoop = ! outsideLoopRef
+                        val () = outsideLoopRef := true;
+
+                        (* Make entries in the tables for the arguments. I'm not sure
+                           if this is essential. *)
+                        fun declareArg(caddr, _, _) =
+                        (
+                            Array.update (localUses, caddr, 0);
+                            Array.update (outsideLoop, caddr, false) (* Must do this. *)
+                        )
+                        val _ = List.app declareArg argList
+
+                        (* Process the body. *)
+                        val insBody = insert body
+
+                        (* We want to set the arguments to "unreferenced".  These are effectively local to
+                           the loop so they can safely be killed inside it.  However we want to record
+                           the final references so we can attach them to the declarations. *)
+                        local
+                            fun processDec(addr, _, _) =
+                                Array.sub(localUses, addr) before Array.update (localUses, addr, 0)
+                        in
+                            val loopArgUses = List.map processDec argList
+                        end
+
+                        val usagesBeforeLoop = saveUsages()
+                        (* Restore the state. *)
+                        val () = outsideLoopRef := wasInLoop
+                        val () = Array.copyVec{src=oldLoopEntries, dst=outsideLoop, di=0}
+                        val (killAfter, killBefore) =
+                            case computeKillSetLists [usagesAfterLoop, usagesBeforeLoop] of
+                                [thenKill, elseKill] => (thenKill, elseKill)
+                            |   _ => raise InternalError "computeKillSets"
+                        val _ = null killBefore orelse raise InternalError "Not killBefore"
+                        (* Set the lifetime of everything in the killAfter set to be the
+                           end of the loop.  Since their last references are inside the loop
+                           this means extending the lifetime until the end. *)
+                        local
+                            fun extendLife(BICExtract(BICLoadStack addr, _)) =
+                                    if addr < 0 then Array.update (argUses, ~addr, loopEndPosition)
+                                    else Array.update (localUses, addr, loopEndPosition)
+                            |   extendLife(BICExtract(BICLoadClosure 0, _)) =
+                                    Array.update (argUses, 0, loopEndPosition)
+                            |   extendLife _ = raise InternalError "Not an Extract"
+                        in
+                            val () = List.app extendLife killAfter
+                        end
+                        (* Finally the initial argument values. *)
+                        local
+                            fun copyDec((addr, value, _), uses) =
+                                {addr=addr, value=insert value, references=uses}
+                        in
+                            val newargs = mapright copyDec (ListPair.zipEq(argList, loopArgUses))
+                        end
+                        val loop =
+                            BICBeginLoop{loop=insBody, arguments=ListPair.zipEq(newargs, List.map #3 argList)}
+                    in
+                        (* Add the kill entries on after the loop. *)
+                        if null killAfter then loop
+                        else BICKillItems{expression=loop, killSet=killAfter, killBefore=false}
+                    end
+    
+                |   insert(P2Loop argList) = (* Jump back to start of tail-recursive function. *)
+                            BICLoop(mapright(fn (c, t) => (insert c, t)) argList)
+
+                |   insert(P2Raise x) = BICRaise (insert x)
+
+                    (* See if we can use a case-instruction. Arguably this belongs
+                       in the optimiser but it is only really possible when we have
+                       removed redundant declarations. *)
+                |   insert(P2Cond(condTest, condThen, condElse)) =
+                            copyCond (condTest, condThen, condElse)
+
+                |   insert(P2Newenv(ptElistDecs, ptExp)) =
+                    let
+                        (* Process the body. Recurses down the list of declarations
+                           and expressions processing each, and then reconstructs the
+                           list on the way back. *)
+                        fun copyDeclarations ([])   = []
+
+                        |   copyDeclarations ((P2Declar(caddr, pt)) :: vs)  =
+                            let
+                                (* Set the table entries.  We don't reuse entries so this is just a check. *)
+                                val _ = Array.sub(localUses, caddr) <> 0
+                                           andalso raise InternalError "copyDeclarations: Already used"
+                                val () = Array.update (outsideLoop, caddr, false) (* It's local *)
+                                val () =
+                                    case pt of
+                                        P2Lambda{makeClosure=false, closure, ...} =>
+                                        let
+                                            (* It's a statically-linked function: set the closure
+                                               array entry.  If the closure entries themselves are
+                                               statically linked function we have to include the
+                                               items from those closures in this set. *)
+                                            fun closureTrans (P2Extract{fpRel=true, addr, ...}, l) =
+                                                if addr > 0 then Array.sub(slClosureTable, addr) @ l else l
+                                            |   closureTrans (_, l) = l
+                                            val trans = List.foldl closureTrans [] closure
+                                        in
+                                            Array.update(slClosureTable, caddr, trans @ closure)
+                                        end
+                                    |   _ => ()
+                                val rest = copyDeclarations vs
+                                val wasUsed = Array.sub(localUses, caddr)
+                                val () = instrCount := !instrCount+1
+                            in
+                                (* It is never used and it has no side-effects so we can ignore it. *)
+                                if wasUsed = 0 andalso sideEffectFree pt
+                                then rest
+                                else
+                                let
+                                    val dec = insert pt
+                                in
+                                    (* Set the use count back to free otherwise this local
+                                       declaration would become part of the kill set for the
+                                       surrounding expression. *)
+                                    Array.update (localUses, caddr, 0);
+                                    mkDecRef(dec, caddr, wasUsed) :: rest
+                                end
+                            end (* copyDeclarations.isDeclar *)
+
+                        |   copyDeclarations (P2RecDecs mutualDecs :: vs)  =
+                            let
+                                (* Recursive declarations. *)
+                                (* This is a bit messy.  For static-link functions we need to
+                                   make sure the last reference to the closure entries is after
+                                   the last call to the function.  For full-closure functions
+                                   the last reference must be after the closures have all been
+                                   built. *)
+                                (* Get the closure lists for all the declarations.  We assume that
+                                   any of these can call any of the others so we just accumulate
+                                   them into a single list. *)
+                                local
+                                    fun getClosure((_, {makeClosure, closure, ...}),
+                                            (slClosures, fcClosures)) =
+                                        if makeClosure
+                                        then (slClosures, closure @ fcClosures) else (closure @ slClosures, fcClosures)
+                                    val (slClosures, fcClosures) = List.foldl getClosure ([], []) mutualDecs
+                                    (* Include any statically linked functions this references. *)
+                                    fun closureTrans (P2Extract{fpRel=true, addr, ...}, l) =
+                                        if addr > 0 then Array.sub(slClosureTable, addr) @ l else l
+                                    |   closureTrans (_, l) = l
+                                    val trans = List.foldl closureTrans [] slClosures
+                                in
+                                    val staticCl = trans @ slClosures
+                                    val fullClosureList = fcClosures
+                                end
+
+                                (* Make the declarations. *)
+                                local
+                                    fun applyFn(caddr, _) =     
+                                        (
+                                            Array.sub(localUses, caddr) <> 0 andalso raise InternalError "applyFn: Already used";
+                                            Array.update(slClosureTable, caddr, staticCl);
+                                            Array.update (outsideLoop, caddr, false) (* It's local *)
+                                        )
+                                in
+                                    val () = List.app applyFn mutualDecs
+                                end
+                  
+                                (* Process the rest of the block. Identifies all other
+                                   references to these declarations. *)
+                                val restOfBlock = copyDeclarations vs
+
+                                val () = instrCount := !instrCount+1
+
+                                (* Process the closure entries and extract the ones that are the last refs. *)
+                                val lastRefsForClosure =
+                                    List.map BICNullBinding
+                                        (List.filter (fn BICExtract(_, true) => true | _ => false)
+                                            (map insert fullClosureList))
+
+                                val copiedDecs =
+                                    map (fn (addr, lambda) => {addr=addr, lambda=copyLambda lambda, references= 0})
+                                        mutualDecs
+           
+                                (* Now we know all the references we can complete
+                                   the declaration and put on the use-count. *)
+                                fun copyEntries []      = []
+                                |   copyEntries ({ addr, lambda, ...} ::ds) =
+                                    let
+                                        val wasUsed = Array.sub(localUses, addr)
+                                    in
+                                        if wasUsed = 0 (*andalso sideEffectFree value*)
+                                        then copyEntries ds
+                                        else 
+                                        (
+                                            (* Set the use count back to false otherwise this
+                                               entry would become part of the kill set for the
+                                               surrounding expression. *)
+                                            Array.update(localUses, addr, 0);
+                                            {lambda=lambda, addr=addr, references=wasUsed} :: copyEntries ds
+                                        )
+                                    end
+
+                                val decs = copyEntries copiedDecs
+                            in
+                                (* Return the mutual declarations and the rest of the block. *)
+                                if null decs
+                                then lastRefsForClosure @ restOfBlock
+                                else BICRecDecs decs :: (lastRefsForClosure @ restOfBlock)
+                            end (* copyDeclarations.isMutualDecs *)
+
+                        |   copyDeclarations (P2NullBinding v :: vs)  =
+                            let (* Not a declaration - process this and the rest. *)
+                               (* Must process later expressions before earlier
+                                   ones so that the last references to variables
+                                   are found correctly. *)
+                                val copiedRest = copyDeclarations vs
+                                val copiedNode = insert v
+                            in
+                                (* Expand out blocks *)
+                                case copiedNode of
+                                    BICNewenv(decs, exp) => decs @ (BICNullBinding exp :: copiedRest)
+                                |   _ => BICNullBinding copiedNode :: copiedRest
+                            end (* copyDeclarations *)
+
+                        val insElist = copyDeclarations(ptElistDecs @ [P2NullBinding ptExp])
+
+                        (* TODO: Tidy this up. *)
+                        fun splitLast _ [] = raise InternalError "decSequenceWithFinalExp: empty"
+                        |   splitLast decs [BICNullBinding exp] = (List.rev decs, exp)
+                        |   splitLast _ [_] = raise InternalError "decSequenceWithFinalExp: last is not a NullDec"
+                        |   splitLast decs (hd::tl) = splitLast (hd:: decs) tl
+
+                    in
+                        case splitLast [] insElist of
+                            ([], exp) => exp
+                        |   (decs, exp) => BICNewenv(decs, exp)
+                    end (* isNewEnv *)
+                
+                |   insert(P2Tuple recs) = (* perhaps it's a constant now? *)
+                        BICTuple (mapright insert recs) 
+
+                |   insert P2Ldexc = BICLdexc (* just a constant so return it *)
+      
+                |   insert(P2Lambda lambda) = BICLambda(copyLambda lambda)
+    
+                |   insert(P2Handle { exp, handler }) =
+                    let
+                        (* The order here is important.  We want to make sure that
+                           the last reference to a variable really is the last. *)
+                       val hand = insert handler
+                       val exp = insert exp
+                    in
+                      BICHandle {exp = exp, handler = hand}
+                    end
+
+                |   insert(P2Container c) = BICContainer c
+
+                |   insert(P2SetContainer {container, tuple, size}) =
+                        BICSetContainer{container = insert container, tuple = insert tuple, size = size}
+
+                |   insert(P2TupleFromContainer(container, size)) =
+                        BICTupleFromContainer(insert container, size)
+
+                |   insert(P2TagTest{test, tag, maxTag}) = BICTagTest{test=insert test, tag=tag, maxTag=maxTag}
+            
+                |   insert(P2Case{cases, test, caseType, default}) =
+                    let
+                        (* We need to compute the usages for each of the branches: i.e. the
+                           default plus each of the cases.  Because they are done in parallel
+                           any of the branches contains the last reference of a variable then
+                           we need to add kill entries to the other branches so that every
+                           branch contains either a "real" final usage or a kill entry. *)
+                        val usagesAfterCase = saveUsages()
+                        val insDefault = insert default
+                        val defaultUsage = saveUsages()
+                        val () = setToSaved usagesAfterCase
+                        fun processCase(c, tag) =
+                        let
+                            val () = setToSaved usagesAfterCase
+                            val insCase = insert c
+                            val caseUsage = saveUsages()
+                        in
+                            ((insCase, tag), caseUsage)
+                        end
+                        val (caseList, usageList) = ListPair.unzip (List.map processCase cases)
+                        val kills = computeKillSetLists(defaultUsage :: usageList)
+                        val casePlusKills = ListPair.mapEq(fn ((c, t), k) => (addKillSet(c, k), t)) (caseList, tl kills)
+                        (* Restore the overall usage by setting the reference to the union of all the branches. *)
+                        val () = List.app addFromSaved(defaultUsage :: usageList)
+                    in
+                        BICCase{cases=casePlusKills, test=insert test, caseType=caseType,
+                             default=addKillSet(insDefault, hd kills)}
+                    end
+
+                |   insert(P2IndirectVariable{base, offset}) =
+                        BICIndirectVariable{base=insert base, offset=insert offset}
+
+                |   insert(P2TupleVariable(vars, length)) =
+                    let
+                        fun insertTuple(P2VarTupleSingle{source, destOffset}) =
+                                BICVarTupleSingle{source=insert source, destOffset=insert destOffset}
+                        |   insertTuple(P2VarTupleMultiple{base, length, destOffset, sourceOffset}) =
+                                BICVarTupleMultiple{base=insert base, length=insert length,
+                                                 destOffset=insert destOffset, sourceOffset=insert sourceOffset}
+                    in
+                        BICTupleVariable(mapright insertTuple vars, insert length)
+                    end
+
+                and copyLambda{body=lambdaBody, level=nesting, argTypes,
+                                 name=lambdaName, resultType, localCount, closure, makeClosure, ...} = 
+                let
+                    val numArgs = List.length argTypes
+                    (* The size is one more than the number of arguments because the
+                       arguments are numbered from ~1 .. ~n and we use the entries
+                       as ~arg.  Entry zero is used for the closure. *)
+                    val argUses      = Array.array(numArgs+1, 0);
+
+                    (* process the body *)
+                    val insertedCode: backendIC = copyCode (lambdaBody, argUses, localCount)
+                    (* All the closure entries ought to be loads but there used to be cases
+                       where functions were compiled late in the process and then appeared
+                       as constants in the closure.  Include this check for the moment. *)
+                    val copiedClosure =
+                        map(fn BICExtract a => BICExtract a | _ => raise InternalError "map closure") (mapright insert closure)
+            
+                    val argUseList = Array.foldr(op ::) [] argUses
+                in
+                    {
+                        body          = insertedCode,
+                        name          = lambdaName,
+                        closure       = copiedClosure,
+                        argTypes      = argTypes,
+                        resultType    = resultType,
+                        level         = nesting,
+                        closureRefs   = hd argUseList,
+                        localCount    = localCount,
+                        makeClosure   = makeClosure,
+                        argLifetimes  = List.rev(tl argUseList)
+                    }
+                end
+
+
+              and copyCond (condTest, condThen, condElse) =
+                let
+                    (* Process each of the arms, computing the kill sets for
+                     each arm. *)
+                    (* Save the current usage set.  Because we process the
+                       codetree in reverse order to the control flow entries
+                       in here show the variables which are in use after the
+                       if-expression has completed. *)
+                    val usagesAfterIf = saveUsages();
+
+                    (* Process the then-part.  Save the usage set which
+                       corresponds to variables which are in use in the
+                       flow of control through the then-part and afterwards. *)
+                    val insThen = insert condThen;
+                    val thenUsage = saveUsages();
+
+                    (* Reset the use-counts to the saved value. *)
+                    val () = setToSaved usagesAfterIf;
+
+                    (* Process the else-part. *)
+                    val insElse = insert condElse;
+                    val elseUsage = saveUsages();
+
+                    (* Now compute the differences of the sets.
+                       The differences are returned as Extract codetree entries. *)
+                    val (killElseOnly, killThenOnly) =
+                        case computeKillSetLists [thenUsage, elseUsage] of
+                            [thenKill, elseKill] => (thenKill, elseKill)
+                        |   _ => raise InternalError "computeKillSets"
+                    (* Now ensure that all the variables that were used in the
+                     then-part are marked as used.  It may be that they have already
+                     been set if they also appeared in the else-part.
+                     This sets the usage sets to the union of the then-part,
+                     the else-part and code after the if-expression. *)
+                    val () = addFromSaved thenUsage
+
+                    (* Add kill entries to the other branch.  We simply add
+                       Extract entries with lastRef=true before the appropriate
+                       branch.  This does what we want since the code-generator
+                       does not generate any code for them but it might make
+                       the intermediate code easier to read if we used a different
+                       instruction. *)
+
+                    (* Process the condition AFTER the then- and else-parts. *)
+                    val insFirst = insert condTest
+                in
+                    BICCond (insFirst, addKillSet(insThen, killElseOnly), addKillSet(insElse, killThenOnly))
+                end
+            in     
+                insert pt
+            end (* copyCode *)
+         
+            val insertedCode: backendIC = copyCode (pt, Array.array(0, 0), localAddressCount);
+        in
+            insertedCode
+        end (* lifeTimes *)
+    
+    end (* local *)
 
     fun codeGenAndPrint debugSwitches (code, localCount) =
     let
-        val backendCode = LIFETIMES.lifeTimes(code, localCount)
+        val backendCode = lifeTimes(code, localCount)
     in
         if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
         then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ();
@@ -89,6 +870,21 @@ struct
 
     fun staticLinkAndCases (pt, localAddressCount, debugArgs) =
     let
+
+        fun mkGenLoad  (i1, i2, bl) =
+            P2Extract {addr  = i1, level = i2, fpRel = bl}
+
+        fun mkClosLoad addr = P2Extract {level = 0, addr = addr, fpRel = false }
+
+        fun mkEval (ct, clist)   =
+        P2Eval {
+            function = ct,
+            argList = List.map(fn c => (c, GeneralType)) clist,
+            resultType=GeneralType
+        }
+
+        val rtsFunction = P2Constnt o ioOp
+
         fun copyCode (pt, previous, localCount, localAddresses) =
         let
             (* "closuresForLocals" is a flag indicating that if the declaration
@@ -146,17 +942,17 @@ struct
                     f a :: rest
                 end
 
-            fun insert (pt as MatchFail) = pt
+            fun insert MatchFail = P2MatchFail
           
             |   insert(AltMatch(x, y)) =
                 let
                     val insY = insert y
                     val insX = insert x
                 in
-                    AltMatch (insX, insY)
+                    P2AltMatch (insX, insY)
                 end
        
-            |   insert CodeNil = CodeNil
+            |   insert CodeNil = raise InternalError "insert: CodeNil"
         
             |   insert(Eval { function, argList, resultType, ...}) =
                 let
@@ -170,7 +966,7 @@ struct
                     (* If we are calling a procedure which has been declared this
                        does not require it to have a closure. Any other use of the
                        procedure would. *) 
-                    Eval {function = func, argList = newargs, resultType=resultType}
+                    P2Eval {function = func, argList = newargs, resultType=resultType}
                 end
 
             |   insert(Extract ext) =
@@ -179,10 +975,9 @@ struct
                        eval and load-andStore, are handled separately. *)
                     locaddr(ext, (* closure = *) true)
 
-            |   insert(Indirect {base, offset}) = Indirect {base = insert base, offset = offset}
+            |   insert(Indirect {base, offset}) = P2Field {base = insert base, offset = offset}
 
-            |   insert(pt as Constnt _) = 
-                    pt (* Constants can be returned untouched. *)
+            |   insert(Constnt w) = P2Constnt w (* Constants can be returned untouched. *)
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
@@ -194,19 +989,19 @@ struct
                     (* Finally the initial argument values. *)
                     local
                         fun copyDec(({value, ...}, t), addr) =
-                                ({value = insert value, addr = addr}, t)
+                                (addr, insert value, t)
                     in
                         val newargs = ListPair.map copyDec (argList, newAddrs)
                     end
                 in
                     (* Add the kill entries on after the loop. *)
-                    BeginLoop{loop=insBody, arguments=newargs}
+                    P2BeginLoop{loop=insBody, arguments=newargs}
                 end
     
             |   insert(Loop argList) = (* Jump back to start of tail-recursive function. *)
-                        Loop(List.map(fn (c, t) => (insert c, t)) argList)
+                        P2Loop(List.map(fn (c, t) => (insert c, t)) argList)
 
-            |   insert(Raise x) = Raise (insert x)
+            |   insert(Raise x) = P2Raise (insert x)
 
                 (* See if we can use a case-instruction. Arguably this belongs
                    in the optimiser but it is only really possible when we have
@@ -226,7 +1021,7 @@ struct
                             val newAddr = makeDecl caddr
                             val () =
                                 case pt of
-                                    Constnt _ => Array.update (localConsts, caddr, SOME pt)
+                                    Constnt w => Array.update (localConsts, caddr, SOME(P2Constnt w))
                                 |  _ => ()
 
                             (* This must be done first, even for non-lambdas -  why? *)
@@ -249,7 +1044,7 @@ struct
                                         end
                                     |   _ => insert pt
                             in
-                                mkDec(newAddr, dec) :: rest
+                                P2Declar(newAddr, dec) :: rest
                             end
                         end (* copyDeclarations.isDeclar *)
 
@@ -298,16 +1093,16 @@ struct
                                     (* Check whether we now have a constant *)
                                     val () =
                                         case dec of
-                                            Constnt _ => Array.update (localConsts, caddr, SOME dec)
+                                            P2Constnt _ => Array.update (localConsts, caddr, SOME dec)
                                         |   _ => Array.update (localConsts, caddr, NONE); (* needed? *)
 
                                     (* copyLambda may set "closure" to true. *)
                                     val () = Array.update (closuresForLocals, caddr, !closure);
                                 in
-                                    {addr=caddr, value = dec}
+                                    (caddr, dec)
                                 end             
 
-                            val copiedDecs: simpleBinding list = map copyDec mutualDecs
+                            val copiedDecs = map copyDec mutualDecs
                    
                             (* We now have identified all possible references to the
                                functions apart from those of the closures themselves.
@@ -323,25 +1118,25 @@ struct
                                    anything which needs a closure. The remainder do not
                                    need full closures. *)
                                 let
-                                    fun mkLightClosure ({value, addr, ...}) = 
+                                    fun mkLightClosure ((addr, value)) = 
                                         let
                                             val clos = copyProcClosure value false
                                             val newAddr = Array.sub(newLocalAddresses, addr)
                                         in
-                                            {value=clos, addr=newAddr}
+                                            (newAddr, clos)
                                         end          
                                 in
                                     map mkLightClosure outlist
                                 end
                   
-                            |   processClosures((h as {addr=caddr, value, ...})::t, outlist, someFound) =
+                            |   processClosures((h as (caddr, value))::t, outlist, someFound) =
                                 if Array.sub(closuresForLocals, caddr)
                                 then
                                 let (* Must copy it. *)
                                     val clos = copyProcClosure value true
                                     val newAddr = Array.sub(newLocalAddresses, caddr)
                                 in
-                                    {value=clos, addr=newAddr} :: processClosures(t, outlist, true)
+                                    (newAddr, clos) :: processClosures(t, outlist, true)
                                 end
                                     (* Leave it for the moment. *)
                                 else processClosures(t, h :: outlist, someFound)
@@ -349,18 +1144,18 @@ struct
                             val decs = processClosures(copiedDecs, [], false)
 
                             local
-                                fun isLambda{value=Lambda _, ...} = true
+                                fun isLambda(_, P2Lambda _) = true
                                 |   isLambda _ = false
                             in
                                 val (lambdas, nonLambdas) = List.partition isLambda decs
                             end
-                            fun asMutual{addr, value=Lambda lambda} = {addr=addr, lambda=lambda}
+                            fun asMutual(addr, P2Lambda lambda) = (addr, lambda)
                             |   asMutual _ = raise InternalError "asMutual"
                         in
                             (* Return the mutual declarations and the rest of the block. *)
                             if null lambdas
-                            then map Declar nonLambdas @ restOfBlock         (* None left *)
-                            else RecDecs (map asMutual lambdas) :: (map Declar nonLambdas @ restOfBlock)
+                            then map P2Declar nonLambdas @ restOfBlock         (* None left *)
+                            else P2RecDecs (map asMutual lambdas) :: (map P2Declar nonLambdas @ restOfBlock)
                         end (* copyDeclarations.isMutualDecs *)
           
                     |   copyDeclarations (NullBinding v :: vs)  =
@@ -369,24 +1164,37 @@ struct
                                ones so that the last references to variables
                                are found correctly. DCJM 30/11/99. *)
                             val copiedRest = copyDeclarations vs;
-                            val copiedNode = insert v;
+                            val copiedNode = insert v
                         in
                             (* Expand out blocks *)
                             case copiedNode of
-                                Newenv(decs, exp) => decs @ (NullBinding exp :: copiedRest)
-                            |   _ => NullBinding copiedNode :: copiedRest
+                                P2Newenv(decs, exp) => decs @ (P2NullBinding exp :: copiedRest)
+                            |   _ => P2NullBinding copiedNode :: copiedRest
                         end (* copyDeclarations *)
 
                     val insElist = copyDeclarations(ptElist @ [NullBinding ptExp])
+
+                    fun mkEnv([], exp) = exp
+                    |   mkEnv(decs, exp) = P2Newenv(decs, exp)
+
+                    fun decSequenceWithFinalExp decs =
+                    let
+                        fun splitLast _ [] = raise InternalError "decSequenceWithFinalExp: empty"
+                        |   splitLast decs [P2NullBinding exp] = (List.rev decs, exp)
+                        |   splitLast _ [_] = raise InternalError "decSequenceWithFinalExp: last is not a NullDec"
+                        |   splitLast decs (hd::tl) = splitLast (hd:: decs) tl
+                    in
+                        mkEnv(splitLast [] decs)
+                    end
                 in
                     (* TODO: Tidy this up. *)
                     decSequenceWithFinalExp insElist
                 end (* isNewEnv *)
                 
             |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
-                    mkTuple (mapright insert recs)
+                    P2Tuple (mapright insert recs)
 
-            |   insert(pt as Ldexc) = pt (* just a constant so return it *)
+            |   insert Ldexc = P2Ldexc (* just a constant so return it *)
       
             |   insert(Lambda lam)=
                     (* Must make a closure for this procedure because
@@ -397,28 +1205,28 @@ struct
                 let
                     (* The order here is important.  We want to make sure that
                        the last reference to a variable really is the last. *)
-                   val hand = insert handler
-                   val exp = insert exp
+                    val hand = insert handler
+                    val exp = insert exp
                 in
-                  Handle {exp = exp, handler = hand}
+                    P2Handle {exp = exp, handler = hand}
                 end
 
-            |   insert(c as Container _) = c
+            |   insert(Container c) = P2Container c
 
             |   insert(SetContainer {container, tuple, size}) =
-                    SetContainer{container = insert container, tuple = insert tuple, size = size}
+                    P2SetContainer{container = insert container, tuple = insert tuple, size = size}
 
             |   insert(TupleFromContainer(container, size)) =
-                    TupleFromContainer(insert container, size)
+                    P2TupleFromContainer(insert container, size)
          
-            |   insert(Global(GVal (g, _))) = Constnt g
+            |   insert(Global(GVal (g, _))) = P2Constnt g
                    (* Should have been taken off by the optimiser. *)
 
-            |   insert(TagTest{test, tag, maxTag}) = TagTest{test=insert test, tag=tag, maxTag=maxTag}
+            |   insert(TagTest{test, tag, maxTag}) = P2TagTest{test=insert test, tag=tag, maxTag=maxTag}
 
             |   insert(IndirectVariable{base, offset, ...}) =
                 (* Convert this into a Load instruction. *)
-                    insert(mkEval(rtsFunction RuntimeCalls.POLY_SYS_load_word, [base, offset]))
+                    insert(CODETREE_FUNCTIONS.mkEval(Constnt(ioOp RuntimeCalls.POLY_SYS_load_word), [base, offset]))
 
             |   insert(TupleVariable(vars, length)) =
                 (* Convert this into a set of RTS calls.  This currently uses POLY_SYS_alloc_store
@@ -428,11 +1236,15 @@ struct
                     val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
                     val mutableFlags = Word8.orb(F_words, F_mutable)
                     val allocTuple =
-                        mkDec(newAddr,
+                        P2Declar(newAddr,
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_alloc_store,
-                                [insert length, mkConst (toMachineWord mutableFlags), CodeZero])
+                                [insert length, P2Constnt (toMachineWord mutableFlags), P2Constnt(toMachineWord 0)])
                         )
-                    fun copyTuple(VarTupleSingle{source, destOffset}) =
+
+                    fun mkLoad (addr,level) =
+                        P2Extract {level = level, addr = addr, fpRel = true}
+
+                     fun copyTuple(VarTupleSingle{source, destOffset}) =
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_assign_word,
                                 [mkLoad(newAddr, 0), insert destOffset, insert source])
                     |   copyTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
@@ -442,10 +1254,8 @@ struct
                     (* Remove the mutable bit (needed by alloc_store). *)
                     val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [mkLoad(newAddr, 0)])
                  in
-                    mkEnv(allocTuple :: (map NullBinding (mapright copyTuple vars @ [lock])), mkLoad(newAddr, 0))
+                    P2Newenv(allocTuple :: (map P2NullBinding (mapright copyTuple vars @ [lock])), mkLoad(newAddr, 0))
                 end
-
-            |   insert(Case _) = raise InternalError "insert:Case"
 
           and copyCond (condTest, condThen, condElse) =
             let
@@ -470,20 +1280,20 @@ struct
               datatype similarity =
                 Different | Similar of { addr : int, level: int, fpRel: bool }
 
-              fun similar (Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel}),
-                           Extract ({addr=bAddr, level=bLevel, fpRel=bFpRel})) =
+              fun similar (P2Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel}),
+                           P2Extract ({addr=bAddr, level=bLevel, fpRel=bFpRel})) =
                     if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
                     then Similar a
                     else Different
               
-               |  similar (Indirect{offset=aOff, base=aBase}, Indirect{offset=bOff, base=bBase}) =
+               |  similar (P2Field{offset=aOff, base=aBase}, P2Field{offset=bOff, base=bBase}) =
                     if aOff <> bOff then Different else similar (aBase, bBase)
               
                |  similar _ = Different;
 
                 (* If we have a call to the int equality operation *)
                 (* then we may be able to use a case statement. *)
-                fun findCase (Eval{ function=Constnt cv, argList, ... }) : caseVal =
+                fun findCase (P2Eval{ function=P2Constnt cv, argList, ... }) =
                 let
                     val isArbitrary = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_equala)
                     val isWord = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_word_eq)
@@ -491,12 +1301,12 @@ struct
                     if isArbitrary orelse isWord
                     then  (* Should be just two arguments. *)
                     case argList of
-                        [(Constnt c1, _), (arg2, _)] =>
+                        [(P2Constnt c1, _), (arg2, _)] =>
                         if isShort c1
                         then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
                         else NONE (* Not a short constant. *)
                     
-                     | [(arg1, _), (Constnt c2, _)] =>
+                     | [(arg1, _), (P2Constnt c2, _)] =>
                         if isShort c2
                         then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
                         else NONE (* Not a short constant. *)
@@ -507,31 +1317,31 @@ struct
                     else NONE (* Function is not a comparison. *)
                 end
 
-             |  findCase(TagTest { test, tag, maxTag }) =
+             |  findCase(P2TagTest { test, tag, maxTag }) =
                     SOME { tag=tag, test=test, caseType=CaseTag maxTag }
 
              |  findCase _ = NONE
         
-              val testCase  : caseVal  = findCase insFirst
+              val testCase = findCase insFirst
             in
 
               case testCase of
                     NONE => (* Can't use a case *)
-                        mkIf (insFirst, insThen, reconvertCase insElse)
+                        P2Cond (insFirst, insThen, reconvertCase insElse)
                 |   SOME { tag=caseTags, test=caseTest, caseType=caseCaseTest } =>
                         (* Can use a case. Can we combine two cases?
                           If we have an expression like 
                                "if x = a then .. else if x = b then ..."
                           we can combine them into a single "case". *)
                         case insElse of
-                            Case { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
+                            P2Case { cases=nextCases, test=nextTest, default=nextDefault, caseType=nextCaseType } =>
                             (
                                 case (similar(nextTest, caseTest), caseCaseTest = nextCaseType) of
                                   (* Note - it is legal (though completely redundant) for the
                                      same case to appear more than once in the list. This is not
                                       checked for at this stage. *)
                                     (Similar _, true) =>
-                                        Case 
+                                        P2Case 
                                         {
                                             cases   = (insThen, caseTags) ::
                                                         map (fn (c, l) => (c, l)) nextCases,
@@ -542,7 +1352,7 @@ struct
 
                                     | _ => (* Two case expressions but they test different
                                               variables. We can't combine them. *)
-                                        Case
+                                        P2Case
                                         {
                                             cases   = [(insThen, caseTags)],
                                             test    = caseTest,
@@ -551,7 +1361,7 @@ struct
                                         }
                             )
                             | _ => (* insElse is not a case *)
-                                Case
+                                P2Case
                                 {
                                     cases   = [(insThen, caseTags)],
                                     test    = caseTest,
@@ -565,7 +1375,7 @@ struct
                done at the bottom level and the choice of when to use an indexed case was
                made by the architecture-specific code-generator.  That's probably unnecessary
                and complicates the code-generator. *)
-            and reconvertCase(Case{cases, test, default, caseType}) =
+            and reconvertCase(P2Case{cases, test, default, caseType}) =
                 let
                     (* Count the number of cases and compute the maximum and minimum. *)
                     (* If we are testing on integers we could have negative values here.
@@ -589,7 +1399,7 @@ struct
                             end
                 in
                     if useIndexedCase
-                    then Case{cases=cases, test=test, default=default, caseType=caseType}
+                    then P2Case{cases=cases, test=test, default=default, caseType=caseType}
                     else
                     let
                         fun reconvert [] = default
@@ -598,14 +1408,14 @@ struct
                                 val test =
                                     case caseType of
                                         CaseInt =>
-                                            mkEval(Constnt(ioOp RuntimeCalls.POLY_SYS_equala),
-                                                   [test, Constnt(toMachineWord t)])
+                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equala),
+                                                   [test, P2Constnt(toMachineWord t)])
                                     |   CaseWord =>
-                                            mkEval(Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq),
-                                                   [test, Constnt(toMachineWord t)])
-                                    |   CaseTag maxTag => TagTest { test=test, tag=t, maxTag=maxTag }
+                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq),
+                                                   [test, P2Constnt(toMachineWord t)])
+                                    |   CaseTag maxTag => P2TagTest { test=test, tag=t, maxTag=maxTag }
                             in
-                                Cond(test, c, reconvert rest)
+                                P2Cond(test, c, reconvert rest)
                             end
                     in
                         reconvert cases
@@ -617,14 +1427,14 @@ struct
             (* If "makeClosure" is true the procedure will need a full closure. *)
             (* It may need a full closure even if makeClosure is false if it    *)
             (* involves a recursive reference which will need a closure.        *)
-            and copyLambda ({body=lambdaBody, level=nesting, argTypes, isInline,
+            and copyLambda ({body=lambdaBody, level=nesting, argTypes,
                              name=lambdaName, resultType, localCount, ...}) makeClosure =
             let
               val newGrefs      = ref [] (* non-local references *)
               val newNorefs     = ref 0  (* number of non-local refs *)
        
               (* A new table for the new procedure. *)
-              fun prev (ptr as { addr, fpRel, ...}, lev, closure: bool) : codetree =
+              fun prev (ptr as { addr, fpRel, ...}, lev, closure: bool) =
               let 
                     (* Returns the closure address of the non-local *)
                     fun makeClosureEntry([], _) = (* not found - construct new entry *)
@@ -636,7 +1446,7 @@ struct
                             mkClosLoad newAddr
                         end
         
-                    |   makeClosureEntry(Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t,
+                    |   makeClosureEntry(P2Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t,
                                          newAddr) =
                         if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
                         then mkClosLoad newAddr
@@ -710,7 +1520,7 @@ struct
                     val outerLoad = previous (ptr, lev - 1, closure)
                 in
                     case outerLoad of
-                        Constnt _ => outerLoad
+                        P2Constnt _ => outerLoad
                         |   _ => makeClosureEntry (!newGrefs, !newNorefs)
                end
               end (* prev *);
@@ -723,10 +1533,9 @@ struct
                     [] => (* no external references *)
                     let
                         val copiedProc =
-                        Lambda
+                        P2Lambda
                         {
                             body          = insertedCode,
-                            isInline      = isInline,
                             name          = lambdaName,
                             closure       = [],
                             argTypes      = argTypes,
@@ -739,16 +1548,15 @@ struct
                         val cnstnt = codeGenAndPrint debugArgs (copiedProc, 1) ()
                     in
                         (* Code generate it now so we get a constant. *)
-                        Constnt cnstnt
+                        P2Constnt cnstnt
                     end
       
                 |   globalRefs =>
                     (* External references present. The closure will be copied
                         later with copyProcClosure. *)
-                    Lambda 
+                    P2Lambda 
                     {
                         body          = insertedCode,
-                        isInline      = isInline,
                         name          = lambdaName,
                         closure       = globalRefs,
                         argTypes      = argTypes,
@@ -761,21 +1569,20 @@ struct
 
                 (* Copy the closure of a procedure which has previously been
                 processed by copyLambda. *)
-            and copyProcClosure (Lambda{ body, isInline, name, argTypes, level,
+            and copyProcClosure (P2Lambda{ body, name, argTypes, level,
                                          closure, resultType, localCount, ...}) makeClosure =
                 let
                     (* process the non-locals in this procedure *)
                     (* If a closure is needed then any procedures referred to
                        from the closure also need closures.*)
-                    fun makeLoads (Extract ext) = locaddr(ext, makeClosure)
+                    fun makeLoads (P2Extract ext) = locaddr(ext, makeClosure)
                      |  makeLoads _ = raise InternalError "makeLoads - not an Extract"
                
                     val copyRefs = rev (map makeLoads closure);
                 in
-                    Lambda
+                    P2Lambda
                       {
                         body          = body,
-                        isInline      = isInline,
                         name          = name,
                         closure       = copyRefs,
                         argTypes      = argTypes,

@@ -310,8 +310,7 @@ DCJM 2000.
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
         level         = 0,
-        localCount    = 0,
-        makeClosure   = false
+        localCount    = 0
       }                     
 
     (* inline lambda operation: returns an inline procedure *)
@@ -325,8 +324,7 @@ DCJM 2000.
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
         level         = 0,
-        localCount    = 0,
-        makeClosure   = false
+        localCount    = 0
       };
 
     (* OnlyInline: used for functors unless inlineFunctors is false. *)
@@ -340,8 +338,7 @@ DCJM 2000.
         argTypes      = List.tabulate(args, fn _ => GeneralType),
         resultType    = GeneralType,
         level         = 0,
-        localCount    = 0,
-        makeClosure   = false
+        localCount    = 0
       }
 
 
@@ -355,8 +352,7 @@ DCJM 2000.
         argTypes      = argsAndTypes,
         resultType    = resultType,
         level         = 0,
-        localCount    = 0,
-        makeClosure   = false
+        localCount    = 0
       }
 
     fun mkInlineFunction(body, argsAndTypes, resultType, name) =
@@ -369,8 +365,7 @@ DCJM 2000.
         argTypes      = argsAndTypes,
         resultType    = resultType,
         level         = 0,
-        localCount    = 0,
-        makeClosure   = false
+        localCount    = 0
       }
 
     fun mkCall(func, argsAndTypes, resultType) =

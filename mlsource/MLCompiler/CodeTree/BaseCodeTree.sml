@@ -26,7 +26,6 @@ structure BaseCodeTree: BaseCodeTreeSig =
 struct
     open Address
 
-    datatype caseType = datatype BackendIntermediateCode.caseType
     datatype argumentType = datatype BackendIntermediateCode.argumentType
 
     datatype inlineStatus =
@@ -59,14 +58,6 @@ struct
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)
-
-    |   Case of (* Case expressions *)
-        {
-            cases   : (codetree * word) list,
-            test    : codetree,
-            caseType: caseType,
-            default : codetree
-        }
     
     |   BeginLoop of (* Start of tail-recursive inline function. *)
         { loop: codetree, arguments: (simpleBinding * argumentType) list }
@@ -145,8 +136,7 @@ struct
         argTypes      : argumentType list,
         resultType    : argumentType,
         level         : int,
-        localCount    : int,
-        makeClosure   : bool
+        localCount    : int
     }
 
     open Pretty
@@ -270,7 +260,7 @@ struct
             end
         
         | Lambda {body, isInline, name, closure, argTypes, level,
-                  makeClosure, resultType, localCount} =>
+                  resultType, localCount} =>
             let
                 val inl = 
                     case isInline of
@@ -288,7 +278,6 @@ struct
                         PrettyBreak (1, 0),
                         PrettyString name,
                         PrettyBreak (1, 0),
-                        PrettyString ( "CL="  ^ Bool.toString makeClosure),
                         PrettyString (" LEV=" ^ Int.toString level),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
@@ -354,43 +343,6 @@ struct
             )
         
         | Ldexc => PrettyString "LDEXC"
-        
-        | Case {cases, test, default, caseType} =>
-            PrettyBlock (1, true, [],
-                PrettyString
-                    (concat ["CASE ",
-                        case caseType of CaseInt => "INT" | CaseWord => "WORD" | CaseTag n => "TAG " ^ Word.toString n,
-                        " (" ]) ::
-                pretty test ::
-                PrettyBreak (1, 0) ::
-                PrettyString "(" ::
-                PrettyBreak (1, 0) ::
-                pList(cases, ",",
-                    fn (exp : codetree, label : word) =>
-                        PrettyBlock (1, true, [],
-                            [
-                                PrettyString (Word.toString label ^ ":"),
-                                PrettyBreak (1, 0),
-                                pretty exp
-                            ])
-                    ) @
-                (
-                    case default of
-                        CodeNil => []
-                    |   _ =>
-                        [
-                            PrettyBreak (1, 0),
-                            PrettyBlock (1, false, [],
-                                [
-                                    PrettyString "ELSE:",
-                                    PrettyBreak (1, 0),
-                                    pretty default
-                                ]
-                            )
-                        ]
-                ) @
-                [ PrettyBreak (1, 0), PrettyString (") {"^"CASE"^"}") ]
-            )
          
         | Recconstr ptl => printList("RECCONSTR", ptl, ",")
         
@@ -589,9 +541,6 @@ struct
     let
         fun sizeList l = List.foldl (fn (p, s) => size p + s) 0 l
 
-        and sizeCaseList []           = 0
-        |   sizeCaseList ((c,_)::cs) = size c + 1 + sizeCaseList cs
-
         (* some very rough size estimates *)
         and size pt =
             case pt of
@@ -626,8 +575,6 @@ struct
             |   TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
             |   Global(GVal(glob, _))           => size(Constnt glob)
             |   TagTest { test, ... }           => 1 + size test
-            |   Case {test,default,cases,...}   =>
-                    size test + size default + sizeCaseList cases
             |   IndirectVariable{base, offset, ...} => size base + size offset + 1
             |   TupleVariable(vars, _)=>
                 let
@@ -734,7 +681,6 @@ struct
     struct
         type codetree = codetree
         and  globalVal = globalVal
-        and  caseType = caseType
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType

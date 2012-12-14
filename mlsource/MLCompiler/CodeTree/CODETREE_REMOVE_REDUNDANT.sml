@@ -65,7 +65,7 @@ struct
         in
             {body=bodyCode, isInline=isInline, name=name,
                closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
-               makeClosure=false, localCount=localCount}
+               localCount=localCount}
         end
 
         and cleanCode (Newenv(decs, exp)) =
@@ -260,8 +260,6 @@ struct
             in
                 TupleVariable(map cleanTuple vars, cleanCode length)
             end
-
-         |  cleanCode (Case _) = raise InternalError "cleanCode: Case"
 
          |  cleanCode (Global _) = raise InternalError "cleanCode: Global"
     in

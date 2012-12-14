@@ -116,11 +116,10 @@ struct
             else mkGenLoad (addr, level + correction, fpRel)
 
         | changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
-                         level, makeClosure, localCount, ...}, nesting) =
+                         level, localCount, ...}, nesting) =
             Lambda{body = changeL(body, nesting+1), isInline = isInline,
                    name = name, closure = closure, argTypes = argTypes, resultType=resultType,
-                   level = level + correction,
-                   makeClosure = makeClosure, localCount=localCount}
+                   level = level + correction, localCount=localCount}
 
         | changeL(Eval{function, argList, resultType}, nesting) =
             Eval{function = changeL(function, nesting),
@@ -625,8 +624,7 @@ struct
                            argTypes      = argTypes,
                            resultType    = resultType,
                            level         = nesting,
-                           localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false
+                           localCount    = ! newAddressAllocator + 1
                          },
                       special = original,
                       environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
@@ -659,8 +657,7 @@ struct
                        argTypes      = argTypes,
                        resultType    = resultType,
                        level         = nesting,
-                       localCount    = ! newAddressAllocator + 1,
-                       makeClosure   = false
+                       localCount    = ! newAddressAllocator + 1
                      };
                  val general = 
                    (* If this has no free variables we can code-generate it now. *)
@@ -686,8 +683,7 @@ struct
                            argTypes      = argTypes,
                            resultType    = resultType,
                            level         = nesting,
-                           localCount    = ! newAddressAllocator + 1,
-                           makeClosure   = false
+                           localCount    = ! newAddressAllocator + 1
                          },
                       environ = lookupNewAddr,
                       decs    = []
@@ -1543,8 +1539,6 @@ struct
                     end
             end
 
-      |  optimise (Case _, _, _) = raise InternalError "optimise: Case"
-
     (* Inline a function that has been explicitly marked by the frontend.  These are
        either functors or auxiliary functions in curried or tupled fun bindings.
        They are never directly recursive but could contain "small" functions that are. *)
@@ -1931,8 +1925,7 @@ struct
                                 closure = [],
                                 argTypes = newArgList, resultType=resultType,
                                 level = nestingOfThisFunction + 1,
-                                localCount = ! newAddressAllocator + 1,
-                                makeClosure = false })
+                                localCount = ! newAddressAllocator + 1 })
                     end
                 end
 

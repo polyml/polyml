@@ -63,14 +63,6 @@ sig
     |   Lambda of lambdaForm (* Lambda expressions. *)
 
     |   Cond of codetree * codetree * codetree (* If-statement *)
-
-    |   Case of (* Case expressions *)
-        {
-            cases   : (codetree * word) list,
-            test    : codetree,
-            caseType: caseType,
-            default : codetree
-        }
     
     |   BeginLoop of (* Start of tail-recursive inline function. *)
         { loop: codetree, arguments: (simpleBinding * argumentType) list }
@@ -118,11 +110,6 @@ sig
     |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
-    and caseType =
-        CaseInt
-    |   CaseWord
-    |   CaseTag of word
-
     and varTuple =
         VarTupleSingle of { source: codetree, destOffset: codetree }
     |   VarTupleMultiple of
@@ -150,8 +137,7 @@ sig
         argTypes      : argumentType list,  (* "Types" of arguments. *)
         resultType    : argumentType,       (* Result "type" of the function. *)
         level         : int,                (* Nesting depth.  Added by optimiser. *)
-        localCount    : int,                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
-        makeClosure   : bool                (* Whether it has a full closure.  Added by preCode. *)
+        localCount    : int                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
     }
 
     (* Return the "size" of the codetree used as a way of estimating whether to insert
@@ -166,7 +152,6 @@ sig
     sig
         type codetree = codetree
         and  globalVal = globalVal
-        and  caseType = caseType
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType

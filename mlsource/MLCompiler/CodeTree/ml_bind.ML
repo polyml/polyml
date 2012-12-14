@@ -21,25 +21,15 @@ local
     structure CodetreeFunctions =
         CODETREE_FUNCTIONS(structure BASECODETREE = BaseCodeTree)
 
-    local
-        structure CodetreeLifetimes =
-            CODETREE_LIFETIMES(
-                structure BASECODETREE = BaseCodeTree
-                structure CODETREE_FUNCTIONS = CodetreeFunctions
-                structure BACKENDTREE = BackendIntermediateCode
-            )
-    in
-        structure CodetreeBackend =
-            CODETREE_STATIC_LINK_AND_CASES(
-                structure PRETTY        = Pretty
-                structure GCODE         = GCode
-                structure DEBUG         = Debug
-                structure BASECODETREE  = BaseCodeTree
-                structure BACKENDTREE = BackendIntermediateCode
-                structure CODETREE_FUNCTIONS = CodetreeFunctions
-                structure LIFETIMES     = CodetreeLifetimes
-            )
-    end
+    structure CodetreeBackend =
+        CODETREE_STATIC_LINK_AND_CASES(
+            structure PRETTY        = Pretty
+            structure GCODE         = GCode
+            structure DEBUG         = Debug
+            structure BASECODETREE  = BaseCodeTree
+            structure BACKENDTREE = BackendIntermediateCode
+            structure CODETREE_FUNCTIONS = CodetreeFunctions
+        )
 
     structure CodetreeRemoveRedundant =
         CODETREE_REMOVE_REDUNDANT(

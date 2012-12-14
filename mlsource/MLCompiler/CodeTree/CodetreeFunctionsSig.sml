@@ -104,6 +104,7 @@ sig
     val decSequenceWithFinalExp: codeBinding list -> codetree
     
     val sideEffectFree: codetree -> bool
+    val sideEffectFreeRTSCall: machineWord -> bool
     val makeConstVal: codetree -> codetree
     
     val evalue:    codetree -> machineWord option
