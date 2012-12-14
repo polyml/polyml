@@ -242,8 +242,6 @@ struct
          |  cleanCode(TupleFromContainer(container, size)) =
                TupleFromContainer(cleanCode container, size)
 
-         |  cleanCode CodeNil = CodeNil
-
          |  cleanCode (TagTest{test, tag, maxTag}) =
                 TagTest{test=cleanCode test, tag=tag, maxTag=maxTag}
 

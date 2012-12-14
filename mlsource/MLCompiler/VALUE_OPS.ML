@@ -784,7 +784,7 @@ struct
      (* Global structures have no code value. Instead the
         values are held in the values of the signature. *)
    if isUndefinedStruct str
-   then CodeNil
+   then CodeZero
    else codeAccess (structAccess str, level)
 
  and codeAccess (Global code, _) = code

@@ -148,8 +148,7 @@ struct
      such as an RTS call whose argument has a side-effect, we could
      reduce the code by extracting the sub-expressions with side-effects
      and returning just those. *)
-  fun sideEffectFree CodeNil = true
-    | sideEffectFree (Lambda _) = true
+  fun sideEffectFree (Lambda _) = true
     | sideEffectFree (Constnt _) = true
     | sideEffectFree (Extract _) = true
     | sideEffectFree (Cond(i, t, e)) =
@@ -374,8 +373,8 @@ struct
     |   optGeneral (ValWithDecs {general, ...}) = general
     |   optGeneral (JustTheVal ct)              = ct
       
-    fun optSpecial (OptVal {special,...}) = special
-      | optSpecial _                      = CodeNil
+    fun optSpecial (OptVal {special,...}) = SOME special
+      | optSpecial _                      = NONE
       
     fun optEnviron (OptVal {environ,...}) = environ
       | optEnviron _                      = errorEnv
@@ -386,10 +385,10 @@ struct
   
     val simpleOptVal : codetree -> optVal = JustTheVal
 
-    fun optVal{special=CodeNil, decs=[], general, ...} = JustTheVal general
-    |   optVal{special=CodeNil, decs, general, ...} = ValWithDecs {general = general, decs = decs}
-    |   optVal ov = OptVal ov
-
+    fun optVal{special=SOME special, decs, general, environ } =
+        OptVal {special=special, decs=decs, general=general, environ=environ}
+    |   optVal{special=NONE, decs=[], general, ...} = JustTheVal general
+    |   optVal{special=NONE, decs, general, ...} = ValWithDecs {general = general, decs = decs}
 
     local
         val except: exn = InternalError "Invalid load encountered in compiler"

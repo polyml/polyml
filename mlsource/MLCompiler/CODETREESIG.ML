@@ -33,8 +33,6 @@ sig
     |   VarTupleMultiple of
             { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
  
-    val isCodeNil:          codetree -> bool;
-    val CodeNil:            codetree; (* Empty codetree NOT the code for "nil" *)
     val CodeTrue:           codetree; (* code for "true"  *)
     val CodeFalse:          codetree; (* code for "false" *)
     val CodeZero:           codetree; (* code for 0, nil etc. *)

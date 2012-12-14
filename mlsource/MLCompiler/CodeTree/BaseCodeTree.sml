@@ -92,8 +92,6 @@ struct
         (* Construct a tuple using one or more multi-word items. *)
 
     |   Global of globalVal (* Global value *)
-
-    |   CodeNil
     
     and globalVal =
         (* A global value is a constant but it may also contain the code for an
@@ -218,9 +216,7 @@ struct
 
     in
         case pt of
-            CodeNil => PrettyString "NIL"
-        
-        | MatchFail => PrettyString "MATCHFAIL"
+            MatchFail => PrettyString "MATCHFAIL"
         
         | AltMatch pair => printDiad "ALTMATCH" pair
 
@@ -544,8 +540,7 @@ struct
         (* some very rough size estimates *)
         and size pt =
             case pt of
-                CodeNil                         => 0
-            |   MatchFail                       => 1
+                MatchFail                       => 1
             |   AltMatch (m1, m2)               => size m1 + size m2 + 1
             |   Newenv(decs, exp)               => List.foldl (fn (p, s) => sizeBinding p + s) (size exp) decs
             |   Constnt w                       => if isShort w then 0 else 1

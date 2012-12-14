@@ -42,7 +42,7 @@ sig
         {
             (* Expression to load this value - always a constant in global values. *)
             general : codetree,
-            (* If it is not CodeNil it is the code which generated the general
+            (* The code which generated the general
                value - either an inline procedure, a type constructor or a tuple. *)
             special : codetree,
             (* Environment for the special value. *)
@@ -112,11 +112,11 @@ sig
     val findEntryInBlock: codetree -> int -> codetree
 
     val optGeneral: optVal -> codetree
-    and optSpecial: optVal -> codetree
+    and optSpecial: optVal -> codetree option
     and optDecs: optVal -> codeBinding list
     and optEnviron: optVal -> { addr : int,  level: int,  fpRel: bool } * int * int -> optVal
     and optVal:
-        { general : codetree, special : codetree,
+        { general : codetree, special : codetree option,
           environ : { addr : int,  level: int,  fpRel: bool } * int * int -> optVal,
           decs : codeBinding list } -> optVal
     and simpleOptVal : codetree -> optVal

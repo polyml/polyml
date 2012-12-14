@@ -71,7 +71,6 @@ struct
     exception InternalError = Misc.InternalError
 
     val isConstnt    = fn (Constnt _)    => true | _ => false
-    val isCodeNil    = fn CodeNil        => true | _ => false
 
     type loadForm = 
     { (* Load a value. *)
@@ -310,7 +309,7 @@ struct
             {nestingOfThisFunction,  spval, recursiveExpansions, loopFilter, debugArgs, 
              inlineExpansionDepth, ... }) =
         case (optSpecial source, optGeneral source) of
-          (spec as Recconstr _, _) =>
+          (SOME(spec as Recconstr _), _) =>
             let
                 (* The "special" entry we've found is a tuple.  That means that
                    we are taking a field from a tuple we made earlier and so we
@@ -354,9 +353,7 @@ struct
 
      |  optimise (AltMatch(a, b), _, context) =
             simpleOptVal(AltMatch(general context a, general context b))
-    
-     |  optimise (CodeNil, _, _) = simpleOptVal CodeNil
-        
+       
      |  optimise (Eval {function, argList, resultType}, tailCall,
                     context as {nestingOfThisFunction, recursiveExpansions, inlineExpansionDepth, ...}) =
         let
@@ -414,7 +411,7 @@ struct
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
                 end
 
-            |   (_, Lambda (lambda as { isInline = MaybeInline, ...}), gen) =>
+            |   (_, SOME(Lambda (lambda as { isInline = MaybeInline, ...})), gen) =>
                     if inlineExpansionDepth < 5
                     then inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
                     else
@@ -426,10 +423,10 @@ struct
                         repDecs (optDecs funct) (simpleOptVal evCopiedCode)
                     end
 
-            |   (_, Lambda (lambda as { isInline = OnlyInline, ...}), _) =>
+            |   (_, SOME(Lambda (lambda as { isInline = OnlyInline, ...})), _) =>
                     inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
 
-            |   (_, Lambda lambda, gen) =>
+            |   (_, SOME(Lambda lambda), gen) =>
                     if inlineExpansionDepth < 5
                     then inlineSmallFunction(funct, lambda, argList, resultType, context)
                     else
@@ -486,7 +483,7 @@ struct
                      that was to prevent small functions inside the functor from becoming
                      inline functions when the functor was applied.  Instead we just return
                      the original code. *)
-                  special = original,
+                  special = SOME original,
                   environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
                   decs    = []
                 }
@@ -626,7 +623,7 @@ struct
                            level         = nesting,
                            localCount    = ! newAddressAllocator + 1
                          },
-                      special = original,
+                      special = SOME original,
                       environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
                       decs    = []
                     }
@@ -672,9 +669,9 @@ struct
                         (* If this function may be inlined include it in the special entry
                            otherwise return CodeNil here. *)
                         if inlineType = NonInline
-                        then CodeNil
+                        then NONE
                         else
-                        Lambda 
+                        SOME(Lambda 
                           {
                            body          = cleanedBody,
                            isInline      = inlineType,
@@ -684,7 +681,7 @@ struct
                            resultType    = resultType,
                            level         = nesting,
                            localCount    = ! newAddressAllocator + 1
-                         },
+                         }),
                       environ = lookupNewAddr,
                       decs    = []
                     }
@@ -779,9 +776,7 @@ struct
                 Constnt testResult =>
                     if wordEq (testResult, False) (* false - return else-part *)
                     then (* if false then x else y == y *)
-                        if isCodeNil condElse (* May be nil. (Pattern-matching) *)
-                    then simpleOptVal CodeZero
-                    else optimise(condElse, tailCall, context)
+                        optimise(condElse, tailCall, context)
                     (* if true then x else y == x *)
                     else optimise(condThen, tailCall, context)  (* return then-part *)
             
@@ -854,7 +849,7 @@ struct
                         optVal 
                             {
                               general = TupleFromContainer(mkLoad(containerAddr, 0), size),
-                              special = Recconstr specialEntries,
+                              special = SOME(Recconstr specialEntries),
                               environ = env,
                               decs    =
                                   mkDec(containerAddr, Container size) ::
@@ -1087,10 +1082,10 @@ struct
                                    we clear it. *)
                                 val optSpec =
                                      case spec of
-                                        Lambda{ isInline=NonInline, ...} => CodeNil
+                                        SOME(Lambda{ isInline=NonInline, ...}) => NONE
                                        | _ => optSpecial ins;
                                 val nowInline =
-                                    not (isCodeNil optSpec) andalso isCodeNil(optSpecial oldEntry)
+                                    isSome optSpec andalso not (isSome(optSpecial oldEntry))
                                 (* If this is now a constant or it is a small function when it
                                    wasn't before we need to reprocess everything
                                    which depends on it to try to get the constant inserted
@@ -1245,7 +1240,7 @@ struct
             {
                 (* If all the general values are constants we can create the tuple now. *)
                 general = if List.all isConstnt generalFields then makeConstVal newRec else newRec,
-                special = Recconstr specialFields,
+                special = SOME(Recconstr specialFields),
                 environ = env,
                 decs    = List.foldr(op @) [] bindings
             }
@@ -1295,7 +1290,7 @@ struct
             optVal 
                 {
                   general = TupleFromContainer(optGeneral optCont, size),
-                  special = Recconstr specialEntries,
+                  special = SOME(Recconstr specialEntries),
                   environ = env,
                   decs    = optDecs optCont @ specialDecs
                 }
@@ -1383,7 +1378,7 @@ struct
             let
                 fun gValToSpec(GVal(g, NONE)) = simpleOptVal(Constnt g)
                 |   gValToSpec(GVal(g, SOME(spec, env))) =
-                        optVal { general = Constnt g, special = spec, environ = gValToSpec o env, decs=[] }
+                        optVal { general = Constnt g, special = SOME spec, environ = gValToSpec o env, decs=[] }
             in
                 gValToSpec gval
             end
@@ -1443,7 +1438,7 @@ struct
                                    the special entry otherwise load the original value. *)
                                 val specArg =
                                     case (optSpecial thisArg, gen) of
-                                        (CodeNil, Constnt _) => gen
+                                        (NONE, Constnt _) => gen
                                     |   _ => mkLoad (addr, 0)
                             in
                                 { gen=gen, spec=specArg, decs=newDecs }
@@ -1517,7 +1512,7 @@ struct
                             {
                                 (* If all the general values are constants we can create the tuple now. *)
                                 general = if List.all isConstnt gen then makeConstVal newRec else newRec,
-                                special = Recconstr spec,
+                                special = SOME(Recconstr spec),
                                 environ = env,
                                 decs    = decs
                             }
@@ -1983,7 +1978,7 @@ struct
                             Eval {function = mkLoad(addr, 0), 
                                   argList = List.map (fn({value, ...}, t) => (value, t)) newDecs,
                                   resultType=resultType},
-                        special = CodeNil,
+                        special = NONE,
                         decs = (optDecs funct @ (copiedArgs @  [mkDec(addr, getGeneral procBody)])),
                         environ = errorEnv
                     }

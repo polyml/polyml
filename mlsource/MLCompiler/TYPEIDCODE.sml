@@ -95,7 +95,7 @@ struct
     (* codeStruct and codeAccess are copied from ValueOps. *)
     fun codeStruct (str, level) =
         if isUndefinedStruct str
-        then CodeNil
+        then CodeZero
         else codeAccess (structAccess str, level)
 
     and codeAccess (Global code, _) = code

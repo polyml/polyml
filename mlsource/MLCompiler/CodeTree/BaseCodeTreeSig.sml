@@ -94,8 +94,6 @@ sig
 
     |   Global of globalVal (* Global value *)
 
-    |   CodeNil
-
     and globalVal =
         (* A global value is a constant but it may also contain the code for an
            inline function or a tuple of (tuples of) inline functions along

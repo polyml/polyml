@@ -4883,7 +4883,7 @@ struct
                      in one half.
                   *) 
                     if isBind
-                    then { decs = mkNullDec(mkIf (mkNot testCode, patCodeBlock elseCode, CodeNil)) :: #decs thenCode,
+                    then { decs = mkNullDec(mkIf (testCode, CodeZero, patCodeBlock elseCode)) :: #decs thenCode,
                            exp = #exp thenCode, pat =  ~1 }
                     else if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
                     then elseCode (* This didn't actually do any discrimination,
@@ -4957,7 +4957,7 @@ struct
                       here.  DCJM 27/3/01. *)
                     if isBind
                     then
-                        { decs = mkNullDec(mkIf (mkNot testCode, patCodeBlock elseCode, CodeNil)) :: #decs thenCode,
+                        { decs = mkNullDec(mkIf (testCode, CodeZero, patCodeBlock elseCode)) :: #decs thenCode,
                           exp = #exp thenCode, pat = ~1 }
     
                     (* Needed? *)
@@ -5107,7 +5107,7 @@ struct
                 val elsept = foldConstrs vs;
                   in
                 if isBind
-                  then {decs = mkNullDec(mkIf (mkNot testCode, patCodeBlock elsept, CodeNil)) :: #decs rest,
+                  then {decs = mkNullDec(mkIf (testCode, CodeZero, patCodeBlock elsept)) :: #decs rest,
                         exp = #exp rest, pat = ~1 }
                    (* Match or handler. *)
                 else if (#pat rest) = (#pat elsept) andalso (#pat rest) >= 0
@@ -5353,7 +5353,7 @@ struct
             (
                 case getLiteralValue(converter, literal, expType, location, c, lex) of
                     SOME w => mkConst w
-                  | NONE => CodeNil
+                  | NONE => CodeZero
             )
 
         | Applic {f, arg, location, ...} =>
@@ -5583,7 +5583,7 @@ struct
         | Parenthesised(p, _) => codegen (p, context)
 
         | _ => (* empty and any others *)
-           CodeNil : codetree
+           CodeZero : codetree
 
       end (* codegen *)
 

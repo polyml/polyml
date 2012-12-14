@@ -951,8 +951,6 @@ struct
                 in
                     P2AltMatch (insX, insY)
                 end
-       
-            |   insert CodeNil = raise InternalError "insert: CodeNil"
         
             |   insert(Eval { function, argList, resultType, ...}) =
                 let

@@ -85,8 +85,6 @@ struct
   
     infix 9 sub;
 
-    val isCodeNil    = fn CodeNil        => true | _ => false; (* Exported *)
-
     (* gets a value from the run-time system *)
     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
     
@@ -203,11 +201,12 @@ DCJM 2000.
         local
             (* See if there is an inline function in there. *)
             fun containsFunction _ (_, true) = true
-            |   containsFunction _ (Lambda _, _) = true
-            |   containsFunction _ (Constnt _, _) = false
-            |   containsFunction _ (CodeNil, _) = false
-            |   containsFunction optEnv (Recconstr tuple, _) = List.foldl(containsFunction optEnv) false tuple
-            |   containsFunction optEnv (Extract ext, _) =
+            |   containsFunction _ (NONE, _) = false
+            |   containsFunction _ (SOME(Lambda _), _) = true
+            |   containsFunction _ (SOME(Constnt _), _) = false
+            |   containsFunction optEnv (SOME(Recconstr tuple), _) =
+                    List.foldl(fn (c, f) => containsFunction optEnv (SOME c, f)) false tuple
+            |   containsFunction optEnv (SOME(Extract ext), _) =
                 let
                     val newVal = optEnv(ext, 0, 0)
                 in
@@ -283,14 +282,14 @@ DCJM 2000.
          
                         val specVal =
                             case optSpecial oldVal of
-                                CodeNil => NONE
-                            |   spec => SOME(spec, newEnviron (optEnviron oldVal))
+                                NONE => NONE
+                            |   SOME spec => SOME(spec, newEnviron (optEnviron oldVal))
                     in
                         GVal(genVal,specVal)
                     end
                 in 
                     (* and return the whole lot as a global value. *)
-                    Global(GVal(generalVal, SOME(spec, newEnviron (optEnviron optimisedCode))))
+                    Global(GVal(generalVal, SOME(valOf spec, newEnviron (optEnviron optimisedCode))))
                 end
         end
 

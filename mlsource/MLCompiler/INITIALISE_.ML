@@ -1295,7 +1295,6 @@ struct
                 ("mkConstant", toMachineWord mkConst, MachineWord ->> CodeTree),
                 ("genCode", toMachineWord genCode, CodeTree ** List Universal ->> (Unit ->> CodeTree)),
                 ("evalue", toMachineWord evalue, CodeTree ->> Option MachineWord),
-                ("codeNil", toMachineWord CodeNil, CodeTree),
                 ("mkFunction", toMachineWord simpleFn,
                     mkProductType[CodeTree, Int, String] ->> CodeTree),
                 ("mkInlineFunction", toMachineWord simpleInlineFn,
