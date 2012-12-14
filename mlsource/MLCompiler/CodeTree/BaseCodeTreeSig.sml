@@ -92,16 +92,13 @@ sig
     |   TupleVariable of varTuple list * codetree (* total length *)
         (* Construct a tuple using one or more multi-word items. *)
 
-    |   Global of globalVal (* Global value *)
-
-    and globalVal =
-        (* A global value is a constant but it may also contain the code for an
-           inline function or a tuple of (tuples of) inline functions along
-           with an environment to map the free variables.  We could get rid of
-           the environment by transforming the inlinable code so that it
-           had no free variables (they're always constants after the code
-           has been run). *)
-        GVal of machineWord * (codetree * (loadForm * int * int -> globalVal)) option
+        (* A constant together with the code for either an inline function or a
+           tuple.  This is used for global values as well as within the optimiser. *)
+    |   ConstntWithInline of machineWord * codetree * (loadForm * int * int -> codetree)
+    
+        (* A load from a variable together with the code for either an inline
+           function or a tuple.  This is used within the optimiser. *)
+    |   ExtractWithInline of loadForm * codetree * (loadForm * int * int -> codetree)
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
@@ -149,7 +146,6 @@ sig
     structure Sharing:
     sig
         type codetree = codetree
-        and  globalVal = globalVal
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType

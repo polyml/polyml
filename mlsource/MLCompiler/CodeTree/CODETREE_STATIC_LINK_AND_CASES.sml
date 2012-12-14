@@ -973,9 +973,13 @@ struct
                        eval and load-andStore, are handled separately. *)
                     locaddr(ext, (* closure = *) true)
 
+            |   insert(ExtractWithInline(ext, _, _)) = locaddr(ext, true)
+
             |   insert(Indirect {base, offset}) = P2Field {base = insert base, offset = offset}
 
             |   insert(Constnt w) = P2Constnt w (* Constants can be returned untouched. *)
+
+            |   insert(ConstntWithInline(g, _, _)) = P2Constnt g
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
@@ -1216,9 +1220,6 @@ struct
 
             |   insert(TupleFromContainer(container, size)) =
                     P2TupleFromContainer(insert container, size)
-         
-            |   insert(Global(GVal (g, _))) = P2Constnt g
-                   (* Should have been taken off by the optimiser. *)
 
             |   insert(TagTest{test, tag, maxTag}) = P2TagTest{test=insert test, tag=tag, maxTag=maxTag}
 

@@ -165,6 +165,8 @@ struct
                 else (* Non-local.  This may be a recursive call. *)
                     prev(ext, level-1, nestingDepth)
 
+         |  cleanCode (ExtractWithInline(ext, _, _)) = cleanCode(Extract ext)
+
          |  cleanCode (Lambda lam) = Lambda(cleanLambda lam)
 
             (* All the other case simply map cleanCode over the tree. *)
@@ -173,6 +175,8 @@ struct
          |  cleanCode (AltMatch(a, b)) = AltMatch(cleanCode a, cleanCode b)
 
          |  cleanCode (c as Constnt _) = c
+
+         |  cleanCode (ConstntWithInline(c, _, _)) = Constnt c
 
          |  cleanCode (Indirect{base, offset}) =
                 Indirect{base=cleanCode base, offset=offset}
@@ -258,8 +262,6 @@ struct
             in
                 TupleVariable(map cleanTuple vars, cleanCode length)
             end
-
-         |  cleanCode (Global _) = raise InternalError "cleanCode: Global"
     in
         cleanCode pt
    end (* cleanProc *);

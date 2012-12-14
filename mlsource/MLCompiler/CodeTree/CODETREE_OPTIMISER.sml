@@ -1374,14 +1374,18 @@ struct
                 simpleOptVal(pushSetContainer(optTuple, []))
             end
 
-      |  optimise (Global gval, _, _) =
+      |  optimise (cval as ConstntWithInline _, _, _) =
+            (* At the moment we need to convert these into normal constants and the "spec" value. *)
             let
-                fun gValToSpec(GVal(g, NONE)) = simpleOptVal(Constnt g)
-                |   gValToSpec(GVal(g, SOME(spec, env))) =
-                        optVal { general = Constnt g, special = SOME spec, environ = gValToSpec o env, decs=[] }
+                fun convertEnv(ConstntWithInline(gval, spec, env)) =
+                    optVal { general = Constnt gval, special = SOME spec, environ = convertEnv o env, decs=[] }
+                |   convertEnv(c as Constnt _) = simpleOptVal c
+                |   convertEnv _ = raise InternalError "convertEnv"
             in
-                gValToSpec gval
+                convertEnv cval
             end
+
+      | optimise (ExtractWithInline _, _, _) = raise InternalError "ExtractWithInline"
 
       |  optimise (TagTest{test, tag, maxTag}, _, context) =
             let

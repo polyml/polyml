@@ -19,7 +19,6 @@
 signature CodetreeFunctionsSig =
 sig
     type codetree
-    type globalVal
     type codeBinding
 
     type machineWord = Address.machineWord
@@ -128,7 +127,6 @@ sig
     structure Sharing:
     sig
         type codetree = codetree
-        and  globalVal = globalVal
         and  optVal = optVal
         and  argumentType = argumentType
         and  varTuple = varTuple

@@ -279,17 +279,14 @@ DCJM 2000.
                                 Extract{addr, ...} => resultWordN addr
                             |   Constnt c => c
                             |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
-         
-                        val specVal =
-                            case optSpecial oldVal of
-                                NONE => NONE
-                            |   SOME spec => SOME(spec, newEnviron (optEnviron oldVal))
                     in
-                        GVal(genVal,specVal)
+                        case optSpecial oldVal of
+                            NONE => Constnt genVal
+                        |   SOME spec => ConstntWithInline(genVal, spec, newEnviron (optEnviron oldVal))
                     end
                 in 
                     (* and return the whole lot as a global value. *)
-                    Global(GVal(generalVal, SOME(valOf spec, newEnviron (optEnviron optimisedCode))))
+                    ConstntWithInline(generalVal, valOf spec, newEnviron (optEnviron optimisedCode))
                 end
         end
 

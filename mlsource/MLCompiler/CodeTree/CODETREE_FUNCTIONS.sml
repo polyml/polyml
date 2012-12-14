@@ -416,18 +416,18 @@ struct
             orelse Address.length (toAddress b) <= Word.fromInt offset
             then raiseError
             else mkConst (loadWord (toAddress b, toShort offset))
-    
-        |  findEntryInBlock (Global(GVal(_, SOME((recc as Recconstr _, env))))) offset =
+
+        |  findEntryInBlock (ConstntWithInline(_, recc as Recconstr _, env)) offset =
             (* Do the selection now.  This is especially useful if we
                have a global structure  *)
             (
                 case findEntryInBlock recc offset of
-                    Extract (ext as {level, ...}) =>
-                        Global (env (ext, 0, (* global *) level))
+                    Extract (ext as {level, ...}) => env (ext, 0, (* global *) level)
                 |   selection => selection (* Normally a constant *)
             )
  
-        |   findEntryInBlock (Global(GVal(general, _))) offset =
+        |   findEntryInBlock (ConstntWithInline(general, _, _)) offset =
+                (* Is this possible?  If it's inline it should be a tuple. *)
                  findEntryInBlock (Constnt general) offset
     
         |   findEntryInBlock base offset =
@@ -439,13 +439,13 @@ struct
        unused entries in a tuple and at this point we haven't checked
        that the unused entries don't have
        side-effects/raise exceptions e.g. #1 (1, raise Fail "bad") *)
-    fun mkInd (addr, base as Global _ ) = findEntryInBlock base addr
+    fun mkInd (addr, base as ConstntWithInline _ ) = findEntryInBlock base addr
     |   mkInd (addr, base as Constnt _) = findEntryInBlock base addr
     |   mkInd (addr, base) = Indirect {base = base, offset = addr};
         
     (* Get the value from the code. *)
     fun evalue (Constnt c) = SOME c
-    |   evalue (Global(GVal(g, _))) = SOME g
+    |   evalue (ConstntWithInline(g, _, _)) = SOME g
     |   evalue _ = NONE
 
     (* This is really to simplify the change from mkEnv taking a codetree list to
@@ -464,7 +464,6 @@ struct
     structure Sharing =
     struct
         type codetree = codetree
-        and  globalVal = globalVal
         and  optVal = optVal
         and  argumentType = argumentType
         and  varTuple = varTuple
