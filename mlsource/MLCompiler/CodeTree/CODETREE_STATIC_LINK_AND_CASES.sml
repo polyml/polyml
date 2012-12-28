@@ -1202,6 +1202,7 @@ struct
                     (* Must make a closure for this procedure because
                         it is not a simple declaration. *)
                     copyProcClosure (copyLambda lam (ref true)) true
+            |   insert(LambdaWithInline(lam, _, _)) = insert(Lambda lam)
 
             |   insert(Handle { exp, handler }) =
                 let
@@ -1596,16 +1597,17 @@ struct
         in     
             insert pt
         end (* copyCode *)
-         
+
+        val outputAddresses = ref 1
         val insertedCode = 
             copyCode (pt, fn _ => raise InternalError "outer level reached in copyCode",
-                      localAddressCount, ref 1)
+                      localAddressCount, outputAddresses)
     in
-        insertedCode
+        (insertedCode, !outputAddresses)
     end (* staticLinkAndCases *)
 
     fun codeGenerate(code, localCount, debugArgs) =
-        codeGenAndPrint debugArgs (staticLinkAndCases(code, localCount, debugArgs), localCount)
+        codeGenAndPrint debugArgs (staticLinkAndCases(code, localCount, debugArgs))
 
     structure Sharing = struct type codetree = codetree end
 end;

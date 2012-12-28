@@ -55,7 +55,8 @@ functor CODETREE_OPTIMISER(
 
 ) :
     sig
-        type codetree and optVal
+        type codetree
+        type optVal = codetree
         val codetreeOptimiser: codetree  * Universal.universal list -> optVal * int
         structure Sharing: sig type codetree = codetree and optVal = optVal end
     end
@@ -193,26 +194,26 @@ struct
     end
 
     (* Call and RTS function to fold constants.  The function must be safe to evaluate "early". *)
-    fun callRTSFunction(rtsCall: machineWord, argList: machineWord list) =
+    fun callRTSFunction(rtsCall: machineWord, argList) =
     let
         exception Interrupt = Thread.Thread.Interrupt
         val _ = (isIoAddress(toAddress rtsCall) andalso earlyRtsCall rtsCall)
                     orelse raise InternalError "not early rts"
 
         (* Turn the arguments into a vector.  *)
-        val argVector = Vector.fromList argList
+        val argVector =
+            case makeConstVal(Recconstr argList) of
+                Constnt w => w
+            |   _ => raise InternalError "makeConstVal: Not constant"
 
-        (* Call the function.  If it raises an
-           exception pass back the exception packet.  We've got a problem
-           here if the code happens to raise Interrupt.  We assume that
-           Interrupt can only occur through user intervention during
-           compilation rather than as a result of executing the code.
-           It would be better to use the Thread.Thread functions to
-           mask off interrupts. *)
+        (* Call the function.  If it raises an exception (e.g. divide
+           by zero) generate code to raise the exception at run-time.
+           We don't do that for Interrupt which we assume only arises
+           by user interaction and not as a result of executing the
+           code so we reraise that exception immediately. *)
     in
-        Constnt (call(toAddress rtsCall, toMachineWord argVector))
+        Constnt (call(toAddress rtsCall, argVector))
             handle exn as Interrupt => raise exn (* Must not handle this *)
-            | exn as Misc.InternalError _ => raise exn
             | exn => Raise (Constnt(toMachineWord exn))
     end
 
@@ -256,13 +257,8 @@ struct
         | decs => mkEnv (decs, optGeneral ov)
         )
 
-    (* Replace the decs in a value.  Do this in a way that avoids creating unnecessary garbage. *)
-    fun repDecs [] (gen as JustTheVal _) = gen
-    |   repDecs [] (ValWithDecs {general, ...}) = JustTheVal general
-    |   repDecs decs (JustTheVal gen) = ValWithDecs {general = gen, decs = decs}
-    |   repDecs decs (ValWithDecs {general, ...}) = ValWithDecs {general = general, decs = decs}
-    |   repDecs decs (OptVal{general, special, environ, ...}) =
-            OptVal{general=general, special=special, environ=environ, decs=decs}
+    fun repDecs decs exp =
+        optVal{general=optGeneral exp, special=optSpecial exp, environ=optEnviron exp, decs=decs}
 
     val stripDecs = repDecs []
 
@@ -445,7 +441,7 @@ struct
                        arguments are constants evaluate it now. *)
                     val evCopiedCode = 
                         if isIoAddress(toAddress w) andalso earlyRtsCall w andalso List.all (isConstnt o #1) copiedArgs
-                        then callRTSFunction(w, List.map(fn (Constnt w, _) => w | _ => raise InternalError "not const") copiedArgs)
+                        then callRTSFunction(w, List.map #1 copiedArgs)
                         else Eval {function = gen, argList = copiedArgs, resultType=resultType}
                 in
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
@@ -465,235 +461,16 @@ struct
      |  optimise (Extract(ext as {level, ...}), _, {oldEnv = {lookup=lookupOldAddr, ...}, nestingOfThisFunction, ...}) =
             lookupOldAddr (ext, nestingOfThisFunction, level)
 
-     |  optimise (original as Lambda({isInline=OnlyInline, ...}), _, { oldEnv = {lookup=lookupOldAddr, ...}, ...} ) =
-            (* Used only for functors.  Leave unchanged. *)
-            optVal 
-                {
-                  general = CodeZero,
-                  (* Changed from using CodeNil here to CodeZero.  This avoids a problem
-                     which only surfaced with the changes to ML97 and the possibility of
-                     mixing functor and value declarations in the same "program" (i.e.
-                     top-level declarations with a terminating semicolon.
-                     OnlyInline is used for functors which can only ever be called,
-                     never passed as values, so the "general" value is not really
-                     required.  It can though appear in the result tuple of the "program"
-                     from which the (value) results of the program are extracted.
-
-                     Further change: This previously returned the processed body but the effect of
-                     that was to prevent small functions inside the functor from becoming
-                     inline functions when the functor was applied.  Instead we just return
-                     the original code. *)
-                  special = SOME original,
-                  environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
-                  decs    = []
-                }
-
-     |  optimise (original as Lambda({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
-                          argTypes, resultType, ...}), _,
-                 { nestingOfThisFunction, oldEnv = {lookup=lookupOldAddr, ...}, newEnv = {lookup=lookupNewAddr, ...},
-                   debugArgs, spval, inlineExpansionDepth, ... }: optContext) =
-        let
-            (* The nesting of this new function is the current nesting level
-             plus one. Normally this will be the same as lambda.level except
-             when we have a function inside an inline function. *)
-            val nesting = nestingOfThisFunction + 1;
-          
-            (* A new table for the new function. *)
-            val oldAddrTab = stretchArray (initTrans, NONE)
-            and newAddrTab = stretchArray (initTrans, NONE)
-
-            local
-                fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
-                    (* local declaration or argument. *)
-                    if index > 0 
-                    (* Local declaration. *)
-                    then
-                    case  oldAddrTab sub index of
-                        SOME v => changeLevel v (depth - nesting)
-                    |   NONE => raise InternalError(
-                                        concat["localOldAddr: Not found. Addr=", Int.toString index,
-                                               " Level=", Int.toString level])
-                    (* Argument or closure. *)
-                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
-                |   localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1)
-                and setTab (index, v) = update (oldAddrTab, index, SOME v)
-            in
-                val oldEnv = { lookup = localOldAddr, enter = setTab }
-            end
-
-            local
-                (* localNewAddr is used as the environment of inline functions within
-                   the function we're processing.  All the entries in this table will
-                   have their "general" entries as simply Extract entries with the
-                   original address.  Their "special" entries may be different. The
-                   only entries in the table will be those which correspond to
-                   declarations in the original code so there may be new declarations
-                   which aren't in the table. *)
-                fun localNewAddr ({ addr=index, ...}, depth, 0) =
-                    if index > 0 
-                    then case newAddrTab sub index of
-                        NONE => (* Return the original entry if it's not there. *)
-                            simpleOptVal(mkGenLoad (index, depth - nesting, true))
-                    |   SOME v => changeLevel v (depth - nesting) 
-                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
-                |   localNewAddr (ptr, depth, levels) = lookupNewAddr (ptr, depth, levels - 1);
-
-                fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
-            in
-                val newEnv = {lookup=localNewAddr, enter=setNewTab}
-            end
-
-            val newAddressAllocator = ref 1      val newCode =
-                optimise (lambdaBody, false,
-                {
-                newEnv=newEnv,
-                oldEnv=oldEnv,
-                nestingOfThisFunction=nesting,
-                spval=newAddressAllocator,
-                recursiveExpansions=NONE,
-                loopFilter=loopFilterError,
-                debugArgs=debugArgs,
-                inlineExpansionDepth=inlineExpansionDepth})
-
-          (* nonLocals - a list of the non-local references made by this
-             function.  If this is empty the function can be code-generated
-             immediately and returned as a constant.  If it is non-empty it
-             is set as the closure for the function.  This is then used
-             when processing mutually recursive functions to find the
-             dependencies. *)
-             
-          val nonLocals = ref nil;
-          fun addNonLocal({addr, level, fpRel, ...}, depth) =
-          let
-             (* The level will be correct relative to the use, which may be
-                in an inner function.  We want the level relative to the
-                scope in which this function is declared. *)
-             val correctedLevel = level - (depth - nestingOfThisFunction)
-             fun findNonLocal(Extract{addr=addr', level=level', fpRel=fpRel', ...}) =
-                    addr = addr' andalso correctedLevel = level' andalso fpRel=fpRel'
-              |  findNonLocal _ = raise InternalError "findNonLocal: not Extract"
-          in
-             if List.exists findNonLocal (!nonLocals)
-             then () (* Already there. *)
-             else nonLocals := mkGenLoad(addr, correctedLevel, fpRel) :: ! nonLocals
-          end
-
-          fun checkRecursion(ext as {fpRel=oldfpRel, ...}, levels, depth) =
-              case optGeneral(lookupNewAddr (ext, depth, levels)) of
-                 (res as Extract(ext as {addr=0, fpRel=false, ...})) =>
-                     (
-                     (* If this is just a recursive call it doesn't count
-                        as a non-local reference.  This only happens if
-                        we turned a reference to a local into a recursive
-                        reference (i.e. fpRel was previously true). *)
-                     if levels = 0 andalso oldfpRel
-                     then ()
-                     else addNonLocal(ext, depth);
-                     res
-                     )
-              |  res as Extract ext =>
-                    (
-                     addNonLocal(ext, depth);
-                     res
-                    )
-
-              |  res => res (* We may have a constant in this table. *)
-
-          val cleanedBody =
-            REMOVE_REDUNDANT.cleanProc(getGeneral newCode, checkRecursion, nesting,
-                      Array.array (! newAddressAllocator + 1, false))
-
-          val resultCode =
-            case lambdaInline of
-                MaybeInline => (* Explicitly inlined functions. *)
-                    (* We return the processed version of the function as
-                       the general value but the unprocessed version as
-                       the special value. *)
-                    optVal 
-                    {
-                      general =
-                        Lambda 
-                          {
-                           body          = cleanedBody,
-                           isInline      = MaybeInline,
-                           name          = lambdaName,
-                           closure       = !nonLocals, (* Only looked at in MutualDecs. *)
-                           argTypes      = argTypes,
-                           resultType    = resultType,
-                           level         = nesting,
-                           localCount    = ! newAddressAllocator + 1
-                         },
-                      special = SOME original,
-                      environ = lookupOldAddr, (* Old addresses with unprocessed body. *)
-                      decs    = []
-                    }
-
-            |   _ => (* "Normal" function.  If the function is small we mark it as
-                        inlineable.  If the body has no free variables we compile it
-                        now so that we can propagate the resulting constant, otherwise
-                        we return the processed body.  We return the processed body as
-                        the special value so that it can be inlined.  We do this even
-                        in the case where the function isn't small because it is just
-                        possible we're going to apply the function immediately and in
-                        that case it's worth inlining it anyway. *)
-              let
-                    val inlineType =
-                        if lambdaInline = NonInline
-                        then if (* Is it small? *) codeSize(cleanedBody, true) < 
-                                DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs
-                        then SmallFunction else NonInline
-                        else lambdaInline
-
-                  val copiedLambda =
-                    Lambda 
-                      {
-                       body          = cleanedBody,
-                       isInline      = inlineType,
-                       name          = lambdaName,
-                       closure       = !nonLocals, (* Only looked at in MutualDecs. *)
-                       argTypes      = argTypes,
-                       resultType    = resultType,
-                       level         = nesting,
-                       localCount    = ! newAddressAllocator + 1
-                     };
-                 val general = 
-                   (* If this has no free variables we can code-generate it now. *)
-                   if null (!nonLocals)
-                   then codeGenerateToConstant debugArgs (copiedLambda, !spval+1)
-                   else copiedLambda
-              in
-                  optVal 
-                    {
-                      general = general,
-                      special =
-                        (* If this function may be inlined include it in the special entry
-                           otherwise return CodeNil here. *)
-                        if inlineType = NonInline
-                        then NONE
-                        else
-                        SOME(Lambda 
-                          {
-                           body          = cleanedBody,
-                           isInline      = inlineType,
-                           name          = lambdaName,
-                           closure       = [],
-                           argTypes      = argTypes,
-                           resultType    = resultType,
-                           level         = nesting,
-                           localCount    = ! newAddressAllocator + 1
-                         }),
-                      environ = lookupNewAddr,
-                      decs    = []
-                    }
-            end
-        in
-            StretchArray.freeze oldAddrTab;
-            StretchArray.freeze newAddrTab;
-            resultCode
-        end (* Lambda{...} *)
            
      |  optimise (pt as Constnt _, _, _) =
             simpleOptVal pt (* Return the original constant. *)
+     
+     |  optimise(Lambda lambda, _, context) =
+        let
+            val {general, special, environ} = optimiseLambda(lambda, context)
+        in
+            optVal { general = general, special = special, decs = [], environ = environ }
+        end
            
      |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall,
               context as { newEnv, oldEnv as {enter = enterOldDec, ...}, nestingOfThisFunction, spval,
@@ -837,23 +614,24 @@ struct
                         (* This code is the same as that used to optimise TupleFromContainer
                            and is designed to allow us to optimise away the tuple creation
                            if we use the individual fields. *)
-                        val baseAddr = !spval
-                        val _ = spval := baseAddr + size
+                        val baseAddr = !spval before spval := !spval + size
                         val specialDecs =
                             List.tabulate(size,
                                 fn n => mkDec(n+baseAddr, mkInd(n, mkLoad(containerAddr, 0))))
                         val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
                         fun env (l:loadForm, depth, _) : optVal =
                             changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisFunction)
+                        val recAddr = !spval before spval := !spval + 1
                     in
                         optVal 
                             {
-                              general = TupleFromContainer(mkLoad(containerAddr, 0), size),
+                              general = mkLoad(recAddr, 0),
                               special = SOME(Recconstr specialEntries),
                               environ = env,
                               decs    =
                                   mkDec(containerAddr, Container size) ::
-                                  NullBinding(mkIf(insFirst, thenPart, elsePart)) :: specialDecs
+                                  NullBinding(mkIf(insFirst, thenPart, elsePart)) ::
+                                    (specialDecs @ [mkDec(recAddr, TupleFromContainer(mkLoad(containerAddr, 0), size))])
                             }
                     end (* combineTuples *)
                 in
@@ -1098,7 +876,7 @@ struct
                                           general = optGen,
                                           special = optSpec,
                                           environ = optEnviron ins,
-                                          decs    = optDecs ins (* Should be nil. *)
+                                          decs    = []
                                         });
                                 (
                                  {addr=decSpval, value=gen} :: decs,
@@ -1210,7 +988,7 @@ struct
             copyDeclarations envDecs
         end (* Newenv(... *)
           
-    |   optimise (Recconstr entries, _, context as { nestingOfThisFunction, ...}) =
+    |   optimise (Recconstr entries, _, context as { nestingOfThisFunction, spval, ...}) =
          (* The main reason for optimising record constructions is that they
             appear as tuples in ML. We try to ensure that loads from locally
             created tuples do not involve indirecting from the tuple but can
@@ -1236,14 +1014,28 @@ struct
 
             val newRec  = Recconstr generalFields
         in
+            if List.all isConstnt generalFields
+            then
             optVal 
             {
                 (* If all the general values are constants we can create the tuple now. *)
-                general = if List.all isConstnt generalFields then makeConstVal newRec else newRec,
+                general = makeConstVal newRec,
                 special = SOME(Recconstr specialFields),
                 environ = env,
                 decs    = List.foldr(op @) [] bindings
             }
+            else
+            let
+                val newAddr = !spval before spval := !spval + 1
+            in
+                optVal 
+                {
+                    general = mkLoad(newAddr, 0),
+                    special = SOME(Recconstr specialFields),
+                    environ = env,
+                    decs    = List.foldr(op @) [] bindings @ [mkDec(newAddr, newRec)]
+                }
+            end
         end
           
       |  optimise (Indirect{ base, offset }, _, context) = (* Try to do the selection now if possible. *)
@@ -1279,20 +1071,21 @@ struct
                 case optGeneral optCont of
                    Extract _ => ()
                 | _ => raise InternalError "optimise - container is not Extract"
-            val baseAddr = !spval
-            val _ = spval := baseAddr + size
+            val baseAddr = !spval before spval := !spval + size
             val specialDecs =
                 List.tabulate(size, fn n => mkDec(n+baseAddr, mkInd(n, optGeneral optCont)))
             val specialEntries = List.tabulate(size, fn n => mkLoad(n+baseAddr, 0))
             fun env (l:loadForm, depth, _) : optVal =
                 changeLevel (simpleOptVal(Extract l)) (depth - nestingOfThisFunction)
+            val recAddr = !spval before spval := !spval + 1
         in
             optVal 
                 {
-                  general = TupleFromContainer(optGeneral optCont, size),
+                  general = mkLoad(recAddr, 0),
                   special = SOME(Recconstr specialEntries),
                   environ = env,
-                  decs    = optDecs optCont @ specialDecs
+                  decs    = optDecs optCont @ specialDecs @
+                            [mkDec(recAddr, TupleFromContainer(optGeneral optCont, size))]
                 }
         end
 
@@ -1374,18 +1167,12 @@ struct
                 simpleOptVal(pushSetContainer(optTuple, []))
             end
 
-      |  optimise (cval as ConstntWithInline _, _, _) =
-            (* At the moment we need to convert these into normal constants and the "spec" value. *)
-            let
-                fun convertEnv(ConstntWithInline(gval, spec, env)) =
-                    optVal { general = Constnt gval, special = SOME spec, environ = convertEnv o env, decs=[] }
-                |   convertEnv(c as Constnt _) = simpleOptVal c
-                |   convertEnv _ = raise InternalError "convertEnv"
-            in
-                convertEnv cval
-            end
+      |  optimise (cval as ConstntWithInline _, _, _) = cval
+            (* These are global values.  Just return them. *)
 
       | optimise (ExtractWithInline _, _, _) = raise InternalError "ExtractWithInline"
+
+      | optimise (LambdaWithInline _, _, _) = raise InternalError "LambdaWithInline"
 
       |  optimise (TagTest{test, tag, maxTag}, _, context) =
             let
@@ -1537,6 +1324,226 @@ struct
                         simpleOptVal(TupleVariable(optFields, optLength))
                     end
             end
+
+    and optimiseLambda(original as ({isInline=OnlyInline, ...}), { oldEnv = {lookup=lookupOldAddr, ...}, ...} ) =
+        (* Used only for functors.  Leave unchanged. *)
+            {
+              general = CodeZero,
+              (* Changed from using CodeNil here to CodeZero.  This avoids a problem
+                 which only surfaced with the changes to ML97 and the possibility of
+                 mixing functor and value declarations in the same "program" (i.e.
+                 top-level declarations with a terminating semicolon.
+                 OnlyInline is used for functors which can only ever be called,
+                 never passed as values, so the "general" value is not really
+                 required.  It can though appear in the result tuple of the "program"
+                 from which the (value) results of the program are extracted.
+
+                 Further change: This previously returned the processed body but the effect of
+                 that was to prevent small functions inside the functor from becoming
+                 inline functions when the functor was applied.  Instead we just return
+                 the original code. *)
+              special = SOME(Lambda original),
+              environ = lookupOldAddr (* Old addresses with unprocessed body. *)
+            }
+
+     |  optimiseLambda(original as ({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
+                          argTypes, resultType, ...}),
+                 { nestingOfThisFunction, oldEnv = {lookup=lookupOldAddr, ...}, newEnv = {lookup=lookupNewAddr, ...},
+                   debugArgs, spval, inlineExpansionDepth, ... }) =
+        let
+            (* The nesting of this new function is the current nesting level
+             plus one. Normally this will be the same as lambda.level except
+             when we have a function inside an inline function. *)
+            val nesting = nestingOfThisFunction + 1;
+          
+            (* A new table for the new function. *)
+            val oldAddrTab = stretchArray (initTrans, NONE)
+            and newAddrTab = stretchArray (initTrans, NONE)
+
+            local
+                fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
+                    (* local declaration or argument. *)
+                    if index > 0 
+                    (* Local declaration. *)
+                    then
+                    case  oldAddrTab sub index of
+                        SOME v => changeLevel v (depth - nesting)
+                    |   NONE => raise InternalError(
+                                        concat["localOldAddr: Not found. Addr=", Int.toString index,
+                                               " Level=", Int.toString level])
+                    (* Argument or closure. *)
+                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
+                |   localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1)
+                and setTab (index, v) = update (oldAddrTab, index, SOME v)
+            in
+                val oldEnv = { lookup = localOldAddr, enter = setTab }
+            end
+
+            local
+                (* localNewAddr is used as the environment of inline functions within
+                   the function we're processing.  All the entries in this table will
+                   have their "general" entries as simply Extract entries with the
+                   original address.  Their "special" entries may be different. The
+                   only entries in the table will be those which correspond to
+                   declarations in the original code so there may be new declarations
+                   which aren't in the table. *)
+                fun localNewAddr ({ addr=index, ...}, depth, 0) =
+                    if index > 0 
+                    then case newAddrTab sub index of
+                        NONE => (* Return the original entry if it's not there. *)
+                            simpleOptVal(mkGenLoad (index, depth - nesting, true))
+                    |   SOME v => changeLevel v (depth - nesting) 
+                    else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
+                |   localNewAddr (ptr, depth, levels) = lookupNewAddr (ptr, depth, levels - 1);
+
+                fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
+            in
+                val newEnv = {lookup=localNewAddr, enter=setNewTab}
+            end
+
+            val newAddressAllocator = ref 1      val newCode =
+                optimise (lambdaBody, false,
+                {
+                newEnv=newEnv,
+                oldEnv=oldEnv,
+                nestingOfThisFunction=nesting,
+                spval=newAddressAllocator,
+                recursiveExpansions=NONE,
+                loopFilter=loopFilterError,
+                debugArgs=debugArgs,
+                inlineExpansionDepth=inlineExpansionDepth})
+
+          (* nonLocals - a list of the non-local references made by this
+             function.  If this is empty the function can be code-generated
+             immediately and returned as a constant.  If it is non-empty it
+             is set as the closure for the function.  This is then used
+             when processing mutually recursive functions to find the
+             dependencies. *)
+             
+          val nonLocals = ref nil;
+          fun addNonLocal({addr, level, fpRel, ...}, depth) =
+          let
+             (* The level will be correct relative to the use, which may be
+                in an inner function.  We want the level relative to the
+                scope in which this function is declared. *)
+             val correctedLevel = level - (depth - nestingOfThisFunction)
+             fun findNonLocal(Extract{addr=addr', level=level', fpRel=fpRel', ...}) =
+                    addr = addr' andalso correctedLevel = level' andalso fpRel=fpRel'
+              |  findNonLocal _ = raise InternalError "findNonLocal: not Extract"
+          in
+             if List.exists findNonLocal (!nonLocals)
+             then () (* Already there. *)
+             else nonLocals := mkGenLoad(addr, correctedLevel, fpRel) :: ! nonLocals
+          end
+
+          fun checkRecursion(ext as {fpRel=oldfpRel, ...}, levels, depth) =
+              case optGeneral(lookupNewAddr (ext, depth, levels)) of
+                 (res as Extract(ext as {addr=0, fpRel=false, ...})) =>
+                     (
+                     (* If this is just a recursive call it doesn't count
+                        as a non-local reference.  This only happens if
+                        we turned a reference to a local into a recursive
+                        reference (i.e. fpRel was previously true). *)
+                     if levels = 0 andalso oldfpRel
+                     then ()
+                     else addNonLocal(ext, depth);
+                     res
+                     )
+              |  res as Extract ext =>
+                    (
+                     addNonLocal(ext, depth);
+                     res
+                    )
+
+              |  res => res (* We may have a constant in this table. *)
+
+          val cleanedBody =
+            REMOVE_REDUNDANT.cleanProc(getGeneral newCode, checkRecursion, nesting,
+                      Array.array (! newAddressAllocator + 1, false))
+
+        in
+            (
+            case lambdaInline of
+                MaybeInline => (* Explicitly inlined functions. *)
+                    (* We return the processed version of the function as
+                       the general value but the unprocessed version as
+                       the special value. *)
+                    {
+                      general =
+                        Lambda 
+                          {
+                           body          = cleanedBody,
+                           isInline      = MaybeInline,
+                           name          = lambdaName,
+                           closure       = !nonLocals, (* Only looked at in MutualDecs. *)
+                           argTypes      = argTypes,
+                           resultType    = resultType,
+                           level         = nesting,
+                           localCount    = ! newAddressAllocator + 1
+                         },
+                      special = SOME(Lambda original),
+                      environ = lookupOldAddr (* Old addresses with unprocessed body. *)
+                    }
+
+            |   _ => (* "Normal" function.  If the function is small we mark it as
+                        inlineable.  If the body has no free variables we compile it
+                        now so that we can propagate the resulting constant, otherwise
+                        we return the processed body.  We return the processed body as
+                        the special value so that it can be inlined.  We do this even
+                        in the case where the function isn't small because it is just
+                        possible we're going to apply the function immediately and in
+                        that case it's worth inlining it anyway. *)
+              let
+                    val inlineType =
+                        if lambdaInline = NonInline
+                        then if (* Is it small? *) codeSize(cleanedBody, true) < 
+                                DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs
+                        then SmallFunction else NonInline
+                        else lambdaInline
+
+                  val copiedLambda =
+                    Lambda 
+                      {
+                       body          = cleanedBody,
+                       isInline      = inlineType,
+                       name          = lambdaName,
+                       closure       = !nonLocals, (* Only looked at in MutualDecs. *)
+                       argTypes      = argTypes,
+                       resultType    = resultType,
+                       level         = nesting,
+                       localCount    = ! newAddressAllocator + 1
+                     };
+                 val general = 
+                   (* If this has no free variables we can code-generate it now. *)
+                   if null (!nonLocals)
+                   then codeGenerateToConstant debugArgs (copiedLambda, !spval+1)
+                   else copiedLambda
+              in
+                    {
+                      general = general,
+                      special =
+                        (* If this function may be inlined include it in the special entry
+                           otherwise return CodeNil here. *)
+                        if inlineType = NonInline
+                        then NONE
+                        else
+                        SOME(Lambda 
+                          {
+                           body          = cleanedBody,
+                           isInline      = inlineType,
+                           name          = lambdaName,
+                           closure       = [],
+                           argTypes      = argTypes,
+                           resultType    = resultType,
+                           level         = nesting,
+                           localCount    = ! newAddressAllocator + 1
+                         }),
+                      environ = lookupNewAddr
+                    }
+            end
+            ) before StretchArray.freeze oldAddrTab before  StretchArray.freeze newAddrTab
+        end (* optimiseLambda *)
+
 
     (* Inline a function that has been explicitly marked by the frontend.  These are
        either functors or auxiliary functions in curried or tupled fun bindings.

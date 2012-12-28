@@ -26,24 +26,8 @@ struct
     open BASECODETREE
     open Address
     exception InternalError = Misc.InternalError
-
-    datatype optVal =
-        JustTheVal of codetree
     
-    |   ValWithDecs of {general : codetree, decs : codeBinding list}
-    
-    |   OptVal of
-        {
-            (* Expression to load this value - always a constant in global values. *)
-            general : codetree,
-            (* If it is not CodeNil it is the code which generated the general
-               value - either an inline procedure, a type constructor or a tuple. *)
-            special : codetree,
-            (* Environment for the special value. *)
-            environ : loadForm * int * int -> optVal,
-            (* Declarations to precede the value - Always nil for global values. *)
-            decs : codeBinding list
-        }
+    type optVal = codetree
 
     fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
 
@@ -200,8 +184,8 @@ struct
     |   sideEffectBinding(RecDecs _) = true (* These should all be lambdas *)
     |   sideEffectBinding(NullBinding c) = sideEffectFree c
 
-    (* Makes a constant value from an expression which is known to be *)
-    (* constant but may involve inline procedures, types etc.         *)
+    (* Makes a constant value from an expression which is known to be
+       constant but may involve inline procedures, tuples etc.         *)
     fun makeConstVal (cVal:codetree) =
     let
         fun makeVal (Constnt c) = c
@@ -368,27 +352,46 @@ struct
   *)
   
     fun errorEnv (_,  _, _) : optVal = raise InternalError "error env"
-  
-    fun optGeneral (OptVal {general,...})       = general 
-    |   optGeneral (ValWithDecs {general, ...}) = general
-    |   optGeneral (JustTheVal ct)              = ct
-      
-    fun optSpecial (OptVal {special,...}) = SOME special
-      | optSpecial _                      = NONE
-      
-    fun optEnviron (OptVal {environ,...}) = environ
-      | optEnviron _                      = errorEnv
-      
-    fun optDecs    (OptVal {decs,...})       = decs
-      | optDecs    (ValWithDecs {decs, ...}) = decs
-      | optDecs    (JustTheVal _)           = [];
-  
-    val simpleOptVal : codetree -> optVal = JustTheVal
 
-    fun optVal{special=SOME special, decs, general, environ } =
-        OptVal {special=special, decs=decs, general=general, environ=environ}
-    |   optVal{special=NONE, decs=[], general, ...} = JustTheVal general
-    |   optVal{special=NONE, decs, general, ...} = ValWithDecs {general = general, decs = decs}
+    local
+        fun stripDecs(Newenv(_, exp)) = stripDecs exp
+        |   stripDecs exp = exp
+
+        fun general(ConstntWithInline(w, _, _)) = Constnt w
+        |   general(ExtractWithInline(ext, _, _)) = Extract ext
+        |   general(LambdaWithInline(lambda, _, _)) = Lambda lambda
+        |   general c = c
+
+        fun special(ConstntWithInline(_, spec, _)) = SOME spec
+        |   special(ExtractWithInline(_, spec, _)) = SOME spec
+        |   special(LambdaWithInline(_, spec, _)) = SOME spec
+        |   special _ = NONE
+
+        fun environ(ConstntWithInline(_, _, env)) = env
+        |   environ(ExtractWithInline(_, _, env)) = env
+        |   environ(LambdaWithInline(_, _, env)) = env
+        |   environ _ = errorEnv
+    in
+        val optGeneral = general o stripDecs
+        and optSpecial = special o stripDecs
+        and optEnviron = environ o stripDecs
+    end
+
+    fun optDecs(Newenv(decs, exp)) = decs @ optDecs exp
+    |   optDecs _ = []
+ 
+    fun simpleOptVal c = c
+
+    fun optVal{special, decs as _ :: _, general, environ } =
+            Newenv(decs, optVal{special = special, decs = [], general=general, environ=environ })
+    |   optVal{special=SOME spec, general=Constnt w, environ, ...} =
+            ConstntWithInline(w, spec, environ)
+    |   optVal{special=SOME spec, general=Extract ext, environ, ...} =
+            ExtractWithInline(ext, spec, environ)
+    |   optVal{special=SOME spec, general=Lambda lambda, environ, ...} =
+            LambdaWithInline(lambda, spec, environ)
+    |   optVal{special=SOME _, ...} = raise InternalError "optVal"
+    |   optVal{special=NONE, general, ...} = general
 
     local
         val except: exn = InternalError "Invalid load encountered in compiler"

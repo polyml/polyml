@@ -168,6 +168,8 @@ struct
          |  cleanCode (ExtractWithInline(ext, _, _)) = cleanCode(Extract ext)
 
          |  cleanCode (Lambda lam) = Lambda(cleanLambda lam)
+         
+         |  cleanCode (LambdaWithInline(lambda, _, _)) = cleanCode(Lambda lambda)
 
             (* All the other case simply map cleanCode over the tree. *)
          |  cleanCode MatchFail = MatchFail

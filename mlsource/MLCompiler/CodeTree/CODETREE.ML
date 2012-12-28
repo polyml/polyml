@@ -52,7 +52,8 @@ end
 
 structure OPTIMISER:
 sig
-    type codetree and optVal
+    type codetree
+    type optVal = codetree
     val codetreeOptimiser: codetree  * Universal.universal list -> optVal * int
     structure Sharing: sig type codetree = codetree and optVal = optVal end
 end

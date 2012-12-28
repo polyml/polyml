@@ -99,6 +99,8 @@ struct
            function or a tuple.  This is used within the optimiser. *)
     |   ExtractWithInline of loadForm * codetree * (loadForm * int * int -> codetree)
 
+    |   LambdaWithInline of lambdaForm * codetree * (loadForm * int * int -> codetree)
+
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
@@ -284,6 +286,7 @@ struct
                     ]
                 )
             end
+        | LambdaWithInline(lambda, _, _) => pretty(Lambda lambda)
         
         | Constnt w => PrettyString (stringOfWord w)
         
@@ -554,6 +557,7 @@ struct
             |   Extract _                       => 1
             |   Indirect {base,...}             => size base + 1
             |   Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
+            |   LambdaWithInline(lambda, _, _)  => size(Lambda lambda)
 (*            |   Eval {function=Constnt w ,argList,...}     =>
                     (* If this is an RTS call it's probably really an instruction that
                        the code-generator will inline and if it isn't we're not going

@@ -100,6 +100,8 @@ sig
            function or a tuple.  This is used within the optimiser. *)
     |   ExtractWithInline of loadForm * codetree * (loadForm * int * int -> codetree)
 
+    |   LambdaWithInline of lambdaForm * codetree * (loadForm * int * int -> codetree)
+
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)

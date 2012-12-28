@@ -20,6 +20,7 @@ signature CodetreeFunctionsSig =
 sig
     type codetree
     type codeBinding
+    type optVal = codetree
 
     type machineWord = Address.machineWord
 
@@ -31,31 +32,6 @@ sig
         VarTupleSingle of { source: codetree, destOffset: codetree }
     |   VarTupleMultiple of
             { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
-
-    datatype optVal =
-        JustTheVal of codetree
-    
-    |   ValWithDecs of {general : codetree, decs : codeBinding list}
-    
-    |   OptVal of
-        {
-            (* Expression to load this value - always a constant in global values. *)
-            general : codetree,
-            (* The code which generated the general
-               value - either an inline procedure, a type constructor or a tuple. *)
-            special : codetree,
-            (* Environment for the special value. *)
-            environ : loadForm * int * int -> optVal,
-            (* Declarations to precede the value - Always nil for global values. *)
-            decs : codeBinding list
-        }
-
-    withtype loadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool
-    }
  
     val mkDec: int * codetree -> codeBinding
     val mkMutualDecs: (int * codetree) list -> codeBinding
@@ -110,24 +86,23 @@ sig
     
     val findEntryInBlock: codetree -> int -> codetree
 
-    val optGeneral: optVal -> codetree
-    and optSpecial: optVal -> codetree option
-    and optDecs: optVal -> codeBinding list
-    and optEnviron: optVal -> { addr : int,  level: int,  fpRel: bool } * int * int -> optVal
+    val optGeneral: codetree -> codetree
+    and optSpecial: codetree -> codetree option
+    and optDecs: codetree -> codeBinding list
+    and optEnviron: codetree -> { addr : int,  level: int,  fpRel: bool } * int * int -> codetree
     and optVal:
         { general : codetree, special : codetree option,
-          environ : { addr : int,  level: int,  fpRel: bool } * int * int -> optVal,
-          decs : codeBinding list } -> optVal
-    and simpleOptVal : codetree -> optVal
+          environ : { addr : int,  level: int,  fpRel: bool } * int * int -> codetree,
+          decs : codeBinding list } -> codetree
+    and simpleOptVal : codetree -> codetree
     
-    val errorEnv: { addr : int,  level: int,  fpRel: bool } * int * int -> optVal
+    val errorEnv: { addr : int,  level: int,  fpRel: bool } * int * int -> codetree
     
     val earlyRtsCall: machineWord -> bool
 
     structure Sharing:
     sig
         type codetree = codetree
-        and  optVal = optVal
         and  argumentType = argumentType
         and  varTuple = varTuple
         and  codeBinding = codeBinding
