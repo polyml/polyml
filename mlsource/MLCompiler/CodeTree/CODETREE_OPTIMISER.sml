@@ -244,8 +244,7 @@ struct
          recursiveExpansions:
             ((codetree * argumentType) list * bool * int -> (codetree * argumentType) list) option,
          loopFilter: (codetree * argumentType) list -> (codetree * argumentType) list,
-         debugArgs: Universal.universal list,
-         inlineExpansionDepth: int
+         debugArgs: Universal.universal list
     }
 
     fun loopFilterError _ = raise InternalError "Loop instruction without BeginLoop"
@@ -302,8 +301,7 @@ struct
 
     (* Handle an Indirect node or the equivalent in a variable tuple. *)
     fun doIndirection(source, offset,
-            {nestingOfThisFunction,  spval, recursiveExpansions, loopFilter, debugArgs, 
-             inlineExpansionDepth, ... }) =
+            {nestingOfThisFunction,  spval, recursiveExpansions, loopFilter, debugArgs, ... }) =
         case (optSpecial source, optGeneral source) of
           (SOME(spec as Recconstr _), _) =>
             let
@@ -327,8 +325,7 @@ struct
                     spval= spval,
                     recursiveExpansions= recursiveExpansions,
                     loopFilter= loopFilter,
-                    debugArgs= debugArgs,
-                    inlineExpansionDepth = inlineExpansionDepth})
+                    debugArgs= debugArgs})
             in
                 repDecs (optDecs source @ optDecs newCode) newCode
             end
@@ -351,7 +348,7 @@ struct
             simpleOptVal(AltMatch(general context a, general context b))
        
      |  optimise (Eval {function, argList, resultType}, tailCall,
-                    context as {nestingOfThisFunction, recursiveExpansions, inlineExpansionDepth, ...}) =
+                    context as {nestingOfThisFunction, recursiveExpansions, ...}) =
         let
             (* Function call - This may involve inlining the function. *)
 
@@ -407,32 +404,14 @@ struct
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
                 end
 
-            |   (_, SOME(Lambda (lambda as { isInline = MaybeInline, ...})), gen) =>
-                    if inlineExpansionDepth < 5
-                    then inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
-                    else
-                    let
-                        val copiedArgs = map (fn (arg, argType) => (general context arg, argType)) argList
-                        val evCopiedCode = 
-                            Eval {function = gen, argList = copiedArgs, resultType=resultType}
-                    in
-                        repDecs (optDecs funct) (simpleOptVal evCopiedCode)
-                    end
+            |   (_, SOME(Lambda (lambda as { isInline = MaybeInline, ...})), _) =>
+                    inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
 
             |   (_, SOME(Lambda (lambda as { isInline = OnlyInline, ...})), _) =>
                     inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
 
-            |   (_, SOME(Lambda lambda), gen) =>
-                    if inlineExpansionDepth < 5
-                    then inlineSmallFunction(funct, lambda, argList, resultType, context)
-                    else
-                    let
-                        val copiedArgs = map (fn (arg, argType) => (general context arg, argType)) argList
-                        val evCopiedCode = 
-                            Eval {function = gen, argList = copiedArgs, resultType=resultType}
-                    in
-                        repDecs (optDecs funct) (simpleOptVal evCopiedCode)
-                    end
+            |   (_, SOME(Lambda lambda), _) =>
+                    inlineSmallFunction(funct, function, lambda, argList, resultType, context)
 
             | (_, _, gen as Constnt w) => (* Not inlinable - constant function. *)
                 let
@@ -474,7 +453,7 @@ struct
            
      |  optimise (BeginLoop{loop=body, arguments=args, ...}, tailCall,
               context as { newEnv, oldEnv as {enter = enterOldDec, ...}, nestingOfThisFunction, spval,
-                            recursiveExpansions, debugArgs, inlineExpansionDepth, ...}) =
+                            recursiveExpansions, debugArgs, ...}) =
         let
              (* We could try extracting redundant loop variables but for
                 the time being we just see whether we actually need a loop
@@ -496,8 +475,7 @@ struct
                    spval=spval,
                    recursiveExpansions=recursiveExpansions,
                    loopFilter=filterArgs,
-                   debugArgs=debugArgs,
-                   inlineExpansionDepth=inlineExpansionDepth})
+                   debugArgs=debugArgs})
         in
             if not (! loops)
             then (* The Loop instructions have been optimised away.  Since there's
@@ -525,8 +503,7 @@ struct
                        nestingOfThisFunction=nestingOfThisFunction, spval=spval,
                        recursiveExpansions=recursiveExpansions,
                        loopFilter=filterArgs,
-                       debugArgs=debugArgs,
-                       inlineExpansionDepth=inlineExpansionDepth})
+                       debugArgs=debugArgs})
             in
                 simpleOptVal (BeginLoop {loop=getGeneral beginBody, arguments=declArgs})
             end
@@ -1349,7 +1326,7 @@ struct
      |  optimiseLambda(original as ({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
                           argTypes, resultType, ...}),
                  { nestingOfThisFunction, oldEnv = {lookup=lookupOldAddr, ...}, newEnv = {lookup=lookupNewAddr, ...},
-                   debugArgs, spval, inlineExpansionDepth, ... }) =
+                   debugArgs, spval, ... }) =
         let
             (* The nesting of this new function is the current nesting level
              plus one. Normally this will be the same as lambda.level except
@@ -1410,8 +1387,7 @@ struct
                 spval=newAddressAllocator,
                 recursiveExpansions=NONE,
                 loopFilter=loopFilterError,
-                debugArgs=debugArgs,
-                inlineExpansionDepth=inlineExpansionDepth})
+                debugArgs=debugArgs})
 
           (* nonLocals - a list of the non-local references made by this
              function.  If this is empty the function can be code-generated
@@ -1549,7 +1525,7 @@ struct
        either functors or auxiliary functions in curried or tupled fun bindings.
        They are never directly recursive but could contain "small" functions that are. *)
     and inlineInlineOnlyFunction(funct, {body=lambdaBody, name=lambdaName, ...}, argList, tailCall,
-            context as {spval, nestingOfThisFunction, recursiveExpansions, newEnv = { lookup = lookupNewAddr, ...}, debugArgs, inlineExpansionDepth, ...}) =
+            context as {spval, nestingOfThisFunction, recursiveExpansions, newEnv = { lookup = lookupNewAddr, ...}, debugArgs, ...}) =
         let
             (* Calling inline proc or a lambda expression which is just called.
                The function is replaced with a block containing declarations
@@ -1624,8 +1600,7 @@ struct
                      spval=spval,
                      recursiveExpansions=recursiveExpansions,
                      loopFilter=loopFilterError,
-                     debugArgs=debugArgs,
-                     inlineExpansionDepth=inlineExpansionDepth+1})
+                     debugArgs=debugArgs})
         in
             StretchArray.freeze localVec;
             StretchArray.freeze localNewVec;
@@ -1638,11 +1613,10 @@ struct
 
     (* Expand inline a "small" function i.e. a normal function that appears to be small
        enough to expand inline. *)
-    and inlineSmallFunction(funct, {body=lambdaBody, name=lambdaName, argTypes, ...}, argList, resultType,
-            context as {spval, nestingOfThisFunction, newEnv = { lookup = lookupNewAddr, ...}, debugArgs, 
-            inlineExpansionDepth, ...}) =
+    and inlineSmallFunction(funct, original, {body=lambdaBody, name=lambdaName, argTypes, ...}, argList, resultType,
+            context as {spval, nestingOfThisFunction, newEnv as { lookup = lookupNewAddr, ...}, debugArgs, 
+            oldEnv, loopFilter, recursiveExpansions, ...}) =
         let
-            val _ = inlineExpansionDepth < 5 orelse raise InternalError "too deep"
             (* Calling inline proc or a lambda expression which is just called.
                The function is replaced with a block containing declarations
                of the parameters.  We need a new table here because the addresses
@@ -1654,9 +1628,34 @@ struct
             val nArgs = List.length argList
 
             local
+                (* Process the arguments.  We have to make a special check here that we are not passing in the function
+                   we are trying to expand.  This could result in an infinitely recursive expansion.  It is only
+                   going to happen in very special circumstances such as a definition of the Y combinator.  If we
+                   do encounter this function we strip the "special" entry so any application will always result
+                   in a function call. *)
+                val argContext =
+                    case (original, oldEnv) of
+                        (Extract{addr, level, fpRel=true, ...}, { lookup, enter}) =>
+                            let
+                                fun stripRecursiveInline(ext as { addr=eAddr, ...}, depth, levels) =
+                                let
+                                    val result = lookup(ext, depth, levels)
+                                in
+                                    if addr = eAddr andalso level = levels
+                                    then mkEnv(optDecs result, optGeneral result)
+                                    else result
+                                end
+                            in
+                                { oldEnv = { lookup=stripRecursiveInline, enter = enter}, newEnv = newEnv,
+                                  nestingOfThisFunction = nestingOfThisFunction, spval = spval,
+                                  loopFilter = loopFilter, debugArgs = debugArgs,
+                                  recursiveExpansions = recursiveExpansions}
+                            end
+                    |   _ => context
+
                 val (params, bindings) =
                     ListPair.unzip(
-                        List.map (fn (h, _) => makeNewDecl(optimise(h, false, context), context)) argList)
+                        List.map (fn (h, _) => makeNewDecl(optimise(h, false, argContext), context)) argList)
 
                 val paramVec = Vector.fromList params
             in
@@ -1823,8 +1822,7 @@ struct
                            spval=spval,
                            recursiveExpansions=SOME(filterArgs),
                            loopFilter=loopFilterError,
-                           debugArgs=debugArgs,
-                           inlineExpansionDepth=inlineExpansionDepth+1})
+                           debugArgs=debugArgs})
                   
                  in
                     if ! needsRecursiveCall
@@ -1907,8 +1905,7 @@ struct
                            spval=newAddressAllocator,
                            recursiveExpansions=SOME filterArgs,
                            loopFilter=loopFilterError,
-                           debugArgs=debugArgs,
-                           inlineExpansionDepth = inlineExpansionDepth+1})
+                           debugArgs=debugArgs})
 
                     val newModCount = countSet()
                 in
@@ -2054,8 +2051,7 @@ struct
           optimise(pt, false,
             {newEnv = newEnv, oldEnv = oldEnv,
              nestingOfThisFunction=0, spval=localAddressAllocator,
-             recursiveExpansions=NONE, loopFilter=loopFilterError, debugArgs=debugSwitches,
-             inlineExpansionDepth = 0})
+             recursiveExpansions=NONE, loopFilter=loopFilterError, debugArgs=debugSwitches})
 
     in
         (* Turn the arrays into vectors. *)
