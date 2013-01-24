@@ -393,9 +393,13 @@ Handle make_stream_entry(TaskData *taskData)
         /* Clear the new space. */
         memset(basic_io_vector+oldMax, 0, (max_streams-oldMax)*sizeof(IOSTRUCT));
     }
-     
+
+    // Create the token.  This must be mutable not because it will be updated but
+    // because we will use pointer-equality on it and the GC does not guarantee to
+    // preserve pointer-equality for immutables.
     Handle str_token =
-        alloc_and_save(taskData, (sizeof(StreamToken) + sizeof(PolyWord) - 1)/sizeof(PolyWord), F_BYTE_OBJ);
+        alloc_and_save(taskData, (sizeof(StreamToken) + sizeof(PolyWord) - 1)/sizeof(PolyWord), 
+                       F_BYTE_OBJ|F_MUTABLE_BIT);
     STREAMID(str_token) = stream_no;
 
     ASSERT(!isOpen(&basic_io_vector[stream_no]));
