@@ -113,7 +113,10 @@ struct
             { base: backendIC, length: backendIC, destOffset: backendIC, sourceOffset: backendIC }
 
     and bicLoadForm =
-        BICLoadStack of int | BICLoadClosure of int
+        BICLoadLocal of int (* Local binding *)
+    |   BICLoadArgument of int (* Argument - 0 is first arg etc.*)
+    |   BICLoadClosure of int (* Closure - 0 is first closure item etc *)
+    |   BICLoadRecursive (* Recursive call *)
 
     withtype bicSimpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -244,14 +247,21 @@ struct
                     PrettyString ")"
                 ]
             )
-         
-        |   BICExtract (BICLoadStack addr, lastRef) =>
+
+        |   BICExtract (BICLoadLocal addr, lastRef) =>
             let
                 val last = if lastRef then ", last" else "";
                 val str : string =
-                    if addr < 0
-                    then concat ["PARAM(", Int.toString (~ addr), last, ")"]
-                    else concat ["LOCAL(", Int.toString addr, last, ")"]
+                    concat ["LOCAL(", Int.toString addr, last, ")"]
+            in
+                PrettyString str
+            end
+         
+        |   BICExtract (BICLoadArgument addr, lastRef) =>
+            let
+                val last = if lastRef then ", last" else "";
+                val str : string =
+                    concat ["PARAM(", Int.toString addr, last, ")"]
             in
                 PrettyString str
             end
@@ -261,6 +271,15 @@ struct
                 val last = if lastRef then ", last" else "";
                 val str : string =
                     concat ["CLOS(", Int.toString addr, last, ")"]
+            in
+                PrettyString str
+            end
+
+       |   BICExtract (BICLoadRecursive, lastRef) =>
+            let
+                val last = if lastRef then ", last" else "";
+                val str : string =
+                    concat ["RECURSIVE(", last, ")"]
             in
                 PrettyString str
             end

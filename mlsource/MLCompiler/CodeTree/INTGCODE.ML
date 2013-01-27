@@ -97,11 +97,11 @@ sig
    val pushConst        : machineWord * code -> unit;
 
    (* genCallSl - Generate callSl instructions which refer to either
-       constants or are forward references to procedures which have not yet
+       constants or are forward references to functions which have not yet
        been compiled. *)
    val genCallSl  : int * int * code * code -> unit;
        
-   (* genRecRef - Recursive reference to a procedure. *)
+   (* genRecRef - Recursive reference to a function. *)
    val genRecRef: code * code -> unit
 
    (* Create a container on the stack *)
@@ -113,7 +113,7 @@ sig
    (* Create a tuple from a container. *)
    val genTupleFromContainer : int * code -> unit;
      
-   (* copyCode - Finish up after compiling a procedure. *)
+   (* copyCode - Finish up after compiling a function. *)
    val copyCode : code -> address;
    
    (* getBytes - gets "length" bytes from locations "addr", "addr"+1...
@@ -210,17 +210,17 @@ struct
     NoResult     (* discard result *)
   | ToStack     (* Need a result but it can stay on the pseudo-stack *);
   
-  (* Are we at the end of the procedure. *)
+  (* Are we at the end of the function. *)
   datatype tail =
     EndOfProc
   | NotEnd;
 
   datatype slValue =
     Address    of int  * int (* Address of an entry on the stack. *)
-  | StaticLink of code * int (* A static linked procedure. *)
+  | StaticLink of code * int (* A static linked function. *)
   | Recursive  of code       (* A recursive reference to a closure. *)
 
-  (* Code generate a procedure or global declaration *)
+  (* Code generate a function or global declaration *)
   fun codegen
        (pt : backendIC,
         cvec : code,
@@ -268,20 +268,28 @@ struct
 
     (* Loads a local, argument or closure value; translating local
        stack addresses to real stack offsets. *)
-        fun locaddr(BICLoadStack locn, _) =
+        fun locaddr(BICLoadArgument locn, _) = pushStackValue (numOfArgs-locn, 0)
+        |   locaddr(BICLoadLocal locn, _) =
             (
-                if locn < 0 (* Args. *)
-                then pushStackValue (~locn, 0)
-                else (* positive address - on the stack. *)
+                (* positive address - on the stack. *)
                     case STRETCHARRAY.sub (decVec, locn) of
                         StackAddr n => pushStackValue (~ n, 0)
 
-                    |   _ => (* Should be on the stack, not a procedure. *)
+                    |   _ => (* Should be on the stack, not a function. *)
                         raise InternalError "locaddr: bad stack address"
             )
         | locaddr(BICLoadClosure locn, _) =
             ( (* closure-pointer relative *)
-                case loadStaticLink (locn, 1) of
+                case loadStaticLink (locn+1, 1) of
+                    Recursive code =>
+                    ( genRecRef (code, cvec); incsp () )
+                |   Address (addr, level) => pushStackValue (addr, level)
+   
+                |   StaticLink _ => raise InternalError "locaddr: illegal use of static-link function"
+            )
+        |   locaddr(BICLoadRecursive, _) =
+            (
+                case loadStaticLink (0, 1) of
                     Recursive code =>
                     ( genRecRef (code, cvec); incsp () )
                 |   Address (addr, level) => pushStackValue (addr, level)
@@ -401,7 +409,7 @@ struct
                     (* Deal with any other possible references. *)
                     val () = genMutualDecs (otherDecs, matchFailFn);
                 in
-                    (* Can now process this procedure since we have made an entry
+                    (* Can now process this function since we have made an entry
                        in the table for everything it could refer to. *)
                     genSlProc (lambda, newCode)
                 end
@@ -745,8 +753,8 @@ struct
         end
     end (* gencde *)
 
-   (* doNext is only used for mutually recursive procedures where a
-     procedure may not be able to fill in its closure if it does not have
+   (* doNext is only used for mutually recursive functions where a
+     function may not be able to fill in its closure if it does not have
      all the remaining declarations. *)
    and genProc (lam,
                mutualDecs: bool,
@@ -763,7 +771,7 @@ struct
         fun loadRecLink (_ : int, _ : int) : slValue =
           Recursive newCode;
         
-        (* Code-gen procedure. No non-local references. *)
+        (* Code-gen function. No non-local references. *)
          val res : address =
            codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
 
@@ -787,7 +795,7 @@ struct
 
         val newCode : code = codeCreate (true, #name lam, parameters);
 
-        (* Code-gen procedure. *)
+        (* Code-gen function. *)
         val res : address =
           codegen (#body lam, newCode, loadSl, List.length (#argLifetimes lam), parameters);
 
@@ -804,7 +812,7 @@ struct
            
            val entryAddr : int = !realstackptr;
 
-           val () = doNext (); (* Any mutually recursive procedures. *)
+           val () = doNext (); (* Any mutually recursive functions. *)
 
            (* Push the address of the vector - If we have processed other
               closures the vector will no longer be on the top of the stack. *)
@@ -845,12 +853,12 @@ struct
          end
       end
 
-   (* Generate a procedure to be called with a static link. *)
+   (* Generate a function to be called with a static link. *)
    and genSlProc (lam, newCode: code) : unit =
    let
-     (* If a procedure can be called by static link references then
+     (* If a function can be called by static link references then
         non-locals can be loaded by following the static chain. The offset
-        is the entry in the (pseudo-)closure as with a procedure that
+        is the entry in the (pseudo-)closure as with a function that
         requires a closure, but these can be translated into real stack
         offsets. *)
      val closureList = #closure lam;
@@ -869,20 +877,20 @@ struct
             val closureEntry = findClosure (closureList, prevloc)
         in
             case closureEntry of
-                (BICLoadStack locn, _) =>
+                (BICLoadArgument locn, _) => Address (numOfArgs - locn, level)
+            |   (BICLoadLocal locn, _) =>
                 (
-                    if locn < 0 (* Address  *)
-                    then Address (~ locn, level)
-                    else (* Local - is it a procedure? *)
-                      case STRETCHARRAY.sub (decVec, locn) of
-                    StackAddr n => Address (~ n, level)
-                      | ProcConst c => StaticLink (c, level)
-                      | Empty       => raise InternalError "loadSl: missing decVec entry"
+                    (* Local - is it a function? *)
+                    case STRETCHARRAY.sub (decVec, locn) of
+                        StackAddr n => Address (~ n, level)
+                    |   ProcConst c => StaticLink (c, level)
+                    |   Empty       => raise InternalError "loadSl: missing decVec entry"
                 )
-            |   (BICLoadClosure locn, _) => loadStaticLink (locn, level + 1)        
+            |   (BICLoadClosure locn, _) => loadStaticLink (locn+1, level + 1)
+            |   (BICLoadRecursive, _) =>    loadStaticLink (0, level + 1)
        end; (* loadSl *)
        
-     (* Now code-generate the procedure. We can throw away the result because
+     (* Now code-generate the function. We can throw away the result because
         it will be assigned into the value we have just returned. *)
      val _ : address =
        codegen (#body lam, newCode, loadSl, List.length (#argLifetimes lam), parameters)
@@ -966,27 +974,27 @@ struct
          
       val () =
     case #function eval of
-       (* The procedure is being loaded from the stack or closure so it
-          may be a static-link procedure. *)
+       (* The function is being loaded from the stack or closure so it
+          may be a static-link function. *)
       BICExtract(ext, _) =>
       let
-        (* Since the procedure is on the stack there can be no side-effects
+        (* Since the function is on the stack there can be no side-effects
            in loading it. Can therefore load the arguments now. *)
         val () = loadArgs argList;
   
         val staticLinkValue =
             case ext of
-                BICLoadStack addr =>
+                BICLoadArgument addr => Address (numOfArgs - addr, 0)
+            |   BICLoadLocal addr =>
                 (
-                    if addr < 0 (* Address *)
-                    then Address (~ addr, 0)
-                    else (* Local - is it a procedure? *)
-                      case STRETCHARRAY.sub (decVec, addr) of
+                    (* Local - is it a function? *)
+                    case STRETCHARRAY.sub (decVec, addr) of
                         StackAddr n => Address (~ n, 0)
-                      | ProcConst c => StaticLink (c, 0)
-                      | Empty       => raise InternalError "staticLinkValue: missing decVec entry"
+                    |   ProcConst c => StaticLink (c, 0)
+                    |   Empty       => raise InternalError "staticLinkValue: missing decVec entry"
                 )
-            |   BICLoadClosure addr => loadStaticLink (addr, 1)(* Non-local or recursive. *)
+            |   BICLoadClosure addr => loadStaticLink (addr+1, 1)(* Non-local or recursive. *)
+            |   BICLoadRecursive => loadStaticLink (0, 1)
       in
         case staticLinkValue of
           Address (addr, level) =>
@@ -996,7 +1004,7 @@ struct
             callClosure ()
           end
           
-          (* recursive reference to a procedure - not static link. *)
+          (* recursive reference to a function - not static link. *)
         | Recursive code =>
           let
             val () = genRecRef (code, cvec);
@@ -1014,11 +1022,11 @@ struct
           end
       end (* BICExtract *)
     
-    | _ => (* The procedure is not being found by simply loading a value
+    | _ => (* The function is not being found by simply loading a value
           from the stack or the closure. *)
       let
         (* Must load the closure and call. *)
-        (* Have to guarantee that the expression to return the procedure
+        (* Have to guarantee that the expression to return the function
           is evaluated before the arguments. *)
     
         (* Returns true if evaluating it later is safe. *)
@@ -1028,7 +1036,7 @@ struct
           | BICLambda _  => true
           | BICField {base, ...} => 
         (* Safe only if the expression (always a type) being indirected
-           is. This is put in because calling procedures in a type is a
+           is. This is put in because calling functions in a type is a
            common occurence and should be made reasonably efficient. *)
            safeToLeave base
           | _        => false
@@ -1043,19 +1051,19 @@ struct
           end
           
           else let
-        (* The expression for the procedure is too complicated to
+        (* The expression for the function is too complicated to
            risk leaving. It might have a side-effect and we must
            ensure that any side-effects it has are done before the
            arguments are loaded. *)
         val () = gencde(#function eval, ToStack, NotEnd, matchFailFn, NONE);
         val () = loadArgs(argList);
-        (* Load the procedure again. *)
+        (* Load the function again. *)
         val () = genLocal(argsToPass, cvec);
           in
         incsp ()
           end
      in
-       (* Call the procedure. *)
+       (* Call the function. *)
        callClosure ()
      end; (* Not BICExtract *)
 
@@ -1237,13 +1245,13 @@ struct
       fixup (!lastEndJump, cvec)
     end
      
-    (* Closure procedures must start with ``enterIntProc''. This is actually a
+    (* Closure functions must start with ``enterIntProc''. This is actually a
        break-point instruction in the machine-code instruction set to make sure
        that the code is interpreted. It is a no-op if we are already
        interpreting. *)
     val () = genEnterIntProc (cvec, numOfArgs); (* SPF 23/6/95 *)
 
-   (* Generate the procedure. *)
+   (* Generate the function. *)
    (* Assume we always want a result. There is otherwise a problem if the
       called routine returns a result of type void (i.e. no result) but the
       caller wants a result (e.g. the identity function). *)
@@ -1251,7 +1259,7 @@ struct
 
     val () = if !exited then () else genReturn (numOfArgs, cvec);
   in (* body of codegen *)
-   (* Having code-generated the body of the procedure, it is copied
+   (* Having code-generated the body of the function, it is copied
       into a new data segment. *)
    copyCode cvec
  end (* codegen *);
@@ -1259,25 +1267,25 @@ struct
 
   fun gencode (pt: backendIC, parameters, _) : unit -> machineWord =
     case pt of
-      BICLambda lam => (* We are compiling a procedure. *)
+      BICLambda lam => (* We are compiling a function. *)
       let
         (* It is not essential to treat this specially, but it saves generating
            a piece of code whose only function is to return the address of the
-           procedure. *)
-        (* make the code buffer for the new procedure. *)
+           function. *)
+        (* make the code buffer for the new function. *)
         val newCode : code = codeCreate (false, #name lam, parameters);
 
         (* The only global references are recursive ones (?) *)
         fun loadRecLink (_ : int, _ : int) : slValue =
           Recursive newCode;
 
-        (* This procedure must have no non-local references. *)
+        (* This function must have no non-local references. *)
         val closureAddr : address =
           codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
             
         val res : machineWord = toMachineWord closureAddr;
       in
-        (* Result is a procedure which returns the address of the procedure. *)
+        (* Result is a function which returns the address of the function. *)
         fn () => res
       end
       
@@ -1292,7 +1300,7 @@ struct
        val closureAddr : address =
      codegen (pt, newCode, loadRecLink, 0, parameters)
      in
-       (* Result is a procedure to execute the code. *)
+       (* Result is a function to execute the code. *)
        fn () => call (closureAddr, toMachineWord ())
      end; (* gencode *)
 end (* GCODE functor body *)

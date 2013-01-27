@@ -113,7 +113,10 @@ sig
             { base: backendIC, length: backendIC, destOffset: backendIC, sourceOffset: backendIC }
 
     and bicLoadForm =
-        BICLoadStack of int | BICLoadClosure of int
+        BICLoadLocal of int (* Local binding *)
+    |   BICLoadArgument of int (* Argument - 0 is first arg etc.*)
+    |   BICLoadClosure of int (* Closure - 0 is first closure item etc *)
+    |   BICLoadRecursive (* Recursive call *)
 
     withtype bicSimpleBinding = 
     { (* Declare a value or push an argument. *)

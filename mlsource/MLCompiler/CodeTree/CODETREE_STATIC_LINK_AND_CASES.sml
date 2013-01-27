@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012 David C.J. Matthews
+    Copyright (c) 2012-13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -140,14 +140,13 @@ struct
     |   P2VarTupleMultiple of
             { base: p2Codetree, length: p2Codetree, destOffset: p2Codetree, sourceOffset: p2Codetree }
 
-    withtype p2LoadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool
-    }
-    
-    and p2LambdaForm =
+    and p2LoadForm =
+        P2LoadLocal of int (* Local binding *)
+    |   P2LoadArgument of int (* Argument - 0 is first arg etc.*)
+    |   P2LoadClosure of int (* Closure - 0 is first closure item etc *)
+    |   P2LoadRecursive (* Recursive call *)
+
+    withtype p2LambdaForm =
     { (* Lambda expressions. *)
         body          : p2Codetree,
         name          : string,
@@ -164,11 +163,7 @@ struct
     local
         open BACKENDTREE
 
-        fun mkGenLoad (i1, bl, lf) =
-            BICExtract (if bl then BICLoadStack i1 else BICLoadClosure i1, lf)
-        and mkClosLoad(addr, last) =
-            BICExtract(BICLoadClosure addr, last)
-        and mkDecRef(ct, i1, i2) =
+        fun mkDecRef(ct, i1, i2) =
             BICDeclar{value = ct, addr = i1, references = i2}
 
         fun sideEffectFree (P2Lambda _) = true
@@ -322,13 +317,13 @@ struct
                                 Vector.foldli (fn (addr, n, l) =>
                                     if n = 0 orelse n = fullSet orelse Vector.sub(args, addr) <> 0 orelse ! outsideLoopRef
                                     then l 
-                                    else if addr = 0 then mkClosLoad(0, true) :: l
-                                    else mkGenLoad(~addr, true, true) :: l) [] sumArgSet
+                                    else if addr = 0 then BICExtract(BICLoadRecursive, true) :: l
+                                    else BICExtract(BICLoadArgument(addr-1), true) :: l) [] sumArgSet
                         in
                             Vector.foldli (fn (addr, n, l) =>
                                     if n = 0 orelse n = fullSet orelse Vector.sub(locals, addr) <> 0 orelse Array.sub(outsideLoop, addr)
                                     then l 
-                                    else mkGenLoad(addr, true, true) :: l) killArgs sumLocalSet
+                                    else BICExtract(BICLoadLocal addr, true) :: l) killArgs sumLocalSet
                         end
                     in
                         List.map computeKills usages
@@ -340,42 +335,47 @@ struct
                 |   addKillSet(original, killSet) = BICNewenv(map BICNullBinding killSet, original)
 
                 (* returns the translated node *)
-                fun locaddr { addr=laddr, fpRel=true, ...}: backendIC =
-                (
-                    instrCount := !instrCount+1;
-
-                    if laddr < 0
-                    then
+                fun locaddr (P2LoadArgument argNo) =
                     let (* parameters *)
-                        val argNo = ~ laddr;
+                        val () = instrCount := !instrCount+1;
                         val lastReference =
-                            Array.sub(argUses, argNo) = 0 andalso not (!outsideLoopRef)
+                            Array.sub(argUses, argNo+1 (* Zero is used for recursive *)) = 0 andalso not (!outsideLoopRef)
                     in 
                         (* Mark the argument as used. *)
-                        Array.update (argUses, argNo, maxUse(! instrCount, Array.sub(argUses, argNo)));
-                        mkGenLoad (laddr, true, lastReference)
+                        Array.update (argUses, argNo+1, maxUse(! instrCount, Array.sub(argUses, argNo+1)));
+                        BICExtract(BICLoadArgument argNo, lastReference)
                     end
-          
-                    (* isOnstack *)
-                    else
+
+                | locaddr (P2LoadLocal laddr) =
                     let 
+                        val () = instrCount := !instrCount+1;
                         (* If this was outside a loop we can't mark this as the last
                            reference because it needs to be retained for the next time round. *)
                         val lastReference =
                             Array.sub(localUses, laddr) = 0 andalso not (Array.sub(outsideLoop, laddr))
                     in
                         Array.update (localUses, laddr, maxUse(! instrCount, Array.sub(localUses, laddr)));
-                        mkGenLoad (laddr, true, lastReference)
+                        BICExtract(BICLoadLocal laddr, lastReference)
                     end
-                )
-                | locaddr { addr=laddr, fpRel=false, ...} =
+
+                | locaddr P2LoadRecursive =
                     let
                         val () = instrCount := !instrCount+1;
                         val lastReference = Array.sub(argUses, 0) = 0 andalso not (!outsideLoopRef)
                     in
                         (* Mark the closure as used. *)
                         Array.update (argUses, 0, maxUse(! instrCount, Array.sub(argUses, 0)));
-                        mkGenLoad (laddr, false, lastReference)
+                        BICExtract (BICLoadRecursive, lastReference)
+                    end
+
+                | locaddr (P2LoadClosure laddr) =
+                    let
+                        val () = instrCount := !instrCount+1;
+                        val lastReference = Array.sub(argUses, 0) = 0 andalso not (!outsideLoopRef)
+                    in
+                        (* Mark the closure as used. *)
+                        Array.update (argUses, 0, maxUse(! instrCount, Array.sub(argUses, 0)));
+                        BICExtract (BICLoadClosure laddr, lastReference)
                     end
               (* locaddr *)
 
@@ -400,7 +400,7 @@ struct
                         BICAltMatch (insX, insY)
                     end
 
-                |   insert(P2Eval { function as P2Extract{addr, fpRel=true, ...}, argList, resultType, ...}) =
+                |   insert(P2Eval { function as P2Extract(P2LoadLocal addr), argList, resultType, ...}) =
                     let
                         (* If this is a statically-linked function make references to the closure.
                            If this is actually the last reference this may result in returning
@@ -408,8 +408,6 @@ struct
                            still have made a reference and the kill entries will be put at the end of
                            the loop. *)
                         val closureKills =
-                            if addr > 0
-                            then
                             let
                                 fun getKill (P2Extract ext) =
                                     (
@@ -421,7 +419,6 @@ struct
                             in
                                 List.mapPartial getKill (Array.sub(slClosureTable, addr))
                             end
-                            else []
                         val () = instrCount := !instrCount+1
                         (* Process the arguments first. *)
                         val newargs = mapright(fn (c, t) => (insert c, t)) argList
@@ -503,10 +500,11 @@ struct
                            end of the loop.  Since their last references are inside the loop
                            this means extending the lifetime until the end. *)
                         local
-                            fun extendLife(BICExtract(BICLoadStack addr, _)) =
-                                    if addr < 0 then Array.update (argUses, ~addr, loopEndPosition)
-                                    else Array.update (localUses, addr, loopEndPosition)
-                            |   extendLife(BICExtract(BICLoadClosure 0, _)) =
+                            fun extendLife(BICExtract(BICLoadArgument addr, _)) =
+                                    Array.update (argUses, addr+1, loopEndPosition)
+                            |   extendLife(BICExtract(BICLoadLocal addr, _)) =
+                                    Array.update (localUses, addr, loopEndPosition)
+                            |   extendLife(BICExtract(BICLoadRecursive, _)) =
                                     Array.update (argUses, 0, loopEndPosition)
                             |   extendLife _ = raise InternalError "Not an Extract"
                         in
@@ -559,8 +557,7 @@ struct
                                                array entry.  If the closure entries themselves are
                                                statically linked function we have to include the
                                                items from those closures in this set. *)
-                                            fun closureTrans (P2Extract{fpRel=true, addr, ...}, l) =
-                                                if addr > 0 then Array.sub(slClosureTable, addr) @ l else l
+                                            fun closureTrans (P2Extract(P2LoadLocal addr), l) = Array.sub(slClosureTable, addr) @ l
                                             |   closureTrans (_, l) = l
                                             val trans = List.foldl closureTrans [] closure
                                         in
@@ -604,8 +601,7 @@ struct
                                         then (slClosures, closure @ fcClosures) else (closure @ slClosures, fcClosures)
                                     val (slClosures, fcClosures) = List.foldl getClosure ([], []) mutualDecs
                                     (* Include any statically linked functions this references. *)
-                                    fun closureTrans (P2Extract{fpRel=true, addr, ...}, l) =
-                                        if addr > 0 then Array.sub(slClosureTable, addr) @ l else l
+                                    fun closureTrans (P2Extract(P2LoadLocal addr), l) = Array.sub(slClosureTable, addr) @ l
                                     |   closureTrans (_, l) = l
                                     val trans = List.foldl closureTrans [] slClosures
                                 in
@@ -771,9 +767,10 @@ struct
                 let
                     val numArgs = List.length argTypes
                     (* The size is one more than the number of arguments because the
-                       arguments are numbered from ~1 .. ~n and we use the entries
-                       as ~arg.  Entry zero is used for the closure. *)
-                    val argUses      = Array.array(numArgs+1, 0);
+                       first item is used to represent the closure.  Argument n is represented
+                       by index n+1.  This is a historical anomaly and ought to be fixed
+                       by using a separate ref for the closure. *)
+                    val argUses      = Array.array(numArgs+1, 0)
 
                     (* process the body *)
                     val insertedCode: backendIC = copyCode (lambdaBody, argUses, localCount)
@@ -795,7 +792,7 @@ struct
                         closureRefs   = hd argUseList,
                         localCount    = localCount,
                         makeClosure   = makeClosure,
-                        argLifetimes  = List.rev(tl argUseList)
+                        argLifetimes  = tl argUseList (* Exclusde the first item used for the closure itself. *)
                     }
                 end
 
@@ -870,12 +867,6 @@ struct
 
     fun staticLinkAndCases (pt, localAddressCount, debugArgs) =
     let
-
-        fun mkGenLoad  (i1, i2, bl) =
-            P2Extract {addr  = i1, level = i2, fpRel = bl}
-
-        fun mkClosLoad addr = P2Extract {level = 0, addr = addr, fpRel = false }
-
         fun mkEval (ct, clist)   =
         P2Eval {
             function = ct,
@@ -885,10 +876,10 @@ struct
 
         val rtsFunction = P2Constnt o ioOp
 
-        fun copyCode (pt, previous, localCount, localAddresses) =
+        fun copyCode (pt, previous, localCount, localAddresses, numberOfArgs) =
         let
             (* "closuresForLocals" is a flag indicating that if the declaration
-               is a procedure a closure must be made for it. *)
+               is a function a closure must be made for it. *)
             val closuresForLocals = Array.array(localCount, false);
 
             (* used to indicate whether a local declaration is really
@@ -897,17 +888,14 @@ struct
             
             val newLocalAddresses = Array.array (localCount, 0)
 
-            (* returns the translated node *)
-            fun locaddr (ptr as { addr=laddr, level=lev, ...}, closure) =
-            (
-                if lev <> 0 orelse laddr = 0
-                then (* non-local *) previous (ptr, lev, closure)
-           
-                else if laddr < 0
-                then mkGenLoad (laddr, 0, true)
+            fun locaddr ({ addr=laddr, level = 0, fpRel = true, ...}, closure) =
+                if laddr < 0
+                then P2Extract(P2LoadArgument(numberOfArgs + laddr))
           
                 (* isOnstack *)
-                else case Array.sub(localConsts, laddr) of
+                else
+                (
+                case Array.sub(localConsts, laddr) of
                     SOME c => c (* just return the constant *)
                 |   NONE =>
                     let
@@ -916,9 +904,11 @@ struct
                         val newAddr = Array.sub(newLocalAddresses, laddr)
                         val _ = newAddr <> 0 orelse raise InternalError "copyCode: Not set"
                     in
-                        mkGenLoad (newAddr, 0, true)
+                        P2Extract(P2LoadLocal newAddr)
                     end
-            )
+                )
+
+            |   locaddr (ptr as { level, ...}, closure) = previous (ptr, level, closure)
 
             fun makeDecl addr =
             (let
@@ -928,8 +918,6 @@ struct
             in
                 newAddr
             end handle Subscript => raise InternalError("makeDecl " ^ Int.toString addr ^ " of " ^ Int.toString localCount))
-            
-          (* locaddr *)
 
             (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
                Generally used to map "insert" over a list where we need to
@@ -961,9 +949,9 @@ struct
                         Extract ext => locaddr(ext, (* closure = *) false)
                     |   first => insert first
                 in
-                    (* If we are calling a procedure which has been declared this
+                    (* If we are calling a function which has been declared this
                        does not require it to have a closure. Any other use of the
-                       procedure would. *) 
+                       function would. *) 
                     P2Eval {function = func, argList = newargs, resultType=resultType}
                 end
 
@@ -1039,10 +1027,10 @@ struct
                                         Lambda lam =>
                                         let 
                                             val closure      = ref (Array.sub(closuresForLocals, caddr));
-                                            val copiedLambda = copyLambda lam closure;
+                                            val (copiedLambda, newClosure) = copyLambda(lam, closure)
                                         in
                                             (* Note: copyLambda may have set closure *)
-                                            copyProcClosure copiedLambda (! (closure))
+                                            copyProcClosure(copiedLambda, newClosure, ! closure)
                                         end
                                     |   _ => insert pt
                             in
@@ -1054,12 +1042,12 @@ struct
                         let
                           (* Mutually recursive declarations. Any of the declarations
                              may refer to any of the others. This causes several problems
-                             in working out the use-counts and whether the procedures 
-                             (they should be procedures) need closures. A procedure will
+                             in working out the use-counts and whether the functions 
+                             (they should be functions) need closures. A function will
                              need a closure if any reference would require one (i.e. does
                              anything other than call it). The reference may be from one
                              of the other mutually recursive declarations and may be 
-                             because that procedure requires a full closure. This means
+                             because that function requires a full closure. This means
                              that once we have dealt with any references in the rest of
                              the containing block we have to repeatedly scan the list of
                              declarations removing those which need closures until we
@@ -1072,26 +1060,17 @@ struct
 
                             val _ = List.map (fn {addr, ...} => makeDecl addr) mutualDecs
 
-(*                            fun applyFn ({addr=caddr, value=dv, ...}) =     
-                                (
-                                    case dv of
-                                        Constnt _ => Array.update (localConsts, caddr, SOME dv) 
-                                    |   _ => ()
-                                )
-
-                            val () = List.app applyFn mutualDecs;*)
-                  
                             (* Process the rest of the block. Identifies all other
                                references to these declarations. *)
                             val restOfBlock = copyDeclarations vs
 
                             (* We now want to find out which of the declarations require
                                closures. First we copy all the declarations, except that
-                               we don't copy the non-local lists of procedures. *)
+                               we don't copy the non-local lists of functions. *)
                             fun copyDec ({addr=caddr, lambda, ...}) = 
                                 let
                                     val closure = ref (Array.sub(closuresForLocals, caddr))
-                                    val dec     = copyLambda lambda closure
+                                    val (dec, newClosure)     = copyLambda(lambda, closure)
                                     (* Check whether we now have a constant *)
                                     val () =
                                         case dec of
@@ -1101,7 +1080,7 @@ struct
                                     (* copyLambda may set "closure" to true. *)
                                     val () = Array.update (closuresForLocals, caddr, !closure);
                                 in
-                                    (caddr, dec)
+                                    (caddr, dec, newClosure)
                                 end             
 
                             val copiedDecs = map copyDec mutualDecs
@@ -1120,9 +1099,9 @@ struct
                                    anything which needs a closure. The remainder do not
                                    need full closures. *)
                                 let
-                                    fun mkLightClosure ((addr, value)) = 
+                                    fun mkLightClosure ((addr, value, newClosure)) = 
                                         let
-                                            val clos = copyProcClosure value false
+                                            val clos = copyProcClosure(value, newClosure, false)
                                             val newAddr = Array.sub(newLocalAddresses, addr)
                                         in
                                             (newAddr, clos)
@@ -1131,11 +1110,11 @@ struct
                                     map mkLightClosure outlist
                                 end
                   
-                            |   processClosures((h as (caddr, value))::t, outlist, someFound) =
+                            |   processClosures((h as (caddr, value, newClosure))::t, outlist, someFound) =
                                 if Array.sub(closuresForLocals, caddr)
                                 then
                                 let (* Must copy it. *)
-                                    val clos = copyProcClosure value true
+                                    val clos = copyProcClosure(value, newClosure, true)
                                     val newAddr = Array.sub(newLocalAddresses, caddr)
                                 in
                                     (newAddr, clos) :: processClosures(t, outlist, true)
@@ -1199,9 +1178,14 @@ struct
             |   insert Ldexc = P2Ldexc (* just a constant so return it *)
       
             |   insert(Lambda lam)=
-                    (* Must make a closure for this procedure because
+                let
+                    val (copiedLambda, newClosure) = copyLambda(lam, ref true)
+                    (* Must make a closure for this function because
                         it is not a simple declaration. *)
-                    copyProcClosure (copyLambda lam (ref true)) true
+                in
+                    copyProcClosure (copiedLambda, newClosure, true)
+                end
+
             |   insert(LambdaWithInline(lam, _, _)) = insert(Lambda lam)
 
             |   insert(Handle { exp, handler }) =
@@ -1241,20 +1225,19 @@ struct
                                 [insert length, P2Constnt (toMachineWord mutableFlags), P2Constnt(toMachineWord 0)])
                         )
 
-                    fun mkLoad (addr,level) =
-                        P2Extract {level = level, addr = addr, fpRel = true}
+                    val loadLocal = P2Extract(P2LoadLocal newAddr)
 
                      fun copyTuple(VarTupleSingle{source, destOffset}) =
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_assign_word,
-                                [mkLoad(newAddr, 0), insert destOffset, insert source])
+                                [loadLocal, insert destOffset, insert source])
                     |   copyTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
                             mkEval(rtsFunction RuntimeCalls.POLY_SYS_move_words,
-                                [insert base, insert sourceOffset, mkLoad(newAddr, 0),
+                                [insert base, insert sourceOffset, loadLocal,
                                  insert destOffset, insert length])
                     (* Remove the mutable bit (needed by alloc_store). *)
-                    val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [mkLoad(newAddr, 0)])
+                    val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [loadLocal])
                  in
-                    P2Newenv(allocTuple :: (map P2NullBinding (mapright copyTuple vars @ [lock])), mkLoad(newAddr, 0))
+                    P2Newenv(allocTuple :: (map P2NullBinding (mapright copyTuple vars @ [lock])), loadLocal)
                 end
 
           and copyCond (condTest, condThen, condElse) =
@@ -1277,14 +1260,9 @@ struct
                  function calls must always be treated as different.
                  Note: the reason we consider Indirect entries here
                  as well as Extract is because we (used to) defer Indirect entries.  *)
-              datatype similarity =
-                Different | Similar of { addr : int, level: int, fpRel: bool }
+              datatype similarity = Different | Similar of p2LoadForm
 
-              fun similar (P2Extract (a as {addr=aAddr, level=aLevel, fpRel=aFpRel}),
-                           P2Extract ({addr=bAddr, level=bLevel, fpRel=bFpRel})) =
-                    if aAddr = bAddr andalso aLevel = bLevel andalso aFpRel = bFpRel
-                    then Similar a
-                    else Different
+              fun similar (P2Extract a, P2Extract b) = if a = b then Similar a else Different
               
                |  similar (P2Field{offset=aOff, base=aBase}, P2Field{offset=bOff, base=bBase}) =
                     if aOff <> bOff then Different else similar (aBase, bBase)
@@ -1424,45 +1402,42 @@ struct
             |   reconvertCase t = t (* Just a simple conditional. *)
             
 
-            (* If "makeClosure" is true the procedure will need a full closure. *)
-            (* It may need a full closure even if makeClosure is false if it    *)
-            (* involves a recursive reference which will need a closure.        *)
+            (* If "makeClosure" is true the function will need a full closure.
+               It may need a full closure even if makeClosure is false if it
+               involves a recursive reference which will need a closure. *)
             and copyLambda ({body=lambdaBody, level=nesting, argTypes,
-                             name=lambdaName, resultType, localCount, ...}) makeClosure =
+                             name=lambdaName, resultType, localCount, ...}, makeClosure) =
             let
-              val newGrefs      = ref [] (* non-local references *)
+              val newGrefs: loadForm list ref      = ref [] (* non-local references *)
               val newNorefs     = ref 0  (* number of non-local refs *)
        
-              (* A new table for the new procedure. *)
+              (* A new table for the new function. *)
               fun prev (ptr as { addr, fpRel, ...}, lev, closure: bool) =
               let 
                     (* Returns the closure address of the non-local *)
                     fun makeClosureEntry([], _) = (* not found - construct new entry *)
                         let
-                            val () = newGrefs := mkGenLoad (addr, lev - 1, fpRel) ::  !newGrefs;
+                            val () = newGrefs :=  {addr = addr, level = lev - 1, fpRel = fpRel} ::  !newGrefs;
                             val newAddr = !newNorefs + 1;
                         in
                             newNorefs := newAddr; (* increment count *)
-                            mkClosLoad newAddr
+                            P2Extract(P2LoadClosure(newAddr-1))
                         end
         
-                    |   makeClosureEntry(P2Extract{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t,
-                                         newAddr) =
+                    |   makeClosureEntry({addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t, newAddr) =
                         if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
-                        then mkClosLoad newAddr
+                        then P2Extract(P2LoadClosure(newAddr-1))
                         else makeClosureEntry(t, newAddr - 1)
 
-                    | makeClosureEntry _ =
-                        raise InternalError "makeClosureEntry: closure is not Extract";
               in
-                (* If we use a procedure on another level in a way that will
+                (* If we use a function on another level in a way that will
                    require it to have a real closure we must make one for it.
                    (i.e. we must set the "closure" flag.) This is necessary
-                   because we may, for example, pass an outer procedure as a
-                   parameter from within an inner procedure. The inner procedure
+                   because we may, for example, pass an outer function as a
+                   parameter from within an inner function. The inner function
                    may not itself need a closure so the non-local references 
                    it makes will not be forced to have closures, but the outer
-                   procedure will need one. *)
+                   function will need one. *)
                 if lev = 0 (* Reference to the closure itself. *)
                 then
                 let
@@ -1473,7 +1448,7 @@ struct
             
                     val () = if closure then makeClosure := true else ();
                 in
-                    mkClosLoad 0
+                    P2Extract P2LoadRecursive
                 end
         
                 else if lev = 1 andalso addr > 0
@@ -1527,7 +1502,8 @@ struct
       
               (* process the body *)
               val newLocalAddresses = ref 1
-              val insertedCode = copyCode (lambdaBody, prev, localCount, newLocalAddresses)
+              val insertedCode =
+                copyCode (lambdaBody, prev, localCount, newLocalAddresses, List.length argTypes)
             in
                 case !newGrefs of
                     [] => (* no external references *)
@@ -1548,37 +1524,37 @@ struct
                         val cnstnt = codeGenAndPrint debugArgs (copiedProc, 1) ()
                     in
                         (* Code generate it now so we get a constant. *)
-                        P2Constnt cnstnt
+                        (P2Constnt cnstnt, [])
                     end
       
                 |   globalRefs =>
                     (* External references present. The closure will be copied
                         later with copyProcClosure. *)
-                    P2Lambda 
+                    (P2Lambda 
                     {
                         body          = insertedCode,
                         name          = lambdaName,
-                        closure       = globalRefs,
+                        closure       = [],
                         argTypes      = argTypes,
                         resultType    = resultType,
                         level         = nesting,
                         localCount    = ! newLocalAddresses,
                         makeClosure   = false
-                    }
+                    },
+                    globalRefs)
             end (* copyLambda *)
 
-                (* Copy the closure of a procedure which has previously been
+                (* Copy the closure of a function which has previously been
                 processed by copyLambda. *)
             and copyProcClosure (P2Lambda{ body, name, argTypes, level,
-                                         closure, resultType, localCount, ...}) makeClosure =
+                                           resultType, localCount, ...}, newClosure, makeClosure) =
                 let
-                    (* process the non-locals in this procedure *)
-                    (* If a closure is needed then any procedures referred to
+                    (* process the non-locals in this function *)
+                    (* If a closure is needed then any functions referred to
                        from the closure also need closures.*)
-                    fun makeLoads (P2Extract ext) = locaddr(ext, makeClosure)
-                     |  makeLoads _ = raise InternalError "makeLoads - not an Extract"
+                    fun makeLoads ext = locaddr(ext, makeClosure)
                
-                    val copyRefs = rev (map makeLoads closure);
+                    val copyRefs = rev (map makeLoads newClosure)
                 in
                     P2Lambda
                       {
@@ -1592,7 +1568,7 @@ struct
                         makeClosure   = makeClosure
                       }
                 end
-            |  copyProcClosure pt _ = pt (* may now be a constant *)
+            |  copyProcClosure(pt, _, _) = pt (* may now be a constant *)
             (* end copyProcClosure *)
         in     
             insert pt
@@ -1601,7 +1577,7 @@ struct
         val outputAddresses = ref 1
         val insertedCode = 
             copyCode (pt, fn _ => raise InternalError "outer level reached in copyCode",
-                      localAddressCount, outputAddresses)
+                      localAddressCount, outputAddresses, 0)
     in
         (insertedCode, !outputAddresses)
     end (* staticLinkAndCases *)
