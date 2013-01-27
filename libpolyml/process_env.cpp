@@ -126,6 +126,26 @@ static bool exiting = false;
 
 static PLock atExitLock; // Thread lock for above.
 
+#ifdef __CYGWIN__
+// Cygwin requires spawnvp to avoid the significant overhead of vfork
+// but it doesn't seem to be thread-safe.  Run it on the main thread
+// to be sure.
+class CygwinSpawnRequest: public MainThreadRequest
+{
+public:
+    CygwinSpawnRequest(char **argv): MainThreadRequest(MTP_CYGWINSPAWN), spawnArgv(argv) {}
+
+    virtual void Perform();
+    char **spawnArgv;
+    int pid;
+};
+
+void CygwinSpawnRequest::Perform()
+{
+    pid = spawnvp(_P_NOWAIT, "/bin/sh", spawnArgv);
+}
+
+#endif
 
 Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
@@ -199,11 +219,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             argv[2] = buff;
             argv[3] = NULL;
 #if (defined(__CYGWIN__))
-            // vfork adds a significant overhead.  spawnvp provides a wrapper
-            // for CreateProcess that avoids this.
-            int pid = spawnvp(_P_NOWAIT, "/bin/sh", argv);
-            if (pid < 0)
-                raise_syscall(mdTaskData, "Function system failed", errno);
+            CygwinSpawnRequest request(argv);
+            processes->MakeRootRequest(mdTaskData, &request);
+            int pid = request.pid;
 #else
             // We need to break this down so that we can unblock signals in the
             // child process.

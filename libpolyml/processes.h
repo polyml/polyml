@@ -118,6 +118,7 @@ extern enum _mainThreadPhase {
     MTP_LOADSTATE,
     MTP_PROFILING,
     MTP_SIGHANDLER,
+    MTP_CYGWINSPAWN,
     MTP_MAXENTRY
 } mainThreadPhase;
 
