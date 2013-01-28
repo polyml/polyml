@@ -222,6 +222,8 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             CygwinSpawnRequest request(argv);
             processes->MakeRootRequest(mdTaskData, &request);
             int pid = request.pid;
+            if (pid < 0)
+                raise_syscall(mdTaskData, "Function system failed", errno);
 #else
             // We need to break this down so that we can unblock signals in the
             // child process.
