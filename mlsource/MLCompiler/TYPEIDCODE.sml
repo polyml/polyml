@@ -740,7 +740,7 @@ struct
     let
         val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
-        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr, vConstrs), eqStatus, boxedCode, sizeCode, ...}, addr),
+        fun equalityForDatatype(({typeConstr=TypeConstrSet(tyConstr, vConstrs), eqStatus, (*boxedCode, sizeCode,*) ...}, addr),
                                 otherFns) =
         if eqStatus
         then
@@ -770,11 +770,13 @@ struct
             (* If this is a reference to a datatype we're currently generating
                load that address otherwise fall back to the default. *)
             fun getEqFnForID(typeId, _, l) =
+                (*
                 if sameTypeId(typeId, tcIdentifier tyConstr) andalso null argTypes
                 then (* Directly recursive. *)
-                    TypeValue.createTypeValue{eqCode=mkLoad(0, l-baseLevel-1), printCode=CodeZero,
+                    TypeValue.createTypeValue{eqCode=mkLoadRecursive(l-baseLevel-1), printCode=CodeZero,
                                     boxedCode=boxedCode, sizeCode=sizeCode}
                 else
+                *)
                 case List.find(fn({typeConstr=tc, ...}, _) => sameTypeId(tcIdentifier(tsConstr tc), typeId)) typesAndAddresses of
                     SOME({boxedCode, sizeCode, ...}, addr) =>  (* Mutually recursive. *)
                          TypeValue.createTypeValue{eqCode=mkLoad(addr, l-baseLevel), printCode=CodeZero,
