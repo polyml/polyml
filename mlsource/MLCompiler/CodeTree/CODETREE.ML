@@ -277,7 +277,8 @@ DCJM 2000.
                     
                         val genVal =
                             case optGeneral oldVal of
-                                Extract{addr, ...} => resultWordN addr
+                                Extract(LoadLocal addr) => resultWordN addr
+                            |   Extract(LoadLegacy{addr, ...}) => resultWordN addr (* ??? *)
                             |   Constnt c => c
                             |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
                     in

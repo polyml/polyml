@@ -888,27 +888,31 @@ struct
             
             val newLocalAddresses = Array.array (localCount, 0)
 
-            fun locaddr ({ addr=laddr, level = 0, fpRel = true, ...}, closure) =
-                if laddr < 0
-                then P2Extract(P2LoadArgument(numberOfArgs + laddr))
+            fun locaddr (LoadLegacy{ addr, level = 0, fpRel = true, ...}, closure) =
+                if addr < 0
+                then P2Extract(P2LoadArgument(numberOfArgs + addr))
           
                 (* isOnstack *)
-                else
+                else locaddr(LoadLocal addr, closure)
+
+            |   locaddr (ptr as LoadLegacy{ level, ...}, closure) = previous (ptr, level, closure)
+            
+            |   locaddr (LoadLocal addr, closure) =
                 (
-                case Array.sub(localConsts, laddr) of
-                    SOME c => c (* just return the constant *)
-                |   NONE =>
-                    let
-                        val () =
-                            if closure then Array.update (closuresForLocals, laddr, true) else ()
-                        val newAddr = Array.sub(newLocalAddresses, laddr)
-                        val _ = newAddr <> 0 orelse raise InternalError "copyCode: Not set"
-                    in
-                        P2Extract(P2LoadLocal newAddr)
-                    end
+                    case Array.sub(localConsts, addr) of
+                        SOME c => c (* just return the constant *)
+                    |   NONE =>
+                        let
+                            val () =
+                                if closure then Array.update (closuresForLocals, addr, true) else ()
+                            val newAddr = Array.sub(newLocalAddresses, addr)
+                            val _ = newAddr <> 0 orelse raise InternalError "copyCode: Not set"
+                        in
+                            P2Extract(P2LoadLocal newAddr)
+                        end
                 )
 
-            |   locaddr (ptr as { level, ...}, closure) = previous (ptr, level, closure)
+            |   locaddr _ = raise InternalError "locaddr: TODO"
 
             fun makeDecl addr =
             (let
@@ -1412,22 +1416,24 @@ struct
               val newNorefs     = ref 0  (* number of non-local refs *)
        
               (* A new table for the new function. *)
-              fun prev (ptr as { addr, fpRel, ...}, lev, closure: bool) =
+              fun prev (ptr as LoadLegacy{ addr, fpRel, ...}, lev, closure: bool) =
               let 
                     (* Returns the closure address of the non-local *)
                     fun makeClosureEntry([], _) = (* not found - construct new entry *)
                         let
-                            val () = newGrefs :=  {addr = addr, level = lev - 1, fpRel = fpRel} ::  !newGrefs;
+                            val () = newGrefs :=  LoadLegacy{addr = addr, level = lev - 1, fpRel = fpRel} ::  !newGrefs;
                             val newAddr = !newNorefs + 1;
                         in
                             newNorefs := newAddr; (* increment count *)
                             P2Extract(P2LoadClosure(newAddr-1))
                         end
         
-                    |   makeClosureEntry({addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t, newAddr) =
+                    |   makeClosureEntry(LoadLegacy{addr=loadAddr, level=loadLevel, fpRel=loadFpRel, ...} :: t, newAddr) =
                         if loadAddr = addr andalso loadLevel = lev - 1 andalso loadFpRel = fpRel
                         then P2Extract(P2LoadClosure(newAddr-1))
                         else makeClosureEntry(t, newAddr - 1)
+
+                    |   makeClosureEntry _ = raise InternalError "makeClosureEntry: TODO"
 
               in
                 (* If we use a function on another level in a way that will
@@ -1498,7 +1504,8 @@ struct
                         P2Constnt _ => outerLoad
                         |   _ => makeClosureEntry (!newGrefs, !newNorefs)
                end
-              end (* prev *);
+              end (* prev *)
+              | prev _ = raise InternalError "prev: TODO"
       
               (* process the body *)
               val newLocalAddresses = ref 1

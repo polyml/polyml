@@ -111,14 +111,14 @@ struct
     |   VarTupleMultiple of
             { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
 
-    withtype loadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool
-    }
+    and loadForm =
+        LoadArgument of int
+    |   LoadLocal of int
+    |   LoadClosure of int
+    |   LoadRecursive
+    |   LoadLegacy of { addr: int, level: int, fpRel: bool }
     
-    and simpleBinding = 
+    withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
         addr:       int
@@ -233,14 +233,20 @@ struct
                 )
             end
          
-        | Extract {addr, level, fpRel} =>
+        | Extract ext =>
             let
-                val str : string =
-                    if not fpRel
-                    then concat ["CLOS(", Int.toString level, ",", Int.toString addr, ")"]
-                    else if addr < 0
-                    then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), ")"]
-                    else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, ")"]
+                val str =
+                    case ext of
+                        LoadArgument addr => concat ["PARAM(", Int.toString addr, ")"]
+                    |   LoadLocal addr => concat ["LOCAL(", Int.toString addr, ")"]
+                    |   LoadClosure addr => concat ["CLOS(", Int.toString addr, ")"]
+                    |   LoadRecursive => "RECURSIVE"
+                    |   LoadLegacy { fpRel = false, level, addr } =>
+                            concat ["CLOS(", Int.toString level, ",", Int.toString addr, ")"]
+                    |   LoadLegacy { level, addr, ...} =>
+                            if addr < 0
+                            then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), ")"]
+                            else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, ")"]
             in
                 PrettyString str
             end
@@ -393,14 +399,20 @@ struct
                 ]
             )
 
-        |   ExtractWithInline({fpRel, level, addr}, spec, _) =>
+        |   ExtractWithInline(ext, spec, _) =>
             let
-                val str : string =
-                    if not fpRel
-                    then concat ["CLOSWITHINLINE(", Int.toString level, ",", Int.toString addr, ";"]
-                    else if addr < 0
-                    then concat ["PARAMWITHINLINE(", Int.toString level, ",", Int.toString (~ addr), ";"]
-                    else concat ["LOCALWITHINLINE(", Int.toString level, ",", Int.toString addr, ";"]
+                val str =
+                    case ext of
+                        LoadArgument addr => concat ["PARAMWITHINLINE(", Int.toString addr, ";"]
+                    |   LoadLocal addr => concat ["LOCALWITHINLINE(", Int.toString addr, ";"]
+                    |   LoadClosure addr => concat ["CLOSWITHINLINE(", Int.toString addr, ";"]
+                    |   LoadRecursive => "RECURSIVEWITHINLINE("
+                    |   LoadLegacy { fpRel = false, level, addr } =>
+                            concat ["CLOSWITHINLINE(", Int.toString level, ",", Int.toString addr, ";"]
+                    |   LoadLegacy { level, addr, ...} =>
+                            if addr < 0
+                            then concat ["PARAMWITHINLINE(", Int.toString level, ",", Int.toString (~ addr), ";"]
+                            else concat ["LOCALWITHINLINE(", Int.toString level, ",", Int.toString addr, ";"]
             in
                 PrettyBlock (1, true, [],
                     [
@@ -692,6 +704,7 @@ struct
         and  varTuple = varTuple
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
+        and  loadForm = loadForm
     end
 
 end;

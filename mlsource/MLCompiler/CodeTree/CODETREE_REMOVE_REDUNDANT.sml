@@ -24,9 +24,9 @@ functor CODETREE_REMOVE_REDUNDANT(
 ) :
     sig
         type codetree
-        type loadForm = { addr : int, level: int, fpRel: bool }
+        type loadForm
         val cleanProc : (codetree * (loadForm * int * int -> codetree) * int * bool array) -> codetree
-        structure Sharing: sig type codetree = codetree end
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm end
     end
 =
 struct
@@ -49,7 +49,7 @@ struct
         fun cleanLambda({body, isInline, name, argTypes, resultType, level=nestingDepth, localCount, ...}) =
         let
             (* Start a new level. *)
-            fun lookup(ext as {addr, fpRel, ...}, 0, _) =
+            fun lookup(ext as LoadLegacy{addr, fpRel, ...}, 0, _) =
                 (
                     (* Mark any access to local variables. *)
                     if addr >= 0 andalso fpRel
@@ -58,7 +58,9 @@ struct
                     Extract ext
                 )
 
-            |   lookup(ext, level, depth) = prev(ext, level-1, depth);
+            |   lookup(ext as LoadLegacy _ , level, depth) = prev(ext, level-1, depth)
+            
+            |   lookup _ = raise InternalError "lookup: TODO"
 
             val newLocals = Array.array (localCount (* Initial size. *), false);
             val bodyCode = cleanProc(body, lookup, nestingDepth, newLocals)
@@ -151,7 +153,7 @@ struct
                 mkEnv(processedDecs, processedExp)
             end (* Newenv *)
 
-         |  cleanCode (dec as Extract(ext as {addr, level, fpRel, ...})) =
+         |  cleanCode (dec as Extract(ext as LoadLegacy {addr, level, fpRel, ...})) =
                 (* If this is a local we need to mark it as used. *)
                 if level = 0
                 then
@@ -164,6 +166,15 @@ struct
                     )
                 else (* Non-local.  This may be a recursive call. *)
                     prev(ext, level-1, nestingDepth)
+
+         |  cleanCode (dec as Extract(LoadLocal addr)) =
+                (* If this is a local we need to mark it as used. *)
+                (
+                    Array.update(locals, addr, true);
+                    dec
+                )
+
+         |  cleanCode(Extract _) = raise InternalError "cleanCode: TODO"
 
          |  cleanCode (ExtractWithInline(ext, _, _)) = cleanCode(Extract ext)
 
@@ -219,8 +230,9 @@ struct
                    The container won't be created either. *)
                   val used =
                       case container of
-                        Extract{addr, level=0, fpRel=true, ...} =>
+                        Extract(LoadLegacy{addr, level=0, fpRel=true, ...}) =>
                             addr <= 0 orelse Array.sub(locals, addr)
+                      | Extract(LoadLocal addr) => Array.sub(locals, addr)
                       | _ => true (* Assume it is. *)
                in
                 (* Disable this for the moment - it's probably not very useful
@@ -271,5 +283,6 @@ struct
     structure Sharing =
     struct
         type codetree = codetree
+        and loadForm = loadForm
     end
 end;

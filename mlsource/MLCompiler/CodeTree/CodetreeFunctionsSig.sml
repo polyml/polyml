@@ -20,6 +20,7 @@ signature CodetreeFunctionsSig =
 sig
     type codetree
     type codeBinding
+    type loadForm
     type optVal = codetree
 
     type machineWord = Address.machineWord
@@ -51,7 +52,6 @@ sig
     and mkIndirectVariable: {base: codetree, offset: codetree } -> codetree
     and mkTupleVariable: varTuple list * codetree -> codetree
     and mkAltMatch: codetree * codetree -> codetree
-    and mkRecLoad: int -> codetree
     and mkEval: codetree * codetree list -> codetree
     and mkHandle: codetree * codetree -> codetree
     and mkLoad: int * int -> codetree
@@ -89,14 +89,14 @@ sig
     val optGeneral: codetree -> codetree
     and optSpecial: codetree -> codetree option
     and optDecs: codetree -> codeBinding list
-    and optEnviron: codetree -> { addr : int,  level: int,  fpRel: bool } * int * int -> codetree
+    and optEnviron: codetree -> loadForm * int * int -> codetree
     and optVal:
         { general : codetree, special : codetree option,
-          environ : { addr : int,  level: int,  fpRel: bool } * int * int -> codetree,
+          environ : loadForm * int * int -> codetree,
           decs : codeBinding list } -> codetree
     and simpleOptVal : codetree -> codetree
     
-    val errorEnv: { addr : int,  level: int,  fpRel: bool } * int * int -> codetree
+    val errorEnv: loadForm * int * int -> codetree
     
     val earlyRtsCall: machineWord -> bool
 
@@ -106,6 +106,7 @@ sig
         and  argumentType = argumentType
         and  varTuple = varTuple
         and  codeBinding = codeBinding
+        and  loadForm = loadForm
     end
 
 end;

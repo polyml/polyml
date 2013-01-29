@@ -43,12 +43,7 @@ sig
 
     |   Constnt of machineWord (* Load a constant *)
 
-    |   Extract of (* Get a local variable, an argument or a closure value *)
-        { (* Load a value. *)
-            addr : int, 
-            level: int, 
-            fpRel: bool
-        }
+    |   Extract of loadForm
     
     |   Indirect of {base: codetree, offset: int }
         (* Load a value from a heap record *)
@@ -112,14 +107,14 @@ sig
     |   VarTupleMultiple of
             { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
 
-    withtype loadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool
-    }
+    and loadForm =
+        LoadArgument of int
+    |   LoadLocal of int
+    |   LoadClosure of int
+    |   LoadRecursive
+    |   LoadLegacy of { addr: int, level: int, fpRel: bool }
     
-    and simpleBinding = 
+    withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
         addr:       int
@@ -154,6 +149,7 @@ sig
         and  varTuple = varTuple
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
+        and  loadForm = loadForm
     end
 
 end;

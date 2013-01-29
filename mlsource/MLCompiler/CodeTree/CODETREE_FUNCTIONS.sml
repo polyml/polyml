@@ -230,22 +230,13 @@ struct
 
 
     fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
-
-    (* Used for recursive functions - setting the "closure" flag
-       is a real hack. We also have to adjust the level number by
-       one because we don't really create an extra level. I'm not sure
-       whether this adjustment should really be here or in VALUEOPS.ML -
-       it's currently in the latter, because I think it's a parser-related
-       hack!  SPF 11/4/96
-     *)
-    fun mkRecLoad level =
-        Extract {level = level, addr = 0, fpRel = false};
   
     fun mkLoad (addr,level) =
-    if level < 0 then raise InternalError "mkLoad: level must be non-negative"
-    else Extract {level = level, addr = addr, fpRel = true}
+        if level < 0 then raise InternalError "mkLoad: level must be non-negative"
+        else if level = 0 andalso addr >= 0
+        then Extract(LoadLocal addr)
+        else Extract(LoadLegacy{level = level, addr = addr, fpRel = true})
   
-
     (* Old form operations for backwards compatibility.  These all create
        default GeneralType arguments and results. *)
 
@@ -300,7 +291,7 @@ struct
     fun multipleUses (code as Constnt _, _, _) = 
         {load = (fn _ => code), dec = []}
 
-    |   multipleUses (code as Extract{addr, level=loadLevel, ...}, _, level) = 
+    |   multipleUses (code as Extract(LoadLegacy{addr, level=loadLevel, ...}), _, level) = 
         let (* May have to adjust the level. *)
             fun loadFn lev =
                 if lev = level
@@ -309,8 +300,20 @@ struct
         in
             {load = loadFn, dec = []}
         end
+
+    |   multipleUses (code as Extract(LoadLocal addr), _, level) = 
+        let (* May have to adjust the level. *)
+            fun loadFn lev =
+                if lev = level
+                then code 
+                else mkLoad (addr, lev - level)
+        in
+            {load = loadFn, dec = []}
+        end
+
+    |   multipleUses (Extract _, _, _) = raise InternalError "multipleUses: TODO"
     
-   |    multipleUses (code, nextAddress, level) = 
+    |   multipleUses (code, nextAddress, level) = 
         let
             val addr       = nextAddress();
             fun loadFn lev = mkLoad (addr, lev - level);
@@ -425,7 +428,9 @@ struct
                have a global structure  *)
             (
                 case findEntryInBlock recc offset of
-                    Extract (ext as {level, ...}) => env (ext, 0, (* global *) level)
+                    Extract (ext as LoadLegacy{level, ...}) => env (ext, 0, (* global *) level)
+                |   Extract (ext as LoadLocal _) => env(ext, 0, 0)
+                |   Extract _ => raise InternalError "findEntryInBlock: TODO"
                 |   selection => selection (* Normally a constant *)
             )
  
@@ -471,6 +476,7 @@ struct
         and  argumentType = argumentType
         and  varTuple = varTuple
         and  codeBinding = codeBinding
+        and  loadForm = loadForm
     end
 
 end;

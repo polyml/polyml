@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012 David C.J. Matthews
+    Copyright (c) 2012,13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,9 +24,9 @@ functor CODETREE_OPTIMISER(
     structure REMOVE_REDUNDANT:
     sig
         type codetree
-        type loadForm = { addr : int, level: int, fpRel: bool }
+        type loadForm
         val cleanProc : (codetree * (loadForm * int * int -> codetree) * int * bool array) -> codetree
-        structure Sharing: sig type codetree = codetree end
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm end
     end
 
     structure DEBUG :
@@ -73,13 +73,6 @@ struct
 
     val isConstnt    = fn (Constnt _)    => true | _ => false
 
-    type loadForm = 
-    { (* Load a value. *)
-        addr : int, 
-        level: int, 
-        fpRel: bool
-    }
-
     (* gets a value from the run-time system *)
     val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation;
 
@@ -94,7 +87,9 @@ struct
     val rtsFunction = mkConst o ioOp
 
     fun mkGenLoad  (i1, i2, bl) =
-        Extract {addr  = i1, level = i2, fpRel = bl}
+        if i2 = 0 andalso i1 >= 0 andalso bl
+        then Extract(LoadLocal i1)
+        else Extract(LoadLegacy{addr  = i1, level = i2, fpRel = bl})
 
 (************************************************************************)
 
@@ -105,73 +100,84 @@ struct
 (*****************************************************************************)
   (* Change the level of an entry if necessary. This *)
   (* happens if we have a function inside an inline function. *)
-  fun changeLevel entry 0 = entry (* No change needed*)
-   | changeLevel entry correction =
-      let
-      fun changeL(ext as Extract{addr, level, fpRel, ...}, nesting) =
-            if level >= 0 andalso level < nesting
-                (* We enter declarations with level = ~1 for recursive
-                   calls when processing mutual recursion. *)
-            then ext (* It's local to the function(s) we're processing. *)
-            else mkGenLoad (addr, level + correction, fpRel)
+    fun changeLevel entry 0 = entry (* No change needed*)
+    |   changeLevel entry correction =
+        let
+            fun changeL(ext as Extract(LoadLegacy{addr, level, fpRel, ...}), nesting) =
+                if level < 0 then raise InternalError "level is negative"
+                else if level < nesting
+                    (* Local variables don't need to be changed. *)
+                then ext (* It's local to the function(s) we're processing. *)
+                else mkGenLoad (addr, level + correction, fpRel)
 
-        | changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
-                         level, localCount, ...}, nesting) =
-            Lambda{body = changeL(body, nesting+1), isInline = isInline,
-                   name = name, closure = closure, argTypes = argTypes, resultType=resultType,
-                   level = level + correction, localCount=localCount}
+            |   changeL(ext as Extract(LoadLocal addr), nesting) =
+                if nesting > 0
+                then ext
+                else mkGenLoad (addr, correction, true)
 
-        | changeL(Eval{function, argList, resultType}, nesting) =
-            Eval{function = changeL(function, nesting),
-                 argList = map (fn (a, t) => (changeL(a, nesting), t)) argList,
-                 resultType=resultType}
+            |   changeL(Extract _, _) = raise InternalError "changeL: TODO"
 
-        | changeL(Indirect{ base, offset }, nesting) =
-            Indirect{base = changeL(base, nesting), offset = offset }
+            |   changeL(Lambda{body, isInline, name, closure, argTypes, resultType,
+                             level, localCount, ...}, nesting) =
+                (* We have to process the free variables in the function.  Since we
+                   don't currently keep the closure we have to process the whole
+                   body.  *)
+                Lambda{body = changeL(body, nesting+1), isInline = isInline,
+                       name = name, closure = closure, argTypes = argTypes, resultType=resultType,
+                       level = level + correction, localCount=localCount}
 
-        | changeL(Newenv(decs,exp), nesting) =
-            let
-                fun changeLDec(Declar{value, addr, ...}, nesting) = mkDec(addr, changeL(value, nesting))
-                |   changeLDec(NullBinding exp, nesting) = NullBinding(changeL(exp, nesting))
-                |   changeLDec _ = raise InternalError "changeLDec: Unknown code"
-            in
-                Newenv(map(fn d => changeLDec(d, nesting)) decs, changeL(exp, nesting))
-            end
+            |   changeL(Eval{function, argList, resultType}, nesting) =
+                Eval{function = changeL(function, nesting),
+                     argList = map (fn (a, t) => (changeL(a, nesting), t)) argList,
+                     resultType=resultType}
 
-        | changeL(c as Container _, _) = c
+            |   changeL(Indirect{ base, offset }, nesting) =
+                Indirect{base = changeL(base, nesting), offset = offset }
 
-        | changeL(TupleFromContainer(container, size), nesting) =
-            TupleFromContainer(changeL(container, nesting), size)
+            |   changeL(Newenv(decs,exp), nesting) =
+                let
+                    fun changeLDec(Declar{value, addr, ...}, nesting) = mkDec(addr, changeL(value, nesting))
+                    |   changeLDec(NullBinding exp, nesting) = NullBinding(changeL(exp, nesting))
+                    |   changeLDec _ = raise InternalError "changeLDec: Unknown code"
+                in
+                    Newenv(map(fn d => changeLDec(d, nesting)) decs, changeL(exp, nesting))
+                end
 
-        | changeL(_, _) =
-            (* The code we produce in these inline functions is very limited. *)
-               raise InternalError "changeL: Unknown code"
+            |   changeL(c as Container _, _) = c
 
-    in
-        case optGeneral entry of
-            gen as Extract _ =>
-                optVal 
-                {
-                    general = changeL(gen, 0),
-                    special = optSpecial entry,
-                    environ = optEnviron entry,
-                    decs    = []
-                }
+            |   changeL(TupleFromContainer(container, size), nesting) =
+                    TupleFromContainer(changeL(container, nesting), size)
 
-        |   Constnt _ => entry
+            |   changeL(_, _) =
+                (* The code we produce in these inline functions is very limited. *)
+                   raise InternalError "changeL: Unknown code"
 
-        |   gen as Lambda _ =>
-                optVal
-                {
-                    general = changeL(gen, 0),
-                    special = optSpecial entry,
-                    environ = optEnviron entry,
-                    decs    = []
-                }
+        in
+            case optGeneral entry of
+                gen as Extract _ =>
+                    optVal 
+                    {
+                        general = changeL(gen, 0),
+                        special = optSpecial entry,
+                        environ = optEnviron entry,
+                        decs    = []
+                    }
+
+            |   Constnt _ => entry
+
+            |   gen as Lambda _ =>
+                    (* optimiseLambda returns the Lambda as the general result for
+                       functions that were explicitly inlined by the front-end. *)
+                    optVal
+                    {
+                        general = changeL(gen, 0),
+                        special = optSpecial entry,
+                        environ = optEnviron entry,
+                        decs    = []
+                    }
             
-        | _ => raise InternalError "changeLevel: Unknown entry"
-    end
-  (* end changeLevel *)
+            | _ => raise InternalError "changeLevel: Unknown entry"
+        end
 
     (* Code-generate a function or set of mutually recursive functions that contain no free variables
        and run the code to return the address.  This allows us to further fold the address as
@@ -273,10 +279,12 @@ struct
                 (* No need to create a binding for a constant. *)
                 (stripDecs ins, optDecs ins)
 
-        |   Extract { level = 0, ...} =>
+        |   Extract (LoadLegacy{ level = 0, ...}) =>
                 (* Declaration is simply giving a new name to a local
                    - can ignore this declaration. *) 
                 (stripDecs ins, optDecs ins)
+        |   Extract (LoadLocal _) => (stripDecs ins, optDecs ins)
+        |   Extract (LoadArgument _) => (stripDecs ins, optDecs ins)
 
         |   gen =>
             let (* Create a binding for this value. *)
@@ -355,22 +363,13 @@ struct
             (* Get the function to be called and see if it is inline or
                a lambda expression. *)
             val funct : optVal = optimise(function, false, context)
-            
-(*            val () = case (function, optGeneral funct) of
-                (Extract{addr=0, fpRel = false, level = fLevel, ...}, Extract{addr=0, fpRel = false, level = gLevel, ...}) =>
-                    if fLevel = gLevel then () else print "different levels\n"
-            |   (Extract{addr=0, fpRel = false, ...}, _) =>
-                    raise InternalError "recursive before but not after\n"
-            |   (_, Extract{addr=0, fpRel = false, ...}) =>
-                    print "recursive after but not before\n"
-            |   _ => ()*)
- 
+
             (* There are essentially two cases to consider - the function
                may be "inline" in which case it must be expanded as a block,
                or it must be called. *)
         in
             case (function, optSpecial funct, optGeneral funct) of
-                (Extract{addr=0, fpRel = false, level = 0, ...}, _, _) =>
+                (Extract(LoadLegacy{addr=0, fpRel = false, level = 0, ...}), _, _) =>
                      (* We're already expanding this function - don't recursively expand
                         it.  Either loop or generate a function call. *)
                 let
@@ -393,7 +392,7 @@ struct
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
                 end
 
-            |   (Extract{addr=0, fpRel = false, ...}, _, _) =>
+            |   (Extract(LoadLegacy{addr=0, fpRel = false, ...}), _, _) =>
                     (* Recursive call to a function at an outer level.  Cannot loop but
                        we mustn't expand it inline. *)
                 let
@@ -403,6 +402,10 @@ struct
                 in
                     repDecs (optDecs funct) (simpleOptVal evCopiedCode)
                 end
+
+            |   (Extract(LoadArgument _), _, _) => raise InternalError "Eval: TODO"
+            |   (Extract(LoadClosure _), _, _) => raise InternalError "Eval: TODO"
+            |   (Extract LoadRecursive, _, _) => raise InternalError "Eval: TODO"
 
             |   (_, SOME(Lambda (lambda as { isInline = MaybeInline, ...})), _) =>
                     inlineInlineOnlyFunction(funct, lambda, argList, tailCall, context)
@@ -437,10 +440,13 @@ struct
 
         end (* Eval { } *)
         
-     |  optimise (Extract(ext as {level, ...}), _, {oldEnv = {lookup=lookupOldAddr, ...}, nestingOfThisFunction, ...}) =
+     |  optimise (Extract ext, _, {oldEnv = {lookup=lookupOldAddr, ...}, nestingOfThisFunction, ...}) =
+        let
+            val level = case ext of LoadLegacy {level, ...} => level | _ => 0
+        in
             lookupOldAddr (ext, nestingOfThisFunction, level)
+        end
 
-           
      |  optimise (pt as Constnt _, _, _) =
             simpleOptVal pt (* Return the original constant. *)
      
@@ -650,8 +656,8 @@ struct
                         else (* Different sizes - use default. *)
                            simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
 
-                    |   (TupleFromContainer(Extract{addr=thenAddr,level=0,fpRel=true, ...}, thenSize), _,
-                         TupleFromContainer(Extract{addr=elseAddr,level=0,fpRel=true, ...}, elseSize), _) =>
+                    |   (TupleFromContainer(Extract(LoadLegacy{addr=thenAddr,level=0,fpRel=true, ...}), thenSize), _,
+                         TupleFromContainer(Extract(LoadLegacy{addr=elseAddr,level=0,fpRel=true, ...}), elseSize), _) =>
                         (* Have both been converted already.  If we are returning a tuple from
                            a container the container must be declared locally. *)
                         if thenSize = elseSize
@@ -670,7 +676,7 @@ struct
                         else (* Different sizes - use default. *)
                            simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
 
-                    |   (TupleFromContainer(Extract{addr=thenAddr,level=0,fpRel=true, ...}, thenSize), _,
+                    |   (TupleFromContainer(Extract(LoadLegacy{addr=thenAddr,level=0,fpRel=true, ...}), thenSize), _,
                          Recconstr elseRec, _) =>
                         (* The then-part has already been converted *)
                         if thenSize = List.length elseRec
@@ -679,13 +685,17 @@ struct
                            simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
 
                     |   (Recconstr thenRec, _,
-                         TupleFromContainer(Extract{addr=elseAddr,level=0,fpRel=true, ...}, elseSize), _) =>
+                         TupleFromContainer(Extract(LoadLegacy{addr=elseAddr,level=0,fpRel=true, ...}), elseSize), _) =>
                         (* The else-part has already been converted *)
                         if elseSize = List.length thenRec
                         then
                             combineTuples(elseAddr, NONE, SOME elseAddr, thenRec, [], elseSize)
                         else (* Different sizes - use default. *)
                            simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
+
+                    |   (TupleFromContainer(Extract _, _), _, _, _) => raise InternalError "combinetuples: TODO"
+                    
+                    |   (_, _, TupleFromContainer(Extract _, _), _) => raise InternalError "combinetuples: TODO"
 
                      |   _ => (* Not constants or records. *)
                          simpleOptVal (mkIf (insFirst, getGeneral insSecond, getGeneral insThird))
@@ -695,8 +705,8 @@ struct
      |  optimise (Newenv(envDecs, envExp), tailCall,
                   context: optContext as 
                     {oldEnv = {enter = enterOldDec, lookup = lookupOldAddr },
-                     newEnv = { enter =  enterNewDec, ...}, 
-                     spval, nestingOfThisFunction, debugArgs, ...}) =
+                     newEnv = { enter =  enterNewDec, lookup = lookupNewAddr}, 
+                     spval, nestingOfThisFunction, debugArgs, recursiveExpansions, loopFilter }) =
         let
             (* Recurses down the list of declarations and expressions processing
                each, and then reconstructs the list on the way back. *)
@@ -780,41 +790,56 @@ struct
                        whole mutually-recursive declaration. *)
                     val hasNonLocalReference = ref false
 
-                    fun checkClosure (Extract{addr, level=0, fpRel=true, ...}) =
-                        if addr >= startAddr andalso addr < endAddr
-                        then ()
-                        else hasNonLocalReference := true
+                    fun checkClosure (Extract(LoadLegacy{addr, level=0, fpRel=true, ...})) =
+                            if addr >= startAddr andalso addr < endAddr
+                            then ()
+                            else hasNonLocalReference := true
+                    |   checkClosure(Extract(LoadLocal addr)) =
+                            if addr >= startAddr andalso addr < endAddr
+                            then ()
+                            else hasNonLocalReference := true
+                        
                     |   checkClosure _ = hasNonLocalReference := true
 
                     fun processNonInlines ({ lambda, addr = decAddr, ... }, decSpval, (decs, otherChanges)) =
                     (* Have a look at the old entry to see if it's a constant. *)
                     let
                         val oldEntry =
-                            lookupOldAddr(
-                                    {addr=decAddr, level=0, fpRel=true},
-                                    nestingOfThisFunction, 0)
+                            lookupOldAddr(LoadLocal decAddr, nestingOfThisFunction, 0)
                     in
                         case optGeneral oldEntry of
                             oldGen as Constnt _ =>
                                 ({addr=decSpval, value=oldGen} :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
                         |   _ =>
                             let
-                                (* Set this entry to create a recursive call if we load
-                                   the address while processing the function. The recursive
-                                   call may come about as a result of expanding an inline
-                                   function which then makes the recursive call. *)
-                                local
-                                    val recursive = simpleOptVal (mkGenLoad (0, ~1, false))
-                                in
-                                    val _ = enterOldDec(decAddr, recursive);
-                                    val _ = enterNewDec(decSpval, recursive)
-                                end;
-                       
                                 (* Now copy this entry. *)
-                                val ins  = optimise(Lambda lambda, false, context)
+                                local
+                                    val functionNesting = nestingOfThisFunction+1
+                                    (* We need to trap references to our own address and turn them into
+                                       recursive references.  They could be in either the new or the old
+                                       address space. *)
+                                    fun localOldAddr(ext as LoadLegacy{ addr, ...}, depth, level) =
+                                        if level = 0 andalso addr = decAddr
+                                        then changeLevel (mkGenLoad (0, 0, false)) (depth - functionNesting)
+                                        else lookupOldAddr(ext, depth, level)
+                                    |   localOldAddr _ = raise InternalError "recursive old: TODO"
 
-                                val gen  = optGeneral ins;
-                                val spec = optSpecial ins;
+                                    fun localNewAddr(ext as LoadLegacy{ addr, ...}, depth, level) =
+                                        if level = 0 andalso addr = decSpval
+                                        then changeLevel (mkGenLoad (0, 0, false)) (depth - functionNesting)
+                                        else lookupNewAddr(ext, depth, level)
+                                    |   localNewAddr _ = raise InternalError "recursive new: TODO"
+
+                                    val lambdaContext =
+                                        {oldEnv = {enter = enterOldDec, lookup = localOldAddr },
+                                         newEnv = {enter =  enterNewDec, lookup = localNewAddr}, 
+                                         spval = spval, nestingOfThisFunction = nestingOfThisFunction,
+                                         debugArgs = debugArgs, recursiveExpansions = recursiveExpansions,
+                                         loopFilter = loopFilter}
+                                in
+                                    val {general=gen, special=spec, environ=lambdaEnv } =
+                                        optimiseLambda(lambda, lambdaContext)
+                                end
 
                                 (* The general value is either a reference to the
                                    declaration or a constant if the function has just
@@ -828,9 +853,6 @@ struct
                                             mkLoad (decSpval, 0)
                                         )
                                     |   _ => raise InternalError "processNonInlines: Not a function";
-
-                                (* Explicitly reset the entry in the new table. *)
-                                val _  = enterNewDec(decSpval, simpleOptVal optGen);
               
                                 (* If this is a small function we leave the special
                                    value so it can be inserted inline.  Otherwise
@@ -838,7 +860,7 @@ struct
                                 val optSpec =
                                      case spec of
                                         SOME(Lambda{ isInline=NonInline, ...}) => NONE
-                                       | _ => optSpecial ins;
+                                       | _ => spec
                                 val nowInline =
                                     isSome optSpec andalso not (isSome(optSpecial oldEntry))
                                 (* If this is now a constant or it is a small function when it
@@ -852,7 +874,7 @@ struct
                                         {
                                           general = optGen,
                                           special = optSpec,
-                                          environ = optEnviron ins,
+                                          environ = lambdaEnv,
                                           decs    = []
                                         });
                                 (
@@ -917,9 +939,7 @@ struct
                             fun reprocessDec({addr=decAddr, ...}, decSpval, (offset, others)) =
                             let
                                 val oldEntry =
-                                    lookupOldAddr(
-                                            {addr=decAddr, level=0, fpRel=true},
-                                            nestingOfThisFunction, 0)
+                                    lookupOldAddr(LoadLocal decAddr, nestingOfThisFunction, 0)
                             in
                                 let
                                     val newConstant = findEntryInBlock results offset
@@ -986,8 +1006,11 @@ struct
                The Extract entry will be looked up in "env" to return the "optVal" *)
             val specialFields = List.tabulate(List.length entries, fn addr => mkLoad(addr+1, 0))
 
-            fun env ({addr, ...}:loadForm, depth, _) =
-                changeLevel (List.nth(fieldEntries, addr-1)) (depth - nestingOfThisFunction)
+            fun env (LoadLegacy{addr, ...}, depth, _) =
+                    changeLevel (List.nth(fieldEntries, addr-1)) (depth - nestingOfThisFunction)
+            |   env (LoadLocal addr, depth, _) =
+                    changeLevel (List.nth(fieldEntries, addr-1)) (depth - nestingOfThisFunction)
+            |   env _ = raise InternalError "env: TODO"
 
             val newRec  = Recconstr generalFields
         in
@@ -1083,7 +1106,8 @@ struct
                 and optTuple = general context tuple
                 val () =
                     case optCont of
-                        Extract{level=0, fpRel=true, ...} => ()
+                        Extract(LoadLegacy{level=0, fpRel=true, ...}) => () (* Argument *)
+                    |   Extract(LoadLocal _) => () (* Local *)
                     |   _ => raise InternalError "optimise: SetContainer - not local"
                 
                 (* If the "tuple" is an expanded inline function it may well
@@ -1099,13 +1123,13 @@ struct
 
                 |   pushSetContainer(tuple as
                         TupleFromContainer(
-                            Extract{addr=innerAddr, level=0, fpRel=true, ...}, innerSize),
+                            Extract(LoadLegacy{addr=innerAddr, level=0, fpRel=true, ...}), innerSize),
                         decs) =
                     if innerSize = size
                     then
                         (
                         case optCont of
-                            Extract{addr=containerAddr, level=0, fpRel=true, ...} =>
+                            Extract(LoadLegacy{addr=containerAddr, level=0, fpRel=true, ...}) =>
                             let
                                 (* We can remove the inner container and replace it by
                                    a reference to the outer. *)
@@ -1133,6 +1157,7 @@ struct
                                 (* Just replace the declaration. *)
                                 mkEnv(List.rev rdecs, exp)
                             end
+                        |   Extract _ => raise InternalError "pushSetContainer: TODO"
                         | _ => mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
                         )
                     else mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
@@ -1273,8 +1298,9 @@ struct
                             val newRec  = Recconstr gen
                             (* Package up the declarations so we can extract the special values. *)
                             val vec = StretchArray.vector newTab
-                            fun env ({addr, ...}:loadForm, depth, _) : optVal =
+                            fun env (LoadLegacy{addr, ...}, depth, _) =
                                 changeLevel (valOf (Vector.sub(vec, addr))) (depth - nestingOfThisFunction)
+                            |   env _ = raise InternalError "env: TODO"
                         in
                             optVal 
                             {
@@ -1302,7 +1328,7 @@ struct
                     end
             end
 
-    and optimiseLambda(original as ({isInline=OnlyInline, ...}), { oldEnv = {lookup=lookupOldAddr, ...}, ...} ) =
+    and optimiseLambda(original as ({isInline=OnlyInline, ...}), { oldEnv = {lookup=lookupOldAddr, ...}, ...}) =
         (* Used only for functors.  Leave unchanged. *)
             {
               general = CodeZero,
@@ -1326,7 +1352,7 @@ struct
      |  optimiseLambda(original as ({body=lambdaBody, isInline=lambdaInline, name=lambdaName,
                           argTypes, resultType, ...}),
                  { nestingOfThisFunction, oldEnv = {lookup=lookupOldAddr, ...}, newEnv = {lookup=lookupNewAddr, ...},
-                   debugArgs, spval, ... }) =
+                   debugArgs, spval, ... }: optContext) =
         let
             (* The nesting of this new function is the current nesting level
              plus one. Normally this will be the same as lambda.level except
@@ -1338,19 +1364,22 @@ struct
             and newAddrTab = stretchArray (initTrans, NONE)
 
             local
-                fun localOldAddr ({ addr=index, level, ...}, depth, 0) =
+                fun localOldAddr (LoadLocal addr, depth, 0) =
+                    changeLevel(valOf(oldAddrTab sub addr)) (depth - nesting)
+
+                |   localOldAddr (LoadLegacy{ addr=index, ...}, depth, 0) =
                     (* local declaration or argument. *)
                     if index > 0 
                     (* Local declaration. *)
-                    then
-                    case  oldAddrTab sub index of
-                        SOME v => changeLevel v (depth - nesting)
-                    |   NONE => raise InternalError(
-                                        concat["localOldAddr: Not found. Addr=", Int.toString index,
-                                               " Level=", Int.toString level])
-                    (* Argument or closure. *)
+                    then localOldAddr(LoadLocal index, depth, 0)
+                     (* Argument or closure. *)
                     else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
-                |   localOldAddr (ptr, depth, levels) = lookupOldAddr (ptr, depth, levels - 1)
+
+                |   localOldAddr (_, _, 0) = raise InternalError "localOldAddr: TODO"
+
+                |   localOldAddr (ptr, depth, levels) =
+                        lookupOldAddr (ptr, depth, levels - 1)
+
                 and setTab (index, v) = update (oldAddrTab, index, SOME v)
             in
                 val oldEnv = { lookup = localOldAddr, enter = setTab }
@@ -1364,14 +1393,18 @@ struct
                    only entries in the table will be those which correspond to
                    declarations in the original code so there may be new declarations
                    which aren't in the table. *)
-                fun localNewAddr ({ addr=index, ...}, depth, 0) =
+                fun localNewAddr (LoadLegacy{ addr=index, ...}, depth, 0) =
                     if index > 0 
                     then case newAddrTab sub index of
                         NONE => (* Return the original entry if it's not there. *)
                             simpleOptVal(mkGenLoad (index, depth - nesting, true))
                     |   SOME v => changeLevel v (depth - nesting) 
                     else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
-                |   localNewAddr (ptr, depth, levels) = lookupNewAddr (ptr, depth, levels - 1);
+
+                |   localNewAddr (ptr as LoadLegacy _, depth, levels) =
+                        lookupNewAddr (ptr, depth, levels - 1)
+
+                |   localNewAddr _ = raise InternalError "localNewAddr: TODO"
 
                 fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
             in
@@ -1396,25 +1429,27 @@ struct
              when processing mutually recursive functions to find the
              dependencies. *)
              
-          val nonLocals = ref nil;
-          fun addNonLocal({addr, level, fpRel, ...}, depth) =
-          let
-             (* The level will be correct relative to the use, which may be
-                in an inner function.  We want the level relative to the
-                scope in which this function is declared. *)
-             val correctedLevel = level - (depth - nestingOfThisFunction)
-             fun findNonLocal(Extract{addr=addr', level=level', fpRel=fpRel', ...}) =
-                    addr = addr' andalso correctedLevel = level' andalso fpRel=fpRel'
-              |  findNonLocal _ = raise InternalError "findNonLocal: not Extract"
-          in
-             if List.exists findNonLocal (!nonLocals)
-             then () (* Already there. *)
-             else nonLocals := mkGenLoad(addr, correctedLevel, fpRel) :: ! nonLocals
-          end
+            val nonLocals = ref nil
 
-          fun checkRecursion(ext as {fpRel=oldfpRel, ...}, levels, depth) =
+            fun addNonLocal((addr, level, fpRel), depth) =
+                let
+                    (* The level will be correct relative to the use, which may be
+                       in an inner function.  We want the level relative to the
+                       scope in which this function is declared. *)
+                    val correctedLevel = level - (depth - nestingOfThisFunction)
+
+                    fun findNonLocal(addr', level', fpRel') =
+                            addr = addr' andalso correctedLevel = level' andalso fpRel=fpRel'
+                in
+                    if List.exists findNonLocal (!nonLocals)
+                    then () (* Already there. *)
+                    else nonLocals := (addr, correctedLevel, fpRel) :: ! nonLocals
+                end
+
+          fun checkRecursion(ext as LoadLegacy {fpRel=oldfpRel, ...}, levels, depth) =
+          (
               case optGeneral(lookupNewAddr (ext, depth, levels)) of
-                 (res as Extract(ext as {addr=0, fpRel=false, ...})) =>
+                 (res as Extract(LoadLegacy {addr=0, fpRel=false, level, ...})) =>
                      (
                      (* If this is just a recursive call it doesn't count
                         as a non-local reference.  This only happens if
@@ -1422,16 +1457,20 @@ struct
                         reference (i.e. fpRel was previously true). *)
                      if levels = 0 andalso oldfpRel
                      then ()
-                     else addNonLocal(ext, depth);
+                     else addNonLocal((0, level, false), depth);
                      res
                      )
-              |  res as Extract ext =>
+              |  res as Extract(LoadLegacy{addr, level, fpRel}) =>
                     (
-                     addNonLocal(ext, depth);
+                     addNonLocal((addr, level, fpRel), depth);
                      res
                     )
 
+              |  Extract _ => raise InternalError "checkRecursion: TODO"
+
               |  res => res (* We may have a constant in this table. *)
+         )
+         |  checkRecursion _ = raise InternalError "checkRecursion: TODO"
 
           val cleanedBody =
             REMOVE_REDUNDANT.cleanProc(getGeneral newCode, checkRecursion, nesting,
@@ -1451,7 +1490,7 @@ struct
                            body          = cleanedBody,
                            isInline      = MaybeInline,
                            name          = lambdaName,
-                           closure       = !nonLocals, (* Only looked at in MutualDecs. *)
+                           closure       = List.map mkGenLoad (!nonLocals), (* Only looked at in MutualDecs. *)
                            argTypes      = argTypes,
                            resultType    = resultType,
                            level         = nesting,
@@ -1483,7 +1522,7 @@ struct
                        body          = cleanedBody,
                        isInline      = inlineType,
                        name          = lambdaName,
-                       closure       = !nonLocals, (* Only looked at in MutualDecs. *)
+                       closure       = List.map mkGenLoad (!nonLocals), (* Only looked at in MutualDecs. *)
                        argTypes      = argTypes,
                        resultType    = resultType,
                        level         = nesting,
@@ -1554,13 +1593,16 @@ struct
             { 
                 enter = fn (addr, v) => update (localNewVec, addr, SOME v),
                 lookup = 
-                    fn (ext as { addr, ...}, depth, levels) =>
+                    fn (ext as LoadLegacy{ addr, ...}, depth, levels) =>
                         (* It may be local to this function or to the surrounding scope. *)
                     if levels <> 0 orelse addr <= 0
                     then lookupNewAddr(ext, depth, levels)
-                    else case localNewVec sub addr of
+                    else
+                    (case localNewVec sub addr of
                             SOME v => changeLevel v (depth - nestingOfThisFunction)
                         |   NONE => lookupNewAddr(ext, depth, levels)
+                    )
+                    | _ => raise InternalError "lookup: TODO"
             }
 
             local
@@ -1568,13 +1610,14 @@ struct
                    is the table for local declarations and the original
                    environment in which the function was declared for
                    non-locals. *)
-                fun lookupDec ({ addr=0, ...}, _, 0) =
-                   (* Recursive reference - shouldn't happen. *)
-                   raise InternalError ("lookupDec: Inline function recurses " ^ lambdaName)
-                |   lookupDec ({ addr=index, level, ...}, depth, 0) =
-                     let (* On this level. *)
+                fun lookupDec (LoadLegacy{ addr=0, fpRel = false, ...}, _, 0) =
+                    (* Recursive reference - shouldn't happen. *)
+                        raise InternalError ("lookupDec: Inline function recurses " ^ lambdaName)
+                |   lookupDec (LoadLegacy{ addr=index, level, ...}, depth, 0) =
+                    let (* On this level. *)
                         val optVal =
-                            if index > 0
+                            if index = 0 then raise InternalError "It's zero"
+                            else if index > 0
                             then localVec sub index (* locals *)
                             else SOME(getParameter index) (* parameters *)
                         val value =
@@ -1583,11 +1626,16 @@ struct
                             |   NONE => raise InternalError(
                                                 concat["Missing value address=", Int.toString index,
                                                        " level= ", Int.toString level, " while expanding ", lambdaName])
-                     in
-                       changeLevel value (depth - nestingOfThisFunction)
-                     end
-                |  lookupDec (ptr, depth, levels) =
-                     (optEnviron funct) (ptr, depth, levels - 1)
+                    in
+                        changeLevel value (depth - nestingOfThisFunction)
+                    end
+
+                |   lookupDec (LoadLocal addr, depth, 0) =
+                        changeLevel (valOf(localVec sub addr)) (depth - nestingOfThisFunction)
+
+                |   lookupDec (_, _, 0) = raise InternalError "TODO"
+
+                |   lookupDec (ptr, depth, levels) = (optEnviron funct) (ptr, depth, levels - 1)
             in
                 val oldEnv = 
                     { lookup = lookupDec, enter = fn (index, v) => update (localVec, index, SOME v) }
@@ -1614,7 +1662,7 @@ struct
     (* Expand inline a "small" function i.e. a normal function that appears to be small
        enough to expand inline. *)
     and inlineSmallFunction(funct, original, {body=lambdaBody, name=lambdaName, argTypes, ...}, argList, resultType,
-            context as {spval, nestingOfThisFunction, newEnv as { lookup = lookupNewAddr, ...}, debugArgs, 
+            context: optContext as {spval, nestingOfThisFunction, newEnv as { lookup = lookupNewAddr, ...}, debugArgs, 
             oldEnv, loopFilter, recursiveExpansions, ...}) =
         let
             (* Calling inline proc or a lambda expression which is just called.
@@ -1635,22 +1683,58 @@ struct
                    in a function call. *)
                 val argContext =
                     case (original, oldEnv) of
-                        (Extract{addr, level, fpRel=true, ...}, { lookup, enter}) =>
+                        (Extract(LoadLegacy{addr, level, fpRel=true, ...}), { lookup, enter}) =>
                             let
-                                fun stripRecursiveInline(ext as { addr=eAddr, ...}, depth, levels) =
-                                let
-                                    val result = lookup(ext, depth, levels)
-                                in
-                                    if addr = eAddr andalso level = levels
-                                    then mkEnv(optDecs result, optGeneral result)
-                                    else result
-                                end
+                                fun stripRecursiveInline(ext as LoadLegacy{ addr=eAddr, ...}, depth, levels) =
+                                    let
+                                        val result = lookup(ext, depth, levels)
+                                    in
+                                        if addr = eAddr andalso level = levels
+                                        then mkEnv(optDecs result, optGeneral result)
+                                        else result
+                                    end
+                                |   stripRecursiveInline(ext as LoadLocal eAddr, depth, levels) =
+                                    let
+                                        val result = lookup(ext, depth, levels)
+                                    in
+                                        if addr = eAddr andalso level = levels
+                                        then mkEnv(optDecs result, optGeneral result)
+                                        else result
+                                    end
+                                |   stripRecursiveInline _ = raise InternalError "TODO"
                             in
                                 { oldEnv = { lookup=stripRecursiveInline, enter = enter}, newEnv = newEnv,
                                   nestingOfThisFunction = nestingOfThisFunction, spval = spval,
                                   loopFilter = loopFilter, debugArgs = debugArgs,
                                   recursiveExpansions = recursiveExpansions}
                             end
+                    |   (Extract(LoadLocal addr), { lookup, enter}) =>
+                            let
+                                fun stripRecursiveInline(ext as LoadLegacy{ addr=eAddr, ...}, depth, levels) =
+                                    let
+                                        val result = lookup(ext, depth, levels)
+                                    in
+                                        if addr = eAddr andalso 0 = levels
+                                        then mkEnv(optDecs result, optGeneral result)
+                                        else result
+                                    end
+                                |   stripRecursiveInline(ext as LoadLocal eAddr, depth, levels) =
+                                    let
+                                        val result = lookup(ext, depth, levels)
+                                    in
+                                        if addr = eAddr andalso 0 = levels
+                                        then mkEnv(optDecs result, optGeneral result)
+                                        else result
+                                    end
+                                |   stripRecursiveInline _ = raise InternalError "TODO"
+                            in
+                                { oldEnv = { lookup=stripRecursiveInline, enter = enter}, newEnv = newEnv,
+                                  nestingOfThisFunction = nestingOfThisFunction, spval = spval,
+                                  loopFilter = loopFilter, debugArgs = debugArgs,
+                                  recursiveExpansions = recursiveExpansions}
+                            end
+                            
+                    |   (Extract _, _) => raise InternalError "argContext: TODO"
                     |   _ => context
 
                 val (params, bindings) =
@@ -1666,13 +1750,16 @@ struct
                 val copiedArgs = List.foldr (op @) [] bindings
             end
 
-            fun lookupLocalNewAddr (ext as { addr, ...}, depth, levels) =
+            fun lookupLocalNewAddr (ext as LoadLegacy{ addr, ...}, depth, levels) =
                     (* It may be local to this function or to the surrounding scope. *)
-                if levels <> 0 orelse addr <= 0
+                if levels <> 0 orelse addr (*<=*) < 0
                 then lookupNewAddr(ext, depth, levels)
-                else case localNewVec sub addr of
+                else
+                (case localNewVec sub addr of
                         SOME v => changeLevel v (depth - nestingOfThisFunction)
-                    |   NONE => lookupNewAddr(ext, depth, levels);
+                    |   NONE => lookupNewAddr(ext, depth, levels)
+                )
+            |   lookupLocalNewAddr _ = raise InternalError "lookupLocalNewAddr: TODO"
 
             (* Now load the function body itself.  We first process it assuming
                that we won't need to treat any of the arguments specially.  If
@@ -1733,10 +1820,15 @@ struct
                                         (* These may well be functions so don't use
                                            structure equality. *)
                                         wordEq(w, w')
-                                | (Extract {addr=aA, level=aL, fpRel=aFp, ...},
-                                   Extract {addr=bA, level=bL, fpRel=bFp, ...}) =>
-                                    aA = bA andalso aFp = bFp andalso
-                                    aL = bL+depth-nestingOfThisFunction
+                                |   (Extract ext1, Extract ext2) =>
+                                    let
+                                        fun addrLevel(LoadLegacy{addr, level, fpRel, ...}, fix) =
+                                                (addr, level+fix, fpRel)
+                                        |   addrLevel(LoadLocal addr, fix) = (addr, fix, true)
+                                        |   addrLevel _ = raise InternalError "filterArgs: TODO"
+                                    in
+                                        addrLevel(ext1, 0) = addrLevel(ext2, depth-nestingOfThisFunction)
+                                    end
                                 | _ => false
 
                         in
@@ -1782,7 +1874,7 @@ struct
                        test Succeed/Test108.ML. *)
                     val _ = needsBeginLoop := false
 
-                    fun localOldAddr({ addr=0, ...}, depth, 0) =
+                    fun localOldAddr(LoadLegacy{ addr=0, fpRel = false, ...}, depth, 0) =
                          (* Recursive reference - return the copied function after removing
                             the declarations.  These will be put on in the surrounding
                             scope.  Since we're not actually inside the function (we're
@@ -1793,7 +1885,7 @@ struct
                             "optimise". *)
                          changeLevel (stripDecs funct) (depth - nestingOfThisFunction)
 
-                    |   localOldAddr ({ addr=index, ...}, depth, 0) =
+                    |   localOldAddr (LoadLegacy{ addr=index, ...}, depth, 0) =
                         let (* On this level. *)
                             val optVal =
                                 if index > 0
@@ -1807,7 +1899,17 @@ struct
                             changeLevel optVal (depth - nestingOfThisFunction)
                         end
 
-                    | localOldAddr (ptr, depth, levels) = (* On another level. *)
+                    |   localOldAddr (LoadLocal index, depth, 0) =
+                        let (* On this level. *)
+                            val optVal = valOf (localVec sub index)  (* locals *)
+                        in
+                            changeLevel optVal (depth - nestingOfThisFunction)
+                        end
+
+                    |   localOldAddr (_, _, 0) = raise InternalError "localOldAddr: TODO"
+
+
+                    |   localOldAddr (ptr, depth, levels) = (* On another level. *)
                             (optEnviron funct) (ptr, depth, levels - 1)
 
                     (* All declarations should be of positive addresses. *)
@@ -1857,12 +1959,15 @@ struct
                         then getParamNo (n+1) - 1
                         else getParamNo (n+1)
 
-                    fun localOldAddr ({ addr=0, ...}, depth, 0) =
+                    fun localOldAddr (LoadLegacy{ addr=0, fpRel = false, ...}, depth, 0) =
                          (* Recursive reference.  We're going to generate this
                             as a function so return a reference to the closure. *)
                          simpleOptVal(mkGenLoad (0, depth - nesting, false))
 
-                    |   localOldAddr ({ addr=index, ...}, depth, 0) =
+                    |   localOldAddr (LoadLocal index, depth, 0) =
+                            changeLevel(valOf (localVec sub index)) (depth - nesting)
+
+                    |   localOldAddr (LoadLegacy{ addr=index, ...}, depth, 0) =
                          if index > 0  (* locals *)
                          then changeLevel(valOf (localVec sub index)) (depth - nesting)
                          else (* index < 0 - parameters *)
@@ -1874,6 +1979,8 @@ struct
                                  the level because it's in the surrounding scope. *)
                             changeLevel (getParameter index) (depth-nesting+1)
 
+                    |   localOldAddr(_, _, 0) = raise InternalError "localOldAddr: TODO"
+
                     |   localOldAddr (ptr, depth, levels) =
                             (optEnviron funct) (ptr, depth, levels - 1)
 
@@ -1881,16 +1988,17 @@ struct
 
                     (* localNewAddr is used as the environment of inline functions within
                        the function we're processing. *)
-                    fun localNewAddr ({ addr=index, ...}, depth, 0) =
-                        if index > 0 
+                    fun localNewAddr (LoadLegacy{ addr=index, ...}, depth, 0) =
+                        if index >= 0 
                         then case newAddrTab sub index of
                             NONE => (* Return the original entry if it's not there. *)
                                 simpleOptVal(
                                     mkGenLoad (index, depth - nesting, true))
                         |   SOME v => changeLevel v (depth - nesting) 
                         else simpleOptVal (mkGenLoad (index, depth - nesting, index <> 0))
-                    |   localNewAddr (ptr, depth, levels) =
+                    |   localNewAddr (ptr as LoadLegacy _, depth, levels) =
                             lookupNewAddr (ptr, depth, levels - 1)
+                    |   localNewAddr _ = raise InternalError "localNewAddr: TODO"
 
                     fun setNewTab (addr, v) = update (newAddrTab, addr, SOME v)
                     and setTab (index, v) = update (localVec, index, SOME v)
@@ -2002,27 +2110,11 @@ struct
         local
             (* Return the entry from the "old" table with the depth adjusted if necessary.
                The entry must exist. *)
-            fun lookupOldAddr ({addr, level, fpRel, ...}: loadForm, depth, 0) =
-            (
-                case oldAddrTab sub addr of
-                    SOME v => changeLevel v depth
-                |   NONE =>
-                    let
-                        val msg =
-                            concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
-                                " Level=", Int.toString level, " Fprel=", Bool.toString fpRel, ")"]
-                    in
-                        raise InternalError msg
-                    end
-            )
-            |   lookupOldAddr ({addr, level, fpRel, ...}, _, _) =
-                let
-                    val msg =
-                        concat["lookupOldAddr: outer level. (Addr=", Int.toString addr,
-                            " Level=", Int.toString level, " Fprel=", Bool.toString fpRel, ")"]
-                in
-                    raise InternalError msg
-                end
+            fun lookupOldAddr (LoadLocal addr, depth, 0) =
+                    changeLevel(valOf(oldAddrTab sub addr)) depth
+            |   lookupOldAddr (LoadLegacy{addr, ...}, depth, 0) =
+                    changeLevel(valOf(oldAddrTab sub addr)) depth
+            |   lookupOldAddr _ = raise InternalError "top level reached"
 
             (* Make an entry in the "old" table *)
             and enterOldDec (addr, tab) = update (oldAddrTab, addr, SOME tab)
@@ -2033,7 +2125,7 @@ struct
         local
             (* Return the entry from the "new" table.  If the entry does not exist
                just return a "load" entry with the depth adjusted as necessary. *)
-            fun lookupNewAddr ({addr, ...}: loadForm, depth, 0) =
+            fun lookupNewAddr (LoadLegacy{addr, ...}: loadForm, depth, 0) =
             (
                 case newAddrTab sub addr of
                     NONE => simpleOptVal(mkGenLoad (addr, depth, true))
