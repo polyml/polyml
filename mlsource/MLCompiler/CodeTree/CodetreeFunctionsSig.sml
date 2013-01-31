@@ -21,26 +21,18 @@ sig
     type codetree
     type codeBinding
     type loadForm
-    type optVal = codetree
+    type envType
 
     type machineWord = Address.machineWord
 
     datatype argumentType =
         GeneralType
     |   FloatingPtType
-
-    datatype varTuple =
-        VarTupleSingle of { source: codetree, destOffset: codetree }
-    |   VarTupleMultiple of
-            { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
  
     val mkDec: int * codetree -> codeBinding
     val mkMutualDecs: (int * codetree) list -> codeBinding
     val mkNullDec: codetree -> codeBinding
-    
     val mkTuple: codetree list -> codetree
-    
-
     val mkIf: codetree * codetree * codetree -> codetree
     val mkEnv: codeBinding list * codetree -> codetree
     val mkConst: machineWord -> codetree
@@ -49,8 +41,6 @@ sig
     and mkCand: codetree * codetree -> codetree
     val mkRaise: codetree -> codetree
     and mkContainer: int -> codetree
-    and mkIndirectVariable: {base: codetree, offset: codetree } -> codetree
-    and mkTupleVariable: varTuple list * codetree -> codetree
     and mkAltMatch: codetree * codetree -> codetree
     and mkEval: codetree * codetree list -> codetree
     and mkHandle: codetree * codetree -> codetree
@@ -70,7 +60,6 @@ sig
     val mkStr: string -> codetree
 
     val mkTagTest:          codetree * word * word -> codetree
-    val mkTupleSlice:       { base: codetree, offset: codetree, length: codetree } -> codetree
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: codetree * int -> codetree
 
@@ -85,18 +74,6 @@ sig
     val evalue:    codetree -> machineWord option
     
     val findEntryInBlock: codetree -> int -> codetree
-
-    val optGeneral: codetree -> codetree
-    and optSpecial: codetree -> codetree option
-    and optDecs: codetree -> codeBinding list
-    and optEnviron: codetree -> loadForm * int * int -> codetree
-    and optVal:
-        { general : codetree, special : codetree option,
-          environ : loadForm * int * int -> codetree,
-          decs : codeBinding list } -> codetree
-    and simpleOptVal : codetree -> codetree
-    
-    val errorEnv: loadForm * int * int -> codetree
     
     val earlyRtsCall: machineWord -> bool
 
@@ -104,9 +81,9 @@ sig
     sig
         type codetree = codetree
         and  argumentType = argumentType
-        and  varTuple = varTuple
         and  codeBinding = codeBinding
         and  loadForm = loadForm
+        and  envType = envType
     end
 
 end;

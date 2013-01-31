@@ -176,11 +176,7 @@ struct
 
          |  cleanCode(Extract _) = raise InternalError "cleanCode: TODO"
 
-         |  cleanCode (ExtractWithInline(ext, _, _)) = cleanCode(Extract ext)
-
          |  cleanCode (Lambda lam) = Lambda(cleanLambda lam)
-         
-         |  cleanCode (LambdaWithInline(lambda, _, _)) = cleanCode(Lambda lambda)
 
             (* All the other case simply map cleanCode over the tree. *)
          |  cleanCode MatchFail = MatchFail
@@ -262,23 +258,9 @@ struct
 
          |  cleanCode (TagTest{test, tag, maxTag}) =
                 TagTest{test=cleanCode test, tag=tag, maxTag=maxTag}
-
-         |  cleanCode(IndirectVariable{base, offset}) =
-                IndirectVariable{base=cleanCode base, offset=cleanCode offset}
-
-         |  cleanCode(TupleVariable(vars, length)) =
-            let
-                fun cleanTuple(VarTupleSingle{source, destOffset}) =
-                        VarTupleSingle{source=cleanCode source, destOffset=cleanCode destOffset}
-                |   cleanTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
-                        VarTupleMultiple{base=cleanCode base, length=cleanCode length,
-                                         destOffset=cleanCode destOffset, sourceOffset=cleanCode sourceOffset}
-            in
-                TupleVariable(map cleanTuple vars, cleanCode length)
-            end
     in
         cleanCode pt
-   end (* cleanProc *);
+    end (* cleanProc *);
 
     structure Sharing =
     struct

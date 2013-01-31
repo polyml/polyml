@@ -85,31 +85,14 @@ struct
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
-    |   IndirectVariable of { base: codetree, offset: codetree }
-        (* Similar to Indirect except the offset is a variable. *)
-
-    |   TupleVariable of varTuple list * codetree (* total length *)
-        (* Construct a tuple using one or more multi-word items. *)
-
         (* A constant together with the code for either an inline function or a
-           tuple.  This is used for global values as well as within the optimiser. *)
-    |   ConstntWithInline of machineWord * codetree * (loadForm * int * int -> codetree)
-    
-        (* A load from a variable together with the code for either an inline
-           function or a tuple.  This is used within the optimiser. *)
-    |   ExtractWithInline of loadForm * codetree * (loadForm * int * int -> codetree)
-
-    |   LambdaWithInline of lambdaForm * codetree * (loadForm * int * int -> codetree)
+           tuple.  This is used for global values. *)
+    |   ConstntWithInline of machineWord * codetree * envType
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
-
-    and varTuple =
-        VarTupleSingle of { source: codetree, destOffset: codetree }
-    |   VarTupleMultiple of
-            { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
 
     and loadForm =
         LoadArgument of int
@@ -117,6 +100,8 @@ struct
     |   LoadClosure of int
     |   LoadRecursive
     |   LoadLegacy of { addr: int, level: int, fpRel: bool }
+
+    and envType = EnvType of loadForm * int * int -> codetree * (codetree * envType) option
     
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -292,7 +277,6 @@ struct
                     ]
                 )
             end
-        | LambdaWithInline(lambda, _, _) => pretty(Lambda lambda)
         
         | Constnt w => PrettyString (stringOfWord w)
         
@@ -398,90 +382,6 @@ struct
                     PrettyString ") (*CONSTWITHINLINE*)"
                 ]
             )
-
-        |   ExtractWithInline(ext, spec, _) =>
-            let
-                val str =
-                    case ext of
-                        LoadArgument addr => concat ["PARAMWITHINLINE(", Int.toString addr, ";"]
-                    |   LoadLocal addr => concat ["LOCALWITHINLINE(", Int.toString addr, ";"]
-                    |   LoadClosure addr => concat ["CLOSWITHINLINE(", Int.toString addr, ";"]
-                    |   LoadRecursive => "RECURSIVEWITHINLINE("
-                    |   LoadLegacy { fpRel = false, level, addr } =>
-                            concat ["CLOSWITHINLINE(", Int.toString level, ",", Int.toString addr, ";"]
-                    |   LoadLegacy { level, addr, ...} =>
-                            if addr < 0
-                            then concat ["PARAMWITHINLINE(", Int.toString level, ",", Int.toString (~ addr), ";"]
-                            else concat ["LOCALWITHINLINE(", Int.toString level, ",", Int.toString addr, ";"]
-            in
-                PrettyBlock (1, true, [],
-                    [
-                        PrettyString str,
-                        PrettyBreak (1, 0),
-                        pretty (spec),
-                        PrettyBreak (1, 0),
-                        PrettyString ") (*EXTWITHINLINE*)"
-                    ]
-                )
-            end
-
-        | IndirectVariable { base, offset } =>
-            PrettyBlock (3, false, [],
-                [
-                    PrettyString("IndirectVariable ("),
-                    PrettyBreak (1, 0),
-                    pretty base,
-                    PrettyBreak (0, 0),
-                    pretty offset,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
-
-        |   TupleVariable(vars, length) =>
-            let
-                fun printTup(VarTupleSingle{source, destOffset}) =
-                    PrettyBlock(3, false, [],
-                    [
-                        PrettyString "Single (",
-                        pretty source,
-                        PrettyBreak (0, 0),
-                        pretty destOffset,
-                        PrettyBreak (0, 0),
-                        PrettyString ")"
-                    ]
-                    )
-                |   printTup(VarTupleMultiple{base, length, destOffset, sourceOffset}) = 
-                    PrettyBlock(3, false, [],
-                    [
-                        PrettyString "Multiple (",
-                        pretty base,
-                        PrettyBreak (0, 0),
-                        pretty length,
-                        PrettyBreak (0, 0),
-                        pretty sourceOffset,
-                        PrettyBreak (0, 0),
-                        pretty destOffset,
-                        PrettyBreak (0, 0),
-                        PrettyString ")"
-                    ]
-                    )
-            in
-                PrettyBlock (3, false, [],
-                [
-                    PrettyString "TupleVariable (",
-                    PrettyBreak (1, 0),
-                    pretty length,
-                    PrettyBreak (0, 0)
-                ] @ pList(vars, ",", printTup) @
-                [
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
-            end
-            
-
         (* That list should be exhaustive! *)
     end (* pretty *)
 
@@ -569,7 +469,6 @@ struct
             |   Extract _                       => 1
             |   Indirect {base,...}             => size base + 1
             |   Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
-            |   LambdaWithInline(lambda, _, _)  => size(Lambda lambda)
 (*            |   Eval {function=Constnt w ,argList,...}     =>
                     (* If this is an RTS call it's probably really an instruction that
                        the code-generator will inline and if it isn't we're not going
@@ -591,18 +490,7 @@ struct
             |   SetContainer{container, tuple, size=len} => size container + size tuple + len
             |   TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
             |   ConstntWithInline(glob, _, _)   => size(Constnt glob)
-            |   ExtractWithInline(ext, _, _)    => size(Extract ext)
             |   TagTest { test, ... }           => 1 + size test
-            |   IndirectVariable{base, offset, ...} => size base + size offset + 1
-            |   TupleVariable(vars, _)=>
-                let
-                    fun sizeTuple(VarTupleSingle{source, destOffset, ...}) =
-                            size source + size destOffset
-                    |   sizeTuple(VarTupleMultiple{base, length, destOffset, sourceOffset, ...}) =
-                            size base + size length + size destOffset + size sourceOffset
-                in
-                    List.foldl (fn (p, s) => sizeTuple p + s) 0 vars
-                end
 
         and sizeBinding(Declar{value, ...}) = size value
         |   sizeBinding(RecDecs decs) = List.foldl (fn ({lambda, ...}, s) => size(Lambda lambda) + s) 0 decs
@@ -701,10 +589,10 @@ struct
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType
-        and  varTuple = varTuple
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
         and  loadForm = loadForm
+        and  envType = envType
     end
 
 end;

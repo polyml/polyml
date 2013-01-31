@@ -874,8 +874,6 @@ struct
             resultType=GeneralType
         }
 
-        val rtsFunction = P2Constnt o ioOp
-
         fun copyCode (pt, previous, localCount, localAddresses, numberOfArgs) =
         let
             (* "closuresForLocals" is a flag indicating that if the declaration
@@ -964,8 +962,6 @@ struct
                        set to true since the only cases where a closure is not needed,
                        eval and load-andStore, are handled separately. *)
                     locaddr(ext, (* closure = *) true)
-
-            |   insert(ExtractWithInline(ext, _, _)) = locaddr(ext, true)
 
             |   insert(Indirect {base, offset}) = P2Field {base = insert base, offset = offset}
 
@@ -1190,8 +1186,6 @@ struct
                     copyProcClosure (copiedLambda, newClosure, true)
                 end
 
-            |   insert(LambdaWithInline(lam, _, _)) = insert(Lambda lam)
-
             |   insert(Handle { exp, handler }) =
                 let
                     (* The order here is important.  We want to make sure that
@@ -1211,38 +1205,6 @@ struct
                     P2TupleFromContainer(insert container, size)
 
             |   insert(TagTest{test, tag, maxTag}) = P2TagTest{test=insert test, tag=tag, maxTag=maxTag}
-
-            |   insert(IndirectVariable{base, offset, ...}) =
-                (* Convert this into a Load instruction. *)
-                    insert(CODETREE_FUNCTIONS.mkEval(Constnt(ioOp RuntimeCalls.POLY_SYS_load_word), [base, offset]))
-
-            |   insert(TupleVariable(vars, length)) =
-                (* Convert this into a set of RTS calls.  This currently uses POLY_SYS_alloc_store
-                   which initialises the store before the copy operations.  It may be possible to
-                   avoid this duplication somehow. *)
-                let
-                    val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
-                    val mutableFlags = Word8.orb(F_words, F_mutable)
-                    val allocTuple =
-                        P2Declar(newAddr,
-                            mkEval(rtsFunction RuntimeCalls.POLY_SYS_alloc_store,
-                                [insert length, P2Constnt (toMachineWord mutableFlags), P2Constnt(toMachineWord 0)])
-                        )
-
-                    val loadLocal = P2Extract(P2LoadLocal newAddr)
-
-                     fun copyTuple(VarTupleSingle{source, destOffset}) =
-                            mkEval(rtsFunction RuntimeCalls.POLY_SYS_assign_word,
-                                [loadLocal, insert destOffset, insert source])
-                    |   copyTuple(VarTupleMultiple{base, length, destOffset, sourceOffset}) =
-                            mkEval(rtsFunction RuntimeCalls.POLY_SYS_move_words,
-                                [insert base, insert sourceOffset, loadLocal,
-                                 insert destOffset, insert length])
-                    (* Remove the mutable bit (needed by alloc_store). *)
-                    val lock = mkEval(rtsFunction RuntimeCalls.POLY_SYS_lockseg, [loadLocal])
-                 in
-                    P2Newenv(allocTuple :: (map P2NullBinding (mapright copyTuple vars @ [lock])), loadLocal)
-                end
 
           and copyCond (condTest, condThen, condElse) =
             let

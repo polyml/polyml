@@ -26,8 +26,6 @@ struct
     open BASECODETREE
     open Address
     exception InternalError = Misc.InternalError
-    
-    type optVal = codetree
 
     fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
 
@@ -44,10 +42,7 @@ struct
     val mkIf                = Cond
     and mkConst             = Constnt
     and mkRaise             = Raise
-    and mkContainer         = Container
-    and mkIndirectVariable  = IndirectVariable
-    and mkTupleVariable     = TupleVariable
-    
+    and mkContainer         = Container    
     
     fun mkEnv([], exp) = exp
     |   mkEnv(decs, exp) = Newenv(decs, exp)
@@ -163,18 +158,6 @@ struct
 
     | sideEffectFree(TupleFromContainer(c, _)) = sideEffectFree c
 
-    | sideEffectFree(IndirectVariable{base, ...}) =
-            (* Offset is always side-effect free. *)
-            sideEffectFree base
-
-    | sideEffectFree(TupleVariable(vars, _ (* length - always side-effect free *))) =
-        let
-            fun testTuple(VarTupleSingle{source, ...}) = sideEffectFree source
-            |   testTuple(VarTupleMultiple{base, ...}) = sideEffectFree base
-        in
-            List.all testTuple vars
-        end
-
     | sideEffectFree _ = false
              (* Rest are unsafe (or too rare to be worth checking) *)
 
@@ -276,12 +259,6 @@ struct
 
     fun mkStr (strbuff:string) = mkConst (toMachineWord strbuff);
 
-    (* Construct a new tuple from a sub-section of an existing one. *)
-    fun mkTupleSlice{ base, offset, length } =
-        TupleVariable(
-            [VarTupleMultiple{base=base, length=length, destOffset=CodeZero, sourceOffset=offset}],
-            length)
-
   (* If we have multiple references to a piece of code we may have to save
      it in a temporary and then use it from there. If the code has side-effects
       we certainly must do that to ensure that the side-effects are done
@@ -340,67 +317,12 @@ struct
     (* Create a tuple from a container. *)
     val mkTupleFromContainer = TupleFromContainer
 
-  (* Processing each expression results in a "optVal" value. This contains a 
-     "general" value which can be used anywhere and a "special" value which
-     provides optimisations of inline procedures and tuples. "environ" is a
-     procedure for mapping addresses in "special" if it is used and "decs" is 
-     any declarations needed by either "general" or "special". The reason for
-     returning both "general"  and "special" is so that we only create a
-     tuple or a procedure once. In the case of a tuple "special" contains
-     code to generate the tuple from its elements and is provided so that
-     operations which select from the tuple can be optimised into loading
-     the element. "General" will contain code to generate the tuple, or in
-     the case of a declaration of a tuple, will contain a "load" instruction 
-     to get the value.
-  *)
-  
-    fun errorEnv (_,  _, _) : optVal = raise InternalError "error env"
-
-    local
-        fun stripDecs(Newenv(_, exp)) = stripDecs exp
-        |   stripDecs exp = exp
-
-        fun general(ConstntWithInline(w, _, _)) = Constnt w
-        |   general(ExtractWithInline(ext, _, _)) = Extract ext
-        |   general(LambdaWithInline(lambda, _, _)) = Lambda lambda
-        |   general c = c
-
-        fun special(ConstntWithInline(_, spec, _)) = SOME spec
-        |   special(ExtractWithInline(_, spec, _)) = SOME spec
-        |   special(LambdaWithInline(_, spec, _)) = SOME spec
-        |   special _ = NONE
-
-        fun environ(ConstntWithInline(_, _, env)) = env
-        |   environ(ExtractWithInline(_, _, env)) = env
-        |   environ(LambdaWithInline(_, _, env)) = env
-        |   environ _ = errorEnv
-    in
-        val optGeneral = general o stripDecs
-        and optSpecial = special o stripDecs
-        and optEnviron = environ o stripDecs
-    end
-
-    fun optDecs(Newenv(decs, exp)) = decs @ optDecs exp
-    |   optDecs _ = []
- 
-    fun simpleOptVal c = c
-
-    fun optVal{special, decs as _ :: _, general, environ } =
-            Newenv(decs, optVal{special = special, decs = [], general=general, environ=environ })
-    |   optVal{special=SOME spec, general=Constnt w, environ, ...} =
-            ConstntWithInline(w, spec, environ)
-    |   optVal{special=SOME spec, general=Extract ext, environ, ...} =
-            ExtractWithInline(ext, spec, environ)
-    |   optVal{special=SOME spec, general=Lambda lambda, environ, ...} =
-            LambdaWithInline(lambda, spec, environ)
-    |   optVal{special=SOME _, ...} = raise InternalError "optVal"
-    |   optVal{special=NONE, general, ...} = general
-
     local
         val except: exn = InternalError "Invalid load encountered in compiler"
         (* Exception value to use for invalid cases.  We put this in the code
            but it should never actually be executed.  *)
         val raiseError = mkRaise (mkConst (toMachineWord except))
+        
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
         fun findEntryInBlock (Recconstr recs) offset =
@@ -423,16 +345,21 @@ struct
             then raiseError
             else mkConst (loadWord (toAddress b, toShort offset))
 
-        |  findEntryInBlock (ConstntWithInline(_, recc as Recconstr _, env)) offset =
+        |  findEntryInBlock (ConstntWithInline(_, recc as Recconstr _, EnvType env)) offset =
             (* Do the selection now.  This is especially useful if we
                have a global structure  *)
-            (
+            let
+                fun envResult(gen as Constnt _, NONE) = gen
+                |   envResult(Constnt w, SOME(spec, env)) = ConstntWithInline(w, spec, env)
+                |   envResult _ = raise InternalError "envResult: not constant"
+                (* The general value from selecting a field from a constant tuple must be a constant. *)
+            in
                 case findEntryInBlock recc offset of
-                    Extract (ext as LoadLegacy{level, ...}) => env (ext, 0, (* global *) level)
-                |   Extract (ext as LoadLocal _) => env(ext, 0, 0)
+                    Extract (ext as LoadLegacy{level, ...}) => envResult(env (ext, 0, (* global *) level))
+                |   Extract (ext as LoadLocal _) => envResult(env(ext, 0, 0))
                 |   Extract _ => raise InternalError "findEntryInBlock: TODO"
                 |   selection => selection (* Normally a constant *)
-            )
+            end
  
         |   findEntryInBlock (ConstntWithInline(general, _, _)) offset =
                 (* Is this possible?  If it's inline it should be a tuple. *)
@@ -472,11 +399,10 @@ struct
     structure Sharing =
     struct
         type codetree = codetree
-        and  optVal = optVal
         and  argumentType = argumentType
-        and  varTuple = varTuple
         and  codeBinding = codeBinding
         and  loadForm = loadForm
+        and  envType = envType
     end
 
 end;

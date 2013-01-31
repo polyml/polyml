@@ -81,31 +81,14 @@ sig
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
-    |   IndirectVariable of { base: codetree, offset: codetree }
-        (* Similar to Indirect except the offset is a variable. *)
-
-    |   TupleVariable of varTuple list * codetree (* total length *)
-        (* Construct a tuple using one or more multi-word items. *)
-
         (* A constant together with the code for either an inline function or a
-           tuple.  This is used for global values as well as within the optimiser. *)
-    |   ConstntWithInline of machineWord * codetree * (loadForm * int * int -> codetree)
-    
-        (* A load from a variable together with the code for either an inline
-           function or a tuple.  This is used within the optimiser. *)
-    |   ExtractWithInline of loadForm * codetree * (loadForm * int * int -> codetree)
-
-    |   LambdaWithInline of lambdaForm * codetree * (loadForm * int * int -> codetree)
+           tuple.  This is used for global values. *)
+    |   ConstntWithInline of machineWord * codetree * envType
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
-
-    and varTuple =
-        VarTupleSingle of { source: codetree, destOffset: codetree }
-    |   VarTupleMultiple of
-            { base: codetree, length: codetree, destOffset: codetree, sourceOffset: codetree }
 
     and loadForm =
         LoadArgument of int
@@ -113,7 +96,9 @@ sig
     |   LoadClosure of int
     |   LoadRecursive
     |   LoadLegacy of { addr: int, level: int, fpRel: bool }
-    
+
+    and envType = EnvType of loadForm * int * int -> codetree * (codetree * envType) option
+
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
@@ -146,10 +131,10 @@ sig
         and  pretty = pretty
         and  inlineStatus = inlineStatus
         and  argumentType = argumentType
-        and  varTuple = varTuple
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
         and  loadForm = loadForm
+        and  envType = envType
     end
 
 end;
