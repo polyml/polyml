@@ -779,30 +779,24 @@ struct
    
   (* Code-generation. *)
 
-     (* Code-generate the values. *) 
- fun codeStruct (str, level) =
-     (* Global structures have no code value. Instead the
-        values are held in the values of the signature. *)
-   if isUndefinedStruct str
-   then CodeZero
-   else codeAccess (structAccess str, level)
+    (* Code-generate the values. *) 
+    fun codeStruct (str, level) =
+        (* Global structures have no code value. Instead the
+            values are held in the values of the signature. *)
+        if isUndefinedStruct str
+        then CodeZero
+        else codeAccess (structAccess str, level)
 
- and codeAccess (Global code, _) = code
+    and codeAccess (Global code, _) = code
       
- |  codeAccess (Local{addr=ref locAddr, level=ref locLevel}, level) =
-     let
-       val levelDiff = level - locLevel;
-     in
-       if locAddr = 0
-       then raise InternalError "codeAccess: Old recursive form"
-       else mkLoad (locAddr, levelDiff) (* Argument or local *)
-     end
+    |   codeAccess (Local{addr=ref locAddr, level=ref locLevel}, level) =
+            mkLoad (locAddr, level - locLevel) (* Argument or local *)
      
- | codeAccess (Selected{addr, base}, level) = (* Select from a structure. *)
-       mkInd (addr, codeStruct (base, level))
+    |   codeAccess (Selected{addr, base}, level) = (* Select from a structure. *)
+            mkInd (addr, codeStruct (base, level))
      
- | codeAccess _ = raise InternalError "No access"
-     (* codeAccess *);
+    | codeAccess _ = raise InternalError "No access"
+
 
 (*****************************************************************************)
 (*                  datatype access functions                                *)
@@ -881,14 +875,7 @@ struct
   |  codeVal (Value{access = Local{addr=ref locAddr, level=ref locLevel}, class, ...},
                     level, typeVarMap, instance, _, _) =
     let
-        fun loadVar level =
-        let
-            val levelDiff = level - locLevel
-        in
-            if locAddr = 0
-            then raise InternalError "codeVal: Old recursive form"
-            else mkLoad (locAddr, levelDiff) (* Argument or local *)
-        end
+        fun loadVar level = mkLoad (locAddr, level - locLevel) (* Argument or local *)
     in
         applyToInstanceType(instance, class, level, typeVarMap, loadVar)
     end

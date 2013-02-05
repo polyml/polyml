@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012 David C.J. Matthews
+    Copyright (c) 2012,13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,7 @@ functor CODETREE_REMOVE_REDUNDANT(
     sig
         type codetree
         type loadForm
-        val cleanProc : (codetree * (loadForm * int * int -> codetree) * int * bool array) -> codetree
+        val cleanProc : (codetree * (int -> loadForm) * bool array) -> codetree
         structure Sharing: sig type codetree = codetree and loadForm = loadForm end
     end
 =
@@ -43,31 +43,42 @@ struct
      done later in preCode but adding this function significantly
      reduced compilation time by reducing the amount of garbage
      created through inline expansion. DCJM 29/12/00. *)
-    fun cleanProc (pt: codetree, prev: loadForm * int * int -> codetree,
-                   nestingDepth, locals): codetree =
+    fun cleanProc (pt: codetree, prev: int -> loadForm, locals): codetree =
     let
-        fun cleanLambda({body, isInline, name, argTypes, resultType, level=nestingDepth, localCount, ...}) =
+        fun cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm) =
         let
-            (* Start a new level. *)
-            fun lookup(ext as LoadLegacy{addr, fpRel, ...}, 0, _) =
-                (
-                    (* Mark any access to local variables. *)
-                    if addr >= 0 andalso fpRel
-                    then Array.update(locals, addr, true)
-                    else (); (* Argument or recursive reference. *)
-                    Extract ext
-                )
+            (* Rebuild the closure with the entries actually used. *)
+            val closureUse: {closureAddr: int, afp: loadForm} list ref = ref []
 
-            |   lookup(ext as LoadLegacy _ , level, depth) = prev(ext, level-1, depth)
-            
-            |   lookup _ = raise InternalError "lookup: TODO"
+            (* Start a new level. *)
+            fun lookup closureEntry =
+                let
+                    val ext = List.nth(closure, closureEntry)
+                    val newClosure =
+                        case List.find (fn { afp, ...} => afp = ext) (!closureUse) of
+                            SOME{ closureAddr, ...} => closureAddr
+                        |   NONE =>
+                            let
+                                (* Find the next address in the sequence. = List.length + 1 *)
+                                val nextAddr = case !closureUse of [] => 0 | { closureAddr, ...} :: _ => closureAddr+1
+                            in
+                                closureUse := { closureAddr = nextAddr, afp = ext } :: ! closureUse;
+                                nextAddr
+                            end
+                in
+                    LoadClosure newClosure
+                end
 
             val newLocals = Array.array (localCount (* Initial size. *), false);
-            val bodyCode = cleanProc(body, lookup, nestingDepth, newLocals)
+            val bodyCode = cleanProc(body, lookup, newLocals)
+            (* Now apply cleanCode to the closure entries themselves. *)
+            fun cleanClosure ext =
+                case cleanCode(Extract ext) of Extract ext => ext | _ => raise InternalError "cleanClosure"
+            val newClosure = List.foldl (fn ({ afp, ...}, tl) => cleanClosure afp :: tl) [] (!closureUse)
         in
             {body=bodyCode, isInline=isInline, name=name,
-               closure=[], argTypes=argTypes, resultType=resultType, level=nestingDepth,
-               localCount=localCount}
+               closure=newClosure, argTypes=argTypes, resultType=resultType,
+               localCount=localCount} : lambdaForm
         end
 
         and cleanCode (Newenv(decs, exp)) =
@@ -153,30 +164,20 @@ struct
                 mkEnv(processedDecs, processedExp)
             end (* Newenv *)
 
-         |  cleanCode (dec as Extract(ext as LoadLegacy {addr, level, fpRel, ...})) =
+        |  cleanCode (dec as Extract(LoadLocal addr)) =
                 (* If this is a local we need to mark it as used. *)
-                if level = 0
-                then
-                    (
-                    (* On this level. *)
-                    if addr >= 0 andalso fpRel
-                    then (* Local *) Array.update(locals, addr, true)
-                    else (); (* Argument or recursive - ignore it. *)
-                    dec
-                    )
-                else (* Non-local.  This may be a recursive call. *)
-                    prev(ext, level-1, nestingDepth)
+            (
+                Array.update(locals, addr, true);
+                dec
+            )
 
-         |  cleanCode (dec as Extract(LoadLocal addr)) =
-                (* If this is a local we need to mark it as used. *)
-                (
-                    Array.update(locals, addr, true);
-                    dec
-                )
+            (* Reference to entry in the closure - need to rebuild the closure. *)
+        |   cleanCode(Extract(LoadClosure addr)) = Extract(prev addr)
 
-         |  cleanCode(Extract _) = raise InternalError "cleanCode: TODO"
+            (* Arguments and recursive references don't need special treatment. *)
+        |   cleanCode(dec as Extract _) = dec
 
-         |  cleanCode (Lambda lam) = Lambda(cleanLambda lam)
+        |   cleanCode (Lambda lam) = Lambda(cleanLambda lam)
 
             (* All the other case simply map cleanCode over the tree. *)
          |  cleanCode MatchFail = MatchFail
@@ -185,7 +186,7 @@ struct
 
          |  cleanCode (c as Constnt _) = c
 
-         |  cleanCode (ConstntWithInline(c, _, _)) = Constnt c
+         |  cleanCode (ConstntWithInline(c, _)) = Constnt c
 
          |  cleanCode (Indirect{base, offset}) =
                 Indirect{base=cleanCode base, offset=offset}
@@ -226,9 +227,7 @@ struct
                    The container won't be created either. *)
                   val used =
                       case container of
-                        Extract(LoadLegacy{addr, level=0, fpRel=true, ...}) =>
-                            addr <= 0 orelse Array.sub(locals, addr)
-                      | Extract(LoadLocal addr) => Array.sub(locals, addr)
+                        Extract(LoadLocal addr) => Array.sub(locals, addr)
                       | _ => true (* Assume it is. *)
                in
                 (* Disable this for the moment - it's probably not very useful

@@ -83,7 +83,7 @@ sig
 
         (* A constant together with the code for either an inline function or a
            tuple.  This is used for global values. *)
-    |   ConstntWithInline of machineWord * codetree * envType
+    |   ConstntWithInline of machineWord * envSpecial
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
@@ -97,7 +97,19 @@ sig
     |   LoadRecursive
     |   LoadLegacy of { addr: int, level: int, fpRel: bool }
 
-    and envType = EnvType of loadForm * int * int -> codetree * (codetree * envType) option
+    (* When we look up an entry in the environment we get a pair of
+       a "general" value, which is either a constant or a load, and
+       an optional special value, which is either a tuple or an
+       inline function.  Tuple entries are functions from an integer
+       offset to one of these pairs; inline function entries are a
+       lambda together with a map for the free variables. *)
+    and envGeneral =
+        EnvGenLoad of loadForm | EnvGenConst of machineWord
+
+    and envSpecial =
+        EnvSpecNone
+    |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
+    |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
 
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -110,17 +122,11 @@ sig
         body          : codetree,           (* The body of the function. *)
         isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
         name          : string,             (* Text name for profiling etc. *)
-        closure       : codetree list,      (* List of items for closure/static link.  Added by preCode. *)
+        closure       : loadForm list,      (* List of items for closure. *)
         argTypes      : argumentType list,  (* "Types" of arguments. *)
         resultType    : argumentType,       (* Result "type" of the function. *)
-        level         : int,                (* Nesting depth.  Added by optimiser. *)
         localCount    : int                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
     }
-
-    (* Return the "size" of the codetree used as a way of estimating whether to insert
-       the body inline.  If the bool is true this includes the size of sub-functions
-       in the calculation, if false they are excluded. *)
-    val codeSize : codetree * bool -> int
 
     type pretty
     val pretty : codetree -> pretty
@@ -134,7 +140,8 @@ sig
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
         and  loadForm = loadForm
-        and  envType = envType
+        and  envGeneral = envGeneral
+        and  envSpecial = envSpecial
     end
 
 end;

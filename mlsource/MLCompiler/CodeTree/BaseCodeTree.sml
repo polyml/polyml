@@ -87,7 +87,7 @@ struct
 
         (* A constant together with the code for either an inline function or a
            tuple.  This is used for global values. *)
-    |   ConstntWithInline of machineWord * codetree * envType
+    |   ConstntWithInline of machineWord * envSpecial
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
@@ -101,7 +101,19 @@ struct
     |   LoadRecursive
     |   LoadLegacy of { addr: int, level: int, fpRel: bool }
 
-    and envType = EnvType of loadForm * int * int -> codetree * (codetree * envType) option
+    (* When we look up an entry in the environment we get a pair of
+       a "general" value, which is either a constant or a load, and
+       an optional special value, which is either a tuple or an
+       inline function.  Tuple entries are functions from an integer
+       offset to one of these pairs; inline function entries are a
+       lambda together with a map for the free variables. *)
+    and envGeneral =
+        EnvGenLoad of loadForm | EnvGenConst of machineWord
+
+    and envSpecial =
+        EnvSpecNone
+    |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
+    |   EnvSpecInlineFunction of lambdaForm * (int -> envGeneral * envSpecial)
     
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
@@ -114,10 +126,9 @@ struct
         body          : codetree,
         isInline      : inlineStatus,
         name          : string,
-        closure       : codetree list,
+        closure       : loadForm list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        level         : int,
         localCount    : int
     }
 
@@ -245,8 +256,7 @@ struct
                 )
             end
         
-        | Lambda {body, isInline, name, closure, argTypes, level,
-                  resultType, localCount} =>
+        | Lambda {body, isInline, name, closure, argTypes, resultType, localCount} =>
             let
                 val inl = 
                     case isInline of
@@ -264,13 +274,12 @@ struct
                         PrettyBreak (1, 0),
                         PrettyString name,
                         PrettyBreak (1, 0),
-                        PrettyString (" LEV=" ^ Int.toString level),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], [PrettyString "RES=", prettyArgType resultType]),
-                        printList (" CLOS=", closure, ","),
+                        printList (" CLOS=", map Extract closure, ","),
                         PrettyBreak (1, 0),
                         pretty body,
                         PrettyString "){LAMBDA}"
@@ -285,8 +294,7 @@ struct
         | Newenv(decs, final) =>
             PrettyBlock (1, true, [],
                 PrettyString ("BLOCK" ^ "(") ::
-                pList(decs, ";", prettyBinding) @
-                [ PrettyBreak (1, 0), pretty final, PrettyBreak (0, 0), PrettyString (")") ]
+                pList(decs @ [NullBinding final], ";", prettyBinding)
             )
 
         | BeginLoop{loop=loopExp, arguments=args } =>
@@ -370,15 +378,15 @@ struct
                 ]
             )
 
-        |   ConstntWithInline(w, spec, _) =>
+        |   ConstntWithInline(w, _) =>
             PrettyBlock (1, true, [],
                 [
                     PrettyString "CONSTWITHINLINE (",
                     PrettyString (stringOfWord w),
                     PrettyString ", ",
                     PrettyBreak (1, 0),
-                    pretty (spec),
-                    PrettyBreak (1, 0),
+                    (*pretty (spec),
+                    PrettyBreak (1, 0),*)
                     PrettyString ") (*CONSTWITHINLINE*)"
                 ]
             )
@@ -417,172 +425,6 @@ struct
             ]
         )
 
-    (* Map a function over the code-tree creating a new code tree from the results. *)
-    (* Not currently used so it's commented out. *)
-(*    fun mapCodeTreeNode _CodeNil = CodeNil
-    |   mapCodeTreeNode _ MatchFail = MatchFail
-    |   mapCodeTreeNode f (AltMatch(m1, m2)) = AltMatch(f m1, f m2)
-    |   mapCodeTreeNode f (Declar {value, addr, references}) =
-            Declar{value=f value, addr=addr, references=references}
-    |   mapCodeTreeNode f (Newenv cl) = Newenv(map f cl)
-    |   mapCodeTreeNode _ (c as Constnt _) = c
-    |   mapCodeTreeNode _ (c as Extract _) = c
-    |   mapCodeTreeNode f (Indirect{base, offset}) = Indirect{base=f base, offset=offset}
-    |   mapCodeTreeNode f (Eval{function, argList, resultType}) =
-            Eval{function=f function, argList=map(fn(c, t) => (f c, t)) argList,
-                 resultType=resultType}
-    |   mapCodeTreeNode f
-            (Lambda{ body, isInline, name, closure, argTypes, resultType, level, closureRefs, makeClosure}) =
-            Lambda{ body=f body, isInline=isInline, name=name, closure=closure, argTypes=argTypes,
-                    resultType=resultType, level=level, closureRefs=closureRefs, makeClosure=makeClosure}
-    |   mapCodeTreeNode f (MutualDecs decs) = MutualDecs(map f decs)
-    |   mapCodeTreeNode f (Cond(c, t, e)) = Cond(f c, f t, f e)
-    |   mapCodeTreeNode f (Case{cases, test, caseType, default}) =
-            Case{cases = map (fn (c, w) => (f c, w)) cases, test=f test, caseType=caseType, default=f default}
-    |   mapCodeTreeNode f (BeginLoop(c, l)) = BeginLoop(f c, map(fn(c, t) => (f c, t)) l)
-    |   mapCodeTreeNode f (Loop l) = Loop(map(fn(c, t) => (f c, t)) l)
-    |   mapCodeTreeNode f (Raise c) = Raise(f c)
-    |   mapCodeTreeNode _ Ldexc = Ldexc
-    |   mapCodeTreeNode f (Handle{exp, taglist, handler}) = Handle{exp=f exp, taglist = map f taglist, handler=f handler}
-    |   mapCodeTreeNode f (Recconstr l) = Recconstr(map f l)
-    |   mapCodeTreeNode _ (c as Container _) = c
-    |   mapCodeTreeNode f (SetContainer{container, tuple, size}) =
-            SetContainer{container=f container, tuple=f tuple, size=size}
-    |   mapCodeTreeNode f (TupleFromContainer(c, s)) = TupleFromContainer(f c, s)
-    |   mapCodeTreeNode f (TagTest{test, tag, maxTag}) = TagTest{test=f test, tag=tag, maxTag=maxTag}
-    |   mapCodeTreeNode _ (Global _) = raise Misc.InternalError "mapCodeTreeNode: Global"*)
-
- 
-    (* Return the "size" of a piece of code. *)
-    fun codeSize (pt, includeSubfunctions) = 
-    let
-        fun sizeList l = List.foldl (fn (p, s) => size p + s) 0 l
-
-        (* some very rough size estimates *)
-        and size pt =
-            case pt of
-                MatchFail                       => 1
-            |   AltMatch (m1, m2)               => size m1 + size m2 + 1
-            |   Newenv(decs, exp)               => List.foldl (fn (p, s) => sizeBinding p + s) (size exp) decs
-            |   Constnt w                       => if isShort w then 0 else 1
-(*            |   Extract {level=0, fpRel=true, ...} => 0 (* Probably in a register*)*)
-            |   Extract _                       => 1
-            |   Indirect {base,...}             => size base + 1
-            |   Lambda {body, argTypes, ...}    => if includeSubfunctions then size body + List.length argTypes else 0
-(*            |   Eval {function=Constnt w ,argList,...}     =>
-                    (* If this is an RTS call it's probably really an instruction that
-                       the code-generator will inline and if it isn't we're not going
-                       to go greatly wrong.  *)
-                    if isIoAddress(toAddress w) then 1 + sizeList(List.map #1 argList)
-                    else sizeList(List.map #1 argList) + 2*)
-            |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2
-            |   Cond (i,t,e)                    => size i + size t + size e + 2
-            |   BeginLoop {loop, arguments, ...}=> size loop + 
-                                                      sizeList(List.map (fn ({value, ...}, _) => value) arguments)
-            |   Loop args                       => sizeList(List.map #1 args) + 1
-            |   Raise c                         => size c + 1
-            |   Ldexc                           => 1
-            |   Handle {exp, handler}           => size exp + size handler
-            |   Recconstr cl                    => sizeList cl + 2 (* optimistic *)
-            |   Container _                     => 1 (* optimistic *)
-            |   SetContainer{container, tuple = Recconstr cl, ...} =>
-                            (* We can optimise this. *) sizeList cl + size container
-            |   SetContainer{container, tuple, size=len} => size container + size tuple + len
-            |   TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
-            |   ConstntWithInline(glob, _, _)   => size(Constnt glob)
-            |   TagTest { test, ... }           => 1 + size test
-
-        and sizeBinding(Declar{value, ...}) = size value
-        |   sizeBinding(RecDecs decs) = List.foldl (fn ({lambda, ...}, s) => size(Lambda lambda) + s) 0 decs
-        |   sizeBinding(NullBinding c) = size c
-
-(*        and size pt =
-            case pt of
-                CodeNil                         => 0
-            |   MatchFail                       => 0
-            |   AltMatch (m1, m2)               => size m1 + size m2
-            |   Declar {value, ...}             => size value
-            |   Newenv cl                       => sizeList cl
-            |   Constnt _                       => 0
-            |   Extract _                       => 0
-            |   Indirect {base,...}             => size base
-            |   Lambda {body, ...}              => 10 + size body
-            |   Eval {function=Constnt _,argList, ...}     => sizeList(List.map #1 argList) + 1
-            |   Eval {function, argList,...}    => size function + sizeList(List.map #1 argList) + 10
-            |   KillItems{expression, ...}      => size expression
-            |   MutualDecs decs                 => sizeList decs
-            |   Cond (i,t,e)                    => size i + size t + size e 
-            |   BeginLoop {loop, arguments, ...}=> size loop + sizeList(List.map #1 arguments)
-            |   Loop args                       => sizeList(List.map #1 args)
-            |   Raise c                         => size c
-            |   Ldexc                           => 0
-            |   Handle {exp,taglist,handler}    => size exp + size handler + sizeList taglist + List.length taglist
-            |   Recconstr cl                    => sizeList cl
-            |   Container _                     => 0
-            |   SetContainer{container, tuple, ...} => size container + size tuple
-            |   TupleFromContainer(container, _) => size container
-            |   Global glob                     => sizeOptVal glob
-            |   TagTest { test, ... }           => size test
-            |   Case {test,default,cases,...}   =>
-                    size test + size default + sizeCaseList cases*)
-    in
-        size pt
-    end
-
-    (* Tests if the function is non-tail recursive.  Since this is only used as an indication as
-       to whether to inline the function it doesn't matter if it's not precise. *)
-(*    fun isRecursive(pt, baseLevel) =
-    let
-        fun checkList l = List.foldl (fn (p, s) => s orelse check (p, false)) false l
-
-        and check(pt, tail) =
-            case pt of
-                CodeNil                         => false
-            |   MatchFail                       => false
-            |   AltMatch (m1, m2)               => check(m1, tail) orelse check (m2, tail)
-            |   Declar {value, ...}             => check(value, false)
-            |   Newenv cl                       =>
-                let
-                    fun checkList([], t) = t
-                    |   checkList([last], t) = t orelse check(last, tail)
-                    |   checkList(hd::tl, t) = t orelse check(hd, false) orelse checkList(tl, false)
-                in
-                    checkList(cl, false)
-                end
-            |   Constnt _                       => false
-            |   Extract _                       => false
-            |   Indirect {base,...}             => check (base, false)
-            |   Lambda {body, ...}              => check (body, false)
-            |   Eval {function=Extract{level, addr, ...}, argList, ...} =>
-                       if level > 0 orelse level = 0 andalso addr=0 andalso not tail
-                       then true else checkList(List.map #1 argList)
-            |   Eval {function, argList,...}     => check(function, false) orelse checkList(List.map #1 argList)
-            |   MutualDecs decs                 => checkList decs
-            |   Cond (i,t,e)                    => check (i, false) orelse check (t, tail) orelse check (e, tail)
-            |   BeginLoop {loop, arguments, ...}=> check (loop, false) orelse checkList(List.map #1 arguments)
-            |   Loop args                       => checkList(List.map #1 args)
-            |   Raise c                         => check (c, false)
-            |   Ldexc                           => false
-            |   Handle {exp,taglist,handler}    => check (exp, tail) orelse check (handler, tail) orelse checkList taglist
-            |   Recconstr cl                    => checkList cl
-            |   Container _                     => false
-            |   SetContainer{container, tuple = Recconstr cl, ...} =>
-                            (* We can optimise this. *) checkList cl orelse check (container, false)
-            |   SetContainer{container, tuple, ...} => check (container, false) orelse check (tuple, false)
-            |   TupleFromContainer(container, _) => check (container, false)
-            |   Global _                         => false
-            |   TagTest { test, ... }           => check (test, false)
-            |   Case {test,default,cases,...}   =>
-                let
-                    fun sizeCaseList []           = false
-                    |   sizeCaseList ((c,_)::cs) = check(c, tail) orelse sizeCaseList cs
-                in
-                    check (test, false) orelse check (default, tail) orelse sizeCaseList cases
-                end
-    in
-        check(pt, true)
-    end*)
-
     structure Sharing =
     struct
         type codetree = codetree
@@ -592,7 +434,8 @@ struct
         and  codeBinding = codeBinding
         and  simpleBinding = simpleBinding
         and  loadForm = loadForm
-        and  envType = envType
+        and  envGeneral = envGeneral
+        and  envSpecial = envSpecial
     end
 
 end;

@@ -132,7 +132,6 @@ sig
         closure       : backendIC list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        level         : int,
         closureRefs   : int,
         localCount    : int,
         makeClosure   : bool,

@@ -477,7 +477,7 @@ struct
         fun leq (Value{name=xname, ...}, _) (Value{name=yname, ...}, _) = xname < yname;
         val sortedConstrs = quickSort leq valConstrsAndDecs;
         val initialTypeSet = TypeConstrSet(dtype, (List.map #1 valConstrsAndDecs))
-        val addrs = ref 0
+        val addrs = ref 1
         fun mkAddrs n = ! addrs before (addrs := !addrs+n)
 
         fun declConstr(Value{access=Local{addr, level}, ...}, repr) =

@@ -52,10 +52,10 @@ end
 
 structure OPTIMISER:
 sig
-    type codetree and envType and codeBinding
-    val codetreeOptimiser: codetree  * Universal.universal list ->
-        { numLocals: int, general: codetree, bindings: codeBinding list, special: (codetree * envType) option }
-    structure Sharing: sig type codetree = codetree and envType = envType and codeBinding = codeBinding end
+    type codetree  and envSpecial and codeBinding
+    val codetreeOptimiser: codetree  * Universal.universal list * int ->
+        { numLocals: int, general: codetree, bindings: codeBinding list, special: envSpecial }
+    structure Sharing: sig type codetree = codetree and envSpecial = envSpecial and codeBinding = codeBinding end
 end
 
 sharing type
@@ -98,6 +98,8 @@ struct
     fun transformAndMaxAddress(code, numArgs) =
     let
         val maxAddr = ref 0 and closureList: (int * int * int) list ref = ref []
+        
+        fun deExtract(Extract ext) = ext | deExtract _ = raise InternalError "deExtract"
     
         (* Convert the base codetree into the optimiser version. *)
         fun transformClosure MatchFail = MatchFail
@@ -192,24 +194,22 @@ struct
 
         |   transformClosure(TagTest{ test, tag, maxTag }) = TagTest{ test = transformClosure test, tag = tag, maxTag = maxTag }
 
-        |   transformClosure(ConstntWithInline(value, code, environ)) = ConstntWithInline(value, code, environ)
+        |   transformClosure(ConstntWithInline args) = ConstntWithInline args
 
         and transformLambda (lambda as {closure = [], ... }) = lambda
             (* The body should already have been processed - all we need to do is the closure. *)
 
-        |   transformLambda { body, isInline, name, closure, argTypes, resultType, level, localCount } =
+        |   transformLambda { body, isInline, name, closure, argTypes, resultType, localCount } =
             { body = body, isInline = isInline, name = name,
-              closure = map transformClosure closure, argTypes = argTypes,
-              resultType = resultType, level = level, localCount = localCount }
+              closure = map (deExtract o transformClosure o Extract) closure, argTypes = argTypes,
+              resultType = resultType, localCount = localCount }
 
         val resultCode = transformClosure code
     in
         (resultCode, !maxAddr,
             (* Convert to Extract entries and reverse the list. *)
-            List.foldl (fn((_, addr, level), l) => mkLoad(addr, level-1) :: l) [] (!closureList))
+            List.foldl (fn((_, addr, level), l) => deExtract(mkLoad(addr, level-1)) :: l) [] (!closureList))
     end
-
-    fun transformAndMaxAddress(pt, _) = (pt, 0, [])
 
     fun genCode(pt, debugSwitches) =
     let
@@ -238,7 +238,7 @@ struct
 
         (* Optimise it. *)
         val { numLocals = localCount, general = gen, bindings = decs, special = spec } =
-            OPTIMISER.codetreeOptimiser(transCode, debugSwitches)
+            OPTIMISER.codetreeOptimiser(transCode, debugSwitches, maxAddr+1)
 
         (* At this stage we have a "general" value and also, possibly a "special"
            value.  We could simply create mkEnv(decs, gen) and run preCode
@@ -256,114 +256,88 @@ struct
            it does not we simply generate the version without any special
            entry at all.  This speeds up compilation in certain pathological
            cases. *)
+        (* See if there is an inline function in there. *)
+        fun containsFunction (_, true) = true
+        |   containsFunction (EnvSpecNone, _) = false
+        |   containsFunction (EnvSpecInlineFunction _, _) = true
+        |   containsFunction (EnvSpecTuple(size, env), _) =
+            let
+                val fields = List.tabulate(size, fn n=>n)
+            in
+                List.foldl (fn (c, f) => containsFunction(#2 (env c), f)) false fields
+            end
 
     in
-        case spec of
-            NONE =>
-                let
-                    val code = codeAndPrint (mkEnv(decs, gen), localCount)
-                in
-                    fn () => mkConst(code())
-                end
-        |
-            SOME (spec, specEnv) =>
+        if not (containsFunction(spec, false))
+        then
+        let
+            val code = codeAndPrint (mkEnv(decs, gen), localCount)
+        in
+            fn () => mkConst(code())
+        end
+        else
+        let
+            val decArray = Array.array(localCount, CodeZero)
+    
+            fun addDecs(Declar{addr, value = Container size, ...}) =
+                    Array.update(decArray, addr, TupleFromContainer(mkLoad (addr, 0), size))
+            |   addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoad (addr, 0))
+            |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoad (addr, 0))) decs
+            |   addDecs(NullBinding _) = ()
+
+            val () = List.app addDecs decs
+
+            (* Construct the tuple and add the "general" value at the start. *)
+            val resultTuple = mkTuple(gen :: Array.foldr(op ::) nil decArray)
+            (* Now generate the machine code and return it as a function that can be called. *)
+            val code = codeAndPrint (mkEnv (decs, resultTuple), localCount)
+        in
+            (* Return a function that executes the compiled code and then creates the
+               final "global" value as the result. *)
+            fn () =>
                 let
                     local
-                        (* See if there is an inline function in there. *)
-                        fun containsFunction _ (_, true) = true
-                        |   containsFunction _ (Lambda _, _) = true
-                        |   containsFunction _ (Constnt _, _) = false
-                        |   containsFunction optEnv (Recconstr tuple, _) =
-                                List.foldl(fn (c, f) => containsFunction optEnv (c, f)) false tuple
-                        |   containsFunction (EnvType optEnv) (Extract ext, _) =
-                            let
-                                val newVal = optEnv(ext, 0, 0)
-                            in
-                                case newVal of
-                                    (_, NONE) => false
-                                |   (_, SOME(newSpec, newEnv)) => containsFunction newEnv (newSpec, false)
-                            end
-                        |   containsFunction _ _ = raise InternalError "containsFunction"
+                        (* Execute the code.  This will perform any side-effects the user
+                           has programmed and may raise an exception if that is required. *)
+                        val resVector = code ()
 
+                        (* The result is a vector containing the "general" value as the
+                           first word and the evaluated declarations for any "special"
+                           entries in subsequent words. *)
+                        val decVals : address =
+                            if isShort resVector
+                            then raise InternalError "Result vector is not an address"
+                            else toAddress resVector
                     in
-                        val hasFunction = containsFunction specEnv (spec, false)
+                        fun resultWordN n = loadWord (decVals, toShort n)
+                        (* Get the general value, the zero'th entry in the vector. *)
+                        val generalVal = resultWordN 0
                     end
-                in
-                    if not hasFunction
-                    then
+
+                    (* Construct a new environment so that when an entry is looked 
+                       up the corresponding constant is returned. *) 
+                    fun newEnviron (oldEnv) args =
                     let
-                        val code = codeAndPrint (mkEnv(decs, gen), localCount)
-                    in
-                        fn () => mkConst(code())
-                    end
-                else
-                let
-                    val decArray = Array.array(localCount, CodeZero)
+                        val (oldGeneral, oldSpecial) = oldEnv args
             
-                    fun addDecs(Declar{addr, value = Container size, ...}) =
-                            Array.update(decArray, addr, TupleFromContainer(mkLoad (addr, 0), size))
-                    |   addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoad (addr, 0))
-                    |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoad (addr, 0))) decs
-                    |   addDecs(NullBinding _) = ()
-
-                    val () = List.app addDecs decs
-
-                    (* Construct the tuple and drop the first entry which is never used.  Replace
-                       it by the "general" value. *)
-                    val tupleEntries = List.tl(Array.foldr(op ::) nil decArray)
- 
-                    val resultTuple = mkTuple(gen :: tupleEntries)
-                    (* Now generate the machine code and return it as a function that can be called. *)
-                    val code = codeAndPrint (mkEnv (decs, resultTuple), localCount)
-                in
-                    (* Return a function that executes the compiled code and then creates the
-                       final "global" value as the result. *)
-                    fn () =>
-                        let
-                            local
-                                (* Execute the code.  This will perform any side-effects the user
-                                   has programmed and may raise an exception if that is required. *)
-                                val resVector = code ()
-
-                                (* The result is a vector containing the "general" value as the
-                                   first word and the evaluated declarations for any "special"
-                                   entries in subsequent words. *)
-                                val decVals : address =
-                                    if isShort resVector
-                                    then raise InternalError "Result vector is not an address"
-                                    else toAddress resVector
-                            in
-                                fun resultWordN n = loadWord (decVals, toShort n)
-                                (* Get the general value, the zero'th entry in the vector. *)
-                                val generalVal = resultWordN 0
-                            end
-
-                            (* Construct a new environment so that when an entry is looked 
-                               up the corresponding constant is returned. *) 
-                            fun newEnviron (EnvType oldEnv) args =
-                            let
-                                val (oldGeneral, oldSpecial) = oldEnv args
-                    
-                                val genVal =
-                                    case oldGeneral of
-                                        Extract(LoadLocal addr) => resultWordN addr
-                                    |   Extract(LoadLegacy{addr, ...}) => resultWordN addr (* ??? *)
-                                    |   Constnt c => c
-                                    |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
-                       
-                                val specVal =
-                                    case oldSpecial of
-                                        NONE => NONE
-                                    |   SOME(spec, env) => SOME(spec, EnvType(newEnviron env))
-                            in
-                                (Constnt genVal, specVal)
-                            end
-                        in 
-                            (* and return the whole lot as a global value. *)
-                            ConstntWithInline(generalVal, spec, EnvType(newEnviron specEnv))
-                        end
+                        val genVal =
+                            case oldGeneral of
+                                EnvGenLoad(LoadLocal addr) => resultWordN(addr+1)
+                            |   EnvGenConst c => c
+                            |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
+               
+                        val specVal = mapSpec oldSpecial
+                    in
+                        (EnvGenConst genVal, specVal)
                     end
+                    and mapSpec EnvSpecNone = EnvSpecNone
+                    |   mapSpec (EnvSpecTuple(size, env)) = EnvSpecTuple(size, newEnviron env)
+                    |   mapSpec (EnvSpecInlineFunction(spec, env)) = EnvSpecInlineFunction(spec, (newEnviron env))
+                in 
+                    (* and return the whole lot as a global value. *)
+                    ConstntWithInline(generalVal, mapSpec spec)
                 end
+        end
     end (* genCode *)
 
 
@@ -382,7 +356,6 @@ struct
                 closure       = nonLocals,
                 argTypes      = List.tabulate(args, fn _ => GeneralType),
                 resultType    = GeneralType,
-                level         = 0,
                 localCount    = maxAddr + 1
               }
         end
@@ -406,7 +379,6 @@ struct
                 closure       = nonLocals,
                 argTypes      = argsAndTypes,
                 resultType    = resultType,
-                level         = 0,
                 localCount    = maxAddr + 1
             }
         end

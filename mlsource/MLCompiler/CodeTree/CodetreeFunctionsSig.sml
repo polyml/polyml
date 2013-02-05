@@ -21,7 +21,6 @@ sig
     type codetree
     type codeBinding
     type loadForm
-    type envType
 
     type machineWord = Address.machineWord
 
@@ -83,7 +82,6 @@ sig
         and  argumentType = argumentType
         and  codeBinding = codeBinding
         and  loadForm = loadForm
-        and  envType = envType
     end
 
 end;

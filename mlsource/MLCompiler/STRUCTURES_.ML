@@ -2956,7 +2956,7 @@ struct
         |   loadTopdecs(SignatureDec _) = []
 
         local (* Separate context for each top level item. *)
-            val address = ref 1
+            val address = ref 0
         in
             fun mkAddr n = !address before (address := ! address+n)
         end

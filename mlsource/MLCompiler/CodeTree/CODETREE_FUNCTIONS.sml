@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012 David C.J. Matthews
+    Copyright (c) 2012,13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -345,23 +345,18 @@ struct
             then raiseError
             else mkConst (loadWord (toAddress b, toShort offset))
 
-        |  findEntryInBlock (ConstntWithInline(_, recc as Recconstr _, EnvType env)) offset =
+        |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env))) offset =
             (* Do the selection now.  This is especially useful if we
                have a global structure  *)
-            let
-                fun envResult(gen as Constnt _, NONE) = gen
-                |   envResult(Constnt w, SOME(spec, env)) = ConstntWithInline(w, spec, env)
-                |   envResult _ = raise InternalError "envResult: not constant"
+            (
+                case env offset of
+                    (EnvGenConst w, EnvSpecNone) => Constnt w
+                |   (EnvGenConst w, spec) => ConstntWithInline(w, spec)
                 (* The general value from selecting a field from a constant tuple must be a constant. *)
-            in
-                case findEntryInBlock recc offset of
-                    Extract (ext as LoadLegacy{level, ...}) => envResult(env (ext, 0, (* global *) level))
-                |   Extract (ext as LoadLocal _) => envResult(env(ext, 0, 0))
-                |   Extract _ => raise InternalError "findEntryInBlock: TODO"
-                |   selection => selection (* Normally a constant *)
-            end
+                |   _ => raise InternalError "findEntryInBlock: not constant"
+            )
  
-        |   findEntryInBlock (ConstntWithInline(general, _, _)) offset =
+        |   findEntryInBlock (ConstntWithInline(general, _)) offset =
                 (* Is this possible?  If it's inline it should be a tuple. *)
                  findEntryInBlock (Constnt general) offset
     
@@ -380,7 +375,7 @@ struct
         
     (* Get the value from the code. *)
     fun evalue (Constnt c) = SOME c
-    |   evalue (ConstntWithInline(g, _, _)) = SOME g
+    |   evalue (ConstntWithInline(g, _)) = SOME g
     |   evalue _ = NONE
 
     (* This is really to simplify the change from mkEnv taking a codetree list to
@@ -402,7 +397,6 @@ struct
         and  argumentType = argumentType
         and  codeBinding = codeBinding
         and  loadForm = loadForm
-        and  envType = envType
     end
 
 end;

@@ -132,7 +132,6 @@ struct
         closure       : backendIC list,
         argTypes      : argumentType list,
         resultType    : argumentType,
-        level         : int,
         closureRefs   : int,
         localCount    : int,
         makeClosure   : bool,
@@ -293,7 +292,7 @@ struct
                 )
             end
         
-        |   BICLambda {body, name, closure, argTypes, level, closureRefs,
+        |   BICLambda {body, name, closure, argTypes, closureRefs,
                   makeClosure, resultType, localCount, argLifetimes} =>
             let
                 fun prettyArgTypes [] = []
@@ -311,7 +310,6 @@ struct
                         PrettyBreak (1, 0),
                         PrettyString ( "CL="  ^ Bool.toString makeClosure),
                         PrettyString (" CR="  ^ Int.toString closureRefs),
-                        PrettyString (" LEV=" ^ Int.toString level),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),
                         PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
