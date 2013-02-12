@@ -37,7 +37,8 @@
 #define ElfXX_Sym   Elf64_Sym
 #define ElfXX_Ehdr  Elf64_Ehdr
 #define ElfXX_Shdr  Elf64_Shdr
-#define ELFXX_R_INFO(_y, _z)    ELF64_R_INFO(_y, _z)
+// Include a cast on the next line.  Linux includes this anyway but it's needed for FreeBSD.
+#define ELFXX_R_INFO(_y, _z)    ELF64_R_INFO((Elf64_Xword)(_y), _z)
 #define ELFXX_ST_INFO(_y, _z)   ELF64_ST_INFO(_y, _z)
 #define ELFCLASSXX      ELFCLASS64
 #else
