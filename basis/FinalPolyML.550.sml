@@ -1337,7 +1337,7 @@ local
                be pervasive. *)
             fun findDirectory (s: string) : string =
                 if (not targetIsDir orelse s = objectName) andalso
-                    isSome(filePresent(dirName,  s))
+                    filePresent(dirName,  s) <> NONE
                 then dirName
                 else raise ObjNotFile;
         in
@@ -1528,7 +1528,7 @@ in
             open PolyML.CodeTree
             (* Add options to the code-generation phase. *)
             val genCode =
-                fn (code, numLocals) =>
+                fn code =>
                 let
                     open Bootstrap Bootstrap.Universal
                     val compilerOut = prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
@@ -1542,7 +1542,7 @@ in
                             tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                             tagInject assemblyCodeTag (! assemblyCode),
                             tagInject codetreeAfterOptTag (! codetreeAfterOpt)
-                        ], numLocals)
+                        ])
                 end
         end
 

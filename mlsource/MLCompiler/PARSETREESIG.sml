@@ -43,6 +43,7 @@ sig
     type typeParsetree
     type funpattern
     type codeBinding
+    type level
   
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
@@ -145,10 +146,10 @@ sig
         parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
 
-    type debugenv = environEntry list * (int->codetree)
+    type debugenv = environEntry list * (level->codetree)
 
     val gencode:
-        parsetree * lexan * debugenv * int * (int->int) * typeVarMap * string *
+        parsetree * lexan * debugenv * level * (int->int) * typeVarMap * string *
             (codeBinding list * debugenv * typeVarMap -> codeBinding list * debugenv)
             -> codeBinding list * debugenv
 
@@ -188,5 +189,6 @@ sig
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
         and  typeVarMap = typeVarMap
+        and  level = level
     end
 end (* PARSETREE export signature *);

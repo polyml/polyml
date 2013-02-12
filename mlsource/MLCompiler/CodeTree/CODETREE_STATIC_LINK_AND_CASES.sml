@@ -884,8 +884,6 @@ struct
             |   locaddr(ptr as LoadRecursive, closure) = previous (ptr, 0, closure)
             |   locaddr(ptr as LoadClosure _, closure) = previous (ptr, 0, closure)
 
-            |   locaddr _ = raise InternalError "locaddr: legacy"
-
             fun makeDecl addr =
             (let
                 val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)

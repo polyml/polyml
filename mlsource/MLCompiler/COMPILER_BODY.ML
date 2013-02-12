@@ -42,21 +42,10 @@ end;
 
 structure LEX : LEXSIG
 
-structure CODETREE :
-sig
-  type codetree
-  type pretty
-  
-  val genCode:   codetree * Universal.universal list -> unit -> codetree
-  val pretty:    codetree -> pretty;
-end;
-
+structure CODETREE : CODETREESIG
 structure STRUCTVALS : STRUCTVALSIG; 
-
 structure VALUEOPS : VALUEOPSSIG;
-
 structure EXPORTTREE: EXPORTTREESIG
-
 structure STRUCTURES : STRUCTURESSIG
 
 structure PARSEDEC :
@@ -298,10 +287,8 @@ struct
             then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
             else let (* let4 *)
               
-              (* Only code-generate if there were no errors and
-                 it's not a directive. *)
-              val optimisedCode : CODETREE.codetree =
-                STRUCTURES.gencodeStructs (parseTree, lex);
+              (* Only code-generate if there were no errors and it's not a directive. *)
+              val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex);
               val treeTime = cpuTime startTime;
               
               in
@@ -310,7 +297,7 @@ struct
                    (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
                 else let (* let5 *)                      
                       val resultCode : unit -> CODETREE.codetree =
-                         CODETREE.genCode(optimisedCode, debugSwitches);
+                         CODETREE.genCode(structCode, debugSwitches, nLocals)
                       val codeTime = cpuTime startTime;
                       
                       (* This is the procedure which is returned as the result of

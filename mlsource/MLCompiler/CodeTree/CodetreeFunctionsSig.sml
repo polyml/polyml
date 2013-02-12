@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012 David C.J. Matthews
+    Copyright (c) 2012,13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -19,50 +19,22 @@
 signature CodetreeFunctionsSig =
 sig
     type codetree
-    type codeBinding
-    type loadForm
+    and codeBinding
 
     type machineWord = Address.machineWord
 
-    datatype argumentType =
-        GeneralType
-    |   FloatingPtType
+    val mkLoadLocal: int -> codetree
+    and mkLoadArgument: int -> codetree
+    and mkLoadClosure: int -> codetree
  
-    val mkDec: int * codetree -> codeBinding
-    val mkMutualDecs: (int * codetree) list -> codeBinding
-    val mkNullDec: codetree -> codeBinding
-    val mkTuple: codetree list -> codetree
-    val mkIf: codetree * codetree * codetree -> codetree
     val mkEnv: codeBinding list * codetree -> codetree
-    val mkConst: machineWord -> codetree
-    val mkWhile: codetree * codetree -> codetree
-    val mkCor: codetree * codetree -> codetree
-    and mkCand: codetree * codetree -> codetree
-    val mkRaise: codetree -> codetree
-    and mkContainer: int -> codetree
-    and mkAltMatch: codetree * codetree -> codetree
-    and mkEval: codetree * codetree list -> codetree
-    and mkHandle: codetree * codetree -> codetree
-    and mkLoad: int * int -> codetree
     and mkInd: int * codetree -> codetree
+    and mkTuple: codetree list -> codetree
 
-    val mkLoop: codetree list -> codetree
-    and mkBeginLoop: codetree * (int * codetree) list -> codetree
-    
     val CodeFalse: codetree and CodeTrue: codetree and CodeZero: codetree
-    
-    val mkNot: codetree -> codetree
-    and mkTestinteq: codetree * codetree -> codetree
-    val mkTestnull:         codetree -> codetree
-    val mkTestnotnull:      codetree -> codetree
-    val mkTestptreq:        codetree * codetree -> codetree
-    val mkStr: string -> codetree
 
-    val mkTagTest:          codetree * word * word -> codetree
     val mkSetContainer:     codetree * codetree * int -> codetree
     val mkTupleFromContainer: codetree * int -> codetree
-
-    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codeBinding list}
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
     
@@ -79,9 +51,7 @@ sig
     structure Sharing:
     sig
         type codetree = codetree
-        and  argumentType = argumentType
-        and  codeBinding = codeBinding
-        and  loadForm = loadForm
+        and codeBinding = codeBinding
     end
 
 end;

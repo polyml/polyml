@@ -1,6 +1,5 @@
 (*
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
+    Copyright (c) 2012,13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -17,16 +16,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(*
-    Title:      Machine-independent Code and Optimisation.
-    Author:     Dave Matthews, Cambridge University Computer Laboratory
-    Copyright   Cambridge University 1985
-*)
-
-(*
-    Substantially modified.
-    Changes copyright. David C.J. Matthews 2001.
-*)
 functor CODETREE (
 
 structure DEBUG :
@@ -91,127 +80,64 @@ struct
     
     (* since code generator relies on these representations,
        we may as well export them *)
-    val rtsFunction = mkConst o ioOp
+    val rtsFunction = Constnt o ioOp
+ 
+    fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
+
+    fun deExtract(Extract ext) = ext | deExtract _ = raise InternalError "deExtract"
+ 
+    datatype level =
+        Level of { lev: int, closure: (loadForm * int) list ref, lookup: int * int * bool -> loadForm }
+
+    local
+        (* We can have locals at the outer level. *)
+        fun bottomLevel(addr, 0, false) =
+            if addr < 0 then raise InternalError "load: negative"
+            else LoadLocal addr
+        |   bottomLevel _ = (* Either the level is wrong or it's a parameter. *)
+                raise InternalError "bottom level"
+    in
+        val baseLevel =
+            Level { lev = 0, closure = ref [], lookup = bottomLevel }
+    end
+  
+    fun newLevel (Level{ lev, lookup, ...}) =
+    let
+        val closureList = ref []
+
+        fun makeClosure (ext: loadForm): loadForm =
+            case (List.find (fn (l, _) => l = ext) (!closureList), ! closureList) of
+                (SOME(_, n), _) => (* Already there *) LoadClosure n
+            |   (NONE, []) => (* Not there - first *) (closureList := [(ext, 0)]; LoadClosure 0)
+            |   (NONE, cl as (_, n) :: _) => (closureList := (ext, n+1) :: cl; LoadClosure(n+1))
+
+        fun check n = if n < 0 then raise InternalError "load: negative" else n
+
+        fun thisLevel(addr, level, isParam) =
+        if level < 0 then raise InternalError "mkLoad: level must be non-negative"
+        else if level > 0
+        then makeClosure(lookup(addr, level-1, isParam))
+        else (* This level *) if isParam
+        then LoadArgument(check addr)
+        else LoadLocal(check addr)
+    in
+        Level { lev = lev+1, closure = closureList, lookup = thisLevel }
+    end
+    
+    fun getClosure(Level{ closure, ...})  =
+        (* Construct and reverse the list *)
+            List.foldl(fn ((cl, _), l) => Extract cl :: l) []  (! closure)
+ 
+    fun mkLoad (addr, Level { lev = newLevel, lookup, ... } , Level { lev = oldLevel, ... }) =
+        Extract(lookup(addr, newLevel - oldLevel, false))
+
+    and mkLoadParam(addr, Level { lev = newLevel, lookup, ... } , Level { lev = oldLevel, ... }) =
+        Extract(lookup(addr, newLevel - oldLevel, true))
 
     (* Transform a function so that free variables are converted to closure form.  Returns the
        maximum local address used. *)
-    fun transformAndMaxAddress(code, numArgs) =
-    let
-        val maxAddr = ref 0 and closureList: (int * int * int) list ref = ref []
-        
-        fun deExtract(Extract ext) = ext | deExtract _ = raise InternalError "deExtract"
-    
-        (* Convert the base codetree into the optimiser version. *)
-        fun transformClosure MatchFail = MatchFail
-    
-        |   transformClosure(AltMatch(a, b)) = AltMatch(transformClosure a, transformClosure b)
 
-        |   transformClosure(Newenv(decs, exp)) =
-            let
-                fun checkAddr addr = (maxAddr := Int.max(!maxAddr, addr); addr)
-
-                and transformBindings(Declar{ value, addr}) =
-                        Declar{value = transformClosure value, addr = checkAddr addr }
-                |   transformBindings(RecDecs l) =
-                        RecDecs(map(fn{addr, lambda } => {addr = checkAddr addr, lambda = transformLambda lambda}) l)
-
-                |   transformBindings(NullBinding c) = NullBinding(transformClosure c)
-            in
-                Newenv(map transformBindings decs, transformClosure exp)
-            end
-
-        |   transformClosure(c as Constnt _) = c
-
-        |   transformClosure(Extract(LoadLegacy{level = 0, addr, fpRel = true, ...})) =
-                if addr >= 0 then Extract(LoadLocal addr)
-                else (* Negative - argument *) if ~addr > numArgs
-                then raise InternalError "transformClosure: Bad addr for argument"
-                else Extract(LoadArgument(numArgs+addr))
-
-        |   transformClosure(Extract(LoadLegacy{fpRel = false, ...})) =
-                raise InternalError "transformClosure: already closure relative"
-
-        |   transformClosure(Extract(LoadClosure _)) =
-                raise InternalError "transformClosure: already closure relative"
-
-        |   transformClosure(Extract LoadRecursive) =
-                raise InternalError "transformClosure: already closure relative"
-
-        |   transformClosure(ext as Extract(LoadLocal _)) = ext (* Local *)
-
-        |   transformClosure(ext as Extract(LoadArgument _)) = ext (* Argument *)
-
-        |   transformClosure(Extract(LoadLegacy{addr, level, ...})) =
-                (* Non-local *)
-            let
-                val closure = !closureList
-                val (result, newClosure) =   
-                    case (List.find(fn(_, a, l) => addr=a andalso level = l) closure, closure) of
-                        (SOME(n, _, _), _) => (* Already there. *)
-                            (Extract(LoadClosure n), closure)
-                    |   (NONE, []) => (* Not there and this is the first item for the closure. *)
-                            (Extract(LoadClosure 0), [(0, addr, level)])
-                    |   (NONE, (n, _, _) :: _) => (* Not there - add an item to the closure. *)
-                            (Extract(LoadClosure(n+1)), (n+1, addr, level) :: closure)
-            in
-                closureList := newClosure;
-                result
-            end
-
-        |   transformClosure(Indirect{base, offset}) = Indirect{base = transformClosure base, offset = offset }
-    
-        |   transformClosure(Eval{ function, argList, resultType}) = 
-                Eval{function = transformClosure function,
-                        argList = map (fn(c, t) => (transformClosure c, t)) argList,
-                        resultType = resultType }
-    
-        |   transformClosure(Lambda lambda) = Lambda(transformLambda lambda)
-
-        |   transformClosure(Cond(i, t, e)) = Cond(transformClosure i, transformClosure t, transformClosure e)
-    
-        |   transformClosure(BeginLoop{ loop, arguments }) =
-                BeginLoop
-                    {loop = transformClosure loop,
-                     arguments = map (fn ({value, addr}, t) => ({value = transformClosure value, addr = addr}, t)) arguments}
-
-        |   transformClosure(Loop l) = Loop(map(fn(c,t) => (transformClosure c, t)) l)
-
-        |   transformClosure(Raise c) = Raise(transformClosure c)
-
-        |   transformClosure Ldexc = Ldexc
-
-        |   transformClosure(Handle{exp, handler}) =
-                Handle{exp = transformClosure exp, handler = transformClosure handler }
-
-        |   transformClosure(Recconstr l) = Recconstr(map transformClosure l)
-
-        |   transformClosure(Container i) = Container i
-
-        |   transformClosure(SetContainer { container, tuple, size }) =
-                SetContainer{ container = transformClosure container, tuple = transformClosure tuple, size = size }
-
-        |   transformClosure(TupleFromContainer(c, n)) = TupleFromContainer(transformClosure c, n)
-
-        |   transformClosure(TagTest{ test, tag, maxTag }) = TagTest{ test = transformClosure test, tag = tag, maxTag = maxTag }
-
-        |   transformClosure(ConstntWithInline args) = ConstntWithInline args
-
-        and transformLambda (lambda as {closure = [], ... }) = lambda
-            (* The body should already have been processed - all we need to do is the closure. *)
-
-        |   transformLambda { body, isInline, name, closure, argTypes, resultType, localCount } =
-            { body = body, isInline = isInline, name = name,
-              closure = map (deExtract o transformClosure o Extract) closure, argTypes = argTypes,
-              resultType = resultType, localCount = localCount }
-
-        val resultCode = transformClosure code
-    in
-        (resultCode, !maxAddr,
-            (* Convert to Extract entries and reverse the list. *)
-            List.foldl (fn((_, addr, level), l) => deExtract(mkLoad(addr, level-1)) :: l) [] (!closureList))
-    end
-
-    fun genCode(pt, debugSwitches) =
+    fun genCode(pt, debugSwitches, numLocals) =
     let
         val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
         and compilerOut        = PRETTY.getCompilerOutput debugSwitches
@@ -232,13 +158,9 @@ struct
             BACKEND.codeGenerate(code, localCount, debugSwitches)
         end
 
-        (* Just get the max address - everything else should be the same. *)
-        val (transCode, maxAddr, nonLocals) = transformAndMaxAddress(pt, 0)
-        val _ = null nonLocals orelse raise InternalError "Non-locals at the top level"
-
         (* Optimise it. *)
         val { numLocals = localCount, general = gen, bindings = decs, special = spec } =
-            OPTIMISER.codetreeOptimiser(transCode, debugSwitches, maxAddr+1)
+            OPTIMISER.codetreeOptimiser(pt, debugSwitches, numLocals)
 
         (* At this stage we have a "general" value and also, possibly a "special"
            value.  We could simply create mkEnv(decs, gen) and run preCode
@@ -273,16 +195,16 @@ struct
         let
             val code = codeAndPrint (mkEnv(decs, gen), localCount)
         in
-            fn () => mkConst(code())
+            fn () => Constnt(code())
         end
         else
         let
             val decArray = Array.array(localCount, CodeZero)
     
             fun addDecs(Declar{addr, value = Container size, ...}) =
-                    Array.update(decArray, addr, TupleFromContainer(mkLoad (addr, 0), size))
-            |   addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoad (addr, 0))
-            |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoad (addr, 0))) decs
+                    Array.update(decArray, addr, TupleFromContainer(mkLoadLocal addr, size))
+            |   addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoadLocal addr)
+            |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoadLocal addr)) decs
             |   addDecs(NullBinding _) = ()
 
             val () = List.app addDecs decs
@@ -342,23 +264,18 @@ struct
 
 
     (* Constructor functions for the front-end of the compiler. *)
-
     local
-        fun mkSimpleFunction inlineType (lval, args, name) =
-        let
-            val (transCode, maxAddr, nonLocals) = transformAndMaxAddress(lval, args)
-        in
+        fun mkSimpleFunction inlineType (lval, args, name, closure, numLocals) =
             Lambda
               {
-                body          = transCode,
+                body          = lval,
                 isInline      = inlineType,
                 name          = if name = "" then "<anon>" else name,
-                closure       = nonLocals,
+                closure       = map deExtract closure,
                 argTypes      = List.tabulate(args, fn _ => GeneralType),
                 resultType    = GeneralType,
-                localCount    = maxAddr + 1
+                localCount    = numLocals
               }
-        end
     in
         val mkProc = mkSimpleFunction NonInline (* Normal function *)
         and mkInlproc = mkSimpleFunction MaybeInline (* Explicitly inlined by the front-end *)
@@ -366,27 +283,28 @@ struct
     end
 
     local
-        fun mkFunWithTypes inlineType (body, argsAndTypes, resultType, name) =
-        let
-            val (transCode, maxAddr, nonLocals) =
-                transformAndMaxAddress(body, List.length argsAndTypes)
-        in
+        fun mkFunWithTypes inlineType { body, argTypes=argsAndTypes, resultType, name, closure, numLocals } =
             Lambda
             {
-                body          = transCode,
+                body          = body,
                 isInline      = inlineType,
                 name          = if name = "" then "<anon>" else name,
-                closure       = nonLocals,
+                closure       = map deExtract closure,
                 argTypes      = argsAndTypes,
                 resultType    = resultType,
-                localCount    = maxAddr + 1
+                localCount    = numLocals
             }
-        end
-
     in
         val mkFunction = mkFunWithTypes NonInline
         and mkInlineFunction = mkFunWithTypes MaybeInline
     end
+
+    fun mkEval (ct, clist)   =
+    Eval {
+        function = ct,
+        argList = List.map(fn c => (c, GeneralType)) clist,
+        resultType=GeneralType
+    }
 
     fun mkCall(func, argsAndTypes, resultType) =
     Eval {
@@ -395,8 +313,122 @@ struct
         resultType=resultType
     }
 
+    local
+        open RuntimeCalls
+        val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
+        val rtsFunction = Constnt o ioOp
+    in
+        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
+        val testptreqFunction    = rtsFunction POLY_SYS_word_eq
+        val testptrneqFunction   = rtsFunction POLY_SYS_word_neq
+
+        (* N.B. int equality is SHORT integer equality *)
+        fun mkTestinteq (xp1, xp2) = 
+            mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2]);
+
+        fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2]);
+        fun mkTestptrneq (xp1, xp2) = mkEval (testptrneqFunction, [xp1,xp2]);
+        fun mkTestnull xp1       = mkTestptreq  (xp1, CodeZero);
+        fun mkTestnotnull xp1    = mkTestptrneq (xp1, CodeZero);
+    end
+
     fun identityFunction (name : string) : codetree = 
-        mkInlproc (mkLoad (~1, 0), 1, name) (* Returns its argument. *);
+        mkInlproc (mkLoadArgument 0, 1, name, [], 0) (* Returns its argument. *);
+
+    fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
+  
+    (* Test a tag value. *)
+    fun mkTagTest(test: codetree, tagValue: word, maxTag: word) =
+        TagTest {test=test, tag=tagValue, maxTag=maxTag }
+        (*mkEval (rtsFunction POLY_SYS_word_eq, [test, Constnt(toMachineWord tagValue)], true);*)
+
+    fun mkHandle (exp, handler) = Handle {exp = exp, handler = handler};
+
+    fun mkStr (strbuff:string) = Constnt (toMachineWord strbuff);
+
+  (* If we have multiple references to a piece of code we may have to save
+     it in a temporary and then use it from there. If the code has side-effects
+      we certainly must do that to ensure that the side-effects are done
+      exactly once and in the correct order, however if the code is just a
+      constant or a load we can reduce the amount of code we generate by
+      simply returning the original code. *)
+    fun multipleUses (code as Constnt _, _, _) = 
+        {load = (fn _ => code), dec = []}
+(*
+    |   multipleUses (code as Extract(LoadLegacy{addr, level=loadLevel, ...}), _, level) = 
+        let (* May have to adjust the level. *)
+            fun loadFn lev =
+                if lev = level
+                then code 
+                else mkLoad (addr, loadLevel + lev, level))
+        in
+            {load = loadFn, dec = []}
+        end
+
+    |   multipleUses (code as Extract(LoadLocal addr), _, level) = 
+        let (* May have to adjust the level. *)
+            fun loadFn lev =
+                if lev = level
+                then code 
+                else mkLoad (addr, lev - level)
+        in
+            {load = loadFn, dec = []}
+        end
+
+    |   multipleUses (code as Extract(LoadArgument _), _, level) = 
+        let (* May have to adjust the level. *)
+            fun loadFn lev =
+                if lev = level
+                then code
+                else raise InternalError "multipleUses: different level"
+                (*else mkLoad (addr, lev - level)*)
+        in
+            {load = loadFn, dec = []}
+        end
+
+    |   multipleUses (Extract _, _, _) = raise InternalError "multipleUses: TODO"
+*)
+    |   multipleUses (code, nextAddress, level) = 
+        let
+            val addr       = nextAddress();
+            fun loadFn lev = mkLoad (addr, lev, level);
+        in
+            {load = loadFn, dec = [mkDec (addr, code)]}
+        end (* multipleUses *);
+
+    fun mkMutualDecs l =
+    let
+        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a}
+        |   convertDec _ = raise InternalError "mkMutualDecs: Recursive declaration is not a function"
+    in
+        RecDecs(List.map convertDec l)
+    end
+
+    val mkNullDec = NullBinding
+
+    val mkIf                = Cond
+    and mkConst             = Constnt
+    and mkRaise             = Raise
+    and mkContainer         = Container    
+
+    (* For the moment limit these to general arguments. *)
+    fun mkLoop args = Loop (List.map(fn c => (c, GeneralType)) args)
+    and mkBeginLoop(exp, args) =
+        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i}, GeneralType)) args}
+
+    fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
+        mkBeginLoop(mkIf(b, mkEnv([NullBinding e], mkLoop[]), CodeZero), [])
+
+    (* We previously had conditional-or and conditional-and as separate
+       instructions.  I've taken them out since they can be implemented
+       just as efficiently as a normal conditional.  In addition they
+       were interfering with the optimisation where the second expression
+       contained the last reference to something.  We needed to add a
+       "kill entry" to the other branch but there wasn't another branch
+       to add it to.   DCJM 7/12/00. *)
+    fun mkCor(xp1, xp2)  = mkIf(xp1, CodeTrue, xp2);
+    fun mkCand(xp1, xp2)  = mkIf(xp1, xp2, CodeZero);
+
 
     structure Sharing =
     struct
@@ -405,6 +437,7 @@ struct
         type pretty      = pretty
         type argumentType=argumentType
         type codeBinding     = codeBinding
+        type level       = level
     end
 
 end (* CODETREE functor body *);

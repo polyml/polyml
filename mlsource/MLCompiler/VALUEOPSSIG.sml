@@ -43,6 +43,7 @@ sig
     type typeId
     type typeVarForm
     type typeVarMap
+    type level
 
     (* Construction functions. *)
     val mkGvar:        string * types * codetree * locationProp list -> values
@@ -93,18 +94,18 @@ sig
 
     val nullEnvironment : nameSpace
 
-    val codeStruct:     structVals * int -> codetree
-    val codeAccess:     valAccess  * int -> codetree
+    val codeStruct:     structVals * level -> codetree
+    val codeAccess:     valAccess  * level -> codetree
     val codeVal:
-        values * int * typeVarMap * {value: types, equality: bool, printity: bool} list * lexan * location -> codetree
-    val codeExFunction: values * int * typeVarMap * types list * lexan * location -> codetree
+        values * level * typeVarMap * {value: types, equality: bool, printity: bool} list * lexan * location -> codetree
+    val codeExFunction: values * level * typeVarMap * types list * lexan * location -> codetree
     val applyFunction:
-        values * codetree * int * typeVarMap * {value: types, equality: bool, printity: bool} list *
+        values * codetree * level * typeVarMap * {value: types, equality: bool, printity: bool} list *
             lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
     val isTheSameException: values * values -> bool
-    val makeGuard:      values * types list * codetree * int * typeVarMap -> codetree 
-    val makeInverse:    values * types list * codetree * int * typeVarMap -> codetree
+    val makeGuard:      values * types list * codetree * level * typeVarMap -> codetree 
+    val makeInverse:    values * types list * codetree * level * typeVarMap -> codetree
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals
@@ -143,5 +144,6 @@ sig
         type typeId         = typeId
         type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap
+        type level          = level
     end
 end;

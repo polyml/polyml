@@ -29,7 +29,7 @@ sig
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
     val inBasis: location
 
-    type codetree
+    type codetree and level
     type univTable
 
     (* Types *)
@@ -103,7 +103,7 @@ sig
 
     and valAccess =
         Global   of codetree
-    |   Local    of { addr: int ref, level: int ref }
+    |   Local    of { addr: int ref, level: level ref }
     |   Selected of { addr: int,     base:  structVals }
     |   Formal   of int
     |   Overloaded of typeDependent (* Values only. *)
@@ -253,7 +253,7 @@ sig
 
     val vaGlobal:   valAccess -> codetree
     val vaFormal:   valAccess -> int
-    val vaLocal:    valAccess -> { addr: int ref, level: int ref }
+    val vaLocal:    valAccess -> { addr: int ref, level: level ref }
     val vaSelected: valAccess -> { addr: int,     base:  structVals }
 
     val undefinedStruct:   structVals
@@ -357,6 +357,7 @@ sig
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
+        and  level = level
     end
 end;
 

@@ -2013,7 +2013,7 @@ struct
                 val idNumber = topLevelIdNumber()
                 val newId =
                     (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                        (Local{addr = ref 0, level = ref 0}, idNumber, eq, isdt, description)
+                        (Local{addr = ref 0, level = ref baseLevel}, idNumber, eq, isdt, description)
             in
                 typeIds := newId :: ! typeIds;
                 newId
@@ -2223,7 +2223,7 @@ struct
                             val () = typeStamps := n + 1;
                             val newId =
                                 (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                                    (Local{addr = ref 0, level = ref 0}, n, eq, isdt, desc)
+                                    (Local{addr = ref 0, level = ref baseLevel}, n, eq, isdt, desc)
                         in
                             localStamps := newId :: !localStamps;
                             newId
@@ -2507,10 +2507,14 @@ struct
                                             NONE => mkTuple [loadEx localLevel, mkStr name,
                                                      CodeZero, codeLocation nullLocation]
                                         |   SOME _ =>
+                                            let
+                                                val nLevel = newLevel level
+                                            in
                                                 mkProc 
-                                                    (mkTuple[loadEx (localLevel + 1), mkStr name,
-                                                        mkLoad (~1, 0), codeLocation nullLocation],
-                                                    1, "")
+                                                    (mkTuple[loadEx nLevel, mkStr name,
+                                                        mkLoadArgument 0, codeLocation nullLocation],
+                                                    1, "", getClosure nLevel, 0)
+                                            end
                                     end
 
                                 |   ConstructorToValue =>
@@ -2566,10 +2570,9 @@ struct
                             let
                                 open TypeVarMap
                                 val destPolymorphism = List.length destVars
-                                val localLevel = level + 1
+                                val localLevel = newLevel level
                                 val argAddrs =
-                                    List.tabulate(destPolymorphism,
-                                        fn n => fn l => mkLoad(n-destPolymorphism, l-localLevel))
+                                    List.tabulate(destPolymorphism, fn n => fn l => mkLoadParam(n, l, localLevel))
                                 val argMap = ListPair.zipEq(destVars, argAddrs)
                                 val addrs = ref 0
                                 fun mkAddrs n = ! addrs before (addrs := !addrs+n)
@@ -2582,7 +2585,7 @@ struct
                             in
                                 (mkProc(
                                     mkEnv(getCachedTypeValues newTypeVarMap, application),
-                                    List.length destVars, name ^ "(P)"), false)
+                                    destPolymorphism, name ^ "(P)", getClosure localLevel, !addrs), false)
                             end
                     end
                 in
@@ -2623,7 +2626,7 @@ struct
     end
 
     (* Code-generate a structure value. *)
-    fun structureCode (str, strName, debugEnv, mkAddr, level):
+    fun structureCode (str, strName, debugEnv, mkAddr, level: level):
                 { code: codeBinding list, load: codetree } =
     case str of
         FunctorAppl {arg, valRef = ref functs, argIds=ref argIds, resIds=ref resIds,
@@ -2668,7 +2671,7 @@ struct
                     argCodeSource @
                     (mkDec(resAddr, mkEval (codeAccess (functorAccess functs, level), [argCode])) ::
                      loadIds),
-                load = mkLoad(resAddr, 0)
+                load = mkLoadLocal resAddr
             }
         end
 
@@ -2802,7 +2805,7 @@ struct
             let
                 val { addr=ref addr, ...}  = vaLocal (structAccess v)
             in
-                mkLoad (addr, 0) :: loads
+                mkLoadLocal addr :: loads
             end
         in
             (* Code-generate each declaration. *)
@@ -2835,7 +2838,7 @@ struct
         fun codeTopdecs (StrDec(str, _), debugEnv, mkAddr) =
             let
                 open TypeVarMap
-                val level = 0
+                val level = baseLevel
                 val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
                 val (code, debug) =
                     codeStrdecs("", [str], debugEnv, mkAddr, level, typeVarMap, [],
@@ -2853,12 +2856,14 @@ struct
                         val address = ref 1
                     in
                         fun mkAddr n = !address before (address := ! address+n)
-                        val level = 1 (* Inside the functor *)
+                        val level = newLevel baseLevel (* Inside the functor *)
                     end
                     val arg = vaLocal (structAccess argVal);
-                    val () = #addr  arg := ~1; 
-                    val () = #level arg := level;
-                    val func = !valRef;
+                    (* Create a local binding for the argument.  This allows the new variable to be a local. *)
+                    val localAddr = mkAddr 1
+                    val () = #addr  arg := localAddr 
+                    val () = #level arg := level
+                    val func = !valRef
 
                     (* The debug environment has to contain at a minimum the type IDs from the arguments. *)
                     val (fBindDebugDecs, fBindDebugEnv) =
@@ -2872,7 +2877,7 @@ struct
                                 (* This code will build a cons cell containing the run-time value
                                    associated with the type Id as the hd and the rest of the run-time
                                    environment as the tl. *)
-                                val loadTypeId = mkInd(addr, mkLoad (~1, 0))
+                                val loadTypeId = mkInd(addr, mkLoad (~1, level, level))
                                 val newEnv = mkTuple [ loadTypeId, rtEnv level ]
                                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                             in
@@ -2909,8 +2914,8 @@ struct
                     in
                         val functorCode = (* The function that implements the functor. *)
                             (if getParameter inlineFunctorsTag (debugParams lex) then mkMacroProc else mkProc)
-                                (mkEnv(fBindDebugDecs @ strCode, matchedCode),
-                                1, name);
+                                (mkEnv(mkDec(localAddr, mkLoadArgument 0) :: (fBindDebugDecs @ strCode), matchedCode),
+                                1, name, getClosure level, mkAddr 0)
                     end
 
                     (* Set the address of this variable. Because functors can only
@@ -2922,7 +2927,7 @@ struct
                     val addr = mkOuterAddr 1
                     val var = vaLocal (functorAccess func);
                     val ()  = #addr  var := addr;
-                    val ()  = #level var := 0 (* Top level *);
+                    val ()  = #level var := baseLevel(* Top level *);
                 in
                     {
                         code = [mkDec (addr, functorCode)],
@@ -2937,7 +2942,7 @@ struct
 
         and loadTopdecs (StrDec(str, ref typeIds)) =
             let
-                val level = 0
+                val level = baseLevel
                 val load = codeLoadStrdecs(str, level)
                 (* Load all the IDs created in this topdec even if they're not directly referenced. *)
                 fun loadIds id = codeId(id, level)
@@ -2948,7 +2953,7 @@ struct
         |   loadTopdecs (FunctorDec (structList, _)) =
             let
                 fun loadFunctorBind ({valRef=ref func, ...}) =
-                    let val {addr = ref addr, ...} = vaLocal (functorAccess func) in mkLoad (addr, 0) end
+                    let val {addr = ref addr, ...} = vaLocal (functorAccess func) in mkLoadLocal addr end
             in
                 List.rev(List.map loadFunctorBind structList)
             end
@@ -2969,7 +2974,7 @@ struct
         (* The result is code for a vector containing the results of the
            declarations which pass4 can use to pull out the values after
            the code has been run. *)
-        mkEnv (#code coded, mkTuple(List.rev loaded))
+        (mkEnv (#code coded, mkTuple(List.rev loaded)), mkAddr 0)
     end (* gencodeStructs *);
 
   (* Once the code has been executed the declarations must be added to

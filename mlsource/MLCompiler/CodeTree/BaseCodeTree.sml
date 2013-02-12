@@ -99,7 +99,6 @@ struct
     |   LoadLocal of int
     |   LoadClosure of int
     |   LoadRecursive
-    |   LoadLegacy of { addr: int, level: int, fpRel: bool }
 
     (* When we look up an entry in the environment we get a pair of
        a "general" value, which is either a constant or a load, and
@@ -237,12 +236,6 @@ struct
                     |   LoadLocal addr => concat ["LOCAL(", Int.toString addr, ")"]
                     |   LoadClosure addr => concat ["CLOS(", Int.toString addr, ")"]
                     |   LoadRecursive => "RECURSIVE"
-                    |   LoadLegacy { fpRel = false, level, addr } =>
-                            concat ["CLOS(", Int.toString level, ",", Int.toString addr, ")"]
-                    |   LoadLegacy { level, addr, ...} =>
-                            if addr < 0
-                            then concat ["PARAM(", Int.toString level, ",", Int.toString (~ addr), ")"]
-                            else concat ["LOCAL(", Int.toString level, ",", Int.toString addr, ")"]
             in
                 PrettyString str
             end

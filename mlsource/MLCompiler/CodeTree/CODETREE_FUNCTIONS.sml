@@ -26,23 +26,6 @@ struct
     open BASECODETREE
     open Address
     exception InternalError = Misc.InternalError
-
-    fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
-
-    fun mkMutualDecs l =
-    let
-        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a}
-        |   convertDec _ = raise InternalError "mkMutualDecs: Recursive declaration is not a function"
-    in
-        RecDecs(List.map convertDec l)
-    end
-
-    val mkNullDec = NullBinding
-
-    val mkIf                = Cond
-    and mkConst             = Constnt
-    and mkRaise             = Raise
-    and mkContainer         = Container    
     
     fun mkEnv([], exp) = exp
     |   mkEnv(decs, exp) = Newenv(decs, exp)
@@ -55,27 +38,9 @@ struct
 
     val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable)
 
-    val CodeFalse = mkConst False
-    and CodeTrue  = mkConst True
-    and CodeZero  = mkConst word0
-
-    (* For the moment limit these to general arguments. *)
-    fun mkLoop args = Loop (List.map(fn c => (c, GeneralType)) args)
-    and mkBeginLoop(exp, args) =
-        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i}, GeneralType)) args}
-
-    fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
-        mkBeginLoop(mkIf(b, mkEnv([NullBinding e], mkLoop[]), CodeZero), [])
-
-    (* We previously had conditional-or and conditional-and as separate
-       instructions.  I've taken them out since they can be implemented
-       just as efficiently as a normal conditional.  In addition they
-       were interfering with the optimisation where the second expression
-       contained the last reference to something.  We needed to add a
-       "kill entry" to the other branch but there wasn't another branch
-       to add it to.   DCJM 7/12/00. *)
-    fun mkCor(xp1, xp2)  = mkIf(xp1, CodeTrue, xp2);
-    fun mkCand(xp1, xp2)  = mkIf(xp1, xp2, CodeZero);
+    val CodeFalse = Constnt False
+    and CodeTrue  = Constnt True
+    and CodeZero  = Constnt word0
 
   (* Test for possible side effects. If an expression has no side-effect
      and its result is not used then we don't need to generate it. An
@@ -192,7 +157,7 @@ struct
             end
         |   makeVal _ = raise InternalError "makeVal - not constant or record"
     in
-        mkConst (makeVal cVal)
+        Constnt (makeVal cVal)
     end
 
     local
@@ -210,93 +175,13 @@ struct
         end;
     end
 
-
-
-    fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
-  
-    fun mkLoad (addr,level) =
-        if level < 0 then raise InternalError "mkLoad: level must be non-negative"
-        else if level = 0 andalso addr >= 0
-        then Extract(LoadLocal addr)
-        else Extract(LoadLegacy{level = level, addr = addr, fpRel = true})
-  
-    (* Old form operations for backwards compatibility.  These all create
-       default GeneralType arguments and results. *)
-
-
-    fun mkEval (ct, clist)   =
-    Eval {
-        function = ct,
-        argList = List.map(fn c => (c, GeneralType)) clist,
-        resultType=GeneralType
-    }
-
-    local
-        open RuntimeCalls
-        val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
-        val rtsFunction = mkConst o ioOp
-    in
-        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
-        val testptreqFunction    = rtsFunction POLY_SYS_word_eq
-        val testptrneqFunction   = rtsFunction POLY_SYS_word_neq
-
-        (* N.B. int equality is SHORT integer equality *)
-        fun mkTestinteq (xp1, xp2) = 
-            mkEval (rtsFunction POLY_SYS_word_eq, [xp1,xp2]);
-    end
-  
-    fun mkTestptreq  (xp1, xp2) = mkEval (testptreqFunction, [xp1,xp2]);
-    fun mkTestptrneq (xp1, xp2) = mkEval (testptrneqFunction, [xp1,xp2]);
-    fun mkTestnull xp1       = mkTestptreq  (xp1, CodeZero);
-    fun mkTestnotnull xp1    = mkTestptrneq (xp1, CodeZero);
-  
-    (* Test a tag value. *)
-    fun mkTagTest(test: codetree, tagValue: word, maxTag: word) =
-        TagTest {test=test, tag=tagValue, maxTag=maxTag }
-        (*mkEval (rtsFunction POLY_SYS_word_eq, [test, mkConst(toMachineWord tagValue)], true);*)
-
-    fun mkHandle (exp, handler) = Handle {exp = exp, handler = handler};
-
-    fun mkStr (strbuff:string) = mkConst (toMachineWord strbuff);
-
-  (* If we have multiple references to a piece of code we may have to save
-     it in a temporary and then use it from there. If the code has side-effects
-      we certainly must do that to ensure that the side-effects are done
-      exactly once and in the correct order, however if the code is just a
-      constant or a load we can reduce the amount of code we generate by
-      simply returning the original code. *)
-    fun multipleUses (code as Constnt _, _, _) = 
-        {load = (fn _ => code), dec = []}
-
-    |   multipleUses (code as Extract(LoadLegacy{addr, level=loadLevel, ...}), _, level) = 
-        let (* May have to adjust the level. *)
-            fun loadFn lev =
-                if lev = level
-                then code 
-                else mkLoad (addr, loadLevel + (lev - level))
-        in
-            {load = loadFn, dec = []}
-        end
-
-    |   multipleUses (code as Extract(LoadLocal addr), _, level) = 
-        let (* May have to adjust the level. *)
-            fun loadFn lev =
-                if lev = level
-                then code 
-                else mkLoad (addr, lev - level)
-        in
-            {load = loadFn, dec = []}
-        end
-
-    |   multipleUses (Extract _, _, _) = raise InternalError "multipleUses: TODO"
-    
-    |   multipleUses (code, nextAddress, level) = 
-        let
-            val addr       = nextAddress();
-            fun loadFn lev = mkLoad (addr, lev - level);
-        in
-            {load = loadFn, dec = [mkDec (addr, code)]}
-        end (* multipleUses *);
+    (* These are very frequently used and it might be worth making
+       special bindings for values such as 0, 1, 2, 3 etc to reduce
+       garbage. *)
+    fun checkNonZero n = if n < 0 then raise InternalError "mkLoadxx: argument negative" else n
+    val mkLoadLocal = Extract o LoadLocal o checkNonZero
+    and mkLoadArgument = Extract o LoadArgument o checkNonZero
+    and mkLoadClosure = Extract o LoadClosure o checkNonZero
 
     (* Set the container to the fields of the record.  Try to push this
        down as far as possible. *)
@@ -321,7 +206,7 @@ struct
         val except: exn = InternalError "Invalid load encountered in compiler"
         (* Exception value to use for invalid cases.  We put this in the code
            but it should never actually be executed.  *)
-        val raiseError = mkRaise (mkConst (toMachineWord except))
+        val raiseError = Raise (Constnt (toMachineWord except))
         
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
@@ -343,7 +228,7 @@ struct
             orelse not (Address.isWords (toAddress b))
             orelse Address.length (toAddress b) <= Word.fromInt offset
             then raiseError
-            else mkConst (loadWord (toAddress b, toShort offset))
+            else Constnt (loadWord (toAddress b, toShort offset))
 
         |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env))) offset =
             (* Do the selection now.  This is especially useful if we
@@ -394,9 +279,7 @@ struct
     structure Sharing =
     struct
         type codetree = codetree
-        and  argumentType = argumentType
-        and  codeBinding = codeBinding
-        and  loadForm = loadForm
+        and codeBinding = codeBinding
     end
 
 end;

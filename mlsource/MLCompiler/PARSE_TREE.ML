@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-12 David C.J. Matthews
+    Copyright (c) 2000-13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -3505,7 +3505,7 @@ struct
                 val newId =
                     if letDepth = 0
                     then makeTypeId(false, true, ([], EmptyType), description)
-                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref 0}, false, description)
+                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref baseLevel}, false, description)
                 val tc = makeTypeConstructor(name, typeVars, newId, [DeclaredAt nameLoc])
             in
                 tcon := TypeConstrSet(tc, []);
@@ -3581,7 +3581,7 @@ struct
                         |   SOME argtype =>
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
                     val cons =
-                        makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref 0, level = ref 0},
+                        makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref 0, level = ref baseLevel},
                                          [DeclaredAt idLocn])
         
                     (* Name must not be qualified *)
@@ -3873,44 +3873,39 @@ struct
     (* To simplify passing the context it is wrapped up in this type. *)
     type cgContext =
         {
-            decName: string, debugEnv: environEntry list * (int->codetree), mkAddr: int->int,
-            level: int, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref
+            decName: string, debugEnv: environEntry list * (level->codetree), mkAddr: int->int,
+            level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
+            isOuterLevel: bool (* Used only to decide if we need to report non-exhaustive matches. *)
         }
 
-    fun repDecName decName ({debugEnv, mkAddr, level, typeVarMap, lex, lastDebugLine, ...}: cgContext) =
+    fun repDecName decName ({debugEnv, mkAddr, level, typeVarMap, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
         { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine}: cgContext
-    and repDebugEnv debugEnv ({decName, mkAddr, level, typeVarMap, lex, lastDebugLine, ...}: cgContext) =
+          decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
+    and repDebugEnv debugEnv ({decName, mkAddr, level, typeVarMap, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
         { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine}: cgContext
-    and repMkAddr mkAddr ({decName, debugEnv, level, typeVarMap, lex, lastDebugLine, ...}: cgContext) =
+          decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
+    and repTypeVarMap typeVarMap ({decName, debugEnv, mkAddr, level, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
         { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine}: cgContext
-    and repLevel level ({decName, debugEnv, mkAddr, typeVarMap, lex, lastDebugLine, ...}: cgContext) =
+          decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
+    (* Create a new level.  Sets isOuterLevel to false. *)
+    and repNewLevel(decName, mkAddr, level) ({debugEnv, lex, lastDebugLine, typeVarMap, ...}: cgContext) =
         { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine}: cgContext
-    and repTypeVarMap typeVarMap ({decName, debugEnv, mkAddr, level, lex, lastDebugLine, ...}: cgContext) =
-        { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine}: cgContext
+          decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = false}: cgContext
+        
 
     (* Try this pipeline function *)
     infix |>
     fun a |> f = f a
 
-    val singleArg = mkLoad (~1, 0);
+    val singleArg = mkLoadArgument 0
 
     (* Make a tuple out of a set of arguments or return the single
        argument if there is just one. *)
-    fun mkArgTuple(from, downto) =
-    let (* Makes a list of arguments. *)
-        fun mkArgList num =
-        if num < downto then []
-        else mkLoad (~ num, 0) :: mkArgList (num - 1);
-    in
-        if from = downto (* "tuple" is a singleton (SPF) *)
-        then mkLoad (~ from, 0)
-        else mkTuple (mkArgList from)
-    end;
+    fun mkArgTuple(from, nTuple) =
+        if nTuple = 1 (* "tuple" is a singleton *)
+        then mkLoadArgument from
+        else if nTuple <= 0 then raise InternalError "mkArgTuple"
+        else mkTuple(List.tabulate(nTuple, fn n => mkLoadArgument(n+from)))
 
     (* Load args by selecting from a tuple. *)
     fun loadArgsFromTuple([t], arg) = [(arg, t)](* "tuple" is a singleton *)
@@ -3987,7 +3982,7 @@ struct
     |  tupleWidth _ = [GeneralType]
 
     (* Start of the code-generator itself. *)
-    type debugenv = environEntry list * (int->codetree)
+    type debugenv = environEntry list * (level->codetree)
   
     (* Report unreferenced identifiers. *)
 
@@ -4063,7 +4058,7 @@ struct
         if not (getParameter debugTag (debugParams lex)) orelse #startLine loc = !lastDebugLine then []
         else [mkNullDec(addDebugCall(loc, context))]
 
-    fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv), lex, ...}) =
+    fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv: level -> codetree), lex, ...}: cgContext) =
         if not (getParameter debugTag (debugParams lex))
         then { dec = [], rtEnv = rtEnv, ctEnv = ctEnv }
         else let
@@ -4144,7 +4139,7 @@ struct
                                 (* Must save the exception packet first. *)
                                 [mkDec(ldexAddr, Ldexc)],
                                 mkEval(mkConst exceptionCode,
-                                    [mkTuple[rtEnv level, mkLoad(ldexAddr, 0)]]))
+                                    [mkTuple[rtEnv level, mkLoadLocal ldexAddr]]))
                             )
                     ]])
             )
@@ -4421,7 +4416,7 @@ struct
                     let
                         val eqCode = mkEval(eqFun, [mkTuple[mkConst a, mkConst b]])
                     in
-                        RunCall.unsafeCast(valOf(evalue(genCode(eqCode, debugParams lex)())))
+                        RunCall.unsafeCast(valOf(evalue(genCode(eqCode, debugParams lex, 0)())))
                     end
                 |   equalSpecials _ = false
 
@@ -4644,7 +4639,7 @@ struct
                 val equality =
                     equalityForType(
                         mkTypeConstruction(tcName constr, constr, [], []), #level context,
-                        defaultTypeVarMap(fn _ => raise InternalError "equalityForType", 0) (* Should never be used. *))
+                        defaultTypeVarMap(fn _ => raise InternalError "equalityForType", baseLevel) (* Should never be used. *))
                 val litValue: machineWord option =
                     getLiteralValue(converter, literal, expType, location, vars, lex)
             in
@@ -4794,7 +4789,7 @@ struct
         local
             val addressOfVar = mkAddr 1;
             val dec = mkDec (addressOfVar, arg)
-            and load = mkLoad (addressOfVar, 0)
+            and load = mkLoadLocal addressOfVar
 
             (* Set the addresses of the variables and create debug entries. *)
             fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}, (oldDec, oldEnv) ) =
@@ -5127,7 +5122,7 @@ struct
       (* Make an argument list from the variables bound in the pattern. *)
       fun makeArglist []        _ = []
         | makeArglist (Value{access=Local{addr=ref lvAddr, ...}, ...} :: vs) argno =
-            mkLoad (lvAddr, 0) :: makeArglist vs (argno - 1) 
+            mkLoadLocal lvAddr :: makeArglist vs (argno - 1) 
         | makeArglist _ _ = raise InternalError "makeArgList"
 
     (* If we are only passing equality types filter out the others. *)
@@ -5206,7 +5201,7 @@ struct
             val expCode =
                 if useCount <= insertDirectCount
                 then cgExpression (exp, matchContext |> repDebugEnv env)
-                else mkEval(mkLoad (baseAddr + pattChosenIndex, 0), argsForCall)
+                else mkEval(mkLoadLocal (baseAddr + pattChosenIndex), argsForCall)
         in
             makePatcode expCode pattChosen
         end
@@ -5253,37 +5248,43 @@ struct
                 val noOfArgs = length vl;
                 val patNoIndex = patNo - 1;
 
-                val functionLevel = level + 1; (* For the function. *)
+                val functionLevel = newLevel level (* For the function. *)
                 local
                     val addresses = ref 1
                 in
                     fun fnMkAddrs n = ! addresses before (addresses := !addresses + n)
                 end
     
-                val fnContext =
-                    cgContext |> repDecName decName |> repMkAddr fnMkAddrs |> repLevel functionLevel
+                val fnContext = cgContext |> repNewLevel(decName, fnMkAddrs, functionLevel)
 
                 (* Set the addresses to be suitable for arguments.  At the
                    same time create a debugging environment if required. *)
                 fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...},
-                            (argno, oldDec, oldEnv)) =
+                            (localAddr, oldDec, oldEnv)) =
                     let
-                        val load = mkLoad (~argno, 0)
+                        val load = mkLoad (localAddr, functionLevel, functionLevel)
                         val {dec=nextDec, ctEnv, rtEnv} =
                             createDebugEntry(v, load, fnContext |> repDebugEnv oldEnv)
                     in
-                        lvAddr  := ~argno;
+                        lvAddr  := localAddr;
                         lvLevel := functionLevel;
-                        (argno - 1, oldDec @ nextDec, (ctEnv, rtEnv))
+                        (localAddr + 1, oldDec @ nextDec, (ctEnv, rtEnv))
                     end
                 |   setAddr _ = raise InternalError "setAddr"
-  
-                val (_, envDec, newEnv) = List.foldl setAddr (noOfArgs, [], debugEnv) vl
+
+                (* Bind a local variable to the argument so we can set the variable address as
+                   a local address. *)
+                val firstLocal = fnMkAddrs 0
+                val localDecs =
+                    List.tabulate(noOfArgs, fn n => mkDec(fnMkAddrs 1, mkLoadArgument n)) (* One address for each argument. *)
+
+                val (_, envDec, newEnv) = List.foldl setAddr (firstLocal, [], debugEnv) vl
 
                 val functionBody =
-                    mkEnv(envDec, cgExpression (exp, fnContext |> repDebugEnv newEnv))
+                    mkEnv(localDecs @ envDec, cgExpression (exp, fnContext |> repDebugEnv newEnv))
             in
-                mkDec(base + patNoIndex, mkProc (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo)) ::
+                mkDec(base + patNoIndex,
+                    mkProc (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo, getClosure functionLevel, fnMkAddrs 0)) ::
                     cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
             end
 
@@ -5445,11 +5446,11 @@ struct
                     end
             in    (* Make an inline function. *)
                 case filterTypeVars (getPolyTypeVars(typeof, mapTypeVars typeVarMap)) of
-                    [] => mkInlproc (selectorBody, 1, decName ^ "#" ^ name)
+                    [] => mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0)
                 |   polyVars => (* This may be polymorphic. *)
                         mkInlproc(
-                            mkInlproc (selectorBody, 1, decName ^ "#" ^ name),
-                            List.length polyVars, decName ^ "#" ^ name ^ "(P)")
+                            mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0),
+                            List.length polyVars, decName ^ "#" ^ name ^ "(P)", [], 0)
             end
 
         | Unit _ => (* Use zero.  It is possible to have () = (). *)
@@ -5600,7 +5601,8 @@ struct
 
         val f        = getFnBody c;
         (* This function comprises a new declaration level *)
-        val fnLevel  = originalLevel + (if null polyVars then 1 else 2)
+        val nLevel =
+            if null polyVars then originalLevel else newLevel originalLevel
 
         local
             val addresses = ref 1
@@ -5627,16 +5629,16 @@ struct
             val newDecName : string = decName ^ "(" ^ Int.toString tupleSize ^ ")";
             val newDebugEnv = newDebugLevel debugEnv
 
-            val argumentCode = mkArgTuple(tupleSize, 1)
+            val fnLevel  = newLevel nLevel
+            val argumentCode = mkArgTuple(0, tupleSize)
             val newContext =
-                cpContext |> repDecName newDecName |> repDebugEnv newDebugEnv |>
-                    repMkAddr fnMkAddr |> repLevel fnLevel
+                cpContext |> repDebugEnv newDebugEnv |> repNewLevel(newDecName, fnMkAddr, fnLevel)
             val mainProc =
                 mkProc
                     (wrapFunctionInDebug
                         (codeAlt (c, f, argumentCode, newContext),
                         newDecName, argumentCode, argType, resType, location, newContext), 
-                    tupleSize, newDecName);
+                    tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
     
             (* Now make a block containing the procedure which expects
                multiple arguments and an inline procedure which expects
@@ -5645,32 +5647,35 @@ struct
             val thisDec = multipleUses (mainProc, fn () => originalmkAddr 1, originalLevel);
 
             val resProc =  (* Result procedure. *)
-                mkInlproc 
-                    (mkEval(#load thisDec fnLevel,
-                        List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg))),
-                    1, decName ^ "(1)");
+                let
+                    val nLevel = newLevel originalLevel
+                in
+                    mkInlproc 
+                        (mkEval(#load thisDec nLevel,
+                            List.map #1 (loadArgsFromTuple(List.tabulate(tupleSize, fn _ => GeneralType), singleArg))),
+                        1, decName ^ "(1)", getClosure nLevel, 0)
+                end
         in
             mkEnv(#dec thisDec, resProc)
         end
     
         else
         let (* No tuple or polymorphic. *)
-            (* Must set the address to zero to get recursive references right. *)
             val newDecName : string  = decName ^ "(1)";
             val newDebug = newDebugLevel debugEnv
+            val fnLevel  = newLevel nLevel
             val newContext =
-                cpContext |> repDecName newDecName |> repDebugEnv newDebug |>
-                    repMkAddr fnMkAddr |> repLevel fnLevel
-            val alt  = codeAlt (c, f, mkLoad (~1, 0), newContext);
+                cpContext |> repDebugEnv newDebug |> repNewLevel(newDecName, fnMkAddr, fnLevel)
+
+            val alt  = codeAlt (c, f, mkLoadArgument 0, newContext);
             (* If we're debugging add the debug info before resetting the level. *)
             val wrapped =
-                wrapFunctionInDebug(alt, newDecName, mkLoad (~1, 0), argType, resType,
+                wrapFunctionInDebug(alt, newDecName, mkLoadArgument 0, argType, resType,
                     location, newContext)
-            val pr = mkProc (wrapped, 1, newDecName)
+            val pr = mkProc (wrapped, 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
         in
-            case polyVars of
-                [] => pr
-            |   _ => mkProc(pr, List.length polyVars, newDecName^"(P)")
+            if null polyVars then pr
+            else mkProc(pr, List.length polyVars, newDecName^"(P)", [], 0)
         end
     end (* codeProc *)
 
@@ -6028,20 +6033,8 @@ struct
                    I'm still a bit confused about when a tuple is an
                    argument tuple (reversed?) and when it isn't (not reversed).
 
-                   Just to confuse matters further, the argument numbering
-                   scheme is also reversed, so the first argument is actually
-                   the highest numbered!
-
-                   For example: <d,e,f,c,a,b> is numbered <6,5,4,3,2,1>, so
-                   we have to produce:
-
-                      <<2,1>, 3, <6, 5, 4>>
-  
-                   as our list of loads in "argList".
-
                    Just to add to this, if the function is polymorphic we
-                   have to add the polymorphic arguments on at the end but
-                   these have the lowest numbers.
+                   have to add the polymorphic arguments on at the end.
 
                  *)
                     local
@@ -6061,17 +6054,21 @@ struct
                         val argTypes = makeArgs ([], tupleSeq)
                     end
 
-                    fun makeArgs([],  _) = []
-                    |   makeArgs(h::t, n) = mkArgTuple(n + List.length h, n + 1) :: makeArgs(t, n + List.length h)
-
-                    val argList : codetree =
-                        if numOfPats = 1
-                        then mkArgTuple(totalArgs, extraArg+nPolyVars+1)
-                        else mkTuple (makeArgs(tupleSeq, extraArg+nPolyVars));
                     local
-
                         (* This function comprises a new declaration level *)
-                        val fnLevel = level + 1
+                        val nArgTypes = List.length argTypes
+                        val fnLevel = newLevel level
+
+                        val argList : codetree =
+                            if numOfPats = 1
+                            then mkArgTuple(nArgTypes-totalArgs, totalArgs-extraArg-nPolyVars)
+                            else
+                            let
+                                fun makeArgs([],  _) = []
+                                |   makeArgs(h::t, n) = mkArgTuple(nArgTypes-n-List.length h, List.length h) :: makeArgs(t, n + List.length h)
+                            in
+                                mkTuple (makeArgs(tupleSeq, extraArg+nPolyVars))
+                            end
 
                         local
                             val addresses = ref 1
@@ -6086,7 +6083,7 @@ struct
                             (* The poly args come after any result tuple. *)
                             val tupleOffset = if List.length resultTuple = 1 then 0 else 1
                             val argAddrs =
-                                List.tabulate(nPolyVars, fn n => fn l => mkLoad(n-nPolyVars-tupleOffset, l-fnLevel))
+                                List.tabulate(nPolyVars, fn n => fn l => mkLoadParam(n+nArgTypes-nPolyVars-tupleOffset, l, fnLevel))
                             val mainTypeVars = ListPair.zipEq(polyVars, argAddrs)
                             (* Also need to add any variables used by other polymorphic
                                functions but not in the existing list.  This is only for very unusual cases. *)
@@ -6108,8 +6105,7 @@ struct
                     
                         val fnContext =
                             context |> repDebugEnv(newDebugLevel debugEnv) |>
-                                repDecName innerProcName |> repMkAddr fnMkAddr |> 
-                                repLevel fnLevel |> repTypeVarMap newTypeVarMap
+                               repNewLevel(innerProcName, fnMkAddr, fnLevel) |> repTypeVarMap newTypeVarMap
 
                         (* If we have (mutually) recursive references to polymorphic functions
                            we need to create local versions applied to the polymorphic variables.
@@ -6139,7 +6135,7 @@ struct
                                         |   NONE => raise InternalError "createMatches: Missing type var"
                                     val polyArgs = List.map createMatches fPolyVars
                                     val newAddr = fnMkAddr 1
-                                    val polyFn = mkLoad(addr, fnLevel-level)
+                                    val polyFn = mkLoad(addr, fnLevel, level)
                                         (* Set the address to this so if we use this function we pick
                                            up this declaration. *)
                                     val () = setValueAddress(fVal, newAddr, fnLevel);
@@ -6166,13 +6162,13 @@ struct
                         else
                             (* The function sets the extra argument to the result
                                of the body of the function.  We use the last
-                               argument (addr = ~1) for the container so that
+                               argument for the container so that
                                other arguments will be passed in registers in
                                preference.  Since the container is used for the
                                result this argument is more likely to have to be
                                pushed onto the stack within the function than an
                                argument which may have its last use early on. *)
-                            mkSetContainer(mkLoad(~1, 0), codeMatches, List.length resultTuple)
+                            mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, List.length resultTuple)
 
                         (* If we're debugging add the debug info before resetting the level. *)
                         val wrapped =
@@ -6182,9 +6178,10 @@ struct
                             if List.length argTypes = totalArgs then () else raise InternalError "Argument length problem"
                     in
                         val innerFun =
-                            mkFunction(
-                                mkEnv(getCachedTypeValues newTypeVarMap @ appDecs, wrapped),
-                                argTypes, resultType, innerProcName)
+                            mkFunction{
+                                body=mkEnv(getCachedTypeValues newTypeVarMap @ appDecs, wrapped),
+                                argTypes=argTypes, resultType=resultType, name=innerProcName,
+                                closure=getClosure fnLevel, numLocals=fnMkAddr 0}
                     end;
   
                     (* We now have a function which can be applied to the
@@ -6193,44 +6190,49 @@ struct
                        will take one of the parameters at a time. If all the
                        parameters are provided at once they will be
                        optimised away. *)
+                   
+                    val polyLevel =
+                        if null polyVars then level else newLevel level
 
                     (* Make into curried functions *)
-                    fun makeFuns(_, _, parms, []) =
+                    fun makeFuns(innerLevel, _, mkParms, []) =
                         let
-                            val levelOffset = numOfPats + (if null polyVars then 0 else 1)
                             (* Load a reference to the inner function. *)
-                            val loadInnerFun = mkLoad (addr + 1, levelOffset)
+                            val loadInnerFun = mkLoad (addr + 1, innerLevel, level)
                             val polyParms =
-                                List.tabulate(nPolyVars, fn n => (mkLoad(n-nPolyVars, numOfPats), GeneralType))
+                                List.tabulate(nPolyVars, fn n => (mkLoadParam(n, innerLevel, polyLevel), GeneralType))
                             val resTupleSize = List.length resultTuple
+                            val parms = mkParms innerLevel
                         in
                             (* Got to the bottom. - put in a call to the procedure. *)
                             if resTupleSize = 1
-                            then mkCall (loadInnerFun, parms @ polyParms, resultType)
+                            then (mkCall (loadInnerFun, parms @ polyParms, resultType), 0)
                             else (* Create a container for the result, side-effect
                                     it in the function, then create a tuple from it.
                                     Most of the time this will be optimised away. *)
                             let
-                                val localAddrs = ref 1
+                                val localAddrs = ref 0
                                 fun newAddr () = (! localAddrs) before (localAddrs := !localAddrs+1)
                                 val {load, dec} =
-                                    multipleUses(mkContainer resTupleSize, newAddr, level + levelOffset)
-                                val ld = load(level + levelOffset)
+                                    multipleUses(mkContainer resTupleSize, newAddr, innerLevel)
+                                val ld = load innerLevel
                             in
-                                mkEnv(dec @
+                                (mkEnv(dec @
                                    [mkNullDec(mkCall (loadInnerFun, parms @ polyParms @ [(ld, GeneralType)], GeneralType))],
-                                    mkTupleFromContainer(ld, resTupleSize))
+                                    mkTupleFromContainer(ld, resTupleSize)),
+                                 ! localAddrs)
                             end
                         end
-                |    makeFuns(depth, decName, parms, t::ts) =
+                |    makeFuns(innerLevel, decName, mkParms, t::ts) =
                         let (* Make a function. *)
+                            val nLevel = newLevel innerLevel
                             val newDecName : string = decName ^ "(1)"
                             (* Arguments from this tuple precede older arguments,
                                but order of arguments within the tuple is preserved. *) 
-                            val nextParms = loadArgsFromTuple(t, mkLoad (~1, depth)) @ parms
-                            val body = makeFuns (depth - 1, newDecName, nextParms, ts)
+                            fun nextParms l = loadArgsFromTuple(t, mkLoadParam (0, l, nLevel)) @ mkParms l
+                            val (body, lCount) = makeFuns (nLevel, newDecName, nextParms, ts)
                         in
-                            mkInlproc (body, 1, newDecName)
+                            (mkInlproc (body, 1, newDecName, getClosure nLevel, lCount), 0)
                         end (* end makeFuns *);
 
                     (* Reset the address of the variable. *)
@@ -6240,11 +6242,10 @@ struct
                     then (addr, innerFun) :: loadFunDecs(otherDecs, otherPolyVars, otherAddresses)
                     else
                     let
-                        val baseFun = makeFuns (numOfPats - 1, procName, [], tupleSeq)
+                        val (baseFun, _) = makeFuns (polyLevel, procName, fn _ => [], tupleSeq)
                         val polyFun =
-                            case polyVars of
-                                [] => baseFun
-                            |   _ => mkInlproc(baseFun, List.length polyVars, procName ^ "(P)")
+                            if null polyVars then baseFun
+                            else mkInlproc(baseFun, List.length polyVars, procName ^ "(P)", getClosure polyLevel, 0)
                     in
                         (* Return the `inner' procedure and the inline
                           functions as a mutually recursive pair. Try putting
@@ -6323,7 +6324,7 @@ struct
         end (* codeRecValBindings *)
 
     (* Non-recursive val bindings. *)
-    and codeNonRecValBindings(valBindings, near, originalContext as { decName, typeVarMap, lex, ...}) =
+    and codeNonRecValBindings(valBindings, near, originalContext: cgContext as { decName, typeVarMap, lex, isOuterLevel, ...}) =
         let
             (* Non-recursive val bindings. *)
             fun codeBinding (ValBind{dec=vbDec, exp=vbExp, line, variables=ref vars, ...}, otherDecs) =
@@ -6356,13 +6357,13 @@ struct
                     let
                         val addresses = ref 1
                         fun fnMkAddr n = (! addresses) before (addresses := ! addresses + n)
-                        val fnLevel = (#level originalContext +1)
-                        val argAddrs = List.tabulate(nPolyVars, fn n => fn l => mkLoad(n-nPolyVars, l-fnLevel))
+                        val fnLevel = newLevel (#level originalContext)
+                        val argAddrs = List.tabulate(nPolyVars, fn n => fn l => mkLoadParam(n, l, fnLevel))
                         val argMap = ListPair.zipEq(polyVars, argAddrs)
                         val newTypeVarMap =
                             extendTypeVarMap(argMap, fnMkAddr, fnLevel, #typeVarMap originalContext)
                     in
-                        originalContext |> repLevel fnLevel |> repMkAddr fnMkAddr |> repTypeVarMap newTypeVarMap
+                        originalContext |> repNewLevel(decName, fnMkAddr, fnLevel) |> repTypeVarMap newTypeVarMap
                     end
                 
                 (* Build a single pattern tree. *)
@@ -6384,7 +6385,7 @@ struct
                         codeDefault, true, debugEnv, localContext);
                 (* Report inexhaustiveness if necessary. *)
                 val () =
-                    if not (!exhaustive) andalso #level originalContext > 0
+                    if not (!exhaustive) andalso not isOuterLevel
                     then errorNear (lex, false, near, line, "Pattern is not exhaustive.")
                     else ()
                 (* Check for unreferenced variables. *)
@@ -6397,7 +6398,7 @@ struct
                     if nPolyVars = 0 then #dec decCode @ #decs code @ [mkNullDec (#exp code)]
                     else
                     let
-                        fun loadVal(Value{access=Local{addr=ref add, ...}, ...}) = mkLoad(add, 0)
+                        fun loadVal(Value{access=Local{addr=ref add, ...}, ...}) = mkLoadLocal add
                         |   loadVal _ = raise InternalError "loadVal"
 
                         val outerAddrs = #mkAddr originalContext
@@ -6410,7 +6411,7 @@ struct
                                 mkInlproc(
                                     mkEnv(getCachedTypeValues typeVarMap @ #dec decCode
                                           @ #decs code @ [mkNullDec (#exp code)], mkTuple(List.map loadVal vars)),
-                                    nPolyVars, "(P)"))
+                                    nPolyVars, "(P)", getClosure level, mkAddr 0))
 
                         (* Apply the general function to the set of type variables using either the
                            actual type variables if they are in this particular variable or defaults
@@ -6421,10 +6422,10 @@ struct
                             val varNos = ListPair.zipEq(pVars, List.tabulate(nPVars, fn x=>x))
                             fun getArg argV =
                                 case List.find (fn (v, _) => sameTv(v, argV)) varNos of
-                                    SOME (_, n) => mkLoad(n-nPVars, 0)
+                                    SOME (_, n) => mkLoadParam(n, level, level)
                                 |   NONE => defaultTypeCode
                         in
-                            mkEval(mkLoad(fnAddr, level-outerLevel), List.map getArg polyVars)
+                            mkEval(mkLoad(fnAddr, level, outerLevel), List.map getArg polyVars)
                         end
 
                         (* For each variable construct either a new function if it is polymorphic
@@ -6443,9 +6444,14 @@ struct
                                     case polyV of
                                         [] => (* monomorphic *) mkInd(n, application([], outerLevel))
                                     |   _ => (* polymorphic *)
-                                        mkInlproc(
-                                            mkInd(n, application(polyV, outerLevel+1)),
-                                            List.length polyV, "(P)")
+                                        let
+                                            val nPolyVars = List.length polyV
+                                            val nLevel = newLevel outerLevel
+                                        in
+                                            mkInlproc(
+                                                mkInd(n, application(polyV, nLevel)),
+                                                nPolyVars, "(P)", getClosure nLevel, 0)
+                                        end
                                 ) :: loadFunctions(vars, polyVs, n+1)
                             end
                         |   loadFunctions _ = []
@@ -6470,7 +6476,7 @@ struct
              mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codeBinding list * debugenv =
         codeSequence ([pt], [],
             {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
-             debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0},
+             debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0, isOuterLevel = true},
              fn (code: codeBinding list, {debugEnv, typeVarMap, ...}) => continuation(code, debugEnv, typeVarMap))
 
     (* Types that can be shared. *)
@@ -6502,6 +6508,7 @@ struct
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
         and  typeVarMap = typeVarMap
+        and  level = level
     end
 
 end (* PARSETREE *);

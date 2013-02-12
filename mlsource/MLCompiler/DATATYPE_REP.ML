@@ -110,7 +110,7 @@ struct
                                  whose first word contains the tag. *)
 
 
-    val arg1     = mkLoad (~1, 0); (* saves a lot of garbage *)
+    val arg1     = mkLoadArgument 0 (* saves a lot of garbage *)
 
     val mutableFlags = F_words orb F_mutable;
 
@@ -132,7 +132,7 @@ struct
                 fun getFields i =
                     if i < n then mkInd (i, arg1) :: getFields (i + 1) else [];
             in  
-                mkInlproc (mkTuple (mkTag tag :: getFields 0), 1, name)
+                mkInlproc (mkTuple (mkTag tag :: getFields 0), 1, name, [], 0)
             end;
 
             fun tagTupleApplyCode (tag: word, n:int, arg:codetree) : codetree =
@@ -193,7 +193,7 @@ struct
                 (* copy n data fields out of tagged record *)
                 fun getFields i = if i <= n then mkInd (i, arg1) :: getFields (i + 1) else [];
     
-                val proc = mkInlproc (mkTuple (getFields 1), 1, "")
+                val proc = mkInlproc (mkTuple (getFields 1), 1, "", [], 0)
             in  
                 mkEval (proc, [arg])
             end;
@@ -228,30 +228,30 @@ struct
         let
             val numTypes =
                 if justForEqualityTypes then 0 else List.length tvs
-            val testFn = mkInlproc(constrMatch(test, arg1), 1, name) (* Test function. *)
+            val testFn = mkInlproc(constrMatch(test, arg1), 1, name, [], 0) (* Test function. *)
             and constrVal = constrApply(test, CodeZero) (* Value. *)
         in
             if numTypes = 0
             then createNullaryConstr{ testMatch = testFn, constrValue = constrVal }
             else createNullaryConstr{
-                    testMatch = mkInlproc(testFn, numTypes, name),
-                    constrValue = mkInlproc(constrVal, numTypes, name)}
+                    testMatch = mkInlproc(testFn, numTypes, name, [], 0),
+                    constrValue = mkInlproc(constrVal, numTypes, name, [], 0)}
         end
     
         fun createUnaryConstructor(test: representations, tvs, name: string): codetree =
         let
             val numTypes =
                 if justForEqualityTypes then 0 else List.length tvs
-            val testMatch = mkInlproc(constrMatch(test, arg1), 1, name) (* Test function. *)
-            and injectValue = mkInlproc(constrApply(test, arg1), 1, name) (* Injection function. *)
-            and projectValue = mkInlproc(constrDestruct(test, arg1), 1, name) (* Projection function. *)
+            val testMatch = mkInlproc(constrMatch(test, arg1), 1, name, [], 0) (* Test function. *)
+            and injectValue = mkInlproc(constrApply(test, arg1), 1, name, [], 0) (* Injection function. *)
+            and projectValue = mkInlproc(constrDestruct(test, arg1), 1, name, [], 0) (* Projection function. *)
         in
             if numTypes = 0
             then createValueConstr{testMatch = testMatch, injectValue = injectValue, projectValue = projectValue }
             else createValueConstr{
-                    testMatch = mkInlproc(testMatch, numTypes, name),
-                    injectValue = mkInlproc(injectValue, numTypes, name),
-                    projectValue = mkInlproc(projectValue, numTypes, name)}
+                    testMatch = mkInlproc(testMatch, numTypes, name, [], 0),
+                    injectValue = mkInlproc(injectValue, numTypes, name, [], 0),
+                    projectValue = mkInlproc(projectValue, numTypes, name, [], 0)}
         end
     end
 
@@ -443,7 +443,7 @@ struct
                         chooseOptimisedRepr2(0w0, tvs, l) (* can use tagged tuples *)
                     end
             end;
-        fun makeFun c = mkInlproc(c, List.length tvs, "boxed/size")
+        fun makeFun c = mkInlproc(c, List.length tvs, "boxed/size", [], 0)
         val (boxed, size) =
             case tvs of
                 [] => (* Monotype *) (TypeValue.boxedEither, TypeValue.singleWord)
@@ -468,7 +468,7 @@ struct
            which have the PolyML prefix. *)
         val description = basisDescription tIdPath
         val id =
-            makeBoundId(Local{addr = ref 0, level = ref 0}, 0 (* IdNumber*),
+            makeBoundId(Local{addr = ref 0, level = ref baseLevel}, 0 (* IdNumber*),
                 isEqType, true, description)
         val dtype = makeTypeConstructor (tcName, tyVars, id, [DeclaredAt inBasis]);
         (* Build the constructors. *)
@@ -477,7 +477,7 @@ struct
         fun leq (Value{name=xname, ...}, _) (Value{name=yname, ...}, _) = xname < yname;
         val sortedConstrs = quickSort leq valConstrsAndDecs;
         val initialTypeSet = TypeConstrSet(dtype, (List.map #1 valConstrsAndDecs))
-        val addrs = ref 1
+        val addrs = ref 0
         fun mkAddrs n = ! addrs before (addrs := !addrs+n)
 
         fun declConstr(Value{access=Local{addr, level}, ...}, repr) =
@@ -485,25 +485,25 @@ struct
                 val newAddr = mkAddrs 1
             in
                 addr := newAddr;
-                level := 0;
-                (mkDec(newAddr, repr), mkLoad(newAddr, 0))
+                level := baseLevel;
+                (mkDec(newAddr, repr), mkLoadLocal newAddr)
             end
         |   declConstr _ = raise InternalError "declConstr: not local"
         val (declConstrs, loadConstrs) = ListPair.unzip(List.map declConstr sortedConstrs)
 
-        val defMap = TypeVarMap.defaultTypeVarMap(mkAddrs, 0)
+        val defMap = TypeVarMap.defaultTypeVarMap(mkAddrs, baseLevel)
 
         (* Create the datatype.  Sets the address of the local in "id". *)
         val dtCode =
             createDatatypeFunctions(
-                [{typeConstr=initialTypeSet, eqStatus=isEqType, boxedCode=boxedCode, sizeCode=sizeCode}], mkAddrs, 0, defMap)
+                [{typeConstr=initialTypeSet, eqStatus=isEqType, boxedCode=boxedCode, sizeCode=sizeCode}], mkAddrs, baseLevel, defMap)
 
         (* Compile and execute the code to build the functions and extract the result. *)
         val globalCode =
             genCode(
                 mkEnv(
-                    declConstrs @ TypeVarMap.getCachedTypeValues defMap @ dtCode, mkTuple(codeId(id, 0) :: loadConstrs)),
-                [])()
+                    declConstrs @ TypeVarMap.getCachedTypeValues defMap @ dtCode, mkTuple(codeId(id, baseLevel) :: loadConstrs)),
+                [], !addrs)()
         val newId = makeFreeId(Global(mkInd(0, globalCode)), isEqType, description)
         
         (* Get the value constructors out as globals. *)
@@ -527,15 +527,15 @@ struct
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
             val nilConstructor  =
-                makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
+                makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
             val consConstructor =
-                makeValueConstr ("::",  consType,  false, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
+                makeValueConstr ("::",  consType,  false, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
             val nilRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "nil")
             val consRepresentation = createUnaryConstructor(UnboxedForm, [alpha], "::")
         in
             ([(nilConstructor, nilRepresentation), (consConstructor, consRepresentation)],
-            mkInlproc(TypeValue.boxedEither, 1, "boxed-list"),
-            mkInlproc(TypeValue.singleWord, 1, "size-list"))
+            mkInlproc(TypeValue.boxedEither, 1, "boxed-list", [], 0),
+            mkInlproc(TypeValue.singleWord, 1, "size-list", [], 0))
         end
     in
         val listConstr =
@@ -558,15 +558,15 @@ struct
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
             val someType      = mkFunctionType (alpha, alphaOption);
             val noneConstructor  =
-                makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis]);
+                makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis]);
             val someConstructor =
-                makeValueConstr ("SOME", someType, false, 2, Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis]);
+                makeValueConstr ("SOME", someType, false, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis]);
             val noneRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "NONE")
             and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
         in
             ([(noneConstructor, noneRepresentation), (someConstructor, someRepresentation)],
-             mkInlproc(TypeValue.boxedEither, 1, "boxed-option"),
-             mkInlproc(TypeValue.singleWord, 1, "size-option"))
+             mkInlproc(TypeValue.boxedEither, 1, "boxed-option", [], 0),
+             mkInlproc(TypeValue.singleWord, 1, "size-option", [], 0))
         end
     in
         val optionConstr=
@@ -621,7 +621,7 @@ struct
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                     makeValueConstr(s, mkFunctionType(t, contextType), false, numConstrs,
-                        Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
+                        Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
                 val {constrs=constrCode, boxed, size} = chooseConstrRepr(constrs, [])
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), boxed, size)
@@ -649,7 +649,7 @@ struct
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                     makeValueConstr(s, mkFunctionType(t, prettyType), false, numConstrs,
-                        Local{addr=ref 0, level=ref 0}, [DeclaredAt inBasis])
+                        Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
                 val {constrs=constrCode, ...} = chooseConstrRepr(constrs, [])
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), TypeValue.boxedEither, TypeValue.singleWord)
@@ -709,6 +709,7 @@ struct
         type typeId         = typeId
         type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap
+        type level          = level
     end
 
 end;

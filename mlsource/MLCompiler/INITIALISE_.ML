@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012
+    Updated David C.J. Matthews 2008-9, 2012, 2013
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -189,9 +189,7 @@ struct
    
 (*****************************************************************************)
 (*                  Utilities                                                *)
-(*****************************************************************************)
-        fun loadArg n  = mkLoad (~ n, 0);
-        
+(*****************************************************************************)        
         val enterGlobalValue  = #enterVal  globalEnv;
         val enterGlobalType   = #enterType globalEnv;
 
@@ -232,7 +230,7 @@ struct
             val tvs =
                 List.filter(fn TypeVar tv => not justForEqualityTypes orelse tvEquality tv | _ => false) tvs
         in
-            if null tvs then c else mkInlproc(c, List.length tvs, "")
+            if null tvs then c else mkInlproc(c, List.length tvs, "", [], 0)
         end
 
         (* Function to make a type identifier with a pretty printer that just prints "?".
@@ -248,7 +246,7 @@ struct
                             eqCode = CodeZero, printCode = mkConst (toMachineWord (ref monotypePrinter)),
                             boxedCode = boxedEither (* Assume this for the moment *), sizeCode = singleWord }
                 in
-                    Global (genCode(code, []) ())
+                    Global (genCode(code, [], 0) ())
                 end
         end
         
@@ -366,7 +364,7 @@ struct
         local
             val plingCode = (* we load the zero'th word from the parameter *)
                 mkInlproc
-                    (mkEval (rtsFunction POLY_SYS_load_word, [(loadArg 1), CodeZero]), 1, "!(1)");
+                    (mkEval (rtsFunction POLY_SYS_load_word, [mkLoadArgument 0, CodeZero]), 1, "!(1)", [], 0)
             val a = makeTV ()
             val plingType = Ref a ->> a
             val plingVal  = mkGvar ("!", plingType, makePolymorphic([a], plingCode), declInBasis);
@@ -416,9 +414,9 @@ struct
             let 
                 val name = "unsafeCast(1)";
                 val args  = 1;
-                val body  = mkLoad (~1, 0)  (* just the parameter *)
+                val body  = mkLoadArgument 0  (* just the parameter *)
             in
-                mkInlproc (body, args, name)
+                mkInlproc (body, args, name, [], 0)
             end;
         in
             val () =
@@ -464,11 +462,10 @@ struct
             let 
                 val name = "run_call1(1)";
                 val ioOpEntry = rtsFunction POLY_SYS_io_operation;
-                val args  = 1;
-                val n     = mkLoad (~1, 0)                 (* the outer parameter *)
+                val n     = mkLoadArgument 0                 (* the outer parameter *)
                 val body  = mkEval (ioOpEntry, [n]);
             in
-                makePolymorphic([a, b], mkInlproc (body, args, name))
+                makePolymorphic([a, b], mkInlproc (body, 1, name, [], 0))
             end;
 
             fun makeRunCallTupled (width:int) : codetree =
@@ -494,23 +491,23 @@ struct
                 
                 val innerBody : codetree =
                 let
-                    val f     = mkLoad (1, 1);        (* first item from enclosing scope *)
-                    val tuple = mkLoad (~1, 0);       (* the inner parameter *)
+                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
+                    val tuple = mkLoadArgument 0       (* the inner parameter *)
                     val args  = List.tabulate(width, fn n => mkInd (n, tuple))
                 in
                     mkEval (f, args)
                 end
 
-                val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)")
+                val innerLambda = mkInlproc (innerBody, 1, name ^ "(1)", [mkLoadLocal 0], 0)
                 val outerBody : codetree  =
                 let
-                    val n = mkLoad (~1, 0)                 (* the outer parameter *)
+                    val n = mkLoadArgument 0                 (* the outer parameter *)
                     val f = mkEval (ioOpEntry, [n]);
                 in
-                    mkEnv([mkDec (1, f)], innerLambda)
+                    mkEnv([mkDec (0, f)], innerLambda)
                 end
 
-                val outerLambda  = mkInlproc (outerBody, 1, name)
+                val outerLambda  = mkInlproc (outerBody, 1, name, [], 1)
             in
                 outerLambda
             end
@@ -525,24 +522,24 @@ struct
                 
                 val innerLambda : codetree =
                 let
-                    val f     = mkLoad (1, 1)        (* first item from enclosing scope *)
-                    val tuple = mkLoad (~1, 0)       (* the inner parameter *)
-                    val container = mkDec(1, mkContainer containerWidth)
+                    val f     = mkLoadClosure 0        (* first item from enclosing scope *)
+                    val tuple = mkLoadArgument 0       (* the inner parameter *)
+                    val container = mkDec(0, mkContainer containerWidth)
                     val args  =
-                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoad(1, 0)]
+                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoadLocal 0]
                 in
                     mkInlproc(
                         mkEnv([container, mkNullDec(mkEval (f, args))],
-                              mkTupleFromContainer(mkLoad(1, 0), containerWidth)),
-                        1, name ^ "(1)")
+                              mkTupleFromContainer(mkLoadLocal 0, containerWidth)),
+                        1, name ^ "(1)", [mkLoadLocal 0], 1)
                 end
 
                 val outerLambda =
                 let
-                    val n = mkLoad (~1, 0)                 (* the outer parameter *)
+                    val n = mkLoadArgument 0                 (* the outer parameter *)
                     val f = mkEval (ioOpEntry, [n])
                 in
-                    mkInlproc(mkEnv([mkDec (1, f)], innerLambda), 1, name)
+                    mkInlproc(mkEnv([mkDec (0, f)], innerLambda), 1, name, [], 1)
                 end
             in
                 outerLambda
@@ -690,43 +687,46 @@ struct
                     mkProc(
                         mkEnv([
                             (* Length of the items. *)
-                            mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)])),
-                            mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)])),
-                            mkMutualDecs[(3, (* Loop function. *)
+                            mkDec(0, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 0])),
+                            mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 1])),
+                            mkMutualDecs[(2, (* Loop function. *)
                                 mkProc(
                                     mkIf(
                                         (* Finished? *)
-                                        mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 1), mkLoad(~1, 0)]),
+                                        mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadClosure 0, mkLoadArgument 0]),
                                         CodeTrue, (* Yes, all equal. *)
                                         mkIf(
                                             mkEval(
-                                                TypeValue.extractEquality(mkLoad(~1, 2)), (* Base equality fn *)
+                                                TypeValue.extractEquality(mkLoadClosure 2), (* Base equality fn *)
                                                 [
                                                     mkEval(rtsFunction POLY_SYS_load_word,
-                                                        [mkLoad(~2, 1), mkLoad(~1, 0)]),
+                                                        [mkLoadClosure 3, mkLoadArgument 0]),
                                                     mkEval(rtsFunction POLY_SYS_load_word,
-                                                        [mkLoad(~1, 1), mkLoad(~1, 0)])
+                                                        [mkLoadClosure 4, mkLoadArgument 0])
                                                 ]),
-                                            mkEval(mkLoad(3, 1), (* Recursive call with index+1. *)
+                                            mkEval(mkLoadClosure 1, (* Recursive call with index+1. *)
                                                 [
                                                     mkEval(rtsFunction POLY_SYS_plus_word,
-                                                        [mkLoad(~1, 0), mkConst(toMachineWord 1)])
+                                                        [mkLoadArgument 0, mkConst(toMachineWord 1)])
                                                 ]),
                                             CodeFalse (* Not equal elements - result false *)
                                         )
                                     ),
-                                1, "vector-loop"))]
+                                1, "vector-loop",
+                                    [mkLoadLocal 0 (* Length *), mkLoadLocal 2 (* Loop function *), 
+                                     mkLoadClosure 0 (* Base equality function *), 
+                                     mkLoadArgument 0 (* Vector 0 *), mkLoadArgument 1 (* Vector 1 *)], 0))]
                             ],
                             mkIf(
                                 (* Test the lengths. *)
-                                mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)]),
+                                mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
                                 (* Equal - test the contents. *)
-                                mkEval(mkLoad(3, 0), [CodeZero]),
+                                mkEval(mkLoadLocal 2, [CodeZero]),
                                 CodeFalse (* Not same length- result false *)
                             )
                         ),
-                        2, "vector-eq"),
-                    1, "vector-eq()")
+                        2, "vector-eq", [mkLoadArgument 0], 3),
+                    1, "vector-eq()", [], 0)
 
             val idCode = (* Polytype *)
                 let
@@ -734,10 +734,10 @@ struct
                     val code =
                         createTypeValue{
                             eqCode=eqCode, printCode=mkConst (toMachineWord (ref polyTypePrinter)),
-                            boxedCode=mkInlproc(boxedAlways, 1, "boxed-vector"),
-                            sizeCode=mkInlproc(singleWord, 1, "size-vector")}
+                            boxedCode=mkInlproc(boxedAlways, 1, "boxed-vector", [], 0),
+                            sizeCode=mkInlproc(singleWord, 1, "size-vector", [], 0)}
                 in
-                    Global (genCode(code, []) ())
+                    Global (genCode(code, [], 0) ())
                 end
         in
             val vectorType =
@@ -756,19 +756,19 @@ struct
                 mkProc(
                     mkEnv([
                         (* Length of the items. *)
-                        mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~2, 0)])),
-                        mkDec(2, mkEval(rtsFunction POLY_SYS_get_length, [mkLoad(~1, 0)]))
+                        mkDec(0, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 0])),
+                        mkDec(1, mkEval(rtsFunction POLY_SYS_get_length, [mkLoadArgument 1]))
                         ],
                         mkIf(
                             (* Test the lengths. *)
-                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoad(1, 0), mkLoad(2, 0)]),
+                            mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
                             (* Equal - test the contents. *)
                             mkEval(rtsFunction POLY_SYS_bytevec_eq,
-                                [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero, mkLoad(1, 0)]),
+                                [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 0]),
                             CodeFalse (* Not same length- result false *)
                         )
                     ),
-                    2, "byteVector-eq")
+                    2, "byteVector-eq", [], 2)
 
             val idCode = (* Polytype *)
                 let
@@ -778,7 +778,7 @@ struct
                             eqCode=eqCode, printCode=mkConst (toMachineWord (ref monoTypePrinter)),
                             boxedCode=boxedAlways, sizeCode=singleWord}
                 in
-                    Global (genCode(code, []) ())
+                    Global (genCode(code, [], 0) ())
                 end
         in
             val byteVectorType =
@@ -802,7 +802,7 @@ struct
                             sizeCode = singleWord
                             }
                 in
-                   Global (genCode(code, []) ())
+                   Global (genCode(code, [], 0) ())
                 end
         in
             val largeWordType =
@@ -1061,10 +1061,10 @@ struct
                         createTypeValue{
                                 eqCode=CodeZero, (* Not an equality type *)
                                 printCode=mkConst (toMachineWord (ref polyTypePrinter)),
-                                boxedCode=mkInlproc(boxedEither(* Assume worst case *), 1, "boxed-tag"),
-                                sizeCode=mkInlproc(singleWord, 1, "size-tag")}
+                                boxedCode=mkInlproc(boxedEither(* Assume worst case *), 1, "boxed-tag", [], 0),
+                                sizeCode=mkInlproc(singleWord, 1, "size-tag", [], 0)}
                 in
-                    Global (genCode(code, []) ())
+                    Global (genCode(code, [], 0) ())
                 end
             in
                 (* type 'a tag *)
@@ -1279,10 +1279,12 @@ struct
             and CodeBinding = createType "codeBinding"
 
             (* For the moment export these only for the general argument and result types. *)
-            fun simpleFn (code, nArgs, name) =
-                mkFunction(code, List.tabulate(nArgs, fn _ => GeneralType), GeneralType, name)
-            and simpleInlineFn (code, nArgs, name) =
-                mkInlineFunction(code, List.tabulate(nArgs, fn _ => GeneralType), GeneralType, name)
+            fun simpleFn (code, nArgs, name, closure, nLocals) =
+                mkFunction{body=code, argTypes=List.tabulate(nArgs, fn _ => GeneralType),
+                           resultType=GeneralType, name=name, closure=closure, numLocals=nLocals}
+            and simpleInlineFn (code, nArgs, name, closure, nLocals) =
+                mkInlineFunction{body=code, argTypes=List.tabulate(nArgs, fn _ => GeneralType),
+                           resultType=GeneralType, name=name, closure=closure, numLocals=nLocals}
             and simpleCall(func, args) =
                 mkCall(func, List.map (fn c => (c, GeneralType)) args, GeneralType)
         in
@@ -1293,14 +1295,16 @@ struct
                 [
                 ("pretty", toMachineWord CodeTree.pretty, CodeTree ->> PrettyType),
                 ("mkConstant", toMachineWord mkConst, MachineWord ->> CodeTree),
-                ("genCode", toMachineWord genCode, CodeTree ** List Universal ->> (Unit ->> CodeTree)),
+                ("genCode", toMachineWord genCode, mkProductType[CodeTree, List Universal, Int] ->> (Unit ->> CodeTree)),
                 ("evalue", toMachineWord evalue, CodeTree ->> Option MachineWord),
                 ("mkFunction", toMachineWord simpleFn,
-                    mkProductType[CodeTree, Int, String] ->> CodeTree),
+                    mkProductType[CodeTree, Int, String, List CodeTree, Int] ->> CodeTree),
                 ("mkInlineFunction", toMachineWord simpleInlineFn,
-                    mkProductType[CodeTree, Int, String] ->> CodeTree),
+                    mkProductType[CodeTree, Int, String, List CodeTree, Int] ->> CodeTree),
                 ("mkCall", toMachineWord simpleCall, CodeTree ** List CodeTree ->> CodeTree),
-                ("mkLoad", toMachineWord mkLoad, Int ** Int ->> CodeTree),
+                ("mkLoadLocal", toMachineWord mkLoadLocal, Int ->> CodeTree),
+                ("mkLoadArgument", toMachineWord mkLoadArgument, Int ->> CodeTree),
+                ("mkLoadClosure", toMachineWord mkLoadClosure, Int ->> CodeTree),
                 ("mkDec", toMachineWord mkDec, Int ** CodeTree ->> CodeBinding),
                 ("mkInd", toMachineWord mkInd, Int ** CodeTree ->> CodeTree),
                 ("mkIf", toMachineWord mkIf, mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),

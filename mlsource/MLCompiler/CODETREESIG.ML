@@ -1,6 +1,5 @@
 (*
-    Copyright (c) 2000
-        Cambridge University Technical Services Limited
+    Copyright (c) 2012,13 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,6 +22,8 @@ sig
     type codetree
     type pretty
     type codeBinding
+    
+    type level
 
     datatype argumentType =
         GeneralType
@@ -32,19 +33,30 @@ sig
     val CodeFalse:          codetree; (* code for "false" *)
     val CodeZero:           codetree; (* code for 0, nil etc. *)
 
-    val mkFunction:         codetree * argumentType list * argumentType * string -> codetree
-    val mkInlineFunction:   codetree * argumentType list * argumentType * string -> codetree
+    val mkFunction:
+        {
+            body: codetree, argTypes:argumentType list, resultType: argumentType,
+            name: string, closure: codetree list, numLocals: int 
+        } -> codetree
+    val mkInlineFunction:
+        {
+            body: codetree, argTypes:argumentType list, resultType: argumentType,
+            name: string, closure: codetree list, numLocals: int 
+        } -> codetree
     val mkCall:             codetree * (codetree * argumentType) list * argumentType -> codetree
 
     val MatchFail:          codetree; (* pattern match has failed *)
     val mkAltMatch:         codetree * codetree -> codetree;
 
-    val mkLoad:             int * int -> codetree;
+    val mkLoadLocal:        int -> codetree
+    and mkLoadArgument:     int -> codetree
+    and mkLoadClosure:      int -> codetree
+
     val mkConst:            machineWord -> codetree;
     val mkInd:              int * codetree -> codetree;
-    val mkProc:             codetree * int * string -> codetree;
-    val mkInlproc:          codetree * int * string -> codetree;
-    val mkMacroProc:        codetree * int * string -> codetree;
+    val mkProc:             codetree * int * string * codetree list * int -> codetree;
+    val mkInlproc:          codetree * int * string * codetree list * int -> codetree;
+    val mkMacroProc:        codetree * int * string * codetree list * int -> codetree;
     val mkIf:               codetree * codetree * codetree -> codetree;
     val mkWhile:            codetree * codetree -> codetree;
     val mkEnv:              codeBinding list * codetree -> codetree
@@ -73,15 +85,21 @@ sig
     val mkMutualDecs:       (int * codetree) list -> codeBinding
     val mkNullDec:          codetree -> codeBinding
 
-    val multipleUses: codetree * (unit -> int) * int -> {load: int -> codetree, dec: codeBinding list}
-
     val decSequenceWithFinalExp: codeBinding list -> codetree
 
     val pretty:    codetree -> pretty;
     val evalue:    codetree -> machineWord option
-    val genCode:   codetree * Universal.universal list -> (unit -> codetree);
+    val genCode:   codetree * Universal.universal list * int -> (unit -> codetree);
     
     val rtsFunction:        int -> codetree
+
+    (* Helper functions to build closure. *)
+    val mkLoad:             int * level * level -> codetree
+    and mkLoadParam:        int * level * level -> codetree
+    val baseLevel:          level
+    val newLevel:           level -> level
+    val getClosure:         level -> codetree list
+    val multipleUses: codetree * (unit -> int) * level -> {load: level -> codetree, dec: codeBinding list}
 
     structure Sharing:
     sig
@@ -90,6 +108,7 @@ sig
         type pretty      = pretty
         type argumentType=argumentType
         type codeBinding     = codeBinding
+        type level       = level
     end
 
 end;

@@ -26,35 +26,36 @@ sig
     type typeConstrSet
     type typeVarForm
     type typeVarMap
+    type level
 
-    val codeId: typeId * int -> codetree
-    val codeGenerativeId: typeId * bool * (int->int) * int -> codetree
+    val codeId: typeId * level -> codetree
+    val codeGenerativeId: typeId * bool * (int->int) * level -> codetree
     
     val createDatatypeFunctions:
          {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list *
-            (int->int) * int * typeVarMap -> codeBinding list
+            (int->int) * level * typeVarMap -> codeBinding list
     
     val codeForUniqueId: unit->codetree
 
     (* Generate a function of the form t*int->pretty for values of type t. *)
-    val printerForType: types * int * typeVarMap -> codetree
+    val printerForType: types * level * typeVarMap -> codetree
     (* Generate a function of the form (t,t) -> bool. *)
-    val equalityForType: types * int * typeVarMap -> codetree
+    val equalityForType: types * level * typeVarMap -> codetree
 
     val applyToInstance:
-        { value: types, equality: bool, printity: bool} list * int * typeVarMap * (int -> codetree) -> codetree
+        { value: types, equality: bool, printity: bool} list * level * typeVarMap * (level -> codetree) -> codetree
     
     structure TypeVarMap:
     sig
         (* Cache of type values and map of type variables. *)
         type typeVarMap = typeVarMap
-        val defaultTypeVarMap: (int->int) * int -> typeVarMap (* The end of the chain. *)
+        val defaultTypeVarMap: (int->int) * level -> typeVarMap (* The end of the chain. *)
         (* Add a set of type variables to the map. *)
-        val extendTypeVarMap: (typeVarForm * (int->codetree)) list * (int->int) * int * typeVarMap -> typeVarMap
+        val extendTypeVarMap: (typeVarForm * (level->codetree)) list * (int->int) * level * typeVarMap -> typeVarMap
         (* Look up a type variable and return the type it's mapped to. *)
         val mapTypeVars: typeVarMap -> typeVarForm -> types option
         (* Mark in the cache chain that some type constructors are new. *)
-        val markTypeConstructors: typeConstrs list * (int->int) * int * typeVarMap -> typeVarMap
+        val markTypeConstructors: typeConstrs list * (int->int) * level * typeVarMap -> typeVarMap
         (* Get the set of cached type values that have been created after this entry. *)
         val getCachedTypeValues: typeVarMap -> codeBinding list
     end
@@ -73,5 +74,6 @@ sig
         type typeVarForm=typeVarForm
         type typeVarMap = typeVarMap
         type codeBinding    = codeBinding
+        type level = level
     end
 end;

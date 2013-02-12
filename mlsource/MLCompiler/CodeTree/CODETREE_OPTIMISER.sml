@@ -79,6 +79,23 @@ struct
     val False = word0
     val True  = word1
 
+    fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
+
+    local
+        open RuntimeCalls
+        val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
+        val rtsFunction = Constnt o ioOp
+
+        fun mkEval (ct, clist)   =
+        Eval {
+            function = ct,
+            argList = List.map(fn c => (c, GeneralType)) clist,
+            resultType=GeneralType
+        }
+    in
+        fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
+    end
+
     (* Return the "size" of a piece of code.  This is to determine if it
        is "small" enough to make it an inline function. *)
     fun codeSize pt = 
@@ -440,7 +457,7 @@ struct
                                        reference to the outer container. *)
                                     if addr = containerAddr
                                     then tl
-                                    else mkDec(addr, mkLoad(containerAddr, 0)) :: tl
+                                    else mkDec(addr, mkLoadLocal containerAddr) :: tl
                                 else hd :: replaceContainerDec(tl, ad) 
                         | replaceContainerDec(hd :: tl, ad) =
                                 hd :: replaceContainerDec(tl, ad)
@@ -455,7 +472,7 @@ struct
                             |   NONE => 
                                     mkEnv(decEntries,
                                         mkSetContainer(
-                                            mkLoad(containerAddr, 0), Recconstr recEntries,
+                                            mkLoadLocal containerAddr, Recconstr recEntries,
                                             size))
 
                         val thenPart = createBranch(thenRec, thenDecs, thenAddr)
@@ -469,13 +486,13 @@ struct
                         val baseAddr = !nextAddress before nextAddress := !nextAddress + size
                         val specialDecs =
                             List.tabulate(size,
-                                fn n => mkDec(n+baseAddr, mkInd(n, mkLoad(containerAddr, 0))))
+                                fn n => mkDec(n+baseAddr, mkInd(n, mkLoadLocal containerAddr)))
                         val recAddr = !nextAddress before nextAddress := !nextAddress + 1
                     in
-                        (   mkLoad(recAddr, 0),
+                        (   mkLoadLocal recAddr,
                             mkDec(containerAddr, Container size) ::
-                                  NullBinding(mkIf(insFirst, thenPart, elsePart)) ::
-                                    (specialDecs @ [mkDec(recAddr, TupleFromContainer(mkLoad(containerAddr, 0), size))]),
+                                  NullBinding(Cond(insFirst, thenPart, elsePart)) ::
+                                    (specialDecs @ [mkDec(recAddr, TupleFromContainer(mkLoadLocal containerAddr, size))]),
                             EnvSpecTuple(size, fn i => (EnvGenLoad(LoadLocal(i+baseAddr)), EnvSpecNone))
                          )
                     end (* combineTuples *)
@@ -501,7 +518,7 @@ struct
                         else if wordEq (c2, False) andalso wordEq (c3, True)
                         then (mkNot insFirst, [], EnvSpecNone)
               
-                        else (* can't optimise *) (mkIf (insFirst, second, third), [], EnvSpecNone)
+                        else (* can't optimise *) (Cond (insFirst, second, third), [], EnvSpecNone)
 
                     |   (Recconstr thenRec, _, Recconstr elseRec, _) =>
                         (* Both tuples - are they the same size?  They may not be if they
@@ -518,10 +535,11 @@ struct
                             combineTuples(containerAddr, NONE, NONE, thenRec, elseRec, size)
                         end
                         else (* Different sizes - use default. *)
-                            (mkIf (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
+                            (Cond (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
 
-                    |   (TupleFromContainer(Extract(LoadLegacy{addr=thenAddr,level=0,fpRel=true, ...}), thenSize), _,
-                         TupleFromContainer(Extract(LoadLegacy{addr=elseAddr,level=0,fpRel=true, ...}), elseSize), _) =>
+                        (* TODO: Should we also consider a Extract(LoadArgument _) or is that not relevant? *)
+                    |   (TupleFromContainer(Extract(LoadLocal thenAddr), thenSize), _,
+                         TupleFromContainer(Extract(LoadLocal elseAddr), elseSize), _) =>
                         (* Have both been converted already.  If we are returning a tuple from
                            a container the container must be declared locally. *)
                         if thenSize = elseSize
@@ -538,31 +556,31 @@ struct
                             combineTuples(containerAddr, SOME thenAddr, SOME elseAddr, [], [], thenSize)
                         end
                         else (* Different sizes - use default. *)
-                            (mkIf (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
+                            (Cond (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
 
-                    |   (TupleFromContainer(Extract(LoadLegacy{addr=thenAddr,level=0,fpRel=true, ...}), thenSize), _,
+                    |   (TupleFromContainer(Extract(LoadLocal thenAddr), thenSize), _,
                          Recconstr elseRec, _) =>
                         (* The then-part has already been converted *)
                         if thenSize = List.length elseRec
                         then combineTuples(thenAddr, SOME thenAddr, NONE, [], elseRec, thenSize)
                         else (* Different sizes - use default. *)
-                            (mkIf (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
+                            (Cond (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
 
                     |   (Recconstr thenRec, _,
-                         TupleFromContainer(Extract(LoadLegacy{addr=elseAddr,level=0,fpRel=true, ...}), elseSize), _) =>
+                         TupleFromContainer(Extract(LoadLocal elseAddr), elseSize), _) =>
                         (* The else-part has already been converted *)
                         if elseSize = List.length thenRec
                         then
                             combineTuples(elseAddr, NONE, SOME elseAddr, thenRec, [], elseSize)
                         else (* Different sizes - use default. *)
-                            (mkIf (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
+                            (Cond (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
 
                     |   (TupleFromContainer(Extract _, _), _, _, _) => raise InternalError "combinetuples: TODO"
                     
                     |   (_, _, TupleFromContainer(Extract _, _), _) => raise InternalError "combinetuples: TODO"
 
                      |   _ => (* Not constants or records. *)
-                            (mkIf (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
+                            (Cond (insFirst, getGeneral insSecond, getGeneral insThird), [], EnvSpecNone)
                 end
         end (* Cond ... *)
          
@@ -742,7 +760,7 @@ struct
                             (* Create a tuple of Extract entries to get the result. *)
                             val extracts =
                                 List.map (
-                                    fn ({addr, ...}) => mkLoad(addr, 0))
+                                    fn ({addr, ...}) => mkLoadLocal addr)
                                     decs
                             val code = mkEnv(convertDecs decs, mkTuple extracts)
                             (* Code generate it. *)
@@ -819,7 +837,7 @@ struct
             let
                 val newAddr = !nextAddress before nextAddress := !nextAddress + 1
             in
-                (mkLoad(newAddr, 0), List.foldr(op @) [] bindings @ [mkDec(newAddr, newRec)], EnvSpecTuple(tupleSize, env))
+                (mkLoadLocal newAddr, List.foldr(op @) [] bindings @ [mkDec(newAddr, newRec)], EnvSpecTuple(tupleSize, env))
             end
         end
           
@@ -879,7 +897,7 @@ struct
             val recAddr = !nextAddress before nextAddress := !nextAddress + 1
         in
             (
-                mkLoad(recAddr, 0),
+                mkLoadLocal recAddr,
                 decsCont @ specialDecs @ [mkDec(recAddr, TupleFromContainer(genCont, size))],
                 EnvSpecTuple(size, fn n => (EnvGenLoad(LoadLocal(n+baseAddr)), EnvSpecNone))
             )
@@ -1036,7 +1054,6 @@ struct
                             convertResult newEntry
                         end
                     end
-                |   localOldAddr (LoadLegacy _) = raise InternalError "LoadLegacy"
 
                 and setTab (index, v) = update (oldAddrTab, index, SOME v)
             in
@@ -1190,7 +1207,6 @@ struct
                 |   localOldAddr(LoadArgument addr) = getParameter addr
                 |   localOldAddr(LoadClosure closureEntry) = functEnv closureEntry
                 |   localOldAddr LoadRecursive = raise InternalError "localOldAddr: LoadRecursive"
-                |   localOldAddr(LoadLegacy _) = raise InternalError "LoadLegacy"
 
                 fun setTabForInline (index, v) = update (localVec, index, SOME v)
             in

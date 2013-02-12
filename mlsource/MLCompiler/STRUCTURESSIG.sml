@@ -83,7 +83,7 @@ sig
                 functors: (string * functors) list, types: (string* typeConstrSet) list
             };
 
-    val gencodeStructs: program * lexan -> codetree;
+    val gencodeStructs: program * lexan -> codetree * int
 
     val displayProgram: program * int -> pretty;
 

@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012 David C.J. Matthews
+    Copyright (c) 2000-9, 2012, 2013 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -208,8 +208,8 @@ struct
             fun make n = mkConst(Address.toMachineWord n)
             fun isCode n =
                 mkInlproc(
-                    mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoad(~1, 0), make n]),
-                    1, "test-box")
+                    mkEval(rtsFunction RuntimeCalls.POLY_SYS_word_eq, [mkLoadArgument 0, make n]),
+                    1, "test-box", [], 0)
         in
             val boxedNever  = make boxedRepNever
             and boxedAlways = make boxedRepAlways
@@ -269,13 +269,13 @@ struct
                         sizeCode = singleWord
                         }
                 else createTypeValue{
-                        eqCode=mkInlproc(eqCode, nArgs, "eq-helper()"),
+                        eqCode=mkInlproc(eqCode, nArgs, "eq-helper()", [], 0),
                         printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter)),
-                        boxedCode = mkInlproc(boxed, nArgs, "boxed-helper()"),
-                        sizeCode = mkInlproc(singleWord, nArgs, "size-helper()")
+                        boxedCode = mkInlproc(boxed, nArgs, "boxed-helper()", [], 0),
+                        sizeCode = mkInlproc(singleWord, nArgs, "size-helper()", [], 0)
                         }
         in
-            Global (genCode(code, []) ())
+            Global (genCode(code, [], 0) ())
         end
 
         fun makeConstr(name, eqFun, boxed) =
@@ -291,35 +291,35 @@ struct
             val stringEquality =
                 mkInlproc(
                     mkCor( (* Either they're equal... *)
-                        mkEval(wordEq, [mkLoad(~1, 0), mkLoad(~2, 0)]),
+                        mkEval(wordEq, [mkLoadArgument 0, mkLoadArgument 1]),
                         (* ... or they're both long and ...*)
                         mkCand(
                             mkCand(
                                 mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~1, 0)])]),
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 0])]),
                                 mkEval(rtsFunction POLY_SYS_not_bool,
-                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoad(~2, 0)])])
+                                    [mkEval(rtsFunction POLY_SYS_is_short, [mkLoadArgument 1])])
                             ),
                             (* ... their contents are equal.  Because the first word contains the
                                length if we include this in the test we will have tested the length
                                as well and will stop immediately if the lengths are different. *)
                             mkEval(rtsFunction POLY_SYS_bytevec_eq,
-                                [mkLoad(~1, 0), CodeZero, mkLoad(~2, 0), CodeZero,
+                                [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero,
                                     mkEval(rtsFunction POLY_SYS_plus_word,
                                         [
                                             mkConst(toMachineWord wordSize),
-                                            (* Use ~1 here rather than ~2.  We could use either but this works
+                                            (* Use argument 1 here rather than 0.  We could use either but this works
                                                better when we're using equality for pattern matching since it
                                                gets the length of the constant string.  It also works better
                                                for the, to me, more natural ordering of variable=constant. *)
-                                            mkEval(rtsFunction POLY_SYS_string_length, [mkLoad(~1, 0)])
+                                            mkEval(rtsFunction POLY_SYS_string_length, [mkLoadArgument 1])
                                         ])
                                 ])
                         )
                     ),
-                    2, "stringEquality")
+                    2, "stringEquality", [], 0)
         in
-            val stringEquality = genCode(stringEquality, []) ()
+            val stringEquality = genCode(stringEquality, [], 0) ()
         end
     in
         val intConstr    = makeConstr("int",    CODETREE.rtsFunction POLY_SYS_equala, boxedEither) (* Need arbitrary precision equality *)
@@ -383,7 +383,7 @@ struct
                 }
         in
             makeTypeConstructor (
-                name, [], makeFreeId(Global (genCode(code, []) ()), false, descr),
+                name, [], makeFreeId(Global (genCode(code, [], 0) ()), false, descr),
                 [DeclaredAt inBasis])
         end
     in

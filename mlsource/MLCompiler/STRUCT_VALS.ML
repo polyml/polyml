@@ -53,7 +53,7 @@ end;
 
 structure PRETTY: PRETTYSIG (* Temporary addition. *)
 
-) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable 
+) :> STRUCTVALSIG where type codetree = CODETREE.codetree and type univTable = UNIVERSALTABLE.univTable and type level = CODETREE.level
 =  
 
 (*****************************************************************************)
@@ -163,7 +163,7 @@ struct
     (* Access to a value, structure or functor. *)
     and valAccess =
         Global   of codetree
-    |   Local    of { addr: int ref, level: int ref }
+    |   Local    of { addr: int ref, level: level ref }
     |   Selected of { addr: int,     base:  structVals }
     |   Formal   of int
     |   Overloaded of typeDependent (* Values only. *)
@@ -497,7 +497,7 @@ struct
     val makeGlobal = Global;
     val makeFormal = Formal;
   
-    fun makeLocal () = Local { addr = ref 0, level = ref 0 };
+    fun makeLocal () = Local { addr = ref 0, level = ref baseLevel };
        
     fun makeSelected (addr, base) =
       Selected { addr = addr, base = base };
@@ -688,5 +688,6 @@ struct
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm
+        and  level      = level
     end
 end (* STRUCTVALS *);

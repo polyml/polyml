@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009 David C. J. Matthews
+    Copyright (c) 2009, 2013 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -83,8 +83,8 @@ struct
        information. *)
     val justForEqualityTypes = true
 
-    val arg1     = mkLoad (~1, 0) (* Used frequently. *)
-    val arg2     = mkLoad (~2, 0)
+    val arg1     = mkLoadArgument 0 (* Used frequently. *)
+    val arg2     = mkLoadArgument 1
 
     val InternalError = Misc.InternalError
 
@@ -101,7 +101,7 @@ struct
     and codeAccess (Global code, _) = code
       
     |   codeAccess (Local{addr=ref locAddr, level=ref locLevel}, level) =
-            mkLoad (locAddr, level - locLevel) (* No need for the recursive case. *)
+            mkLoad (locAddr, level, locLevel)
      
     |   codeAccess (Selected{addr, base}, level) =
             mkInd (addr, codeStruct (base, level))
@@ -141,7 +141,7 @@ struct
     struct
         (* Entries are either type var maps or "stoppers". *)
         datatype typeVarMapEntry =
-            TypeVarFormEntry of (typeVarForm * (int->codetree)) list
+            TypeVarFormEntry of (typeVarForm * (level->codetree)) list
         |   TypeConstrListEntry of typeConstrs list
 
         type typeVarMap =
@@ -150,7 +150,7 @@ struct
             cache: (* Cache of new type values. *)
                 {typeOf: types, address: int, decCode: codeBinding} list ref,
             mkAddr: int->int, (* Make new addresses at this level. *)
-            level: int (* Function nesting level. *)
+            level: level (* Function nesting level. *)
         } list
 
         (* Default map. *)
@@ -166,7 +166,7 @@ struct
         |   getCachedTypeValues _ = raise Misc.InternalError "getCachedTypeValues"
 
         (* Extend a type variable environment with a new map of type variables to load functions. *)
-        fun extendTypeVarMap (tvMap: (typeVarForm * (int->codetree)) list, mkAddr, level, typeVarMap) =
+        fun extendTypeVarMap (tvMap: (typeVarForm * (level->codetree)) list, mkAddr, level, typeVarMap) =
             {entryType = TypeVarFormEntry tvMap, cache = ref [], mkAddr=mkAddr, level=level} :: typeVarMap
 
         (* If we find the type var in the map return it as a type.  This is used to
@@ -200,21 +200,21 @@ struct
                they don't have the right form the optimiser will complain.
                If we're only using type values for equality type variables the default
                print function will be used in polymorphic functions so must print "?". *)
-            val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default")
-            val errorFunction2 = mkProc(CodeZero, 2, "errorCode2")
-            val codeFn = mkProc(codePrettyString "fn", 1, "print-function")
+            val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
+            val errorFunction2 = mkProc(CodeZero, 2, "errorCode2", [], 0)
+            val codeFn = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
             local
                 fun typeValForMonotype typConstr =
                 let
-                    val codedId = codeId(tcIdentifier typConstr, 0)
+                    val codedId = codeId(tcIdentifier typConstr, baseLevel)
                     val printerRefAddress = extractPrinter codedId
                     val printFn = (* Create a function to load the printer ref and apply to the args. *)
                         mkProc(
                             mkEval(
                                 mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
                                 [arg1]),
-                            1, "print-" ^ tcName typConstr)
+                            1, "print-" ^ tcName typConstr, [], 0)
                 in
                     createTypeValue{
                         eqCode=extractEquality codedId, printCode=printFn,
@@ -237,7 +237,7 @@ struct
                         eqCode=errorFunction2, printCode=codeFn, boxedCode=boxedAlways, sizeCode=singleWord},
                     intCode, boolCode, stringCode, charCode
                 ]
-            val code = genCode(codeTuple, [])()
+            val code = genCode(codeTuple, [], 0)()
         in
             (* Default code used for a type variable that is not referenced but
                needs to be provided to satisfy the type. *)
@@ -247,7 +247,7 @@ struct
                               (stringConstr, mkInd(4, code)), (charConstr, mkInd(5, code))]
         end
 
-        fun findCachedTypeCode(typeVarMap, typ): ((int->codetree) * int) option =
+        fun findCachedTypeCode(typeVarMap: typeVarMap, typ): ((level->codetree) * int) option =
         let
             (* Test if we have the same type as the cached type. *)
             fun sameType (t1, t2) =
@@ -275,11 +275,11 @@ struct
 
 
             fun findCodeFromCache([], _) = NONE
-            |   findCodeFromCache({cache=ref cache, level, ...} :: rest, ty) =
+            |   findCodeFromCache(({cache=ref cache, level, ...} :: rest): typeVarMap, ty) =
                 (
                     case List.find(fn {typeOf, ...} => sameType(typeOf, ty)) cache of
                         NONE => findCodeFromCache(rest, ty)
-                    |   SOME{address, ...} => SOME(fn l => mkLoad(address, l-level), List.length rest +1)
+                    |   SOME{address, ...} => SOME(fn l => mkLoad(address, l, level), List.length rest +1)
                 )
         in
             case typ of
@@ -340,7 +340,7 @@ struct
     open TypeVarMap
 
     (* Find the earliest entry in the cache table where we can put this entry. *)
-    fun getMaxDepth typeVarMap (ty: types, maxSoFar:int) : int =
+    fun getMaxDepth (typeVarMap: typeVarMap) (ty: types, maxSoFar:int) : int =
         case findCachedTypeCode(typeVarMap, ty) of
             SOME (_, cacheDepth) => Int.max(cacheDepth, maxSoFar)
         |   NONE =>
@@ -368,21 +368,9 @@ struct
                 |   _ => maxSoFar
             end
 
-    (* Create a look-up function for type variables in a datatype or type constructor.
-       This has to create a full type value even though only one field of it will be
-       used but that maintains consistency with the rest of the typeVarMap. *)
-    fun mkTcArgMap (argTypes, level) =
-        let
-            val nArgs = List.length argTypes
-            val argAddrs = List.tabulate(nArgs, fn n => n-nArgs)
-            val args = List.map(fn addr => fn l => mkLoad(addr, l-level)) argAddrs
-        in
-            (ListPair.zipEq(argTypes, args), List.map (fn addr => mkLoad(addr, (*0*)1)) argAddrs)
-        end
-
     (* Get the boxedness status for a type i.e. whether values of the type are always addresses,
        always tagged integers or could be either. *)
-    fun boxednessForType(ty, level, getTypeValueForID, typeVarMap): codetree =
+    fun boxednessForType(ty, level: level, getTypeValueForID, typeVarMap): codetree =
         case findCachedTypeCode(typeVarMap, ty) of
             SOME (code, _) => TypeValue.extractBoxed(code level)
         |   NONE =>
@@ -493,10 +481,10 @@ struct
                     (* Functions are handled in the cache case. *)
                 |   _ => raise InternalError "sizeForType: Unknown type"
             end
-
+ 
     fun printerForType(ty, baseLevel, argTypes: typeVarMap) =
     let
-        fun printCode(typ, level) =
+        fun printCode(typ, level: level) =
             (
                 case typ of
                     typ as TypeVar tyVar =>
@@ -524,8 +512,9 @@ struct
                         then printCode(makeEquivalent (typConstr, args), level)
                         else
                         let
+                            val nLevel = newLevel level
                             (* Get the type Id and put in code to extract the printer ref. *)
-                            val codedId = codeId(tcIdentifier typConstr, level+1)
+                            val codedId = codeId(tcIdentifier typConstr, nLevel)
                             open TypeValue
                             val printerRefAddress = extractPrinter codedId
                             (* We need a type value here.  The printer field will be used to
@@ -536,9 +525,9 @@ struct
                                 fun codeForId(typeId, _, l) = codeId(typeId, l)
                             in
                                 createTypeValue
-                                    {eqCode=CodeZero, printCode=printCode(t, level+1),
-                                     boxedCode=boxednessForType(t, level+1, codeForId, argTypes),
-                                     sizeCode=sizeForType(t, level+1, codeForId, argTypes)}
+                                    {eqCode=CodeZero, printCode=printCode(t, nLevel),
+                                     boxedCode=boxednessForType(t, nLevel, codeForId, argTypes),
+                                     sizeCode=sizeForType(t, nLevel, codeForId, argTypes)}
                             end
 
                             val argList = map makePrinterId args
@@ -550,7 +539,7 @@ struct
                                         mkEval(
                                             mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
                                             [arg1]),
-                                        1, "print-"^name)
+                                        1, "print-"^name, getClosure nLevel, 0)
                             |   _ =>  (* Construct a function, that when called, will extract the
                                          function from the reference and apply it first to the
                                          base printer functions and then to the pair of the value and depth. *)
@@ -560,11 +549,11 @@ struct
                                                 mkEval(rtsFunction POLY_SYS_load_word, [printerRefAddress, CodeZero]),
                                                 argList),
                                             [arg1]),
-                                        1, "print-"^name)
+                                        1, "print-"^name, getClosure nLevel, 0)
                         end
 
                 |   LabelledType { recList=[], ...} =>
-                        (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled")
+                        (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
 
                 |   LabelledType (r as { recList, ...}) =>
                     let
@@ -573,7 +562,7 @@ struct
                         fun isRec([], _) = true
                         |   isRec({name, ...} :: l, n) = name = Int.toString n andalso isRec(l, n+1)
                         val isTuple = recordIsFrozen r andalso isRec(recList, 1) andalso List.length recList >= 2
-                        val localLevel = level+1
+                        val localLevel = newLevel level
                         val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
 
                         fun asRecord([], _, _) = raise Empty (* Shouldn't happen. *)
@@ -618,19 +607,20 @@ struct
                         mkProc(
                             codePrettyBlock(1, false, [],
                                 mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(recList, 0, 0)]),
-                            1, "print-labelled")
+                            1, "print-labelled", getClosure localLevel, 0)
                     end
 
-                |   FunctionType _ => mkProc(codePrettyString "fn", 1, "print-function")
+                |   FunctionType _ => mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
-                |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty")
+                |   _ => mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
             )
     in
         printCode(ty, baseLevel)
     end
 
-    and makeEq(ty, level, getTypeValueForID, typeVarMap): codetree =
+    and makeEq(ty, level: level, getTypeValueForID, typeVarMap): codetree =
     let
+ 
         fun equalityForConstruction(constr, args): codetree =
         (* Generate an equality function for a datatype construction. *)
         let
@@ -716,27 +706,27 @@ struct
                 fun eq(a,b) = #1 a = #1 b andalso #2 a = #2 b ... *)
             let
                 (* Have to turn this into a new function. *)
-                val newLevel = level+1
+                val nLevel = newLevel level
                 fun combineEntries ([], _) = CodeTrue
                 |   combineEntries ({typeof, ...} :: t, n) =
                     let
                         val compareElements =
-                            makeEq(typeof, newLevel, getTypeValueForID, typeVarMap)
+                            makeEq(typeof, nLevel, getTypeValueForID, typeVarMap)
                     in
                         mkCand(
-                            mkEval(compareElements, [mkInd(n, arg2), mkInd(n, arg1)]),
+                            mkEval(compareElements, [mkInd(n, arg1), mkInd(n, arg2)]),
                             combineEntries (t, n+1))
                     end
                 val tupleCode = combineEntries(recList, 0)
              in
-                mkProc(tupleCode, 2, "eq{...}(2)")
+                mkProc(tupleCode, 2, "eq{...}(2)", getClosure nLevel, 0)
             end
 
         |   _ => raise InternalError "Equality for function"
     end
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
-    fun equalityForDatatypes(typeDataList, eqAddresses, baseLevel, typeVarMap): (int * codetree) list =
+    fun equalityForDatatypes(typeDataList, eqAddresses, baseEqLevel, typeVarMap): (int * codetree) list =
     let
         val typesAndAddresses = ListPair.zipEq(typeDataList, eqAddresses)
 
@@ -746,6 +736,10 @@ struct
         then
         let
             val argTypes = tcTypeVars tyConstr
+            val nTypeVars = List.length argTypes
+            val baseEqLevelP1 = newLevel baseEqLevel
+            val arg1X = mkLoadParam (nTypeVars+2-2, baseEqLevelP1, baseEqLevelP1)
+            and arg2X = mkLoadParam (nTypeVars+2-1, baseEqLevelP1, baseEqLevelP1)
 
             (* Argument type variables. *)
             val (localArgList, argTypeMap) =
@@ -753,19 +747,18 @@ struct
                     [] => ([], typeVarMap)
                 |   _ =>
                     let
-                        val nArgs = List.length argTypes
                         (* Add the polymorphic variables after the ordinary ones. *)
-                        val argAddrs = List.tabulate(nArgs, fn n => n-nArgs-2)
-                        val args = List.map(fn addr => fn l => mkLoad(addr, l-(baseLevel+1))) argAddrs
+                        (* Create functions to load these if they are used in the map.  They may be non-local!!! *)
+                        val args = List.tabulate(nTypeVars, fn addr => fn l => mkLoadParam(addr, l, baseEqLevelP1))
+                        (* Put the outer args in the map *)
                         val varToArgMap = ListPair.zipEq(argTypes, args)
-                        val localArgList = List.map (fn addr => mkLoad(addr, 0)) argAddrs
-                        val addrs = ref 1 (* Make local declarations for any type values. *)
+                        (* Load the local args to return. *)
+                        val localArgList = List.tabulate (nTypeVars, fn addr => mkLoadParam(addr, baseEqLevelP1, baseEqLevelP1))
+                        val addrs = ref 0 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
-                        (localArgList, extendTypeVarMap(varToArgMap, mkAddr, baseLevel+1, typeVarMap))
+                        (localArgList, extendTypeVarMap(varToArgMap, mkAddr, baseEqLevelP1, typeVarMap))
                     end
-
-            val nTypeVars = List.length argTypes
 
             (* If this is a reference to a datatype we're currently generating
                load that address otherwise fall back to the default. *)
@@ -779,7 +772,7 @@ struct
                 *)
                 case List.find(fn({typeConstr=tc, ...}, _) => sameTypeId(tcIdentifier(tsConstr tc), typeId)) typesAndAddresses of
                     SOME({boxedCode, sizeCode, ...}, addr) =>  (* Mutually recursive. *)
-                         TypeValue.createTypeValue{eqCode=mkLoad(addr, l-baseLevel), printCode=CodeZero,
+                         TypeValue.createTypeValue{eqCode=mkLoad(addr, l, baseEqLevel), printCode=CodeZero,
                                                    boxedCode=boxedCode, sizeCode=sizeCode}
                 |   NONE => codeId(typeId, l)
 
@@ -809,14 +802,13 @@ struct
                 let
                     fun addPolymorphism c =
                         if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
-                    val newLevel = baseLevel+1 (* We have one function. *)
-                    val base = codeAccess(access, newLevel)
+                    val base = codeAccess(access, baseEqLevelP1)
                     open ValueConstructor
                     fun matches arg = mkEval(addPolymorphism(extractTest base), [arg])
                 in
                     case class of
                         Constructor{nullary=true, ...} =>
-                            mkIf(matches arg1, matches arg2, processConstrs rest)
+                            mkIf(matches arg1X, matches arg2X, processConstrs rest)
                     |    _ => (* We have to unwrap the value. *)
                         let
                             (* Get the constructor argument given the result type.  We might
@@ -828,19 +820,19 @@ struct
 
                             (* Code to extract the value. *)
                             fun destruct argNo =
-                                mkEval(addPolymorphism(extractProjection(codeAccess(access, newLevel))),
-                                    [mkLoad(argNo, 0)])
+                                mkEval(addPolymorphism(extractProjection(codeAccess(access, baseEqLevelP1))),
+                                    [mkLoadParam(argNo, baseEqLevelP1, baseEqLevelP1)])
 
                             (* Test whether the values match. *)
                             val eqValue =
                                 mkEval(
-                                    makeEq(resType, newLevel, getEqFnForID, argTypeMap),
-                                    [destruct ~1, destruct ~2])
+                                    makeEq(resType, baseEqLevelP1, getEqFnForID, argTypeMap),
+                                    [destruct 0, destruct 1])
                         in
                             (* We have equality if both values match
                                this constructor and the values within
                                the constructor match. *)
-                            mkIf(matches arg1, mkCand(matches arg2, eqValue), processConstrs rest)
+                            mkIf(matches arg1X, mkCand(matches arg2X, eqValue), processConstrs rest)
                         end
                 end
 
@@ -856,29 +848,33 @@ struct
                        then CodeTrue (* Return true here: processConstrs would return false. *)
                        else processConstrs vConstrs
                  |  _ => (* More than one constructor: should never be zero. *)
-                        mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
+                        mkCor(mkTestptreq(arg1X, arg2X), processConstrs vConstrs)
         in
             if null argTypes
-            then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)")) :: otherFns
+            then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
             else (* Polymorphic.  Add an extra inline functions. *)
             let
                 val nArgs = List.length argTypes
+                val nLevel = newLevel baseEqLevel
+                val nnLevel = newLevel nLevel
                 (* Call the second function with the values to be compared and the base types. *)
-                val polyArgs = List.tabulate(nArgs, fn i => mkLoad(~nArgs+i, 1))
+                val polyArgs = List.tabulate(nArgs, fn i => mkLoadParam(i, nnLevel, nLevel))
             in
                 (addr,
                     mkInlproc(
                         mkInlproc(
-                            mkEval(mkLoad(addr+1, 2), polyArgs @ [arg1, arg2]), 2, "eq-" ^ tcName tyConstr ^ "(2)"),
-                            nArgs, "eq-" ^ tcName tyConstr ^ "(2)(P)")) ::
+                            mkEval(mkLoad(addr+1, nnLevel, baseEqLevel), polyArgs @ [arg1, arg2]), 2, "eq-" ^ tcName tyConstr ^ "(2)",
+                                   getClosure nnLevel, 0),
+                            nArgs, "eq-" ^ tcName tyConstr ^ "(2)(P)", getClosure nLevel, 0)) ::
                 (addr+1,
-                    mkProc(mkEnv(getCachedTypeValues argTypeMap, eqCode), 2+nTypeVars, "eq-" ^ tcName tyConstr ^ "()")) ::
+                    mkProc(mkEnv(getCachedTypeValues argTypeMap, eqCode), 2+nTypeVars,
+                           "eq-" ^ tcName tyConstr ^ "()", getClosure baseEqLevelP1, 0)) ::
                 otherFns
             end
         end
         else (* Not an equality type.  This will not be called but it still needs to
                 be a function to ensure it's valid inside mkMutualDecs. *)
-            (addr, mkProc(CodeZero, 2, "no-eq")) :: otherFns
+            (addr, mkProc(CodeZero, 2, "no-eq", [], 0)) :: otherFns
     in
         List.foldl equalityForDatatype [] typesAndAddresses
     end
@@ -892,17 +888,27 @@ struct
         val argTypes = tcTypeVars typeConstr
         val argCode = mkInd(0, arg1)
         and depthCode = mkInd(1, arg1)
+        val nLevel = newLevel level
 
         val (localArgList, innerLevel, newTypeVarMap) =
             case argTypes of
-                [] => ([], level+1, typeVarMap)
+                [] => ([], nLevel, typeVarMap)
             |   _ =>
                 let
-                    val (varToArgMap, localArgList) = mkTcArgMap(argTypes, level+1)
+                    val nnLevel = newLevel nLevel
+                    fun mkTcArgMap (argTypes, level, oldLevel) =
+                        let
+                            val nArgs = List.length argTypes
+                            val argAddrs = List.tabulate(nArgs, fn n => n)
+                            val args = List.map(fn addr => fn l => mkLoadParam(addr, l, oldLevel)) argAddrs
+                        in
+                            (ListPair.zipEq(argTypes, args), List.map (fn addr => mkLoadParam(addr, level, oldLevel)) argAddrs)
+                        end
+                    val (varToArgMap, localArgList) = mkTcArgMap(argTypes, nnLevel, nLevel)
                     val addrs = ref 1 (* Make local declarations for any type values. *)
                     fun mkAddr n = !addrs before (addrs := !addrs + n)
                 in
-                    (localArgList, level+2, extendTypeVarMap(varToArgMap, mkAddr, level+1, typeVarMap))
+                    (localArgList, nnLevel, extendTypeVarMap(varToArgMap, mkAddr, nLevel, typeVarMap))
                 end
 
         (* If we have an expression as the argument we parenthesise it unless it is
@@ -991,10 +997,10 @@ struct
     in
         (* Wrap this in the functions for the base types. *)
         if null argTypes
-        then mkProc(printerCode, 1, "print-"^name)
+        then mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)
         else mkProc(mkEnv(getCachedTypeValues newTypeVarMap,
-                            mkProc(printerCode, 1, "print-"^name)),
-                    List.length argTypes, "print"^name^"()")
+                            mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)),
+                    List.length argTypes, "print"^name^"()", getClosure nLevel, 0)
     end    
 
     (* Opaque matching and functor application create new type IDs using an existing
@@ -1004,7 +1010,7 @@ struct
        does not affect the old type. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(sourceId as TypeId{typeFn=(_, EmptyType), ...}, _, mkAddr, level) =
+    fun codeGenerativeId(sourceId as TypeId{typeFn=(_, EmptyType), ...}, _, mkAddr, level: level) =
         let (* Datatype. *)
             open TypeValue
             val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
@@ -1064,58 +1070,40 @@ struct
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
             val nArgs = List.length argTypes
 
+            fun createCode(makeCode, name) =
+                let
+                    val nLevel = newLevel level
+                    val addrs = ref 0
+                    fun mkAddr n = !addrs before (addrs := !addrs + n)
+
+                    local
+                        val args =
+                            List.tabulate(nArgs, fn addr => fn l => mkLoadParam(addr, l, nLevel))
+                    in
+                        val typeEnv = ListPair.zipEq(argTypes, args)
+                    end
+                    
+                    val argTypeMap = extendTypeVarMap(typeEnv, mkAddr, nLevel, typeVarMap)
+                    val innerFnCode = makeCode(nLevel, argTypeMap)
+                in
+                    mkProc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, name, getClosure nLevel, !addrs)
+                end
+
             open TypeValue
             (* Create a printer for a type function.  This is used to create the general
                print function for any type. *)
             val printCode =
-                let
-                    val addrs = ref 1 (* Make local declarations for any type values. *)
-                    fun mkAddr n = !addrs before (addrs := !addrs + n)
-                    val argTypeMap = extendTypeVarMap(#1(mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
-                    val printCode = printerForType(resType, level+1, argTypeMap)
-                in
-                    (* Wrap this in a function for the type arguments. *)
-                    mkProc(
-                        mkEnv(getCachedTypeValues argTypeMap, printCode),
-                        nArgs, "print-helper()")
-                end
-
-            val eqCode =
+                createCode(fn(nLevel, argTypeMap) => printerForType(resType, nLevel, argTypeMap), "print-helper()")
+            and eqCode =
                 if not isEq then CodeZero
-                else
-                    let
-                        val addrs = ref 1 (* Make local declarations for any type values. *)
-                        fun mkAddr n = !addrs before (addrs := !addrs + n)
-                        val argTypeMap =
-                            extendTypeVarMap(#1 (mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
-
-                        val innerFnCode =
-                            makeEq(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
-                    in
-                        mkInlproc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, "equality()")
-                    end
-            val boxedCode =
-                let
-                    val addrs = ref 1 (* Make local declarations for any type values. *)
-                    fun mkAddr n = !addrs before (addrs := !addrs + n)
-                    val argTypeMap =
-                        extendTypeVarMap(#1 (mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
-                    val innerFnCode =
-                        boxednessForType(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
-                in
-                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, "boxedness()")
-                end
-            val sizeCode =
-                let
-                    val addrs = ref 1 (* Make local declarations for any type values. *)
-                    fun mkAddr n = !addrs before (addrs := !addrs + n)
-                    val argTypeMap =
-                        extendTypeVarMap(#1 (mkTcArgMap(argTypes, level+1)), mkAddr, level+1, typeVarMap)
-                    val innerFnCode =
-                        sizeForType(resType, level+1, fn (typeId, _, l) => codeId(typeId, l), argTypeMap)
-                in
-                    mkInlproc(mkEnv(getCachedTypeValues argTypeMap, innerFnCode), nArgs, "size()")
-                end
+                else createCode(fn(nLevel, argTypeMap) =>
+                        makeEq(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "equality()")
+            and boxedCode =
+                createCode(fn(nLevel, argTypeMap) =>
+                    boxednessForType(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "boxedness()")
+            and sizeCode =
+                createCode(fn(nLevel, argTypeMap) =>
+                    sizeForType(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "size()")
         in
             mkEnv(
                 TypeVarMap.getCachedTypeValues typeVarMap,
@@ -1165,7 +1153,7 @@ struct
                 val idCode =
                     createTypeValue
                     {
-                        eqCode=mkLoad(eqAddr, 0),
+                        eqCode=mkLoadLocal eqAddr,
                         printCode=
                             mkEval
                                 (rtsFunction POLY_SYS_alloc_store,
@@ -1203,15 +1191,16 @@ struct
 
     (* Exported function.  Returns a function from an ML pair of values to bool.
        N.B. This differs from the functions in the typeID which take a Poly pair. *)
-    fun equalityForType(ty: types, level: int, typeVarMap: typeVarMap): codetree =
+    fun equalityForType(ty: types, level: level, typeVarMap: typeVarMap): codetree =
     let
+        val nLevel = newLevel level
         (* The final result function must take a single argument. *)
         val resultCode =
-            makeEq(ty, level+1, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
+            makeEq(ty, nLevel, fn (typeId, _, l) => codeId(typeId, l), typeVarMap)
     in
         (* We need to wrap this up in a new inline function. *)
         mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)]),
-                  1, "equality")
+                  1, "equality", getClosure nLevel, 0)
     end
 
     (* This code is used when the type checker has to construct a unique monotype
@@ -1221,7 +1210,7 @@ struct
     let
         open TypeValue
         fun monotypePrinter _ = PRETTY.PrettyString "?"
-        val alwaysTrue = mkProc(CodeTrue, 2, "codeForUniqueId-equal")
+        val alwaysTrue = mkProc(CodeTrue, 2, "codeForUniqueId-equal", [], 0)
     in
         createTypeValue{
             eqCode = alwaysTrue, printCode = mkConst (toMachineWord (ref monotypePrinter)),
@@ -1288,7 +1277,7 @@ struct
                     val decAddr = mkAddr 1
                     val () = cache := {decCode = mkDec(decAddr, typeValue), typeOf = t, address = decAddr } :: !cache
                 in
-                    mkLoad(decAddr, level-decLevel)
+                    mkLoad(decAddr, level, decLevel)
                 end
     in
         mkEval(code level, List.map makePolyParameter sourceTypes)
@@ -1310,5 +1299,6 @@ struct
         type typeVarForm=typeVarForm
         type typeVarMap = typeVarMap
         type codeBinding    = codeBinding
+        type level      = level
     end
 end;
