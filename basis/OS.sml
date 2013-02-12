@@ -374,7 +374,7 @@ struct
             if not (validVolume{isAbs=isAbs, vol=vol})
             then raise Path
             (* Check that each arc is valid. *)
-            else if List.find (fn s => not (isValidArc s)) arcs <> NONE
+            else if List.exists (fn s => not (isValidArc s)) arcs
             then raise InvalidArc
             else
             let
