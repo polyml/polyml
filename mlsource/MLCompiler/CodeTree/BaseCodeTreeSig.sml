@@ -130,6 +130,8 @@ sig
     type pretty
     val pretty : codetree -> pretty
 
+    val mapCodetree: (codetree -> codetree option) -> codetree -> codetree
+
     structure Sharing:
     sig
         type codetree = codetree

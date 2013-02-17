@@ -96,54 +96,227 @@ struct
         fun mkNot arg = mkEval (rtsFunction POLY_SYS_not_bool, [arg])
     end
 
-    (* Return the "size" of a piece of code.  This is to determine if it
-       is "small" enough to make it an inline function. *)
-    fun codeSize pt = 
+    datatype inlineTest =
+        TooBig
+    |   NonRecursive
+    |   TailRecursive of bool vector
+    |   NonTailRecursive of bool vector
+
+    fun evaluateInlining(function, numArgs, maxInlineSize) =
     let
-        fun sizeList l = List.foldl (fn (p, s) => size p + s) 0 l
+        (* This checks for the possibility of inlining a function.  It sees if it is
+           small enough according to some rough estimate of the cost and it also looks
+           for recursive uses of the function.
+           Typically if the function is small enough to inline there will be only
+           one recursive use but we consider the possibility of more than one.  If
+           the only uses are tail recursive we can replace the recursive calls by
+           a Loop with a BeginLoop outside it.  If there are non-tail recursive
+           calls we may be able to lift out arguments that are unchanged.  For
+           example for fun map f [] = [] | map f (a::b) = f a :: map f b 
+           it may be worth lifting out f and generating specific mapping
+           functions for each application. *)
+        val hasRecursiveCall = ref false (* Set to true if rec call *)
+        val allTail = ref true (* Set to false if non recursive *)
+        (* An element of this is set to false if the actual value if anything
+           other than the original argument.  At the end we are then
+           left with the arguments that are unchanged. *)
+        val argMod = Array.array(numArgs, true)
 
-        (* some very rough size estimates *)
-        and size pt =
-            case pt of
-                MatchFail                       => 1
-            |   AltMatch (m1, m2)               => size m1 + size m2 + 1
-            |   Newenv(decs, exp)               => List.foldl (fn (p, s) => sizeBinding p + s) (size exp) decs
-            |   Constnt w                       => if isShort w then 0 else 1
-            |   Extract LoadRecursive           => 10000 (* Temporarily disallow recursive inline code. *)
-            |   Extract _                       => 1
-            |   Indirect {base,...}             => size base + 1
-            |   Lambda {body, argTypes, closure, ...}    =>
-                    (List.foldl(fn (p, s) => size(Extract p) + s) 0 closure) +
-                    size body + List.length argTypes
-(*            |   Eval {function=Constnt w ,argList,...}     =>
-                    (* If this is an RTS call it's probably really an instruction that
-                       the code-generator will inline and if it isn't we're not going
-                       to go greatly wrong.  *)
-                    if isIoAddress(toAddress w) then 1 + sizeList(List.map #1 argList)
-                    else sizeList(List.map #1 argList) + 2*)
-            |   Eval {function, argList,...}     => size function + sizeList(List.map #1 argList) + 2
-            |   Cond (i,t,e)                    => size i + size t + size e + 2
-            |   BeginLoop {loop, arguments, ...}=> size loop + 
-                                                      sizeList(List.map (fn ({value, ...}, _) => value) arguments)
-            |   Loop args                       => sizeList(List.map #1 args) + 1
-            |   Raise c                         => size c + 1
-            |   Ldexc                           => 1
-            |   Handle {exp, handler}           => size exp + size handler
-            |   Recconstr cl                    => sizeList cl + 2 (* optimistic *)
-            |   Container _                     => 1 (* optimistic *)
-            |   SetContainer{container, tuple = Recconstr cl, ...} =>
-                            (* We can optimise this. *) sizeList cl + size container
-            |   SetContainer{container, tuple, size=len} => size container + size tuple + len
-            |   TupleFromContainer(container, len) => len + size container + 2 (* As with Recconstr *)
-            |   ConstntWithInline(glob, _)   => size(Constnt glob)
-            |   TagTest { test, ... }           => 1 + size test
+        infix 6 --
+        (* Subtract y from x but return 0 rather than a negative number. *)
+        fun x -- y = if x >= y then x-y else 0
 
-        and sizeBinding(Declar{value, ...}) = size value
-        |   sizeBinding(RecDecs decs) = List.foldl (fn ({lambda, ...}, s) => size(Lambda lambda) + s) 0 decs
-        |   sizeBinding(NullBinding c) = size c
+        fun checkUse _ (_, 0, _) = 0 (* The function is too big to inline. *)
+        
+        |   checkUse _ (MatchFail, cl, _) = cl -- 1
+        |   checkUse isMain (AltMatch(a, b), cl, _) = checkUse isMain (a, checkUse isMain (b, cl -- 1, false), false)
 
+        |   checkUse isMain (Newenv(decs, exp), cl, isTail) =
+            let
+                fun checkBind (Declar{value, ...}, cl) = checkUse isMain(value, cl, false)
+                |   checkBind (RecDecs decs, cl) = List.foldl(fn ({lambda, ...}, n) => checkUse isMain (Lambda lambda, n, false)) cl decs
+                |   checkBind (NullBinding c, cl) = checkUse isMain (c, cl, false)
+            in
+                checkUse isMain (exp, List.foldl checkBind cl decs, isTail)
+            end
+
+        |   checkUse _      (Constnt w, cl, _) = if isShort w then cl else cl -- 1
+
+            (* A recursive reference in any context other than a call prevents any inlining. *)
+        |   checkUse true   (Extract LoadRecursive, _, _) = 0
+        |   checkUse _      (Extract _, cl, _) = cl -- 1
+
+        |   checkUse isMain (Indirect{base, ...}, cl, _) = checkUse isMain (base, cl -- 1, false)
+
+        |   checkUse _      (Lambda {body, argTypes, closure, ...}, cl, _) =
+                (* For the moment, any recursive use in an inner function prevents inlining. *)
+                if List.exists (fn LoadRecursive => true | _ => false) closure
+                then 0
+                else checkUse false (body, cl -- (List.length argTypes + List.length closure), false)
+
+        |   checkUse true (Eval{function = Extract LoadRecursive, argList, ...}, cl, isTail) =
+            let
+                (* If the actual argument is anything but the original argument
+                   then the corresponding entry in the array is set to false. *)
+                fun testArg((exp, _), n) =
+                (
+                    if (case exp of Extract(LoadArgument a) => n = a | _ => false)
+                    then ()
+                    else Array.update(argMod, n, false);
+                    n+1
+                )
+            in
+                List.foldl testArg 0 argList;
+                hasRecursiveCall := true;
+                if isTail then () else allTail := false;
+                List.foldl(fn ((e, _), n) => checkUse true (e, n, false)) (cl--3) argList
+            end
+
+        |   checkUse isMain (Eval{function, argList, ...}, cl, _) =
+                checkUse isMain (function, List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) (cl--2) argList, false)
+
+        |   checkUse isMain (Cond(i, t, e), cl, isTail) =
+                checkUse isMain (i, checkUse isMain (t, checkUse isMain (e, cl -- 2, isTail), isTail), false)
+        |   checkUse isMain (BeginLoop { loop, arguments, ...}, cl, _) =
+                checkUse isMain (loop, List.foldl (fn (({value, ...}, _), n) => checkUse isMain (value, n, false)) cl arguments, false)
+        |   checkUse isMain (Loop args, cl, _) = List.foldl(fn ((e, _), n) => checkUse isMain (e, n, false)) cl args
+        |   checkUse isMain (Raise c, cl, _) = checkUse isMain (c, cl -- 1, false)
+        |   checkUse _      (Ldexc, cl, _) = cl -- 1
+        |   checkUse isMain (Handle {exp, handler}, cl, isTail) =
+                checkUse isMain (exp, checkUse isMain (handler, cl, isTail), false)
+        |   checkUse isMain (Recconstr tuple, cl, _) = checkUseList isMain (tuple, cl)
+        |   checkUse _      (Container _, cl, _) = cl -- 1
+
+        |   checkUse isMain (SetContainer{container, tuple = Recconstr tuple, ...}, cl, _) =
+                (* This can be optimised *)
+                checkUse isMain (container, checkUseList isMain (tuple, cl), false)
+        |   checkUse isMain (SetContainer{container, tuple, size}, cl, _) =
+                checkUse isMain (container, checkUse isMain (tuple, cl -- size, false), false)
+
+        |   checkUse isMain (TupleFromContainer(container, len), cl, _) = checkUse isMain (container, cl -- (len+2), false)
+        |   checkUse isMain (ConstntWithInline(w, _), cl, _) = checkUse isMain (Constnt w, cl, false)
+        |   checkUse isMain (TagTest{test, ...}, cl, _) = checkUse isMain (test, cl -- 1, false)
+        
+        and checkUseList isMain (elems, cl) =
+            List.foldl(fn (e, n) => checkUse isMain (e, n, false)) cl elems
+        
+        val costLeft = checkUse true (function, maxInlineSize, true)
     in
-        size pt
+        if costLeft = 0
+        then TooBig
+        else if not (! hasRecursiveCall) 
+        then NonRecursive
+        else if ! allTail then TailRecursive(Array.vector argMod)
+        else NonTailRecursive(Array.vector argMod)
+    end
+
+    local
+        (* This transforms the body of a "small" recursive function replacing any reference
+           to the arguments by the appropriate entry and the recursive calls themselves
+           by either a Loop or a recursive call. *)
+        fun mapCodeForFunctionRewriting(code, argMap, modVec, transformCall) =
+        let
+            fun repEntry(Extract(LoadArgument n)) = SOME(Extract(Vector.sub(argMap, n)))
+            |   repEntry(Lambda{ body, isInline, name, closure, argTypes, resultType, localCount }) =
+                    (* Process the closure but leave the body untouched *)
+                    SOME(
+                        Lambda {
+                            body = body, isInline = isInline, name = name,
+                            closure = map (fn (LoadArgument n) => Vector.sub(argMap, n) | l => l) closure,
+                            argTypes = argTypes, resultType = resultType, localCount = localCount
+                        }
+                    )
+            |   repEntry(Eval { function = Extract LoadRecursive, argList, resultType }) =
+                let
+                    (* Filter arguments to include only those that are changed and map any values we pass.
+                       They may include references to the parameters. *)
+                    fun mapArg((arg, argT)::rest, n) =
+                        if Vector.sub(modVec, n) then mapArg(rest, n+1)
+                        else (mapCode arg, argT) :: mapArg(rest, n+1)
+                    |   mapArg([], _) = []
+                in
+                    SOME(transformCall(mapArg(argList, 0), resultType))
+                end
+            |   repEntry _ = NONE
+        
+            and mapCode code = mapCodetree repEntry code
+        in
+            mapCode code
+        end
+    in
+        (* If we have a tail recursive function we can replace the tail calls
+           by a loop.  modVec indicates the arguments that have not changed. *)
+        fun replaceTailRecursiveWithLoop(body, argTypes, modVec, nextAddress) =
+        let
+            (* We need to create local bindings for arguments that will change.
+               Those that do not can be reused. *)
+            local
+                fun mapArgs(arg:: rest, n, decs, mapList) =
+                    if Vector.sub(modVec, n)
+                    then mapArgs (rest, n+1, decs, LoadArgument n :: mapList)
+                    else
+                    let
+                        val na = ! nextAddress before nextAddress := !nextAddress + 1
+                    in
+                        mapArgs (rest, n+1, ({addr = na, value = mkLoadArgument n}, arg) :: decs, LoadLocal na :: mapList)
+                    end
+                |   mapArgs([], _, decs, mapList) = (List.rev decs, List.rev mapList)
+                val (decs, mapList) = mapArgs(argTypes, 0, [], [])
+            in
+                val argMap = Vector.fromList mapList
+                val loopArgs = decs
+            end
+        
+        in
+            BeginLoop { arguments = loopArgs, loop = mapCodeForFunctionRewriting(body, argMap, modVec, fn (l, _) => Loop l) }
+        end
+
+        (* If we have a small recursive function where some arguments are passed
+           through unchanged we can transform it by extracting the
+           stable arguments and only passing the changing arguments.  The
+           advantage is that this allows the stable arguments to be inserted
+           inline which is important if they are functions. The canonical
+           example is List.map. *)
+        fun liftRecursiveFunction(body, argTypes, modVec, closureSize, name, resultType, localCount) =
+        let
+            local
+                fun getArgs(argType::rest, nArg, clCount, argCount, stable, change, mapList) =
+                    let
+                        (* This is the argument from the outer function.  It is either added
+                           to the closure or passed to the inner function. *)
+                        val argN = LoadArgument nArg
+                    in
+                        if Vector.sub(modVec, nArg)
+                        then getArgs(rest, nArg+1, clCount+1, argCount,
+                                    argN :: stable, change, LoadClosure clCount :: mapList)
+                        else getArgs(rest, nArg+1, clCount, argCount+1,
+                                    stable, (Extract argN, argType) :: change, LoadArgument argCount :: mapList)
+                    end
+                |   getArgs([], _, _, _, stable, change, mapList) =
+                        (List.rev stable, List.rev change, List.rev mapList)
+            in
+                (* The stable args go into the closure.  The changeable args are passed in. *)
+                val (stableArgs, changeArgsAndTypes, mapList) =
+                    getArgs(argTypes, 0, closureSize, 0, [], [], [])
+                val argMap = Vector.fromList mapList
+            end
+
+            val subFunction =
+                Lambda {
+                    body = mapCodeForFunctionRewriting(body, argMap, modVec, 
+                            fn (l, t) => Eval {
+                                function = Extract LoadRecursive, argList = l, resultType = t
+                            }),
+                    isInline = NonInline, (* Don't inline this function. *)
+                    name = name ^ "()",
+                    closure = List.tabulate(closureSize, fn n => LoadClosure n) @ stableArgs,
+                    argTypes = List.map #2 changeArgsAndTypes,
+                    resultType = resultType,
+                    localCount = localCount
+                }
+        in
+            Eval { function = subFunction, argList = changeArgsAndTypes, resultType = resultType }
+        end
     end
 
   (* Processing each expression results in a "optVal" value. This contains a 
@@ -1078,30 +1251,37 @@ struct
                 rebuildClosure cleanClosureList (List.nth(closureAfterOpt, closureEntry))
 
             fun doclean () = REMOVE_REDUNDANT.cleanProc(getGeneral newCode, lookupInClean,
-                          Array.array (! newAddressAllocator + 1, false))
+                          Array.array (! newAddressAllocator (*+ 1*), false))
 
             val cleanedBody = doclean()
                 
             val finalClosure = List.foldl (fn ((ext, _), l) => ext :: l) [] (!cleanClosureList)
-
-            val inlineType =
+ 
+            val (inlineType, updatedBody, localCount) =
                 case lambdaInline of
                     NonInline =>
-                        if (* Is it small? *) codeSize cleanedBody < 
-                            DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs
-                        then SmallFunction 
-                        else NonInline
-                |   oldInline => oldInline (* e.g. MayBeInline *)
+                    (
+                        case evaluateInlining(cleanedBody, List.length argTypes,
+                                DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs) of
+                            NonRecursive  => (SmallFunction, cleanedBody, ! newAddressAllocator)
+                        |   TailRecursive bv => (SmallFunction, replaceTailRecursiveWithLoop(cleanedBody, argTypes, bv, newAddressAllocator), ! newAddressAllocator)
+                        |   NonTailRecursive bv =>
+                                if Vector.exists (fn n => n) bv
+                                then (SmallFunction, liftRecursiveFunction(cleanedBody, argTypes, bv, List.length finalClosure, lambdaName, resultType, !newAddressAllocator), 0)
+                                else (NonInline, cleanedBody, ! newAddressAllocator) (* All arguments have been modified *)
+                        |   TooBig => (NonInline, cleanedBody, ! newAddressAllocator)
+                    )
+                |   oldInline => (oldInline, cleanedBody, ! newAddressAllocator) (* e.g. MayBeInline *)
 
             val copiedLambda =
                 {
-                    body          = cleanedBody,
+                    body          = updatedBody,
                     isInline      = inlineType,
                     name          = lambdaName,
                     closure       = finalClosure,
                     argTypes      = argTypes,
                     resultType    = resultType,
-                    localCount    = ! newAddressAllocator
+                    localCount    = localCount
                 }
          in
             (
@@ -1158,7 +1338,7 @@ struct
         end (* optimiseLambda *)
 
     (* Expand a function inline, either one marked explicitly to be inlined or one detected as "small". *)
-    and expandInlineFunction((_, functDecs, _), original, {body=lambdaBody, ...}: lambdaForm,
+    and expandInlineFunction((_, functDecs, _), original, {body=lambdaBody, localCount, ...}: lambdaForm,
             functEnv: int -> envGeneral * envSpecial, argList,
             context as {nextAddress, debugArgs, lookupAddr, enterAddr, loopFilter, ...}) =
         let
@@ -1167,7 +1347,7 @@ struct
                of the parameters.  We need a new table here because the addresses
                we use to index it are the addresses which are local to the function.
                New addresses are created in the range of the surrounding function. *)
-            val localVec = stretchArray (initTrans, NONE)
+            val localVec = Array.array(localCount, NONE)
 
             local
                 (* Process the arguments.  We have to make a special check here that we are not passing in the function
@@ -1203,12 +1383,12 @@ struct
             end
 
             local
-                fun localOldAddr(LoadLocal addr) = valOf(localVec sub addr)
+                fun localOldAddr(LoadLocal addr) = valOf(Array.sub(localVec, addr))
                 |   localOldAddr(LoadArgument addr) = getParameter addr
                 |   localOldAddr(LoadClosure closureEntry) = functEnv closureEntry
                 |   localOldAddr LoadRecursive = raise InternalError "localOldAddr: LoadRecursive"
 
-                fun setTabForInline (index, v) = update (localVec, index, SOME v)
+                fun setTabForInline (index, v) = Array.update (localVec, index, SOME v)
             in
                 val (cGen, cDecs, cSpec) =
                      optimise(lambdaBody,
@@ -1217,7 +1397,7 @@ struct
             end
 
         in
-            StretchArray.freeze localVec;
+            (*StretchArray.freeze localVec;*)
             (cGen, functDecs @ (copiedArgs @ cDecs), cSpec)
         end
 

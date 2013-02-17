@@ -418,6 +418,67 @@ struct
             ]
         )
 
+    (* Mapping function to enable parts of the tree to be replaced. *)
+    fun mapCodetree f code =
+    let
+        (* We use these functions to allow all nodes to be processed even if
+           they are not full codetree nodes. *)
+        fun deExtract(Extract l) = l | deExtract _ = raise Misc.InternalError "deExtract"
+        fun deLambda (Lambda l) = l | deLambda _ = raise Misc.InternalError "deLambda"
+
+        fun mapt MatchFail = MatchFail
+        |   mapt (AltMatch(m1, m2)) = AltMatch(mapCodetree f m1, mapCodetree f m2)
+        |   mapt (Newenv(decs, exp)) =
+            let
+                fun mapbinding(Declar{value, addr}) = Declar{value=mapCodetree f value, addr=addr}
+                |   mapbinding(RecDecs l) =
+                        RecDecs(map(fn {addr, lambda} => {addr=addr, lambda = deLambda(mapCodetree f (Lambda lambda))}) l)
+                |   mapbinding(NullBinding exp) = NullBinding(mapCodetree f exp)
+            in
+                Newenv(map mapbinding decs, mapCodetree f exp)
+            end
+        |   mapt (c as Constnt _) = c
+        |   mapt (e as Extract _) = e
+        |   mapt (Indirect { base, offset }) = Indirect{ base = mapCodetree f base, offset = offset }
+        |   mapt (Eval { function, argList, resultType }) =
+                Eval {
+                    function = mapCodetree f function, 
+                    argList = map (fn(c, a) => (mapCodetree f c, a)) argList,
+                    resultType = resultType
+                }
+        |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount }) =
+                Lambda {
+                    body = mapCodetree f body, isInline = isInline, name = name,
+                    closure = map (deExtract o (mapCodetree f) o Extract) closure,
+                    argTypes = argTypes, resultType = resultType, localCount = localCount
+                }
+        |   mapt (Cond(i, t, e)) = Cond(mapCodetree f i, mapCodetree f t, mapCodetree f e)
+        |   mapt (BeginLoop{loop, arguments}) =
+                BeginLoop {
+                    loop = mapCodetree f loop,
+                    arguments = map(fn({value, addr}, t) => ({value=mapCodetree f value, addr=addr}, t)) arguments
+                
+                }
+        |   mapt (Loop l) = Loop (map(fn(c, t) => (mapCodetree f c, t)) l)
+        |   mapt (Raise r) = Raise(mapCodetree f r)
+        |   mapt Ldexc = Ldexc
+        |   mapt (Handle{exp, handler}) = Handle{exp=mapCodetree f exp, handler=mapCodetree f handler }
+        |   mapt (Recconstr l) = Recconstr(map (mapCodetree f) l)
+        |   mapt (c as Container _) = c
+        |   mapt (SetContainer{container, tuple, size}) =
+                SetContainer{
+                    container = mapCodetree f container, tuple = mapCodetree f tuple, size = size }
+        |   mapt (TupleFromContainer(c, s)) = TupleFromContainer(mapCodetree f c, s)
+        |   mapt (TagTest{test, tag, maxTag}) = TagTest{test = mapCodetree f test, tag = tag, maxTag = maxTag }
+        |   mapt (c as ConstntWithInline _) = c
+    in
+        (* Apply f to node.  If it returns SOME c use that otherwise
+           traverse the tree. *)
+        case f code of
+            SOME c => c
+        |   NONE => mapt code
+    end
+
     structure Sharing =
     struct
         type codetree = codetree
