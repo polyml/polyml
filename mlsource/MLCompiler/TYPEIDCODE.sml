@@ -738,8 +738,6 @@ struct
             val argTypes = tcTypeVars tyConstr
             val nTypeVars = List.length argTypes
             val baseEqLevelP1 = newLevel baseEqLevel
-            val arg1X = mkLoadParam (nTypeVars+2-2, baseEqLevelP1, baseEqLevelP1)
-            and arg2X = mkLoadParam (nTypeVars+2-1, baseEqLevelP1, baseEqLevelP1)
 
             (* Argument type variables. *)
             val (localArgList, argTypeMap) =
@@ -749,11 +747,11 @@ struct
                     let
                         (* Add the polymorphic variables after the ordinary ones. *)
                         (* Create functions to load these if they are used in the map.  They may be non-local!!! *)
-                        val args = List.tabulate(nTypeVars, fn addr => fn l => mkLoadParam(addr, l, baseEqLevelP1))
+                        val args = List.tabulate(nTypeVars, fn addr => fn l => mkLoadParam(addr+2, l, baseEqLevelP1))
                         (* Put the outer args in the map *)
                         val varToArgMap = ListPair.zipEq(argTypes, args)
                         (* Load the local args to return. *)
-                        val localArgList = List.tabulate (nTypeVars, fn addr => mkLoadParam(addr, baseEqLevelP1, baseEqLevelP1))
+                        val localArgList = List.tabulate (nTypeVars, fn addr => mkLoadParam(addr+2, baseEqLevelP1, baseEqLevelP1))
                         val addrs = ref 0 (* Make local declarations for any type values. *)
                         fun mkAddr n = !addrs before (addrs := !addrs + n)
                     in
@@ -808,7 +806,7 @@ struct
                 in
                     case class of
                         Constructor{nullary=true, ...} =>
-                            mkIf(matches arg1X, matches arg2X, processConstrs rest)
+                            mkIf(matches arg1, matches arg2, processConstrs rest)
                     |    _ => (* We have to unwrap the value. *)
                         let
                             (* Get the constructor argument given the result type.  We might
@@ -832,7 +830,7 @@ struct
                             (* We have equality if both values match
                                this constructor and the values within
                                the constructor match. *)
-                            mkIf(matches arg1X, mkCand(matches arg2X, eqValue), processConstrs rest)
+                            mkIf(matches arg1, mkCand(matches arg2, eqValue), processConstrs rest)
                         end
                 end
 
@@ -848,7 +846,7 @@ struct
                        then CodeTrue (* Return true here: processConstrs would return false. *)
                        else processConstrs vConstrs
                  |  _ => (* More than one constructor: should never be zero. *)
-                        mkCor(mkTestptreq(arg1X, arg2X), processConstrs vConstrs)
+                        mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
@@ -863,7 +861,7 @@ struct
                 (addr,
                     mkInlproc(
                         mkInlproc(
-                            mkEval(mkLoad(addr+1, nnLevel, baseEqLevel), polyArgs @ [arg1, arg2]), 2, "eq-" ^ tcName tyConstr ^ "(2)",
+                            mkEval(mkLoad(addr+1, nnLevel, baseEqLevel), [arg1, arg2] @ polyArgs), 2, "eq-" ^ tcName tyConstr ^ "(2)",
                                    getClosure nnLevel, 0),
                             nArgs, "eq-" ^ tcName tyConstr ^ "(2)(P)", getClosure nLevel, 0)) ::
                 (addr+1,
