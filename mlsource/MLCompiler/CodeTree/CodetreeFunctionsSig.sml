@@ -29,6 +29,7 @@ sig
  
     val mkEnv: codeBinding list * codetree -> codetree
     and mkInd: int * codetree -> codetree
+    and mkVarField: int * codetree -> codetree
     and mkTuple: codetree list -> codetree
 
     val CodeFalse: codetree and CodeTrue: codetree and CodeZero: codetree
@@ -44,7 +45,7 @@ sig
     
     val evalue:    codetree -> machineWord option
     
-    val findEntryInBlock: codetree -> int -> codetree
+    val findEntryInBlock: codetree * int * bool -> codetree
     
     val earlyRtsCall: machineWord -> bool
 

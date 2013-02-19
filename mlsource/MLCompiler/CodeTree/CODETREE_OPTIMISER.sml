@@ -79,7 +79,7 @@ struct
     val False = word0
     val True  = word1
 
-    fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
+    fun mkDec (laddr, res) = Declar{value = res, addr = laddr, use=[]}
 
     local
         open RuntimeCalls
@@ -251,14 +251,14 @@ struct
             (* We need to create local bindings for arguments that will change.
                Those that do not can be reused. *)
             local
-                fun mapArgs(arg:: rest, n, decs, mapList) =
+                fun mapArgs((argT, use):: rest, n, decs, mapList) =
                     if Vector.sub(modVec, n)
                     then mapArgs (rest, n+1, decs, LoadArgument n :: mapList)
                     else
                     let
                         val na = ! nextAddress before nextAddress := !nextAddress + 1
                     in
-                        mapArgs (rest, n+1, ({addr = na, value = mkLoadArgument n}, arg) :: decs, LoadLocal na :: mapList)
+                        mapArgs (rest, n+1, ({addr = na, value = mkLoadArgument n, use=use}, argT) :: decs, LoadLocal na :: mapList)
                     end
                 |   mapArgs([], _, decs, mapList) = (List.rev decs, List.rev mapList)
                 val (decs, mapList) = mapArgs(argTypes, 0, [], [])
@@ -280,7 +280,7 @@ struct
         fun liftRecursiveFunction(body, argTypes, modVec, closureSize, name, resultType, localCount) =
         let
             local
-                fun getArgs(argType::rest, nArg, clCount, argCount, stable, change, mapList) =
+                fun getArgs((argType, use)::rest, nArg, clCount, argCount, stable, change, mapList) =
                     let
                         (* This is the argument from the outer function.  It is either added
                            to the closure or passed to the inner function. *)
@@ -290,7 +290,7 @@ struct
                         then getArgs(rest, nArg+1, clCount+1, argCount,
                                     argN :: stable, change, LoadClosure clCount :: mapList)
                         else getArgs(rest, nArg+1, clCount, argCount+1,
-                                    stable, (Extract argN, argType) :: change, LoadArgument argCount :: mapList)
+                                    stable, (Extract argN, argType, use) :: change, LoadArgument argCount :: mapList)
                     end
                 |   getArgs([], _, _, _, stable, change, mapList) =
                         (List.rev stable, List.rev change, List.rev mapList)
@@ -310,12 +310,16 @@ struct
                     isInline = NonInline, (* Don't inline this function. *)
                     name = name ^ "()",
                     closure = List.tabulate(closureSize, fn n => LoadClosure n) @ stableArgs,
-                    argTypes = List.map #2 changeArgsAndTypes,
+                    argTypes = List.map (fn (_, t, u) => (t, u)) changeArgsAndTypes,
                     resultType = resultType,
                     localCount = localCount
                 }
         in
-            Eval { function = subFunction, argList = changeArgsAndTypes, resultType = resultType }
+            Eval {
+                function = subFunction,
+                argList = map (fn (c, t, _) => (c, t)) changeArgsAndTypes,
+                resultType = resultType
+            }
         end
     end
 
@@ -343,7 +347,7 @@ struct
                This is still something of a special case that could/should
                be generalised. *)
             case List.last decs of
-                Declar{addr=decAddr, value } =>
+                Declar{addr=decAddr, value, ... } =>
                     if loadAddr = decAddr
                     then mkEnv(List.take(decs, List.length decs - 1), value)
                     else Newenv(decs, exp)
@@ -558,14 +562,14 @@ struct
             let
                 (* The arguments to the functions are Declar entries but they
                    must not be optimised. *)
-                fun declArg({addr, value, ...}, typ) =
+                fun declArg({addr, value, use, ...}, typ) =
                     let
                         val optVal = optimise(value, context)
                         val decSpval = ! nextAddress
                         val _ = nextAddress := decSpval + 1
                     in
                         enterAddr(addr, (EnvGenLoad(LoadLocal decSpval), EnvSpecNone));
-                        ({addr = decSpval, value = getGeneral optVal}, typ)
+                        ({addr = decSpval, value = getGeneral optVal, use = use }, typ)
                     end
                  val declArgs = map declArg args
                  val beginBody =
@@ -842,7 +846,7 @@ struct
                     in
                         case oldGeneral of
                             EnvGenConst w =>
-                                ({addr=decSpval, value=Constnt w} :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
+                                ({addr=decSpval, value=Constnt w, use=[]} :: decs, otherChanges) (* It's already a constant - don't reprocess. *)
                         |   _ =>
                             let
                                 (* Now copy this entry. *)
@@ -881,7 +885,7 @@ struct
                           in
                                 enterAddr (decAddr, (optGen, spec));
                                 (
-                                    {addr=decSpval, value=gen} :: decs,
+                                    {addr=decSpval, value=gen, use=[]} :: decs,
                                     otherChanges orelse isConstant orelse nowInline
                                 )
                           end
@@ -916,8 +920,8 @@ struct
                         |   isLambda _ = raise InternalError "isLambda: not a lambda or a constant"
                         val (lambdas, constants) = List.partition isLambda decs
 
-                        fun toLambda{addr, value=Lambda lambda} =
-                            {addr=addr, lambda=lambda}
+                        fun toLambda{addr, value=Lambda lambda, use} =
+                            {addr=addr, lambda=lambda, use = use}
                         |   toLambda _ = raise InternalError "toLambda: not a lambda"
                     in
                         map Declar constants @ (if null lambdas then nil else [RecDecs(map toLambda lambdas)])
@@ -944,7 +948,7 @@ struct
                                 val (_, oldSpec) = lookupAddr(LoadLocal decAddr)
                             in
                                 let
-                                    val newConstant = findEntryInBlock results offset
+                                    val newConstant = findEntryInBlock(results,  offset, false)
                                     val enterConst =
                                         case newConstant of
                                             Constnt w => EnvGenConst w
@@ -952,7 +956,7 @@ struct
                                 in
                                     (* Replace the entry by an entry with a constant. *)
                                     enterAddr(decAddr, (enterConst, oldSpec));
-                                    (offset+1, {addr=decSpval, value=newConstant} :: others)
+                                    (offset+1, {addr=decSpval, value=newConstant, use=[]} :: others)
                                 end
                             end
                         
@@ -1014,7 +1018,7 @@ struct
             end
         end
           
-      |  optimise (Indirect{ base, offset }, context) =
+      |  optimise (Indirect{ base, offset, isVariant }, context) =
             let
                 val (genSource, decSource, specSource) = optimise(base, context)
             in
@@ -1033,9 +1037,10 @@ struct
                     end
 
                 | (_ , gen as Constnt _ ) => (* General is a constant -  Do the selection now. *)
-                        (findEntryInBlock gen offset, decSource, EnvSpecNone)
+                        (findEntryInBlock(gen, offset, isVariant), decSource, EnvSpecNone)
                            
-                | (_, _) => (mkInd (offset, genSource), decSource, EnvSpecNone) (* No special case possible. *)
+                | (_, _) => (* No special case possible. *)
+                    ((if isVariant then mkVarField else mkInd) (offset, genSource), decSource, EnvSpecNone)
             end
        
       |  optimise (pt as Ldexc, _) = (pt, [], EnvSpecNone) (* just a constant so return it *)

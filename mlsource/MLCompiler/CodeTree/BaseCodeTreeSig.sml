@@ -34,6 +34,14 @@ sig
         GeneralType
     |   FloatingPtType
 
+
+    (* How variables are used.  Added and examined by the optimisation pass. *)
+    datatype codeUse =
+        UseGeneral (* Used in some other context. *)
+    |   UseExport  (* Exported i.e. the result of a top-level binding. *)
+    |   UseApply of codeUse list (* Applied as a function - the list is where the result goes *)
+    |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
+
     datatype codetree =
         MatchFail    (* Pattern-match failure *)
     
@@ -45,7 +53,7 @@ sig
 
     |   Extract of loadForm
     
-    |   Indirect of {base: codetree, offset: int }
+    |   Indirect of {base: codetree, offset: int, isVariant: bool }
         (* Load a value from a heap record *)
 
     |   Eval of (* Evaluate a function with an argument list. *)
@@ -87,7 +95,7 @@ sig
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
-    |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
+    |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and loadForm =
@@ -113,7 +121,8 @@ sig
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
-        addr:       int
+        addr:       int,
+        use:        codeUse list
     }
 
     and lambdaForm =
@@ -122,7 +131,7 @@ sig
         isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
         name          : string,             (* Text name for profiling etc. *)
         closure       : loadForm list,      (* List of items for closure. *)
-        argTypes      : argumentType list,  (* "Types" of arguments. *)
+        argTypes      : (argumentType * codeUse list) list,  (* "Types" of arguments. *)
         resultType    : argumentType,       (* Result "type" of the function. *)
         localCount    : int                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
     }

@@ -935,7 +935,7 @@ struct
                        eval and load-andStore, are handled separately. *)
                     locaddr(ext, (* closure = *) true)
 
-            |   insert(Indirect {base, offset}) = P2Field {base = insert base, offset = offset}
+            |   insert(Indirect {base, offset, ...}) = P2Field {base = insert base, offset = offset}
 
             |   insert(Constnt w) = P2Constnt w (* Constants can be returned untouched. *)
 
@@ -1405,7 +1405,7 @@ struct
                         body          = insertedCode,
                         name          = lambdaName,
                         closure       = [],
-                        argTypes      = argTypes,
+                        argTypes      = map #1 argTypes,
                         resultType    = resultType,
                         localCount    = ! newLocalAddresses,
                         makeClosure   = false

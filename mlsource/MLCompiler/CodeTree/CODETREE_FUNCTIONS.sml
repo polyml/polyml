@@ -210,14 +210,16 @@ struct
         
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
-        fun findEntryInBlock (Recconstr recs) offset =
+        fun findEntryInBlock (Recconstr recs, offset, isVar) =
             if offset < List.length recs
             then List.nth(recs, offset)
             (* This can arise if we're processing a branch of a case discriminating on
                a datatype which won't actually match at run-time. e.g. Tests/Succeed/Test030. *)
-            else raiseError
+            else if isVar
+            then raiseError
+            else raise InternalError "findEntryInBlock: invalid address"
 
-        |  findEntryInBlock (Constnt b) offset =
+        |  findEntryInBlock (Constnt b, offset, isVar) =
               (* The ML compiler may generate loads from invalid addresses as a
                  result of a val binding to a constant which has the wrong shape.
                  e.g. val a :: b = nil
@@ -227,10 +229,12 @@ struct
             if isShort b
             orelse not (Address.isWords (toAddress b))
             orelse Address.length (toAddress b) <= Word.fromInt offset
+            then if isVar
             then raiseError
+            else raise InternalError "findEntryInBlock: invalid address"
             else Constnt (loadWord (toAddress b, toShort offset))
 
-        |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env))) offset =
+        |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env)), offset, isVar) =
             (* Do the selection now.  This is especially useful if we
                have a global structure  *)
             (
@@ -241,12 +245,12 @@ struct
                 |   _ => raise InternalError "findEntryInBlock: not constant"
             )
  
-        |   findEntryInBlock (ConstntWithInline(general, _)) offset =
+        |   findEntryInBlock (ConstntWithInline(general, _), offset, isVar) =
                 (* Is this possible?  If it's inline it should be a tuple. *)
-                 findEntryInBlock (Constnt general) offset
+                 findEntryInBlock (Constnt general, offset, isVar)
     
-        |   findEntryInBlock base offset =
-                Indirect {base = base, offset = offset} (* anything else *)
+        |   findEntryInBlock(base, offset, isVar) =
+                Indirect {base = base, offset = offset, isVariant = isVar} (* anything else *)
      end
         
     (* Exported indirect load operation i.e. load a field from a tuple.
@@ -254,9 +258,14 @@ struct
        unused entries in a tuple and at this point we haven't checked
        that the unused entries don't have
        side-effects/raise exceptions e.g. #1 (1, raise Fail "bad") *)
-    fun mkInd (addr, base as ConstntWithInline _ ) = findEntryInBlock base addr
-    |   mkInd (addr, base as Constnt _) = findEntryInBlock base addr
-    |   mkInd (addr, base) = Indirect {base = base, offset = addr};
+    local
+        fun mkIndirect isVar (addr, base as ConstntWithInline _ ) = findEntryInBlock(base, addr, isVar)
+        |   mkIndirect isVar (addr, base as Constnt _) = findEntryInBlock(base, addr, isVar)
+        |   mkIndirect isVar (addr, base) = Indirect {base = base, offset = addr, isVariant = isVar}
+    
+    in
+        val mkInd = mkIndirect false and mkVarField = mkIndirect true
+    end
         
     (* Get the value from the code. *)
     fun evalue (Constnt c) = SOME c

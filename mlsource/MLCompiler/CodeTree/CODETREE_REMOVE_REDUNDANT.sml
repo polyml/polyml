@@ -104,14 +104,14 @@ struct
                    a later declaration but apart from mutually-recursive functions no binding
                    can be used in an earlier one. *)
                 fun processDecs [] = []
-                 |  processDecs(Declar{value, addr} :: rest) =
+                 |  processDecs(Declar{value, addr, ...} :: rest) =
                     let
                         val processedRest = processDecs rest
                     in
                         (* If this is used or if it has side-effects we
                            must include it otherwise we can ignore it. *)
                         if Array.sub(locals, addr) orelse not (sideEffectFree value)
-                        then Declar{value=cleanCode value, addr=addr} :: processedRest
+                        then Declar{value=cleanCode value, addr=addr, use=[]} :: processedRest
                         else processedRest
                     end
 
@@ -130,7 +130,7 @@ struct
                          |  processMutuals [] _ false =
                                 (* We didn't add anything more - finish *) []
                          |  processMutuals(
-                                (this as {addr, lambda}) :: rest) excluded added =
+                                (this as {addr, lambda, ...}) :: rest) excluded added =
                             if not (Array.sub(locals, addr))
                             then (* Put this on the excluded list. *)
                                 processMutuals rest (this::excluded) added
@@ -138,7 +138,7 @@ struct
                             let
                                 (* Process this entry - it may cause other
                                    entries to become "used". *)
-                                val newEntry = {lambda=cleanLambda lambda, addr=addr}
+                                val newEntry = {lambda=cleanLambda lambda, addr=addr, use=[]}
                             in
                                 newEntry :: processMutuals rest excluded true
                             end
@@ -188,8 +188,8 @@ struct
 
          |  cleanCode (ConstntWithInline(c, _)) = Constnt c
 
-         |  cleanCode (Indirect{base, offset}) =
-                Indirect{base=cleanCode base, offset=offset}
+         |  cleanCode (Indirect{base, offset, isVariant}) =
+                Indirect{base=cleanCode base, offset=offset, isVariant=isVariant}
 
          |  cleanCode (Eval{function, argList, resultType}) =
                 Eval{function=cleanCode function, argList = map (fn (c, t) => (cleanCode c, t)) argList,
@@ -202,7 +202,7 @@ struct
             let
                 val processedBody = cleanCode body
                 fun copyDec({addr, value, ...}, typ) =
-                        ({addr=addr, value=cleanCode value}, typ)
+                        ({addr=addr, value=cleanCode value, use=[]}, typ)
                 val newargs = map copyDec argList
             in
                 BeginLoop{loop=processedBody, arguments=newargs}

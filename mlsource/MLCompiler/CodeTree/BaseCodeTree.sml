@@ -33,6 +33,13 @@ struct
     |   MaybeInline
     |   SmallFunction
     |   OnlyInline
+
+    (* How variables are used.  Added and examined by the optimisation pass. *)
+    datatype codeUse =
+        UseGeneral (* Used in some other context. *)
+    |   UseExport  (* Exported i.e. the result of a top-level binding. *)
+    |   UseApply of codeUse list (* Applied as a function - the list is where the result goes *)
+    |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
     
     datatype codetree =
         MatchFail    (* Pattern-match failure *)
@@ -45,7 +52,7 @@ struct
 
     |   Extract of loadForm (* Get a local variable, an argument or a closure value *)
     
-    |   Indirect of {base: codetree, offset: int }
+    |   Indirect of {base: codetree, offset: int, isVariant: bool }
          (* Load a value from a heap record *)
     
     |   Eval of (* Evaluate a function with an argument list. *)
@@ -91,7 +98,7 @@ struct
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
-    |   RecDecs of { addr: int, lambda: lambdaForm } list (* Set of mutually recursive declarations. *)
+    |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
 
     and loadForm =
@@ -117,7 +124,8 @@ struct
     withtype simpleBinding = 
     { (* Declare a value or push an argument. *)
         value:      codetree,
-        addr:       int
+        addr:       int,
+        use:        codeUse list
     }
     
     and lambdaForm =
@@ -126,7 +134,7 @@ struct
         isInline      : inlineStatus,
         name          : string,
         closure       : loadForm list,
-        argTypes      : argumentType list,
+        argTypes      : (argumentType * codeUse list) list,
         resultType    : argumentType,
         localCount    : int
     }
@@ -240,9 +248,9 @@ struct
                 PrettyString str
             end
         
-        | Indirect {base, offset} =>
+        | Indirect {base, offset, isVariant} =>
             let
-                val str = "INDIRECT(" ^ Int.toString offset ^ ", ";
+                val str = (if isVariant then "VARIND(" else "INDIRECT(") ^ Int.toString offset ^ ", ";
             in
                 PrettyBlock(0, false, [],
                     [ PrettyString str, pretty base, PrettyString ")" ]
@@ -258,8 +266,8 @@ struct
                     | SmallFunction => "SMALL"
                     | OnlyInline  => "ONLYINLINE"
                 fun prettyArgTypes [] = []
-                |   prettyArgTypes [last] = [prettyArgType last]
-                |   prettyArgTypes (hd::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
+                |   prettyArgTypes [(last, _)] = [prettyArgType last]
+                |   prettyArgTypes ((hd, _)::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
             in
                 PrettyBlock (1, true, [],
                     [
@@ -390,7 +398,7 @@ struct
        
     |   prettyBinding(RecDecs ptl) =
         let
-            fun prettyRDec {lambda, addr} =
+            fun prettyRDec {lambda, addr, ...} =
             PrettyBlock (1, false, [],
                 [
                     PrettyString (concat
@@ -408,7 +416,7 @@ struct
         end
     |   prettyBinding(NullBinding c) = pretty c
 
-    and prettySimpleBinding{value, addr} =
+    and prettySimpleBinding{value, addr, ...} =
         PrettyBlock (1, false, [],
             [
                 PrettyString (concat
@@ -430,16 +438,18 @@ struct
         |   mapt (AltMatch(m1, m2)) = AltMatch(mapCodetree f m1, mapCodetree f m2)
         |   mapt (Newenv(decs, exp)) =
             let
-                fun mapbinding(Declar{value, addr}) = Declar{value=mapCodetree f value, addr=addr}
+                fun mapbinding(Declar{value, addr, use}) = Declar{value=mapCodetree f value, addr=addr, use=use}
                 |   mapbinding(RecDecs l) =
-                        RecDecs(map(fn {addr, lambda} => {addr=addr, lambda = deLambda(mapCodetree f (Lambda lambda))}) l)
+                        RecDecs(map(fn {addr, lambda, use} =>
+                            {addr=addr, use = use, lambda = deLambda(mapCodetree f (Lambda lambda))}) l)
                 |   mapbinding(NullBinding exp) = NullBinding(mapCodetree f exp)
             in
                 Newenv(map mapbinding decs, mapCodetree f exp)
             end
         |   mapt (c as Constnt _) = c
         |   mapt (e as Extract _) = e
-        |   mapt (Indirect { base, offset }) = Indirect{ base = mapCodetree f base, offset = offset }
+        |   mapt (Indirect { base, offset, isVariant }) =
+                Indirect{ base = mapCodetree f base, offset = offset, isVariant = isVariant }
         |   mapt (Eval { function, argList, resultType }) =
                 Eval {
                     function = mapCodetree f function, 
@@ -456,7 +466,7 @@ struct
         |   mapt (BeginLoop{loop, arguments}) =
                 BeginLoop {
                     loop = mapCodetree f loop,
-                    arguments = map(fn({value, addr}, t) => ({value=mapCodetree f value, addr=addr}, t)) arguments
+                    arguments = map(fn({value, addr, use}, t) => ({value=mapCodetree f value, addr=addr, use=use}, t)) arguments
                 
                 }
         |   mapt (Loop l) = Loop (map(fn(c, t) => (mapCodetree f c, t)) l)

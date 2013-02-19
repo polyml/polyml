@@ -53,7 +53,8 @@ sig
     and mkLoadClosure:      int -> codetree
 
     val mkConst:            machineWord -> codetree;
-    val mkInd:              int * codetree -> codetree;
+    val mkInd:              int * codetree -> codetree
+    val mkVarField:         int * codetree -> codetree
     val mkProc:             codetree * int * string * codetree list * int -> codetree;
     val mkInlproc:          codetree * int * string * codetree list * int -> codetree;
     val mkMacroProc:        codetree * int * string * codetree list * int -> codetree;

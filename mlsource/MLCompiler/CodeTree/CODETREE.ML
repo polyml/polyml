@@ -82,7 +82,7 @@ struct
        we may as well export them *)
     val rtsFunction = Constnt o ioOp
  
-    fun mkDec (laddr, res) = Declar{value = res, addr = laddr}
+    fun mkDec (laddr, res) = Declar{value = res, addr = laddr, use=[]}
 
     fun deExtract(Extract ext) = ext | deExtract _ = raise InternalError "deExtract"
  
@@ -272,7 +272,7 @@ struct
                 isInline      = inlineType,
                 name          = if name = "" then "<anon>" else name,
                 closure       = map deExtract closure,
-                argTypes      = List.tabulate(args, fn _ => GeneralType),
+                argTypes      = List.tabulate(args, fn _ => (GeneralType, [])),
                 resultType    = GeneralType,
                 localCount    = numLocals
               }
@@ -290,7 +290,7 @@ struct
                 isInline      = inlineType,
                 name          = if name = "" then "<anon>" else name,
                 closure       = map deExtract closure,
-                argTypes      = argsAndTypes,
+                argTypes      = map (fn t => (t, [])) argsAndTypes,
                 resultType    = resultType,
                 localCount    = numLocals
             }
@@ -398,7 +398,7 @@ struct
 
     fun mkMutualDecs l =
     let
-        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a}
+        fun convertDec(a, Lambda lam) = {lambda = lam, addr = a, use=[]}
         |   convertDec _ = raise InternalError "mkMutualDecs: Recursive declaration is not a function"
     in
         RecDecs(List.map convertDec l)
@@ -414,7 +414,7 @@ struct
     (* For the moment limit these to general arguments. *)
     fun mkLoop args = Loop (List.map(fn c => (c, GeneralType)) args)
     and mkBeginLoop(exp, args) =
-        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i}, GeneralType)) args}
+        BeginLoop{loop=exp, arguments=List.map(fn(i, v) => ({value=v, addr=i, use=[]}, GeneralType)) args}
 
     fun mkWhile(b, e) = (* Generated as   if b then (e; <loop>) else (). *)
         mkBeginLoop(mkIf(b, mkEnv([NullBinding e], mkLoop[]), CodeZero), [])
