@@ -266,8 +266,9 @@ struct
                     | SmallFunction => "SMALL"
                     | OnlyInline  => "ONLYINLINE"
                 fun prettyArgTypes [] = []
-                |   prettyArgTypes [(last, _)] = [prettyArgType last]
-                |   prettyArgTypes ((hd, _)::tl) = prettyArgType hd :: PrettyBreak(1, 0) :: prettyArgTypes tl
+                |   prettyArgTypes [(last, use)] = [prettyArgType last, prettyUses "" use]
+                |   prettyArgTypes ((hd, use)::tl) =
+                        prettyArgType hd :: prettyUses "" use :: PrettyBreak(1, 0) :: prettyArgTypes tl
             in
                 PrettyBlock (1, true, [],
                     [
@@ -398,11 +399,12 @@ struct
        
     |   prettyBinding(RecDecs ptl) =
         let
-            fun prettyRDec {lambda, addr, ...} =
+            fun prettyRDec {lambda, addr, use, ...} =
             PrettyBlock (1, false, [],
                 [
-                    PrettyString (concat
-                        ["DECL #", Int.toString addr, "="]),
+                    PrettyString ("DECL #" ^ Int.toString addr),
+                    PrettyBreak (1, 0),
+                    prettyUses "" use,
                     PrettyBreak (1, 0),
                     pretty(Lambda lambda)
                 ]
@@ -416,15 +418,30 @@ struct
         end
     |   prettyBinding(NullBinding c) = pretty c
 
-    and prettySimpleBinding{value, addr, ...} =
+    and prettySimpleBinding{value, addr, use, ...} =
         PrettyBlock (1, false, [],
             [
-                PrettyString (concat
-                    ["DECL #", Int.toString addr, "="]),
+                PrettyString ("DECL #" ^ Int.toString addr),
+                PrettyBreak (1, 0),
+                prettyUses "" use,
+                PrettyBreak(1, 0),
+                PrettyString "=",
                 PrettyBreak (1, 0),
                 pretty value
             ]
         )
+
+    and prettyUses prefix cl =
+           PrettyBlock (1, true, [],
+                PrettyString (prefix ^ "[") ::
+                pList(cl, ",", prettyUsage) @
+                [ PrettyBreak (0, 0), PrettyString ("]") ]
+            )
+
+    and prettyUsage UseGeneral = PrettyString "UseGen"
+    |   prettyUsage UseExport = PrettyString "UseExp"
+    |   prettyUsage (UseApply cl) = prettyUses "UseApp" cl
+    |   prettyUsage (UseField (n, cl)) = prettyUses ("UseField"^ Int.toString n) cl
 
     (* Mapping function to enable parts of the tree to be replaced. *)
     fun mapCodetree f code =
@@ -500,6 +517,7 @@ struct
         and  loadForm = loadForm
         and  envGeneral = envGeneral
         and  envSpecial = envSpecial
+        and  codeUse = codeUse
     end
 
 end;

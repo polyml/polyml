@@ -152,6 +152,7 @@ sig
         and  loadForm = loadForm
         and  envGeneral = envGeneral
         and  envSpecial = envSpecial
+        and  codeUse = codeUse
     end
 
 end;

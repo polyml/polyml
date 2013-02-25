@@ -25,8 +25,9 @@ functor CODETREE_OPTIMISER(
     sig
         type codetree
         type loadForm
-        val cleanProc : (codetree * (int -> loadForm) * bool array) -> codetree
-        structure Sharing: sig type codetree = codetree and loadForm = loadForm end
+        type codeUse
+        val cleanProc : (codetree * codeUse list * (int -> loadForm) * int) -> codetree
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
     structure DEBUG :
@@ -1255,8 +1256,8 @@ struct
             fun lookupInClean closureEntry =
                 rebuildClosure cleanClosureList (List.nth(closureAfterOpt, closureEntry))
 
-            fun doclean () = REMOVE_REDUNDANT.cleanProc(getGeneral newCode, lookupInClean,
-                          Array.array (! newAddressAllocator (*+ 1*), false))
+            fun doclean () = REMOVE_REDUNDANT.cleanProc(getGeneral newCode, [UseGeneral], lookupInClean,
+                          ! newAddressAllocator)
 
             val cleanedBody = doclean()
                 

@@ -207,7 +207,6 @@ struct
         (* Exception value to use for invalid cases.  We put this in the code
            but it should never actually be executed.  *)
         val raiseError = Raise (Constnt (toMachineWord except))
-        
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
         fun findEntryInBlock (Recconstr recs, offset, isVar) =
@@ -234,7 +233,7 @@ struct
             else raise InternalError "findEntryInBlock: invalid address"
             else Constnt (loadWord (toAddress b, toShort offset))
 
-        |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env)), offset, isVar) =
+        |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env)), offset, _) =
             (* Do the selection now.  This is especially useful if we
                have a global structure  *)
             (
