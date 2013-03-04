@@ -96,6 +96,8 @@ struct
            closure entries involve a look-up *)
         and cleanExtract(ext as LoadLocal addr, codeUse) =
             (
+                (* Check we're actually adding to the usage. *)
+                null codeUse andalso raise InternalError "cleanExtract: empty usage";
                 Array.update(locals, addr, codeUse @ Array.sub(locals, addr));
                 ext
             )
@@ -125,10 +127,14 @@ struct
                     |   processDecs(Declar{value, addr, ...} :: rest) =
                         let
                             val processedRest = processDecs rest
-                            val decUses = Array.sub(locals, addr)
+                            val decUses =
+                                case Array.sub(locals, addr) of
+                                    [] => if sideEffectFree value then [] else [UseGeneral]
+                                |   uses => uses
                         in
-                            (* We can drop bindings that are unused if they have no side-effects. *)
-                            if null decUses andalso sideEffectFree value
+                            (* We can drop bindings that are unused if they have no side-effects.
+                               If we retain the binding we must set at least one reference. *)
+                            if null decUses
                             then processedRest (* Skip it *)
                             else Declar{value=cleanCode (value, decUses), addr=addr, use=decUses} :: processedRest
                         end
@@ -179,7 +185,7 @@ struct
                         in
                             if sideEffectFree exp
                             then processedRest
-                            else NullBinding(cleanCode(exp, [])) :: processedRest
+                            else NullBinding(cleanCode(exp, [UseGeneral])) :: processedRest
                         end
 
                     val processedDecs = processDecs decs
