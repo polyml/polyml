@@ -92,25 +92,19 @@ structure UNIVERSALTABLE :
 sig
   type 'a tag = 'a Universal.tag;
   type univTable;
-  type 'a iter;
+  type universal = Universal.universal
   
   val makeUnivTable:  unit -> univTable
   val univEnter:  univTable * 'a tag * string * 'a -> unit;
   val univLookup: univTable * 'a tag * string -> 'a option;
   val univDelete: univTable * 'a tag * string -> unit;
-  val univOverSpecific: univTable * 'a tag -> (string * 'a) iter;
+    val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
 end;
 
 (*****************************************************************************)
 (*                  STRUCTVALS                                               *)
 (*****************************************************************************)
 structure STRUCTVALS : STRUCTVALSIG;
-
-structure MISC :
-sig
-  type 'a iter  
-  val iterList : 'a iter -> 'a list
-end;
 
 structure DEBUG:
 sig
@@ -140,10 +134,6 @@ structure VERSION:
 (*****************************************************************************)
 (*                  MAKE sharing constraints                                 *)
 (*****************************************************************************)
-
-sharing type
-  MISC.iter
-= UNIVERSALTABLE.iter
 
 sharing type
   STRUCTVALS.values
@@ -240,7 +230,6 @@ in
 (*                  MAKE functor body                                        *)
 (*****************************************************************************)
 struct
-    open MISC;
     type univTable  = UNIVERSALTABLE.univTable;
     type values = STRUCTVALS.values
     type typeConstrs = STRUCTVALS.typeConstrs
@@ -289,7 +278,12 @@ struct
             protect mutx(fn () => univLookup (db, t, s))
 
         fun dbEnvAll (DbEnv(mutx, db)) (t : 'a tag) () : (string * 'a) list =
-           protect mutx (fn () => iterList (univOverSpecific (db, t)))
+        let
+            open Universal UNIVERSALTABLE
+            fun filter (s, c, l) = if tagIs t c then (s, tagProject t c) :: l else l
+        in
+            protect mutx (fn () => fold filter [] db)
+        end
 
         fun gEnvAsEnv gEnv =
              STRUCTVALS.Env {

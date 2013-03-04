@@ -44,11 +44,9 @@ end;
 
 structure UNIVERSALTABLE:
 sig
-  type universal = Universal.universal
-  type univTable
-  type 'a iter
-
-  val univOver: univTable -> (string * universal) iter;
+    type universal = Universal.universal
+    type univTable
+    val app: (string * universal -> unit) -> univTable -> unit
 end;
 
 structure DEBUG :
@@ -64,10 +62,6 @@ sig
   exception InternalError of string; (* compiler error *)
   
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-  
-  type 'a iter;
-  val for    : 'a iter -> ('a -> 'b) -> unit
-  val iterList : 'a iter -> 'a list
 end;
 
 structure PRETTY : PRETTYSIG;
@@ -137,7 +131,6 @@ struct
   open PRINTTABLE;
   open DEBUG;
   open ADDRESS;
-  open UNIVERSALTABLE;
   open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   open UTILITIES;
   open TYPEIDCODE
@@ -650,7 +643,7 @@ struct
                         fun order (s1: string, _) (s2: string, _) = s1 <= s2
                     in
                         (* Put all the entries into a list. *)
-                        for (univOver tab) addToList;
+                        UNIVERSALTABLE.app addToList tab;
                         (* Sort the list and print it. *)
                         List.foldl
                             (fn (a, l) => displaySpec a @ l)

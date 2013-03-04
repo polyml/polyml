@@ -2647,7 +2647,7 @@ struct
                     (* ...then put them into the name space. *)
                     val () = List.app copyEntries strs;
                 in
-                    variables := HashTable.hashFold valTable (fn _ => fn v => fn t => v :: t) [];
+                    variables := HashTable.fold (fn (_, v, t) => v :: t) [] valTable;
                     badType (* Does not return a type *)
                 end
     

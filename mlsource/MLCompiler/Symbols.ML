@@ -24,9 +24,9 @@
     Copyright   Cambridge University 1985
 *)
 
-structure Symbols :
+structure Symbols :>
 sig
-  type sys;
+  eqtype sys;
   
   val abortParse:   sys;
   val ident:        sys;
@@ -100,102 +100,88 @@ sig
   val maxsym:       sys;
   
   val repr: sys -> string;
-
   val lookup: string -> sys;
-  
-  val eq:   sys * sys -> bool;
-  val neq:  sys * sys -> bool;
-  val down: sys -> int;
 
 end =
 
 struct
+    type sys = int
   (* The symbol declarations for the compiler *)
-  abstype sys = sys of int
-  with
-    val abortParse     = sys 0;
-    val ident          = sys 1;
-   (* Reserved words *)
-    val abstypeSy      = sys 2;
-    val andSy          = sys 3;
-    val andalsoSy      = sys 4;
-    val asSy           = sys 5;
-    val caseSy         = sys 6;
-    val datatypeSy     = sys 7;
-    val doSy           = sys 8;
-    val elseSy         = sys 9;
-    val endSy          = sys 10;
-    val exceptionSy    = sys 11;
-    val fnSy           = sys 12;
-    val funSy          = sys 13;
-    val handleSy       = sys 14;
-    val ifSy           = sys 15;
-    val inSy           = sys 16;
-    val infixSy        = sys 17;
-    val infixrSy       = sys 18;
-    val letSy          = sys 19;
-    val localSy        = sys 20;
-    val nonfixSy       = sys 21;
-    val ofSy           = sys 22;
-    val opSy           = sys 23;
-    val openSy         = sys 24;
-    val orelseSy       = sys 25;
-    val raiseSy        = sys 26;
-    val recSy          = sys 27;
-    val thenSy         = sys 28;
-    val typeSy         = sys 29;
-    val valSy          = sys 30;
-    val withSy         = sys 31;
-    val whileSy        = sys 32;
-    val structureSy    = sys 33;
-    val signatureSy    = sys 34;
-    val structSy       = sys 35;
-    val sigSy          = sys 36;
-    val sharingSy      = sys 37;
-    val functorSy      = sys 38;
-    val withtypeSy     = sys 39;
-    val eqtypeSy       = sys 40;
-    val includeSy      = sys 41;
-    val whereSy        = sys 42;
-    (* Reserved operators *)
-    val hashSign       = sys 43;
-    val verticalBar    = sys 44;
-    val equalsSign     = sys 45;
-    val thickArrow     = sys 46;
-    val colon          = sys 47;
-    val asterisk       = sys 48;
-    val arrow          = sys 49;
-    val colonGt        = sys 50;
-    (* Special symbols *)
-    val underline      = sys 51;
-    val leftParen      = sys 52;
-    val rightParen     = sys 53;
-    val leftBrack      = sys 54;
-    val rightBrack     = sys 55;
-    val comma          = sys 56;
-    val semicolon      = sys 57;
-    val leftCurly      = sys 58;
-    val rightCurly     = sys 59;
-    val dot            = sys 60;
-    val threeDots      = sys 61;
-    (* Others *)
-    val typeIdent      = sys 62;
-    val stringConst    = sys 63;
-    val integerConst   = sys 64;
-    val realConst      = sys 65;
-    val wordConst      = sys 66;
-    val charConst      = sys 67;
-    val othersy        = sys 68;
-    val maxsym         = othersy;
 
-    fun down (sys n) = n;
-    fun succ (sys n) = sys (n+1);
-    
-    infix 7 eq neq leq;
-    
-    fun a eq  b = (down a =  down b);
-    fun a leq b = (down a <= down b);
-    fun a neq b = (down a <> down b);
+    val abortParse     = 0;
+    val ident          = 1;
+   (* Reserved words *)
+    val abstypeSy      = 2;
+    val andSy          = 3;
+    val andalsoSy      = 4;
+    val asSy           = 5;
+    val caseSy         = 6;
+    val datatypeSy     = 7;
+    val doSy           = 8;
+    val elseSy         = 9;
+    val endSy          = 10;
+    val exceptionSy    = 11;
+    val fnSy           = 12;
+    val funSy          = 13;
+    val handleSy       = 14;
+    val ifSy           = 15;
+    val inSy           = 16;
+    val infixSy        = 17;
+    val infixrSy       = 18;
+    val letSy          = 19;
+    val localSy        = 20;
+    val nonfixSy       = 21;
+    val ofSy           = 22;
+    val opSy           = 23;
+    val openSy         = 24;
+    val orelseSy       = 25;
+    val raiseSy        = 26;
+    val recSy          = 27;
+    val thenSy         = 28;
+    val typeSy         = 29;
+    val valSy          = 30;
+    val withSy         = 31;
+    val whileSy        = 32;
+    val structureSy    = 33;
+    val signatureSy    = 34;
+    val structSy       = 35;
+    val sigSy          = 36;
+    val sharingSy      = 37;
+    val functorSy      = 38;
+    val withtypeSy     = 39;
+    val eqtypeSy       = 40;
+    val includeSy      = 41;
+    val whereSy        = 42;
+    (* Reserved operators *)
+    val hashSign       = 43;
+    val verticalBar    = 44;
+    val equalsSign     = 45;
+    val thickArrow     = 46;
+    val colon          = 47;
+    val asterisk       = 48;
+    val arrow          = 49;
+    val colonGt        = 50;
+    (* Special symbols *)
+    val underline      = 51;
+    val leftParen      = 52;
+    val rightParen     = 53;
+    val leftBrack      = 54;
+    val rightBrack     = 55;
+    val comma          = 56;
+    val semicolon      = 57;
+    val leftCurly      = 58;
+    val rightCurly     = 59;
+    val dot            = 60;
+    val threeDots      = 61;
+    (* Others *)
+    val typeIdent      = 62;
+    val stringConst    = 63;
+    val integerConst   = 64;
+    val realConst      = 65;
+    val wordConst      = 66;
+    val charConst      = 67;
+    val othersy        = 68;
+    val maxsym         = othersy;
     
     open Vector; infix 8 sub;
     
@@ -269,24 +255,24 @@ struct
                        "<char constant>",
                        "unknown symbol"];
 
-    fun repr sym = resw sub (down sym);
+    fun repr sym = resw sub sym
 
     local
-      open Boot.HashTable;
-      open Boot.Misc;
+        open Boot.HashTable;
+        open Boot.Misc;
 
-      (* Make table sparse to minimise collisions. SPF 11/5/95 *)
-      val table: sys hash = hashMake (4 * down maxsym);
-      
-      (* Enter each reserved word in the hash table *)
-      val () = 
-        forsucc succ (op leq) abstypeSy colonGt
-                      (fn sym => hashSet (table, repr sym, sym));
+        (* Make table sparse to minimise collisions. SPF 11/5/95 *)
+        val table: int hash = hashMake (4 * maxsym);
+
+        fun enter n =
+            if n > colonGt then ()
+            else (hashSet (table, repr n, n); enter (n+1))
+
+        (* Enter each reserved word in the hash table *)
+        val () = enter abstypeSy
     in
-      (* Returns the symbol if it is in the table else ident *)
-      fun lookup str = getOpt(hashSub (table, str), ident);
+        (* Returns the symbol if it is in the table else ident *)
+        fun lookup str = getOpt(hashSub (table, str), ident);
     end;
-
-  end (* with *);
 
 end (* Symbols *);

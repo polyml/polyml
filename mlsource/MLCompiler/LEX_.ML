@@ -37,7 +37,7 @@ structure PRETTY: PRETTYSIG;
 (*****************************************************************************)
 structure SYMBOLS :
 sig
-  type sys;
+  eqtype sys;
       
   val abortParse:   sys;
   val othersy:      sys;
@@ -60,9 +60,6 @@ sig
   val charConst:    sys;
       
   val lookup: string -> sys;
-      
-  val eq : sys * sys -> bool;
-  val neq : sys * sys -> bool;
 end
 
 structure DEBUG:
@@ -607,12 +604,12 @@ struct
                 nextCh state
             end;
         (* Read another token if this wasn't recognised. *)
-        if (!sy eq othersy) then parseToken state else ()
+        if (!sy = othersy) then parseToken state else ()
     end; (* parseToken *)
 
     (* Insymbol - exported interface to lexical analyser. *)
     fun insymbol (state as {sy,pushedSym,...}:lexan) =
-    if ! pushedSym neq othersy then pushedSym := othersy
+    if ! pushedSym <> othersy then pushedSym := othersy
     (* pushedSym is a hack to handle the difficulty of parsing
        val ('a, 'b) f = ... compared with val (a, b) = ... and the
        similar fun declarations. 
@@ -620,7 +617,7 @@ struct
        with  where type t = int and S = sig ...*)
     else
     (
-        if (! sy) eq abortParse (* already end-of-file? *)
+        if (! sy) = abortParse (* already end-of-file? *)
         then
         (
             setSymbolStart state;
@@ -635,13 +632,13 @@ struct
     ); (* insymbol *)
 
     fun pushBackSymbol ({pushedSym,...}:lexan, sym) =
-        if !pushedSym neq othersy then raise InternalError "Attempt to push two parentheses"
+        if !pushedSym <> othersy then raise InternalError "Attempt to push two parentheses"
         else pushedSym := sym
 
    (* exported version of sy and id. *)
    
    fun sy ({sy=ref sy, pushedSym = ref pushed, ...}:lexan) =
-        if pushed neq othersy then pushed else sy;
+        if pushed <> othersy then pushed else sy;
 
    fun id ({id=ref id,...}:lexan) = id;
    

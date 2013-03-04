@@ -30,11 +30,10 @@ functor SKIPS_ (
 (*****************************************************************************)
 structure SYMBOLS :
 sig
-  type sys;
+  eqtype sys;
     
   val stringConst:  sys;
   val integerConst: sys;
-  val eq :          sys * sys -> bool;
   val repr:         sys -> string;
 end;
 
@@ -112,7 +111,6 @@ end =
 struct
   infix 5 inside;
   infix 6 ++;
-  infix 8 eq;
 
   open SYMBOLS LEX SYMSET;
         
@@ -124,7 +122,7 @@ struct
     fun notfound (expected, lex) = 
     let
       val found = 
-        if sy lex eq SYMBOLS.stringConst 
+        if sy lex = SYMBOLS.stringConst 
           then "\"" ^ id lex ^ "\""
         else if sy lex inside idSys 
               then id lex
@@ -139,7 +137,7 @@ struct
     (notfound (repr sym, lex); insymbol lex);
 
   fun getsym (sym, lex) = 
-     if (sy lex) eq sym then insymbol lex else notfound (repr sym, lex);
+     if (sy lex) = sym then insymbol lex else notfound (repr sym, lex);
 
   infix 5 notin;
   
@@ -176,7 +174,7 @@ struct
 
   (* Read a label and check that it is valid if numeric. *)
     fun getLabel (fsys, lex) = 
-    if (sy lex) eq SYMBOLS.integerConst
+    if (sy lex) = SYMBOLS.integerConst
     then
     let
         val iden = id lex;
@@ -195,7 +193,7 @@ struct
      startsys is the set of symbols which can start each element. *)
   fun testfor (sym, startsys, lex) =
       (* repeat if the separator or a starting sym is found *)
-      if sy lex eq sym
+      if sy lex = sym
         then (insymbol lex; true)
       else if sy lex inside startsys
         then (badsyms (sym, lex); true)

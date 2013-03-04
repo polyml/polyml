@@ -30,7 +30,7 @@ functor PARSE_TYPE (
 (*****************************************************************************)
 structure SYMBOLS :
 sig
-  type sys;
+  eqtype sys;
   
   val leftParen:  sys;
   val typeIdent:  sys;
@@ -42,8 +42,6 @@ sig
   val rightCurly: sys;
   val colon:      sys;
   val ident:      sys;
-  
-  val eq: sys * sys -> bool
 end;
   
 (*****************************************************************************)
@@ -153,7 +151,6 @@ struct
     open SYMBOLS;    
     open UTILITIES;
    
-    infix 7 eq;
     infix 8 ++;
     infix 8 inside;
     
@@ -169,7 +166,7 @@ struct
             let (* First part may be a type sequence. *)
                 val sym = sy lex and startLocn = location lex
                 val (tySeq, seqLocn) = 
-                    if sym eq leftParen
+                    if sym = leftParen
                     then (* sequence of types *)
                     let
                         fun processList () =
@@ -196,7 +193,7 @@ struct
                         (sequence, locSpan(startLocn, endLocn))
                     end
 
-                    else if sym eq leftCurly
+                    else if sym = leftCurly
                     then
                     let
                         val () = insymbol lex; (* Remove opening bracket *)
@@ -238,7 +235,7 @@ struct
                         end
                     end
                     
-                    else if sym eq typeIdent
+                    else if sym = typeIdent
                     then
                     let (* type variable *)
                         val ty = #lookupTvar env (id lex);
@@ -247,7 +244,7 @@ struct
                         ([makeParseTypeId(ty, startLocn)], startLocn)
                     end
       
-                    else if sym eq SYMBOLS.ident
+                    else if sym = SYMBOLS.ident
                     (* Constructor such as `int' *)
                     then
                     let
@@ -262,7 +259,7 @@ struct
                     );
             in
                 (* Type sequence read. Can now have some type constructors. *)
-                if sy lex eq SYMBOLS.ident
+                if sy lex = SYMBOLS.ident
                 then
                 let (* Returns the type made from the constructors. *)
                     fun constructors(args, argLoc) =
@@ -272,7 +269,7 @@ struct
                         val constructed = makeParseTypeConstruction(idAndLoc, (args, argLoc), loc);
                     in
                         insymbol lex;
-                        if sy lex eq SYMBOLS.ident
+                        if sy lex = SYMBOLS.ident
                         then constructors([constructed], loc)
                         else (constructed, loc)
                     end;

@@ -37,14 +37,21 @@ local
             structure CODETREE_FUNCTIONS = CodetreeFunctions
         )
 
+    structure CodetreeSimplifier =
+        CODETREE_SIMPLIFIER(
+            structure BASECODETREE = BaseCodeTree
+            structure CODETREE_FUNCTIONS = CodetreeFunctions
+        )
+
     structure CodetreeOptimiser =
         CODETREE_OPTIMISER(
             structure PRETTY        = Pretty
             structure DEBUG         = Debug
             structure BASECODETREE  = BaseCodeTree
             structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure BACKEND = CodetreeBackend
+            structure BACKEND       = CodetreeBackend
             structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
+            structure SIMPLIFIER    = CodetreeSimplifier
         )
 
 in

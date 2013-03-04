@@ -26,14 +26,14 @@
 *)
 
 
-structure SymSet : 
+structure SymSet :>
 
 (*****************************************************************************)
 (*                  SYMSET export signature                                  *)
 (*****************************************************************************)
 sig
   type symset;
-  type sys;
+  type sys = Symbols.sys
    
   val inside: sys * symset -> bool;
   
@@ -127,33 +127,6 @@ let
 
 structure SYMBOLS = Symbols
      
-structure SYMS =
-struct
-  abstype set = Set of int -> bool
-  with
-    val empty : set = Set (fn _ => false);
-
-(* ...  
-    fun plus  (Set f, Set g) = Set (fn x => f x orelse g x);
-... *)
-    (* Experiment! *) 
-    fun plus  (Set f, Set g) = Set (fn x => g x orelse f x);
-    
-    fun star  (Set f, Set g) = Set (fn x => f x andalso g x);
-    fun minus (Set f, Set g) = Set (fn x => f x andalso not (g x));
-    
-    fun mk (i : int) = Set (fn j => j = i)
-  
-    infix 8 upto;
-    
-    fun first upto last = Set (fn i => first <= i andalso i <= last);
-    
-    infix 5 inside eq neq;
-    
-    fun i inside (Set f) = f i;
-  end;
-end
-
 
 in
 
@@ -161,20 +134,27 @@ in
 (*                  SYMSET functor body                                      *)
 (*****************************************************************************)
 struct
-  type sys = SYMBOLS.sys;
-  val down = SYMBOLS.down;
+    type sys = SYMBOLS.sys;
   
-  type symset = SYMS.set;
-  val empty   = SYMS.empty;
-  fun mk sym  = SYMS.mk (down sym);
-  
-  infix 5 inside;
-  infix 6 ++;
+    datatype symset = Set of SYMBOLS.sys -> bool
 
-  fun sym inside s = SYMS.inside (down sym,s);
+    val empty = Set (fn _ => false);
+
+(* ...  
+    fun plus  (Set f, Set g) = Set (fn x => f x orelse g x);
+... *)
+    (* Experiment! *) 
+    fun plus  (Set f, Set g) = Set (fn x => g x orelse f x);
+     
+    fun mk i = Set (fn j => j = i)
+ 
+    infix 5 inside
+    infix 6 ++;
+
+    fun sym inside (Set s) = s sym
   
 (* fun a ++ b = SYMS.plus (a,b); *)
-  val op ++ = SYMS.plus; (* redefined to reduce garbage SPF 26/9/94 *)
+  val op ++ = plus; (* redefined to reduce garbage SPF 26/9/94 *)
   
   val abortParse     = mk SYMBOLS.abortParse;
   val ident          = mk SYMBOLS.ident;

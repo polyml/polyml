@@ -47,18 +47,6 @@ functor CODEGEN_TABLE (
     structure MISC :
     sig
         exception InternalError of string;
-  
-        type 'a iter
-   
-        val Iter :
-        { 
-            continue: bool,
-            value:    unit -> 'a,
-            next:     unit -> 'a iter
-        } -> 'a iter
-
-        val for : 'a iter -> ('a -> 'b) -> unit;
-        val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
         val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
     end
     
@@ -283,60 +271,6 @@ struct
     |   NoStackEntry                    =>
            raise InternalError ("pstackRealEntry: not entry: " ^ Int.toString(locn))
 
-
-   (* An iterator over the pseudo stack. Returns only entries which are not nil,
-      but it will return entries whose use counts have gone to zero, but which
-      still have useful values in their caches. *)
-  fun overStack (table as Ttab{pstackptr, ...}) downwards =
-    if downwards
-    then let
-      (* The basis is an index to the stack *)
-      fun next i =
-      let
-        val nxt = i - 1;
-      in (* At the bottom ? *)
-        if nxt < 0
-        then nxt
-        else 
-          case (pstackEntry(table, nxt)) of
-            NoStackEntry => next nxt (* Empty entry - must continue *)
-          | StackEntry _ => nxt
-      end;
-
-      fun mkIter i =
-        Iter
-          {
-             continue = i >= 0,
-             value    = fn () => i,
-             next     = fn () => mkIter (next i)
-          };
-    in
-      mkIter (next (! pstackptr))
-    end
-
-    else let (* upwards *)
-      fun next i =
-      let
-        val nxt = i + 1;
-      in 
-        if nxt >= (! pstackptr)
-          then nxt
-        else 
-          case (pstackEntry(table, nxt)) of
-            NoStackEntry => 
-              next nxt (* Empty entry - must continue *)
-              
-          | StackEntry _ =>
-              nxt
-      end;
-  
-      fun mkIter i = Iter { continue = i < (! pstackptr),
-                            value    = fn () => i,
-                            next     = fn () => mkIter (next i) };
-    in
-      mkIter (next ~1)
-    end (* overStack *);
-   
     fun printStackUnion printStream stackun =
       case stackun of
         Register(reg, _) => printStream(regRepr reg)
@@ -415,8 +349,17 @@ struct
         printStream "regs=";
         printRegs printStream regset;
         printStream "\n";
-        for (overStack table true (* downwards *))
-            (fn entry => printEntry printStream (pstackEntry(table, entry)) entry);
+        let
+            fun pEntry i =
+                if i <= 0 then ()
+                else
+                (
+                    printEntry printStream (pstackEntry(table, i)) i;
+                    pEntry (i-1)
+                )
+        in
+            pEntry (! pstackptr)
+        end;
         printStream "-\n" (* Extra line break between entries. *)
     )
   

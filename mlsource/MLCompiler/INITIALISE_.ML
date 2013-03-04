@@ -127,10 +127,7 @@ end;
 
 structure MISC :
 sig
-  type 'a iter
   val unescapeString : string -> string
-  val mapIterator : ('a -> 'b) -> 'a iter -> 'b list
-  val upto : int -> int -> int iter
   exception Conversion of string;     (* string to int conversion failure *)
 end;
 

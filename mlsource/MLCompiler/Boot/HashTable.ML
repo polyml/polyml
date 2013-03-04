@@ -20,15 +20,6 @@
 (* Hash table type - Creates a hash table of specified initial size. This
    version expands the hash table and rehashes when the table gets too full *)
 
-(*
-Changes:
-  25/03/94 SPF bugfix (off-by-one error in hashOver/next function)
-
-*)
-
-
-(* HACKS: Misc, Array, Int.rem *)
-
 structure HashTable:
 
 (*****************************************************************************)
@@ -36,15 +27,12 @@ structure HashTable:
 (*****************************************************************************)
 sig
   type 'a hash
-  type 'a iter
   
   val hashMake: int -> 'a hash
   val hashSet: 'a hash * string * 'a -> unit
   val hashSub: 'a hash * string -> 'a option
   
-  (* An iterator over the non-empty entries in the table. *)
-  val hashOver: 'a hash -> (string * 'a) iter
-  val hashFold: 'a hash -> (string -> 'a -> 'b -> 'b) -> 'b -> 'b
+  val fold: (string * 'a * 'b -> 'b) -> 'b -> 'a hash -> 'b
   (* Construct an immutable hash table from a mutable one. *)
   val hashFreeze: 'a hash -> 'a hash
 end =
@@ -54,8 +42,7 @@ end =
 (*****************************************************************************)
 struct
 
-local
-  open Misc;
+  exception InternalError = Misc.InternalError
   infix 8 sub
 
   (* Each entry in the table is a pair containing the key and the value. *)
@@ -63,9 +50,6 @@ local
   (* make namedOption local, because that means the new compiler can
      optimise its representation. SPF 11/5/95 *)
   datatype 'a namedOption = None | Some of (string * 'a);
-in
-  
-  type 'a iter = 'a iter;
 
   fun hashValue (N : int) (str: string) : int =
         Word.toInt(
@@ -198,67 +182,30 @@ in
         end
         else ()
     end;
-  
-    fun hashOver table =
+
+    (* Fold a function over each of the items in the table. *)
+    fun fold f acc table =
     let
         val (length, getItem) =
             case table of
                 Hash { entries = ref e, ...} => (Array.length e, fn i => Array.sub(e, i))
             |   Frozen { entries, ... } => (Vector.length entries, fn i => Vector.sub(entries, i))
-        (* An iterator over the non-empty entries in the table. *)
-          
-        fun continue i = i < length;
-  
-        fun value i =
-            (* Must check for limit since value can be called explicitly
-               even if continue is false. *)
-          
-        if continue i then
-            case (getItem i) of
-              None      => raise InternalError "HashTable.hashOver.value (None)"
-            | Some pair => pair
-        else
-            raise InternalError "HashTable.hashOver.value (limit passed)"
 
-        (* Return the next non-empty entry. *)
-        fun next i =
-        let
-            val n = i + 1;
-        in
-            if n >= length
-            then
-                makeIter n (* stop if we've reached the end (bugfixed SPF 25/3/94) *)
-            else
-                case (getItem n) of
-                  None   => next n
-                | Some _ => makeIter n
-        end
-  
-    
-        and makeIter i = 
-          Iter
-            {
-              continue = continue i,
-              next     = fn () => next i,
-              value    = fn () => value i
-            };
-    in
-        next ~1
-    end;
-
-    fun hashFold table f =
-    let
         fun foldF i acc =
-            if not (Continue i) then acc
-            else
-            let
-                val (name,alpha) = Value i;
-            in
-                foldF (Next i) (f name alpha acc)
-            end
+        if i >= length
+        then acc (* End of table. *)
+        else
+        let
+            val next =
+                case getItem i of
+                    None => acc
+                |   Some (name, alpha) => f (name, alpha, acc)
+        in
+            foldF (i+1) next
+        end
     in
-        foldF (hashOver table)
-    end;
+        foldF 0 acc
+    end
 
     (* If this is a mutable hash table create an immutable one from it.  The reason
        for this is to reduce the number of mutables stored.
@@ -266,8 +213,5 @@ in
     fun hashFreeze (Hash{entries = ref e, hash = ref hashN, ...}) =
         Frozen{ entries = Array.vector e, hash = hashN }
     |   hashFreeze h = h
-
-
-end (* local *);
 
 end (* HashTable *);

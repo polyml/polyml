@@ -35,28 +35,6 @@ sig
 
   val unescapeString : string -> string
 
-  type 'a iter;
-  
-  val Iter : {next: unit -> 'a iter, value: unit -> 'a, continue: bool} -> 
-                 'a iter
-       
-  val Continue : 'a iter -> bool
-  val Value    : 'a iter -> 'a
-  val Next     : 'a iter -> 'a iter
-
-  val iterList : 'a iter -> 'a list
-  val upto     : int -> int -> int iter
-  val downto   : int -> int -> int iter
-  
-  val for    : 'a iter -> ('a -> 'b) -> unit
-
-  val forsucc:  ('a -> 'a) -> ('a * 'b -> bool) -> 
-                      'a -> 'b -> ('a -> 'c) -> unit
-  val first  : ('a -> bool) -> ('a -> 'b) -> (unit -> 'b) -> 'a iter -> 'b
-
-  val mapIterator     : ('a -> 'b) -> 'a iter -> 'b list
-  val revfoldIterator : ('a -> 'b -> 'b) -> 'b -> 'a iter -> 'b
-  
   val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end  =
 
@@ -64,7 +42,6 @@ end  =
 (*                  Misc structure body                                      *)
 (*****************************************************************************)
 struct
-  open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
   exception Interrupt = SML90.Interrupt; 
 
   (* These are handled in the compiler *)
@@ -116,67 +93,6 @@ struct
         in
             String.implode(convChars 0)
         end
-  
-  fun forsucc succ (op <=) =
-  let
-    fun for first last f =
-      if first <= last then (f first; for (succ first) last f) else ();
-  in
-    for
-  end;
-
-  datatype 'a iter = Iter of { continue: bool,
-                   value:    unit -> 'a,
-                   next:     unit -> 'a iter };
-  
-  fun Continue (Iter {continue,...}) = continue;
-  fun Value    (Iter {value,...})    = value();
-  fun Next     (Iter {next,...})     = next();
-  
-  fun iterList i = if Continue i then Value i :: iterList (Next i) else [];
-  
-  fun first condition (* The condition to search for *)
-        thenpart  (* Executed if found *)
-        elsepart  (* Executed if not *) =
-  let
-    fun search i = if Continue i
-           then
-             let
-               val v = Value i;
-             in
-               if condition v then thenpart v else search (Next i)
-             end
-           else elsepart()
-  in
-    search
-  end;
-  
-  fun for i body = if Continue i then (body (Value i); for (Next i) body) else ();
-  
-  fun mapIterator     f   i = map     f   (iterList i);
-  (*fun revfoldIterator f x i = revfold f x (iterList i);*)
-  fun revfoldIterator f x i =
-    if Continue i
-    then revfoldIterator f (f (Value i) x) (Next i)
-    else x
-  
-  fun upto start finish =
-  let
-    fun succ n = Iter { continue = n <= finish,
-            next     = fn () => succ (n+1),
-            value    = fn () => n };
-  in
-    succ start
-  end;
-  
-  fun downto start finish =
-  let
-    fun pred n = Iter { continue = n >= finish,
-            next     = fn () => pred (n-1),
-            value    = fn () => n };
-  in
-    pred start
-  end;
 
   fun lookupDefault first second = (fn key => case first key of NONE => second key | v => v);
 

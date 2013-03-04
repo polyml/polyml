@@ -30,7 +30,7 @@ functor PARSE_DEC (
 
 structure SYMBOLS :
 sig
-  type sys
+  eqtype sys
   
   val abortParse:   sys
   val ident:        sys
@@ -99,9 +99,6 @@ sig
   val eqtypeSy:     sys
   val includeSy:    sys 
   val whereSy:        sys;
-  
-  val eq:   sys * sys -> bool
-  val neq:  sys * sys -> bool
 end;
 
 structure SYMSET :
@@ -276,11 +273,7 @@ end =
 struct
  open MISC;
  
- (* Cannot open SYMBOLS due to name clashes with SYMSET *)
- 
- val eq  = SYMBOLS.eq;   infix 5 eq;
- val neq = SYMBOLS.neq;  infix 5 neq;
- 
+ (* Cannot open SYMBOLS due to name clashes with SYMSET *) 
  open SYMSET;   infix 9 ++; infix 4 inside;
  open LEX;
  open SKIPS;
@@ -376,7 +369,7 @@ struct
            variables are actually bound. *)
         fun getTypeVar (): typeVarForm * location =
         (* Read a type variable and return it. *)
-        if (sy lex) neq SYMBOLS.typeIdent
+        if (sy lex) <> SYMBOLS.typeIdent
         then
         (
             badsyms (SYMBOLS.typeIdent, lex);
@@ -413,9 +406,9 @@ struct
         end; (* getTypeVar *)
    in
       (* May be one type variable or a bracketed sequence. *)
-      if (sy lex) eq SYMBOLS.typeIdent
+      if (sy lex) = SYMBOLS.typeIdent
       then [#1(getTypeVar())] (* One type var. *)
-      else if (sy lex) eq SYMBOLS.leftParen
+      else if (sy lex) = SYMBOLS.leftParen
       then (* Sequence. *)
            (
          insymbol lex;
@@ -424,7 +417,7 @@ struct
             haven't got a tyvarseq once we find a symbol that isn't a
             tyvar.  The easiest way round this is to push the parenthesis
             back into the lex stream and return an empty tyvarseq. *)
-         if (sy lex) neq SYMBOLS.typeIdent
+         if (sy lex) <> SYMBOLS.typeIdent
          then (pushBackSymbol(lex, SYMBOLS.leftParen); [] )
          else
             let
@@ -499,7 +492,7 @@ struct
         val (matchedType, endLocn) =
           (* If this is part of a signature we do not need to have an
            "= ty" after it. If it is an eqtype we must not have one. *)
-            if (isSpec andalso (sy lex) neq SYMBOLS.equalsSign) orelse isEqtype
+            if (isSpec andalso (sy lex) <> SYMBOLS.equalsSign) orelse isEqtype
             then (NONE, idLocn)
             else
             let
@@ -532,7 +525,7 @@ struct
         
         val () = getsym (SYMBOLS.equalsSign, lex);
        in
-        if (sy lex) eq SYMBOLS.datatypeSy
+        if (sy lex) = SYMBOLS.datatypeSy
         then (* Replication *)
             let
                 (* Check that the type var sequence was empty. *)
@@ -590,7 +583,7 @@ struct
         fun constrs fsys =
         let
             val () =
-                if (sy lex) eq SYMBOLS.opSy
+                if (sy lex) = SYMBOLS.opSy
                 then
                 (
                     if isSpecification
@@ -608,7 +601,7 @@ struct
                 being declared. Otherwise it is a constant of the type 
                 being declared. *)
             val (component, componentLoc) = 
-               if (sy lex) eq SYMBOLS.ofSy
+               if (sy lex) = SYMBOLS.ofSy
                then
                     let
                         val () = insymbol lex;(* Followed by a type. *)
@@ -680,7 +673,7 @@ struct
     let
         (* Sequence of declarations optionally separated by semicolons. *)
         fun decSequence(fsys, env) : parsetree list =
-        if (sy lex) eq SYMBOLS.semicolon
+        if (sy lex) = SYMBOLS.semicolon
         then (* Semicolons are optional. *)
             (insymbol lex; decSequence(fsys, env))
         else if (sy lex) inside startDecSys
@@ -859,14 +852,14 @@ struct
                 val sym = sy lex;
                 val startLocn = location lex
             in
-                if sym eq SYMBOLS.underline (* wild card *)
+                if sym = SYMBOLS.underline (* wild card *)
                 then ( insymbol lex; (wildCard startLocn, startLocn) )
          
-                else if sym eq SYMBOLS.leftBrack (* list - may be empty *)
+                else if sym = SYMBOLS.leftBrack (* list - may be empty *)
                 then
                 let
                     val () = insymbol lex;
-                    val p = if (sy lex) neq SYMBOLS.rightBrack (* may be empty *)
+                    val p = if (sy lex) <> SYMBOLS.rightBrack (* may be empty *)
                         then
                         let
                             fun varsList() =
@@ -888,11 +881,11 @@ struct
                 end
 
                 (* bracketed pattern or unit value. *)
-                else if sym eq SYMBOLS.leftParen
+                else if sym = SYMBOLS.leftParen
                 then
                 let
                     val () = insymbol lex;
-                    val p = if (sy lex) neq SYMBOLS.rightParen
+                    val p = if (sy lex) <> SYMBOLS.rightParen
                         then
                         let
                             val (first,_) = pattern (fsys ++ rightParenCommaSy) lex env;
@@ -925,7 +918,7 @@ struct
                 end
          
                (* Either a labelled record or unit. *)
-               else if (sy lex) eq SYMBOLS.leftCurly
+               else if (sy lex) = SYMBOLS.leftCurly
                then
                let
                     val () = insymbol lex;
@@ -988,13 +981,13 @@ struct
 
                 (* Constants *)
 
-                else if sym eq SYMBOLS.stringConst
+                else if sym = SYMBOLS.stringConst
                 then (getConstant mkString, startLocn)
 
-                else if sym eq SYMBOLS.integerConst
+                else if sym = SYMBOLS.integerConst
                 then (getConstant mkInt, startLocn)
 
-                else if sym eq SYMBOLS.realConst
+                else if sym = SYMBOLS.realConst
                 then
                 (
                     (* Real literals were allowed in patterns in ML90. *)
@@ -1003,16 +996,16 @@ struct
                     (getConstant mkReal, startLocn)
                 )
 
-                else if sym eq SYMBOLS.charConst
+                else if sym = SYMBOLS.charConst
                 then (getConstant mkChar, startLocn)
 
-                else if sym eq SYMBOLS.wordConst
+                else if sym = SYMBOLS.wordConst
                 then (getConstant mkWord, startLocn)
 
                 else if (sy lex) inside declarableVarOpSy   (* Identifiers *)
                 then
                 let
-                    val opThere = (sy lex) eq SYMBOLS.opSy;
+                    val opThere = (sy lex) = SYMBOLS.opSy;
                     val () = if opThere then insymbol lex else ();
                     val idLoc as (_, endLoc) = getLongNonInfix opThere declarableVarSys fsys lex env
                 in
@@ -1059,11 +1052,11 @@ struct
                     (* We expect to get a => here but a common problem is to confuse
                        matches with fun declarations and use a = here.  We report it as
                        an error but swallow it as though it was what we wanted. *)
-                    if (sy lex) eq SYMBOLS.thickArrow then insymbol lex
+                    if (sy lex) = SYMBOLS.thickArrow then insymbol lex
                     else
                     (
                         notfound ("=>", lex);
-                        if (sy lex) eq SYMBOLS.equalsSign then insymbol lex else ()
+                        if (sy lex) = SYMBOLS.equalsSign then insymbol lex else ()
                     )
             
                 (* And now the expression. *)
@@ -1090,12 +1083,12 @@ struct
             let
                 val startSym = sy lex and startLocn = location lex
             in
-                if startSym eq SYMBOLS.leftBrack
+                if startSym = SYMBOLS.leftBrack
                 then
                 let
                     val () = insymbol lex;
                     val p = 
-                        if sy lex neq SYMBOLS.rightBrack (* may be empty *)
+                        if sy lex <> SYMBOLS.rightBrack (* may be empty *)
                         then expressionList (fsys ++ commaRightBrackSy, SYMBOLS.comma, env)
                         else [];
                     val locs = locSpan(startLocn, location lex)
@@ -1105,7 +1098,7 @@ struct
                 end
 
                 (* A parenthesised expression, a tuple, a sequence or a unit value *)
-                else if startSym eq SYMBOLS.leftParen
+                else if startSym = SYMBOLS.leftParen
                 then
                 let
                     val () = insymbol lex;
@@ -1151,7 +1144,7 @@ struct
                 end
 
                 (* Either a labelled record or unit. *)
-                else if startSym eq SYMBOLS.leftCurly
+                else if startSym = SYMBOLS.leftCurly
                 then
                 let
                     val () = insymbol lex;
@@ -1187,7 +1180,7 @@ struct
                 end
 
                 (* local declaration *)
-                else if startSym eq SYMBOLS.letSy
+                else if startSym = SYMBOLS.letSy
                 then
                 let
                     val ()     = insymbol lex;
@@ -1205,7 +1198,7 @@ struct
                 (* ordinary expression - qualified names allowed *)
                 else
                 let
-                    val opThere = startSym eq SYMBOLS.opSy;
+                    val opThere = startSym = SYMBOLS.opSy;
                     val ()      = if opThere then insymbol lex else ();
                     val sym     = sy lex;
                     val symLoc  = location lex
@@ -1218,7 +1211,7 @@ struct
                         (mkIdent (ident, idLoc), locSpan(startLocn, idLoc))
                     end
 
-                    else if sym eq SYMBOLS.hashSign (* Selector. *)
+                    else if sym = SYMBOLS.hashSign (* Selector. *)
                     then 
                      let
                         val () = insymbol lex;
@@ -1228,19 +1221,19 @@ struct
                         (mkSelector(lab, locs), locs)
                     end
 
-                    else if sym eq SYMBOLS.stringConst
+                    else if sym = SYMBOLS.stringConst
                     then (getConstant mkString, locSpan(startLocn, symLoc))
 
-                    else if sym eq SYMBOLS.integerConst
+                    else if sym = SYMBOLS.integerConst
                     then (getConstant mkInt, locSpan(startLocn, symLoc))
 
-                    else if sym eq SYMBOLS.realConst
+                    else if sym = SYMBOLS.realConst
                     then (getConstant mkReal, locSpan(startLocn, symLoc))
 
-                    else if sym eq SYMBOLS.wordConst
+                    else if sym = SYMBOLS.wordConst
                     then (getConstant mkWord, locSpan(startLocn, symLoc))
 
-                    else if sym eq SYMBOLS.charConst
+                    else if sym = SYMBOLS.charConst
                     then (getConstant mkChar, locSpan(startLocn, symLoc))
 
                     else   (* Expected something e.g. an identifier. *)
@@ -1259,7 +1252,7 @@ struct
                 val startLocn = location lex
             in
                 (* if expression *)
-                if sym eq SYMBOLS.ifSy
+                if sym = SYMBOLS.ifSy
                 then
                 let
                     val () = insymbol lex;
@@ -1274,13 +1267,13 @@ struct
                 end
 
                 (* while expression *)
-                else if sym eq SYMBOLS.whileSy
+                else if sym = SYMBOLS.whileSy
                 then
                 let
                     val () = insymbol lex;
                     val (test, testLocn) = expression (fsys ++ doSy) env;
                  in
-                    if (sy lex) eq SYMBOLS.doSy
+                    if (sy lex) = SYMBOLS.doSy
                     then
                         let
                             val () = insymbol lex;
@@ -1293,7 +1286,7 @@ struct
                 end
 
                 (* case expression *)
-                else if sym eq SYMBOLS.caseSy
+                else if sym = SYMBOLS.caseSy
                 then
                 let
                     val () = insymbol lex;
@@ -1306,7 +1299,7 @@ struct
                 end
         
                 (* raise exception *)
-                else if sym eq SYMBOLS.raiseSy
+                else if sym = SYMBOLS.raiseSy
                 then
                 let
                     val () = insymbol lex;
@@ -1317,7 +1310,7 @@ struct
                 end
 
                 (* fn expression *)
-                else if (sy lex) eq SYMBOLS.fnSy
+                else if (sy lex) = SYMBOLS.fnSy
                 then
                 let
                     val () = insymbol lex;
@@ -1343,7 +1336,7 @@ struct
                 (* N.B. If the expression had been introduced by a keyword (e.g. if)
                    then the "else" part would have swallowed any "andalso". *)
             in
-                if (sy lex) eq SYMBOLS.andalsoSy
+                if (sy lex) = SYMBOLS.andalsoSy
                 then
                 let
                     val () = insymbol lex;
@@ -1360,7 +1353,7 @@ struct
            let
                 val (first, firstLoc) = parseAndalso (fsys ++ orelseSy);
            in
-                if (sy lex) eq SYMBOLS.orelseSy
+                if (sy lex) = SYMBOLS.orelseSy
                 then
                 let
                     val () = insymbol lex;
@@ -1380,7 +1373,7 @@ struct
             let
                 val (exp, expLoc) = parseOrelse (fsys ++ handleSy);
             in
-                if (sy lex) eq SYMBOLS.handleSy
+                if (sy lex) = SYMBOLS.handleSy
                 then
                 let
                     val () = insymbol lex; (* Remove "handle" *)
@@ -1403,7 +1396,7 @@ struct
             val sym = sy lex;
             val startLocn = location lex
         in
-            if sym eq SYMBOLS.valSy
+            if sym = SYMBOLS.valSy
             then
             let
                 val () = insymbol lex;
@@ -1429,7 +1422,7 @@ struct
                 (* Processes a value binding. *)
                 (* We check for qualified names in the second pass *)
                 fun valB(fsys, isRec) =
-                if (sy lex) eq SYMBOLS.recSy
+                if (sy lex) = SYMBOLS.recSy
                 then (insymbol lex; valB(fsys, true))
                 else
                 let
@@ -1458,7 +1451,7 @@ struct
                 fullLocn)
             end
 
-            else if sym eq SYMBOLS.funSy
+            else if sym = SYMBOLS.funSy
             then
             let
                 val () = insymbol lex;
@@ -1513,11 +1506,11 @@ struct
                            to confuse fun declarations with matches and use a =>
                            here.  Report the error but swallow the =>. *)
                         val () =
-                            if (sy lex) eq SYMBOLS.equalsSign then insymbol lex
+                            if (sy lex) = SYMBOLS.equalsSign then insymbol lex
                             else
                             (
                                 notfound ("=", lex);
-                                if (sy lex) eq SYMBOLS.thickArrow then insymbol lex else ()
+                                if (sy lex) = SYMBOLS.thickArrow then insymbol lex else ()
                             );
                             (* expression *)
                         val (exp, expLoc)  = expression (fsys ++ verticalBar) newEnv;
@@ -1546,7 +1539,7 @@ struct
                 fullLocn)
             end
 
-            else if sym eq SYMBOLS.typeSy
+            else if sym = SYMBOLS.typeSy
             then
             let
                 val () = insymbol lex;
@@ -1556,10 +1549,10 @@ struct
                 (mkTypeDeclaration (bindings, fullLocn), fullLocn)
             end
 
-            else if sym eq SYMBOLS.datatypeSy
+            else if sym = SYMBOLS.datatypeSy
             then datatypeDecOrRepl(fsys, env, false, startLocn)
 
-            else if sym eq SYMBOLS.abstypeSy
+            else if sym = SYMBOLS.abstypeSy
             then
             let
                 val ()         = insymbol lex;
@@ -1579,7 +1572,7 @@ struct
                 (mkAbstypeDeclaration (tb, withtypes, decs, fullLocn), fullLocn)
             end
 
-            else if sym eq SYMBOLS.exceptionSy
+            else if sym = SYMBOLS.exceptionSy
             then
             let
                 (* Declares exception identifiers and their types. *)
@@ -1589,7 +1582,7 @@ struct
                 fun exceptionBinding fsys =
                 let
                     (* Allow an "op" here but don't produce a warning if it's absent. *)
-                    val () = if (sy lex) eq SYMBOLS.opSy then insymbol lex else ()
+                    val () = if (sy lex) = SYMBOLS.opSy then insymbol lex else ()
                     (* First the identifier. *)
                     val (iden, idLoc) = getShortId (variableSys, fsys ++ ofEqualsSignSy, lex);
                 in
@@ -1607,7 +1600,7 @@ struct
                     then
                     let (* Must be   = excon' *)
                         (* Allow an "op" here but don't produce a warning if it's absent. *)
-                        val () = if (sy lex) eq SYMBOLS.opSy then insymbol lex else ()
+                        val () = if (sy lex) = SYMBOLS.opSy then insymbol lex else ()
                         val (oldIden, oldIdenLoc) = getLongId (variableSys, fsys, lex);
                         val fullLoc = locSpan(idLoc, oldIdenLoc)
                     in
@@ -1621,7 +1614,7 @@ struct
                 (mkExDeclaration (bindings, fullLocn), fullLocn)
             end
 
-            else if sym eq SYMBOLS.localSy
+            else if sym = SYMBOLS.localSy
             then let
                 val ()      = insymbol lex;
                 (* Infix status have this scope. Type-variables have the scope of the enclosing val or fun. *)
@@ -1640,20 +1633,20 @@ struct
                 (mkLocalDeclaration (ins, body, locs, true), (*"local" rather than "let"*) locs)
             end
 
-            else if sym eq SYMBOLS.infixSy orelse
-                    sym eq SYMBOLS.infixrSy orelse
-                    sym eq SYMBOLS.nonfixSy
+            else if sym = SYMBOLS.infixSy orelse
+                    sym = SYMBOLS.infixrSy orelse
+                    sym = SYMBOLS.nonfixSy
             then
             let
                 val () = insymbol lex;
 
                 val fixForm =
-                    if sym eq SYMBOLS.nonfixSy
+                    if sym = SYMBOLS.nonfixSy
                     then Nonfix
                     else
                     let
                         val precNo =
-                            if (sy lex) eq SYMBOLS.integerConst
+                            if (sy lex) = SYMBOLS.integerConst
                             then (* Read a precedence number *)
                             let
                                 val num = valOf(Int.fromString (id lex))
@@ -1668,7 +1661,7 @@ struct
                             end
                             else 0 (* default is zero *);
                     in
-                        if sym eq SYMBOLS.infixSy
+                        if sym = SYMBOLS.infixSy
                         then Infix  precNo (* infix *)
                         else InfixR precNo (* infixr *)
                     end;
@@ -1761,7 +1754,7 @@ struct
                 (mkSig (sigs, locs), locs)
             end
 
-            else if (sy lex) eq SYMBOLS.ident
+            else if (sy lex) = SYMBOLS.ident
             then
             let
                 val ident as (_, locs) = getShortId (declarableVarSys, fsys ++ whereSy, lex)
@@ -1797,7 +1790,7 @@ struct
             then
                 (* There are two possibilities here.  It may be the start of another
                    type abbreviation or it may be the start of another signature. *)
-                if sy lex eq SYMBOLS.typeSy
+                if sy lex = SYMBOLS.typeSy
                 then getWhereTypes constrainedSig
                 else (* Push the "and" back into the lexer so it can be picked out later. *)
                     (
@@ -1823,7 +1816,7 @@ struct
        val () = skipon (fsys ++ semicolonStartSigSys, fsys, "Signature", lex)
        val sym = sy lex and startLocn = location lex
        val thisSig =
-         if sym eq SYMBOLS.datatypeSy
+         if sym = SYMBOLS.datatypeSy
          then
              let
                val startLocn = location lex
@@ -1844,7 +1837,7 @@ struct
                 [mkCoreType (datatypeDecOrRepl(sys, newenv, true, startLocn))]
             end
 
-         else if sym eq SYMBOLS.typeSy
+         else if sym = SYMBOLS.typeSy
          then
              (* It isn't obvious whether specifications of the form
                 type s and t = int * int (i.e. mixed specifications and
@@ -1857,7 +1850,7 @@ struct
                 [mkCoreType (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
             end
 
-         else if sym eq SYMBOLS.eqtypeSy
+         else if sym = SYMBOLS.eqtypeSy
          then
             let
                 val sys = fsys ++ startSigEndSy
@@ -1867,7 +1860,7 @@ struct
                 [mkCoreType (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
             end
 
-         else if sym eq SYMBOLS.valSy
+         else if sym = SYMBOLS.valSy
            then
            let
                 val () = insymbol lex
@@ -1887,7 +1880,7 @@ struct
              #1 (getList (SYMBOLS.andSy, empty, lex, doVal))
            end (* val *)
 
-         else if sym eq SYMBOLS.exceptionSy
+         else if sym = SYMBOLS.exceptionSy
             then
             let(* exception id1 of ty1 and _ and idn of tyn *)
                 val () = insymbol lex
@@ -1912,7 +1905,7 @@ struct
                 #1 (getList (SYMBOLS.andSy, empty, lex, doEx))
             end (* exception *)
            
-         else if sym eq SYMBOLS.structureSy
+         else if sym = SYMBOLS.structureSy
             then
             let
                 val () = insymbol lex
@@ -1930,7 +1923,7 @@ struct
                 [mkStructureSig(getList(SYMBOLS.andSy, empty, lex, doStructure))]
             end
 
-         else if sym eq SYMBOLS.includeSy
+         else if sym = SYMBOLS.includeSy
             then
             let
                 (* In ML 97 we can have "include sigexp" but in addition as
@@ -1952,7 +1945,7 @@ struct
                     parseSignature (fsys ++ startSigEndSy ++ declarableVarSys) lex env
 
                 fun sigids locs =
-                if (sy lex) eq SYMBOLS.ident
+                if (sy lex) = SYMBOLS.ident
                 then
                 let
                     val nameLoc as (_, loc) = getShortId (declarableVarSys, fsys, lex)
@@ -1967,7 +1960,7 @@ struct
                 [mkInclude (firstSig :: otherSigs, locSpan(startLocn, finalLoc))]
             end
 
-         else if sym eq SYMBOLS.sharingSy
+         else if sym = SYMBOLS.sharingSy
          then
             let (* sharing *)
                 val startLocn = location lex
@@ -1993,7 +1986,7 @@ struct
            (* end of parse of thisSig *)
              
         (* continue until the `end' *)
-        val () = if (sy lex) eq SYMBOLS.semicolon then insymbol lex else ();
+        val () = if (sy lex) = SYMBOLS.semicolon then insymbol lex else ();
     in 
         if (sy lex) inside semicolonStartSigSys
         then thisSig @ parseSigEntries ()
@@ -2074,7 +2067,7 @@ struct
                 (* Functor names must not be qualified. *)
                 val () = checkForDots (iden, lex, idLoc);
                 val parameter =
-                    if (sy lex) eq SYMBOLS.rightParen (* Empty parameter list *)
+                    if (sy lex) = SYMBOLS.rightParen (* Empty parameter list *)
                     then mkStruct([], locSpan(startLoc, location lex))
                     else
                     let
@@ -2105,7 +2098,7 @@ struct
         (* We may have one or more constraints. *)
         fun doConstraints (strExp, strExpLoc) =
         let
-            val isOpaque = (sy lex) eq SYMBOLS.colonGt;
+            val isOpaque = (sy lex) = SYMBOLS.colonGt;
         in
             if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
             then
@@ -2132,7 +2125,7 @@ struct
                 (* First the identifier *)
                 val idAndLoc as (_, idLoc) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
                 (* Next the signature if there is one. *)
-                val isOpaque = (sy lex) eq SYMBOLS.colonGt;
+                val isOpaque = (sy lex) = SYMBOLS.colonGt;
                 val sgn =
                     if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
                     then
@@ -2189,7 +2182,7 @@ struct
             val tsys = fsys ++ rightParenCommaSy;
 
             val parameter = (* empty | name:sigexp | spec *)
-                if (sy lex) eq SYMBOLS.rightParen
+                if (sy lex) = SYMBOLS.rightParen
                     (* empty *)
                 then mkFormalArg ("", mkSig([], location lex))
             
@@ -2218,7 +2211,7 @@ struct
             val () = getsym (SYMBOLS.rightParen, lex)
        
             (* Next the signature if there is one. *)
-            val isOpaque = (sy lex) eq SYMBOLS.colonGt;
+            val isOpaque = (sy lex) = SYMBOLS.colonGt;
        
             val sigOpt =
                 if testfor (SYMBOLS.colon, empty, lex) orelse testfor (SYMBOLS.colonGt, empty, lex)
@@ -2253,7 +2246,7 @@ struct
             val tsys = fsys ++ semicolonStartDecStructureSy;
         in
             (* Semicolons are optional. *)
-            if (sy lex) eq SYMBOLS.semicolon
+            if (sy lex) = SYMBOLS.semicolon
             then
             let
                 val () = insymbol lex
@@ -2294,25 +2287,25 @@ struct
     let
         val startSym = sy lex and startLoc = location lex;
     in
-        if startSym eq SYMBOLS.semicolon orelse
-           startSym eq SYMBOLS.abortParse
+        if startSym = SYMBOLS.semicolon orelse
+           startSym = SYMBOLS.abortParse
         then ([], startLoc)
     
         else if startSym inside topdecStartSy
         then
         let
             val (aDec : topdec, newOkStartSet : symset) =
-                if startSym eq SYMBOLS.functorSy
+                if startSym = SYMBOLS.functorSy
                 then (functorDec tsys lex globalEnv, functorSy)
           
-                else if startSym eq SYMBOLS.signatureSy
+                else if startSym = SYMBOLS.signatureSy
                 then (signatureDec tsys lex globalEnv, signatureSy)
           
-                else if startSym eq SYMBOLS.structureSy
+                else if startSym = SYMBOLS.structureSy
                 then (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
           
                 (* Local declarations are ambiguous; we treat them as strDecs *)
-                else if startSym eq SYMBOLS.localSy
+                else if startSym = SYMBOLS.localSy
                 then (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
           
                 (* let, val, fun etc. *)
@@ -2344,8 +2337,8 @@ in (* body of parseDec *)
         val startLoc = location lex;
         val aDec = mkCoreLang (dec(tsys, lex, false, globalEnv));
         val () = 
-            if (sy lex) neq SYMBOLS.semicolon andalso
-              (sy lex) neq SYMBOLS.abortParse
+            if (sy lex) <> SYMBOLS.semicolon andalso
+              (sy lex) <> SYMBOLS.abortParse
             then notfound (";", lex)
             else ()
     in
