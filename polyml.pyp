@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=176
+NFiles=177
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -179,4 +179,4 @@ File172=mlsource\MLCompiler\CodeTree\CODETREE_REMOVE_REDUNDANT.sml
 File173=mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml
 File174=mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml
 File175=mlsource\MLCompiler\CodeTree\GCode.x86_64.ML
-File176=mlsource\MLCompiler\CodeTree\GCode.x86_64.ML
+File176=mlsource\MLCompiler\CodeTree\CODETREE_SIMPLIFIER.sml

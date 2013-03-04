@@ -406,6 +406,8 @@ struct
                     PrettyBreak (1, 0),
                     prettyUses "" use,
                     PrettyBreak (1, 0),
+                    PrettyString "=",
+                    PrettyBreak (1, 0),
                     pretty(Lambda lambda)
                 ]
             )

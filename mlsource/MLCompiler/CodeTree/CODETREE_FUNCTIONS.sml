@@ -137,6 +137,7 @@ struct
     fun makeConstVal (cVal:codetree) =
     let
         fun makeVal (Constnt c) = c
+        |   makeVal (ConstntWithInline(c, _)) = c
             (* should just be a tuple  *)
             (* Get a vector, copy the entries into it and return it as a constant. *)
         |   makeVal (Recconstr []) = word0 (* should have been optimised already! *)

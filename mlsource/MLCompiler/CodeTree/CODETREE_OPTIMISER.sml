@@ -30,6 +30,13 @@ functor CODETREE_OPTIMISER(
         structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
     end
 
+    structure SIMPLIFIER:
+    sig
+        type codetree
+        val simplifier: codetree * int -> codetree * int
+        structure Sharing: sig type codetree = codetree end
+    end
+
     structure DEBUG :
     sig
         val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
@@ -51,6 +58,7 @@ functor CODETREE_OPTIMISER(
         BASECODETREE.Sharing 
     =   CODETREE_FUNCTIONS.Sharing
     =   REMOVE_REDUNDANT.Sharing
+    =   SIMPLIFIER.Sharing
     =   PRETTY.Sharing
     =   BACKEND.Sharing
 
@@ -127,6 +135,8 @@ struct
         (* Subtract y from x but return 0 rather than a negative number. *)
         fun x -- y = if x >= y then x-y else 0
 
+        (* Check for the use coutn and also recursive references.  N,B. We assume in hasLoop
+           that tail recursion applies only with Cond, Newenv and Handler. *)
         fun checkUse _ (_, 0, _) = 0 (* The function is too big to inline. *)
         
         |   checkUse _ (MatchFail, cl, _) = cl -- 1
@@ -1114,20 +1124,16 @@ struct
                 |   pushSetContainer(Newenv(envDecs, envExp), decs) =
                         pushSetContainer(envExp, List.rev envDecs @ decs)
 
-                |   pushSetContainer(tuple as TupleFromContainer(Extract(LoadLocal innerAddr), innerSize), decs) =
-                    if innerSize = size
+                |   pushSetContainer(tuple as TupleFromContainer(ext as Extract(LoadLocal innerAddr), innerSize), decs) =
+                    (* If the inner container is declared among the decs we have here we can replace
+                       the declaration and remove the inner container by replacing it by
+                       a reference to the outer. *)
+                    if List.exists (fn (Declar{addr, ...}) => addr = innerAddr | _ => false) decs
                     then
                     let
-                        (* We can remove the inner container and replace it by
-                           a reference to the outer. *)
-                        fun replaceContainerDec [] =
-                            raise InternalError "replaceContainerDec"
-                          | replaceContainerDec ((hd as Declar{addr, ...}) :: tl) =
-                                if addr = innerAddr
-                                then mkDec(addr, optCont) :: tl
-                                else hd :: replaceContainerDec tl 
-                          | replaceContainerDec(hd :: tl) =
-                                hd :: replaceContainerDec tl
+                        val _ = innerSize = size orelse raise InternalError "pushSetContainer: different sizes"
+                        fun changeDec (d as Declar{addr, ...}) = if addr = innerAddr then mkDec(addr, optCont) else d
+                        |   changeDec d = d 
                         (* Sometimes the TupleFromContainer is preceded by some
                            Declar entries.  We need to remove them so that the
                            last entry in the list is the NullBinding that contains the
@@ -1137,14 +1143,13 @@ struct
                            reference to a non-local container.  I don't understand this. *)
                         fun removeFinalDecs(Declar _ :: tl) = removeFinalDecs tl
                         |   removeFinalDecs(RecDecs _ :: tl) = removeFinalDecs tl
-                        |   removeFinalDecs(NullBinding c :: tl) = (c, tl)
+                        |   removeFinalDecs(NullBinding c :: tl) = (List.rev tl, c)
                         |   removeFinalDecs [] = raise InternalError "removeFinalDecs: Empty"
-                        val (exp, rdecs) = removeFinalDecs(replaceContainerDec decs)
                     in
-                        (* Just replace the declaration. *)
-                        mkEnv(List.rev rdecs, exp)
+                        mkEnv(removeFinalDecs(List.map changeDec decs))
                     end
-                    else mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
+                    else (* We can't replace it. Instead just copy the inner container to the outer, *)
+                        mkEnv(List.rev decs, mkSetContainer(optCont, (*ext*) tuple, size))
 
                 |   pushSetContainer(tuple, decs) =
                         mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
@@ -1407,10 +1412,25 @@ struct
             (cGen, functDecs @ (copiedArgs @ cDecs), cSpec)
         end
 
-    fun codetreeOptimiser(pt, debugSwitches, numLocals) =
+    fun codetreeOptimiser(code, debugSwitches, numLocals) =
     let
+        fun topLevel _ = raise InternalError "top level reached"
+
+        (* Simplify the code first then add usage information and remove
+           bindings that are no longer required. *)
+        val (simpCode, simpCount) = SIMPLIFIER.simplifier(code, numLocals)
+
+        val preOptCode = REMOVE_REDUNDANT.cleanProc(simpCode, [UseExport], topLevel, simpCount)
+
+        local
+            val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
+            and compilerOut        = PRETTY.getCompilerOutput debugSwitches
+        in
+            val () = if printCodeTree then compilerOut(pretty preOptCode) else ()
+        end
+
         val localAddressAllocator = ref 0
-        val addrTab = stretchArray (numLocals, NONE)
+        val addrTab = stretchArray (simpCount, NONE)
         
         fun lookupAddr (LoadLocal addr) = valOf(addrTab sub addr)
         |   lookupAddr _ = raise InternalError "top level reached"
@@ -1419,7 +1439,7 @@ struct
         and enterAddr (addr, tab) = update (addrTab, addr, SOME tab)
 
         val (rGeneral, rDecs, rSpec: envSpecial) =
-            optimise(pt,
+            optimise(preOptCode,
                 {lookupAddr = lookupAddr, enterAddr = enterAddr,
                  nextAddress=localAddressAllocator,
                  loopFilter=loopFilterError, debugArgs=debugSwitches})
