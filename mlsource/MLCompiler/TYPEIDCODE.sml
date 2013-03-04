@@ -781,22 +781,10 @@ struct
                the nullary constructors simply by testing whether
                the two arguments are the same.  We don't have to
                discriminate the individual cases. *)
-            fun (*isEnum(Value{class=Constructor{nullary=true, ...}, access=Global code, ...}) =
-            let
-                open ADDRESS
-            in
-                (* If the value is a short integer then we can check
-                   for equality using pointer equality. *)
-                isShort(loadWord(toAddress(evalue code), 0w1))
-            end
-            | *)isEnum _ = false
-
             fun processConstrs [] =
                 (* The last of the alternatives is false *) CodeZero
 
-            |  processConstrs ((vConstr as Value{class, access, typeOf, ...}) ::rest) =
-                if isEnum vConstr then processConstrs rest
-                else
+            |  processConstrs (Value{class, access, typeOf, ...} :: rest) =
                 let
                     fun addPolymorphism c =
                         if nTypeVars = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
@@ -806,7 +794,21 @@ struct
                 in
                     case class of
                         Constructor{nullary=true, ...} =>
-                            mkIf(matches arg1, matches arg2, processConstrs rest)
+                        let
+                            (* Nullary constructors are represented either by short constants or
+                               by constant tuples depending on the rest of the datatype.  If this
+                               is a short constant the pointer equality is sufficient.
+                               This appears to increase the code size but the test should be
+                               optimised away because it is applied to a constant. (The
+                               "injection function" of a nullary constructor is the
+                               constant that represents the value).  We have to test
+                               the tags if it is not short because we can't guarantee
+                               that the constant tuple hasn't been duplicated. *)
+                            val isShort =
+                                mkEval(rtsFunction POLY_SYS_is_short, [addPolymorphism(extractInjection base)])
+                       in
+                            mkIf(mkIf(isShort, CodeFalse, matches arg1), matches arg2, processConstrs rest)
+                        end
                     |    _ => (* We have to unwrap the value. *)
                         let
                             (* Get the constructor argument given the result type.  We might
@@ -839,14 +841,7 @@ struct
                all the enum constructors.  I've now extended this to all cases where
                there is more than one constructor.  The idea is to speed up equality
                between identical data structures. *)
-            val eqCode =
-                case vConstrs of
-                   [vcons] => (* Single constructor. *)
-                       if isEnum vcons
-                       then CodeTrue (* Return true here: processConstrs would return false. *)
-                       else processConstrs vConstrs
-                 |  _ => (* More than one constructor: should never be zero. *)
-                        mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
+            val eqCode = mkCor(mkTestptreq(arg1, arg2), processConstrs vConstrs)
         in
             if null argTypes
             then (addr, mkProc(eqCode, 2, "eq-" ^ tcName tyConstr ^ "(2)", getClosure baseEqLevelP1, 0)) :: otherFns
