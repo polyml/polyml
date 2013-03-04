@@ -20,7 +20,6 @@
 structure Make =
   MAKE_ (
     structure STRUCTVALS = StructVals;
-    structure HASHTABLE = HashTable;
     structure LEX = Lex;
     structure COMPILERBODY = CompilerBody;
     structure MISC = Misc;

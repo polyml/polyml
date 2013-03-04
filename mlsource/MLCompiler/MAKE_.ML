@@ -86,22 +86,6 @@ sig
 end;
 
 (*****************************************************************************)
-(*                  HASHTABLE                                                *)
-(*****************************************************************************)
-structure HASHTABLE:
-sig
-  type 'a hash
-  type 'a iter
-  
-  val hashMake: int -> '_a hash
-  val hashSet: '_a hash * string * '_a -> unit
-  val hashSub: 'a hash * string -> 'a option
-  
-  (* An iterator over the non-empty entries in the table. *)
-  val hashOver: 'a hash -> (string * 'a) iter
-end;
-
-(*****************************************************************************)
 (*                  UNIVERSALTABLE                                           *)
 (*****************************************************************************)
 structure UNIVERSALTABLE :
@@ -159,7 +143,6 @@ structure VERSION:
 
 sharing type
   MISC.iter
-= HASHTABLE.iter
 = UNIVERSALTABLE.iter
 
 sharing type
