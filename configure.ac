@@ -323,6 +323,7 @@ AC_CHECK_TYPES(long long)
 
 AC_CHECK_SIZEOF(void*)
 AC_CHECK_SIZEOF(long)
+AC_CHECK_SIZEOF(int)
 
 # Checks for library functions.
 AC_FUNC_CHOWN
