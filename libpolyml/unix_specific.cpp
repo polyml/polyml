@@ -393,7 +393,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             unsigned i = get_C_long(taskData, DEREFWORDHANDLE(args));
             if (i < 0 || i >= sizeof(unixConstVec)/sizeof(unixConstVec[0]))
                 raise_syscall(taskData, "Invalid index", 0);
-            return Make_unsigned(taskData, unixConstVec[i]);
+            return Make_arbitrary_precision(taskData, unixConstVec[i]);
         }
 
     case 5: /* fork. */
@@ -401,7 +401,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             pid_t pid = fork();
             if (pid < 0) raise_syscall(taskData, "fork failed", errno);
             if (pid == 0) processes->SetSingleThreaded();
-            return Make_unsigned(taskData, pid);
+            return Make_arbitrary_precision(taskData, pid);
         }
 
     case 6: /* kill */
@@ -409,56 +409,56 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             int pid = get_C_long(taskData, DEREFHANDLE(args)->Get(0));
             int sig = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             if (kill(pid, sig) < 0) raise_syscall(taskData, "kill failed", errno);
-            return Make_unsigned(taskData, 0);
+            return Make_arbitrary_precision(taskData, 0);
         }
 
     case 7: /* get process id */
         {
             pid_t pid = getpid();
             if (pid < 0) raise_syscall(taskData, "getpid failed", errno);
-            return Make_unsigned(taskData, pid);
+            return Make_arbitrary_precision(taskData, pid);
         }
 
     case 8: /* get process id of parent */
         {
             pid_t pid = getppid();
             if (pid < 0) raise_syscall(taskData, "getppid failed", errno);
-            return Make_unsigned(taskData, pid);
+            return Make_arbitrary_precision(taskData, pid);
         }
 
     case 9: /* get real user id */
         {
             uid_t uid = getuid();
             if (uid < 0) raise_syscall(taskData, "getuid failed", errno);
-            return Make_unsigned(taskData, uid);
+            return Make_arbitrary_precision(taskData, uid);
         }
 
     case 10: /* get effective user id */
         {
             uid_t uid = geteuid();
             if (uid < 0) raise_syscall(taskData, "geteuid failed", errno);
-            return Make_unsigned(taskData, uid);
+            return Make_arbitrary_precision(taskData, uid);
         }
 
     case 11: /* get real group id */
         {
             gid_t gid = getgid();
             if (gid < 0) raise_syscall(taskData, "getgid failed", errno);
-            return Make_unsigned(taskData, gid);
+            return Make_arbitrary_precision(taskData, gid);
         }
 
     case 12: /* get effective group id */
         {
             gid_t gid = getegid();
             if (gid < 0) raise_syscall(taskData, "getegid failed", errno);
-            return Make_unsigned(taskData, gid);
+            return Make_arbitrary_precision(taskData, gid);
         }
 
     case 13: /* Return process group */
         {
             pid_t pid = getpgrp();
             if (pid < 0) raise_syscall(taskData, "getpgrp failed", errno);
-            return Make_unsigned(taskData, pid);
+            return Make_arbitrary_precision(taskData, pid);
         }
 
     case 14: /* Wait for child process to terminate. */
@@ -508,7 +508,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             case 2: /* Signalled */ result = resVal; break;
             case 3: /* Stopped */ result = (resVal << 8) | 0177;
             }
-            return Make_unsigned(taskData, result);
+            return Make_arbitrary_precision(taskData, result);
         }
 
     case 17: /* Run a new executable. */
@@ -715,7 +715,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 50: /* Set the file creation mask and return the old one. */
         {
             mode_t mode = get_C_ulong(taskData, DEREFWORDHANDLE(args));
-            return Make_unsigned(taskData, umask(mode));
+            return Make_arbitrary_precision(taskData, umask(mode));
         }
 
     case 51: /* Create a hard link. */
@@ -1122,7 +1122,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             newpos = lseek(strm->device.ioDesc, position, whence);
             if (newpos < 0) raise_syscall(taskData, "lseek failed", errno);
-            return Make_arbitrary_precision(taskData, newpos);
+            return Make_arbitrary_precision(taskData, (POLYSIGNED)newpos);
         }
 
     case 119: /* Synchronise file contents. */
@@ -1360,7 +1360,7 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     Handle uidHandle, gidHandle, sizeHandle, atimeHandle, mtimeHandle, ctimeHandle;
     /* Get the protection mode, masking off the file type info. */
     modeHandle =
-        Make_unsigned(taskData, buf->st_mode & (S_IRWXU|S_IRWXG|S_IRWXO|S_ISUID|S_ISGID));
+        Make_arbitrary_precision(taskData, buf->st_mode & (S_IRWXU|S_IRWXG|S_IRWXO|S_ISUID|S_ISGID));
     if (S_ISDIR(buf->st_mode)) kind = 1;
     else if (S_ISCHR(buf->st_mode)) kind = 2;
     else if (S_ISBLK(buf->st_mode)) kind = 3;
@@ -1368,13 +1368,13 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     else if ((buf->st_mode & S_IFMT) == S_IFLNK) kind = 5;
     else if ((buf->st_mode & S_IFMT) == S_IFSOCK) kind = 6;
     else /* Regular. */ kind = 0;
-    kindHandle = Make_unsigned(taskData, kind);
-    inoHandle = Make_unsigned(taskData, buf->st_ino);
-    devHandle = Make_unsigned(taskData, buf->st_dev);
-    linkHandle = Make_unsigned(taskData, buf->st_nlink);
-    uidHandle = Make_unsigned(taskData, buf->st_uid);
-    gidHandle = Make_unsigned(taskData, buf->st_gid);
-    sizeHandle = Make_unsigned(taskData, buf->st_size);
+    kindHandle = Make_arbitrary_precision(taskData, kind);
+    inoHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)buf->st_ino);
+    devHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)buf->st_dev);
+    linkHandle = Make_arbitrary_precision(taskData, buf->st_nlink);
+    uidHandle = Make_arbitrary_precision(taskData, buf->st_uid);
+    gidHandle = Make_arbitrary_precision(taskData, buf->st_gid);
+    sizeHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)buf->st_size);
     /* TODO: The only really standard time fields give the seconds part.  There
        are various extensions which would give us microseconds or nanoseconds. */
     atimeHandle = Make_arb_from_pair_scaled(taskData, buf->st_atime, 0, 1000000);
@@ -1416,14 +1416,14 @@ static Handle getTTYattrs(TaskData *taskData, Handle args)
     cfsetospeed(&tios, B0);
     cfsetispeed(&tios, B0);
     /* Convert the values to ML representation. */
-    ifHandle = Make_unsigned(taskData, tios.c_iflag);
-    ofHandle = Make_unsigned(taskData, tios.c_oflag);
-    cfHandle = Make_unsigned(taskData, tios.c_cflag);
-    lfHandle = Make_unsigned(taskData, tios.c_lflag);
+    ifHandle = Make_arbitrary_precision(taskData, tios.c_iflag);
+    ofHandle = Make_arbitrary_precision(taskData, tios.c_oflag);
+    cfHandle = Make_arbitrary_precision(taskData, tios.c_cflag);
+    lfHandle = Make_arbitrary_precision(taskData, tios.c_lflag);
     /* The cc vector is treated as a string. */
     ccHandle = SAVE(Buffer_to_Poly(taskData, (const char *)tios.c_cc, NCCS));
-    isHandle = Make_unsigned(taskData, ispeed);
-    osHandle = Make_unsigned(taskData, ospeed);
+    isHandle = Make_arbitrary_precision(taskData, ispeed);
+    osHandle = Make_arbitrary_precision(taskData, ospeed);
     /* We can now create the result tuple. */
     result = ALLOC(7);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(ifHandle));
@@ -1490,8 +1490,8 @@ static Handle lockCommand(TaskData *taskData, int cmd, Handle args)
     /* Construct the result. */
     typeHandle = Make_arbitrary_precision(taskData, lock.l_type);
     whenceHandle = Make_arbitrary_precision(taskData, lock.l_whence);
-    startHandle = Make_arbitrary_precision(taskData, lock.l_start);
-    lenHandle = Make_arbitrary_precision(taskData, lock.l_len);
+    startHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_start);
+    lenHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)lock.l_len);
     pidHandle = Make_arbitrary_precision(taskData, lock.l_pid);
     result = ALLOC(5);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(typeHandle));
@@ -1966,7 +1966,7 @@ static Handle getSysConf(TaskData *taskData, Handle args)
     errno = 0; /* Sysconf may return -1 without updating errno. */
     res = sysconf(sysArgTable[i].saVal);
     if (res < 0) raise_syscall(taskData, "sysconf failed", errno);
-    return Make_arbitrary_precision(taskData, res);
+    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)res);
 }
 
 

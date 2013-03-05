@@ -763,7 +763,7 @@ static Handle bytesAvailable(TaskData *taskData, Handle stream)
     endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
     if (seekStream(taskData, strm, original, SEEK_SET) != original) 
         raise_syscall(taskData, "Position error", errno);
-    return Make_arbitrary_precision(taskData, endOfStream-original);
+    return Make_arbitrary_precision(taskData, (POLYSIGNED)(endOfStream-original));
 }
 
 
@@ -1384,7 +1384,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
     struct stat fbuff;
     if (proper_stat(string_buffer, &fbuff) != 0)
         raise_syscall(taskData, "stat failed", errno);
-    return Make_arbitrary_precision(taskData, fbuff.st_size);
+    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)fbuff.st_size);
     }
 #endif
 }
@@ -1598,7 +1598,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
             pos = seekStream(taskData, str, 0L, SEEK_CUR);
-            return Make_arbitrary_precision(taskData, pos);
+            return Make_arbitrary_precision(taskData, (POLYSIGNED)pos);
         }
 
     case 19: /* Seek to position on stream. */
@@ -1622,7 +1622,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             endOfStream = seekStream(taskData, str, 0L, SEEK_END);
             if (seekStream(taskData, str, original, SEEK_SET) != original) 
                 raise_syscall(taskData, "Position error", errno);
-            return Make_arbitrary_precision(taskData, endOfStream);
+            return Make_arbitrary_precision(taskData, (POLYSIGNED)endOfStream);
         }
 
     case 21: /* Get the kind of device underlying the stream. */
@@ -1887,7 +1887,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (proper_stat(string_buffer, &fbuff) != 0)
                 raise_syscall(taskData, "stat failed", errno);
             /* Assume that inodes are always non-negative. */
-            return Make_arbitrary_precision(taskData, fbuff.st_ino);
+            return Make_arbitrary_precision(taskData, (POLYUNSIGNED)fbuff.st_ino);
 #endif
         }
 

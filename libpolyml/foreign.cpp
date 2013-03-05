@@ -1059,7 +1059,7 @@ static Handle fromClong (TaskData *taskData, Handle h)
 {
     long i = *(long*)DEREFVOL(taskData, UNHANDLE(h));
     mes(("<%d>\n", (int)i));
-    return Make_arbitrary_precision(taskData, i);
+    return Make_arbitrary_precision(taskData, (POLYSIGNED)i);
 }
 
 
