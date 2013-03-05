@@ -1103,9 +1103,9 @@ static Handle toCuint (TaskData *taskData, Handle h)
 
 static Handle fromCuint (TaskData *taskData, Handle h)
 {
-    unsigned i = *(unsigned*)DEREFVOL(taskData, UNHANDLE(h));
+    POLYUNSIGNED i = *(unsigned*)DEREFVOL(taskData, UNHANDLE(h));
     mes(("<%d>\n", (int)i));
-    return Make_unsigned(taskData, i);
+    return Make_arbitrary_precision(taskData, i);
 }
 
 /**********************************************************************

@@ -607,7 +607,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
     case 13: // Return the number of processors.
         // Returns 1 if there is any problem.
-        return Make_unsigned(taskData, NumberOfProcessors());
+        return Make_arbitrary_precision(taskData, NumberOfProcessors());
 
     default:
         {

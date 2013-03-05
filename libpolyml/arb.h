@@ -27,10 +27,12 @@ class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData; 
 
+// These functions create values of type int from signed or unsigned values.
 extern Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED);
-extern Handle Make_unsigned(TaskData *taskData, POLYUNSIGNED);
+extern Handle Make_arbitrary_precision(TaskData *taskData, POLYUNSIGNED);
 extern Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo);
 extern Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigned lo, unsigned scale);
+
 void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo);
 
 extern Handle add_longc(TaskData *taskData, Handle,Handle);

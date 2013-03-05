@@ -235,7 +235,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     for (unsigned i = 0; i < N_PS_COUNTERS; i++)
     {
         Handle mark = taskData->saveVec.mark();
-        Handle counterValue = Make_unsigned(taskData, stats->psCounters[i]);
+        Handle counterValue = Make_arbitrary_precision(taskData, (POLYUNSIGNED)stats->psCounters[i]);
         counts->WordP()->Set(i, counterValue->Word());
         taskData->saveVec.reset(mark);
     }
@@ -247,7 +247,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     for (unsigned j = 0; j < N_PS_SIZES; j++)
     {
         Handle mark = taskData->saveVec.mark();
-        Handle sizeValue = Make_unsigned(taskData, stats->psSizes[j]);
+        Handle sizeValue = Make_arbitrary_precision(taskData, stats->psSizes[j]);
         sizes->WordP()->Set(j, sizeValue->Word());
         taskData->saveVec.reset(mark);
     }
@@ -409,12 +409,11 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
         // These next ones were originally in process_env and have now been moved here,
     case 100: /* Return the maximum word segment size. */
-            return Make_arbitrary_precision(taskData, MAX_OBJECT_SIZE);
+            return taskData->saveVec.push(TAGGED(MAX_OBJECT_SIZE));
     case 101: /* Return the maximum string size (in bytes).
                  It is the maximum number of bytes in a segment
                  less one word for the length field. */
-            return Make_arbitrary_precision(taskData,
-                (MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord));
+            return taskData->saveVec.push(TAGGED((MAX_OBJECT_SIZE)*sizeof(PolyWord) - sizeof(PolyWord)));
     case 102: /* Test whether the supplied address is in the io area.
                  This was previously done by having get_flags return
                  256 but this was changed so that get_flags simply
@@ -441,7 +440,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     {
                         int regMask = machineDependent->GetIOFunctionRegisterMask(i);
                         POLYUNSIGNED props = rtsProperties(taskData, i);
-                        return Make_arbitrary_precision(taskData, regMask | props);
+                        return taskData->saveVec.push(TAGGED(regMask | props));
                     }
                 }
                 raise_exception_string(taskData, EXC_Fail, "Io pointer not found");

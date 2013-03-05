@@ -260,7 +260,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                             if (! fResult)
                                 raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());
                             CloseHandle((HANDLE)pid);
-                            return Make_unsigned(mdTaskData, result);
+                            return Make_arbitrary_precision(mdTaskData, (POLYUNSIGNED)result);
                         }
                     case WAIT_FAILED:
                         raise_syscall(mdTaskData, "Function system failed", -(int)GetLastError());

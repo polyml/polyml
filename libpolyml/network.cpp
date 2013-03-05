@@ -520,7 +520,7 @@ TryAgain:
         }
 
     case 13: /* Return the "any" internet address. */
-        return Make_unsigned(taskData, INADDR_ANY);
+        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)INADDR_ANY);
 
     case 14: /* Create a socket */
         {
@@ -698,7 +698,7 @@ TryAgain:
         {
             PolyStringObject *psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            return Make_unsigned(taskData, psock->sa_family);
+            return Make_arbitrary_precision(taskData, psock->sa_family);
         }
 
     case 40: /* Create a socket address from a port number and
@@ -719,7 +719,7 @@ TryAgain:
             PolyStringObject *psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr_in *psock =
                 (struct sockaddr_in *)&psAddr->chars;
-            return Make_unsigned(taskData, ntohs(psock->sin_port));
+            return Make_arbitrary_precision(taskData, ntohs(psock->sin_port));
         }
 
     case 42: /* Return internet address from an internet socket address.
@@ -728,7 +728,7 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr_in *psock =
                 (struct sockaddr_in *)&psAddr->chars;
-            return Make_unsigned(taskData, ntohl(psock->sin_addr.s_addr));
+            return Make_arbitrary_precision(taskData, (POLYUNSIGNED)ntohl(psock->sin_addr.s_addr));
         }
 
         /* 43 - Set non-blocking mode.  Now removed. */
@@ -745,7 +745,7 @@ TryAgain:
             if (ioctl(strm->device.sock, FIONREAD, &readable) < 0)
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
-            return Make_arbitrary_precision(taskData, readable);
+            return Make_arbitrary_precision(taskData, (POLYUNSIGNED)readable);
         }
 
     case 45: /* Find out if we are at the mark. */
@@ -1273,7 +1273,7 @@ static Handle mkAddr(TaskData *taskData, void *arg, char *p)
        just use ntohl. */
     for (j = 0; j < host->h_length; j++)
         addr = (addr << 8) | ((*(char**)p)[j] & 255);
-    return Make_unsigned(taskData, addr);
+    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)addr);
 }
 
 /* Convert a host entry into a tuple for ML. */
@@ -1296,7 +1296,7 @@ static Handle makeHostEntry(TaskData *taskData, struct hostent *host)
     aliases = convert_string_list(taskData, i, host->h_aliases);
 
     /* Address type. */
-    addrType = Make_unsigned(taskData, host->h_addrtype);
+    addrType = Make_arbitrary_precision(taskData, host->h_addrtype);
 
     /* Addresses. */
     /* Count them first and then work from the end back. */
@@ -1326,7 +1326,7 @@ static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto)
     aliases = convert_string_list(taskData, i, proto->p_aliases);
 
     /* Protocol number. */
-    protocol = Make_unsigned(taskData, proto->p_proto);
+    protocol = Make_arbitrary_precision(taskData, proto->p_proto);
 
     /* Make the result structure. */
     result = ALLOC(3);
@@ -1350,7 +1350,7 @@ static Handle makeServEntry(TaskData *taskData, struct servent *serv)
     aliases = convert_string_list(taskData, i, serv->s_aliases);
 
     /* Port number. */
-    port = Make_unsigned(taskData, ntohs(serv->s_port));
+    port = Make_arbitrary_precision(taskData, ntohs(serv->s_port));
 
     /* Protocol name. */
     protocol = SAVE(C_string_to_Poly(taskData, serv->s_proto));
@@ -1370,7 +1370,7 @@ static Handle mkAftab(TaskData *taskData, void *arg, char *p)
     Handle result, name, num;
     /* Construct a pair of the string and the number. */
     name = SAVE(C_string_to_Poly(taskData, af->af_name));
-    num = Make_unsigned(taskData, af->af_num);
+    num = Make_arbitrary_precision(taskData, af->af_num);
     result = ALLOC(2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(num));
@@ -1383,7 +1383,7 @@ static Handle mkSktab(TaskData *taskData, void *arg, char *p)
     Handle result, name, num;
     /* Construct a pair of the string and the number. */
     name = SAVE(C_string_to_Poly(taskData, sk->sk_name));
-    num = Make_unsigned(taskData, sk->sk_num);
+    num = Make_arbitrary_precision(taskData, sk->sk_num);
     result = ALLOC(2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(name));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(num));

@@ -675,7 +675,7 @@ static Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Han
 static Handle vec_length_c(TaskData *taskData, Handle vector)    /* Length of a vector */
 {
     POLYUNSIGNED length = vector->WordP()->Length();
-    return Make_arbitrary_precision(taskData, length);
+    return taskData->saveVec.push(TAGGED(length));
 }
 
 static Handle load_byte_long_c(TaskData *taskData, Handle byte_no /* offset in BYTES */, Handle addr)

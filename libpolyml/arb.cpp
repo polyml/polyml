@@ -421,7 +421,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED val)
     return y;
 }
 
-Handle Make_unsigned(TaskData *taskData, POLYUNSIGNED uval)
+Handle Make_arbitrary_precision(TaskData *taskData, POLYUNSIGNED uval)
 /* Called from routines in the run-time system to generate an arbitrary
    precision integer from an unsigned value. */
 {
@@ -448,7 +448,7 @@ Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo)
 {
     /* If the high word is zero we can use either the tagged short
        form or a single word. */
-    if (hi == 0) return Make_unsigned(taskData, lo);
+    if (hi == 0) return Make_arbitrary_precision(taskData, lo);
     int words = 2;
     // If the high order byte is non-zero add an extra word for the sign.
     if ((hi >> ((sizeof(hi)-1)*8)) != 0) words++;
@@ -480,9 +480,9 @@ Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigned lo, u
    /* We might be able to compute the number as a 64 bit quantity and
       then convert it but this is probably more portable. It does risk
       overflowing the save vector. */
-    Handle hHi = Make_unsigned(taskData, hi);
-    Handle hLo = Make_unsigned(taskData, lo);
-    Handle hScale = Make_unsigned(taskData, scale);
+    Handle hHi = Make_arbitrary_precision(taskData, hi);
+    Handle hLo = Make_arbitrary_precision(taskData, lo);
+    Handle hScale = Make_arbitrary_precision(taskData, scale);
     return add_longc(taskData, mult_longc(taskData, hHi, hScale), hLo);
 }
 

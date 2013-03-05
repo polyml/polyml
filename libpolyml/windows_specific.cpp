@@ -363,7 +363,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                        for the result again.  We only close it when we've garbage-collected
                        the token.  Doing this runs the risk of running out of handles.
                        Maybe change it and remember the result in ML. */
-                    return Make_unsigned(taskData, dwResult);
+                    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwResult);
                 }
                 // Block and try again.
                 WaitHandle waiter(hnd->entry.process.hProcess);
@@ -376,7 +376,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             unsigned i = get_C_unsigned(taskData, DEREFWORD(args));
             if (i >= sizeof(winConstVec)/sizeof(winConstVec[0]))
                 raise_syscall(taskData, "Invalid index", 0);
-            return Make_unsigned(taskData, winConstVec[i]);
+            return Make_arbitrary_precision(taskData, winConstVec[i]);
         }
 
         /* Registry functions. */
@@ -579,8 +579,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     -(int)GetLastError());
             volHandle = SAVE(C_string_to_Poly(taskData, volName));
             sysHandle = SAVE(C_string_to_Poly(taskData, sysName));
-            serialHandle = Make_unsigned(taskData, dwVolSerial);
-            maxCompHandle = Make_unsigned(taskData, dwMaxComponentLen);
+            serialHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwVolSerial);
+            maxCompHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwMaxComponentLen);
             resultHandle = alloc_and_save(taskData, 4);
             DEREFHANDLE(resultHandle)->Set(0, DEREFWORDHANDLE(volHandle));
             DEREFHANDLE(resultHandle)->Set(1, DEREFWORDHANDLE(sysHandle));
@@ -698,10 +698,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             osver.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
             if (! GetVersionEx(&osver))
                 raise_syscall(taskData, "GetVersionEx failed", -(int)GetLastError());
-            major = Make_unsigned(taskData, osver.dwMajorVersion);
-            minor = Make_unsigned(taskData, osver.dwMinorVersion);
-            build = Make_unsigned(taskData, osver.dwBuildNumber);
-            platform = Make_unsigned(taskData, osver.dwPlatformId);
+            major = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwMajorVersion);
+            minor = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwMinorVersion);
+            build = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwBuildNumber);
+            platform = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwPlatformId);
             version = SAVE(C_string_to_Poly(taskData, osver.szCSDVersion));
             resVal = alloc_and_save(taskData, 5);
             DEREFHANDLE(resVal)->Set(0, DEREFWORDHANDLE(major));
@@ -774,10 +774,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     // case 1102: // Return the address of the window callback function.
 
     case 1103: // Return the application instance.
-        return Make_unsigned(taskData, (POLYUNSIGNED)hApplicationInstance);
+        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)hApplicationInstance);
 
     case 1104: // Return the main window handle
-        return Make_unsigned(taskData, (POLYUNSIGNED)hMainWindow);
+        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)hMainWindow);
 
 //    case 1105: // Set the callback function
 
@@ -1095,7 +1095,7 @@ static Handle createRegistryKey(TaskData *taskData, Handle args, HKEY hkParent)
     pTab->entryType = HE_REGISTRY;
     pTab->entry.hKey = hkey;
     // Record whether this was new or old.
-    dispRes = Make_unsigned(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
+    dispRes = Make_arbitrary_precision(taskData, dwDisp == REG_CREATED_NEW_KEY ? 0: 1);
     /* Return a pair of the disposition and the token. */
     pair = alloc_and_save(taskData, 2);
     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(dispRes));
@@ -1182,7 +1182,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     }
 
     /* Create a pair containing the type and the value. */
-    resType = Make_arbitrary_precision(taskData, dwType);
+    resType = Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwType);
     result = alloc_and_save(taskData, 2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resType));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(resVal));
