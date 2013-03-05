@@ -442,6 +442,19 @@ Handle Make_arbitrary_precision(TaskData *taskData, POLYUNSIGNED uval)
     return y;
 }
 
+#if (SIZEOF_INT != SIZEOF_VOIDP)
+// Additional overloadings for 64-bit.
+Handle Make_arbitrary_precision(TaskData *taskData, int val)
+{
+    return Make_arbitrary_precision(taskData, (POLYSIGNED)val);
+}
+
+Handle Make_arbitrary_precision(TaskData *taskData, unsigned uval)
+{
+    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)uval);
+}
+#endif
+
 /* Creates an arbitrary precision number from two words.
    At present this is used for 64-bit quantities. */
 Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo)

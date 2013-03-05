@@ -30,6 +30,10 @@ class TaskData;
 // These functions create values of type int from signed or unsigned values.
 extern Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED);
 extern Handle Make_arbitrary_precision(TaskData *taskData, POLYUNSIGNED);
+#if (SIZEOF_INT != SIZEOF_VOIDP)
+extern Handle Make_arbitrary_precision(TaskData *taskData, int);
+extern Handle Make_arbitrary_precision(TaskData *taskData, unsigned);
+#endif
 extern Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo);
 extern Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigned lo, unsigned scale);
 
