@@ -27,40 +27,9 @@
 *)
 
 functor LEX_ (
-(*****************************************************************************)
-(*                 PRETTY                                                    *)
-(*****************************************************************************)
 structure PRETTY: PRETTYSIG;
 
-(*****************************************************************************)
-(*                  SYMBOLS                                                  *)
-(*****************************************************************************)
-structure SYMBOLS :
-sig
-  eqtype sys;
-      
-  val abortParse:   sys;
-  val othersy:      sys;
-  val typeIdent:    sys;
-  val ident:        sys;
-  val integerConst: sys;
-  val stringConst:  sys;
-  val semicolon:    sys;
-  val comma:        sys;
-  val leftParen:    sys;
-  val rightParen:   sys;
-  val leftBrack:    sys;
-  val rightBrack:   sys;
-  val leftCurly:    sys;
-  val rightCurly:   sys;
-  val threeDots:    sys;
-  val underline:    sys;
-  val realConst:    sys;
-  val wordConst:    sys;
-  val charConst:    sys;
-      
-  val lookup: string -> sys;
-end
+structure SYMBOLS : SymbolsSig
 
 structure DEBUG:
 sig
@@ -146,11 +115,11 @@ struct
         {
           stream      = stream,
           ch          = ref #" ",   (* " " - we've just "clobbered the ";" *)
-          sy          = ref semicolon,  (* ";"  *)
+          sy          = ref Semicolon,  (* ";"  *)
           id          = ref "",
           messageOut  = errorMessageProc,
           errors      = ref false,
-          pushedSym   = ref othersy,
+          pushedSym   = ref Othersy,
           extraChars  = ref [],
           debugParams = parameters,
           getLineNo   = lineno,
@@ -275,7 +244,7 @@ struct
     (* Read in a number. *)
     fun parseNumber (state as { sy, id, ch, extraChars, ... }) =
      (
-        sy := integerConst;
+        sy := IntegerConst;
         
         (* Copy digits into the buffer. *)
         id := readChars state isNumeric "";
@@ -285,7 +254,7 @@ struct
         if !ch = #"w" andalso !id = "0"
         then (* word constant. *)
         (
-            sy := wordConst;
+            sy := WordConst;
             nextCh state;
             if !ch = #"x"
             then
@@ -314,7 +283,7 @@ struct
             if !ch = #"."
             then
             (
-               sy := realConst;
+               sy := RealConst;
                (* Add the "." to the string. *)
                id := !id ^ ".";
                nextCh state;
@@ -346,13 +315,13 @@ struct
                 (
                     nextCh state;
                     if isNumeric(!ch)
-                    then (sy := realConst; id := readChars state isNumeric (!id ^ "E~"))
+                    then (sy := RealConst; id := readChars state isNumeric (!id ^ "E~"))
                     else (extraChars := [#"~", !ch]; ch := eChar)
                 )
                 else
                 (
                     if isNumeric(!ch)
-                    then (sy := realConst; id := readChars state isNumeric (!id ^ "E"))
+                    then (sy := RealConst; id := readChars state isNumeric (!id ^ "E"))
                     else (extraChars := [!ch]; ch := eChar)
                 )
             end
@@ -488,7 +457,7 @@ struct
         (
             id := idVal;
             sy := (if 0 < size idVal andalso String.str(String.sub(idVal, 0)) = "'"
-                   then typeIdent
+                   then TypeIdent
                    else lookup idVal)
         )
     end; (* parseIdent *)
@@ -527,17 +496,17 @@ struct
               (
                 nextCh state;(* get next character *)
                 if !ch = #"\""
-                then (parseString state; sy := charConst)
+                then (parseString state; sy := CharConst)
                 else
                  (* Part of an operator. *) 
                  parseIdent state isOperator "#"
               )
         
-        | #"\"" (* double quote. *) => (parseString state; sy := stringConst)
+        | #"\"" (* double quote. *) => (parseString state; sy := StringConst)
             
         | #";" =>
             (
-                sy := semicolon;
+                sy := Semicolon;
                 (* This is a special case.  If this is the final semicolon
                    in the top-dec we mustn't read the next character because
                    that will be put into "ch" field of this lex object and will
@@ -546,25 +515,25 @@ struct
                 ch := #" "
             )
             
-        | #"," => (sy := comma; nextCh state)
+        | #"," => (sy := Comma; nextCh state)
             
         | #"(" =>
               (
                 nextCh state;
-                if !ch <> #"*" then sy := leftParen else parseComment state
+                if !ch <> #"*" then sy := LeftParen else parseComment state
               )
               
-        | #")" => (sy := rightParen; nextCh state)
+        | #")" => (sy := RightParen; nextCh state)
             
-        | #"[" => (sy := leftBrack; nextCh state)
+        | #"[" => (sy := LeftBrack; nextCh state)
             
-        | #"]" => (sy := rightBrack; nextCh state)
+        | #"]" => (sy := RightBrack; nextCh state)
             
-        | #"_" => (sy := underline; nextCh state)
+        | #"_" => (sy := Underline; nextCh state)
             
-        | #"{" => (sy := leftCurly; nextCh state)
+        | #"{" => (sy := LeftCurly; nextCh state)
             
-        | #"}" => (sy := rightCurly; nextCh state)
+        | #"}" => (sy := RightCurly; nextCh state)
 
         | #"." => (* "..." *)
             (
@@ -577,14 +546,14 @@ struct
                     setSymbolEnd state;
                     if !ch <> #"." 
                     then lexError(state, "unknown symbol .." ^ str(!ch))
-                    else (sy := threeDots; nextCh state; setSymbolEnd state)
+                    else (sy := ThreeDots; nextCh state; setSymbolEnd state)
                 )
             )
               
          | firstCh =>
             (* These can't be so easily incorporated into a "case". *)
             if firstCh = eofChar
-            then sy := abortParse
+            then sy := AbortParse
           
             else if isNumeric firstCh
             then parseNumber state
@@ -604,12 +573,12 @@ struct
                 nextCh state
             end;
         (* Read another token if this wasn't recognised. *)
-        if (!sy = othersy) then parseToken state else ()
+        if (!sy = Othersy) then parseToken state else ()
     end; (* parseToken *)
 
     (* Insymbol - exported interface to lexical analyser. *)
     fun insymbol (state as {sy,pushedSym,...}:lexan) =
-    if ! pushedSym <> othersy then pushedSym := othersy
+    if ! pushedSym <> Othersy then pushedSym := Othersy
     (* pushedSym is a hack to handle the difficulty of parsing
        val ('a, 'b) f = ... compared with val (a, b) = ... and the
        similar fun declarations. 
@@ -617,7 +586,7 @@ struct
        with  where type t = int and S = sig ...*)
     else
     (
-        if (! sy) = abortParse (* already end-of-file? *)
+        if ! sy = AbortParse (* already end-of-file? *)
         then
         (
             setSymbolStart state;
@@ -626,19 +595,19 @@ struct
         )
         else ();
       
-        sy := othersy; (* default - anything unrecognisable *)
+        sy := Othersy; (* default - anything unrecognisable *)
       
         parseToken state
     ); (* insymbol *)
 
     fun pushBackSymbol ({pushedSym,...}:lexan, sym) =
-        if !pushedSym <> othersy then raise InternalError "Attempt to push two parentheses"
+        if !pushedSym <> Othersy then raise InternalError "Attempt to push two parentheses"
         else pushedSym := sym
 
    (* exported version of sy and id. *)
    
    fun sy ({sy=ref sy, pushedSym = ref pushed, ...}:lexan) =
-        if pushed <> othersy then pushed else sy;
+        if pushed <> Othersy then pushed else sy;
 
    fun id ({id=ref id,...}:lexan) = id;
    

@@ -24,59 +24,9 @@
 *)
 
 functor SKIPS_ (
-
-(*****************************************************************************)
-(*                  SYMBOLS                                                  *)
-(*****************************************************************************)
-structure SYMBOLS :
-sig
-  eqtype sys;
-    
-  val stringConst:  sys;
-  val integerConst: sys;
-  val repr:         sys -> string;
-end;
-
-(*****************************************************************************)
-(*                  LEX                                                      *)
-(*****************************************************************************)
-structure LEX :
-sig
-    type lexan;
-    type sys;
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    val sy:           lexan -> sys;
-    val id:           lexan -> string;
-    val insymbol:     lexan -> unit;
-    val location:     lexan -> location;
-    val errorMessage: lexan * location * string -> unit;
-    val nullLocation: location
-    val locSpan: location * location -> location
-end;
-
-
-(*****************************************************************************)
-(*                  SYMSET                                                   *)
-(*****************************************************************************)
-structure SYMSET :
-sig
-  type symset;
-  type sys;
-
-  val inside:           sys * symset -> bool;
-  val ++ :              symset * symset -> symset;
-  val ident:            symset;
-  val typeIdent:        symset;
-  val integerConst:     symset;
-  val realConst:        symset;
-  val declarableVarSys: symset;
-end;
-
-(*****************************************************************************)
-(*                  SKIPS sharing constraints                                *)
-(*****************************************************************************)
+structure SYMBOLS : SymbolsSig
+structure LEX : LEXSIG
+structure SYMSET : SymsetSig
 
 sharing type
   SYMBOLS.sys
@@ -99,7 +49,6 @@ sig
   val badsyms:  sys * lexan -> unit;
   val getsym:   sys * lexan -> unit;
   val skipon:   symset * symset * string * lexan -> unit;
-  val testfor:  sys * symset * lexan -> bool;
   val getid:    symset * symset * lexan -> string * location;
   val getLabel: symset * lexan -> string * location;
   val getList:  sys * symset * lexan * (unit -> 'a * location) -> 'a list * location;
@@ -122,7 +71,7 @@ struct
     fun notfound (expected, lex) = 
     let
       val found = 
-        if sy lex = SYMBOLS.stringConst 
+        if sy lex = SYMBOLS.StringConst 
           then "\"" ^ id lex ^ "\""
         else if sy lex inside idSys 
               then id lex
@@ -174,7 +123,7 @@ struct
 
   (* Read a label and check that it is valid if numeric. *)
     fun getLabel (fsys, lex) = 
-    if (sy lex) = SYMBOLS.integerConst
+    if (sy lex) = SYMBOLS.IntegerConst
     then
     let
         val iden = id lex;
@@ -189,16 +138,6 @@ struct
     end
     else getid (declarableVarSys, fsys, lex);
   
-  (* Tests for a symbol and removes it if it is there.
-     startsys is the set of symbols which can start each element. *)
-  fun testfor (sym, startsys, lex) =
-      (* repeat if the separator or a starting sym is found *)
-      if sy lex = sym
-        then (insymbol lex; true)
-      else if sy lex inside startsys
-        then (badsyms (sym, lex); true)
-      else false;
-
     fun getList (separator, startsys, lex, each) =
     let
         fun forList(list, startLoc) =

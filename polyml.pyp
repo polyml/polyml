@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=177
+NFiles=179
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -180,3 +180,5 @@ File173=mlsource\MLCompiler\CodeTree\BackendIntermediateCode.sml
 File174=mlsource\MLCompiler\CodeTree\BackendIntermediateCodeSig.sml
 File175=mlsource\MLCompiler\CodeTree\GCode.x86_64.ML
 File176=mlsource\MLCompiler\CodeTree\CODETREE_SIMPLIFIER.sml
+File177=mlsource\MLCompiler\SymbolsSig.sml
+File178=mlsource\MLCompiler\SymsetSig.sml
