@@ -641,8 +641,11 @@
 /* Define to the type of arg 5 for `select'. */
 #undef SELECT_TYPE_ARG5
 
+/* The size of `int', as computed by sizeof. */
+// N.B.  This is 4 on both 32-bit and 64-bit
+#define SIZEOF_INT 4
+
 /* The size of `long', as computed by sizeof. */
-#undef SIZEOF_LONG
 // N.B.  This is 4 on both 32-bit and 64-bit
 #define SIZEOF_LONG 4
 
