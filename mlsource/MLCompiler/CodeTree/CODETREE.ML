@@ -396,7 +396,8 @@ struct
             {load = loadFn, dec = [mkDec (addr, code)]}
         end (* multipleUses *);
 
-    fun mkMutualDecs l =
+    fun mkMutualDecs [] = raise InternalError "mkMutualDecs: empty declaration list"
+    |   mkMutualDecs l =
     let
         fun convertDec(a, Lambda lam) = {lambda = lam, addr = a, use=[]}
         |   convertDec _ = raise InternalError "mkMutualDecs: Recursive declaration is not a function"

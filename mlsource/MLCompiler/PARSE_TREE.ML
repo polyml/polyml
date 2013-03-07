@@ -5707,7 +5707,10 @@ struct
                 List.partition(fn ValBind{isRecursive, ...} => isRecursive) dec
 
             val nonRecCode = codeNonRecValBindings(nonrecBindings, firstEntry, codeSeqContext)
-            val (recCode, _) = codeRecValBindings(recBindings, firstEntry, codeSeqContext)
+            val recCode =
+                case recBindings of
+                    [] => []
+                |   _ => #1 (codeRecValBindings(recBindings, firstEntry, codeSeqContext))
             (* Construct the debugging environment by loading all variables. *)
             val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
             val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
