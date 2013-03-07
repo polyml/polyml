@@ -267,6 +267,7 @@ struct
         case sy lex of
             Arrow =>
             let
+                val () = insymbol lex
                 val (resType, resLocn) = parseType (fsys, lex, env)
                 val locs = locSpan(firstLoc, resLocn)
             in

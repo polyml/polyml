@@ -137,7 +137,18 @@ struct
         (iden, loc)
     end
     else getid (declarableVarSys, fsys, lex);
-  
+
+  (* Tests for a symbol and removes it if it is there.
+     startsys is the set of symbols which can start each element. *)
+  fun testfor (sym, startsys, lex) =
+      (* repeat if the separator or a starting sym is found *)
+      if sy lex = sym
+        then (insymbol lex; true)
+      else if sy lex inside startsys
+        then (badsyms (sym, lex); true)
+      else false;
+
+
     fun getList (separator, startsys, lex, each) =
     let
         fun forList(list, startLoc) =
