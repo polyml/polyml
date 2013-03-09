@@ -147,37 +147,65 @@ end =
 (*                  COMPILERBODY functor body                                *)
 (*****************************************************************************)
 struct
-  open MISC;
-  open STRUCTVALS;
-  open PRETTY;
-  open LEX;
+    open MISC;
+    open STRUCTVALS;
+    open PRETTY;
+    open LEX;
 
-  type nameSpace = VALUEOPS.nameSpace
-  open STRUCTURES
-  open EXPORTTREE
+    type nameSpace = VALUEOPS.nameSpace
+    open STRUCTURES
+    open EXPORTTREE
 
-    fun printTimes printOut (parseTime,pass2Time,treeTime,codeTime,endRunTime) : unit =
-    let
-        open Time
-        val message =
-            PrettyBlock(3, false, [],
-                [
-                    PrettyString "Timing -",
-                    PrettyBreak(1, 0),
-                    PrettyString ("parse:" ^ Time.fmt 1 parseTime ^ ","),
-                    PrettyBreak(1, 0),
-                    PrettyString ("semantics:" ^ Time.fmt 1 (pass2Time-parseTime) ^ ","),
-                    PrettyBreak(1, 0),
-                    PrettyString ("translate:" ^ Time.fmt 1 (treeTime-pass2Time) ^ ","),
-                    PrettyBreak(1, 0),
-                    PrettyString ("generate:" ^ Time.fmt 1 (codeTime-treeTime) ^ ","),
-                    PrettyBreak(1, 0),
-                    PrettyString ("run:" ^ Time.fmt 1 endRunTime)
-                ]
-            )
-    in
-        printOut message
-    end
+    (* There is a problem with using Time.fmt directly.  The Time structure we use is
+       the one that is in effect when this code is compiled.  That freezes the value of
+       ticksPerMicrosecond and causes incorrect results on Windows if the compiler
+       has been built on Unix or vice-versa.  Since this is the only place that is
+       affected it's better to include the appropriate code here rather than modify
+       the Time structure in the basis library.  *)
+    abstype cpuTime = CPUTime of int
+    with
+        val doTiming: int*int->int = RunCall.run_call2 RuntimeCalls.POLY_SYS_timing_dispatch
+        fun callTiming (code: int) args = doTiming (code,args)
+
+        fun cpuTime() =
+        let
+            val usr = doTiming(7, 0) and sys = doTiming(8, 0)
+        in
+            CPUTime(usr+sys)
+        end
+
+        fun printTimes printOut {startTime, parseTime, pass2Time, treeTime, codeTime, startRunTime, endRunTime} =
+        let
+            local
+                (* This is the value that is in effect now. *)
+                val ticksPerMicrosecond = callTiming 0 0
+                val realTicks = Real.fromInt(ticksPerMicrosecond * 1000000)
+                fun toReal (t: int): real = Real.fromInt t / realTicks
+            in
+                fun formatTimeDiff(CPUTime a, CPUTime b) =
+                    Real.fmt (StringCvt.FIX(SOME 1)) (toReal(a-b))
+            end
+
+            val message =
+                PrettyBlock(3, false, [],
+                    [
+                        PrettyString "Timing -",
+                        PrettyBreak(1, 0),
+                        PrettyString ("parse:" ^ formatTimeDiff(parseTime, startTime) ^ ","),
+                        PrettyBreak(1, 0),
+                        PrettyString ("semantics:" ^ formatTimeDiff(pass2Time, parseTime) ^ ","),
+                        PrettyBreak(1, 0),
+                        PrettyString ("translate:" ^ formatTimeDiff(treeTime, pass2Time) ^ ","),
+                        PrettyBreak(1, 0),
+                        PrettyString ("generate:" ^ formatTimeDiff(codeTime, treeTime) ^ ","),
+                        PrettyBreak(1, 0),
+                        PrettyString ("run:" ^ formatTimeDiff(endRunTime, startRunTime))
+                    ]
+                )
+        in
+            printOut message
+        end
+    end;
 
   
   (* switch profiling on/off *)
@@ -227,15 +255,8 @@ struct
     };
 
     (* Return the total user+system time since the start. *)
-    fun cpuTime start =
-    let
-        open Time
-        val {usr, sys} = Timer.checkCPUTimer start
-    in
-        usr+sys
-    end
-
-    val startTime = Timer.startCPUTimer();
+ 
+    val startTime = cpuTime()
     
     val startLocn = location lex
     val () =
@@ -265,7 +286,7 @@ struct
       val parseTree : STRUCTURES.program = 
         PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix});
 
-      val parseTime = cpuTime startTime;
+      val parseTime = cpuTime()
 
       val () = 
         if printParsetree
@@ -280,7 +301,7 @@ struct
              and declarations and return type of expression. *)
           val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
      
-          val pass2Time = cpuTime startTime;
+          val pass2Time = cpuTime()
           
           in (* let3 *)
             if errorOccurred lex
@@ -289,7 +310,7 @@ struct
               
               (* Only code-generate if there were no errors and it's not a directive. *)
               val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex);
-              val treeTime = cpuTime startTime;
+              val treeTime = cpuTime()
               
               in
                 if errorOccurred lex
@@ -298,7 +319,7 @@ struct
                 else let (* let5 *)                      
                       val resultCode : unit -> CODETREE.codetree =
                          CODETREE.genCode(structCode, debugSwitches, nLocals)
-                      val codeTime = cpuTime startTime;
+                      val codeTime = cpuTime()
                       
                       (* This is the procedure which is returned as the result of
                          the compilation. *)
@@ -308,7 +329,7 @@ struct
                                  and switch profiling on if required. *)
                             val wasProfiling = profiling;
                     
-                            val startRunTime = Timer.startCPUTimer(); (* Save the run-time *)
+                            val startRunTime = cpuTime() (* Save the run-time *)
                             val () = startProfile wasProfiling;
             
                             val resultVec = (* Now run it *)
@@ -322,25 +343,39 @@ struct
                                      handle exn => (* Exceptions in run-time code. *)
                                      let
                                          val () = stopProfile wasProfiling;
-                                         val endRunTime = cpuTime startRunTime;
+                                         val endRunTime = cpuTime()
                                          (* if we are profiling, stop and force out the profile counts *)
                                          val () = stopProfile wasProfiling;
                                      in
                                          (* print out timing info *)
-                                         if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
+                                         if timing
+                                         then printTimes compilerOutput
+                                                {
+                                                    startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
+                                                    treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
+                                                    endRunTime=endRunTime
+                                                }
+                                         else ();
                                          raise exn
                                      end
                                 )
                                 else resultCode ()
              
                             val () = stopProfile wasProfiling;
-                            val endRunTime = cpuTime startRunTime;
+                            val endRunTime = cpuTime ()
                              
                             val extractedResults = STRUCTURES.pass4Structs (resultVec, parseTree)
             
                         in
                             (* print out timing info *)
-                            if timing then printTimes compilerOutput (parseTime,pass2Time,treeTime,codeTime,endRunTime) else ();
+                            if timing
+                            then printTimes compilerOutput
+                                    {
+                                        startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
+                                        treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
+                                        endRunTime=endRunTime
+                                    }
+                            else ();
                 
                             extractedResults
                         end
