@@ -49,6 +49,8 @@ sig
     
     val earlyRtsCall: machineWord -> bool
 
+    val partitionMutableBindings: codeBinding -> codeBinding list
+
     structure Sharing:
     sig
         type codetree = codetree

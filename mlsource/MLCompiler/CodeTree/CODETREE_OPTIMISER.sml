@@ -772,9 +772,15 @@ struct
                 end
         end (* Cond ... *)
          
-     |  optimise (Newenv(envDecs, envExp),
+     |  optimise (Newenv(envBindings, envExp),
                   context: optContext as  {enterAddr, lookupAddr, nextAddress, debugArgs, ... }) =
         let
+            (* Partition any mutually recursive bindings into strongly connected
+               components.  That means that a component can only be code-generated
+               immediately if the whole set can be. *)
+            val expandedBindings =
+                List.foldr (fn (d, l) => partitionMutableBindings d @ l) [] envBindings
+        
             (* Recurses down the list of declarations and expressions processing
                each, and then reconstructs the list on the way back. *)
             fun copyDeclarations []  =
@@ -792,7 +798,18 @@ struct
                     (rGen, dec @ rDecs, rSpec)
                 end
 
-            |   copyDeclarations (RecDecs mutuals :: vs) = 
+            |   copyDeclarations (RecDecs [{addr, lambda as { closure, ...}, use}] :: vs) =
+                (* Single recursive binding.  Treat as Declar since the simplifier
+                   will have replaced any direct recursion by LoadRecursive. *)
+                let
+                    val _ = (* Check *)
+                        List.exists(fn LoadLocal a => a = addr | _ => false) closure
+                            andalso raise InternalError "optimise: local reference to closure"
+                in
+                    copyDeclarations (Declar{addr=addr, value=Lambda lambda, use=use} :: vs)
+                end
+
+            |   copyDeclarations (RecDecs mutuals :: vs) =
                 (* Mutually recursive declarations. Any of the declarations may
                    refer to any of the others. They should all be lambdas.
 
@@ -848,6 +865,11 @@ struct
                        The only one we consider here is if all the (non-constant)
                        functions are of that form in which case we process the
                        whole mutually-recursive declaration. *)
+                    (* Because we've partitioned the bindings into groups it will
+                       normally be the case that we can only code-generate the
+                       group as a whole.  It's possible, though, that one of the
+                       functions is "small" and when expanded inline it loses some
+                       free variables.  Keep this general code for the moment. *)
                     val hasNonLocalReference = ref false
 
                     fun processFunctions ({ lambda, addr = decAddr, ... }, decSpval, (decs, otherChanges)) =
@@ -993,7 +1015,7 @@ struct
                 end (* copyDeclarations *)
 
         in
-            copyDeclarations envDecs
+            copyDeclarations expandedBindings
         end (* Newenv(... *)
           
     |   optimise (Recconstr entries, context as { nextAddress, ...}) =
@@ -1124,7 +1146,7 @@ struct
                 |   pushSetContainer(Newenv(envDecs, envExp), decs) =
                         pushSetContainer(envExp, List.rev envDecs @ decs)
 
-                |   pushSetContainer(tuple as TupleFromContainer(ext as Extract(LoadLocal innerAddr), innerSize), decs) =
+                |   pushSetContainer(tuple as TupleFromContainer(Extract(LoadLocal innerAddr), innerSize), decs) =
                     (* If the inner container is declared among the decs we have here we can replace
                        the declaration and remove the inner container by replacing it by
                        a reference to the outer. *)

@@ -392,91 +392,12 @@ struct
                 end
                 
                 val rlist = ListPair.map processFunction (orderedDecs, addresses)
-                
-                (* In general any mutually recursive declaration can refer to any
-                   other.  It's better to partition the recursive declarations into
-                   strongly connected components i.e. those that actually refer
-                   to each other.  *)
-                local
-                    val startAddress = hd addresses (* Must be at least one *)
-                    val lastAddress = startAddress + List.length addresses
-                    (* *)
-                    val mapArray = Array.array(lastAddress - startAddress, NONE)
-                    
-                    fun updateMin(addr, try) =
-                    let
-                        val off = addr - startAddress
-                        val { lowLink, index } = valOf(Array.sub(mapArray, off))
-                    in
-                        Array.update(mapArray, off, SOME{ index = index, lowLink = Int.min(lowLink, try) })
-                    end
-
-                    fun strongcomponent(item as {addr, lambda = { closure, ...}, ...}, (thisIndex, stack, resList)) =
-                    let
-                        val newStack = item :: stack
-                        val v = addr - startAddress
-                        (* Mark this item as processed. *)
-                        val () = Array.update(mapArray, v, SOME{index = thisIndex, lowLink = thisIndex})
-
-                        (* Process links that refer to other items *)
-                        fun processLink(LoadLocal a, args as (_, stack, _)) =
-                            if a >= startAddress andalso a < lastAddress
-                            then
-                            let
-                                val w = a - startAddress
-                            in
-                                case Array.sub(mapArray, w) of
-                                    NONE => (*  Not yet processed. *)
-                                    let
-                                        val result = strongcomponent(List.nth(rlist, w), args);
-                                    in
-                                        updateMin(addr, #lowLink(valOf(Array.sub(mapArray, w))));
-                                        result
-                                    end
-                                |   SOME _ =>
-                                    (
-                                        if List.exists(fn{addr, ...} => a = addr) stack (* On the stack so in the current SCC *)
-                                        then updateMin(addr, #index(valOf(Array.sub(mapArray, w))))
-                                        else ();
-                                        args
-                                    )
-                            end
-                            else args
-                        |   processLink (_, args) = args
-                        
-                        val (nextIndex, stack', subRes) = List.foldl processLink (thisIndex+1, newStack, resList) closure
-                    in
-                        (* Process references from this function. *)
-                        if #lowLink(valOf(Array.sub(mapArray, v))) = thisIndex (* This is the minimum *)
-                        then (* Create an SCC *)
-                        let
-                            fun popItems([], _) = raise InternalError "stack empty"
-                            |   popItems((item as {addr=a, ...}) :: r, l) =
-                                    if a = addr
-                                    then (r, item :: l)
-                                    else popItems(r, item :: l)
-                            val (newStack, scc) = popItems(stack', [])
-                            val out = RecDecs scc
-                        in
-                            (nextIndex, newStack, out :: subRes)
-                        end
-                        else (nextIndex, stack', subRes)
-                    end
-
-                    (* Process items that have not yet been reached *)
-                    fun processUnprocessed (item as {addr, ...}, args) =
-                        case Array.sub(mapArray, addr-startAddress) of 
-                            NONE => strongcomponent(item, args) | _ => args
-                in
-                    val (_, _, result) = List.foldl processUnprocessed (0, [], []) rlist;
-                    val recBindings = List.rev result
-                end
 
                 (* Deal with the rest of the block *)
                 val (rGen, rDecs, rSpec) = copyDecs vs
             in
                 (* and put these declarations onto the list. *)
-                (rGen, recBindings @ rDecs, rSpec)
+                (rGen, partitionMutableBindings(RecDecs rlist) @ rDecs, rSpec)
             end
     in
         copyDecs envDecs
