@@ -1602,6 +1602,9 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 top = (top-1) & 0x7;
                 stack->p_fp.sw = (stack->p_fp.sw & (~0x3800)) | (top << 11);
                 stack->p_fp.tw &= ~(3 << top*2); // Needed?
+                // Push the stack down
+                for (unsigned i = 7; i != 0; i--)
+                    memcpy(stack->p_fp.registers[i], stack->p_fp.registers[i-1], sizeof(fpregister));
                 // Turn the double precision value into extended precision.  Because
                 // the double precision has less precision than the extended it will
                 // always fit.  The result is always put into the first register which is
