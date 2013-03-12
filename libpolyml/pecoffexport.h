@@ -2,7 +2,7 @@
     Title:     Export memory as a PE/COFF object
     Author:    David C. J. Matthews.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006, 2013 David C. J. Matthews
 
 
     This library is free software; you can redistribute it and/or
@@ -39,6 +39,9 @@ public:
 private:
     // ScanAddress overrides
     virtual void ScanConstant(byte *addrOfConst, ScanRelocationKind code);
+    // Special case for X86-64.  Replace calls/jumps through constant area
+    virtual bool ReplaceX8664Relative(byte *addressOfRelative, PolyWord target) { return true; }
+
     // At the moment we should only get calls to ScanConstant.
     virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
     void alignFile(int align);

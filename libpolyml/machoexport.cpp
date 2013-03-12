@@ -173,7 +173,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
             relocationCount++;
         }
         break;
-#if (defined(HOSTARCHITECTURE_X86))
+#if (defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             unsigned addrArea = findArea(addr);
@@ -202,62 +202,6 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 }
             }
         }
-        break;
-#endif
-#ifdef HOSTARCHITECTURE_PPC
-    case PROCESS_RELOC_PPCDUAL16SIGNED:       // Power PC - two consecutive words
-    case PROCESS_RELOC_PPCDUAL16UNSIGNED:
-        {
-            struct relocation_info reloc;
-            setRelocationAddress(addr, &reloc.r_address);
-            POLYUNSIGNED hi = offset >> 16; // N.B. No adjustment yet.
-            POLYUNSIGNED lo = offset & 0xffff;
-            // We use two consecutive words for our address but Mach-O requires separate
-            // relocations for each.  It stores one half of the address in the instruction
-            // itself and the other half is carried in a PPC_RELOC_PAIR relocation entry.
-            // We need four relocations here in total.
-            reloc.r_symbolnum = aArea+1; // Section numbers start at 1
-            reloc.r_extern = 0; // r_symbolnum is a section number.
-            reloc.r_pcrel = 0;
-            reloc.r_length = 2; // 4 bytes
-            reloc.r_type = code == PROCESS_RELOC_PPCDUAL16SIGNED ? PPC_RELOC_HA16 : PPC_RELOC_HI16;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-            // Next must be a "pair" containing the low-order part of the address.
-            // The high-order part is stored in the instruction.
-            reloc.r_symbolnum = 0xffffff; // Not sure why 
-            reloc.r_type = PPC_RELOC_PAIR;
-            reloc.r_extern = 0;
-            reloc.r_pcrel = 0;
-            reloc.r_address = lo;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-
-            // Now the low-order part.
-            setRelocationAddress(addr+sizeof(PolyWord), &reloc.r_address);
-            reloc.r_symbolnum = aArea+1; // Section numbers start at 1
-            reloc.r_extern = 0; // r_symbolnum is a section number.
-            reloc.r_pcrel = 0;
-            reloc.r_length = 2; // 4 bytes
-            reloc.r_type = PPC_RELOC_LO16;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-            // Finally a "pair" containing the high-order part of the address to
-            // match the low-order part in the instruction.
-            reloc.r_symbolnum = 0xffffff; // Not sure why 
-            reloc.r_type = PPC_RELOC_PAIR;
-            reloc.r_extern = 0;
-            reloc.r_pcrel = 0;
-            reloc.r_address = hi; // Must NOT be adjusted for sign extension.
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-             // Adjust for sign extension and store in the instruction.
-            if ((lo & 0x8000) && (code == PROCESS_RELOC_PPCDUAL16SIGNED)) hi++;
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addr;
-            // Store the offset into the instructions.
-            pt[0] = (pt[0] & 0xffff0000) | hi;
-            pt[1] = (pt[1] & 0xffff0000) | lo;
-       }
         break;
 #endif
         default:

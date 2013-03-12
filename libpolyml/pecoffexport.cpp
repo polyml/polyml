@@ -148,7 +148,8 @@ void PECOFFExport::ScanConstant(byte *addr, ScanRelocationKind code)
 
     // The value we store here is the offset whichever relocation method
     // we're using.
-    for (unsigned i = 0; i < sizeof(PolyWord); i++)
+    unsigned maxSize = code == PROCESS_RELOC_I386RELATIVE ? 4: sizeof(PolyWord);
+    for (unsigned i = 0; i < maxSize; i++)
     {
         addr[i] = (byte)(offset & 0xff);
         offset >>= 8;
@@ -252,9 +253,11 @@ void PECOFFExport::exportStore(void)
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                relocateObject(obj);
+                // Update any constants before processing the object
+                // We need that for relative jumps/calls in X86/64.
                 if (length != 0 && obj->IsCodeObject())
                     machineDependent->ScanConstantsWithinCode(obj, this);
+                relocateObject(obj);
                 p += length;
             }
              // If there are more than 64k relocations set this bit and set the value to 64k-1.

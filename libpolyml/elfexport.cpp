@@ -173,81 +173,33 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             }
         }
         break;
-#if(defined(HOSTARCHITECTURE_X86))
+#if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
-            ElfXX_Rel reloc;
-            setRelocationAddress(addr, &reloc.r_offset);
-             // We seem to need to subtract 4 bytes to get the correct offset in ELF
-            offset -= 4;
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
-            for (unsigned i = 0; i < 4; i++)
+            if (useRela)
             {
-                addr[i] = (byte)(offset & 0xff);
-                offset >>= 8;
+                ElfXX_Rela reloc;
+                setRelocationAddress(addr, &reloc.r_offset);
+                //offset -= 4;
+                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
+                reloc.r_addend = offset;
+                fwrite(&reloc, sizeof(reloc), 1, exportFile);
             }
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            else
+            {
+                ElfXX_Rel reloc;
+                setRelocationAddress(addr, &reloc.r_offset);
+                 // We seem to need to subtract 4 bytes to get the correct offset in ELF
+                offset -= 4;
+                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
+                for (unsigned i = 0; i < 4; i++)
+                {
+                    addr[i] = (byte)(offset & 0xff);
+                    offset >>= 8;
+                }
+                fwrite(&reloc, sizeof(reloc), 1, exportFile);
+            }
             relocationCount++;
-        }
-        break;
-#endif
-#ifdef HOSTARCHITECTURE_PPC
-    case PROCESS_RELOC_PPCDUAL16SIGNED:       // Power PC - two consecutive words
-    case PROCESS_RELOC_PPCDUAL16UNSIGNED:
-        {
-            ElfXX_Rela reloc;
-            setRelocationAddress(addr+2 /* actual bytes to be updated */, &reloc.r_offset);
-            // We need two relocations here.
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea),
-                    code == PROCESS_RELOC_PPCDUAL16SIGNED ? R_PPC_ADDR16_HA : R_PPC_ADDR16_HI);
-            reloc.r_addend = offset;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-
-            setRelocationAddress(addr+sizeof(PolyWord)+2, &reloc.r_offset);
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PPC_ADDR16_LO);
-            reloc.r_addend = offset;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-            // Set the constant values to zero.  This doesn't seem to be necessary
-            // on the PPC but can't do any harm.
-            POLYUNSIGNED *caddr = (POLYUNSIGNED *)addr;
-            caddr[0] = caddr[0] & 0xffff0000;
-            caddr[1] = caddr[1] & 0xffff0000;
-        }
-        break;
-#endif
-#ifdef HOSTARCHITECTURE_SPARC
-    case PROCESS_RELOC_SPARCDUAL: // Sparc - two consecutive words
-        {
-            ElfXX_Rela reloc;
-            setRelocationAddress(addr, &reloc.r_offset);
-            // We need two relocations here.
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_SPARC_HI22);
-            reloc.r_addend = offset;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-
-            setRelocationAddress(addr+sizeof(PolyWord), &reloc.r_offset);
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_SPARC_LO10);
-            reloc.r_addend = offset;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-            POLYUNSIGNED *caddr = (POLYUNSIGNED *)addr;
-            caddr[0] = caddr[0] & 0xffc00000;
-            caddr[1] = caddr[1] & 0xfffff000;
-        }
-        break;
-    case PROCESS_RELOC_SPARCRELATIVE: // Sparc 30-bit relative address
-        {
-            ElfXX_Rela reloc;
-            setRelocationAddress(addr, &reloc.r_offset);
-            reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_SPARC_WDISP30);
-            reloc.r_addend = offset;
-            fwrite(&reloc, sizeof(reloc), 1, exportFile);
-            relocationCount++;
-            POLYUNSIGNED *caddr = (POLYUNSIGNED *)addr;
-            caddr[0] = caddr[0] & 0xc0000000;
         }
         break;
 #endif
@@ -555,9 +507,11 @@ void ELFExport::exportStore(void)
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                relocateObject(obj);
+                // Update any constants before processing the object
+                // We need that for relative jumps/calls in X86/64.
                 if (length != 0 && obj->IsCodeObject())
                     machineDependent->ScanConstantsWithinCode(obj, this);
+                relocateObject(obj);
                 p += length;
             }
         }

@@ -294,35 +294,6 @@ PolyWord ScanAddress::GetConstantValue(byte *addressOfConstant, ScanRelocationKi
 
             return PolyWord::FromCodePtr(absAddr);
         }
-    case PROCESS_RELOC_PPCDUAL16SIGNED:       // Power PC - two consecutive words
-    case PROCESS_RELOC_PPCDUAL16UNSIGNED:
-        {
-            // The second word may be a sign-extending "add" instruction or
-            // a non-signing extending "or" instruction.
-            bool isSigned = code == PROCESS_RELOC_PPCDUAL16SIGNED;
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addressOfConstant;
-            // Put together the two halves.
-            POLYUNSIGNED hi = pt[0] & 0xffff;
-            POLYUNSIGNED lo = pt[1] & 0xffff;
-            if (lo >= 32768 && isSigned) hi--; // Correct for sign extension.
-
-            return PolyWord::FromUnsigned((hi << 16) + lo);
-        }
-    case PROCESS_RELOC_SPARCDUAL:  // Sparc - Sethi and Add instruction pair.
-        {
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addressOfConstant;
-            // Put together the two halves.
-            POLYUNSIGNED valu = (pt[0] << 10) | (pt[1] & 0x3ff);
-            return PolyWord::FromUnsigned(valu);
-        }
-    case PROCESS_RELOC_SPARCRELATIVE: // Call instruction with 30-bit word displacement
-        {
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addressOfConstant;
-            POLYSIGNED disp = (*pt) & 0x3fffffff;
-            // This will work on a 32-bit machine because shifting the 30 bits will set the
-            // sign bit.
-            return PolyWord::FromStackAddr((PolyWord*)pt + disp);
-        }
     default:
         ASSERT(false);
         return TAGGED(0);
@@ -349,39 +320,13 @@ void ScanAddress::SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelo
     case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             POLYSIGNED newDisp = p.AsCodePtr() - addressOfConstant - 4;
+#if (SIZEOF_VOIDP != 4)
+            ASSERT(newDisp < 0x80000000 && newDisp >= -(POLYSIGNED)0x80000000);
+#endif
             for (unsigned i = 0; i < 4; i++) {
                 addressOfConstant[i] = (byte)(newDisp & 0xff);
                 newDisp >>= 8;
             }
-        }
-        break;
-    case PROCESS_RELOC_PPCDUAL16SIGNED:       // Power PC - two consecutive words
-    case PROCESS_RELOC_PPCDUAL16UNSIGNED:
-        {
-            // The second word may be a sign-extending "add" instruction or
-            // a non-signing extending "or" instruction.
-            bool isSigned = code == PROCESS_RELOC_PPCDUAL16SIGNED;
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addressOfConstant;
-            POLYUNSIGNED hi = p.AsUnsigned() >> 16;
-            POLYUNSIGNED lo = p.AsUnsigned() & 0xffff;
-            if ((lo & 0x8000) && isSigned) hi++; // Adjust the for sign extension.
-            pt[0] = (pt[0] & 0xffff0000) | hi;
-            pt[1] = (pt[1] & 0xffff0000) | lo;
-        }
-        break;
-    case PROCESS_RELOC_SPARCDUAL:           // Sparc - SETHI has top 22 bits, ADD has low 10 bits.
-        {
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addressOfConstant;
-            POLYUNSIGNED valu = p.AsUnsigned();
-            pt[0] = (pt[0] & 0xffc00000) | (valu >> 10);
-            pt[1] = (pt[1] & 0xfffff000) | (valu & 0x3ff);
-        }
-        break;
-    case PROCESS_RELOC_SPARCRELATIVE: // Call instruction with 30-bit word displacement
-        {
-            POLYUNSIGNED *pt = (POLYUNSIGNED *)addressOfConstant;
-            POLYSIGNED newDisp = p.AsStackAddr() - (PolyWord*)addressOfConstant;
-            *pt = (newDisp & 0x3fffffff) | 0x40000000;
         }
         break;
     }

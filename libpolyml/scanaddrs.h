@@ -24,15 +24,10 @@
 
 #include "globals.h"
 
-// Type of relocations.  N.B. These values are built into saved states.  Either add
-// new entries to the end or update the saved state version number.
+// Type of relocations.
 typedef enum {
     PROCESS_RELOC_DIRECT = 0,           // 32 or 64 bit address of target
-    PROCESS_RELOC_I386RELATIVE,         // 32 or 64 bit relative address
-    PROCESS_RELOC_PPCDUAL16SIGNED,      // Power PC - two consecutive words - second is signed.
-    PROCESS_RELOC_PPCDUAL16UNSIGNED,    // Power PC - two consecutive words - second is unsigned
-    PROCESS_RELOC_SPARCDUAL,            // SPARC - two consecutive words
-    PROCESS_RELOC_SPARCRELATIVE         // Sparc - 30 bit relative address
+    PROCESS_RELOC_I386RELATIVE         // 32 or 64 bit relative address
 } ScanRelocationKind;
 
 class StackSpace;
@@ -101,11 +96,13 @@ protected:
     // ScanObjectAddress for the base addresses of all other addresses.
     PolyWord ScanStackAddress(PolyWord val, StackSpace *base, bool isCode);
 
+public:
     // Extract a constant from the code.
     static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
-public:
     // Store a constant in the code.
     static void SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelocationKind code);
+    // Special case for X86-64.  Test if a relative address can be used.
+    virtual bool ReplaceX8664Relative(byte *addressOfRelative, PolyWord target) { return false; }
 };
 
 // Recursive scan over a data structure.
