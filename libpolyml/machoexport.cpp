@@ -186,7 +186,11 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 reloc.r_symbolnum = aArea+1; // Section numbers start at 1
                 reloc.r_pcrel = 1;
                 reloc.r_length = 2; // 4 bytes
+#if (defined(HOSTARCHITECTURE_X86_64))
+                reloc.r_type = X86_64_RELOC_SIGNED;
+#else
                 reloc.r_type = GENERIC_RELOC_VANILLA;
+#endif
                 reloc.r_extern = 0; // r_symbolnum is a section number.
                 fwrite(&reloc, sizeof(reloc), 1, exportFile);
                 relocationCount++;
@@ -195,7 +199,7 @@ void MachoExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 adjustOffset(addrArea, addrOffset);
                 offset -= addrOffset + 4;
 
-                for (unsigned i = 0; i < sizeof(PolyWord); i++)
+                for (unsigned i = 0; i < 4; i++)
                 {
                     addr[i] = (byte)(offset & 0xff);
                     offset >>= 8;
@@ -441,9 +445,9 @@ void MachoExport::exportStore(void)
                 p++;
                 PolyObject *obj = (PolyObject*)p;
                 POLYUNSIGNED length = obj->Length();
-                relocateObject(obj);
                 if (length != 0 && obj->IsCodeObject())
                     machineDependent->ScanConstantsWithinCode(obj, this);
+                relocateObject(obj);
                 p += length;
             }
         }
