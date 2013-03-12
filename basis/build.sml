@@ -51,6 +51,10 @@ val () =
     then Bootstrap.use "basis/Word32.sml"
     else if LargeWord.wordSize = 64
     then Bootstrap.use "basis/Word32In64.sml"
+    else if LargeWord.wordSize = 62
+    then Bootstrap.use "basis/Word32.550.sml"
+    else if LargeWord.wordSize = 126
+    then Bootstrap.use "basis/Word32In64.550.sml"
     else ();
 
 val () = Bootstrap.use "basis/Word8.sml";
