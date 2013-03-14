@@ -319,6 +319,9 @@
 /* Define to 1 if you have the `sqrt' function. */
 #undef HAVE_SQRT
 
+/* Define to 1 if the system has the type `ssize_t'. */
+#undef HAVE_SSIZE_T
+
 /* Define to 1 if the system has the type `stack_t'. */
 #undef HAVE_STACK_T
 
@@ -596,6 +599,9 @@
 
 /* The size of `long', as computed by sizeof. */
 #undef SIZEOF_LONG
+
+/* The size of `long long', as computed by sizeof. */
+#undef SIZEOF_LONG_LONG
 
 /* The size of `void*', as computed by sizeof. */
 #undef SIZEOF_VOIDP
