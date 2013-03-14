@@ -363,7 +363,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                        for the result again.  We only close it when we've garbage-collected
                        the token.  Doing this runs the risk of running out of handles.
                        Maybe change it and remember the result in ML. */
-                    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwResult);
+                    return Make_arbitrary_precision(taskData, dwResult);
                 }
                 // Block and try again.
                 WaitHandle waiter(hnd->entry.process.hProcess);
@@ -579,8 +579,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                     -(int)GetLastError());
             volHandle = SAVE(C_string_to_Poly(taskData, volName));
             sysHandle = SAVE(C_string_to_Poly(taskData, sysName));
-            serialHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwVolSerial);
-            maxCompHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwMaxComponentLen);
+            serialHandle = Make_arbitrary_precision(taskData, dwVolSerial);
+            maxCompHandle = Make_arbitrary_precision(taskData, dwMaxComponentLen);
             resultHandle = alloc_and_save(taskData, 4);
             DEREFHANDLE(resultHandle)->Set(0, DEREFWORDHANDLE(volHandle));
             DEREFHANDLE(resultHandle)->Set(1, DEREFWORDHANDLE(sysHandle));
@@ -698,10 +698,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             osver.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
             if (! GetVersionEx(&osver))
                 raise_syscall(taskData, "GetVersionEx failed", -(int)GetLastError());
-            major = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwMajorVersion);
-            minor = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwMinorVersion);
-            build = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwBuildNumber);
-            platform = Make_arbitrary_precision(taskData, (POLYUNSIGNED)osver.dwPlatformId);
+            major = Make_arbitrary_precision(taskData, osver.dwMajorVersion);
+            minor = Make_arbitrary_precision(taskData, osver.dwMinorVersion);
+            build = Make_arbitrary_precision(taskData, osver.dwBuildNumber);
+            platform = Make_arbitrary_precision(taskData, osver.dwPlatformId);
             version = SAVE(C_string_to_Poly(taskData, osver.szCSDVersion));
             resVal = alloc_and_save(taskData, 5);
             DEREFHANDLE(resVal)->Set(0, DEREFWORDHANDLE(major));
@@ -1182,7 +1182,7 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     }
 
     /* Create a pair containing the type and the value. */
-    resType = Make_arbitrary_precision(taskData, (POLYUNSIGNED)dwType);
+    resType = Make_arbitrary_precision(taskData, dwType);
     result = alloc_and_save(taskData, 2);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(resType));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(resVal));

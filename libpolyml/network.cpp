@@ -520,7 +520,7 @@ TryAgain:
         }
 
     case 13: /* Return the "any" internet address. */
-        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)INADDR_ANY);
+        return Make_arbitrary_precision(taskData, INADDR_ANY);
 
     case 14: /* Create a socket */
         {
@@ -728,7 +728,7 @@ TryAgain:
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP();
             struct sockaddr_in *psock =
                 (struct sockaddr_in *)&psAddr->chars;
-            return Make_arbitrary_precision(taskData, (POLYUNSIGNED)ntohl(psock->sin_addr.s_addr));
+            return Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr));
         }
 
         /* 43 - Set non-blocking mode.  Now removed. */
@@ -745,7 +745,7 @@ TryAgain:
             if (ioctl(strm->device.sock, FIONREAD, &readable) < 0)
                 raise_syscall(taskData, "ioctl failed", GETERROR);
 #endif
-            return Make_arbitrary_precision(taskData, (POLYUNSIGNED)readable);
+            return Make_arbitrary_precision(taskData, readable);
         }
 
     case 45: /* Find out if we are at the mark. */
@@ -1273,7 +1273,7 @@ static Handle mkAddr(TaskData *taskData, void *arg, char *p)
        just use ntohl. */
     for (j = 0; j < host->h_length; j++)
         addr = (addr << 8) | ((*(char**)p)[j] & 255);
-    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)addr);
+    return Make_arbitrary_precision(taskData, addr);
 }
 
 /* Convert a host entry into a tuple for ML. */

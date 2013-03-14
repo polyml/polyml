@@ -129,6 +129,9 @@ typedef char TCHAR;
 #define INFTIM (-1)
 #endif
 
+#ifndef HAVE_SSIZE_T
+typedef int ssize_t;
+#endif
 
 #include "globals.h"
 #include "basicio.h"
@@ -688,7 +691,6 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     unsigned        offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
     unsigned        length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     PIOSTRUCT       strm = get_stream(stream->WordP());
-    POLYSIGNED      haveWritten;
     byte    ch;
     /* Raise an exception if the stream has been closed. */
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -706,7 +708,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
         length = 1;
     }
     else toWrite = base.AsObjPtr()->AsBytePtr();
-    haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
+    ssize_t haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
     if (haveWritten < 0) raise_syscall(taskData, "Error while writing", errno);
 
     return Make_arbitrary_precision(taskData, haveWritten);
@@ -754,16 +756,15 @@ static long seekStream(TaskData *taskData, PIOSTRUCT strm, long pos, int origin)
    files since it is meaningless for other devices. */
 static Handle bytesAvailable(TaskData *taskData, Handle stream)
 {
-    long original, endOfStream;
     PIOSTRUCT strm = get_stream(stream->WordP());
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
     /* Remember our original position, seek to the end, then seek back. */
-    original = seekStream(taskData, strm, 0L, SEEK_CUR);
-    endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
+    long original = seekStream(taskData, strm, 0L, SEEK_CUR);
+    long endOfStream = seekStream(taskData, strm, 0L, SEEK_END);
     if (seekStream(taskData, strm, original, SEEK_SET) != original) 
         raise_syscall(taskData, "Position error", errno);
-    return Make_arbitrary_precision(taskData, (POLYSIGNED)(endOfStream-original));
+    return Make_arbitrary_precision(taskData, endOfStream-original);
 }
 
 
@@ -1593,12 +1594,11 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             /* Get the current position in the stream.  This is used to test
                for the availability of random access so it should raise an
                exception if setFilePos or endFilePos would fail. */
-            long pos;
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
-            pos = seekStream(taskData, str, 0L, SEEK_CUR);
-            return Make_arbitrary_precision(taskData, (POLYSIGNED)pos);
+            long pos = seekStream(taskData, str, 0L, SEEK_CUR);
+            return Make_arbitrary_precision(taskData, pos);
         }
 
     case 19: /* Seek to position on stream. */
@@ -1613,16 +1613,15 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 20: /* Return position at end of stream. */
         {
-            long original, endOfStream;
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
             /* Remember our original position, seek to the end, then seek back. */
-            original = seekStream(taskData, str, 0L, SEEK_CUR);
-            endOfStream = seekStream(taskData, str, 0L, SEEK_END);
+            long original = seekStream(taskData, str, 0L, SEEK_CUR);
+            long endOfStream = seekStream(taskData, str, 0L, SEEK_END);
             if (seekStream(taskData, str, original, SEEK_SET) != original) 
                 raise_syscall(taskData, "Position error", errno);
-            return Make_arbitrary_precision(taskData, (POLYSIGNED)endOfStream);
+            return Make_arbitrary_precision(taskData, endOfStream);
         }
 
     case 21: /* Get the kind of device underlying the stream. */

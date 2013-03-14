@@ -235,7 +235,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     for (unsigned i = 0; i < N_PS_COUNTERS; i++)
     {
         Handle mark = taskData->saveVec.mark();
-        Handle counterValue = Make_arbitrary_precision(taskData, (POLYUNSIGNED)stats->psCounters[i]);
+        Handle counterValue = Make_arbitrary_precision(taskData, stats->psCounters[i]);
         counts->WordP()->Set(i, counterValue->Word());
         taskData->saveVec.reset(mark);
     }

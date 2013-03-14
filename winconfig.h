@@ -657,6 +657,10 @@
 #define SIZEOF_VOIDP 4
 #endif
 
+// Size of long long
+// N.B. This is 8 on both 32-bit and 64-bit
+#define SIZEOF_LONG_LONG 8
+
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
    automatically deduced at runtime.

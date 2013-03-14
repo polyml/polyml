@@ -397,7 +397,7 @@ static Handle make_canonical(TaskData *taskData, Handle x, int sign)
 }
 
 
-Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED val)
+Handle ArbitraryPrecionFromSigned(TaskData *taskData, POLYSIGNED val)
 /* Called from routines in the run-time system to generate an arbitrary
    precision integer from a word value. */
 {
@@ -421,7 +421,7 @@ Handle Make_arbitrary_precision(TaskData *taskData, POLYSIGNED val)
     return y;
 }
 
-Handle Make_arbitrary_precision(TaskData *taskData, POLYUNSIGNED uval)
+Handle ArbitraryPrecionFromUnsigned(TaskData *taskData, POLYUNSIGNED uval)
 /* Called from routines in the run-time system to generate an arbitrary
    precision integer from an unsigned value. */
 {
@@ -442,16 +442,36 @@ Handle Make_arbitrary_precision(TaskData *taskData, POLYUNSIGNED uval)
     return y;
 }
 
-#if (SIZEOF_INT != SIZEOF_VOIDP)
-// Additional overloadings for 64-bit.
+
 Handle Make_arbitrary_precision(TaskData *taskData, int val)
 {
-    return Make_arbitrary_precision(taskData, (POLYSIGNED)val);
+    return ArbitraryPrecionFromSigned(taskData, val);
 }
 
 Handle Make_arbitrary_precision(TaskData *taskData, unsigned uval)
 {
-    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)uval);
+    return ArbitraryPrecionFromUnsigned(taskData, uval);
+}
+
+Handle Make_arbitrary_precision(TaskData *taskData, long val)
+{
+    return ArbitraryPrecionFromSigned(taskData, val);
+}
+
+Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
+{
+    return ArbitraryPrecionFromUnsigned(taskData, uval);
+}
+
+#if (SIZEOF_LONG_LONG != 0 && SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+Handle Make_arbitrary_precision(TaskData *taskData, long long val)
+{
+    return ArbitraryPrecionFromSigned(taskData, val);
+}
+
+Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long uval)
+{
+    return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
 #endif
 
