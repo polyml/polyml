@@ -397,7 +397,18 @@ struct
             
             |   BICTuple vl => List.app loads vl
 
-            |   BICBeginLoop{loop, arguments, ...} => (List.app (fn ({value, ...}, _) => loads value) arguments; loads loop)
+            |   BICBeginLoop{loop, arguments, ...} =>
+                let
+                    fun declArg({addr, value, ...}, _) =
+                    (
+                        (* Indicate that this is a new declaration. *)
+                        StretchArray.update (newDecs, addr, true);
+                        loads value (* Check the expression. *)
+                    )
+                in
+                    List.app declArg arguments;
+                    loads loop
+                end
 
             |   BICLoop argList => List.app (fn (l, _) => loads l) argList
 
@@ -1520,10 +1531,11 @@ struct
                     genToStackOrGeneralRegister (c, matchFailFn)
             |   loadClosure c = genToStackOrGeneralRegister (c, matchFailFn)
             val initialLocs = List.map loadClosure closureList
-            (* BICExtract any constants. *)
+            (* Extract any constants. *)
             val constants =
                 List.map(fn i => if i = noIndex then NotConst else isConstant(i, transtable)) initialLocs
             val nonConstCount = List.foldl(fn (NotConst, n) => n+1 | (_, n) => n) 0 constants
+            (*val _ = nonConstCount = List.length initialLocs orelse raise InternalError ("constants in closure for " ^ lambdaName)*)
         in
             if nonConstCount = 0
             then (* All the entries that are there are constants.  We can avoid constructing a
