@@ -180,6 +180,8 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
             {
                 ElfXX_Rela reloc;
                 setRelocationAddress(addr, &reloc.r_offset);
+                // We seem to need to subtract 4 bytes to get the correct offset in ELF
+                offset -= 4;
                 reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
                 reloc.r_addend = offset;
                 // Clear the field.  Even though it's not supposed to be used with Rela the
