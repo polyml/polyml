@@ -2252,7 +2252,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
             // Long jump and call.  These are used to call constant (known) functions
             // and also long jumps within the function.
             {
-                bool isCall = *pt == 0xe8;
                 pt++;
                 POLYSIGNED disp = (pt[3] & 0x80) ? -1 : 0; // Set the sign just in case.
                 for(unsigned i = 4; i > 0; i--)
@@ -2262,7 +2261,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
                 else {
-/*                    */
                     if (addr == old)
                         process->ScanConstant(pt, PROCESS_RELOC_I386RELATIVE);
                     else
@@ -2281,7 +2279,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                             // 32-bit relative call/jump.  Convert it back.
                             ASSERT(pt[-2] == 0x90); // It was a NOP
                             pt[-2] = 0xff;
-                            pt[-1] = isCall ? 0x15: 0x25;
+                            pt[-1] = pt[-1] == 0xe8 ? 0x15: 0x25;
                             PolyWord *cp;
                             POLYUNSIGNED count, n = 0;
                             addr->GetConstSegmentForCode(cp, count);
