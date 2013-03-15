@@ -56,13 +56,6 @@ struct
         nextAddress: unit -> int
     }
 
-    (* Function to build a closure.  Items are added to the closure if they are not already there. *)
-    fun rebuildClosure (closureList: (loadForm * int) list ref) (ext: loadForm): loadForm =
-        case (List.find (fn (l, _) => l = ext) (!closureList), ! closureList) of
-            (SOME(_, n), _) => (* Already there *) LoadClosure n
-        |   (NONE, []) => (* Not there - first *) (closureList := [(ext, 0)]; LoadClosure 0)
-        |   (NONE, cl as (_, n) :: _) => (closureList := (ext, n+1) :: cl; LoadClosure(n+1))
-
     fun envGeneralToCodetree(EnvGenLoad ext) = Extract ext
     |   envGeneralToCodetree(EnvGenConst w) = Constnt w
 
@@ -443,7 +436,7 @@ struct
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
 
-            val optClosureList = ref []
+            val optClosureList = makeClosure()
 
             local
                 fun localOldAddr (LoadLocal addr) = valOf(Array.sub(oldAddrTab, addr))
@@ -460,7 +453,7 @@ struct
                         else
                         let
                             val newEntry = lookupAddr oldEntry
-                            val makeClosure = rebuildClosure optClosureList
+                            val makeClosure = addToClosure optClosureList
 
                             fun convertResult(genEntry, specEntry) =
                                 (* If after looking up the entry we get our new address it's recursive. *)
@@ -503,7 +496,7 @@ struct
                     })
             end
 
-            val closureAfterOpt = List.foldl (fn ((ext, _), l) => ext :: l) [] (!optClosureList)
+            val closureAfterOpt = extractClosure optClosureList
 
             val localCount = ! newAddressAllocator
 

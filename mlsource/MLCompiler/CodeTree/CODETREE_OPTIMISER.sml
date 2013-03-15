@@ -432,14 +432,6 @@ struct
 
     fun loopFilterError _ = raise InternalError "Loop instruction without BeginLoop"
 
-    (* Function to build a closure.  Items are added to the closure if they are not already there. *)
-    fun rebuildClosure (closureList: (loadForm * int) list ref) (ext: loadForm): loadForm =
-        case (List.find (fn (l, _) => l = ext) (!closureList), ! closureList) of
-            (SOME(_, n), _) => (* Already there *) LoadClosure n
-        |   (NONE, []) => (* Not there - first *) (closureList := [(ext, 0)]; LoadClosure 0)
-        |   (NONE, cl as (_, n) :: _) => (closureList := (ext, n+1) :: cl; LoadClosure(n+1))
-
-
     (* Prepares a binding for entry into a look-up table.  Returns the entry
        to put into the table together with any bindings that must be made.
        If the general part of the optVal is a constant we can just put the
@@ -1216,7 +1208,7 @@ struct
 
             (* First phase - this is the closure after calling optimise.  It may contain items that
                are not actually used so it is rebuilt in cleanCode. *)
-            val optClosureList = ref []
+            val optClosureList = makeClosure()
 
             local
                 fun localOldAddr (LoadLocal addr) = valOf(oldAddrTab sub addr)
@@ -1233,7 +1225,7 @@ struct
                         else
                         let
                             val newEntry = lookupAddr oldEntry
-                            val makeClosure = rebuildClosure optClosureList
+                            val makeClosure = addToClosure optClosureList
 
                             fun convertResult(genEntry, specEntry) =
                                 (* If after looking up the entry we get our new address it's recursive. *)
@@ -1275,20 +1267,20 @@ struct
                     })
             end
 
-            val closureAfterOpt = List.foldl (fn ((ext, _), l) => ext :: l) [] (!optClosureList)
+            val closureAfterOpt = extractClosure optClosureList
 
             (* New closure after cleaning. *)
-            val cleanClosureList = ref nil
+            val cleanClosureList = makeClosure()
  
             fun lookupInClean closureEntry =
-                rebuildClosure cleanClosureList (List.nth(closureAfterOpt, closureEntry))
+                addToClosure cleanClosureList (List.nth(closureAfterOpt, closureEntry))
 
             fun doclean () = REMOVE_REDUNDANT.cleanProc(getGeneral newCode, [UseGeneral], lookupInClean,
                           ! newAddressAllocator)
 
             val cleanedBody = doclean()
                 
-            val finalClosure = List.foldl (fn ((ext, _), l) => ext :: l) [] (!cleanClosureList)
+            val finalClosure = extractClosure cleanClosureList
  
             val (inlineType, updatedBody, localCount) =
                 case lambdaInline of

@@ -376,10 +376,28 @@ struct
         (* This is only intended for RecDecs but it's simpler to handle all bindings. *)
     |   partitionMutableBindings other = [other]
 
+
+    (* Functions to help in building a closure. *)
+    datatype createClosure = Closure of (loadForm * int) list ref
+    
+    fun makeClosure() = Closure(ref [])
+
+        (* Function to build a closure.  Items are added to the closure if they are not already there. *)
+    fun addToClosure (Closure closureList) (ext: loadForm): loadForm =
+        case (List.find (fn (l, _) => l = ext) (!closureList), ! closureList) of
+            (SOME(_, n), _) => (* Already there *) LoadClosure n
+        |   (NONE, []) => (* Not there - first *) (closureList := [(ext, 0)]; LoadClosure 0)
+        |   (NONE, cl as (_, n) :: _) => (closureList := (ext, n+1) :: cl; LoadClosure(n+1))
+
+    fun extractClosure(Closure (ref closureList)) =
+        List.foldl (fn ((ext, _), l) => ext :: l) [] closureList
+
     structure Sharing =
     struct
         type codetree = codetree
         and codeBinding = codeBinding
+        and loadForm = loadForm
+        and createClosure = createClosure
     end
 
 end;

@@ -55,7 +55,7 @@ struct
                     (fn (UseApply l, r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r)
                     [] lambdaUse
             (* Rebuild the closure with the entries actually used. *)
-            val closureUse: {closureAddr: int, source: loadForm, result: loadForm} list ref = ref []
+            val closureUse = makeClosure()
 
             fun lookup (closureEntry, clUse) =
                 let
@@ -64,20 +64,8 @@ struct
                     (* Process the closure entry.  We need to do this to record the
                        usage information even if we have already seen this entry. *)
                     val copied = cleanExtract(ext, clUse)
-
-                    val newClosure =
-                        case List.find (fn { source, ...} => source = ext) (!closureUse) of
-                            SOME{ closureAddr, ...} => closureAddr
-                        |   NONE =>
-                            let
-                                (* Find the next address in the sequence. = List.length + 1 *)
-                                val nextAddr = case !closureUse of [] => 0 | { closureAddr, ...} :: _ => closureAddr+1
-                            in
-                                closureUse := { closureAddr = nextAddr, source = ext, result = copied } :: ! closureUse;
-                                nextAddr
-                            end
                 in
-                    LoadClosure newClosure
+                    addToClosure closureUse copied
                 end
 
             (* This array records the way the arguments are used inside the function. *)
@@ -86,7 +74,7 @@ struct
 
             val bodyCode = cleanProc(body, bodyUse, lookup, localCount, checkArg)
 
-            val newClosure = List.foldl (fn ({ result, ...}, tl) => result :: tl) [] (!closureUse)
+            val newClosure = extractClosure closureUse
 
             val newArgTypes = ListPair.zip(map #1 argTypes, Array.foldr (op ::) [] argUses)
         in

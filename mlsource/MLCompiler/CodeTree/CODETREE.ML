@@ -87,7 +87,7 @@ struct
     fun deExtract(Extract ext) = ext | deExtract _ = raise InternalError "deExtract"
  
     datatype level =
-        Level of { lev: int, closure: (loadForm * int) list ref, lookup: int * int * bool -> loadForm }
+        Level of { lev: int, closure: createClosure, lookup: int * int * bool -> loadForm }
 
     local
         (* We can have locals at the outer level. *)
@@ -98,18 +98,13 @@ struct
                 raise InternalError "bottom level"
     in
         val baseLevel =
-            Level { lev = 0, closure = ref [], lookup = bottomLevel }
+            Level { lev = 0, closure = makeClosure(), lookup = bottomLevel }
     end
   
     fun newLevel (Level{ lev, lookup, ...}) =
     let
-        val closureList = ref []
-
-        fun makeClosure (ext: loadForm): loadForm =
-            case (List.find (fn (l, _) => l = ext) (!closureList), ! closureList) of
-                (SOME(_, n), _) => (* Already there *) LoadClosure n
-            |   (NONE, []) => (* Not there - first *) (closureList := [(ext, 0)]; LoadClosure 0)
-            |   (NONE, cl as (_, n) :: _) => (closureList := (ext, n+1) :: cl; LoadClosure(n+1))
+        val closureList = makeClosure()
+        val makeClosure = addToClosure closureList
 
         fun check n = if n < 0 then raise InternalError "load: negative" else n
 
@@ -124,9 +119,7 @@ struct
         Level { lev = lev+1, closure = closureList, lookup = thisLevel }
     end
     
-    fun getClosure(Level{ closure, ...})  =
-        (* Construct and reverse the list *)
-            List.foldl(fn ((cl, _), l) => Extract cl :: l) []  (! closure)
+    fun getClosure(Level{ closure, ...})  = List.map Extract (extractClosure closure)
  
     fun mkLoad (addr, Level { lev = newLevel, lookup, ... } , Level { lev = oldLevel, ... }) =
         Extract(lookup(addr, newLevel - oldLevel, false))
