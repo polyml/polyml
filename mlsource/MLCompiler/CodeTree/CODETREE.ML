@@ -259,7 +259,6 @@ struct
     (* Constructor functions for the front-end of the compiler. *)
     local
         fun mkSimpleFunction inlineType (lval, args, name, closure, numLocals) =
-            Lambda
               {
                 body          = lval,
                 isInline      = inlineType,
@@ -270,9 +269,24 @@ struct
                 localCount    = numLocals
               }
     in
-        val mkProc = mkSimpleFunction NonInline (* Normal function *)
-        and mkInlproc = mkSimpleFunction MaybeInline (* Explicitly inlined by the front-end *)
-        and mkMacroProc = mkSimpleFunction OnlyInline (* Functors *)
+        val mkProc = Lambda o mkSimpleFunction NonInline (* Normal function *)
+        and mkInlproc = Lambda o mkSimpleFunction MaybeInline (* Explicitly inlined by the front-end *)
+
+        (* Functors are marked as "OnlyInline" unless Compiler.inlineFunctor is false.  They
+           are turned into constants-with-inlines unless there is something in the closure.  This
+           means that they are not processed until they are actually applied.  Almost always
+           the closure will be empty since free variables will come from previous topdecs and will
+           be constants,  The exception is if a structure and a functor using the structure appear
+           in the same topdec (no semicolon between them).  In that case we can't leave it.  We
+           would have to update the closure even if we leave the body untouched but we could
+           have closure entries that are constants.
+           e.g. structure S = struct val x = 1 end functor F() = struct open S end *)
+        fun mkMacroProc (args as (_, _, _, [], _)) =
+            ConstntWithInline(toMachineWord 0,
+                EnvSpecInlineFunction(mkSimpleFunction OnlyInline args,
+                    fn _ => raise InternalError "mkMacroProc: closure"))
+
+        |   mkMacroProc args = Lambda(mkSimpleFunction OnlyInline args)
     end
 
     local

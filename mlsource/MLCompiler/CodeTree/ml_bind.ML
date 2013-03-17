@@ -31,6 +31,15 @@ local
             structure CODETREE_FUNCTIONS = CodetreeFunctions
         )
 
+    structure CodetreeCodegenConstantFns =
+        CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
+            structure   BASECODETREE        = BaseCodeTree
+            and         CODETREE_FUNCTIONS  = CodetreeFunctions
+            and         BACKEND             = CodetreeBackend
+            and         PRETTY              = Pretty
+            and         DEBUG               = Debug
+        )
+
     structure CodetreeRemoveRedundant =
         CODETREE_REMOVE_REDUNDANT(
             structure BASECODETREE = BaseCodeTree
@@ -49,7 +58,7 @@ local
             structure DEBUG         = Debug
             structure BASECODETREE  = BaseCodeTree
             structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure BACKEND       = CodetreeBackend
+            structure BACKEND       = CodetreeCodegenConstantFns
             structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
             structure SIMPLIFIER    = CodetreeSimplifier
         )
@@ -61,7 +70,7 @@ in
             structure DEBUG         = Debug
             structure BASECODETREE  = BaseCodeTree
             structure CODETREE_FUNCTIONS = CodetreeFunctions
-            structure BACKEND = CodetreeBackend
+            structure BACKEND = CodetreeCodegenConstantFns
             structure OPTIMISER     = CodetreeOptimiser
         )
 end;

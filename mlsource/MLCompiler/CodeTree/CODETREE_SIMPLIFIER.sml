@@ -35,9 +35,19 @@ functor CODETREE_SIMPLIFIER(
     =   CODETREE_FUNCTIONS.Sharing
 ) :
     sig
-        type codetree
-        val simplifier: codetree * int -> codetree * int
-        structure Sharing: sig type codetree = codetree end
+        type codetree and codeBinding and envSpecial
+
+        val simplifier:
+            codetree * int -> (codetree * codeBinding list * envSpecial) * int
+        val specialToGeneral:
+            codetree * codeBinding list * envSpecial -> codetree
+
+        structure Sharing:
+        sig
+            type codetree = codetree
+            and codeBinding = codeBinding
+            and envSpecial = envSpecial
+        end
     end
 =
 struct
@@ -416,27 +426,13 @@ struct
             ((EnvGenLoad(LoadLocal newAddr), spec), decs @ [mkDec(newAddr, gen)])
         end
 
-    and simpLambda(original as {isInline=OnlyInline, closure=[], ...}, _, _, _) =
-        (* Functors are marked as "OnlyInline" unless Compiler.inlineFunctor is false.  There's no point
-           in processing them; unlike a normal function they can only ever be called.  Almost always
-           the closure will be empty since free variables will come from previous topdecs and will
-           be constants,  The exception is if a structure and a functor using the structure appear
-           in the same topdec (no semicolon between them).  In that case we can't leave it.  We
-           would have to update the closure even if we leave the body untouched but we could
-           have closure entries that are constants.
-           e.g. structure S = struct val x = 1 end functor F() = struct open S end *)
-        (
-            original,
-            EnvSpecInlineFunction(original, fn _ => raise InternalError "empty closure")
-        )
-
-    |   simpLambda(original as {body, isInline, name, argTypes, resultType, closure, localCount, ...},
+    and simpLambda(original as {body, isInline, name, argTypes, resultType, closure, localCount, ...},
                   { lookupAddr, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
-
             val optClosureList = makeClosure()
+            val isNowRecursive = ref false
 
             local
                 fun localOldAddr (LoadLocal addr) = valOf(Array.sub(oldAddrTab, addr))
@@ -446,7 +442,8 @@ struct
                     let
                         val oldEntry = List.nth(closure, addr)
                         (* If the entry in the closure is our own address this is recursive. *)
-                        fun isRecursive(EnvGenLoad(LoadLocal a), SOME b) = a = b
+                        fun isRecursive(EnvGenLoad(LoadLocal a), SOME b) =
+                            if a = b then (isNowRecursive := true; true) else false
                         |   isRecursive _ = false
                     in
                         if isRecursive(EnvGenLoad oldEntry, myOldAddrOpt) then (EnvGenLoad LoadRecursive, EnvSpecNone)
@@ -497,13 +494,23 @@ struct
             end
 
             val closureAfterOpt = extractClosure optClosureList
-
             val localCount = ! newAddressAllocator
+            (* If we have mutually recursive "small" functions we may turn them into
+               recursive functions.  We have to remove the "small" status from
+               them to prevent them from being expanded inline anywhere else.  The
+               optimiser may turn them back into "small" functions if the recursion
+               is actually tail-recursion. *)
+            val isNowInline =
+                case isInline of
+                    SmallFunction =>
+                        if ! isNowRecursive then NonInline else SmallFunction
+                |   NonInline => NonInline
+                |   isInline => (! isNowRecursive andalso raise InternalError "recursive"; isInline)
 
             val copiedLambda =
                 {
                     body          = newCode,
-                    isInline      = isInline,
+                    isInline      = isNowInline,
                     name          = name,
                     closure       = closureAfterOpt,
                     argTypes      = argTypes,
@@ -511,7 +518,7 @@ struct
                     localCount    = localCount
                 }
          in
-            case isInline of
+            case isNowInline of
                 MaybeInline => (* Explicitly inlined functions. *)
                     (* These are usually auxiliary functions that produce the "standard"
                        version of a function and contain a call to the function with multiple
@@ -533,19 +540,26 @@ struct
                        ability to pick up any inline code for the main function. Also
                        we may turn this function into a recursive function if the main
                        function is recursive. *)
-                    (
-                        copiedLambda,
-                        EnvSpecInlineFunction(original, fn addr => lookupAddr(List.nth(closure, addr)))
-                    )
+                (
+                    copiedLambda,
+                    EnvSpecInlineFunction(original, fn addr => lookupAddr(List.nth(closure, addr)))
+                )
 
             |   OnlyInline =>
-                    (* Used for functors.  We may not really need a general value here. *)
-                    (
-                        copiedLambda,
-                        EnvSpecInlineFunction(original, fn addr => lookupAddr(List.nth(closure, addr)))
-                    )
+                (* Used for functors.  We may not really need a general value here. *)
+                (
+                    copiedLambda,
+                    EnvSpecInlineFunction(original, fn addr => lookupAddr(List.nth(closure, addr)))
+                )
 
-            |   _ => (* Normal function. *) (copiedLambda, EnvSpecNone)
+            |   SmallFunction =>
+                    (* The optimiser has decided this is small enough to inline. *)
+                (
+                    copiedLambda,
+                    EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
+                )
+
+            |   NonInline => (* Normal function. *) (copiedLambda, EnvSpecNone)
         end
 
     and simpFunctionCall(function, argList, resultType, context) =
@@ -792,12 +806,17 @@ struct
         fun mkAddr () = 
             ! localAddressAllocator before localAddressAllocator := ! localAddressAllocator + 1
         val code =
-            simplify(c,
+            simpSpecial(c,
                 {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr})
     in
         (code, ! localAddressAllocator)
         (*(c, numLocals)*)
     end
 
-    structure Sharing = struct type codetree = codetree end
+    structure Sharing =
+    struct
+        type codetree = codetree
+        and codeBinding = codeBinding
+        and envSpecial = envSpecial
+    end
 end;
