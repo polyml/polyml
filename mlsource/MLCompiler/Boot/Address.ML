@@ -87,17 +87,14 @@ sig
   val offsetAddr : address * short -> handler
 end =
 
-let
-  open RuntimeCalls;
-in
-(*****************************************************************************)
-(*                  Address structure body                                   *)
-(*****************************************************************************)
 struct
-  type machineWord    = word (* a legal ML object (tag = 0 or 1) *)
-  and address  = word (* a normal pointer (tag = 0) *)
-  and handler  = word (* pointer to exception handler (tag = 2!) *)
-  and short    = word; (* a 31/63-bit int  (tag = 1) *)
+    type machineWord    = word (* a legal ML object (tag = 0 or 1) *)
+    and address  = word (* a normal pointer (tag = 0) *)
+    and handler  = word (* pointer to exception handler (tag = 2!) *)
+    and short    = word; (* a 31/63-bit int  (tag = 1) *)
+
+
+    open RuntimeCalls
 
   (* pointer equality *)
   val wordEq = PolyML.pointerEq
@@ -388,6 +385,14 @@ struct
         end
     else "LIT <long>"
 
-end
+end;
 
-end; (* open RuntimeCalls *)
+(* Add a print function for machineWord.  This is really only for
+   the debugger but prevents addresses being printed as Word.word values. *)
+local
+    open PolyML Address
+    fun printMachineWord _ _ w = PrettyString(stringOfWord w)
+in
+    val () = addPrettyPrinter printMachineWord
+end;
+
