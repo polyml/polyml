@@ -1937,7 +1937,7 @@ void ProcessTaskData::GarbageCollect(ScanAddress *process)
     process->ScanRuntimeWord(&foreignStack);
 }
 
-// Return the number of processors.  Used when configuring multi-threaded GC.
+// Return the number of processors.
 extern unsigned NumberOfProcessors(void)
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1962,4 +1962,100 @@ extern unsigned NumberOfProcessors(void)
         // Can't determine.
         return 1;
 #endif
+}
+
+// Return the number of physical processors.  If hyperthreading is
+// enabled this returns less than NumberOfProcessors.  Returns zero if
+// it cannot be determined.
+#if (defined(_WIN32))
+typedef BOOL (WINAPI *GETP)(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
+
+// Windows - use GetLogicalProcessorInformation if it's available.
+static unsigned WinNumPhysicalProcessors(void)
+{
+    GETP getProcInfo = (GETP) GetProcAddress(GetModuleHandle("kernel32"), "GetLogicalProcessorInformation");
+    if (getProcInfo == 0) return 0;
+
+    // It's there - use it.
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buff = 0;
+    DWORD space = 0;
+    while (getProcInfo(buff, &space) == FALSE)
+    {
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        {
+            free(buff);
+            return 0;
+        }
+        free(buff);
+        buff = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION)malloc(space);
+        if (buff == 0) return 0;
+    }
+    // Calculate the number of full entries in case it's truncated.
+    unsigned nItems = space / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
+    unsigned numProcs = 0;
+    for (unsigned i = 0; i < nItems; i++)
+    {
+        if (buff[i].Relationship == RelationProcessorCore)
+            numProcs++;
+    }
+    free(buff);
+    return numProcs;
+}
+#endif
+
+// Read and parse /proc/cpuinfo
+static unsigned LinuxNumPhysicalProcessors(void)
+{
+    // Find out the total.  This should be the maximum.
+    unsigned nProcs = NumberOfProcessors();
+    // If there's only one we don't need to check further.
+    if (nProcs <= 1) return nProcs;
+    long *cpus = (long*)malloc(nProcs * sizeof(long));
+    if (cpus == 0) return 0;
+    memset(cpus, 0, nProcs * sizeof(long));
+
+    FILE *cpuInfo = fopen("/proc/cpuinfo", "r");
+    if (cpuInfo == NULL) { free(cpus); return 0; }
+
+    char line[40];
+    unsigned count = 0;
+    while (fgets(line, sizeof(line), cpuInfo) != NULL)
+    {
+        if (strncmp(line, "core id\t\t:", 10) == 0)
+        {
+            long n = strtol(line+10, NULL, 10);
+            unsigned i = 0;
+            // Skip this id if we've seen it already
+            while (i < count && cpus[i] != n) i++;
+            if (i == count) cpus[count++] = n;
+        }
+        if (strchr(line, '\n') == 0)
+        {
+            int ch;
+            do { ch = getc(cpuInfo); } while (ch != '\n' && ch != EOF);
+        }
+    }
+
+    fclose(cpuInfo);
+    free(cpus);
+    return count;
+}
+
+extern unsigned NumberOfPhysicalProcessors(void)
+{
+    unsigned numProcs = 0;
+#if (defined(_WIN32))
+    numProcs = WinNumPhysicalProcessors();
+    if (numProcs != 0) return numProcs;
+#endif
+#if (defined(HAVE_SYSCTLBYNAME) && defined(HAVE_SYS_SYSCTL_H))
+    // Mac OS X
+    int nCores;
+    size_t len = sizeof(nCores);
+    if (sysctlbyname("hw.physicalcpu", &nCores, &len, NULL, 0) == 0)
+        return (unsigned)nCores;
+#endif
+    numProcs = LinuxNumPhysicalProcessors();
+    if (numProcs != 0) return numProcs;
+    return numProcs;
 }

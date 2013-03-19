@@ -294,9 +294,16 @@ int polymain(int argc, char **argv, exportDescription *exports)
         Usage("Missing import file name\n");
 
     if (userOptions.gcthreads == 0)
-        // For the moment, at any rate, indicate that we should use as many
-        // threads as there are processors by a thread count of zero.
-        userOptions.gcthreads = NumberOfProcessors();
+    {
+        // If the gcthreads option is missing or zero the default is to try to
+        // use as many threads as there are physical processors.  The result may
+        // be zero in which case we use the number of processors.  Because memory
+        // bandwidth is a limiting factor we want to avoid muliple GC threads on
+        // hyperthreaded "processors".
+        userOptions.gcthreads = NumberOfPhysicalProcessors();
+        if (userOptions.gcthreads == 0)
+            userOptions.gcthreads = NumberOfProcessors();
+    }
 
     // Set the heap size if it has been provided otherwise use the default.
     gHeapSizeParameters.SetHeapParameters(minsize, maxsize, gcpercent);

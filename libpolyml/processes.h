@@ -254,6 +254,7 @@ public:
 
 // Return the number of processors.  Used when configuring multi-threaded GC.
 extern unsigned NumberOfProcessors(void);
+extern unsigned NumberOfPhysicalProcessors(void);
 
 extern ProcessExternal *processes;
 

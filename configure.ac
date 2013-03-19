@@ -348,7 +348,7 @@ AC_CHECK_FUNCS([memset mkdir mkfifo munmap pathconf pow realpath rmdir select se
 AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize sigaltstack mmap mprotect])
 ## There does not seem to be a declaration for fpsetmask in mingw64.
 AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
-AC_CHECK_FUNCS([sysctl])
+AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
 
 # Where are the registers?
