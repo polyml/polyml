@@ -1473,12 +1473,18 @@ ENDIF
     SUBL    Redi,Redx               ;# Allocate the space
     MOVL    Reax,Redi               ;# Clobber bad value in Redi
     CMPL    LocalMbottom[Rebp],Redx            ;# Check for free space
+    jb      alloc_in_rts
+;# Normally the above test is sufficient but if LocalMpointer is near the bottom of
+;# memory and the store requested is very large the value in Redx can be negative
+;# which is greater, unsigned, than LocalMbottom.  We have to check it is less
+;# than, unsigned, the allocation pointer.
 IFNDEF HOSTARCHITECTURE_X86_64
-    jb      alloc_in_rts            ;# TODO: Is this exactly the right test?
-
+    CMPL    LocalMpointer[Rebp],Redx
+    jnb     alloc_in_rts
     MOVL    Redx,LocalMpointer[Rebp]             ;# Put back in the heap ptr
 ELSE
-    jb      alloc_in_rts
+    CMPL    R15,Redx
+    jnb     alloc_in_rts
     MOVL    Redx,R15                 ;# Put back in the heap ptr
 ENDIF
     SHRL    CONST TAGSHIFT,Reax

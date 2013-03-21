@@ -1974,7 +1974,7 @@ Calling conventions:
 
     (* Allocate store and put the resulting pointer in the result register. *)
     local
-        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}) =
+        fun allocStoreCommonCode (resultReg, cvec as Code{ic=_, ...}, isVarAlloc) =
         (
             (* Common code.  resultReg contains the possible new address. *)
             genOpEA(Arith (CMP, 0w3 (* r/m to reg *)), memRegLocalMbottom, ebp, resultReg, cvec);
@@ -1996,7 +1996,32 @@ Calling conventions:
                         fixup(lab2, cvec);
                         lab
                     end*)
-                  val lab = [putConditional(JNB, cvec)]
+                (* Just checking against the lower limit in this way can fail
+                   in the situation where the heap pointer is at the low end of
+                   the address range and the store required is so large that the
+                   subtraction results in a negative number.  In that case it
+                   will be > (unsigned) lower_limit so in addition we have
+                   to check that the result is < (unsigned) heap_pointer.
+                   This actually happened on Windows with X86-64.
+                   In theory this can happen with fixed-size allocations as
+                   well as variable allocations but in practice fixed-size
+                   allocations are going to be small enough that it's not a
+                   problem.  *)
+                val lab =
+                if isVarAlloc
+                then
+                let
+                    val lab1 = [putConditional(JB, cvec)]
+                    val () =
+                        if isX64
+                        then genReg (CMP, resultReg, r15, cvec)
+                        else genOpEA(Arith (CMP, 0w3), memRegLocalMPointer, ebp, resultReg, cvec) 
+                    val lab2 = [putConditional(JB, cvec)]
+                in
+                    fixup(lab1, cvec);
+                    lab2
+                end
+                else [putConditional(JNB, cvec)]
             in
                 (* If we don't have enough store for this allocation we call this
                    function. *)
@@ -2026,7 +2051,7 @@ Calling conventions:
                 genLoad (memRegLocalMPointer, ebp, resultReg, cvec);
                 genLeal (resultReg, resultReg, ~ bytes, cvec)
             );
-            allocStoreCommonCode(resultReg, cvec)
+            allocStoreCommonCode(resultReg, cvec, false)
         end
         |  allocStoreCode _ =
             raise InternalError "Allocation started but not complete"
@@ -2042,7 +2067,7 @@ Calling conventions:
             if isX64
             then genReg(ADD, resultReg, r15, code)
             else genOpEA(Arith (ADD, 0w3 (* r/m to reg *)), memRegLocalMPointer, ebp, resultReg, code);
-            allocStoreCommonCode(resultReg, code)
+            allocStoreCommonCode(resultReg, code, true)
         )
         | allocStoreVarCode _ =
             raise InternalError "Allocation started but not complete"
