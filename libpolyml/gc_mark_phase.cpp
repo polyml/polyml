@@ -82,6 +82,7 @@ Many of the ideas are drawn from Flood, Detlefs, Shavit and Zhang 2001
 #include "heapsizing.h"
 
 #define MARK_STACK_SIZE 3000
+#define LARGECACHE_SIZE 20
 
 class MTGCProcessMarkPointers: public ScanAddress
 {
@@ -113,7 +114,7 @@ private:
     bool TestForScan(PolyWord *pt);
     void MarkAndTestForScan(PolyWord *pt);
 
-    void PushToStack(PolyObject *obj)
+    void PushToStack(PolyObject *obj, PolyWord *currentPtr = 0)
     {
         // If we don't have all the threads running we start a new one but
         // only once we have several items on the stack.  Otherwise we
@@ -121,9 +122,19 @@ private:
         if (nInUse >= nThreads || msp < 2 || ! ForkNew(obj))
         {
             if (msp < MARK_STACK_SIZE)
+            {
                 markStack[msp++] = obj;
+                if (currentPtr != 0)
+                {
+                    locPtr++;
+                    if (locPtr == LARGECACHE_SIZE) locPtr = 0;
+                    largeObjectCache[locPtr].base = obj;
+                    largeObjectCache[locPtr].current = currentPtr;
+                }
+            }
             else StackOverflow(obj);
         }
+        // else the new task is processing it.
     }
 
     static void StackOverflow(PolyObject *obj);
@@ -132,6 +143,13 @@ private:
     PolyObject *markStack[MARK_STACK_SIZE];
     unsigned msp;
     bool active;
+
+    // For the typical small cell it's easier just to rescan from the start
+    // but that can be expensive for large cells.  This caches the offset for
+    // large cells.
+    static const POLYUNSIGNED largeObjectSize = 50;
+    struct { PolyObject *base; PolyWord *current; } largeObjectCache[LARGECACHE_SIZE];
+    unsigned locPtr;
 
     static MTGCProcessMarkPointers *markStacks;
 protected:
@@ -154,7 +172,7 @@ inline PolyObject *FollowForwarding(PolyObject *obj)
     return obj;
 }
 
-MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0), active(false)
+MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0), active(false), locPtr(0)
 {
     // Clear the mark stack
     for (unsigned i = 0; i < MARK_STACK_SIZE; i++)
@@ -211,6 +229,8 @@ bool MTGCProcessMarkPointers::ForkNew(PolyObject *obj)
 void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
 {
     MTGCProcessMarkPointers *marker = (MTGCProcessMarkPointers*)arg1;
+    marker->locPtr = 0;
+    marker->largeObjectCache[0].base = 0;
     marker->ScanAddressesInObject((PolyObject*)arg2);
 
     while (true)
@@ -229,8 +249,8 @@ void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg
         for (unsigned j = 0; j < MARK_STACK_SIZE; j++)
         {
             // Pick the item off the stack.
-            // N.B. The owning thread may update this is zero
-            // it at any time.
+            // N.B. The owning thread may update this to zero
+            // at any time.
             PolyObject *toSteal = steal->markStack[j];
             if (toSteal == 0) break; // Nothing more on the stack
             marker->ScanAddressesInObject(toSteal);
@@ -370,7 +390,6 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         // Get the length and base address.  N.B.  If this is a code segment
         // these will be side-effected by GetConstSegmentForCode.
         POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
-        PolyWord *baseAddr = (PolyWord*)obj;
 
         if (OBJ_IS_WEAKREF_OBJECT(lengthWord))
         {
@@ -402,9 +421,18 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
         // the stack, follow the first address and then rescan it.  That way
         // list cells are processed once only but we don't overflow the
         // stack by pushing all the addresses in a very large vector.
+        PolyWord *baseAddr = (PolyWord*)obj;
         PolyWord *endWord = baseAddr + length;
         PolyObject *firstWord = 0;
         PolyObject *secondWord = 0;
+        PolyWord *restartAddr = 0;
+
+        if (obj == largeObjectCache[locPtr].base)
+        {
+            baseAddr = largeObjectCache[locPtr].current;
+            ASSERT(baseAddr > (PolyWord*)obj && baseAddr < ((PolyWord*)obj)+length);
+            if (locPtr == 0) locPtr = LARGECACHE_SIZE-1; else locPtr--;
+        }
 
         while (baseAddr != endWord)
         {
@@ -420,7 +448,13 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
                     if (firstWord == 0)
                         firstWord = baseAddr->AsObjPtr();
                     else if (secondWord == 0)
+                    {
+                        // If we need to rescan because there are three or more words to do
+                        // this is the place we need to restart (or the start of the cell if it's
+                        // small).
+                        restartAddr = baseAddr;
                         secondWord = baseAddr->AsObjPtr();
+                    }
                     else break;  // More than two words.
                 }
             }
@@ -447,7 +481,10 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
                     if (firstWord == 0)
                         firstWord = newObject;
                     else if (secondWord == 0)
+                    {
+                        restartAddr = baseAddr;
                         secondWord = newObject;
+                    }
                     else break;
                 }
             }
@@ -456,7 +493,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         if (baseAddr != endWord)
             // Put this back on the stack while we process the first word
-            PushToStack(obj);
+            PushToStack(obj, length < largeObjectSize ? 0 : restartAddr);
         else if (secondWord != 0)
         {
             // Mark it now because we will process it.
@@ -473,11 +510,19 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
             obj = firstWord;
         }
         else if (msp == 0)
+        {
+            markStack[msp] = 0; // Really finished
             return;
+        }
         else
         {
+            // Clear the item above the top.  This really is finished.
+            if (msp < MARK_STACK_SIZE) markStack[msp] = 0;
+            // Pop the item from the stack but don't overwrite it yet.
+            // This allows another thread to steal it if there really
+            // is nothing else to do.  This is only really important
+            // for large objects.
             obj = markStack[--msp]; // Pop something.
-            markStack[msp] = 0; // Show it's now empty
         }
 
         lengthWord = obj->LengthWord();
