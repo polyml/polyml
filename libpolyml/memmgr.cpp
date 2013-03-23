@@ -201,6 +201,18 @@ LocalMemSpace *MemMgr::CreateAllocationSpace(POLYUNSIGNED size)
     return result;
 }
 
+// If an allocation space has a lot of data left in it after a GC, particularly 
+// a single large object we should turn it into a local area.
+void MemMgr::ConvertAllocationSpaceToLocal(LocalMemSpace *space)
+{
+    ASSERT(space->allocationSpace);
+    space->allocationSpace = false;
+    // Currently it is left as a mutable area but if the contents are all
+    // immutable e.g. a large vector it could be better to turn it into an
+    // immutable area.
+    currentAllocSpace -= space->spaceSize();
+}
+
 // Add a local memory space to the table.
 bool MemMgr::AddLocalSpace(LocalMemSpace *space)
 {
@@ -969,6 +981,17 @@ void MemMgr::RemoveTreeRange(SpaceTree **tt, MemSpace *space, uintptr_t startS, 
     }
     delete(t);
     *tt = 0;
+}
+
+POLYUNSIGNED MemMgr::AllocatedInAlloc()
+{
+    POLYUNSIGNED inAlloc = 0;
+    for (unsigned i = 0; i < nlSpaces; i++)
+    {
+        LocalMemSpace *sp = lSpaces[i];
+        if (sp->allocationSpace) inAlloc += sp->allocatedSpace();
+    }
+    return inAlloc;
 }
 
 // Report heap sizes and occupancy before and after GC

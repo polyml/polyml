@@ -273,8 +273,13 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
         globalStats.incSize(PSS_AFTER_LAST_FULLGC, free*sizeof(PolyWord));
         if (space->allocationSpace)
         {
-            globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
-            globalStats.incSize(PSS_ALLOCATION_FREE, free*sizeof(PolyWord));
+            if (space->allocatedSpace() > space->freeSpace()) // It's more than half full
+                gMem.ConvertAllocationSpaceToLocal(space);
+            else
+            {
+                globalStats.incSize(PSS_ALLOCATION, free*sizeof(PolyWord));
+                globalStats.incSize(PSS_ALLOCATION_FREE, free*sizeof(PolyWord));
+            }
         }
 #ifdef FILL_UNUSED_MEMORY
         memset(space->bottom, 0xaa, (char*)space->upperAllocPtr - (char*)space->bottom);

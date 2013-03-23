@@ -226,6 +226,10 @@ public:
     // Check that a subsequent allocation will succeed.  Called from the GC to ensure
     bool CheckForAllocation(POLYUNSIGNED words);
 
+    // If an allocation space has a lot of data left in it, particularly a single
+    // large object we should turn it into a local area.
+    void ConvertAllocationSpaceToLocal(LocalMemSpace *space);
+
     // Allocate space for the initial stack for a thread.  The caller must
     // initialise the new stack.  Returns 0 if allocation fails.
     StackSpace *NewStackSpace(POLYUNSIGNED size);
@@ -329,6 +333,7 @@ public:
     void SetSpaceForHeap(POLYUNSIGNED heapSize) { spaceForHeap = heapSize; }
 
     POLYUNSIGNED CurrentAllocSpace() { return currentAllocSpace; }
+    POLYUNSIGNED AllocatedInAlloc();
     POLYUNSIGNED CurrentHeapSize() { return currentHeapSize; }
 
     POLYUNSIGNED DefaultSpaceSize() const { return defaultSpaceSize; }
