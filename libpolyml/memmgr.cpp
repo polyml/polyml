@@ -579,8 +579,12 @@ PolyWord *MemMgr::AllocHeapSpace(POLYUNSIGNED minWords, POLYUNSIGNED &maxWords, 
     if (minWords > defaultSpaceSize && minWords < spaceBeforeMinorGC)
         RemoveExcessAllocation(spaceBeforeMinorGC - minWords);
 
-    if (currentAllocSpace < spaceBeforeMinorGC && minWords < spaceBeforeMinorGC - currentAllocSpace)
+    if (currentAllocSpace/* + minWords */ < spaceBeforeMinorGC)
     {
+        // i.e. the current allocation space is less than the space allowed for the minor GC
+        // but it may be that allocating this object will take us over the limit.  We allow
+        // that to happen so that we can successfully allocate very large objects even if
+        // we have a new GC very shortly.
         POLYUNSIGNED spaceSize = defaultSpaceSize;
         if (minWords > spaceSize) spaceSize = minWords; // If we really want a large space.
         LocalMemSpace *space = CreateAllocationSpace(spaceSize);
