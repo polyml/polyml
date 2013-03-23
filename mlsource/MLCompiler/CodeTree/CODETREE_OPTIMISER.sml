@@ -35,7 +35,7 @@ functor CODETREE_OPTIMISER(
         type codetree and codeBinding and envSpecial
 
         val simplifier:
-            codetree * int -> (codetree * codeBinding list * envSpecial) * int
+            codetree * int -> (codetree * codeBinding list * envSpecial) * int * bool
         val specialToGeneral:
             codetree * codeBinding list * envSpecial -> codetree
 
@@ -320,12 +320,52 @@ struct
         end
     end
 
-    fun optimise context (Lambda (lambda as { isInline = NonInline, ...} )) = SOME(optLambda(context, lambda))
+    fun optimise (context, use) (Lambda (lambda as { isInline = NonInline, ...} )) =
+            SOME(Lambda(optLambda(context, use, lambda)))
+
+    |   optimise (context, use) (Lambda (lambda as { isInline = MaybeInline, ...} )) =
+            if List.exists (fn UseExport => true | _ => false) use
+            then NONE
+            else SOME(Lambda(optLambda(context, use, lambda)))
+  
+    |   optimise (context, use) (Newenv(envDecs, envExp)) =
+        let
+            fun mapExp mapUse = mapCodetree (optimise(context, mapUse))
+
+            fun mapbinding(Declar{value, addr, use}) = Declar{value=mapExp use value, addr=addr, use=use}
+            |   mapbinding(RecDecs l) =
+                let
+                    fun mapRecDec {addr, lambda, use} =
+                    let
+                        val opt = mapExp use (Lambda lambda)
+                    in
+                        case opt of
+                            Lambda res => {addr=addr, use = use, lambda = res }
+                        |   _ => raise InternalError "mapbinding: not lambda"
+                    end
+                in
+                    RecDecs(map mapRecDec l)
+                end
+            |   mapbinding(NullBinding exp) = NullBinding(mapExp [UseGeneral] exp)
+        in
+            SOME(Newenv(map mapbinding envDecs, mapExp use envExp))
+        end
 
     |   optimise _ _ = NONE
 
-    and optLambda({ debugArgs, reprocess, ... }, { body, name, argTypes, resultType, closure, localCount, ...}) =
+    and optLambda({ debugArgs, reprocess, ... }, use, { body, name, argTypes, resultType, closure, localCount, ...}) =
     let
+(*
+        val allApply = List.all(fn UseApply _ => true | _ => false)
+        fun allCurried [] = false
+        |   allCurried l  = List.all(fn UseApply l => allApply l | _ => false) l
+        val _ = if allCurried use then print (name ^ " is curried\n") else ()
+        
+        val _ =
+            if null argTypes
+            then ()
+            else List.app(fn (_, argUse) => if allCurried argUse then print("Arg for " ^ name ^ " is curried\n") else ()) argTypes
+*)
         (* Allocate any new addresses after the existing ones. *)
         val addressAllocator = ref localCount
         fun makeAddr() =
@@ -336,7 +376,7 @@ struct
             reprocess = reprocess,
             debugArgs = debugArgs
         }
-        val optBody = mapCodetree (optimise optContext) body
+        val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
 
         (* See if this should be expanded inline. *)
         val (inlineType, updatedBody, localCount) =
@@ -359,7 +399,7 @@ struct
                 SmallFunction => reprocess := true
             |   _ => ()
     in
-        Lambda {
+        {
             body = updatedBody, name = name, argTypes = argTypes, closure = closure,
             resultType = resultType, isInline = inlineType, localCount = localCount
         }
@@ -369,18 +409,21 @@ struct
     let
         fun topLevel _ = raise InternalError "top level reached"
 
-        fun processTree (code, nLocals, false) =
-            (* Final pass *)
-            SIMPLIFIER.simplifier(code, nLocals)
-
-        |   processTree (code, nLocals, true) =
+        fun processTree (code, nLocals, optAgain) =
+        let
+            (* First run the simplifier.  Among other things this does inline
+               expansion and if it does any we at least need to run cleanProc
+               on the code so it will have set simpAgain. *)
+            val (simpCode, simpCount, simpAgain) = SIMPLIFIER.simplifier(code, nLocals)
+        in
+            if optAgain orelse simpAgain
+            then
             let
-                (* Simplify the code first then add usage information and remove
-                   bindings that are no longer required. *)
-                val (simpCode, simpCount) = SIMPLIFIER.simplifier(code, nLocals)
+                (* Identify usage information and remove redundant code. *)
                 val preOptCode =
                     REMOVE_REDUNDANT.cleanProc(
                         SIMPLIFIER.specialToGeneral simpCode, [UseExport], topLevel, simpCount)
+
                 val reprocess = ref false (* May be set in the optimiser *)
                 (* Allocate any new addresses after the existing ones. *)
                 val addressAllocator = ref simpCount
@@ -392,11 +435,15 @@ struct
                     reprocess = reprocess,
                     debugArgs = debugSwitches
                 }
-                val optCode = mapCodetree (optimise optContext) preOptCode
+                (* Optimise the code, rewriting it as necessary. *)
+                val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
             in
+                (* Rerun the simplifier at least. *)
                 processTree(optCode, ! addressAllocator, ! reprocess)
             end
-        
+            else (simpCode, simpCount) (* We're done *)
+        end
+
         val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *))
         val (rGeneral, rDecs, rSpec) = postOptCode
     in

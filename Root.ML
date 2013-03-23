@@ -40,6 +40,7 @@ use "mlsource/MLCompiler/CodeTree/BaseCodeTreeSig.sml";
 use "mlsource/MLCompiler/CodeTree/CodetreeFunctionsSig.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_FUNCTIONS.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_STATIC_LINK_AND_CASES.sml";
+use "mlsource/MLCompiler/CodeTree/CODETREE_CODEGEN_CONSTANT_FUNCTIONS.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_REMOVE_REDUNDANT.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_SIMPLIFIER.sml";
 use "mlsource/MLCompiler/CodeTree/CODETREE_OPTIMISER.sml";

@@ -38,7 +38,7 @@ functor CODETREE_SIMPLIFIER(
         type codetree and codeBinding and envSpecial
 
         val simplifier:
-            codetree * int -> (codetree * codeBinding list * envSpecial) * int
+            codetree * int -> (codetree * codeBinding list * envSpecial) * int * bool
         val specialToGeneral:
             codetree * codeBinding list * envSpecial -> codetree
 
@@ -63,7 +63,8 @@ struct
     {
         lookupAddr: loadForm -> envGeneral * envSpecial,
         enterAddr: int * (envGeneral * envSpecial) -> unit,
-        nextAddress: unit -> int
+        nextAddress: unit -> int,
+        reprocess: bool ref
     }
 
     fun envGeneralToCodetree(EnvGenLoad ext) = Extract ext
@@ -427,7 +428,7 @@ struct
         end
 
     and simpLambda(original as {body, isInline, name, argTypes, resultType, closure, localCount, ...},
-                  { lookupAddr, ... }, myOldAddrOpt, myNewAddrOpt) =
+                  { lookupAddr, reprocess, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
@@ -489,7 +490,8 @@ struct
                     simplify (body,
                     {
                         enterAddr = setTab, lookupAddr = localOldAddr,
-                        nextAddress=mkAddr
+                        nextAddress=mkAddr,
+                        reprocess = reprocess
                     })
             end
 
@@ -562,7 +564,7 @@ struct
             |   NonInline => (* Normal function. *) (copiedLambda, EnvSpecNone)
         end
 
-    and simpFunctionCall(function, argList, resultType, context) =
+    and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}) =
     let
         (* Function call - This may involve inlining the function.  We may
            also be able to call the function immediately if it is a simple
@@ -575,9 +577,10 @@ struct
         case (specFunct, genFunct) of
             (EnvSpecInlineFunction({body=lambdaBody, localCount, ...}, functEnv), _) =>
             let
+                val () = reprocess := true (* If we expand inline we have to reprocess *)
                 val (_, functDecs, _) = funct
                 and original = function
-                and { nextAddress, lookupAddr, enterAddr, ...} = context
+                and { nextAddress, lookupAddr, enterAddr, reprocess, ...} = context
 
                 (* Expand a function inline, either one marked explicitly to be inlined or one detected as "small". *)
                 (* Calling inline proc or a lambda expression which is just called.
@@ -605,7 +608,10 @@ struct
                         |   _ => lookupAddr
 
                     val argContext =
-                        { lookupAddr=stripRecursiveInline, enterAddr = enterAddr, nextAddress = nextAddress}
+                        {
+                            lookupAddr=stripRecursiveInline, enterAddr = enterAddr,
+                            nextAddress = nextAddress, reprocess = reprocess
+                        }
 
                     val (params, bindings) =
                         ListPair.unzip(
@@ -626,10 +632,13 @@ struct
                     |   localOldAddr LoadRecursive = raise InternalError "localOldAddr: LoadRecursive"
 
                     fun setTabForInline (index, v) = Array.update (localVec, index, SOME v)
+                    val lambdaContext =
+                    {
+                        lookupAddr=localOldAddr, enterAddr=setTabForInline,
+                        nextAddress=nextAddress, reprocess = reprocess
+                    }
                 in
-                    val (cGen, cDecs, cSpec) =
-                         simpSpecial(lambdaBody,
-                          {lookupAddr=localOldAddr, enterAddr=setTabForInline, nextAddress=nextAddress})
+                    val (cGen, cDecs, cSpec) = simpSpecial(lambdaBody,lambdaContext)
                 end
 
             in
@@ -805,12 +814,12 @@ struct
 
         fun mkAddr () = 
             ! localAddressAllocator before localAddressAllocator := ! localAddressAllocator + 1
+        val reprocess = ref false
         val code =
             simpSpecial(c,
-                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr})
+                {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr, reprocess = reprocess})
     in
-        (code, ! localAddressAllocator)
-        (*(c, numLocals)*)
+        (code, ! localAddressAllocator, !reprocess)
     end
 
     structure Sharing =
