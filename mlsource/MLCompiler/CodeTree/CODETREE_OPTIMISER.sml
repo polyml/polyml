@@ -121,7 +121,7 @@ struct
         (* Subtract y from x but return 0 rather than a negative number. *)
         fun x -- y = if x >= y then x-y else 0
 
-        (* Check for the use count and also recursive references.  N,B. We assume in hasLoop
+        (* Check for the code size and also recursive references.  N,B. We assume in hasLoop
            that tail recursion applies only with Cond, Newenv and Handler. *)
         fun checkUse _ (_, 0, _) = 0 (* The function is too big to inline. *)
         
@@ -181,12 +181,12 @@ struct
         |   checkUse _      (Ldexc, cl, _) = cl -- 1
         |   checkUse isMain (Handle {exp, handler}, cl, isTail) =
                 checkUse isMain (exp, checkUse isMain (handler, cl, isTail), false)
-        |   checkUse isMain (Recconstr tuple, cl, _) = checkUseList isMain (tuple, cl)
+        |   checkUse isMain (Tuple{ fields, ...}, cl, _) = checkUseList isMain (fields, cl)
         |   checkUse _      (Container _, cl, _) = cl -- 1
 
-        |   checkUse isMain (SetContainer{container, tuple = Recconstr tuple, ...}, cl, _) =
+        |   checkUse isMain (SetContainer{container, tuple = Tuple { fields, ...}, ...}, cl, _) =
                 (* This can be optimised *)
-                checkUse isMain (container, checkUseList isMain (tuple, cl), false)
+                checkUse isMain (container, checkUseList isMain (fields, cl), false)
         |   checkUse isMain (SetContainer{container, tuple, size}, cl, _) =
                 checkUse isMain (container, checkUse isMain (tuple, cl -- size, false), false)
 

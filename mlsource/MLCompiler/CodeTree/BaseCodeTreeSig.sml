@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010
+    Modified David C. J. Matthews 2008-2010, 2013
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,7 +39,9 @@ sig
     datatype codeUse =
         UseGeneral (* Used in some other context. *)
     |   UseExport  (* Exported i.e. the result of a top-level binding. *)
-    |   UseApply of codeUse list (* Applied as a function - the list is where the result goes *)
+    |   UseApply of codeUse list * int list
+            (* Applied as a function - the list is where the result goes, the int list
+               is the width of the tuples for each argument. *)
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
 
     datatype codetree =
@@ -78,7 +80,7 @@ sig
     
     |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree }
 
-    |   Recconstr of codetree list (* Records (tuples) *)
+    |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
 
     |   Container of int (* Create a container for a tuple on the stack. *)
     

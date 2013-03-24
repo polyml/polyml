@@ -32,6 +32,7 @@ sig
     and mkInd: int * codetree -> codetree
     and mkVarField: int * codetree -> codetree
     and mkTuple: codetree list -> codetree
+    and mkDatatype: codetree list -> codetree
 
     val CodeFalse: codetree and CodeTrue: codetree and CodeZero: codetree
 

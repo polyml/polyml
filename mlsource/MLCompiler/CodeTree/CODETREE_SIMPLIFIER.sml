@@ -111,7 +111,7 @@ struct
 
         (* Turn the arguments into a vector.  *)
         val argVector =
-            case makeConstVal(Recconstr argList) of
+            case makeConstVal(mkTuple argList) of
                 Constnt w => w
             |   _ => raise InternalError "makeConstVal: Not constant"
 
@@ -149,8 +149,8 @@ struct
     |   simpGeneral context (Cond(condTest, condThen, condElse)) =
             SOME(specialToGeneral(simpIfThenElse(condTest, condThen, condElse, context)))
 
-    |   simpGeneral context (Recconstr entries) =
-            SOME(specialToGeneral(simpTuple(entries, context)))
+    |   simpGeneral context (Tuple { fields, isVariant }) =
+            SOME(specialToGeneral(simpTuple(fields, isVariant, context)))
 
     |   simpGeneral context (Indirect{ base, offset, isVariant }) =
             SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context)))
@@ -289,7 +289,7 @@ struct
     |   simpSpecial (Cond(condTest, condThen, condElse), context) =
             simpIfThenElse(condTest, condThen, condElse, context)
 
-    |   simpSpecial (Recconstr entries, context) = simpTuple(entries, context)
+    |   simpSpecial (Tuple { fields, isVariant }, context) = simpTuple(fields, isVariant, context)
 
     |   simpSpecial (Indirect{ base, offset, isVariant }, context) = simpFieldSelect(base, offset, isVariant, context)
 
@@ -744,7 +744,7 @@ struct
     end
 
     (* Tuple construction.  Tuples are also used for datatypes and structures (i.e. modules) *)
-    and simpTuple(entries, context) =
+    and simpTuple(entries, isVariant, context) =
      (* The main reason for optimising record constructions is that they
         appear as tuples in ML. We try to ensure that loads from locally
         created tuples do not involve indirecting from the tuple but can
@@ -769,8 +769,8 @@ struct
 
         val genRec =
             if List.all isConstnt generalFields
-            then makeConstVal(Recconstr generalFields)
-            else Recconstr generalFields
+            then makeConstVal(Tuple{ fields = generalFields, isVariant = isVariant })
+            else Tuple{ fields = generalFields, isVariant = isVariant }
 
         val allBindings = List.foldr(op @) [] bindings
         

@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010
+    Modified David C. J. Matthews 2008-2010, 2013
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,7 +38,9 @@ struct
     datatype codeUse =
         UseGeneral (* Used in some other context. *)
     |   UseExport  (* Exported i.e. the result of a top-level binding. *)
-    |   UseApply of codeUse list (* Applied as a function - the list is where the result goes *)
+    |   UseApply of codeUse list * int list
+            (* Applied as a function - the list is where the result goes, the int list
+               is the width of the tuples for each argument. *)
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
     
     datatype codetree =
@@ -77,7 +79,7 @@ struct
 
     |   Handle of (* Exception handler. *) { exp: codetree, handler: codetree }
 
-    |   Recconstr of codetree list (* Records (tuples) *)
+    |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
 
     |   Container of int (* Create a container for a tuple on the stack. *)
 
@@ -340,7 +342,8 @@ struct
         
         | Ldexc => PrettyString "LDEXC"
          
-        | Recconstr ptl => printList("RECCONSTR", ptl, ",")
+        |   Tuple { fields, isVariant } =>
+                printList(if isVariant then "DATATYPE" else "TUPLE", fields, ",")
         
         | Container size => PrettyString ("CONTAINER " ^ Int.toString size)
         
@@ -442,8 +445,22 @@ struct
 
     and prettyUsage UseGeneral = PrettyString "UseGen"
     |   prettyUsage UseExport = PrettyString "UseExp"
-    |   prettyUsage (UseApply cl) = prettyUses "UseApp" cl
-    |   prettyUsage (UseField (n, cl)) = prettyUses ("UseField"^ Int.toString n) cl
+    |   prettyUsage (UseApply (cl, al)) =
+           PrettyBlock (1, true, [],
+                PrettyString "UseApp[" ::
+                pList(al, ",", fn i => PrettyString(Int.toString i)) @
+                PrettyString "]" ::
+                PrettyBreak(1, 0) ::
+                PrettyString "[" ::
+                pList(cl, ",", prettyUsage) @
+                [ PrettyBreak (0, 0), PrettyString "]" ]
+            )
+    |   prettyUsage (UseField (n, cl)) =
+           PrettyBlock (1, true, [],
+                PrettyString ("UseField"^ Int.toString n ^ "[") ::
+                pList(cl, ",", prettyUsage) @
+                [ PrettyBreak (0, 0), PrettyString "]" ]
+            )
 
     (* Mapping function to enable parts of the tree to be replaced. *)
     fun mapCodetree f code =
@@ -492,7 +509,7 @@ struct
         |   mapt (Raise r) = Raise(mapCodetree f r)
         |   mapt Ldexc = Ldexc
         |   mapt (Handle{exp, handler}) = Handle{exp=mapCodetree f exp, handler=mapCodetree f handler }
-        |   mapt (Recconstr l) = Recconstr(map (mapCodetree f) l)
+        |   mapt (Tuple { fields, isVariant} ) = Tuple { fields = map (mapCodetree f) fields, isVariant = isVariant }
         |   mapt (c as Container _) = c
         |   mapt (SetContainer{container, tuple, size}) =
                 SetContainer{

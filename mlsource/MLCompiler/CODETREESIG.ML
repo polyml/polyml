@@ -63,6 +63,7 @@ sig
     val mkEnv:              codeBinding list * codetree -> codetree
     val mkStr:              string -> codetree;
     val mkTuple:            codetree list -> codetree;
+    val mkDatatype:         codetree list -> codetree
     val mkRaise:            codetree -> codetree;
     val mkNot:              codetree -> codetree;
     val mkTestnull:         codetree -> codetree;

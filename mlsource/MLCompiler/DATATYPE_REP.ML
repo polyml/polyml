@@ -126,24 +126,26 @@ struct
         (* How to apply the constructor at run-time or, if, it's a constant make it now. *)
         fun constrApply (test: representations, arg) : codetree =
         let
-            fun tagTupleCode (tag:word, n:int, name:string) : codetree =
-                (* copy n data fields out of ordinary record *)
-                mkInlproc (mkTuple (mkTag tag :: List.tabulate(n, fn i => mkInd(i, arg1))), 1, name, [], 0)
-
-            fun tagTupleApplyCode (tag: word, n:int, arg:codetree) : codetree =
-                mkEval (tagTupleCode(tag, n, ""), [arg]);
+            fun tagTupleApplyCode (tag, n, arg) =
+                mkEval (mkInlproc (mkDatatype (mkTag tag :: List.tabulate(n, fn i => mkInd(i, arg1))), 1, "", [], 0), [arg])
+            (* Even though unboxed tuples (e.g. list cells) are the same as tuples we need to add
+               this extra step so that the result is a variant tuple i.e. the optimiser can tell
+               that this may not always be a tuple. *)
+            fun tupleApplyCode (n, arg) =
+                mkEval (mkInlproc (mkDatatype (List.tabulate(n, fn i => mkInd(i, arg1))), 1, "", [], 0), [arg])
         in
             case test of
-              UnboxedForm _        => arg
-            | BoxedForm            => mkTuple [arg]
-            | RefForm              => refApplyCode arg
-            | TaggedBox{tag, ...}  => mkTuple [mkTag tag, arg]
-            | TaggedTuple{tag, size, ...} => tagTupleApplyCode(tag, size, arg)
-            | OnlyOne              => arg
-            | ConstForm{ value, ...} => mkConst value (* tagged value. *)
-            | EnumForm{tag, ...}   => mkConst (toMachineWord tag)
-            | ShortForm tag        => mkConst (toMachineWord tag)
-            | UnitForm             => CodeZero
+                UnboxedForm 0       => arg (* Function - never detupled. *)
+            |   UnboxedForm size    => tupleApplyCode(size, arg)
+            |   BoxedForm            => mkDatatype [arg]
+            |   RefForm              => refApplyCode arg
+            |   TaggedBox{tag, ...}  => mkDatatype [mkTag tag, arg]
+            |   TaggedTuple{tag, size, ...} => tagTupleApplyCode(tag, size, arg)
+            |   OnlyOne              => arg
+            |   ConstForm{ value, ...} => mkConst value (* tagged value. *)
+            |   EnumForm{tag, ...}   => mkConst (toMachineWord tag)
+            |   ShortForm tag        => mkConst (toMachineWord tag)
+            |   UnitForm             => CodeZero
         end
 
         (* The run-time test whether a value matches a constructor. *)

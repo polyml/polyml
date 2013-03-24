@@ -102,7 +102,7 @@ struct
     | sideEffectFree (Newenv(decs, exp)) = List.all sideEffectBinding decs andalso sideEffectFree exp
     | sideEffectFree (Handle { exp, handler }) =
           sideEffectFree exp andalso sideEffectFree handler
-    | sideEffectFree (Recconstr recs) = testList recs
+    | sideEffectFree (Tuple { fields, ...}) = testList fields
     | sideEffectFree (Indirect{base, ...}) = sideEffectFree base
 
         (* An RTS call, which may actually be code which is inlined
@@ -140,8 +140,8 @@ struct
         |   makeVal (ConstntWithInline(c, _)) = c
             (* should just be a tuple  *)
             (* Get a vector, copy the entries into it and return it as a constant. *)
-        |   makeVal (Recconstr []) = word0 (* should have been optimised already! *)
-        |   makeVal (Recconstr xp) =
+        |   makeVal (Tuple {fields= [], ...}) = word0 (* should have been optimised already! *)
+        |   makeVal (Tuple {fields=xp, ...}) =
             let
                 val vec : address = alloc (toShort (List.length xp), F_mutable_words, word0);
       
@@ -165,15 +165,19 @@ struct
         fun allConsts []       = true
         |   allConsts (Constnt _ :: t) = allConsts t
         |   allConsts _ = false
-    in  
-        fun mkTuple xp =
-        let
-            val tuple = Recconstr xp
+        
+        fun mkRecord isVar xp =
+       let
+            val tuple = Tuple{fields = xp, isVariant = isVar }
         in
             if allConsts xp
             then (* Make it now. *) makeConstVal tuple
             else tuple
         end;
+        
+    in  
+        val mkTuple = mkRecord false
+        and mkDatatype = mkRecord true
     end
 
     (* These are very frequently used and it might be worth making
@@ -210,14 +214,17 @@ struct
         val raiseError = Raise (Constnt (toMachineWord except))
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
-        fun findEntryInBlock (Recconstr recs, offset, isVar) =
-            if offset < List.length recs
-            then List.nth(recs, offset)
-            (* This can arise if we're processing a branch of a case discriminating on
-               a datatype which won't actually match at run-time. e.g. Tests/Succeed/Test030. *)
-            else if isVar
-            then raiseError
-            else raise InternalError "findEntryInBlock: invalid address"
+        fun findEntryInBlock (Tuple { fields, isVariant, ...}, offset, isVar) =
+            (
+                isVariant = isVar orelse raise InternalError "findEntryInBlock: tuple/datatype mismatch";
+                if offset < List.length fields
+                then List.nth(fields, offset)
+                (* This can arise if we're processing a branch of a case discriminating on
+                   a datatype which won't actually match at run-time. e.g. Tests/Succeed/Test030. *)
+                else if isVar
+                then raiseError
+                else raise InternalError "findEntryInBlock: invalid address"
+            )
 
         |  findEntryInBlock (Constnt b, offset, isVar) =
               (* The ML compiler may generate loads from invalid addresses as a

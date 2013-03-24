@@ -35,6 +35,27 @@ struct
     open CODETREE_FUNCTIONS
     exception InternalError = Misc.InternalError
 
+    local
+        open Address
+    in
+        (* Return the width of a tuple.  Returns 1 for non-tuples including
+           datatypes where different variants could have different widths. *)
+        fun findTuple(Tuple{fields, isVariant=false}) = List.length fields
+        |   findTuple(TupleFromContainer(_, c)) = c
+        |   findTuple(Constnt w) =
+                if isShort w then 1 else Word.toInt(length(toAddress w))
+        |   findTuple(Extract _) = 1 (* TODO: record this for variables *)
+        |   findTuple(Cond(_, t, e)) =
+                let
+                    val tl = findTuple t
+                    and el = findTuple e
+                in
+                    if tl = el then tl else 1
+                end
+        |   findTuple(Newenv(_, e)) = findTuple e
+        |   findTuple _ = 1
+    end
+ 
     (* This function annotates the tree with information about how variables are used.  This assists
        the optimiser to choose the best alternative for code.  It also discards bindings that
        are unused and side-effect-free.  These can arise as the result of optimiser constructing
@@ -52,7 +73,7 @@ struct
                preferred result. *)
             val bodyUse =
                 List.foldl
-                    (fn (UseApply l, r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r)
+                    (fn (UseApply (l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r)
                     [] lambdaUse
             (* Rebuild the closure with the entries actually used. *)
             val closureUse = makeClosure()
@@ -194,7 +215,7 @@ struct
                        we may be able to record this information.  If it is something else we can't. *)
                     SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, isVariant=false})
 
-            |   doClean codeUse (Recconstr fields) =
+            |   doClean codeUse (Tuple{ fields, isVariant}) =
                 let
                     (* If the use of the tuple include UseGeneral or UseExport then every field is
                        required.  If, though, we have UseField we can transfer the corresponding
@@ -215,7 +236,7 @@ struct
                     |   processField(hd::tl, n) =
                             cleanCode(hd, fieldUses n) :: processField(tl, n+1)
                 in
-                    SOME(Recconstr(processField(fields, 0)))
+                    SOME(Tuple{ fields = processField(fields, 0), isVariant = isVariant})
                 end
 
             |   doClean codeUse (Lambda lam) = SOME(Lambda(cleanLambda(lam, codeUse)))
@@ -223,12 +244,16 @@ struct
             |   doClean codeUse (Eval{function, argList, resultType}) =
                 (* As with Indirect we try to pass this information down so that if
                    the function is a variable it will be marked as "called". *)
-                SOME(
-                    Eval{
-                        function=cleanCode(function, [UseApply codeUse]),
-                        argList=map (fn (c, t) => (cleanCode(c, [UseGeneral]), t)) argList,
-                        resultType = resultType
-                    })
+                let
+                    val args = map (fn (c, t) => (cleanCode(c, [UseGeneral]), t)) argList
+                    val argTuples = map (findTuple o #1) args
+                in
+                    SOME(
+                        Eval{
+                            function=cleanCode(function, [UseApply(codeUse, argTuples)]),
+                            argList=args, resultType = resultType
+                        })
+                end
 
             |   doClean codeUse (Cond(i, t, e)) =
                     SOME(Cond(cleanCode(i, [UseGeneral]), cleanCode(t, codeUse), cleanCode(e, codeUse)))

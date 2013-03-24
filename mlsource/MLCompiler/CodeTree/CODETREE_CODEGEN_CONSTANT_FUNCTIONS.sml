@@ -196,7 +196,7 @@ struct
                         val extracts =
                             List.map(fn {addr, ...} => Extract(LoadLocal addr)) processedGroup
 
-                        val code = Newenv([RecDecs processedGroup], Recconstr extracts)
+                        val code = Newenv([RecDecs processedGroup], mkTuple extracts)
                         val maxAddr = List.foldl(fn ({addr, ...}, n) => Int.max(addr, n)) 0 processedGroup
                         (* Code generate it. *)
                         val results = codeGenerateToConstant debugArgs (code, maxAddr+1)
@@ -226,10 +226,10 @@ struct
             |   _ => SOME(Newenv(bindings, body))
         end
 
-    |   cgFuns context (Recconstr fields) =
+    |   cgFuns context (Tuple{ fields, isVariant }) =
             (* Create any constant tuples that have arisen because they contain
                constant functions. *)
-            SOME(mkTuple(map (mapCodetree (cgFuns context)) fields))
+            SOME((if isVariant then mkDatatype else mkTuple)(map (mapCodetree (cgFuns context)) fields))
 
     |   cgFuns _ (ConstntWithInline(w, _)) = SOME(Constnt w) (* Strip off any inline part now. *)
 

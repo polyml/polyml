@@ -1131,8 +1131,8 @@ struct
                     decSequenceWithFinalExp insElist
                 end (* isNewEnv *)
                 
-            |   insert(Recconstr recs) = (* perhaps it's a constant now? *)
-                    P2Tuple (mapright insert recs)
+            |   insert(Tuple { fields, ...}) = (* perhaps it's a constant now? *)
+                    P2Tuple (mapright insert fields)
 
             |   insert Ldexc = P2Ldexc (* just a constant so return it *)
       
