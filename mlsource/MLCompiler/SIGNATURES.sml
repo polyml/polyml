@@ -324,7 +324,7 @@ struct
             )
 
         |   CoreType {dec, ...} =>
-                ptDisplay (dec, depth - 1)
+                displayParsetree (dec, depth - 1)
       (* End displaySigs *)
 
     fun sigExportTree(navigation, s: sigs) =

@@ -56,6 +56,8 @@ sig
        debug/control parameters here. *)
     val debugParams: lexan -> Universal.universal list
 
+    val errorDepth: lexan -> int
+
     (* Print error and warning messages. *)
     val errorMessageProcTag:
         ({ location: location, hard: bool, message: pretty, context: pretty option } -> unit) Universal.tag

@@ -59,9 +59,10 @@ end;
 
 structure MISC :
 sig
-  exception InternalError of string; (* compiler error *)
-  
-  val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
+    exception InternalError of string; (* compiler error *)
+    exception Conversion of string     (* string to int conversion failure *)
+
+    val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 end;
 
 structure PRETTY : PRETTYSIG;
@@ -1540,6 +1541,36 @@ struct
         polyVars
     end
 
+    (* Convert a literal constant. We can only do this once any overloading
+       has been resolved. *)
+    fun getLiteralValue(converter, literal, instance, error): machineWord option =
+        let
+            val (conv, name) =
+                 getOverloadInstance(valName converter, instance, true)
+        in
+            SOME(RunCall.unsafeCast(valOf(evalue conv)) literal)
+                handle Match => NONE (* Overload error *)
+                  | Conversion s =>
+                        (
+                            error("Conversion exception ("^s^") raised while converting " ^
+                                    literal ^ " to " ^ name);
+                            NONE
+                        )
+                  | Overflow => 
+                        (
+                            error ("Overflow exception raised while converting " ^
+                                    literal ^ " to " ^ name);
+                            NONE
+                        )
+                  | Thread.Thread.Interrupt => raise Thread.Thread.Interrupt
+                  | _ =>
+                        (
+                            error ("Exception raised while converting " ^
+                                    literal ^ " to " ^ name);
+                            NONE
+                        )
+        end
+
     (* Types that can be shared. *)
     structure Sharing =
     struct
@@ -1561,6 +1592,7 @@ struct
         type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap
         type level          = level
+        type machineWord    = machineWord
     end
 
 end (* body of VALUEOPS *);

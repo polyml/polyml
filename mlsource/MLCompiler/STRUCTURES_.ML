@@ -448,7 +448,7 @@ struct
                 )
 
           | CoreLang {dec, ...} =>
-              ptDisplay (dec, depth - 1)
+              displayParsetree (dec, depth - 1)
 
     and displayStructValue (str, depth) =
         if depth <= 0 (* elide further text. *)

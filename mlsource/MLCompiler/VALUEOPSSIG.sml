@@ -44,6 +44,7 @@ sig
     type typeVarForm
     type typeVarMap
     type level
+    type machineWord
 
     (* Construction functions. *)
     val mkGvar:        string * types * codetree * locationProp list -> values
@@ -123,6 +124,8 @@ sig
     val codeLocation: location -> codetree
 
     val getPolymorphism: values * types * typeVarMap -> {value: types, equality: bool, printity: bool} list
+    
+    val getLiteralValue: values * string * types * (string->unit) -> machineWord option
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -145,5 +148,6 @@ sig
         type typeVarForm    = typeVarForm
         type typeVarMap     = typeVarMap
         type level          = level
+        type machineWord    = machineWord
     end
 end;

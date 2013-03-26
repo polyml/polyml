@@ -26,28 +26,92 @@ local
             structure STRUCTVALS = StructVals
             structure TYPETREE   = TypeTree
         )
-in
-    structure ParseTree =
-        PARSE_TREE (
+
+    structure PrintTree =
+        PRINT_PARSETREE(
             structure BASEPARSETREE = BaseParseTree
+            structure LEX        = Lex
+            structure STRUCTVALS = StructVals
+            structure TYPETREE   = TypeTree
+            structure VALUEOPS   = ValueOps
+            structure PRETTY     = Pretty
+         )
+
+    structure ExportTree =
+        EXPORT_PARSETREE(
+            structure BASEPARSETREE = BaseParseTree
+            structure PRINTTREE  = PrintTree
+            structure LEX        = Lex
+            structure STRUCTVALS = StructVals
+            structure EXPORTTREE = ExportTreeStruct
+            structure TYPETREE   = TypeTree
+         )
+
+    structure TypeCheckParsetree =
+        TYPECHECK_PARSETREE (
+            structure BASEPARSETREE = BaseParseTree
+            structure PRINTTREE  = PrintTree
+            structure EXPORTTREE = ExportTree
             structure LEX        = Lex
             structure CODETREE   = CodeTree
             structure STRUCTVALS = StructVals
             structure TYPETREE   = TypeTree
             structure VALUEOPS   = ValueOps
             structure UTILITIES  = Utilities
-            structure UNIVERSALTABLE = UniversalTable
             structure MISC          = Misc
             structure PRETTY     = Pretty
-            structure DEBUG      = Debug
-            structure ADDRESS    = Address
-            structure RUNCALL    = RunCall
-            structure DEBUGGER   = Debugger
-            structure EXPORTTREE = ExportTreeStruct
             structure COPIER     = CopierStruct
-            structure TYPEIDCODE = TypeIDCodeStruct
             structure PRINTTABLE = PrintTable
             structure DATATYPEREP = DatatypeRep
+        )
+
+    structure MatchCompiler =
+        MATCH_COMPILER(
+            structure BASEPARSETREE = BaseParseTree
+            structure PRINTTREE  = PrintTree
+            structure LEX        = Lex
+            structure CODETREE   = CodeTree
+            structure DEBUGGER   = Debugger
+            structure TYPETREE   = TypeTree
+            structure TYPEIDCODE = TypeIDCodeStruct
+            structure STRUCTVALS = StructVals
+            structure VALUEOPS   = ValueOps
+            structure DATATYPEREP = DatatypeRep
+            structure DEBUG      = Debug
+            structure MISC          = Misc
+            structure ADDRESS    = Address
+        )
+
+    structure CodeGenParseTree =
+        CODEGEN_PARSETREE(
+            structure BASEPARSETREE = BaseParseTree
+            structure PRINTTREE  = PrintTree
+            structure EXPORTTREE = ExportTree
+            structure MATCHCOMPILER = MatchCompiler
+            structure LEX        = Lex
+            structure CODETREE   = CodeTree
+            structure DEBUGGER   = Debugger
+            structure TYPETREE   = TypeTree
+            structure TYPEIDCODE = TypeIDCodeStruct
+            structure STRUCTVALS = StructVals
+            structure VALUEOPS   = ValueOps
+            structure DATATYPEREP = DatatypeRep
+            structure DEBUG      = Debug
+            structure MISC          = Misc
+            structure ADDRESS    = Address
+        )
+    
+in
+    structure ParseTree =
+        PARSE_TREE (
+            structure BASEPARSETREE = BaseParseTree
+            structure PRINTTREE  = PrintTree
+            structure EXPORTTREE = ExportTree
+            structure CODEGENPARSETREE = CodeGenParseTree
+            structure TYPECHECKTREE = TypeCheckParsetree
+            structure LEX        = Lex
+            structure STRUCTVALS = StructVals
+            structure TYPETREE   = TypeTree
         )
 end;
 

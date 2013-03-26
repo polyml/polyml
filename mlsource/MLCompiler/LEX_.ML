@@ -36,6 +36,7 @@ sig
     val lineNumberTag: (unit -> int) Universal.tag
     val offsetTag: (unit->int) Universal.tag
     val fileNameTag: string Universal.tag
+    val errorDepthTag : int Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end
@@ -625,6 +626,8 @@ struct
         file=file, startLine=startLine, startPosition=startPosition,
         endLine=endLine, endPosition=endPosition
     }
+
+    fun errorDepth{debugParams, ...} = DEBUG.getParameter DEBUG.errorDepthTag debugParams
 
     structure Sharing =
     struct

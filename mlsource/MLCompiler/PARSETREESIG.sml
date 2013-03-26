@@ -19,13 +19,9 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-(*****************************************************************************)
-(*                  PARSETREE export signature                               *)
-(*****************************************************************************)
 
 signature PARSETREESIG =
 sig
-    type machineWord;
     type types;
     type fixStatus;
     type lexan;
@@ -146,19 +142,18 @@ sig
         parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) *
         env * lexan * (int -> bool) -> types
 
-    type debugenv = environEntry list * (level->codetree)
+    val setLeastGeneralTypes: parsetree * lexan -> unit
+    
+    (* Inherited from PrintAndExportParsetree *)
+    val displayParsetree: parsetree * int -> pretty;
+    val getExportTree: navigation * parsetree -> exportTree
 
+    (* Inherited from CodegenParsetree *)
+    type debugenv = environEntry list * (level->codetree)
     val gencode:
         parsetree * lexan * debugenv * level * (int->int) * typeVarMap * string *
             (codeBinding list * debugenv * typeVarMap -> codeBinding list * debugenv)
             -> codeBinding list * debugenv
-
-    (* only used for debugging and error messages! *)
-    val ptDisplay: parsetree * int -> pretty;
-
-    val getExportTree: navigation * parsetree -> exportTree
-
-    val setLeastGeneralTypes: parsetree * lexan -> unit
 
     (* Types that can be shared. *)
     structure Sharing:
