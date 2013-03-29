@@ -1119,7 +1119,7 @@ in
                 print "\n";
                 print "-v             Print the version of Poly/ML and exit\n";
                 print "--help         Print this message and exit\n";
-                print "-q             Suppress the start-up message\n";
+                print "-q             Suppress the start-up message and turn off printing of results\n";
                 print "--use FILE     Executes 'use \"FILE\";' before the ML shell starts\n";
                 print "--error-exit   Exit shell on unhandled exception\n";
                 print "--with-markup  Include extra mark-up information when printing\n";
@@ -1136,7 +1136,7 @@ in
                 open Signal;
                 val () =
                     if List.exists(fn s => s = "-q") (CommandLine.arguments())
-                    then ()
+                    then PolyML.print_depth 0
                     else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
                 (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
                    If a handler has been set up by an initialisation function don't replace it. *)
