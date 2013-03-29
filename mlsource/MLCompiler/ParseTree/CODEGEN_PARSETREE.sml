@@ -538,8 +538,8 @@ struct
             then cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
             else
             let
-                val noOfArgs = length vl;
-                val patNoIndex = patNo - 1;
+                val noOfArgs = length vl
+                val patNoIndex = patNo - 1
 
                 val functionLevel = newLevel level (* For the function. *)
                 local
