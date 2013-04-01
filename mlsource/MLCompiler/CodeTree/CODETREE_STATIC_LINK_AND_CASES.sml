@@ -66,11 +66,7 @@ struct
        pass and the input to the later (variable lifetimes) pass. *)
 
     datatype p2Codetree =
-        P2MatchFail    (* Pattern-match failure *)
-    
-    |   P2AltMatch of p2Codetree * p2Codetree(* Pattern-match alternative choices *)
-
-    |   P2Newenv of p2CodeBinding list * p2Codetree (* Set of bindings with an expression. *)
+        P2Newenv of p2CodeBinding list * p2Codetree (* Set of bindings with an expression. *)
 
     |   P2Constnt of machineWord (* Load a constant *)
 
@@ -389,17 +385,7 @@ struct
                         f a :: rest
                     end
 
-                fun insert P2MatchFail = BICMatchFail
-          
-                |   insert(P2AltMatch(x, y)) =
-                    let
-                        val insY = insert y
-                        val insX = insert x
-                    in
-                        BICAltMatch (insX, insY)
-                    end
-
-                |   insert(P2Eval { function as P2Extract(P2LoadLocal addr), argList, resultType, ...}) =
+                fun insert(P2Eval { function as P2Extract(P2LoadLocal addr), argList, resultType, ...}) =
                     let
                         (* If this is a statically-linked function make references to the closure.
                            If this is actually the last reference this may result in returning
@@ -904,17 +890,7 @@ struct
                     f a :: rest
                 end
 
-            fun insert MatchFail = P2MatchFail
-          
-            |   insert(AltMatch(x, y)) =
-                let
-                    val insY = insert y
-                    val insX = insert x
-                in
-                    P2AltMatch (insX, insY)
-                end
-        
-            |   insert(Eval { function, argList, resultType, ...}) =
+            fun insert(Eval { function, argList, resultType, ...}) =
                 let
                     (* Process the arguments first. *)
                     val newargs = mapright(fn (c, t) => (insert c, t)) argList

@@ -1494,25 +1494,6 @@ struct
 
     |   makeInverse _ = raise InternalError "makeInverse"
 
-  (* True if the arguments are definitely the same exception.  Used in the
-     match compiler to see if we can merge adjacent exception patterns.
-     Unlike the constructors of a datatype we can't assume that having the
-     same (short) name means that the exceptions are the same, we have to
-     look at the address. *)
-   fun isTheSameException(Value{access = Global aCode, ...},
-                             Value{access = Global bCode, ...}) : bool =
-        wordEq(valOf(evalue aCode), valOf(evalue bCode))
-
-        (* TODO: We could check whether they are identical. *)
-(*       
-   |  isTheSameException(Value{access = Local{addr=ref aAddr, level=ref aLevel}, ...},
-                            Value{access = Local{addr=ref bAddr, level=ref bLevel}, ...}) : bool =
-        (* I don't like this. It assumes that the address and level have
-           already been set. *)
-        aAddr = bAddr andalso aLevel = bLevel
-*)
-  |  isTheSameException _ = false (* Forget about "selected" for the moment. *)
-
     (* Work out the polymorphism and the mapping between the formal
        type variables and the actual types.  Because flexible records
        may introduce extra polymorphism we can only do this once we've

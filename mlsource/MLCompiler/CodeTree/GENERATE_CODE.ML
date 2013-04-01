@@ -125,8 +125,6 @@ struct
         val callsAFunction = ref false
         fun codeGenerate(ops: operations, cvec) = cvec := ops @ ! cvec
 
-        fun matchFailed _ = raise InternalError "codegen: unhandled pattern-match failure"
-
         (* make the translation table *)
         val transtable = ttabCreate(localCount, debugSwitches)
         (* Map from declaration location to pstack entry. *)
@@ -340,11 +338,7 @@ struct
            
             fun loads pt =
             case pt of
-                BICMatchFail => ()
-            
-            |   BICAltMatch (exp1, exp2) => (loads exp1; loads exp2 )
-          
-            |   BICExtract (BICLoadArgument locn, lastRef) =>
+                BICExtract (BICLoadArgument locn, lastRef) =>
                 (
                     case Vector.sub(argRegTab, locn) of
                         ArgInReg regEntry => if lastRef then add regEntry else ()
@@ -435,70 +429,14 @@ struct
        the code that handles constants completely ignores this hint.
        SPF 15/8/96
      *)
-    fun gencde (pt, primBoolOps, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
+    fun gencde (pt, primBoolOps, whereto, tailKind, loopAddr) : mergeResult =
     let 
       val needsResult : bool = not (isNoResult whereto)
       
       val result : mergeResult = 
         case pt of
-          BICMatchFail => (* A bit like Raise *)
-          let
-                val matchFailCode = matchFailFn ()
-                val () = codeGenerate(matchFailCode, cvec)
-          in
-                if needsResult
-                then MergeIndex(pushConst (transtable, DummyValue))
-                else NoMerge (* Unused. *)
-          end
-        
-        | BICAltMatch (exp1, exp2) => (* A bit like Cond *)
-          let
-            val mark1 : stackMark = markStack transtable;
-            val mark2 : stackMark = markStack transtable;
-              
-            val failLabs = ref ([] : labels list);
-            fun newMatchFailFn () = 
-            let
-                val (thisFailure, code) = unconditionalBranch (NoMerge, transtable)
-            in
-                failLabs := thisFailure :: !failLabs;
-                code
-            end;
-            
-            val whereto = chooseMergeRegister(whereto, tailKind)
-
-            val exp1Result = 
-               genToRegister (exp1, whereto, tailKind, newMatchFailFn, loopAddr);
-              
-            (* Optimisation: return immediately, if possible, rather than
-               jumping and then returning. This may turn the following
-               unconditional branch into dead code, in which case it
-               will be removed by the lower-level code generator.
-               SPF 25/11/96
-             *)
-            val () =
-              if (isEndOfProc tailKind) andalso not (haveExited transtable)
-              then codeGenerate(exit(), cvec)
-              else ();
-
-            (* If exp1 succeeded, we skip exp2 *)
-            val (suceedLab, code) = unconditionalBranch (exp1Result, transtable);
-            (* If exp1 failed, we come here (with NO result). *)
-            val (_, mergeCode) = mergeList (!failLabs, transtable, NoMerge, mark2)
-            val () = codeGenerate(mergeCode @ code, cvec)
-            
-            (* Compile exp2 using the OLD matchFailFn *)
-            val exp2result = 
-               genToRegister (exp2, whereto, tailKind, matchFailFn, loopAddr);
-            (* If exp1 succeeded, we merge back in here. *)
-            val (mergeRes, mergeCode2) = merge (suceedLab, transtable, exp2result, mark1)
-            val () = codeGenerate(mergeCode2, cvec)
-          in
-            mergeRes
-          end
-            
-        | BICEval {function, argList, resultType, ...} =>
-            genEval (function, argList, resultType, primBoolOps, whereto, tailKind, matchFailFn)
+          BICEval {function, argList, resultType, ...} =>
+            genEval (function, argList, resultType, primBoolOps, whereto, tailKind)
 
         | BICExtract ext =>
             let
@@ -517,14 +455,14 @@ struct
 
         | BICField {base, offset} =>
             let
-                val baseCode = genToStack (base, matchFailFn)
+                val baseCode = genToStack (base)
                 val (index, indCode) = indirect (offset, baseCode, transtable)
                 val () = codeGenerate(indCode, cvec)
             in  (* Get the value to be indirected on. *)
                 MergeIndex index
             end
 
-        |   BICLambda(lam as { makeClosure = true, ...}) => MergeIndex(genProc (lam, fn _ => (), whereto, matchFailFn))
+        |   BICLambda(lam as { makeClosure = true, ...}) => MergeIndex(genProc (lam, fn _ => (), whereto))
         
         |   BICLambda({makeClosure = false, ...}) =>
                 (* Functions using the static-link convention must always occur in bindings. *)
@@ -533,7 +471,7 @@ struct
         | BICConstnt w => MergeIndex(pushConst (transtable, w))
 
         | BICCond (testPart, thenPart, elsePart) =>
-            genCond (testPart, thenPart, elsePart, whereto, tailKind, matchFailFn, loopAddr)
+            genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
 
         | BICNewenv(decs, exp) =>
             let (* Processes a list of entries. *)
@@ -546,8 +484,8 @@ struct
                         (BICExtract(BICLoadLocal addr, _), UseReg _) => SOME(addr, whereto)
                     |   _ => NONE
 
-                val () = List.app (codeBinding (matchFailFn, specificLoc)) decs
-                val resultPosn = gencde (exp, true, whereto, tailKind, matchFailFn, loopAddr)
+                val () = List.app (codeBinding specificLoc) decs
+                val resultPosn = gencde (exp, true, whereto, tailKind, loopAddr)
                 val () = checkBlockResult(transtable, resultPosn)
                 val () = unmarkStack(transtable, startMark)
             in
@@ -575,7 +513,7 @@ struct
                    a register.  We could do better if we are loading the last
                    reference to the initial value in which case we could reuse
                    its location. *)
-                val index = genToStack(value, matchFailFn)
+                val index = genToStack(value)
                 (* Put this in a floating point register if it is a floating point value
                    otherwise a fixed point register. *)
                 val prefSet =
@@ -643,7 +581,7 @@ struct
                 end
                 (* Compile the loop with the jumps back to the start. *)
                 val runLoop =
-                    gencde (body, true, whereto, tailKind, matchFailFn,
+                    gencde (body, true, whereto, tailKind,
                         SOME(startLoop, onLoop, argDestList))
                 (* The state we have here is the state when we haven't taken the loop. *)
             in
@@ -675,7 +613,7 @@ struct
                             ArgToRegister reg => UseReg (singleton reg)
                         |   ArgToStack _ => NoHint
                         |   ArgDiscard => NoHint
-                    val res = gencde (arg, true, whereto, NotEnd, matchFailFn, NONE)
+                    val res = gencde (arg, true, whereto, NotEnd, NONE)
                 in
                     case res of
                         MergeIndex index => index
@@ -740,7 +678,7 @@ struct
                   we are tracing exceptions. *)
                codeGenerate(pushSpecificEntry (transtable, returnAddress), cvec);
                
-            val excVal = genToStack (exp, matchFailFn);
+            val excVal = genToStack (exp);
             
             val (resultIndex, resultCode) = 
                loadToSpecificReg (transtable, resultReg ArgGeneral, excVal, true);
@@ -800,7 +738,7 @@ struct
  
                 (* Code generate body, putting the result in result register. *)
                 (* "NotEnd" because we have to come back to remove the handler. *)
-                val bodyResult = genToRegister (exp, whereto, NotEnd, matchFailFn, loopAddr);
+                val bodyResult = genToRegister (exp, whereto, NotEnd, loopAddr);
                 (* Reload the old value of regHandler i.e. remove handler. *)
                 (* Remove the handler entries. *)
                 val () = codeGenerate(removeStackEntry(transtable, handlerEntry), cvec)
@@ -832,7 +770,7 @@ struct
                 val () = codeGenerate(fixupH (handlerLab, startOfHandler, transtable), cvec)
 
                 (* The code for the handler body itself *)
-                val handlerRes =  genToRegister (handler, whereto, tailKind, matchFailFn, loopAddr)
+                val handlerRes =  genToRegister (handler, whereto, tailKind, loopAddr)
                 (* Merge the results. *)
                 val (mergeRes, mergeCode) = merge (skipHandler, transtable, handlerRes, mark)
                 val () = codeGenerate(mergeCode, cvec)
@@ -888,7 +826,7 @@ struct
                         in
                             (false, min, max)
                         end
-                val testValue = genToStack (test, matchFailFn)
+                val testValue = genToStack (test)
                 val mark = markStack transtable
 
                 (* Get exclusive use so that indexedCase can modify the registers. *)
@@ -936,7 +874,7 @@ struct
                     val () = genDefaults(min, caseLabels, cases)
 
                     val defaultRes =
-                        genToRegister (default, whereto, tailKind, matchFailFn, loopAddr);
+                        genToRegister (default, whereto, tailKind, loopAddr);
 
                     (* Optimisation: return immediately, if possible, rather than
                        jumping and then returning. This may turn the following
@@ -972,7 +910,7 @@ struct
 
                         (* Generate this case and exit if tail-recursive. *)
                         val expResult =
-                            genToRegister (caseExp, whereto, tailKind, matchFailFn, loopAddr);
+                            genToRegister (caseExp, whereto, tailKind, loopAddr);
 
                         val () =
                             if isEndOfProc tailKind andalso not (haveExited transtable)
@@ -1018,7 +956,7 @@ struct
                     else ()
                 (* Since the vector is immutable, we have to evaluate
                    all the values before we can allocate it. *)
-                val entries = List.map(fn h => genToStackOrGeneralRegister (h, matchFailFn)) reclist
+                val entries = List.map(fn h => genToStackOrGeneralRegister (h)) reclist
                 val asConstants = List.map(fn i => isConstant(i, transtable)) entries
             in
                 if List.exists(fn NotConst => true | _ => false) asConstants
@@ -1082,7 +1020,7 @@ struct
         | BICSetContainer{container, tuple, size} =>
             (* Copy the contents of a tuple into a container. *)
             let
-                val vec = genToStack (container, matchFailFn);
+                val vec = genToStack (container);
             in
                 case tuple of
                     BICTuple cl =>
@@ -1090,7 +1028,7 @@ struct
                     let
                         fun setValue(v, wordOffset) =
                         let
-                            val entry = genToStack (v, matchFailFn)
+                            val entry = genToStack (v)
                         in
                             (* Move the entry into the container.  Does not affect the
                                use count for the container entry. *)
@@ -1104,7 +1042,7 @@ struct
 
                 |   _ =>
                     let
-                        val tup = genToStack (tuple, matchFailFn);
+                        val tup = genToStack (tuple);
         
                         fun copy n =
                         if n = size
@@ -1137,7 +1075,7 @@ struct
         | BICTupleFromContainer(container, size) =>
             (* Create a tuple from the contents of a container. *)
             let
-                val vec = genToStack (container, matchFailFn);
+                val vec = genToStack (container);
                 val (tup, tupleCode) = callgetvec (size, F_words, whereto, transtable)
 
                 val () = codeGenerate(tupleCode, cvec)
@@ -1174,7 +1112,7 @@ struct
                         argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
                         resultType=GeneralType }
             in
-                gencde (code, true(* Try to put in-line *), whereto, tailKind, matchFailFn, loopAddr)
+                gencde (code, true(* Try to put in-line *), whereto, tailKind, loopAddr)
             end
 
         |   BICKillItems { expression, killSet, killBefore } =>
@@ -1182,18 +1120,18 @@ struct
                 (* This is inserted by the higher level code to get the use-counts
                    correct.  Kill entries are BICExtract entries with lastRef true. *)
                 fun cgKill toKill =
-                    (gencde(toKill, true, NoResult, NotEnd, matchFailFn, loopAddr); ())
+                    (gencde(toKill, true, NoResult, NotEnd, loopAddr); ())
             in
                 if killBefore
                 then (* Process the kill set before the expression. *)
                 (
                     List.app cgKill killSet;
-                    gencde (expression, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                    gencde (expression, primBoolOps, whereto, tailKind, loopAddr)
                 )
                 else (* Process the expression first, then kill the items *)
                 let
                     val result =
-                        gencde (expression, primBoolOps, whereto, tailKind, matchFailFn, loopAddr)
+                        gencde (expression, primBoolOps, whereto, tailKind, loopAddr)
                 in
                     List.app cgKill killSet;
                     result
@@ -1217,9 +1155,9 @@ struct
 
     (* Generate an expression putting the result in any register, and return
        the location of it on the stack. *)
-    and genToStack (pt : backendIC, matchFailFn) : stackIndex =
+    and genToStack (pt : backendIC) : stackIndex =
         let
-            val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
+            val res = gencde (pt, true, NoHint, NotEnd, NONE)
         in
             case res of
                 MergeIndex index => index
@@ -1232,9 +1170,9 @@ struct
        newly allocated object.  The floating point value will have to be
        moved into memory and that must be done before we allocate the new
        object. *)
-    and genToStackOrGeneralRegister(pt : backendIC, matchFailFn) : stackIndex =
+    and genToStackOrGeneralRegister(pt : backendIC) : stackIndex =
         let
-            val res = gencde (pt, true, NoHint, NotEnd, matchFailFn, NONE)
+            val res = gencde (pt, true, NoHint, NotEnd, NONE)
         in
             case res of
                 MergeIndex index =>
@@ -1248,12 +1186,12 @@ struct
         end
 (* ...
    (* Used when the result must be put in a register. *)
-   and genToResult (pt, whereto, tailKind, matchFailFn, loopAddr) : unit =
+   and genToResult (pt, whereto, tailKind, loopAddr) : unit =
    let
      (* Stack results are forced into result register *)
      val toWhere = if isToPstack whereto then UseReg regResult else whereto;
      
-     val result = gencde (pt, true, toWhere, tailKind, matchFailFn, loopAddr);
+     val result = gencde (pt, true, toWhere, tailKind, loopAddr);
    in
      (* If we need a result put it in the result reg.  We request exclusive use
     of it because otherwise there is a problem when merging the results
@@ -1266,9 +1204,9 @@ struct
 ... *)
 
    (* Used when the result must be put in a register. *)
-    and genToRegister (pt, whereto, tailKind, matchFailFn, loopAddr) : mergeResult =
+    and genToRegister (pt, whereto, tailKind, loopAddr) : mergeResult =
     let
-        val result = gencde (pt, true, whereto, tailKind, matchFailFn, loopAddr)
+        val result = gencde (pt, true, whereto, tailKind, loopAddr)
     in
         case (whereto, result) of
             (NoResult, _) => NoMerge
@@ -1303,7 +1241,7 @@ struct
        function. *)
     and genProc ({ closure=closureList, makeClosure = false, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
-                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, _, _) =
+                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, _) =
                  
         let (* static link form *)
             (* If a procedure can be called by static link references then
@@ -1515,7 +1453,7 @@ struct
 
      | genProc ({ closure=closureList, makeClosure = true, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
-                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, whereto, matchFailFn) =
+                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, whereto) =
         (* Requires a closure but this may be a constant. *)
         let
             (* Frequently the closure is actually empty but it may be that there are
@@ -1526,10 +1464,10 @@ struct
             fun loadClosure(c as BICExtract(BICLoadLocal addr, _)) =
                 if Array.sub(decToPstack, addr) = noIndex
                 then noIndex
-                else genToStackOrGeneralRegister (c, matchFailFn)
+                else genToStackOrGeneralRegister (c)
             |   loadClosure(c as BICExtract(BICLoadArgument _, _)) =
-                    genToStackOrGeneralRegister (c, matchFailFn)
-            |   loadClosure c = genToStackOrGeneralRegister (c, matchFailFn)
+                    genToStackOrGeneralRegister (c)
+            |   loadClosure c = genToStackOrGeneralRegister (c)
             val initialLocs = List.map loadClosure closureList
             (* Extract any constants. *)
             val constants =
@@ -1676,7 +1614,7 @@ struct
                                 if index = noIndex (* Deferred entry*)
                                 then
                                 let
-                                    val loadEntry = genToStack(entry, matchFailed)
+                                    val loadEntry = genToStack entry
                                     val addr = valOf(Vector.sub(closureIndexes, n))
                                     val moveCode = moveToVec(vector, loadEntry, addr, transtable)
                                 in
@@ -1711,7 +1649,7 @@ struct
     (* Generates test for if..then..else or while..do. Returns address of address field of jump.
        If jumpOn is true the jump is taken if the condition is true,
        if false it is taken if the condition is false. *)
-    and genTest (pt, jumpOn, matchFailFn) : labels =
+    and genTest (pt, jumpOn) : labels =
     let (* See if we can generate a conditional instruction. *)
         (* Those we can't deal with specially are evaluated to the stack and tested. *)
         fun genOtherTests () =
@@ -1721,7 +1659,7 @@ struct
                     let
                         (* We can't use genToStack here because we need primBoolOps to be false. *)
                         fun cgArg arg = 
-                            case gencde (arg, false (* primBoolOps *), NoHint, NotEnd, matchFailFn, NONE) of
+                            case gencde (arg, false (* primBoolOps *), NoHint, NotEnd, NONE) of
                                 MergeIndex index => (index, [])
                             |   NoMerge => raise InternalError "genTest: no result"
                         val argsAndCode = List.map cgArg args
@@ -1743,7 +1681,7 @@ struct
           val mark2 = markStack transtable
           
           (* Test the condition part. *)
-          val a : labels = genTest (testPart, false, matchFailFn)
+          val a : labels = genTest (testPart, false)
         in
           if isEmptyLabel a
           then (* The test evaluated to true.  We must only generate
@@ -1753,7 +1691,7 @@ struct
              (
              unmarkStack(transtable, mark2);
              unmarkStack(transtable, mark1);
-             genTest (thenPart, jumpOn, matchFailFn)
+             genTest (thenPart, jumpOn)
              )
           else if haveExited transtable
           then (* Unconditional jump.  Only need the else-part. *)
@@ -1761,12 +1699,12 @@ struct
              unmarkStack(transtable, mark2);
              unmarkStack(transtable, mark1);
              codeGenerate(fixup (a, transtable), cvec);
-             genTest (elsePart, jumpOn, matchFailFn)
+             genTest (elsePart, jumpOn)
              )
           else
           let
               (* Now the `then-part' *)
-              val b : labels = genTest (thenPart, jumpOn, matchFailFn);
+              val b : labels = genTest (thenPart, jumpOn);
               
               (* Put in an unconditional jump round the `else-part'.
                  This will be taken if the `then-part' drops through. *)
@@ -1777,7 +1715,7 @@ struct
               val () = codeGenerate(fixup (a, transtable), cvec);
               
               (* Now do the `else-part' and jump on the inverse of the condition. *)
-              val notC = genTest (elsePart, not jumpOn, matchFailFn);
+              val notC = genTest (elsePart, not jumpOn);
               
               (* i.e. we drop though if the condition is the one we should have
                  jumped on. Now merge in the first label so we have both cases
@@ -1814,7 +1752,7 @@ struct
           val eqTest    : backendIC = 
              BICEval {function = equalFun, argList = arguments, resultType=GeneralType};
         in
-          genTest (BICCond (eqTest, result, default), jumpOn, matchFailFn) 
+          genTest (BICCond (eqTest, result, default), jumpOn) 
         end
 
       (* Constants - primarily for andalso/orelse. *)
@@ -1833,8 +1771,8 @@ struct
 
         |   BICNewenv(decs, exp) =>
             (
-                List.app (codeBinding (matchFailFn, NONE)) decs;
-                genTest (exp, jumpOn, matchFailFn)
+                List.app (codeBinding NONE) decs;
+                genTest (exp, jumpOn)
             )
 
         |   BICTagTest { test, tag, ... } =>
@@ -1846,7 +1784,7 @@ struct
                         argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
                         resultType=GeneralType }
             in
-                genTest(code, jumpOn, matchFailFn)
+                genTest(code, jumpOn)
             end
 
       | BICEval {function = BICConstnt oper, argList = args, ...} =>
@@ -1863,7 +1801,7 @@ struct
                    let (* Generate the instruction and get the direction. *)
                         (* Code generate each argument to the pstack. *)
                         val argLocns =
-                            List.map (fn arg => genToStack (arg, matchFailFn)) args
+                            List.map (fn arg => genToStack (arg)) args
                         val (label, testCode) = compareAndBranch (argLocns, test, transtable)
                         val () = codeGenerate(testCode, cvec)
                    in
@@ -1880,7 +1818,7 @@ struct
         | [(arg, _)] =>
             (* unary special cases *)
             if wordEq (oper,ioOp POLY_SYS_not_bool)
-              then genTest (arg, not jumpOn, matchFailFn)
+              then genTest (arg, not jumpOn)
     
             else if wordEq (oper,ioOp POLY_SYS_is_short)
             then
@@ -1888,8 +1826,8 @@ struct
               case arg of
                 BICConstnt (w : machineWord) =>
                   if isShort w
-                  then genTest (constntTrue,  jumpOn, matchFailFn)
-                  else genTest (constntFalse, jumpOn, matchFailFn)
+                  then genTest (constntTrue,  jumpOn)
+                  else genTest (constntFalse, jumpOn)
         
               | _ =>
                 (
@@ -1897,7 +1835,7 @@ struct
                                                 fn (BICConstnt w) => SOME w | _ => NONE) of
                         SOME (testOp, [arg]) =>
                         let
-                            val locnOfArg1 = genToStack (arg, matchFailFn);
+                            val locnOfArg1 = genToStack (arg);
                             val (label, testCode) = compareAndBranch([locnOfArg1], testOp, transtable)
                             val () = codeGenerate(testCode, cvec)
                         in
@@ -1981,7 +1919,7 @@ struct
 
     (* if/then/else, cand and cor. NB if/then/else may be translated
        into a CASE by the optimiser and code-generated there. *)
-    and genCond (testExp, thenPt, elsePt, whereto, tailKind, matchFailFn, loopAddr) =
+    and genCond (testExp, thenPt, elsePt, whereto, tailKind, loopAddr) =
         let
             val mark = markStack transtable
             (* We use the then-part to determine the register for the result so if
@@ -1996,7 +1934,7 @@ struct
                 if reverse
                 then (true, elsePt, thenPt)
                 else (false, thenPt, elsePt)
-            val lab  = genTest (testExp, direction, matchFailFn) (* code for condition *)
+            val lab  = genTest (testExp, direction) (* code for condition *)
             (* There used to be code in here to handle specially the case where the
              test expression was a constant.  I've taken that out, partly because
              the simple cases are dealt with by the optimiser but more seriously
@@ -2013,14 +1951,14 @@ struct
             then
             ( (* Only the "then" part will be executed.  Don't generate the else-part. *)
                 unmarkStack(transtable, mark);
-                gencde (thenExp, true, whereto, tailKind, matchFailFn, loopAddr)
+                gencde (thenExp, true, whereto, tailKind, loopAddr)
             )
             else if haveExited transtable
             then
             ( (* Jump was unconditional - just generate the else-part. *)
                 unmarkStack(transtable, mark);
                 codeGenerate(fixup (lab, transtable), cvec);
-                gencde (elseExp, true, whereto, tailKind, matchFailFn, loopAddr)
+                gencde (elseExp, true, whereto, tailKind, loopAddr)
             )
             else
             let
@@ -2034,7 +1972,7 @@ struct
                         let
                             (* We don't have any preferences. *)
                             val initialThenResult =
-                                gencde(thenExp, true, whereto, tailKind, matchFailFn, loopAddr)
+                                gencde(thenExp, true, whereto, tailKind, loopAddr)
                         in
                             if haveExited transtable (* If we've raised an exception we can ignore this. *)
                             then (initialThenResult, NoHint)
@@ -2066,10 +2004,10 @@ struct
                             (* We want the result in the result reg. *)
                             val whereto = UseReg(singleton res)
                         in
-                            (genToRegister (thenExp, whereto, tailKind, matchFailFn, loopAddr), whereto)
+                            (genToRegister (thenExp, whereto, tailKind, loopAddr), whereto)
                         end
                     |   (whereto, _) => (* No result or we have a specific register. *)
-                            (genToRegister (thenExp, whereto, tailKind, matchFailFn, loopAddr), whereto)
+                            (genToRegister (thenExp, whereto, tailKind, loopAddr), whereto)
 
                 val () = 
                     if isEndOfProc tailKind andalso not (haveExited transtable)
@@ -2091,8 +2029,8 @@ struct
                 val elseResult =
                     case whereto of
                         NoHint => (* Only if the then-part raised an exception *)
-                            gencde(elseExp, true, whereto, tailKind, matchFailFn, loopAddr)
-                    |   _ => genToRegister (elseExp, whereto, tailKind, matchFailFn, loopAddr)
+                            gencde(elseExp, true, whereto, tailKind, loopAddr)
+                    |   _ => genToRegister (elseExp, whereto, tailKind, loopAddr)
                 val (mergeRes, mergeCode) = merge (lab1, transtable, elseResult, mark)
                 val () = codeGenerate(mergeCode, cvec)
             in 
@@ -2104,7 +2042,7 @@ struct
            to do simple operations such as int arithmetic and generates the
            instructions directly. For ordinary calls it has to distinguish between
            those called with a static-link and those called with a closure. *) 
-        and genEval (evalFun, argList: (backendIC * argumentType) list, resultType, primBoolOps, whereto, tailKind, matchFailFn) : mergeResult =
+        and genEval (evalFun, argList: (backendIC * argumentType) list, resultType, primBoolOps, whereto, tailKind) : mergeResult =
         let
             (* This is used if we have a real function call rather than an RTS function we can
                code-generate directly. *)
@@ -2136,11 +2074,11 @@ struct
                                      don't put constants in yet. *)
                                   val whereto = case arg of BICConstnt _ => NoHint | _ => UseReg(singleton argReg)
                                 in
-                                    case gencde (arg, true, whereto, NotEnd, matchFailFn, NONE) of
+                                    case gencde (arg, true, whereto, NotEnd, NONE) of
                                         MergeIndex index => index
                                      |  NoMerge => raise InternalError "ldArgs: No result"
                                 end
-                            |   NONE => (* On the stack *) genToStack (arg, matchFailFn)
+                            |   NONE => (* On the stack *) genToStack (arg)
                     in
                         if isTail
                         then
@@ -2389,7 +2327,7 @@ struct
                 val procLocn = 
                   case clos of
                     SOME(BICConstnt _) => noIndex (* Unused. *)
-                  | SOME c          => genToStack (c, matchFailFn) (* the closure *)
+                  | SOME c          => genToStack (c) (* the closure *)
                   | NONE            => noIndex  (* Unused. *);
 
                 local
@@ -2468,7 +2406,7 @@ struct
                     SOME(i, args) =>
                     let
                         (* Code generate each argument to the pstack. *)
-                        val argLocns = List.map (fn arg => genToStack (arg, matchFailFn)) args
+                        val argLocns = List.map (fn arg => genToStack (arg)) args
                         val (opRes, opCode) = dataOp (argLocns, i, transtable, whereto)
                         val () = codeGenerate(opCode, cvec)
                     in
@@ -2586,7 +2524,7 @@ struct
                                        andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
                                     then
                                     let
-                                        val initLoc = genToStackOrGeneralRegister (initValArg, matchFailFn)
+                                        val initLoc = genToStackOrGeneralRegister (initValArg)
                                         val (vec, vecCode) = callgetvec (1, F_mutable, whereto, transtable)
                                         val () = codeGenerate(vecCode, cvec)
                                         val moveCode = moveToVec (vec, initLoc, 0, transtable)
@@ -2687,7 +2625,7 @@ struct
                         then
                             genCond
                                 (BICEval {function = evalFun, argList = argList, resultType=resultType},
-                                 constntTrue, constntFalse, whereto, tailKind, matchFailFn, NONE)
+                                 constntTrue, constntFalse, whereto, tailKind, NONE)
                         else (* unoptimised I/O call *)
                             callClosure (SOME evalFun)
                     )
@@ -2860,7 +2798,7 @@ struct
                     callClosure (SOME evalFun)
         end (* genEval *)
 
-        and codeBinding (matchFailFn, specific) (BICDeclar{addr, value, references}) = (* Declaration. *)
+        and codeBinding specific (BICDeclar{addr, value, references}) = (* Declaration. *)
             let
                 (* If the result of this block is this declaration choose a preferred register. *)
                 val dest =
@@ -2877,13 +2815,13 @@ struct
                            the function may be called. *)
                         fun nextMutual(dec, slRelease) =
                             codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
-                        val _ = genProc (lam, nextMutual, dest, matchFailFn)
+                        val _ = genProc (lam, nextMutual, dest)
                     in
                         ()
                     end
                 |   _ =>
                     let
-                        val res = gencde (value, true, dest, NotEnd, matchFailFn, NONE)
+                        val res = gencde (value, true, dest, NotEnd, NONE)
                         val decl =
                             case res of
                                 MergeIndex index => index
@@ -2893,7 +2831,7 @@ struct
                     end
             end
 
-        |   codeBinding (matchFailFn, _) (BICRecDecs dl) =
+        |   codeBinding _ (BICRecDecs dl) =
             let
                 (* Mutually recursive declarations. These can only be functions.
                    Recurse down the list
@@ -2920,7 +2858,7 @@ struct
                             genMutualDecs ds
                         end
                         val _ =
-                            genProc(lambda, nextMutual, NoHint, matchFailFn)
+                            genProc(lambda, nextMutual, NoHint)
                     in
                         ()
                     end
@@ -2928,14 +2866,14 @@ struct
                 genMutualDecs dl
             end
 
-        |   codeBinding  (matchFailFn, _) (BICNullBinding valu) = (* Expression in a sequence. *)
+        |   codeBinding _ (BICNullBinding valu) = (* Expression in a sequence. *)
             (
-                gencde (valu, true, NoResult, NotEnd, matchFailFn, NONE);
+                gencde (valu, true, NoResult, NotEnd, NONE);
                 ()
             )
 
         val resReg = resultReg(codeToCgType resultType)
-        val _ = genToRegister (pt, UseReg(singleton resReg), EndOfProc resReg, matchFailed, NONE);
+        val _ = genToRegister (pt, UseReg(singleton resReg), EndOfProc resReg, NONE)
 
         val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
     in

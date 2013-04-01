@@ -45,11 +45,7 @@ sig
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
 
     datatype codetree =
-        MatchFail    (* Pattern-match failure *)
-    
-    |   AltMatch of codetree * codetree(* Pattern-match alternative choices *)
-
-    |   Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
+        Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
     |   Constnt of machineWord (* Load a constant *)
 

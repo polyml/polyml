@@ -124,10 +124,7 @@ struct
         (* Check for the code size and also recursive references.  N,B. We assume in hasLoop
            that tail recursion applies only with Cond, Newenv and Handler. *)
         fun checkUse _ (_, 0, _) = 0 (* The function is too big to inline. *)
-        
-        |   checkUse _ (MatchFail, cl, _) = cl -- 1
-        |   checkUse isMain (AltMatch(a, b), cl, _) = checkUse isMain (a, checkUse isMain (b, cl -- 1, false), false)
-
+ 
         |   checkUse isMain (Newenv(decs, exp), cl, isTail) =
             let
                 fun checkBind (Declar{value, ...}, cl) = checkUse isMain(value, cl, false)
@@ -404,6 +401,8 @@ struct
             resultType = resultType, isInline = inlineType, localCount = localCount
         }
     end
+    (* TODO: convert "(if a then b else c) (args)" into if a then b(args) else c(args).  This would
+       allow for possible inlining and also passing information about call patterns. *)
 
     fun codetreeOptimiser(code, debugSwitches, numLocals) =
     let

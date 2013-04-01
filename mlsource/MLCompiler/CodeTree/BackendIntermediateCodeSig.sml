@@ -27,11 +27,7 @@ sig
     |   FloatingPtType
     
     datatype backendIC =
-        BICMatchFail    (* Pattern-match failure *)
-    
-    |   BICAltMatch of backendIC * backendIC(* Pattern-match alternative choices *)
-
-    |   BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
+        BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
 
     |   BICConstnt of machineWord (* Load a constant *)
 

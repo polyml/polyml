@@ -44,11 +44,7 @@ struct
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
     
     datatype codetree =
-        MatchFail    (* Pattern-match failure *)
-    
-    |   AltMatch of codetree * codetree(* Pattern-match alternative choices *)
-
-    |   Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
+        Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
     |   Constnt of machineWord (* Load a constant *)
 
@@ -220,11 +216,7 @@ struct
 
     in
         case pt of
-            MatchFail => PrettyString "MATCHFAIL"
-        
-        | AltMatch pair => printDiad "ALTMATCH" pair
-
-        | Eval {function, argList, resultType} =>
+          Eval {function, argList, resultType} =>
             let
                 val prettyArgs =
                     PrettyBlock (1, true, [],
@@ -470,9 +462,7 @@ struct
         fun deExtract(Extract l) = l | deExtract _ = raise Misc.InternalError "deExtract"
         fun deLambda (Lambda l) = l | deLambda _ = raise Misc.InternalError "deLambda"
 
-        fun mapt MatchFail = MatchFail
-        |   mapt (AltMatch(m1, m2)) = AltMatch(mapCodetree f m1, mapCodetree f m2)
-        |   mapt (Newenv(decs, exp)) =
+        fun mapt (Newenv(decs, exp)) =
             let
                 fun mapbinding(Declar{value, addr, use}) = Declar{value=mapCodetree f value, addr=addr, use=use}
                 |   mapbinding(RecDecs l) =

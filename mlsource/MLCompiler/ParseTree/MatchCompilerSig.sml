@@ -29,11 +29,11 @@ sig
 
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-    and debugenv = environEntry list * (level->codetree)
+    and debugEnv = environEntry list * (level->codetree)
 
     type cgContext =
         {
-            decName: string, debugEnv: environEntry list * (level->codetree), mkAddr: int->int,
+            decName: string, debugEnv: debugEnv, mkAddr: int->int,
             level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
             isOuterLevel: bool
         }

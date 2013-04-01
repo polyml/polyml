@@ -45,9 +45,6 @@ sig
         } -> codetree
     val mkCall:             codetree * (codetree * argumentType) list * argumentType -> codetree
 
-    val MatchFail:          codetree; (* pattern match has failed *)
-    val mkAltMatch:         codetree * codetree -> codetree;
-
     val mkLoadLocal:        int -> codetree
     and mkLoadArgument:     int -> codetree
     and mkLoadClosure:      int -> codetree

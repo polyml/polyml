@@ -104,7 +104,6 @@ sig
         values * codetree * level * typeVarMap * {value: types, equality: bool, printity: bool} list *
             lexan * location -> codetree
     val getOverloadInstance: string * types * bool -> codetree*string
-    val isTheSameException: values * values -> bool
     val makeGuard:      values * types list * codetree * level * typeVarMap -> codetree 
     val makeInverse:    values * types list * codetree * level * typeVarMap -> codetree
                     

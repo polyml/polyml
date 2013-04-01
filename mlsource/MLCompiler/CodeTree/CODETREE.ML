@@ -341,8 +341,6 @@ struct
 
     fun identityFunction (name : string) : codetree = 
         mkInlproc (mkLoadArgument 0, 1, name, [], 0) (* Returns its argument. *);
-
-    fun mkAltMatch (m1, m2) = AltMatch (m1, m2);
   
     (* Test a tag value. *)
     fun mkTagTest(test: codetree, tagValue: word, maxTag: word) =

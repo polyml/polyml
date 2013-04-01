@@ -27,11 +27,7 @@ struct
     |   FloatingPtType
     
     datatype backendIC =
-        BICMatchFail    (* Pattern-match failure *)
-    
-    |   BICAltMatch of backendIC * backendIC(* Pattern-match alternative choices *)
-
-    |   BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
+        BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
 
     |   BICConstnt of machineWord (* Load a constant *)
 
@@ -217,11 +213,7 @@ struct
 
     in
         case pt of
-            BICMatchFail => PrettyString "MATCHFAIL"
-        
-        |   BICAltMatch pair => printDiad "ALTMATCH" pair
-
-        |   BICEval {function, argList, resultType} =>
+            BICEval {function, argList, resultType} =>
             let
                 val prettyArgs =
                     PrettyBlock (1, true, [],

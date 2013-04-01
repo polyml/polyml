@@ -102,11 +102,13 @@ struct
     open RuntimeCalls; (* for POLY_SYS numbers *)
 
     datatype environEntry = datatype DEBUGGER.environEntry
+    type debugEnv = environEntry list * (level->codetree)
 
-    (* To simplify passing the context it is wrapped up in this type. *)
+    (* To simplify passing the context it is wrapped up in this type.
+       This is the same as the context used in CODEGEN_PARSETREE. *)
     type cgContext =
         {
-            decName: string, debugEnv: environEntry list * (level->codetree), mkAddr: int->int,
+            decName: string, debugEnv: debugEnv, mkAddr: int->int,
             level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
             isOuterLevel: bool (* Used only to decide if we need to report non-exhaustive matches. *)
         }
@@ -118,8 +120,6 @@ struct
     (* Try this pipeline function *)
     infix |>
     fun a |> f = f a
-
-    type debugenv = environEntry list * (level->codetree)
   
     (* Debugging control and debug function. *)
 
@@ -244,7 +244,7 @@ struct
     and aots = 
         TupleField of aot list       (* Each element of the list is a field of the tuple. *)
     |   Cons       of consrec list * int   (* List of constructors and the number of different constructors. *)
-    |   Excons     of consrec list   (* Exception constructors. *)
+    |   Excons     of exconsrec list   (* Exception constructors. *)
     |   Scons      of sconsrec list  (* Int, char, string, real. *)
     |   Wild                         (* Patterns that do not discriminate at all. *) 
 
@@ -255,7 +255,15 @@ struct
             patts: patSet,       (* Patterns that use this constructor *)
             appliedTo: aot,      (* Patterns this constructor was applied to. *)
             polyVars: types list (* If this was polymorphic, the matched types. *)
-        } 
+        }
+
+    and exconsrec =
+        {
+            constructor: values,
+            patts: patSet,
+            appliedTo: aot,
+            exValue: machineWord option
+        }
 
     and sconsrec =
         {
@@ -271,7 +279,7 @@ struct
             defaults = defaults,
             vars     = vars
         }
-                                            
+
     fun makeConsrec(constructor, patts, appliedTo, polyVars): consrec = 
         {
             constructor = constructor,
@@ -279,7 +287,15 @@ struct
             appliedTo   = appliedTo,
             polyVars    = polyVars
         }
-                                                      
+
+    fun makeExconsrec(constructor, patts, appliedTo, exValue): exconsrec = 
+        {
+            constructor = constructor,
+            patts       = patts, 
+            appliedTo   = appliedTo,
+            exValue     = exValue
+        }
+
     fun makeSconsrec(eqFun, specVal, patts) : sconsrec =
         {
             eqFun    = eqFun,
@@ -297,17 +313,27 @@ struct
         (* Add a default (wild card or variable) to every node in the tree. *)
         fun addDefault (Aot {patts, defaults, vars}) patNo =
         let
-            fun addDefaultToConsrec {constructor, patts, appliedTo, polyVars} =
-                makeConsrec(constructor, patts, addDefault appliedTo patNo, polyVars)
     
             val newPatts =
                 case patts of
                     TupleField pl => 
                         TupleField (map (fn a => addDefault a patNo) pl)
             
-                |   Cons(cl, width) => Cons (map addDefaultToConsrec cl, width)
+                |   Cons(cl, width) =>
+                    let
+                        fun addDefaultToConsrec {constructor, patts, appliedTo, polyVars} =
+                            makeConsrec(constructor, patts, addDefault appliedTo patNo, polyVars)
+                    in
+                        Cons (map addDefaultToConsrec cl, width)
+                    end
                      
-                |   Excons cl => Excons (map addDefaultToConsrec cl)
+                |   Excons cl =>
+                    let
+                        fun addDefaultToExconsrec {constructor, patts, appliedTo, exValue} =
+                            makeExconsrec(constructor, patts, addDefault appliedTo patNo, exValue)
+                    in
+                        Excons (map addDefaultToExconsrec cl)
+                    end
           
                 |   otherPattern => (* Wild, Scons *) otherPattern
         in
@@ -332,10 +358,10 @@ struct
                 fun addClist [] = (* Not there - add this on the end. *)
                     [makeConsrec(cons, singleton patNo, doArg (wild tree), polyVars)]
           
-                |   addClist (ccl::ccls) =
-                    if valName (#constructor ccl) = valName cons
+                |   addClist ((ccl as {constructor, patts, appliedTo, ... })::ccls) =
+                    if valName constructor = valName cons
                     then (* Merge in. *)
-                        makeConsrec(cons, singleton patNo plus #patts ccl, doArg (#appliedTo ccl), polyVars)
+                        makeConsrec(cons, singleton patNo plus patts, doArg appliedTo, polyVars)
                             :: ccls
                     else (* Carry on looking. *) ccl :: addClist ccls;
             in
@@ -366,49 +392,68 @@ struct
 
                 fun addClist [] = (* Not there - add this on the end. *)
                         [makeSconsrec(eqFun, cval, singleton patNo)]
-                |   addClist (ccl :: ccls) =
-                        if equalSpecials(cval, #specVal ccl)
+                |   addClist ((ccl as { specVal, patts, ...}) :: ccls) =
+                        if equalSpecials(cval, specVal)
                         then (* Merge in. *)
-                            makeSconsrec(eqFun, cval, singleton patNo plus #patts ccl) :: ccls
-                        else (* Carry on looking. *) ccl :: addClist ccls;
+                            makeSconsrec(eqFun, cval, singleton patNo plus patts) :: ccls
+                        else (* Carry on looking. *) ccl :: addClist ccls
             in
                 makeAot (Scons (addClist pl), defaults, vars)
             end
 
         |   addSconstr _ = raise InternalError "addSconstr: badly-formed and-or tree"
 
+        (* Return the exception id if it is a constant.  It may be a
+           top-level exception or it could be in a top-level structure. *)
+        local
+            fun testAccess(Global code) = evalue code
+            |   testAccess(Selected{addr, base}) =
+                (
+                    if isUndefinedStruct base
+                    then NONE
+                    else case testAccess(structAccess base) of
+                        NONE => NONE
+                    |   SOME c => evalue(mkInd(addr, mkConst c))
+                )
+            |   testAccess _ = NONE
+        in
+            fun exceptionId(Value{access, ...}) = testAccess access
+        end
+
         (* Add an exception constructor to the tree.  Similar to the above
-           except that exception constructors must be kept in order. *)
+           now that non-constant exceptions are excluded from codePatt. *)
         fun addExconstr(cons, doArg, tree as Aot {patts = Wild, defaults, vars, ...}, patNo) =
                 (* Expand out the wildCard into a constructor node. *)
             let
                 val cr =
-                    makeConsrec (cons, singleton patNo, doArg(wild tree), [])
+                    makeExconsrec (cons, singleton patNo, doArg(wild tree), exceptionId cons)
             in
                 makeAot (Excons [cr], defaults, vars)
             end
     
     
-        |   addExconstr(cons, doArg, tree as Aot {patts = Excons (cl as (h::t)), defaults, vars, ...}, patNo) =
+        |   addExconstr(cons, doArg, tree as Aot {patts = Excons cl, defaults, vars, ...}, patNo) =
             let
-          (* The exception constructor list is maintained in reverse order.
-             We have to be careful about merging exception constructors.
-             Two exceptions may have different names but actually have the
-             same exception value, or have the same (short) name but come
-             from different structures.  We only add to the last entry in
-             the list if we can tell that it is the same exception. We could
-             be more sophisticated and allow merging with other entries if
-             we could show that the entries we were skipping over were
-             definitely different, but it's probably not worth it. *)
-            val newList =
-              if isTheSameException (#constructor h, cons)
-              then 
-                 makeConsrec(cons, (singleton patNo) plus (#patts h), doArg(#appliedTo h), []) :: t
-              else
-                 makeConsrec(cons, singleton patNo, doArg(wild tree), []) :: cl;
-          in
-            makeAot (Excons newList, defaults, vars)
-          end
+                (* See if this is a constant. *)
+                val newExval = exceptionId cons
+                (* Two exceptions can only be considered the same if they are both
+                   constants and the same value. *)
+                fun sameException(SOME a, SOME b) = PolyML.pointerEq(a, b)
+                |   sameException _ = false
+
+                (* It would not be safe to merge exceptions if we were *)
+                fun addClist [] = (* Not there - add this on the end. *)
+                    [makeExconsrec(cons, singleton patNo, doArg(wild tree), newExval)]
+
+                |   addClist ((ccl as {constructor, patts, appliedTo, exValue, ... })::ccls) =
+                    if sameException(newExval, exValue)
+                    then (* Merge in. *)
+                        makeExconsrec(constructor, singleton patNo plus patts, doArg appliedTo, exValue)
+                            :: ccls
+                    else (* Carry on looking. *) ccl :: addClist ccls
+            in
+                makeAot (Excons (addClist cl), defaults, vars)
+            end
       
         |   addExconstr _ = raise InternalError "addExconstr: badly-formed and-or tree"
     in
@@ -621,9 +666,7 @@ struct
   
     fun patCodeBlock {decs, exp, pat=_} = mkEnv(decs, exp)
 
-    val matchFailCode  : patcode = makePatcode MatchFail 0
-
-    fun bindPattVars(arg, vars, context as { mkAddr, level, debugEnv, ...}) =
+    fun bindPattVars(arg, vars, context as { mkAddr, level, ...}, debugEnv) =
     let
         val addressOfVar = mkAddr 1
         val dec = mkDec (addressOfVar, arg)
@@ -740,7 +783,11 @@ struct
                        either by considering each of them or by firing the default.
                        To get the use counts the same as codePatt this code is
                        a bit more complicated than it would otherwise be. *)
-                    fun processConstrs(_, 0) = () (* Listed all of them *)
+                    (* TODO: The duplication in the first two patterns works around
+                       a bug in the previous compiler if debugging is enabled. *)
+                    fun processConstrs(nil, 0) = () (* Listed all of them *)
+
+                    |   processConstrs(_, 0) = ()
 
                     |   processConstrs([], _) =
                         (* Have come to the end without matching everything - 
@@ -823,6 +870,18 @@ struct
         end
     end
 
+    fun containsNonConstException(Aot{patts = TupleField fields, ...}) =
+        List.foldl(fn (aot, t) => t orelse containsNonConstException aot) false fields
+
+    |   containsNonConstException(Aot{patts = Cons(cl, _), ...}) =
+            List.foldl(fn ({appliedTo, ...}, t) => t orelse containsNonConstException appliedTo) false cl
+
+    |   containsNonConstException(Aot{patts = Excons cl, ...}) =
+            List.foldl(fn ({appliedTo, exValue, ...}, t) =>
+                t orelse not (isSome exValue) orelse containsNonConstException appliedTo) false cl
+
+    |   containsNonConstException _ = false (* Scons or Wild *)
+
       (* Code generate a set of patterns.  tree is the aot we are working
          on, arg is the code representing the argument to take apart.
          The set of patterns which are active are held in "active", and
@@ -843,36 +902,29 @@ struct
          It is possible that X and Y might be the same exception, so that
          the fact that the constructor matches X does not imply that it
          cannot also match Y.  *)
-    fun codePatt 
-           (Aot {patts, defaults, vars, ...},
-           arg : codetree,
-           active : patSet,
-           othermatches : (patSet * (unit->patcode) * cgContext) -> patcode,
-           default : unit -> patcode,
-           context: cgContext as {level, typeVarMap, ...}
-           )
-           : patcode =
+    fun codePatt (Aot {patts, defaults, vars, ...}, arg, active, othermatches,
+                  context: cgContext as {level, typeVarMap, debugEnv, ...}) : patcode =
     let
         (* Put the arg into a local declaration and set the address of any
            variables to it. We declare all the variables that can be
            declared at this point, even though they could be in different
            patterns. *)
-        val (declLoad, declDecs, declEnv) = bindPattVars(arg, vars, context)
+        val (declLoad, declDecs, _) = bindPattVars(arg, vars, context, debugEnv)
     
         (* Get the set of defaults which are active. *)
-        val activeDefaults : patSet = defaults intersect active;
+        val activeDefaults = defaults intersect active;
   
         (* Look at the kinds of pattern. - If there is nothing left
            (match is not exhaustive) or if all the active patterns will
            default, we can skip any checks. *)
         val pattCode = 
             if isEmptySet active orelse active eq activeDefaults
-            then othermatches(active, default, context |> repDebugEnv declEnv)
+            then othermatches active
             else
             case patts of
                 TupleField [patt] =>
                     codePatt(patt, declLoad, (* optimise unary tuples - no indirection! *)
-                        active, othermatches, default, context |> repDebugEnv declEnv)
+                        active, othermatches, context)
       
             |   TupleField asTuples =>
                 let
@@ -882,20 +934,20 @@ struct
                        furthest down the column. *)
                     val noOfCols = length asTuples
       
-                    fun despatch colsToDo (active, def, env) =
+                    fun despatch colsToDo active =
                         (* If we have done all the columns we can stop. (Or if
                            the active set is empty). *)
                         if isEmptySet colsToDo orelse isEmptySet active
-                        then othermatches(active, def, env)
+                        then othermatches active
                         else
                         let
                             val bestcol = bestColumn(colsToDo, noOfCols, asTuples, active)
                         in
                             codePatt(List.nth(asTuples, bestcol), mkInd (bestcol, declLoad), active,
-                               despatch (colsToDo diff (singleton bestcol)), def, env)
+                               despatch (colsToDo diff (singleton bestcol)), context)
                         end
                 in
-                    despatch (from 0 (noOfCols-1)) (active, default, context |> repDebugEnv declEnv)
+                    despatch (from 0 (noOfCols-1)) active
                 end (* TupleField. *)
 
             |   Cons(cl, width) =>
@@ -905,7 +957,7 @@ struct
                        we have dealt with all the rest. *)
                     fun genConstrs ([]:consrec list, _) = 
                          (* Come to the end without exhausting the datatype. *)
-                          othermatches(activeDefaults, default, context |> repDebugEnv declEnv)
+                          othermatches activeDefaults
           
                       | genConstrs (({patts, constructor, appliedTo, polyVars, ...}:consrec):: ps, constrsLeft) =
                         let
@@ -920,26 +972,34 @@ struct
                                 (* We have put all the other constructors in this
                                    datatype out so there is no need to test for this case. *)
                                 codePatt(appliedTo, makeInverse (constructor, polyVars, declLoad, level, typeVarMap),
-                                    newActive plus activeDefaults, othermatches, default,
-                                    context |> repDebugEnv declEnv)
+                                    newActive plus activeDefaults, othermatches, context)
                             else
                             let
                                 (* Code generate the choice. *)
-                                val testCode = makeGuard (constructor, polyVars, declLoad, level, typeVarMap);
+                                val testCode = makeGuard (constructor, polyVars, declLoad, level, typeVarMap)
           
                                 (* If it succeeds we have to take apart the argument of the
                                    constructor. *)
-                                val thenCode : patcode = 
+                                val thenCode = 
                                     codePatt(appliedTo, makeInverse (constructor, polyVars, declLoad, level, typeVarMap),
-                                        newActive plus activeDefaults,
-                                        othermatches, default, context |> repDebugEnv declEnv)
+                                        newActive plus activeDefaults, othermatches, context)
                
                                 (* Otherwise we look at the next constructor in the list. *)
-                                val elseCode : patcode = genConstrs(ps, constrsLeft - 1);
+                                val elseCode = genConstrs(ps, constrsLeft - 1)
                             in
+                                (* If the resulting patterns on both sides are the same we don't need
+                                   this test at all.  That can happen with matches on tuples
+                                   where we have a default for a field above a constructor.
+                                   N.B.  This is potentially risky and fails if debugging is
+                                   enabled.  We could still have taken apart the constructor
+                                   on the branch (and it doesn't matter whether we choose
+                                   to use the elseCode or thenCode here because the problem
+                                   still exists) and we will at least have bound these to
+                                   local variables in bindPattVars.  However the expression after
+                                   the pattern cannot actually have used these and the bindings
+                                   will be discarded by the optimiser.  *)
                                 if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
-                                then elseCode (* This didn't actually do any discrimination,
-                                              probably because a default was above a constructor. *)
+                                then elseCode
                                 else makePatcode (mkIf (testCode, patCodeBlock thenCode, patCodeBlock elseCode)) ~1
                             end
                         end
@@ -949,114 +1009,68 @@ struct
 
             |   Excons cl =>
                 let
-                    fun genExnConstrs ([]:consrec list)= 
-                         (* Process the default matches, if any. *)
-                        othermatches(activeDefaults, default, context |> repDebugEnv declEnv)
-          
-                    |   genExnConstrs ({patts, constructor, appliedTo, ...}:: ps) =
+                    (* We now process exception constructors in the same way as datatype constructors.
+                       This is only valid because all the exception constructors are constants. *)
+                    fun doConstr({patts, constructor, appliedTo, ...}, elseCode) =
                         let
                             (* If this is not in the active set we skip it. *)
-                            val newActive = patts intersect active;
+                            val newActive = patts intersect active
                         in
                             (* If the set is empty we don't bother with this constructor. *)
                             if newActive eq empty
-                            then genExnConstrs ps
+                            then elseCode
                             else
                             let (* Code generate the choice. *)
-                               (* Called if this exception constructor matches, but
-                                  none of the active patterns match, either because
-                                  the values in the datatype do not match (e.g. value
-                                  is A 2, but pattern is A 1), or because of other
-                                  fields in the tuple (e.g. value is (A, 2) but
-                                  pattern is (A, 1)). If this were an ordinary
-                                  constructor we would go straight to the default,
-                                  because if it matches this constructor it could not
-                                  match any of the others, but with exceptions it can
-                                  match other exceptions, so we have to test them.
-      
-                                  We do this by generating MatchFail, which jumps
-                                  to the "handler" of the enclosing AltMatch construct.
-                               *)
-
-                                (* If the match fails we look at the next constructor in the list. *)
-                                val elseCode : patcode = genExnConstrs ps;
-
-                                fun codeDefault () = matchFailCode
-              
-                                val testCode = makeGuard (constructor, [], declLoad, level, typeVarMap);
-          
-                                (* If it succeeds we have to take apart the argument of the
-                                   constructor. *)
-                                val thenCode : patcode = 
+                                val testCode = makeGuard (constructor, [], declLoad, level, typeVarMap)
+                                (* If it succeeds we can get the exception argument. *)
+                                val thenCode = 
                                     codePatt (appliedTo, makeInverse (constructor, [], declLoad, level, typeVarMap),
-                                        newActive, othermatches, codeDefault,
-                                        context |> repDebugEnv declEnv)
-               
+                                        newActive plus activeDefaults, othermatches, context)
                             in
                                 (* Needed? *)
                                 if #pat thenCode = #pat elseCode andalso #pat thenCode >= 0
                                 then elseCode
-            
-                                else
-                                    makePatcode
-                                    (
-                                        mkAltMatch
-                                        (
-                                            mkIf (testCode, patCodeBlock thenCode, MatchFail),
-                                            patCodeBlock elseCode
-                                        )
-                                    ) ~1
+                                else makePatcode (mkIf (testCode, patCodeBlock thenCode, patCodeBlock elseCode)) ~1
                             end
                         end
                 in
-                  (* Must reverse the list because exception constructors are
-                     in reverse order from their order in the patterns, and
-                     ordering matters for exceptions. *)
-                    genExnConstrs (rev cl)
+                    (* Unlike with datatype constructors we always need a default. *)
+                    foldl doConstr (othermatches activeDefaults) cl
                 end
 
             |   Scons sl =>
                 let (* Int, char, string *)
-        
                     (* Generate if..then..else for each of the choices. *)
-                    fun foldConstrs ([]: sconsrec list) =
-                        othermatches(activeDefaults, default, context |> repDebugEnv declEnv)
- 
-                    |   foldConstrs (v :: vs) =
+                    fun doConstr({ patts, eqFun, specVal, ...}, elsept) =
                         let 
                             (* If this pattern is in the active set
                                we discriminate on it. *)
-                            val newActive = (#patts v) intersect active;
+                            val newActive = patts intersect active
   
                         in
                             if isEmptySet newActive
-                            then (* No point *) foldConstrs vs
+                            then (* No point *) elsept
                             else
                             let
-                                val constVal = case #specVal v of NONE => CodeZero | SOME w => mkConst w
+                                val constVal = case specVal of NONE => CodeZero | SOME w => mkConst w
                                 (* Compare for equality.  The order of the arguments ought to be irrelevant but
                                    this works better for string comparisons.  See comment on stringEquality
                                    in TYPE_TREE. *)
-                                val testCode = mkEval(#eqFun v, [mkTuple[declLoad, constVal]])
+                                val testCode = mkEval(eqFun, [mkTuple[declLoad, constVal]])
                    
-                                (* If it is a binding we turn the test round - see
-                                   comment in genConstrs. *)
-                                val rest: patcode = 
-                                    othermatches(newActive plus activeDefaults, default, context |> repDebugEnv declEnv);
-            
-                                val elsept = foldConstrs vs
+                                val rest = othermatches(newActive plus activeDefaults)
                             in
                                 if (#pat rest) = (#pat elsept) andalso (#pat rest) >= 0
                                 then elsept
                                 else makePatcode (mkIf (testCode, patCodeBlock rest, patCodeBlock elsept)) ~1
                             end 
-                        end (* foldConstrs *);
+                        end
                 in
-                    foldConstrs sl
+                    foldl doConstr (othermatches activeDefaults) sl
                 end
 
             |   _ =>  (* wild - no choices to make here. *)
-                    othermatches(activeDefaults, default, context |> repDebugEnv declEnv)
+                    othermatches activeDefaults
     in
         { decs = declDecs @ #decs pattCode, exp = #exp pattCode, pat = #pat pattCode}
     end (* codePatt *)
@@ -1143,9 +1157,9 @@ struct
             |   Wild => raise InternalError "Wild card but pattern is not in defaults"
 
         (* Generate the bindings for pattern variables along with the debugging environment. *)
-        fun codePattVars(Aot {patts, defaults, vars, ...}, arg, selected, context as { level, typeVarMap, ...}) =
+        fun codePattVars(Aot {patts, defaults, vars, ...}, arg, selected, context as { level, typeVarMap, debugEnv, ...}) =
         let
-            val (declLoad, declDecs, declEnv) = bindPattVars(arg, vars, context)
+            val (declLoad, declDecs, declEnv) = bindPattVars(arg, vars, context, debugEnv)
             val nextContext = context |> repDebugEnv declEnv
         in
             if selected inside defaults
@@ -1243,13 +1257,21 @@ struct
 
     (* Process a set of patterns in a match. *)
     (* Naive match code.  Doesn't check for exhaustiveness or redundancy. *)
-    fun codeMatchPatterns(alt, arg, isHandlerMatch, lineNo, codePatternExpression, context) =
+    fun codeMatchPatterns(alt, arg, isHandlerMatch, lineNo, codePatternExpression, context as { lex, ...}) =
     let
         val noOfPats  = length alt
         val andortree = buildTree(alt, context)
         val { exhaustive, redundant, useNaive } = evaluateMatch(andortree, noOfPats)
     in
-        if useNaive
+        (* If the match is sparse or there are any non-constant exceptions we
+           need to use pattern-by-pattern matching.  Non-constant exceptions
+           could involve exception aliasing and this complicates pattern
+           matching.  It could break the rule that says that if a value
+           matches one constructor it cannot then match any other.
+           If we are compiling with debugging we also use the naive
+           match.  *)
+        if useNaive orelse containsNonConstException andortree 
+            orelse getParameter debugTag (debugParams lex)
         then
         let
             (* Naive match.  Generate if test then exp for each pattern.
@@ -1258,6 +1280,10 @@ struct
                 if isEmptySet patsToDo
                 then
                 (
+                    (* It's not exhaustive.  If it's a normal match
+                       raise Match and if it's a handler reraise the original
+                       exception. *)
+                    exhaustive andalso raise InternalError "non-exhaustive";
                     if isHandlerMatch
                     then mkRaise arg
                     else raiseMatchException lineNo
@@ -1291,32 +1317,27 @@ struct
         end
         else
         let
-            (* Make some code to insert at defaults.  If this is a handler reraise the
-               original exception otherwise raise Match *)
-            fun codeDefault () =
+            (* This function is called when we done all the discrimination
+               we can. We fire off the first pattern in the set. *)
+            fun firePatt pattsLeft =
+            if isEmptySet pattsLeft
+            then
             (
                 exhaustive andalso raise InternalError "codeDefault called but exhaustive";
                 if isHandlerMatch
                 then makePatcode (mkRaise arg) 0
                 else raiseMatchCode lineNo
             )
-
-            (* This function is called when we done all the discrimination
-               we can. We fire off the first pattern in the set. *)
-            fun firePatt(pattsLeft: patSet, default, newContext) =
-            if isEmptySet pattsLeft
-            then default ()
             else
             let
                 val pattChosen = first pattsLeft
-                (* Process the pattern.  The context we pass includes the debugging environment
-                   of all the variables in the pattern. *)
-                val expCode = codePatternExpression(pattChosen - 1, newContext)
+                (* Process the pattern. *)
+                val expCode = codePatternExpression(pattChosen - 1, context)
             in
                 makePatcode expCode pattChosen
             end
 
-            val code = codePatt(andortree, arg, from 1 noOfPats, firePatt, codeDefault, context)
+            val code = codePatt(andortree, arg, from 1 noOfPats, firePatt, context)
         in
             (mkEnv(#decs code, #exp code), exhaustive)
         end
