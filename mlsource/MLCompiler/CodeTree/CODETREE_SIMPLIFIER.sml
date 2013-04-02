@@ -573,14 +573,32 @@ struct
         (* Get the function to be called and see if it is inline or
            a lambda expression. *)
         val funct as (genFunct, decsFunct, specFunct) = simpSpecial(function, context)
+        (* We have to make a special check here that we are not passing in the function
+           we are trying to expand.  This could result in an infinitely recursive expansion.  It is only
+           going to happen in very special circumstances such as a definition of the Y combinator.
+           If we see that we don't attempt to expand inline.  It could be embedded in a tuple
+           or the closure of a function as well as passed directly. *)
+        val isRecursiveArg =
+            case function of
+                Extract extOrig =>
+                    let
+                        fun containsFunction(Extract thisArg, v) = (v orelse thisArg = extOrig, FOLD_DESCEND)
+                        |   containsFunction(Lambda{closure, ...}, v) =
+                                (* Only the closure, not the body *)
+                                (foldl (fn (c, w) => foldtree containsFunction w (Extract c)) v closure, FOLD_DONT_DESCEND)
+                        |   containsFunction(Eval _, v) = (v, FOLD_DONT_DESCEND) (* OK if it's called *)
+                        |   containsFunction(_, v) = (v, FOLD_DESCEND)
+                    in
+                        List.exists(fn (c, _) => foldtree containsFunction false c) argList
+                    end
+            |   _ => false
     in
-        case (specFunct, genFunct) of
-            (EnvSpecInlineFunction({body=lambdaBody, localCount, ...}, functEnv), _) =>
+        case (specFunct, genFunct, isRecursiveArg) of
+            (EnvSpecInlineFunction({body=lambdaBody, localCount, ...}, functEnv), _, false) =>
             let
                 val () = reprocess := true (* If we expand inline we have to reprocess *)
                 val (_, functDecs, _) = funct
-                and original = function
-                and { nextAddress, lookupAddr, enterAddr, reprocess, ...} = context
+                and { nextAddress, reprocess, ...} = context
 
                 (* Expand a function inline, either one marked explicitly to be inlined or one detected as "small". *)
                 (* Calling inline proc or a lambda expression which is just called.
@@ -591,31 +609,9 @@ struct
                 val localVec = Array.array(localCount, NONE)
 
                 local
-                    (* Process the arguments.  We have to make a special check here that we are not passing in the function
-                       we are trying to expand.  This could result in an infinitely recursive expansion.  It is only
-                       going to happen in very special circumstances such as a definition of the Y combinator.  If we
-                       do encounter this function we strip the "special" entry so any application will always result
-                       in a function call. *)
-                    val stripRecursiveInline =
-                        case original of
-                            Extract extOrig =>
-                                (
-                                fn ext =>
-                                    if ext = extOrig
-                                    then (#1(lookupAddr ext), EnvSpecNone)
-                                    else lookupAddr ext
-                                )
-                        |   _ => lookupAddr
-
-                    val argContext =
-                        {
-                            lookupAddr=stripRecursiveInline, enterAddr = enterAddr,
-                            nextAddress = nextAddress, reprocess = reprocess
-                        }
-
                     val (params, bindings) =
                         ListPair.unzip(
-                            List.map (fn (h, _) => makeNewDecl(simpSpecial(h, argContext), context)) argList)
+                            List.map (fn (h, _) => makeNewDecl(simpSpecial(h, context), context)) argList)
 
                     val paramVec = Vector.fromList params
                 in
@@ -645,7 +641,7 @@ struct
                 (cGen, functDecs @ (copiedArgs @ cDecs), cSpec)
             end
 
-        |   (_, gen as Constnt w) => (* Not inlinable - constant function. *)
+        |   (_, gen as Constnt w, _) => (* Not inlinable - constant function. *)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 (* If the function is an RTS call that is safe to evaluate immediately and all the
@@ -658,7 +654,7 @@ struct
                 (evCopiedCode, decsFunct, EnvSpecNone)
             end
 
-        |   (_, gen) => (* Anything else. *)
+        |   (_, gen, _) => (* Anything else. *)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 val evCopiedCode = 

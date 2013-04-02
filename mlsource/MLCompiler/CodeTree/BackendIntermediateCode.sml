@@ -158,45 +158,6 @@ struct
                 pList(lst, sep, pretty) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
-        
-        fun printMonad name pt =
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString (name^"("),
-                    pretty pt,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
-                ]
-            )
-    
-        fun printDiad name (f,s) =
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString (name^"("),
-                    pretty f,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty s,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
-                ]
-            )
-        
-        fun printTriad name (f,s,t) =
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString (name^"("),
-                    pretty f,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty s,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty t,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
-                ]
-            )
 
         fun prettyArgType GeneralType = PrettyString "G"
         |   prettyArgType FloatingPtType = PrettyString "F"
@@ -319,8 +280,22 @@ struct
         
         |   BICConstnt w => PrettyString (stringOfWord w)
         
-        |   BICCond triple => printTriad "IF" triple
-        
+        |   BICCond (f, s, t) =>
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "IF(",
+                    pretty f,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty s,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty t,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
+
         |   BICNewenv(decs, final) =>
             PrettyBlock (1, true, [],
                 PrettyString ("BLOCK" ^ "(") ::
@@ -353,7 +328,15 @@ struct
         
         |   BICLoop ptl => prettyArgs("LOOP", ptl, ",")
         
-        |   BICRaise c => printMonad "RAISE" c
+        |   BICRaise c =>
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "RAISE(",
+                    pretty c,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
         
         |   BICHandle {exp, handler, ...} =>
             PrettyBlock (3, false, [],

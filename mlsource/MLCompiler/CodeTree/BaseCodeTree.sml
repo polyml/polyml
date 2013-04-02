@@ -161,49 +161,10 @@ struct
                 pList(lst, sep, pretty) @
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
-        
-        fun printMonad name pt =
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString (name^"("),
-                    pretty pt,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
-                ]
-            )
-    
-        fun printDiad name (f,s) =
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString (name^"("),
-                    pretty f,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty s,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
-                ]
-            )
-        
-        fun printTriad name (f,s,t) =
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString (name^"("),
-                    pretty f,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty s,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty t,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
-                ]
-            )
 
         fun prettyArgType GeneralType = PrettyString "G"
         |   prettyArgType FloatingPtType = PrettyString "F"
-        
+
         fun prettyArg (c, t) =
                 PrettyBlock(1, false, [], [pretty c, PrettyBreak (1, 0), prettyArgType t])
 
@@ -283,10 +244,24 @@ struct
                 )
             end
         
-        | Constnt w => PrettyString (stringOfWord w)
+        |   Constnt w => PrettyString (stringOfWord w)
         
-        | Cond triple => printTriad "IF" triple
-        
+        |   Cond (f, s, t) =>
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "IF(",
+                    pretty f,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty s,
+                    PrettyString ", ",
+                    PrettyBreak (0, 0),
+                    pretty t,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
+
         | Newenv(decs, final) =>
             PrettyBlock (1, true, [],
                 PrettyString ("BLOCK" ^ "(") ::
@@ -316,11 +291,19 @@ struct
                 )
             end
         
-        | Loop ptl => prettyArgs("LOOP", ptl, ",")
+        |   Loop ptl => prettyArgs("LOOP", ptl, ",")
         
-        | Raise c => printMonad "RAISE" c
-        
-        | Handle {exp, handler, ...} =>
+        |   Raise c =>
+            PrettyBlock (1, true, [],
+                [
+                    PrettyString "RAISE(",
+                    pretty c,
+                    PrettyBreak (0, 0),
+                    PrettyString (")")
+                ]
+            )
+
+        |   Handle {exp, handler, ...} =>
             PrettyBlock (3, false, [],
                 [
                     PrettyString "HANDLE(",
@@ -515,6 +498,50 @@ struct
         |   NONE => mapt code
     end
 
+    (* Fold a function over the tree.  f is applied to the node and the input
+       value and returns an output and a flag.  If the flag is
+       FOLD_DONT_DESCEND the output value is used and the code tree is not
+       examined further.  Otherwise this function descends into the tree and
+       folds over the subtree. *)
+    datatype foldControl = FOLD_DESCEND | FOLD_DONT_DESCEND
+
+    fun foldtree (f: codetree * 'a -> 'a * foldControl) (input: 'a) code =
+    let
+        fun ftree (Newenv(decs, exp), v) =
+            let
+                fun foldbinding(Declar{value, ...}, w) = foldtree f w value
+                |   foldbinding(RecDecs l, w) =
+                        foldl(fn ({lambda, ...}, x) => foldtree f x (Lambda lambda)) w l
+                |   foldbinding(NullBinding exp, w) = foldtree f w exp
+            in
+                foldtree f (foldl foldbinding v decs) exp
+            end
+        |   ftree (Constnt _, v) = v
+        |   ftree (Extract _, v) = v
+        |   ftree (Indirect{base, ...}, v) = foldtree f v base
+        |   ftree (Eval { function, argList, ...}, v) =
+                foldl(fn((c, _), w) => foldtree f w c) (foldtree f v function) argList
+        |   ftree (Lambda { body, closure, ...}, v) =
+                foldtree f (foldl (fn (c, w) => foldtree f w (Extract c)) v closure) body
+        |   ftree (Cond(i, t, e), v) = foldtree f (foldtree f (foldtree f v i) t) e
+        |   ftree (BeginLoop{loop, arguments, ...}, v) =
+                foldtree f (foldl (fn (({value, ...}, _), w) => foldtree f w value) v arguments) loop
+        |   ftree (Loop l, v) = foldl (fn ((c, _), w) => foldtree f w c) v l
+        |   ftree (Raise r, v) = foldtree f v r
+        |   ftree (Ldexc, v) = v
+        |   ftree (Handle{exp, handler}, v) = foldtree f (foldtree f v exp) handler
+        |   ftree (Tuple { fields, ...}, v) = foldl (fn (c, w) => foldtree f w c) v fields
+        |   ftree (Container _, v) = v
+        |   ftree (SetContainer { container, tuple, ...}, v) = foldtree f (foldtree f v container) tuple
+        |   ftree (TupleFromContainer(c, _), v) = foldtree f v c
+        |   ftree (TagTest{test, ...}, v) = foldtree f v test
+        |   ftree (ConstntWithInline _, v) = v
+    in
+        case f (code, input) of
+            (v, FOLD_DONT_DESCEND) => v
+        |   (v, FOLD_DESCEND) => ftree(code, v)
+    end
+
     structure Sharing =
     struct
         type codetree = codetree
@@ -527,6 +554,7 @@ struct
         and  envGeneral = envGeneral
         and  envSpecial = envSpecial
         and  codeUse = codeUse
+        and  foldControl = foldControl
     end
 
 end;

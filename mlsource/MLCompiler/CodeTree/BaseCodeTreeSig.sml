@@ -139,6 +139,9 @@ sig
 
     val mapCodetree: (codetree -> codetree option) -> codetree -> codetree
 
+    datatype foldControl = FOLD_DESCEND | FOLD_DONT_DESCEND
+    val foldtree: (codetree * 'a -> 'a * foldControl) -> 'a -> codetree -> 'a
+
     structure Sharing:
     sig
         type codetree = codetree
@@ -151,6 +154,7 @@ sig
         and  envGeneral = envGeneral
         and  envSpecial = envSpecial
         and  codeUse = codeUse
+        and  foldControl = foldControl
     end
 
 end;
