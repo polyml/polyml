@@ -19503,6 +19503,18 @@ _ACEOF
 fi
 
 
+ac_fn_c_check_type "$LINENO" "SYSTEM_LOGICAL_PROCESSOR_INFORMATION" "ac_cv_type_SYSTEM_LOGICAL_PROCESSOR_INFORMATION" "#include \"windows.h\"
+"
+if test "x$ac_cv_type_SYSTEM_LOGICAL_PROCESSOR_INFORMATION" = xyes; then :
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION 1
+_ACEOF
+
+
+fi
+
+
 ac_fn_c_check_type "$LINENO" "long long" "ac_cv_type_long_long" "$ac_includes_default"
 if test "x$ac_cv_type_long_long" = xyes; then :
 

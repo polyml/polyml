@@ -319,6 +319,8 @@ AC_CHECK_TYPES([struct sigcontext, stack_t, sighandler_t, sig_t], , ,[#include "
 AC_CHECK_TYPES([socklen_t],,,[#include "sys/types.h"
 #include "sys/socket.h"])
 
+AC_CHECK_TYPES([SYSTEM_LOGICAL_PROCESSOR_INFORMATION],,,[#include "windows.h"])
+
 AC_CHECK_TYPES(long long)
 AC_CHECK_TYPES(ssize_t)
 
