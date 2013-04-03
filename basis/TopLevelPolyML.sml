@@ -1105,13 +1105,15 @@ in
             val argList = CommandLine.arguments();
             fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
             fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
+            
+            fun switchOption option = List.exists(fn s => s = option) argList
         in
-            if List.exists(fn s => s = "-v") argList
+            if switchOption "-v"
             then (* -v option : Print version information and exit *)
                 print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, 
                                      "    RTS version: ", rtsRelease(), "\n"])
 
-            else if List.exists(fn s => s = "--help") argList
+            else if switchOption "--help"
             then (* --help option: Print argument information and exit. *)
                (
                 print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
@@ -1120,6 +1122,7 @@ in
                 print "-v             Print the version of Poly/ML and exit\n";
                 print "--help         Print this message and exit\n";
                 print "-q             Suppress the start-up message and turn off printing of results\n";
+                print "-i             Interactive mode.  Default if input is from a terminal\n";
                 print "--use FILE     Executes 'use \"FILE\";' before the ML shell starts\n";
                 print "--error-exit   Exit shell on unhandled exception\n";
                 print "--with-markup  Include extra mark-up information when printing\n";
@@ -1128,14 +1131,14 @@ in
                 print (rtsHelp())
                )
            
-            else if List.exists(fn s => s = "--ideprotocol") argList
+            else if switchOption "--ideprotocol"
             then runIDEProtocol() (* Run the IDE communication protocol. *)
 
             else (* Enter normal Poly/ML top-level. *)
             let
-                open Signal;
+                open Signal                    
                 val () =
-                    if List.exists(fn s => s = "-q") (CommandLine.arguments())
+                    if switchOption "-q"
                     then PolyML.print_depth 0
                     else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
                 (* Set up a handler for SIGINT if that is currently set to SIG_DFL.

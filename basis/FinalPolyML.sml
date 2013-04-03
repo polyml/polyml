@@ -250,8 +250,6 @@ local
         if ! useMarkupInOutput then prettyPrintWithIDEMarkup(stream, lineWidth)
         else PolyML.prettyPrint(stream, lineWidth)
 
-    val exitOnError = ref false
-
     (* Top-level prompts. *)
     val prompt1 = ref "> " and prompt2 = ref "# ";
 
@@ -611,7 +609,7 @@ local
  
         (* Top-level read-eval-print loop.  This is the normal top-level loop but is
            also used for the debugger so has to be mutually recursively defined with it. *)
-        and topLevel isDebug (nameSpace, exitLoop) : unit =
+        and topLevel {isDebug, nameSpace, exitLoop, exitOnError, isInteractive } =
         let
             (* This is used as the main read-eval-print loop.  It is also invoked
                by running code that has been compiled with the debug option on
@@ -631,7 +629,7 @@ local
             fun readin () : char option =
             let
                 val () =
-                    if !lastWasEol (* Start of line *)
+                    if isInteractive andalso !lastWasEol (* Start of line *)
                     then if !realDataRead
                     then printOut (if isDebug then "debug " ^ !prompt2 else !prompt2)
                     else printOut (if isDebug then "debug " ^ !prompt1 else !prompt1)
@@ -709,7 +707,7 @@ local
             (
                 (* Process a single top-level command. *)
                 readEvalPrint() handle _ =>
-                                      if !exitOnError
+                                      if exitOnError
                                       then OS.Process.exit OS.Process.failure
                                       else ();
                 (* Exit if we've seen end-of-file or we're in the debugger
@@ -775,7 +773,9 @@ local
                     }
                 end
             in
-                topLevel true (compositeNameSpace, fn _ => ! exitLoop);
+                topLevel
+                    { isDebug = true, nameSpace = compositeNameSpace, exitLoop = fn _ => ! exitLoop,
+                      exitOnError = false, isInteractive = true };
 
                 (* If this was continueWithEx raise the exception. *)
                 case ! debugExPacket of
@@ -874,13 +874,32 @@ local
 
         (* Normal, non-debugging top-level loop. *)
         fun shell () =
-        (
+        let
+            val argList = CommandLine.arguments()
+            fun switchOption option = List.exists(fn s => s = option) argList
             (* Generate mark-up in IDE code when printing if the option has been given
                on the command line. *)
-            useMarkupInOutput := List.exists(fn s => s = "--with-markup") (CommandLine.arguments());
-            exitOnError := List.exists(fn s => s = "--error-exit") (CommandLine.arguments());
-            topLevel false (globalNameSpace, fn _ => false)
-        )
+            val () = useMarkupInOutput := switchOption "--with-markup"
+            val exitOnError = switchOption"--error-exit"
+            val interactive =
+                switchOption "-i" orelse
+                let
+                    open TextIO OS
+                    open StreamIO TextPrimIO IO
+                    val s = getInstream stdIn
+                    val (r, v) = getReader s
+                    val RD { ioDesc, ...} = r
+                in
+                    setInstream(stdIn, mkInstream(r,v));
+                    case ioDesc of
+                        SOME io => (kind io = Kind.tty handle SysErr _ => false)
+                    |   _  => false
+                end
+        in
+            topLevel
+                { isDebug = false, nameSpace = globalNameSpace, exitLoop = fn _ => false,
+                  isInteractive = interactive, exitOnError = exitOnError }
+        end
     end
 
     val suffixes = ref ["", ".ML", ".sml"];
