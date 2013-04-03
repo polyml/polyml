@@ -1102,7 +1102,7 @@ in
         (* This is the root function to run the Poly/ML top level. *)
         fun rootFunction () : unit =
         let
-            val argList = CommandLine.arguments();
+            val argList = CommandLine.arguments()
             fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
             fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
             
@@ -1127,6 +1127,7 @@ in
                 print "--error-exit   Exit shell on unhandled exception\n";
                 print "--with-markup  Include extra mark-up information when printing\n";
                 print "--ideprotocol  Run the IDE communications protocol\n";
+                print "--script       The input is a script.  Skips the first line if it begins with #!";
                 print "\nRun time system arguments:\n";
                 print (rtsHelp())
                )
@@ -1134,9 +1135,58 @@ in
             else if switchOption "--ideprotocol"
             then runIDEProtocol() (* Run the IDE communication protocol. *)
 
+            else if switchOption "--script"
+            then
+            let
+                (* The last argument is the file name.  Open it but skip 
+                   the first line if it's #!.   The rest of this code is
+                   largely copied from PolyML.use.  *)
+                val fileName = List.last argList (* We know there's at least one *)
+                open TextIO
+                val inStream = getInstream(TextIO.openIn fileName)
+                open StreamIO
+                val stream = ref inStream
+
+                val lineNo   = ref 1
+                val (start, _) = inputN(inStream, 2)
+                fun getChar () =
+                    case input1 (! stream) of
+                        NONE => NONE
+                    |   SOME (eoln as #"\n", strm) =>
+                        (
+                            lineNo := !lineNo + 1;
+                            stream := strm;
+                            SOME eoln
+                        )
+                    |   SOME(c, strm) => (stream := strm; SOME c)
+                val () =
+                    if start = "#!"
+                    then while (case getChar () of NONE => false | SOME #"\n" => false | SOME _ => true) do ()
+                    else ()
+                val () = PolyML.print_depth 0 (* Quieten. *)
+            in
+                while not (endOfStream(!stream)) do
+                let
+                    open PolyML.Compiler
+                    val code = PolyML.compiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
+                        handle exn =>
+                            ( closeIn(!stream); LibrarySupport.reraise exn )
+                in
+                    code() handle exn =>
+                    (
+                        (* Report exceptions in running code. *)
+                        TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
+                        input1 (! stream);
+                        LibrarySupport.reraise exn
+                    )
+                end;
+                (* Normal termination: close the stream. *)
+                closeIn (! stream)
+            end
+
             else (* Enter normal Poly/ML top-level. *)
             let
-                open Signal                    
+                open Signal
                 val () =
                     if switchOption "-q"
                     then PolyML.print_depth 0
