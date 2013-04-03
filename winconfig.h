@@ -439,6 +439,14 @@
 /* Define to 1 if you have the `sysctl' function. */
 #undef HAVE_SYSCTL
 
+/* Define to 1 if you have the `sysctlbyname' function. */
+#undef HAVE_SYSCTLBYNAME
+ 
+/* Define to 1 if the system has the type
+   `SYSTEM_LOGICAL_PROCESSOR_INFORMATION'. */
+#undef HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION
+#define HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION 1
+
 /* Define to 1 if you have the <sys/dir.h> header file, and it defines `DIR'.
    */
 #undef HAVE_SYS_DIR_H

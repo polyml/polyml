@@ -1967,8 +1967,8 @@ extern unsigned NumberOfProcessors(void)
 // Return the number of physical processors.  If hyperthreading is
 // enabled this returns less than NumberOfProcessors.  Returns zero if
 // it cannot be determined.
-#if (defined(_WIN32))
-typedef BOOL (WINAPI *GETP)(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
+#if (defined(_WIN32) && defined(HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
+typedef BOOL (WINAPI *GETP)(SYSTEM_LOGICAL_PROCESSOR_INFORMATION*, PDWORD);
 
 // Windows - use GetLogicalProcessorInformation if it's available.
 static unsigned WinNumPhysicalProcessors(void)
@@ -1977,7 +1977,7 @@ static unsigned WinNumPhysicalProcessors(void)
     if (getProcInfo == 0) return 0;
 
     // It's there - use it.
-    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buff = 0;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION *buff = 0;
     DWORD space = 0;
     while (getProcInfo(buff, &space) == FALSE)
     {
@@ -2044,7 +2044,7 @@ static unsigned LinuxNumPhysicalProcessors(void)
 extern unsigned NumberOfPhysicalProcessors(void)
 {
     unsigned numProcs = 0;
-#if (defined(_WIN32))
+#if (defined(_WIN32) && defined(HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
     numProcs = WinNumPhysicalProcessors();
     if (numProcs != 0) return numProcs;
 #endif
