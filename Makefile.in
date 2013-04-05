@@ -16,6 +16,7 @@
 @SET_MAKE@
 
 
+
 VPATH = @srcdir@
 am__make_dryrun = \
   { \
@@ -52,7 +53,7 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT) polyc$(EXEEXT)
+bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
 @ARCHINTERPRET64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_1 = -mwindows -Wl,-u,WinMain
 @ARCHINTERPRET64_FALSE@@ARCHX86_64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_2 = -mwindows -Wl,-u,WinMain
 @ARCHINTERPRET64_FALSE@@ARCHX86_64_FALSE@@NATIVE_WINDOWS_TRUE@am__append_3 = -mwindows -Wl,-u,_WinMain@16
@@ -60,8 +61,8 @@ bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT) polyc$(EXEEXT)
 @NATIVE_WINDOWS_TRUE@am__append_5 = -mwindows
 @NATIVE_WINDOWS_TRUE@am__append_6 = polyresource.o
 subdir = .
-DIST_COMMON = $(am__configure_deps) $(noinst_HEADERS) \
-	$(srcdir)/Makefile.am $(srcdir)/Makefile.in \
+DIST_COMMON = $(am__configure_deps) $(dist_bin_SCRIPTS) \
+	$(noinst_HEADERS) $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
 	$(srcdir)/config.h.in $(top_srcdir)/configure COPYING \
 	config.guess config.sub depcomp install-sh ltmain.sh missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -78,7 +79,8 @@ mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
-am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"
+am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(bindir)" \
+	"$(DESTDIR)$(man1dir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_poly_OBJECTS =
 poly_OBJECTS = $(am_poly_OBJECTS)
@@ -87,42 +89,12 @@ poly_DEPENDENCIES = $(POLYOBJECTFILE) $(POLYRESOURCES) \
 poly_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(poly_LDFLAGS) \
 	$(LDFLAGS) -o $@
-polyc_SOURCES = polyc.c
-polyc_OBJECTS = polyc.$(OBJEXT)
-polyc_LDADD = $(LDADD)
 am_polyimport_OBJECTS = polyimport.$(OBJEXT)
 polyimport_OBJECTS = $(am_polyimport_OBJECTS)
 polyimport_DEPENDENCIES = $(POLYRESOURCES) libpolyml/libpolyml.la
 polyimport_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) \
 	$(polyimport_LDFLAGS) $(LDFLAGS) -o $@
-DEFAULT_INCLUDES = -I.@am__isrc@
-depcomp = $(SHELL) $(top_srcdir)/depcomp
-am__depfiles_maybe = depfiles
-am__mv = mv -f
-COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
-	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
-LTCOMPILE = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
-	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
-CCLD = $(CC)
-LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
-	$(LDFLAGS) -o $@
-SOURCES = $(poly_SOURCES) polyc.c $(polyimport_SOURCES)
-DIST_SOURCES = $(poly_SOURCES) polyc.c $(polyimport_SOURCES)
-RECURSIVE_TARGETS = all-recursive check-recursive dvi-recursive \
-	html-recursive info-recursive install-data-recursive \
-	install-dvi-recursive install-exec-recursive \
-	install-html-recursive install-info-recursive \
-	install-pdf-recursive install-ps-recursive install-recursive \
-	installcheck-recursive installdirs-recursive pdf-recursive \
-	ps-recursive uninstall-recursive
-am__can_run_installinfo = \
-  case $$AM_UPDATE_INFO_DIR in \
-    n|no|NO) false;; \
-    *) (install-info --version) >/dev/null 2>&1;; \
-  esac
 am__vpath_adj_setup = srcdirstrip=`echo "$(srcdir)" | sed 's|.|.|g'`;
 am__vpath_adj = case $$p in \
     $(srcdir)/*) f=`echo "$$p" | sed "s|^$$srcdirstrip/||"`;; \
@@ -150,6 +122,34 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
+SCRIPTS = $(dist_bin_SCRIPTS)
+DEFAULT_INCLUDES = -I.@am__isrc@
+depcomp = $(SHELL) $(top_srcdir)/depcomp
+am__depfiles_maybe = depfiles
+am__mv = mv -f
+COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
+	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
+LTCOMPILE = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+	--mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
+	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
+CCLD = $(CC)
+LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
+	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
+SOURCES = $(poly_SOURCES) $(polyimport_SOURCES)
+DIST_SOURCES = $(poly_SOURCES) $(polyimport_SOURCES)
+RECURSIVE_TARGETS = all-recursive check-recursive dvi-recursive \
+	html-recursive info-recursive install-data-recursive \
+	install-dvi-recursive install-exec-recursive \
+	install-html-recursive install-info-recursive \
+	install-pdf-recursive install-ps-recursive install-recursive \
+	installcheck-recursive installdirs-recursive pdf-recursive \
+	ps-recursive uninstall-recursive
+am__can_run_installinfo = \
+  case $$AM_UPDATE_INFO_DIR in \
+    n|no|NO) false;; \
+    *) (install-info --version) >/dev/null 2>&1;; \
+  esac
 man1dir = $(mandir)/man1
 NROFF = nroff
 MANS = $(man_MANS)
@@ -345,6 +345,7 @@ BOOTSTRAP_OPTIONS = -H 50
 DIST_SUBDIRS = libpolyml libpolymain libffi
 @INTERNAL_LIBFFI_FALSE@SUBDIRS = libpolyml libpolymain
 @INTERNAL_LIBFFI_TRUE@SUBDIRS = libffi libpolyml libpolymain
+dist_bin_SCRIPTS = polyc
 man_MANS = poly.1 polyimport.1
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@POLYIMPORT = $(srcdir)/imports/polymlx86_64.txt
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@POLYIMPORT = $(srcdir)/imports/polymlint64.txt
@@ -481,6 +482,41 @@ poly$(EXEEXT): $(poly_OBJECTS) $(poly_DEPENDENCIES) $(EXTRA_poly_DEPENDENCIES)
 polyimport$(EXEEXT): $(polyimport_OBJECTS) $(polyimport_DEPENDENCIES) $(EXTRA_polyimport_DEPENDENCIES) 
 	@rm -f polyimport$(EXEEXT)
 	$(polyimport_LINK) $(polyimport_OBJECTS) $(polyimport_LDADD) $(LIBS)
+install-dist_binSCRIPTS: $(dist_bin_SCRIPTS)
+	@$(NORMAL_INSTALL)
+	@list='$(dist_bin_SCRIPTS)'; test -n "$(bindir)" || list=; \
+	if test -n "$$list"; then \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(bindir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(bindir)" || exit 1; \
+	fi; \
+	for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  if test -f "$$d$$p"; then echo "$$d$$p"; echo "$$p"; else :; fi; \
+	done | \
+	sed -e 'p;s,.*/,,;n' \
+	    -e 'h;s|.*|.|' \
+	    -e 'p;x;s,.*/,,;$(transform)' | sed 'N;N;N;s,\n, ,g' | \
+	$(AWK) 'BEGIN { files["."] = ""; dirs["."] = 1; } \
+	  { d=$$3; if (dirs[d] != 1) { print "d", d; dirs[d] = 1 } \
+	    if ($$2 == $$4) { files[d] = files[d] " " $$1; \
+	      if (++n[d] == $(am__install_max)) { \
+		print "f", d, files[d]; n[d] = 0; files[d] = "" } } \
+	    else { print "f", d "/" $$4, $$1 } } \
+	  END { for (d in files) print "f", d, files[d] }' | \
+	while read type dir files; do \
+	     if test "$$dir" = .; then dir=; else dir=/$$dir; fi; \
+	     test -z "$$files" || { \
+	       echo " $(INSTALL_SCRIPT) $$files '$(DESTDIR)$(bindir)$$dir'"; \
+	       $(INSTALL_SCRIPT) $$files "$(DESTDIR)$(bindir)$$dir" || exit $$?; \
+	     } \
+	; done
+
+uninstall-dist_binSCRIPTS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(dist_bin_SCRIPTS)'; test -n "$(bindir)" || exit 0; \
+	files=`for p in $$list; do echo "$$p"; done | \
+	       sed -e 's,.*/,,;$(transform)'`; \
+	dir='$(DESTDIR)$(bindir)'; $(am__uninstall_files_from_dir)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -488,7 +524,6 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polyc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polyimport.Po@am__quote@
 
 .c.o:
@@ -904,10 +939,10 @@ distcleancheck: distclean
 	       exit 1; } >&2
 check-am: all-am
 check: check-recursive
-all-am: Makefile $(PROGRAMS) $(MANS) $(HEADERS) config.h
+all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(HEADERS) config.h
 installdirs: installdirs-recursive
 installdirs-am:
-	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"; do \
+	for dir in "$(DESTDIR)$(bindir)" "$(DESTDIR)$(bindir)" "$(DESTDIR)$(man1dir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-recursive
@@ -970,7 +1005,7 @@ install-dvi: install-dvi-recursive
 
 install-dvi-am:
 
-install-exec-am: install-binPROGRAMS
+install-exec-am: install-binPROGRAMS install-dist_binSCRIPTS
 
 install-html: install-html-recursive
 
@@ -1012,7 +1047,8 @@ ps: ps-recursive
 
 ps-am:
 
-uninstall-am: uninstall-binPROGRAMS uninstall-man
+uninstall-am: uninstall-binPROGRAMS uninstall-dist_binSCRIPTS \
+	uninstall-man
 
 uninstall-man: uninstall-man1
 
@@ -1028,15 +1064,17 @@ uninstall-man: uninstall-man1
 	distclean-libtool distclean-tags distcleancheck distdir \
 	distuninstallcheck dvi dvi-am html html-am info info-am \
 	install install-am install-binPROGRAMS install-data \
-	install-data-am install-dvi install-dvi-am install-exec \
-	install-exec-am install-html install-html-am install-info \
-	install-info-am install-man install-man1 install-pdf \
-	install-pdf-am install-ps install-ps-am install-strip \
-	installcheck installcheck-am installdirs installdirs-am \
-	maintainer-clean maintainer-clean-generic mostlyclean \
-	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
-	pdf pdf-am ps ps-am tags tags-recursive uninstall uninstall-am \
-	uninstall-binPROGRAMS uninstall-man uninstall-man1
+	install-data-am install-dist_binSCRIPTS install-dvi \
+	install-dvi-am install-exec install-exec-am install-html \
+	install-html-am install-info install-info-am install-man \
+	install-man1 install-pdf install-pdf-am install-ps \
+	install-ps-am install-strip installcheck installcheck-am \
+	installdirs installdirs-am maintainer-clean \
+	maintainer-clean-generic mostlyclean mostlyclean-compile \
+	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
+	tags tags-recursive uninstall uninstall-am \
+	uninstall-binPROGRAMS uninstall-dist_binSCRIPTS uninstall-man \
+	uninstall-man1
 
 
 dist-hook:

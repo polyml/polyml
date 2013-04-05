@@ -15,7 +15,9 @@ else
 SUBDIRS = libpolyml libpolymain
 endif
 
-bin_PROGRAMS = polyimport poly polyc
+bin_PROGRAMS = polyimport poly
+
+dist_bin_SCRIPTS = polyc
 
 man_MANS = poly.1 polyimport.1
 
