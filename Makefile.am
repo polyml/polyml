@@ -119,7 +119,7 @@ reboot: compiler
 cvs: compiler
 
 clean-local:
-	rm -f *.obj polytemp.txt
+	rm -f *.obj polytemp.txt polyc
 
 # Run tests
 tests: all
