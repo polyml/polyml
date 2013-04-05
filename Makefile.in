@@ -52,12 +52,13 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
+bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT) polyc$(EXEEXT)
 @ARCHINTERPRET64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_1 = -mwindows -Wl,-u,WinMain
 @ARCHINTERPRET64_FALSE@@ARCHX86_64_TRUE@@NATIVE_WINDOWS_TRUE@am__append_2 = -mwindows -Wl,-u,WinMain
 @ARCHINTERPRET64_FALSE@@ARCHX86_64_FALSE@@NATIVE_WINDOWS_TRUE@am__append_3 = -mwindows -Wl,-u,_WinMain@16
-@NATIVE_WINDOWS_TRUE@am__append_4 = -mwindows
-@NATIVE_WINDOWS_TRUE@am__append_5 = polyresource.o
+@NATIVE_WINDOWS_TRUE@am__append_4 = $(EXTRALDFLAGS)
+@NATIVE_WINDOWS_TRUE@am__append_5 = -mwindows
+@NATIVE_WINDOWS_TRUE@am__append_6 = polyresource.o
 subdir = .
 DIST_COMMON = $(am__configure_deps) $(noinst_HEADERS) \
 	$(srcdir)/Makefile.am $(srcdir)/Makefile.in \
@@ -86,6 +87,9 @@ poly_DEPENDENCIES = $(POLYOBJECTFILE) $(POLYRESOURCES) \
 poly_LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(poly_LDFLAGS) \
 	$(LDFLAGS) -o $@
+polyc_SOURCES = polyc.c
+polyc_OBJECTS = polyc.$(OBJEXT)
+polyc_LDADD = $(LDADD)
 am_polyimport_OBJECTS = polyimport.$(OBJEXT)
 polyimport_OBJECTS = $(am_polyimport_OBJECTS)
 polyimport_DEPENDENCIES = $(POLYRESOURCES) libpolyml/libpolyml.la
@@ -105,8 +109,8 @@ CCLD = $(CC)
 LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-SOURCES = $(poly_SOURCES) $(polyimport_SOURCES)
-DIST_SOURCES = $(poly_SOURCES) $(polyimport_SOURCES)
+SOURCES = $(poly_SOURCES) polyc.c $(polyimport_SOURCES)
+DIST_SOURCES = $(poly_SOURCES) polyc.c $(polyimport_SOURCES)
 RECURSIVE_TARGETS = all-recursive check-recursive dvi-recursive \
 	html-recursive info-recursive install-data-recursive \
 	install-dvi-recursive install-exec-recursive \
@@ -349,11 +353,14 @@ man_MANS = poly.1 polyimport.1
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
 noinst_HEADERS = polyexports.h
-poly_LDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3)
-polyimport_LDFLAGS = $(am__append_4)
-POLYRESOURCES = $(am__append_5)
+poly_LDFLAGS = $(am__append_4)
+polyimport_LDFLAGS = $(am__append_5)
+POLYRESOURCES = $(am__append_6)
+EXTRALDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3)
 @NATIVE_WINDOWS_FALSE@POLYOBJECTFILE = polyexport.o
 @NATIVE_WINDOWS_TRUE@POLYOBJECTFILE = polyexport.obj
+@NATIVE_WINDOWS_FALSE@OBJECTSUFFIX = o
+@NATIVE_WINDOWS_TRUE@OBJECTSUFFIX = obj
 poly_SOURCES = 
 poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 polyimport_SOURCES = polyimport.c
@@ -481,6 +488,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polyc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polyimport.Po@am__quote@
 
 .c.o:
@@ -1049,6 +1057,9 @@ polyresource.o: PolyML.rc poly.ico
 
 polytemp.txt: $(POLYIMPORT)
 	cp $(POLYIMPORT) polytemp.txt
+
+polyc: buildpolyc
+	./buildpolyc LINK=\"$(CC)\" BINDIR=\"$(bindir)\" LIBDIR=\"$(libdir)\" LIBS=\"$(LIBS)\" EXTRA=\"$(EXTRALDFLAGS)\" SUFFIX=\"$(OBJECTSUFFIX)\"
 
 # This builds the compiler but does not update the files in the imports directory.
 # It then builds a version of poly containing the new compiler.

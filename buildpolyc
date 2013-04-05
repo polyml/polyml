@@ -1,0 +1,74 @@
+#! /bin/sh
+echo "#! /bin/sh" > polyc
+echo $* >> polyc
+cat << "EOF" >>polyc
+TMPSRCFILE=/tmp/polysrc.$$
+TMPOBJFILE=/tmp/polyobj.$$.$SUFFIX
+trap 'rm -f $TMPSRCFILE $TMPOBJFILE' 0
+
+compile()
+{
+    echo "use \"$1\"; PolyML.export(\"$2\", main);" | ${BINDIR}/poly -q --error-exit
+}
+
+link()
+{
+    if [ X"$2" == "X" ]
+    then
+        ${LINK} ${EXTRALDFLAGS} $1 -lpolymain -lpolyml ${LIBS}
+    else
+        ${LINK} ${EXTRALDFLAGS} $1 -o $2 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
+    fi
+}
+
+printhelp()
+{
+    echo "Usage: polyc [OPTION]... [SOURCEFILE]"
+    echo Compile and link a Standard ML source file with Poly/ML.
+    echo
+    echo "   -c           Compile but do not link.  The object file is written to the source file with .$SUFFIX extension."
+    echo "   -o output    Write the executable file to 'output'"
+    echo "   --help       Write this text and exit"
+    exit
+}
+
+usage()
+{
+    echo $1
+    echo "Usage: polyc [OPTION]... [SOURCEFILE]"
+    exit 1
+}
+
+sourcefile=""
+objectfile=""
+execfile=""
+compileonly="no"
+
+while [ $# -gt 0 ]
+do
+    case "$1" in
+        --help)
+            printhelp ;;
+        -c) compileonly="yes";;
+        -o)
+            shift
+            [ $# -eq 0 ] && usage "Expected file name after -o"
+            execfile="$1";;
+        *)
+            [ X"$sourcefile" == "X" ] || usage "Only one source file name allowed"
+            sourcefile="$1";;
+    esac
+    shift
+done
+
+case "$compileonly" in
+     yes)
+         objectfile=${sourcefile%%.*}
+         compile $sourcefile $objectfile
+         ;;
+     no)
+         compile $sourcefile $TMPOBJFILE && link $TMPOBJFILE $execfile
+         ;;
+esac
+EOF
+chmod +x polyc

@@ -15,7 +15,7 @@ else
 SUBDIRS = libpolyml libpolymain
 endif
 
-bin_PROGRAMS = polyimport poly
+bin_PROGRAMS = polyimport poly polyc
 
 man_MANS = poly.1 polyimport.1
 
@@ -42,22 +42,26 @@ noinst_HEADERS = polyexports.h
 poly_LDFLAGS=
 polyimport_LDFLAGS=
 POLYRESOURCES=
+EXTRALDFLAGS=
 
 if NATIVE_WINDOWS
 if ARCHINTERPRET64
-poly_LDFLAGS += -mwindows -Wl,-u,WinMain
+EXTRALDFLAGS += -mwindows -Wl,-u,WinMain
 else
 if ARCHX86_64
-poly_LDFLAGS += -mwindows -Wl,-u,WinMain
+EXTRALDFLAGS += -mwindows -Wl,-u,WinMain
 else
-poly_LDFLAGS += -mwindows -Wl,-u,_WinMain@16
+EXTRALDFLAGS += -mwindows -Wl,-u,_WinMain@16
 endif
 endif
+poly_LDFLAGS += $(EXTRALDFLAGS)
 polyimport_LDFLAGS += -mwindows
 POLYOBJECTFILE = polyexport.obj
 POLYRESOURCES += polyresource.o
+OBJECTSUFFIX=obj
 else
 POLYOBJECTFILE = polyexport.o
+OBJECTSUFFIX=o
 endif
 
 poly_SOURCES = 
@@ -96,6 +100,9 @@ polyresource.o: PolyML.rc poly.ico
 
 polytemp.txt: $(POLYIMPORT)
 	cp $(POLYIMPORT) polytemp.txt
+
+polyc: buildpolyc
+	./buildpolyc LINK=\"$(CC)\" BINDIR=\"$(bindir)\" LIBDIR=\"$(libdir)\" LIBS=\"$(LIBS)\" EXTRA=\"$(EXTRALDFLAGS)\" SUFFIX=\"$(OBJECTSUFFIX)\"
 
 # This builds the compiler but does not update the files in the imports directory.
 # It then builds a version of poly containing the new compiler.
