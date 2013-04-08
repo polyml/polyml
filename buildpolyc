@@ -15,7 +15,7 @@ link()
 {
     if [ X"$2" == "X" ]
     then
-        ${LINK} ${EXTRALDFLAGS} $1 -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} $1 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
     else
         ${LINK} ${EXTRALDFLAGS} $1 -o $2 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
     fi
