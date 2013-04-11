@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=192
+NFiles=193
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -195,3 +195,4 @@ File188=mlsource\MLCompiler\ParseTree\TYPECHECK_PARSETREE.sml
 File189=mlsource\MLCompiler\ParseTree\TypeCheckParsetreeSig.sml
 File190=mlsource\MLCompiler\ParseTree\MATCH_COMPILER.sml
 File191=mlsource\MLCompiler\ParseTree\MatchCompilerSig.sml
+File192=basis\SingleAssignment.sml
