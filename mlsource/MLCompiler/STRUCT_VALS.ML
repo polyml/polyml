@@ -497,7 +497,7 @@ struct
     val makeGlobal = Global;
     val makeFormal = Formal;
   
-    fun makeLocal () = Local { addr = ref 0, level = ref baseLevel };
+    fun makeLocal () = Local { addr = ref ~1 (* Invalid addr - catch errors *), level = ref baseLevel }
        
     fun makeSelected (addr, base) =
       Selected { addr = addr, base = base };

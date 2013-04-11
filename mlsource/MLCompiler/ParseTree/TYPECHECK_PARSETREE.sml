@@ -1840,7 +1840,7 @@ struct
                 val newId =
                     if letDepth = 0
                     then makeTypeId(false, true, ([], EmptyType), description)
-                    else makeFreeIdEqUpdate (Local{addr = ref 0, level = ref baseLevel}, false, description)
+                    else makeFreeIdEqUpdate (Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val tc = makeTypeConstructor(name, typeVars, newId, [DeclaredAt nameLoc])
             in
                 tcon := TypeConstrSet(tc, []);
@@ -1916,7 +1916,7 @@ struct
                         |   SOME argtype =>
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
                     val cons =
-                        makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref 0, level = ref baseLevel},
+                        makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref ~1, level = ref baseLevel},
                                          [DeclaredAt idLocn])
         
                     (* Name must not be qualified *)
