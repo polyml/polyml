@@ -1456,7 +1456,7 @@ Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --enable-debug          Compiles without optimisation for debugging
-  --enable-shared[=PKGS]  build shared libraries [default=yes]
+  --enable-shared[=PKGS]  build shared libraries [default=no]
   --enable-static[=PKGS]  build static libraries [default=yes]
   --enable-fast-install[=PKGS]
                           optimize for fast installation [default=yes]
@@ -3489,6 +3489,7 @@ fi
 esac
 
  # libpolyml can be a DLL but libpolymain can't.
+# Disable shared libraries by default.  It complicates installation to "non-standard" places.
 case `pwd` in
   *\ * | *\	*)
     { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Libtool does not cope well with whitespace in \`pwd\`" >&5
@@ -8267,14 +8268,7 @@ test -z "$OBJDUMP" && OBJDUMP=objdump
 
 
 
-
-
-
-        enable_dlopen=no
-
-
-
-            # Check whether --enable-shared was given.
+# Check whether --enable-shared was given.
 if test "${enable_shared+set}" = set; then :
   enableval=$enable_shared; p=${PACKAGE-default}
     case $enableval in
@@ -8294,13 +8288,19 @@ if test "${enable_shared+set}" = set; then :
       ;;
     esac
 else
-  enable_shared=yes
+  enable_shared=no
 fi
 
 
 
 
 
+
+
+
+
+
+        enable_dlopen=no
 
 
 

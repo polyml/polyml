@@ -66,7 +66,8 @@ case "${host_os}" in
 esac
 
  # libpolyml can be a DLL but libpolymain can't.
-LT_INIT([win32-dll])
+# Disable shared libraries by default.  It complicates installation to "non-standard" places.
+LT_INIT([win32-dll disable-shared])
 AM_MAINTAINER_MODE
 
 
