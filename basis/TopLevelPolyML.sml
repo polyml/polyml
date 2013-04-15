@@ -1124,6 +1124,7 @@ in
                 print "-q             Suppress the start-up message and turn off printing of results\n";
                 print "-i             Interactive mode.  Default if input is from a terminal\n";
                 print "--use FILE     Executes 'use \"FILE\";' before the ML shell starts\n";
+                print "--eval STRING  Compiles and executes STRING as ML before the ML shell starts\n";
                 print "--error-exit   Exit shell on unhandled exception\n";
                 print "--with-markup  Include extra mark-up information when printing\n";
                 print "--ideprotocol  Run the IDE communications protocol\n";
@@ -1199,42 +1200,65 @@ in
                     |  SIG_DFL => (signal(2, SIG_HANDLE(fn _ => Thread.Thread.broadcastInterrupt())); ())
                     |  oldHandle => (signal(2, oldHandle); ())
 
-                fun tryUseFileArguments [] = true (* done successfully *)
-                  | tryUseFileArguments (arg::args) = 
-                    if arg = "--use" then case args 
-                      of filenameArg::moreArgs =>
-                         ((PolyML.use filenameArg; 
-                            tryUseFileArguments moreArgs)
-                            handle x => 
-                            (print ("Error trying to use the file: '" 
-                                    ^ filenameArg ^ "'\n"); 
-                             case x 
-                             of IO.Io rep => 
-                               (print ("IO.Io exception raised.\n  name: " ^ (#name rep) 
-                                      ^ "  (in function: " ^ (#function rep) ^ ")\n"); 
-                                false)
-                              | _ => raise x))
-                       | [] => (print "'--use' requires a filename to be given as the next argument.\n"; false)
-                    else tryUseFileArguments args;
+                fun tryUseFileArguments [] = () (* done successfully *)
 
-            in (if tryUseFileArguments (CommandLine.arguments()) 
-                   then PolyML.shell () else ()); 
+                |   tryUseFileArguments ["--use"] =
+                    (
+                        print "'--use' requires a filename to be given as the next argument.\n";
+                        OS.Process.exit OS.Process.failure
+                    )
+
+                |   tryUseFileArguments ("--use" :: filenameArg :: moreArgs) =
+                    (
+                        PolyML.use filenameArg
+                            handle _ =>
+                            (
+                                print("Error trying to use the file: '" ^ filenameArg ^ "'\n");
+                                OS.Process.exit OS.Process.failure
+                            );
+                        tryUseFileArguments moreArgs
+                    )
+
+                |   tryUseFileArguments ["--eval"] =
+                    (
+                        print "'--eval' requires a string to be given as the next argument.\n";
+                        OS.Process.exit OS.Process.failure
+                    )
+
+                |   tryUseFileArguments ("--eval" :: useString :: moreArgs) =
+                    let
+                        (* Compile and execute commands from the string. *)
+                        val p = ref 0
+                    in
+                        while !p < size useString do
+                        let
+                            fun getChar() =
+                                if !p >= size useString
+                                then NONE
+                                else SOME(String.sub(useString, !p)) before p := !p+1
+                            val code =
+                                PolyML.compiler(getChar, [])
+                                    handle _ => OS.Process.exit OS.Process.failure
+                        in
+                            code() handle exn =>
+                            (
+                                (* Report exceptions in running code. *)
+                                print ("Exception- " ^ exnMessage exn ^ " raised\n");
+                                OS.Process.exit OS.Process.failure
+                            )
+                        end;
+                        tryUseFileArguments moreArgs
+                    end
+
+                |   tryUseFileArguments (_ :: args) = tryUseFileArguments args
+
+            in
+                tryUseFileArguments argList;
+                PolyML.shell (); 
                 OS.Process.exit OS.Process.success (* Run any "atExit" functions and then quit. *)
             end
         end;
 
-(* 
-OS.SysErr (s,SOME err) => 
-                              (print (s ^ "\nError in used file: '" 
-                                 ^ filenameArg ^ "'\nError name: " 
-                                 ^ (OS.errorName err) ^ "Error Message:" 
-                                 ^ (OS.errorMsg err) ^ "\n");   
-                              false)
-                            | OS.SysErr (s,NONE) => 
-                              (print (s ^ "\nError in used file: '" 
-                                 ^ filenameArg ^ "\n"); 
-                              false) 
-*)
         structure IDEInterface =
         struct
             val parseTree = parseTree
