@@ -95,11 +95,6 @@ sig
       
    (* pushConst - Generates code to push a constant. *)
    val pushConst        : machineWord * code -> unit;
-
-   (* genCallSl - Generate callSl instructions which refer to either
-       constants or are forward references to functions which have not yet
-       been compiled. *)
-   val genCallSl  : int * int * code * code -> unit;
        
    (* genRecRef - Recursive reference to a function. *)
    val genRecRef: code * code -> unit
@@ -217,7 +212,6 @@ struct
 
   datatype slValue =
     Address    of int  * int (* Address of an entry on the stack. *)
-  | StaticLink of code * int (* A static linked function. *)
   | Recursive  of code       (* A recursive reference to a closure. *)
 
   (* Code generate a function or global declaration *)
@@ -231,7 +225,6 @@ struct
     
     datatype decEntry =
       StackAddr of int
-    | ProcConst of code
     | Empty;
     
     val decVec : decEntry STRETCHARRAY.stretchArray =
@@ -282,8 +275,6 @@ struct
                     Recursive code =>
                     ( genRecRef (code, cvec); incsp () )
                 |   Address (addr, level) => pushStackValue (addr, level)
-   
-                |   StaticLink _ => raise InternalError "locaddr: illegal use of static-link function"
             )
         |   locaddr(BICLoadRecursive, _) =
             (
@@ -291,8 +282,6 @@ struct
                     Recursive code =>
                     ( genRecRef (code, cvec); incsp () )
                 |   Address (addr, level) => pushStackValue (addr, level)
-   
-                |   StaticLink _ => raise InternalError "locaddr: illegal use of static-link function"
             )
 
    (* generates code from the tree *)
@@ -341,22 +330,7 @@ struct
                recursion and fill them in. *)
             fun genMutualDecs [] = ()
 
-            |   genMutualDecs ({lambda as {makeClosure = false, name, ...}, addr, ...} :: otherDecs) =
-                let (* Static link. *)
-                    (* Create a code-segment and put it in the table in case of
-                     mutually recursive references. *)
-                    val newCode : code = codeCreate(true, name, parameters);
-                    val () = STRETCHARRAY.update (decVec, addr, ProcConst newCode);
-                    (* Deal with any other possible references. *)
-                    val () = genMutualDecs (otherDecs);
-                in
-                    (* Can now process this function since we have made an entry
-                       in the table for everything it could refer to. *)
-                    genSlProc (lambda, newCode)
-                end
-       
-            |   genMutualDecs ({lambda as {makeClosure = true, ...}, addr, ...} :: otherDecs) =
-                    (* Closure. *)
+            |   genMutualDecs ({lambda, addr, ...} :: otherDecs) =
                     genProc (lambda, true,
                         fn() =>
                         (
@@ -367,21 +341,8 @@ struct
             fun codeDecls(BICRecDecs dl) = genMutualDecs (dl)
             |   codeDecls(BICDeclar{value, addr, ...}) =
                 (
-                    case value of
-                        BICLambda (lam as {makeClosure = false, name, ...}) => 
-                        let
-                            val newCode : code = codeCreate (true, name, parameters);
-                            val () = STRETCHARRAY.update (decVec, addr, ProcConst newCode);
-                        in
-                            genSlProc (lam, newCode)
-                        end
-          
-                    |   _ => (* Other declaration - to the stack. *)
-                        let
-                            val () = gencde (value, ToStack, NotEnd, loopAddr);
-                        in
-                            STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
-                        end
+                    gencde (value, ToStack, NotEnd, loopAddr);
+                    STRETCHARRAY.update (decVec, addr, StackAddr(!realstackptr))
                 )
             |   codeDecls(BICNullBinding exp) = gencde (exp, NoResult, NotEnd, loopAddr)
           in
@@ -631,13 +592,6 @@ struct
                 (* This is inserted by the higher level code to get the use-counts
                    correct.  Kill entries are BICExtract entries with lastRef true. *)
                     gencde (expression, whereto, tailKind, loopAddr)
-
-        |   BICIndirectVariable _ => 
-                raise InternalError "gencde: IndirectVariable"
-
-        |   BICTupleVariable _ => 
-                raise InternalError "gencde: TupleVariable"
-
     in (* body of gencde *) 
 
       (* This ensures that there is precisely one item on the stack if
@@ -696,31 +650,27 @@ struct
    (* doNext is only used for mutually recursive functions where a
      function may not be able to fill in its closure if it does not have
      all the remaining declarations. *)
-   and genProc (lam,
-               mutualDecs: bool,
-               doNext: unit -> unit) : unit =
-      if #makeClosure lam = false (* static link form *)
-      then raise InternalError "static link not allowed here"
-
-      else if (case #closure lam of [] => true | _ => false)
-      then let
-        val newCode : code = codeCreate(false, #name lam, parameters);
+    (* TODO: This always creates the closure on the heap even when makeClosure is false. *) 
+   and genProc (lam as { closure=[], ...}, mutualDecs, doNext: unit -> unit) : unit =
+        let
+            val newCode : code = codeCreate(false, #name lam, parameters);
         
-        (* The only global references are recursive ones (?) *)
-        fun loadRecLink (_ : int, _ : int) : slValue =
-          Recursive newCode;
+            (* The only global references are recursive ones (?) *)
+            fun loadRecLink _ = Recursive newCode
         
-        (* Code-gen function. No non-local references. *)
-         val res : address =
-           codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
+            (* Code-gen function. No non-local references. *)
+             val res : address =
+               codegen (#body lam, newCode, loadRecLink, List.length (#argLifetimes lam), parameters);
 
-        val () = pushConst(toMachineWord res, cvec);
-        val () = incsp();
-      in
-        if mutualDecs then doNext () else ()
-      end
+            val () = pushConst(toMachineWord res, cvec);
+            val () = incsp();
+        in
+            if mutualDecs then doNext () else ()
+        end
 
-      else let (* Full closure required. *)
+    |   genProc (lam, mutualDecs: bool, doNext: unit -> unit) : unit =
+      
+        let (* Full closure required. *)
     (* If there is a closure we must fetch all non-local references
        from it. *)
 
@@ -791,51 +741,6 @@ struct
            realstackptr := !realstackptr - (sizeOfClosure - 1)
          end
       end
-
-   (* Generate a function to be called with a static link. *)
-   and genSlProc (lam, newCode: code) : unit =
-   let
-     (* If a function can be called by static link references then
-        non-locals can be loaded by following the static chain. The offset
-        is the entry in the (pseudo-)closure as with a function that
-        requires a closure, but these can be translated into real stack
-        offsets. *)
-     val closureList = #closure lam;
-
-     (* Finds the nth. item in the closure and returns the entry *)
-     fun findClosure ((BICExtract ext) :: _, 1) = ext
-       | findClosure (_ :: t, n) = findClosure (t, n - 1)
-       | findClosure (_, _) = raise InternalError "findClosure: bad Closure";
-
-     (* Get static link level and offset. *)
-     fun loadSl (prevloc : int, level: int) : slValue =
-       if prevloc = 0 (* recursive call *)
-       then StaticLink (newCode, level)
-       else
-        let
-            val closureEntry = findClosure (closureList, prevloc)
-        in
-            case closureEntry of
-                (BICLoadArgument locn, _) => Address (numOfArgs - locn, level)
-            |   (BICLoadLocal locn, _) =>
-                (
-                    (* Local - is it a function? *)
-                    case STRETCHARRAY.sub (decVec, locn) of
-                        StackAddr n => Address (~ n, level)
-                    |   ProcConst c => StaticLink (c, level)
-                    |   Empty       => raise InternalError "loadSl: missing decVec entry"
-                )
-            |   (BICLoadClosure locn, _) => loadStaticLink (locn+1, level + 1)
-            |   (BICLoadRecursive, _) =>    loadStaticLink (0, level + 1)
-       end; (* loadSl *)
-       
-     (* Now code-generate the function. We can throw away the result because
-        it will be assigned into the value we have just returned. *)
-     val _ : address =
-       codegen (#body lam, newCode, loadSl, List.length (#argLifetimes lam), parameters)
-   in
-     ()
-   end (* genSlProc*)
 
    and genCond (first: backendIC,
                 second: backendIC,
@@ -928,7 +833,6 @@ struct
                     (* Local - is it a function? *)
                     case STRETCHARRAY.sub (decVec, addr) of
                         StackAddr n => Address (~ n, 0)
-                    |   ProcConst c => StaticLink (c, 0)
                     |   Empty       => raise InternalError "staticLinkValue: missing decVec entry"
                 )
             |   BICLoadClosure addr => loadStaticLink (addr+1, 1)(* Non-local or recursive. *)
@@ -950,15 +854,7 @@ struct
           in
             callClosure ()
           end
-          
-         (* Static link *)
-        | StaticLink (code, level) =>
-          let
-            val () = genCallSl(!realstackptr, level, code, cvec);
-          in
-            incsp ()
-          end
-      end (* BICExtract *)
+       end (* BICExtract *)
     
     | _ => (* The function is not being found by simply loading a value
           from the stack or the closure. *)

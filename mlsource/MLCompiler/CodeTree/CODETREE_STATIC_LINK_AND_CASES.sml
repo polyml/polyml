@@ -119,22 +119,11 @@ struct
     |   P2TupleFromContainer of p2Codetree * int (* Make a tuple from the contents of a container. *)
 
     |   P2TagTest of { test: p2Codetree, tag: word, maxTag: word }
-
-    |   P2IndirectVariable of { base: p2Codetree, offset: p2Codetree }
-        (* Similar to Indirect except the offset is a variable. *)
-
-    |   P2TupleVariable of p2VarTuple list * p2Codetree (* total length *)
-        (* Construct a tuple using one or more multi-word items. *)
  
     and p2CodeBinding =
         P2Declar  of int * p2Codetree (* Make a local declaration or push an argument *)
     |   P2RecDecs of (int * p2LambdaForm) list (* Set of mutually recursive declarations. *)
     |   P2NullBinding of p2Codetree (* Just evaluate the expression and discard the result. *)
-
-    and p2VarTuple =
-        P2VarTupleSingle of { source: p2Codetree, destOffset: p2Codetree }
-    |   P2VarTupleMultiple of
-            { base: p2Codetree, length: p2Codetree, destOffset: p2Codetree, sourceOffset: p2Codetree }
 
     and p2LoadForm =
         P2LoadLocal of int (* Local binding *)
@@ -192,18 +181,6 @@ struct
 
         | sideEffectFree(P2TupleFromContainer(c, _)) = sideEffectFree c
 
-        | sideEffectFree(P2IndirectVariable{base, ...}) =
-                (* Offset is always side-effect free. *)
-                sideEffectFree base
-
-        | sideEffectFree(P2TupleVariable(vars, _ (* length - always side-effect free *))) =
-            let
-                fun testTuple(P2VarTupleSingle{source, ...}) = sideEffectFree source
-                |   testTuple(P2VarTupleMultiple{base, ...}) = sideEffectFree base
-            in
-                List.all testTuple vars
-            end
-
         | sideEffectFree _ = false
                  (* Rest are unsafe (or too rare to be worth checking) *)
 
@@ -230,16 +207,7 @@ struct
             let
                 (* Tables for local declarations. "localUses" is the last reference
                    for the declaration.  *)
-                val localUses         = Array.array(localCount, 0);
-                (* "Closure" tables for statically-linked functions.  If we have a
-                   function called with a static link we need the non-locals it refers
-                   to to remain on the stack until the last CALL of the function.  That
-                   requires setting the last-reference to those non-locals to at least
-                   the last call.  This is transitive.  If one of the functions calls
-                   another function then the called function and its "closure" are
-                   added to the calling function's "closure". *)
-                val slClosureTable: p2LoadForm list Array.array    = Array.array(localCount, nil)
-
+                val localUses         = Array.array(localCount, 0)
                 (* Because we count instructions from the end smaller values mean
                    further away and we want to count the smallest non-zero value. *)
                 fun maxUse(m, 0) = m
@@ -385,35 +353,7 @@ struct
                         f a :: rest
                     end
 
-                fun insert(P2Eval { function as P2Extract(P2LoadLocal addr), argList, resultType, ...}) =
-                    let
-                        (* If this is a statically-linked function make references to the closure.
-                           If this is actually the last reference this may result in returning
-                           kill entries for some of the closure entries.  If we're in a loop we will
-                           still have made a reference and the kill entries will be put at the end of
-                           the loop. *)
-                        val closureKills =
-                            let
-                                fun getKill ext =
-                                    (
-                                        case locaddr ext of
-                                            ext as BICExtract(_, true) => SOME ext
-                                        |   _ => NONE
-                                    )
-                            in
-                                List.mapPartial getKill (Array.sub(slClosureTable, addr))
-                            end
-                        val () = instrCount := !instrCount+1
-                        (* Process the arguments first. *)
-                        val newargs = mapright(fn (c, t) => (insert c, t)) argList
-                        val eval =
-                            BICEval {function = insert function, argList = newargs, resultType=resultType}
-                    in
-                        if null closureKills then eval
-                        else BICKillItems{expression=eval, killSet=closureKills, killBefore=false}
-                    end
-
-                |   insert(P2Eval { function, argList, resultType, ...}) =
+                fun insert(P2Eval { function, argList, resultType, ...}) =
                     let
                         (* Process the arguments first. *)
                         val newargs = mapright(fn (c, t) => (insert c, t)) argList
@@ -533,21 +473,6 @@ struct
                                 val _ = Array.sub(localUses, caddr) <> 0
                                            andalso raise InternalError "copyDeclarations: Already used"
                                 val () = Array.update (outsideLoop, caddr, false) (* It's local *)
-                                val () =
-                                    case pt of
-                                        P2Lambda{makeClosure=false, closure, ...} =>
-                                        let
-                                            (* It's a statically-linked function: set the closure
-                                               array entry.  If the closure entries themselves are
-                                               statically linked function we have to include the
-                                               items from those closures in this set. *)
-                                            fun closureTrans (P2LoadLocal addr, l) = Array.sub(slClosureTable, addr) @ l
-                                            |   closureTrans (_, l) = l
-                                            val trans = List.foldl closureTrans [] closure
-                                        in
-                                            Array.update(slClosureTable, caddr, trans @ closure)
-                                        end
-                                    |   _ => ()
                                 val rest = copyDeclarations vs
                                 val wasUsed = Array.sub(localUses, caddr)
                                 val () = instrCount := !instrCount+1
@@ -570,26 +495,13 @@ struct
                         |   copyDeclarations (P2RecDecs mutualDecs :: vs)  =
                             let
                                 (* Recursive declarations. *)
-                                (* This is a bit messy.  For static-link functions we need to
-                                   make sure the last reference to the closure entries is after
-                                   the last call to the function.  For full-closure functions
-                                   the last reference must be after the closures have all been
-                                   built. *)
                                 (* Get the closure lists for all the declarations.  We assume that
                                    any of these can call any of the others so we just accumulate
                                    them into a single list. *)
                                 local
-                                    fun getClosure((_, {makeClosure, closure, ...}),
-                                            (slClosures, fcClosures)) =
-                                        if makeClosure
-                                        then (slClosures, closure @ fcClosures) else (closure @ slClosures, fcClosures)
-                                    val (slClosures, fcClosures) = List.foldl getClosure ([], []) mutualDecs
-                                    (* Include any statically linked functions this references. *)
-                                    fun closureTrans (P2LoadLocal addr, l) = Array.sub(slClosureTable, addr) @ l
-                                    |   closureTrans (_, l) = l
-                                    val trans = List.foldl closureTrans [] slClosures
+                                    fun getClosure((_, {closure, ...}), fcClosures) = (closure @ fcClosures)
+                                    val fcClosures = List.foldl getClosure [] mutualDecs
                                 in
-                                    val staticCl = trans @ slClosures
                                     val fullClosureList = fcClosures
                                 end
 
@@ -598,7 +510,6 @@ struct
                                     fun applyFn(caddr, _) =     
                                         (
                                             Array.sub(localUses, caddr) <> 0 andalso raise InternalError "applyFn: Already used";
-                                            Array.update(slClosureTable, caddr, staticCl);
                                             Array.update (outsideLoop, caddr, false) (* It's local *)
                                         )
                                 in
@@ -730,20 +641,6 @@ struct
                     in
                         BICCase{cases=casePlusKills, test=insert test, caseType=caseType,
                              default=addKillSet(insDefault, hd kills)}
-                    end
-
-                |   insert(P2IndirectVariable{base, offset}) =
-                        BICIndirectVariable{base=insert base, offset=insert offset}
-
-                |   insert(P2TupleVariable(vars, length)) =
-                    let
-                        fun insertTuple(P2VarTupleSingle{source, destOffset}) =
-                                BICVarTupleSingle{source=insert source, destOffset=insert destOffset}
-                        |   insertTuple(P2VarTupleMultiple{base, length, destOffset, sourceOffset}) =
-                                BICVarTupleMultiple{base=insert base, length=insert length,
-                                                 destOffset=insert destOffset, sourceOffset=insert sourceOffset}
-                    in
-                        BICTupleVariable(mapright insertTuple vars, insert length)
                     end
 
                 and copyLambda({body=lambdaBody, argTypes,

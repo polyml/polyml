@@ -87,12 +87,6 @@ sig
 
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
 
-    |   BICIndirectVariable of { base: backendIC, offset: backendIC }
-        (* Similar to Indirect except the offset is a variable. *)
-
-    |   BICTupleVariable of bicVarTuple list * backendIC (* total length *)
-        (* Construct a tuple using one or more multi-word items. *)
-
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
     |   BICRecDecs of { addr: int, references: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
@@ -102,11 +96,6 @@ sig
         CaseInt
     |   CaseWord
     |   CaseTag of word
-
-    and bicVarTuple =
-        BICVarTupleSingle of { source: backendIC, destOffset: backendIC }
-    |   BICVarTupleMultiple of
-            { base: backendIC, length: backendIC, destOffset: backendIC, sourceOffset: backendIC }
 
     and bicLoadForm =
         BICLoadLocal of int (* Local binding *)
@@ -143,7 +132,6 @@ sig
         and  caseType = caseType
         and  pretty = pretty
         and  argumentType = argumentType
-        and  bicVarTuple = bicVarTuple
         and  bicCodeBinding = bicCodeBinding
         and  bicSimpleBinding = bicSimpleBinding
     end

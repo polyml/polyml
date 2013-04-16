@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2009-10, 2012
+    Copyright David C. J. Matthews 1991, 2009-10, 2012, 2013
 
     Title:      General purpose code generator.
     Author:     Dave Matthews, Edinburgh University / Prolingua Ltd.
@@ -110,9 +110,6 @@ struct
     fun codegen
        (pt               : backendIC,
         declOnPrevLevel  : bicLoadForm * (unit -> stackIndex * operations) * ttab -> stackIndex * operations,
-        isStaticLink     : bicLoadForm -> bool,
-        loadStaticLink   : bicLoadForm * (unit -> stackIndex * operations) * ttab -> stackIndex * stackIndex * operations,
-        staticLinkRegSet : bicLoadForm -> regSet,
         closureLifetime  : int,
         argTypes         : argumentType list,
         argLifetimes     : int list,
@@ -129,17 +126,13 @@ struct
         val transtable = ttabCreate(localCount, debugSwitches)
         (* Map from declaration location to pstack entry. *)
         val decToPstack  = Array.array (localCount, noIndex)
-        (* Indicates if a declaration location is a static-link function and contains
-           a function to free the static link entries if it is. *)
-        val staticLinkEntries: (unit->operation list) option array = Array.array (localCount, NONE)
 
         (* If this is set to one add the allocating function to each tuple. *)
         val addAllocatingFunction =
             DEBUG.getParameter DEBUG.profileAllocationTag debugSwitches = 1
 
-        fun localDeclaration(index, locn, lifeTime, slRelease) =
+        fun localDeclaration(index, locn, lifeTime) =
         (
-            Array.update (staticLinkEntries, locn, slRelease);
             Array.update (decToPstack, locn, index);
             (* If the lifetime is zero remove the item. *)
             if lifeTime = 0
@@ -291,40 +284,31 @@ struct
                 val resIndex = Array.sub(decToPstack, addr)
                 val freeCode =
                     if lastRef
-                    then
-                        (* Last reference.  When we've finished with this entry it will be discarded.
-                           If this is a statically linked function we discard the closure entries.
-                           This case will only occur in a "kill" entry.  The only real references
-                           to statically linked functions is to call them and that case is handled
-                           in genEval. *)
-                    (
-                        case Array.sub(staticLinkEntries, addr) of
-                            NONE => []
-                        |   SOME discard => discard()
-                    )
+                    then []
+                        (* Last reference.  When we've finished with this entry it will be discarded. *)
                     else (* There's at least one more reference after this. *)
                         incrUseCount(transtable, resIndex, 1)
             in
                 (resIndex, freeCode)
             end
 
-        | locaddr(closureOrRecursive, lastRef) =  (* cp relative *)
-        let
-            (* If this is the last reference to the closure we want
-               it to be removed afterwards.  makeSl is not always called
-               if, for example, the value is constant.  To ensure the
-               use-count is correct we increment it if it is used and
-               then decrement it afterwards.  DCJM 2/12/99. *)
-            val (dec, code) =
-                declOnPrevLevel(closureOrRecursive,
-                    fn () => (incrUseCount(transtable, closureOrSlAddr, 1); (closureOrSlAddr, [])),
-                    transtable)
-            val freeCode =
-                if lastRef andalso closureLifetime <> 0 
-                then incrUseCount(transtable, closureOrSlAddr, ~1) else []
-        in
-            (dec, freeCode @ code)
-        end
+        |   locaddr(closureOrRecursive, lastRef) =  (* cp relative *)
+            let
+                (* If this is the last reference to the closure we want
+                   it to be removed afterwards.  makeSl is not always called
+                   if, for example, the value is constant.  To ensure the
+                   use-count is correct we increment it if it is used and
+                   then decrement it afterwards.  DCJM 2/12/99. *)
+                val (dec, code) =
+                    declOnPrevLevel(closureOrRecursive,
+                        fn () => (incrUseCount(transtable, closureOrSlAddr, 1); (closureOrSlAddr, [])),
+                        transtable)
+                val freeCode =
+                    if lastRef andalso closureLifetime <> 0 
+                    then incrUseCount(transtable, closureOrSlAddr, ~1) else []
+            in
+                (dec, freeCode @ code)
+            end
          (* locaddr *);
     
         (* For each load of a local in the tree it calls the `add' procedure. *)
@@ -529,7 +513,7 @@ struct
                         raise InternalError "LoopArg: static link function"
                   | _ => ()
             in
-                localDeclaration (decl, addr, references, NONE);
+                localDeclaration (decl, addr, references);
                 (* Normally "references" will be non-zero but it does seem that we
                    can get loop variables that are never used.  This may happen as a
                    result of multiple levels of inline function expansion.  If it's zero
@@ -1137,13 +1121,6 @@ struct
                     result
                 end
             end
-
-
-        |   BICIndirectVariable{ base=_, offset=_, ... } =>
-                raise InternalError "TODO: IndirectVariable"
-
-        |   BICTupleVariable(_(* varList*), _(* length *)) =>
-                raise InternalError "TODO: TupleVariable"
     in
         (* Various cases create results even if they're not required.  Remove them. *)
         case (result, whereto) of
@@ -1234,231 +1211,17 @@ struct
 
     (* `mutualRecursive' is used for mutually recursive functions
        where a function may not be able to fill in its closure if it does
-       not procedure address has been pushed but before the code is generated.
-       It is also used for functions that use the static-link calling convention
-       to record the release function for the non-locals that are referenced by
-       the function and must remain until after the last possible call to the
-       function. *)
-    and genProc ({ closure=closureList, makeClosure = false, name=lambdaName, body=lambdaBody,
+       not procedure address has been pushed but before the code is generated. *)
+    and genProc ({ closure=closureList, makeClosure=closureOnHeap, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
-                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, _) =
-                 
-        let (* static link form *)
-            (* If a procedure can be called by static link references then
-               non-locals can be loaded by following the static chain. The offset
-               is the entry in the (pseudo-)closure as with a procedure that
-               requires a closure, but these can be translated into real stack
-               offsets. A stack value which is loaded into a real or pseudo closure
-               always has that load treated as one reference as far as the use
-               counts are concerned, even though it may be loaded several times
-               in an inner procedure or by different calls. `pushNonLocal' must
-               not decrement the use count so that the stack values remain on the
-               stack to be referenced by the procedure, and are only removed when
-               the containing block is removed. *)
-            val profileObject = createProfileObject lambdaName
-            val newCode = codeCreate (true (* just the code *), lambdaName, profileObject, debugSwitches)
-        
-            (* Generates code for non-local references or recursive references. *)
-            fun previous (BICLoadRecursive, makeSl, _) = makeSl()
-                (* Although directly-recursive references do not involve calls to
-                  `previous' (the only directly-recursive references are recursive
-                  calls and they are dealt with in `loadSl') they may be produced
-                  as "kill entries" whose only effect is to indicate that the
-                  closure/static-link register is no longer required on a particular
-                  flow of control. *)
-            |   previous (BICLoadClosure prevloc, makeSl: unit->stackIndex * operations, newtab): stackIndex * operations =
-            let
-                (* The closure entry will usually be an BICExtract, but may have been
-                   compiled down to a real constant. This wouldn't happen if earlier
-                   phases were better at keeping constants out of closures (but that
-                   requires "sophisticated" analysis of mutually recursive declarations). *)
-                val closureEntry = List.nth(closureList, prevloc)
-            in
-                case closureEntry of
-                    BICConstnt w => (pushConst (newtab, w), [])
-          
-                |   BICExtract(BICLoadArgument locn, _) => (* argument or on stack *)
-                    (
-                        case Vector.sub (argRegTab, locn) of
-                            ArgInReg regEntry => pushNonLocal (transtable, newtab, regEntry, makeSl)
-                        |   ArgOnStack actualAddr =>
-                            let
-                                val (sl, slCode) = makeSl ()
-                                val (entry, indCode) = indirect (~actualAddr, sl, newtab)
-                            in
-                                (entry, indCode @ slCode)
-                            end
-                    )
-                |   BICExtract(BICLoadLocal locn, _) => (* on the stack *)
-                        pushNonLocal (transtable, newtab, Array.sub(decToPstack, locn), makeSl)
- 
-                |   BICExtract(outer, _) => (* Try the next level *)
-                        declOnPrevLevel(outer,
-                            fn () => pushNonLocal (transtable, newtab, closureOrSlAddr, makeSl),
-                            newtab)
-     
-                |   _ => raise InternalError "previous: bad backendIC in closure"
-            end
-            |   previous _ = raise InternalError "previous: local"
-
-            (* Returns true if the procedure is to be called with a static link *)
-            fun isSl BICLoadRecursive = true (* Recursive call. It's this procedure *)
-            |   isSl (BICLoadClosure prevloc) =
-
-            let (* Not directly recursive. *)
-                val closureEntry = List.nth(closureList, prevloc)
-            in
-                (* We may have already compiled a "mutually recursive" function
-                   to a constant, if it doesn't actually depend on this one.
-                   (This wouldn't occur if the earlier stages were better at
-                   removing such fake dependencies.) *)
-                case closureEntry of
-                    BICConstnt (w : machineWord) => isCode (toAddress w)
-
-                |   BICExtract(BICLoadLocal correctedLoc, _) =>
-                       isSome(Array.sub(staticLinkEntries, correctedLoc))
-
-                |   BICExtract(BICLoadArgument _, _) => false
-              
-                |   BICExtract(correctedLoc, _) =>
-                        isStaticLink correctedLoc (* Non-local *)
-            
-                | _ => raise InternalError "isSl: bad backendIC in function closure"
-            end
-            |   isSl _ = raise InternalError "isSl: local"
-         
-            (* Loads the static link if the procedure is called with one
-               and returns the entry point of the procedure on the stack. *)
-            fun loadSl (BICLoadRecursive, makeSl, callingTab): stackIndex*stackIndex * operations =
-                let (* Recursive call. *)
-                    val (sl, slCode) = makeSl(); (* Push the static link. *)
-                    val (closureIndex, loadClosure) =  (* Load into regClosure *)
-                        loadToSpecificReg (callingTab, regClosure, sl, false);
-                in
-                    (* And push the address of this procedure as the entry point. *)
-                    (pushCodeRef (callingTab, newCode), closureIndex, loadClosure @ slCode)
-                end
-
-            |   loadSl (prev as BICLoadClosure prevloc, makeSl, callingTab) = (* Non-recursive. *)
-                (
-                case List.nth(closureList, prevloc) of
-                    BICExtract(BICLoadLocal _, _) => (* On this level *)
-                        let
-                            val (sl, slCode) = makeSl()
-                            val (closureIndex, closureCode) =
-                                (* Load closure/sl register with the static link. *)
-                                loadToSpecificReg (callingTab, regClosure, sl, false)
-                            val (procAddr, prevCode) = (* Get the address of the procedure. *)
-                                previous (prev, makeSl, callingTab)
-                        in
-                            (procAddr, closureIndex, prevCode @ closureCode @ slCode)
-                        end
-                  |  BICExtract(BICLoadArgument _, _) => (* On this level *)
-                        let
-                            val (sl, slCode) = makeSl()
-                            val (closureIndex, closureCode) =
-                                (* Load closure/sl register with the static link. *)
-                                loadToSpecificReg (callingTab, regClosure, sl, false)
-                            val (procAddr, prevCode) = (* Get the address of the procedure. *)
-                                previous (prev, makeSl, callingTab)
-                        in
-                            (procAddr, closureIndex, prevCode @ closureCode @ slCode)
-                        end
-                 |   BICExtract(correctedLoc, _) => (* Non-local *)
-                        let
-                            val (procAddr, staticLink, code) =
-                                loadStaticLink(correctedLoc,
-                                    fn () => pushNonLocal (transtable, callingTab, closureOrSlAddr, makeSl),
-                                    callingTab)
-                        in
-                            (procAddr, staticLink, code)
-                        end
-                |   _ => raise InternalError "loadSl - closure not extract"
-                )
-           |    loadSl _ = raise InternalError "loadSl: local"
-                
-
-            (* Returns the register set for a static link function. *)
-            fun slRegSet BICLoadRecursive = allRegisters (* Recursive call - all registers. *)
-            |   slRegSet (BICLoadClosure prevloc) =
-                let (* Not directly recursive. *)
-                    val closureEntry = List.nth(closureList, prevloc)
-                in
-                    case closureEntry of
-                        BICConstnt (w : machineWord) => getRegisterSetForFunction w
-                    |   BICExtract (BICLoadLocal addr, _) =>
-                            getFunctionRegSet(Array.sub(decToPstack, addr), transtable)
-                    |   BICExtract (BICLoadArgument _, _) =>
-                            raise InternalError "slRegSet: argument"
-                    |   BICExtract(loadClosure, _) =>
-                            staticLinkRegSet loadClosure (* Non-local *)
-                    |   _ => raise InternalError "slRegSet: bad backendIC in function closure"
-                end
-            |   slRegSet _ = raise InternalError "slRegSet: local"
-        
-            (* Make sure all the closure values in registers are on the stack,
-               in case they are used as non-locals.  Changed this from the
-               original code which pushed everything. *)
-            local
-                fun pushClosure (BICExtract(BICLoadArgument addr, _)) =
-                    (* Local *)
-                    (
-                        case Vector.sub (argRegTab, addr) of
-                            ArgInReg regEntry => codeGenerate(pushSpecificEntry(transtable, regEntry), cvec)
-                        |   _ => ()
-                    )
-                |   pushClosure (BICExtract(BICLoadLocal addr, _)) = (* on the stack *)
-                        codeGenerate(pushSpecificEntry(transtable, Array.sub(decToPstack, addr)), cvec)
-                |   pushClosure (BICExtract(_, _)) =
-                        (* Non-local or recursive reference: make sure the closure/static
-                           link pointer is on the stack. *)
-                        if closureLifetime = 0 
-                        then () (* May not have a closure/sl. *)
-                        else codeGenerate(pushSpecificEntry(transtable, closureOrSlAddr), cvec)
-                | pushClosure _ = () (* Constant. *)
-            in
-                val () = List.app pushClosure closureList
-            end
-
-            (* This function is called when the last reference is found to this function.
-               Loading an entry into the closure counts as one reference but we don't
-               consider any final references at the point when the function is declared
-               because we need the entries to remain until the last call to the function. *)
-            fun releaseClosure () =
-            let
-                fun releaseEntry(BICExtract(ext as (_, true)), l) =
-                       incrUseCount(transtable, #1(locaddr ext), ~1) @ l
-                |   releaseEntry (_, l) = l
-            in
-                List.foldl releaseEntry [] closureList
-            end
-
-            (* Push a forward reference to the code in case of mutually
-               recursive references.  This is left as the result for normal
-               references. *)
-            val result = pushCodeRef (transtable, newCode)
-            (* Make this declaration and handle any recursive references. *)
-            val () = mutualRecursive(result, SOME releaseClosure)
-
-            (* Now code-generate the procedure, throwing away the result which
-               will be put into the forward reference. *)
-            val _ = closureRefs = 0 andalso raise InternalError "Static link but unreferenced cp"
-            val (ops, maxStack, regList, callsAFunction) = 
-              codegen(lambdaBody, previous, isSl, loadSl, slRegSet, closureRefs,
-                    argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
-            val _ = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-        in
-            result
-        end
-
-     | genProc ({ closure=closureList, makeClosure = true, name=lambdaName, body=lambdaBody,
-                   argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
-                 mutualRecursive: stackIndex * (unit->operation list) option -> unit, whereto) =
+                 mutualRecursive: stackIndex -> unit, whereto) =
         (* Requires a closure but this may be a constant. *)
         let
             (* Frequently the closure is actually empty but it may be that there are
-               constants or values that are now constants that haven't been picked out
-               by previous passes.  First try loading all the items of the closure.  If
+               values that are now constants.  This can occur if we are compiling an
+               inner function that contains a recursive reference to an outer function
+               and the outer function has an empty closure and is therefore a constant.
+               First try loading all the items of the closure.  If
                there are mutually recursive references we may not be able to load them
                at this point.  *)
             fun loadClosure(c as BICExtract(BICLoadLocal addr, _)) =
@@ -1473,7 +1236,6 @@ struct
             val constants =
                 List.map(fn i => if i = noIndex then NotConst else isConstant(i, transtable)) initialLocs
             val nonConstCount = List.foldl(fn (NotConst, n) => n+1 | (_, n) => n) 0 constants
-            (*val _ = nonConstCount = List.length initialLocs orelse raise InternalError ("constants in closure for " ^ lambdaName)*)
         in
             if nonConstCount = 0
             then (* All the entries that are there are constants.  We can avoid constructing a
@@ -1501,9 +1263,7 @@ struct
                |    previous _ = raise InternalError "previous: local"
           
                 val (ops, maxStack, regList, callsAFunction) = 
-                        codegen (lambdaBody, previous, fn _ => false,
-                            fn _ => raise InternalError "Not static link",
-                            fn _ => raise InternalError "Not static link",
+                        codegen (lambdaBody, previous,
                             0, (* Discard regClosure *) argTypes, argLifetimes, resultType,
                             localCount, profileObject, debugSwitches)
                 
@@ -1512,7 +1272,7 @@ struct
                 (* Clear off the constant entries. *)
                 val () = List.app(fn n => codeGenerate(incrUseCount(transtable, n, ~1), cvec)) initialLocs
                 (* Handle any other recursive functions. *)
-                val () = mutualRecursive(result, NONE)
+                val () = mutualRecursive result
             in
                 result
             end
@@ -1551,9 +1311,7 @@ struct
                     codeCreate (true (* just the code *), lambdaName, profileObject, debugSwitches)
         
                 val (ops, maxStack, regList, callsAFunction) = (* code-gen procedure *)
-                    codegen (lambdaBody, previous, fn _ => false,
-                        fn _ => raise InternalError "Not static link",
-                        fn _ => raise InternalError "Not static link",
+                    codegen (lambdaBody, previous,
                         closureRefs, argTypes, argLifetimes, resultType, localCount,
                         profileObject, debugSwitches)
 
@@ -1564,8 +1322,14 @@ struct
                 (* Build the closure.  If there are outstanding entries it has to be mutable and we
                    can't complete it until we've done the other mutually recursive entries.  *)
                 val incomplete = List.exists(fn i => i = noIndex) initialLocs
+
                 val (vector, vecCode) =
-                    callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
+                    if closureOnHeap
+                    then callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
+                    else reserveStackSpace(transtable, nonConstCount+1)
+                (* TODO: If the closure is on the stack we can just fill the entries
+                   by pushing them rather than first pushing zeros and then overwriting them. *)
+
                 val () = codeGenerate(vecCode, cvec)
                 (* First word is the address of the code. *)
                 val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
@@ -1591,7 +1355,10 @@ struct
                     )
                 |   fillClosure _ = ()
                 val () = fillClosure(initialLocs, constants, 0)
-                val () = codeGenerate(allocationComplete, cvec)
+                val () =
+                    if closureOnHeap
+                    then codeGenerate(allocationComplete, cvec)
+                    else ()
 
                 (* Have to ensure that the closure remains on the psuedo-stack until
                    we've filled in all uses of it. The only references may be in the
@@ -1600,9 +1367,9 @@ struct
                    the use-count and then decrement it afterwards to make sure it
                     is still on the stack. *)
                 val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-    
+
                   (* Any mutually recursive references. *)
-                val () = mutualRecursive(vector, NONE)
+                val () = mutualRecursive vector
 
                 (* We should now be able to fill in the recursive references. *)
                 val () =
@@ -1625,16 +1392,23 @@ struct
                             )
                         |   fillRecursive _ = ()
                         val () = fillRecursive(initialLocs, closureList, 0)
-
-                        (* Finally we can lock this. *)
-                        (* Increment the use count before the lock. *)
-                        val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-                        val lockInstr =
-                            case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
-                                SOME(lockInstr, _) => lockInstr
-                            |   NONE => raise InternalError "Lock instruction not implemented"
-                        val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
-                        val () = codeGenerate(lockCode, cvec)
+                        
+                        val () =
+                            if closureOnHeap
+                            then
+                            let
+                                (* Finally we can lock this. *)
+                                (* Increment the use count before the lock. *)
+                                val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
+                                val lockInstr =
+                                    case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
+                                        SOME(lockInstr, _) => lockInstr
+                                    |   NONE => raise InternalError "Lock instruction not implemented"
+                                val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
+                            in
+                                codeGenerate(lockCode, cvec)
+                            end
+                            else ()
                     in
                         ()
                     end
@@ -2295,7 +2069,7 @@ struct
             end (* realFunctionCall *)
 
             (* Call a closure function, i.e. not one that requires a static link. *)
-            fun callClosure (clos : backendIC option): mergeResult =
+            fun callClosure (clos : backendIC option, canTail): mergeResult =
             let
                 (* If we're actually calling the function where do the arguments go? *)
                 val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
@@ -2398,7 +2172,7 @@ struct
                           else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
                 end
             in
-                realFunctionCall([procLocn], registerSet, loadClosureProc, argLocations, true)
+                realFunctionCall([procLocn], registerSet, loadClosureProc, argLocations, canTail)
             end (* callClosure *)
 
             fun codeRTSFunction(instr, arguments, whereto) =
@@ -2415,7 +2189,7 @@ struct
                             NoResult => NoMerge (* Unused. *)
                         |   _ => MergeIndex opRes
                     end
-                |   NONE => (* Have to use a function call *) callClosure (SOME evalFun)
+                |   NONE => (* Have to use a function call *) callClosure (SOME evalFun, true)
 
         in (* body of genEval *)
             case evalFun of
@@ -2627,175 +2401,42 @@ struct
                                 (BICEval {function = evalFun, argList = argList, resultType=resultType},
                                  constntTrue, constntFalse, whereto, tailKind, NONE)
                         else (* unoptimised I/O call *)
-                            callClosure (SOME evalFun)
+                            callClosure (SOME evalFun, true)
                     )
   
-                    else (* All other constant functions. *) callClosure (SOME evalFun)
+                    else (* All other constant functions. *) callClosure (SOME evalFun, true)
                 end
 
             |   BICExtract (ext, lastRef) =>
                 let (* Local function with non-empty closure. *)
-                    (* The procedure is being loaded from the stack or closure
-                       so it may be a static-link procedure. *)
-
-                    (* DCJM 1/12/99.  TODO: We have a problem if the function is a
-                     closure reference (e.g. a recursive call) and the last reference
-                     to the closure is one of the arguments.  In some cases at any rate
-                     we don't process the function until after we've processed the
-                     arguments resulting in us not being able to find something.
-                     I think it's probably only if we have static-linked functions
-                     that there is a problem when the something is start of the static
-                     link.  I think if the function requires a closure then the closure
-                     is evaluated first even if it's a simple load. 
-                     No, it's also needed in the recursive case at least. 
-         
-                     There was a definite bug in the case of a static-link call to
-                     a function where the last reference to the function was within
-                     the argument.  DCJM 21/12/00.
-                     *)
-(*                    val (fpRel, addr) =
-                        case ext of
-                            BICLoadStack addr => (true, addr)
-                        |   BICLoadClosure addr => (false, addr)*)
-
                     val selfCall =
                         case ext of BICLoadRecursive => true | _ => false
-
-        ;           val staticCall =
-                        case ext of
-                            BICLoadLocal addr => isSome(Array.sub(staticLinkEntries, addr)) (* local - look in table *)
-                        |   BICLoadArgument _ => false (* parameter *)
-                        |   _ => isStaticLink ext  (* Non-local or recursive. *)
-                in 
-                     (* Is this a static link call? *)
-                    if staticCall
-                    then
-                    let  
-                        (* Load and lock regClosure. Returns the indexes of
-                           these entries in the stack. *)
-                        fun loadStaticLinkProc (): (stackIndex option * bool * stackIndex list * reg list) =
-                            case ext of
-                                BICLoadRecursive =>
-                                let
-                                    (* Do we really need *exclusive* use of this register? 
-                                       Perhaps this is to force the old value onto the stack if
-                                       we haven't saved it yet, but we should have done this
-                                       in pushAllBut (below) unless we're in a tail-call in
-                                       which case we're not coming back. SPF 23/5/95 *)
-                                    val SL = closureOrSlAddr
-                                    val (closureIndex, closureCode) =
-                                      loadToSpecificReg (transtable, regClosure, SL, false);
-                                    val () = codeGenerate(closureCode, cvec)
-                                    val () = lockRegister (transtable, regClosure);
-                                in
-                                    (NONE, false, [closureIndex], [regClosure])
-                                end
-
-                            |   BICLoadLocal addr =>
-                                let
-                                    (* Load entry point - this must be a local not an argument. *)
-                                    val entryPt = Array.sub(decToPstack, addr);
-                                    (* We have already incremented the reference count when
-                                       this is not the last reference so we don't need to do
-                                       anything here.  DCJM 21/12/00. *)
-        
-                                    (* Get the static link register. Will set its value later. *)
-                                    val () = codeGenerate(getRegister (transtable, regClosure), cvec);
-                                    val closureIndex = pushReg (transtable, regClosure);
-                                    val () = lockRegister (transtable, regClosure);
-                                in 
-                                    (* Set value of static link register now. The static link entry
-                                       is now the address of the frame.  DCJM 2/1/01. *)
-                                    codeGenerate(
-                                        moveStackAddress(realstackptr transtable - 1, regClosure),
-                                        cvec);
-                                    (SOME entryPt, false, [closureIndex], [regClosure])
-                                end
-
-                            |   BICLoadArgument _ =>
-                                    raise InternalError "loadStaticLinkProc: argument"
-
-                            |   loadClosure as BICLoadClosure _ =>
-                                let (* Non-local or recursive. *)
-                                    fun pushIt () = (closureOrSlAddr, [])
-                                    (* load SL register and return code address *)
-                                    val (entryPt, slIndex, code) = loadStaticLink (loadClosure, pushIt, transtable)
-                                    val () = codeGenerate(code, cvec)
-                                in
-                                    lockRegister (transtable, regClosure);
-                                    (SOME entryPt, false, [slIndex], [regClosure])
-                                end (* loadStaticLinkProc *)
-
-                        (* If we're actually calling the function where do the arguments go? *)
-                        val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
-
-                        local
-                            val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
-                            val argRegs = listToSet(regClosure :: modifiedArgRegs)
-                        in
-                            val registerSet =
-                                case ext of
-                                    BICLoadRecursive => allRegisters (* Have to push everything. *)
-                                |   BICLoadArgument _ => raise InternalError "static link function is an argument"
-                                |   BICLoadLocal addr =>
-                                        regSetUnion(argRegs,
-                                            getFunctionRegSet(Array.sub(decToPstack, addr), transtable))
-                                |   loadClosure as BICLoadClosure _ => (* Non local *) regSetUnion(argRegs, staticLinkRegSet loadClosure)
-                        end
-                        (* Add the registers modified by the function we're calling to those
-                           modified by this function.  Don't need to do that in the recursive
-                           case. *)
-                        val () =
-                            if selfCall then ()
-                            else addModifiedRegSet(transtable, registerSet)
-                        (* Set the use count on the static link.  I don't know whether this
-                           is needed in all cases so it could result in us incrementing it
-                           unnecessarily.  It isn't needed if this function is local.
-                           Increment the reference on the code if it's local and this is
-                           not the last reference.  If it's non-local we don't actually
-                           change the reference count when we load it. *)
-                        val () =
-                            if lastRef
-                            then ()
-                            else case ext of
-                                BICLoadLocal addr =>
-                                    codeGenerate(incrUseCount(transtable, Array.sub(decToPstack, addr), 1), cvec)
-                            |   BICLoadArgument _ => raise InternalError "argument"
-                            |   _ => (* Non-local *) codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
-                        (* Cannot use a jump to local static-link procedures because 
-                           we may want local declarations on the current stack. *)
-                        val result =
-                            realFunctionCall([], registerSet, loadStaticLinkProc, argLocations, case ext of BICLoadLocal _ => false | _ => true);
-                        (* If this is the last reference we can decrement the uses on
-                           all the entries in the "closure".  We need to do that last in case the
-                           entries are also used as parameters and accidentaly get popped. *)
-                    in
+                    (* We cannot make a tail-recursive call to a function whose
+                       closure is on the current stack because that would remove
+                       the closure. *)
+                    val canTail =
                         case ext of
                             BICLoadLocal addr =>
-                                if lastRef
-                                then codeGenerate(valOf(Array.sub(staticLinkEntries, addr)) (), cvec)
-                                else ()
-                        |   _ => ();
-                        result
-                    end
-   
-                    (* Closure call - check for recursive calls. *)
-                    else
-                    (
-                        (* Set the use count on the closure register if this is a
-                           recursive call.  We have to do that for the recursive case
-                           because we don't pass the BICExtract entry in to callClosure.
-                           DCJM 1/12/99. *)
-                        if selfCall andalso not lastRef andalso closureLifetime <>0 
-                        then codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
-                        else ();
-                        callClosure (if selfCall then NONE else SOME evalFun)
-                    )
+                            let
+                                val index = Array.sub(decToPstack, addr)
+                            in
+                                not(isContainer(index, transtable))
+                            end
+                        |   _ => true
+                in 
+                    (* Set the use count on the closure register if this is a
+                       recursive call.  We have to do that for the recursive case
+                       because we don't pass the BICExtract entry in to callClosure.
+                       DCJM 1/12/99. *)
+                    if selfCall andalso not lastRef andalso closureLifetime <>0 
+                    then codeGenerate(incrUseCount(transtable, closureOrSlAddr, 1), cvec)
+                    else ();
+                    callClosure (if selfCall then NONE else SOME evalFun, canTail)
                 end (* BICExtract *)
 
             |   _ => (* The procedure is not being found by simply loading a value
                         from the stack or the closure and is not a constant. *)
-                    callClosure (SOME evalFun)
+                    callClosure (SOME evalFun, true)
         end (* genEval *)
 
         and codeBinding specific (BICDeclar{addr, value, references}) = (* Declaration. *)
@@ -2809,12 +2450,8 @@ struct
                 case value of
                     BICLambda lam =>
                     let
-                        (* If this is a function using static-link calling then we have to
-                           record a release function for the items in the "closure" i.e.
-                           those other bindings that must exist on the stack whenever
-                           the function may be called. *)
-                        fun nextMutual(dec, slRelease) =
-                            codeGenerate(localDeclaration (dec, addr, references, slRelease), cvec)
+                        fun nextMutual dec =
+                            codeGenerate(localDeclaration (dec, addr, references), cvec)
                         val _ = genProc (lam, nextMutual, dest)
                     in
                         ()
@@ -2827,7 +2464,7 @@ struct
                                 MergeIndex index => index
                             |   NoMerge => raise InternalError "genToStack: no result"
                     in
-                        codeGenerate(localDeclaration (decl, addr, references, NONE), cvec)
+                        codeGenerate(localDeclaration (decl, addr, references), cvec)
                     end
             end
 
@@ -2851,14 +2488,13 @@ struct
                     let
                         (* This procedure is called once the closure has been
                            created but before the entries have been filled in. *) 
-                        fun nextMutual(r, slEntries) =
+                        fun nextMutual r =
                         let
-                            val () = codeGenerate(localDeclaration (r, addr, references, slEntries), cvec)
+                            val () = codeGenerate(localDeclaration (r, addr, references), cvec)
                         in (* Now time to do the other closures. *)
                             genMutualDecs ds
                         end
-                        val _ =
-                            genProc(lambda, nextMutual, NoHint)
+                        val _ = genProc(lambda, nextMutual, NoHint)
                     in
                         ()
                     end
@@ -2905,9 +2541,6 @@ struct
                 codegen
                     (body,
                     fn (_ , _, newtab) => (pushCodeRef (newtab, newCode), []),
-                    fn _ => false,
-                    fn (_,  _, _) => raise InternalError "Not static link",
-                    fn _ => raise InternalError "Not static link",
                     0, (* Discard regClosure *)
                     argTypes, argLifetimes, resultType, localCount, profileObject, debugSwitches)
 
@@ -2927,9 +2560,6 @@ struct
                 codegen 
                     (pt,
                     fn _ => raise InternalError "top level reached",
-                    fn _ => false,
-                    fn _ => raise InternalError "Not static link",
-                    fn _ => raise InternalError "Not static link",
                     0,  (* Discard regClosure *)
                     [], [], (* No args. *) GeneralType, (* General result (if any?) *)
                     localCount,

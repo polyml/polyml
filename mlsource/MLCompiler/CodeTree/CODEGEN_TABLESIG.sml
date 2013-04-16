@@ -56,7 +56,6 @@ sig
     val pushStack:    ttab * int  -> stackIndex;
     val pushConst:    ttab * machineWord -> stackIndex;
     val pushCodeRef:  ttab * code -> stackIndex;
-    val pushNonLocal: ttab * ttab * stackIndex * (unit -> stackIndex * operation list) -> stackIndex * operation list
     val pushAllBut:   ttab * ((stackIndex -> unit) -> unit) * regSet -> operation list
     val pushNonArguments: ttab * stackIndex list * regSet -> reg list * operation list
     val pushSpecificEntry: ttab * stackIndex -> operation list
@@ -147,8 +146,8 @@ sig
     datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
 
     val isConstant: stackIndex * ttab -> constEntry
-    
     val isRegister: stackIndex * ttab -> reg option
+    val isContainer: stackIndex * ttab -> bool
 
     structure Sharing:
     sig

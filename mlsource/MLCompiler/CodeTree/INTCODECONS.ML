@@ -122,11 +122,6 @@ sig
       
    (* pushConst - Generates code to push a constant. *)
    val pushConst        : machineWord * code -> unit;
-
-   (* genCallSl - Generate callSl instructions which refer to either
-       constants or are forward references to procedures which have not yet
-       been compiled. *)
-   val genCallSl  : int * int * code * code -> unit;
        
    (* genRecRef - Recursive reference to a procedure. *)
    val genRecRef: code * code -> unit
@@ -1588,41 +1583,6 @@ struct
   in
     genConstRef (constNum, into)
   end;
-
-  (* Call to a procedure with a static link. *)
-  fun genCallSl (offset : int, level : int, target : code, into: code) : unit =
-  let
-    val constNum : int = codeConst (target, into);
-    (* The offset and level are coded into a single byte if they are
-      within the range. *)
-   in
-     if level <= 15 andalso 2 <= offset andalso offset <= 17
-        andalso (not usePortableConstantOffset orelse constNum < 256)
-     then (
-        if usePortableConstantOffset
-        then (
-            alignOffWord (into, 5);
-            genOpc (opcode_callSlCX, 5, into);
-            genByte(constNum, into)
-            )
-        else (alignOffWord (into, 4); genOpc (opcode_callSlC, 4, into));
-        genConstRef (constNum, into);
-        genByte ((offset - 2) * 16 + level, into)
-        ) 
-     else
-        (
-        if usePortableConstantOffset
-        then (
-            alignOffWord (into, 9);
-            genOpc (opcode_callSlX, 9, into);
-            genWord (constNum, into)
-            )
-        else (alignOffWord (into, 7); genOpc (opcode_callSl, 7, into));
-        genConstRef (constNum, into);
-        genWord (offset, into);
-        genWord (level, into)
-        )
-   end;
 
   fun genContainer (size : int, cvec: code) : unit =
     (genOpc(opcode_containerW, 3, cvec); genWord(size, cvec));

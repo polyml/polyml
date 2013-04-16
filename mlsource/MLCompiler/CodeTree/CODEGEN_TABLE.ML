@@ -1797,42 +1797,7 @@ struct
                 |   _ => search (s + 1, max, foundD); (* end search *)
             in
                 (search (! lowestDirect, ! pstackptr, false), code)
-            end;
-
-    (* Copies an item which is in another procedure, and therefore on a
-       different table, onto the local stack. If the value is relative
-       to the frame pointer we must generate a static-link entry and make
-       the address relative to that. The only values should be either
-       literals (i.e. the address of a static-link called procedure)
-       or a stack value. *)
-    fun pushNonLocal (fromTable, toTable, locn, makeSl: unit-> stackIndex * operation list) : stackIndex * operation list =
-    let
-        val {ent = stacken, uses = use, ...} =  pstackRealEntry(fromTable, locn)
-    in
-        if use <= 0 
-        then raise InternalError "pushNonLocal: zero use count"
-        else ();
-    
-        (* Don't decrement the use-count because there will only be one
-           count for all the references from this closure. *)
-        case stacken of
-            Literal lit => (pushConst (toTable, lit), [])
-        
-        |   CodeRef code => (pushCodeRef (toTable, code), [])
-        
-        |   StackW index =>
-            let
-                (* Load static link entry (this points to the first
-                  word in the frame, not to the base of the frame). *)
-                val (sl, slCode) = makeSl ();                          
-                (* Indirect to get the particular entry in the frame. *)
-                val (entry, indCode) = indirect (~index, sl, toTable)
-            in
-                (entry, indCode @ slCode)
-            end    
-       
-        | _ => raise InternalError "pushNonLocal: not Literal, CodeRef or Stack"
-    end
+            end
          
     (* Loads a value into a register if it is in the argument area.  Used
      for tail-recursive calls. "storeInStack" checks for overwriting
@@ -3140,6 +3105,11 @@ struct
         case pstackRealEntry(table, entry) of
             {ent = Register(reg, _), ...} => SOME reg
         |   _ => NONE
+
+    fun isContainer(entry, table) =
+        case pstackRealEntry(table, entry) of
+            {ent = Container _, ...} => true
+        |   _ => false
 
     structure Sharing =
     struct

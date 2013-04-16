@@ -87,12 +87,6 @@ struct
 
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
 
-    |   BICIndirectVariable of { base: backendIC, offset: backendIC }
-        (* Similar to Indirect except the offset is a variable. *)
-
-    |   BICTupleVariable of bicVarTuple list * backendIC (* total length *)
-        (* Construct a tuple using one or more multi-word items. *)
-
     and bicCodeBinding =
         BICDeclar  of bicSimpleBinding (* Make a local declaration or push an argument *)
     |   BICRecDecs of { addr: int, references: int, lambda: bicLambdaForm } list (* Set of mutually recursive declarations. *)
@@ -102,11 +96,6 @@ struct
         CaseInt
     |   CaseWord
     |   CaseTag of word
-
-    and bicVarTuple =
-        BICVarTupleSingle of { source: backendIC, destOffset: backendIC }
-    |   BICVarTupleMultiple of
-            { base: backendIC, length: backendIC, destOffset: backendIC, sourceOffset: backendIC }
 
     and bicLoadForm =
         BICLoadLocal of int (* Local binding *)
@@ -425,63 +414,6 @@ struct
                 ]
             )
 
-        |   BICIndirectVariable { base, offset } =>
-            PrettyBlock (3, false, [],
-                [
-                    PrettyString("IndirectVariable ("),
-                    PrettyBreak (1, 0),
-                    pretty base,
-                    PrettyBreak (0, 0),
-                    pretty offset,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
-
-        |   BICTupleVariable(vars, length) =>
-            let
-                fun printTup(BICVarTupleSingle{source, destOffset}) =
-                    PrettyBlock(3, false, [],
-                    [
-                        PrettyString "Single (",
-                        pretty source,
-                        PrettyBreak (0, 0),
-                        pretty destOffset,
-                        PrettyBreak (0, 0),
-                        PrettyString ")"
-                    ]
-                    )
-                |   printTup(BICVarTupleMultiple{base, length, destOffset, sourceOffset}) = 
-                    PrettyBlock(3, false, [],
-                    [
-                        PrettyString "Multiple (",
-                        pretty base,
-                        PrettyBreak (0, 0),
-                        pretty length,
-                        PrettyBreak (0, 0),
-                        pretty sourceOffset,
-                        PrettyBreak (0, 0),
-                        pretty destOffset,
-                        PrettyBreak (0, 0),
-                        PrettyString ")"
-                    ]
-                    )
-            in
-                PrettyBlock (3, false, [],
-                [
-                    PrettyString "TupleVariable (",
-                    PrettyBreak (1, 0),
-                    pretty length,
-                    PrettyBreak (0, 0)
-                ] @ pList(vars, ",", printTup) @
-                [
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
-            end
-            
-
         (* That list should be exhaustive! *)
     end (* pretty *)
 
@@ -523,7 +455,6 @@ struct
         and  caseType = caseType
         and  pretty = pretty
         and  argumentType = argumentType
-        and  bicVarTuple = bicVarTuple
         and  bicCodeBinding = bicCodeBinding
         and  bicSimpleBinding = bicSimpleBinding
     end
