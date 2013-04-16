@@ -3111,7 +3111,7 @@ Calling conventions:
                    piece of memory before allocating a new one. *)
                 case code of
                     Code { inAllocation as ref true, ...} => inAllocation := false
-                |   _ => raise InternalError "Found StoreInitialised but not in alloction" ;
+                |   _ => raise InternalError "Found StoreInitialised but not in allocation" ;
                 cgOp remainder
             )
 
