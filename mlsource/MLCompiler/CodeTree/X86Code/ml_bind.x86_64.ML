@@ -1,5 +1,8 @@
 (*
-    Copyright (c) 2013 David C. J. Matthews
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
+
+    Modified David C. J. Matthews 2010, 2013
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,4 +19,10 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure GCode = X86Code;
+structure X86Code = 
+  GENERATE_CODE (
+    structure CODECONS      = CodeCons
+    structure CODEGEN_TABLE = CodeGenTable
+    structure BACKENDTREE  = BackendIntermediateCode
+    structure DEBUG = Debug
+  );

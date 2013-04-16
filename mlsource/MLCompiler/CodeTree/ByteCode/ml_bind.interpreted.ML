@@ -1,5 +1,6 @@
 (*
-    Copyright (c) 2013 David C. J. Matthews
+    Copyright (c) 2000
+        Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -16,4 +17,20 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure GCode = ByteCode;
+local
+    structure CodeCons =
+        INTCODECONS (
+            structure CODESEG = CodeSeg
+            structure DEBUG   = Debug
+            structure MISC    = Boot.Misc
+            structure PRETTY  = Pretty
+        )
+in
+    structure ByteCode = 
+        INTGCODE (
+            structure CODECONS     = CodeCons
+            structure BACKENDTREE  = BackendIntermediateCode
+            structure MISC         = Boot.Misc
+        )
+end;
+ 
