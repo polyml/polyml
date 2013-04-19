@@ -211,6 +211,9 @@ struct
             end
 
         fun inputN (f, n) =
+        if n < 0
+        then raise Size
+        else
         let
             val (vecs, f') = inputNList (f, n)
         in
@@ -431,7 +434,7 @@ struct
                 else doCanInput(rest, n-vecLength, k+vecLength)
             end
     in
-        fun canInput(f, n) = doCanInput(f, n, 0)
+        fun canInput(f, n) = if n < 0 then raise Size else doCanInput(f, n, 0)
     end
 
 
