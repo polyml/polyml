@@ -13,6 +13,7 @@ let
             (* Max inline size is not available as a CP parameter and some tests
                adjust it.  Set it to the default before each test. *)
             val () = maxInlineSize := defaultInlineSize (* Set it to the default *)
+            val () = debug := false (* Reset this *)
             (* First in list is the name with no suffix. *)
             val inStream = TextIO.getInstream(TextIO.openIn fileName)
             val stream = ref inStream
