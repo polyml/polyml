@@ -30,9 +30,19 @@ functor CODETREE_SIMPLIFIER(
 
     structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
 
+    structure REMOVE_REDUNDANT:
+    sig
+        type codetree
+        type loadForm
+        type codeUse
+        val cleanProc : (codetree * codeUse list * (int -> loadForm) * int) -> codetree
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
+    end
+
     sharing
         BASECODETREE.Sharing
     =   CODETREE_FUNCTIONS.Sharing
+    =   REMOVE_REDUNDANT.Sharing
 ) :
     sig
         type codetree and codeBinding and envSpecial
@@ -509,9 +519,18 @@ struct
                 |   NonInline => NonInline
                 |   isInline => (! isNowRecursive andalso raise InternalError "recursive"; isInline)
 
+            (* Clean up the function body at this point if it could be inlined.
+               There are examples where failing to do this can blow up.  This
+               can be the result of creating both a general and special function
+               inside an inline function. *)
+            val cleanBody =
+                case isNowInline of
+                    NonInline => newCode
+                |   _ => REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
+
             val copiedLambda =
                 {
-                    body          = newCode,
+                    body          = cleanBody,
                     isInline      = isNowInline,
                     name          = name,
                     closure       = closureAfterOpt,
@@ -519,49 +538,16 @@ struct
                     resultType    = resultType,
                     localCount    = localCount
                 }
+
+            val inlineCode =
+                case isNowInline of
+                    NonInline => EnvSpecNone
+                |   _ => EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
          in
-            case isNowInline of
-                MaybeInline => (* Explicitly inlined functions. *)
-                    (* These are usually auxiliary functions that produce the "standard"
-                       version of a function and contain a call to the function with multiple
-                       arguments.  The idea of these is that we want this function to be
-                       expanded inline wherever it is used so that the call to the
-                       "standard" (e.g. curried) function is replaced by a call to the
-                       more efficient version.
-                       We need to return a valid "general" version to keep the back-end
-                       happy and provide some code if the standard version is ever used
-                       in a context other than a call.  The "special" result we return
-                       is the original code with a suitable environment.  Typically
-                       we will have called optimiseLambda from the MutualDecs case and
-                       we may not yet have processed the main function that this calls.
-                       It is tempting to iterate over the environment at this point to
-                       produce a vector of (general, special) pairs but that's not a good
-                       idea because we may update the outer environment array with some
-                       inlineable code for the main function.
-                       We can't return the processed code because we would lose the
-                       ability to pick up any inline code for the main function. Also
-                       we may turn this function into a recursive function if the main
-                       function is recursive. *)
-                (
-                    copiedLambda,
-                    EnvSpecInlineFunction(original, fn addr => lookupAddr(List.nth(closure, addr)))
-                )
-
-            |   OnlyInline =>
-                (* Used for functors.  We may not really need a general value here. *)
-                (
-                    copiedLambda,
-                    EnvSpecInlineFunction(original, fn addr => lookupAddr(List.nth(closure, addr)))
-                )
-
-            |   SmallFunction =>
-                    (* The optimiser has decided this is small enough to inline. *)
-                (
-                    copiedLambda,
-                    EnvSpecInlineFunction(copiedLambda, fn addr => (EnvGenLoad(List.nth(closureAfterOpt, addr)), EnvSpecNone))
-                )
-
-            |   NonInline => (* Normal function. *) (copiedLambda, EnvSpecNone)
+            (
+                copiedLambda,
+                inlineCode
+            )
         end
 
     and simpFunctionCall(function, argList, resultType, context as { reprocess, ...}) =

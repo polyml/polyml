@@ -50,6 +50,7 @@ local
         CODETREE_SIMPLIFIER(
             structure BASECODETREE = BaseCodeTree
             structure CODETREE_FUNCTIONS = CodetreeFunctions
+            structure REMOVE_REDUNDANT = CodetreeRemoveRedundant
         )
 
     structure CodetreeOptimiser =
