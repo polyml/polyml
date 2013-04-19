@@ -36,8 +36,7 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
 
     structure DEBUG :
     sig
-        val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
-        val maxInlineSizeTag:       int  Universal.tag
+        val codetreeAfterOptTag: bool Universal.tag (* If true then print the original code. *)
         val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
     end
 
@@ -78,7 +77,7 @@ struct
         fun codeGenerateToConstant debugSwitches (pt, localCount) =
         let
             val () =
-                if DEBUG.getParameter DEBUG.codetreeTag debugSwitches
+                if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
                 then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty pt) else ()
 
             val code = BACKEND.codeGenerate(pt, localCount, debugSwitches)
