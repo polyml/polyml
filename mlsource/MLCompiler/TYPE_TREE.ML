@@ -1622,7 +1622,7 @@ struct
                 (
                     case tcIdentifier constr of
                         TypeId{access=Local{addr, ...}, ...} =>
-                            if !addr = 0
+                            if !addr < 0
                             then 
                             (
                                 errorFn("Type of expression contains local datatype (" ^ tcName constr

@@ -2013,7 +2013,7 @@ struct
                 val idNumber = topLevelIdNumber()
                 val newId =
                     (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                        (Local{addr = ref 0, level = ref baseLevel}, idNumber, eq, isdt, description)
+                        (Local{addr = ref ~1, level = ref baseLevel}, idNumber, eq, isdt, description)
             in
                 typeIds := newId :: ! typeIds;
                 newId
@@ -2223,7 +2223,7 @@ struct
                             val () = typeStamps := n + 1;
                             val newId =
                                 (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                                    (Local{addr = ref 0, level = ref baseLevel}, n, eq, isdt, desc)
+                                    (Local{addr = ref ~1, level = ref baseLevel}, n, eq, isdt, desc)
                         in
                             localStamps := newId :: !localStamps;
                             newId

@@ -453,7 +453,7 @@ struct
            which have the PolyML prefix. *)
         val description = basisDescription tIdPath
         val id =
-            makeBoundId(Local{addr = ref 0, level = ref baseLevel}, 0 (* IdNumber*),
+            makeBoundId(Local{addr = ref ~1, level = ref baseLevel}, 0 (* IdNumber*),
                 isEqType, true, description)
         val dtype = makeTypeConstructor (tcName, tyVars, id, [DeclaredAt inBasis]);
         (* Build the constructors. *)
@@ -512,9 +512,9 @@ struct
             val alphaList     = mkTypeConstruction ("list", listType, [alpha], [DeclaredAt inBasis]);
             val consType      = mkFunctionType (mkProductType [alpha, alphaList], alphaList);
             val nilConstructor  =
-                makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
+                makeValueConstr ("nil", alphaList, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val consConstructor =
-                makeValueConstr ("::",  consType,  false, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
+                makeValueConstr ("::",  consType,  false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
             val nilRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "nil")
             val consRepresentation = createUnaryConstructor(UnboxedForm 2, [alpha], "::")
         in
@@ -543,9 +543,9 @@ struct
             val alphaOption   = mkTypeConstruction ("option", optionType, [alpha], [DeclaredAt inBasis]);
             val someType      = mkFunctionType (alpha, alphaOption);
             val noneConstructor  =
-                makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis]);
+                makeValueConstr ("NONE", alphaOption, true, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val someConstructor =
-                makeValueConstr ("SOME", someType, false, 2, Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis]);
+                makeValueConstr ("SOME", someType, false, 2, Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis]);
             val noneRepresentation = createNullaryConstructor(EnumForm{tag=0w0, maxTag=0w0}, [alpha], "NONE")
             and someRepresentation = createUnaryConstructor(BoxedForm, [alpha], "SOME")
         in
@@ -606,7 +606,7 @@ struct
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                     makeValueConstr(s, mkFunctionType(t, contextType), false, numConstrs,
-                        Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
+                        Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
                 val {constrs=constrCode, boxed, size} = chooseConstrRepr(constrs, [])
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), boxed, size)
@@ -634,7 +634,7 @@ struct
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
                     makeValueConstr(s, mkFunctionType(t, prettyType), false, numConstrs,
-                        Local{addr=ref 0, level=ref baseLevel}, [DeclaredAt inBasis])
+                        Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
                 val {constrs=constrCode, ...} = chooseConstrRepr(constrs, [])
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), TypeValue.boxedEither, TypeValue.singleWord)
