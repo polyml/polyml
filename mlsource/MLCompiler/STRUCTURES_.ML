@@ -2877,7 +2877,7 @@ struct
                                 (* This code will build a cons cell containing the run-time value
                                    associated with the type Id as the hd and the rest of the run-time
                                    environment as the tl. *)
-                                val loadTypeId = mkInd(addr, mkLoad (~1, level, level))
+                                val loadTypeId = mkInd(addr, mkLoadArgument 0)
                                 val newEnv = mkTuple [ loadTypeId, rtEnv level ]
                                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                             in
