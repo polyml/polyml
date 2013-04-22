@@ -39,6 +39,8 @@ struct
   val POLY_SYS_teststrleq          = 29
   val POLY_SYS_exception_trace     = 30
   val POLY_SYS_give_ex_trace       = 31 (* Only used within the RTS*)
+  val POLY_SYS_exception_trace_fn  = 32
+  val POLY_SYS_give_ex_trace_fn    = 33 (* Only used within the RTS*)
   val POLY_SYS_lockseg             = 47
   val POLY_SYS_emptystring         = 48
   val POLY_SYS_nullvector          = 49
@@ -177,6 +179,7 @@ struct
   val EXC_XWindows    = 10
   val EXC_subscript   = 11
   val EXC_thread      = 12 (* DCJM 13/3/07. *)
+  val EXC_extrace     = 13
 
   val EXC_foreign     = 23  (* nic 4/5/94 *)
   

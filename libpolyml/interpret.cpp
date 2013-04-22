@@ -108,6 +108,7 @@ public:
 // a return address it means exception_trace has returned.
 #define SPECIAL_PC_TRACE_EX    TAGGED(0)
 #define SPECIAL_PC_END_THREAD  TAGGED(1)
+#define SPECIAL_PC_TRACE_EX_FN TAGGED(2)
 
 class Interpreter : public MachineDependent {
 public:
@@ -141,7 +142,7 @@ public:
     // calling are actually IO functions and don't have code addresses.  Actually
     // we could instead make the interpreter handle small tagged integers as
     // code addresses specially.
-    virtual void SetExceptionTrace(TaskData *taskData) { ASSERT(false); }
+    virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy) { ASSERT(false); }
     virtual void CallCodeTupled(TaskData *taskData) { ASSERT(false); }
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
@@ -625,10 +626,22 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         break;
 
                     case POLY_SYS_exception_trace:
-                        u = *sp; /* Procedure to call. */
+                        u = *sp; /* Function to call. */
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
                         *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
                         *(--sp) = SPECIAL_PC_TRACE_EX; /* Marks exception trace. */
+                        *(--sp) = Zero; /* Catch everything. */
+                        taskData->stack->stack()->p_hr = sp; /* Handler is here. */
+                        pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
+                        *(--sp) = Zero; /* Unit argument to the function. */
+                        *(--sp) = u; /* Push the procedure. */
+                        goto CALL_CLOSURE;
+
+                    case POLY_SYS_exception_trace_fn:
+                        u = *sp; /* Function to call. */
+                        *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
+                        *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
+                        *(--sp) = SPECIAL_PC_TRACE_EX_FN; /* Marks exception trace. */
                         *(--sp) = Zero; /* Catch everything. */
                         taskData->stack->stack()->p_hr = sp; /* Handler is here. */
                         pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
@@ -815,16 +828,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 taskData->stack->stack()->p_sp = sp; /* Save this in case of trace. */
                 PolyWord *t = taskData->stack->stack()->p_hr;  /* First handler */
                 PolyWord *endStack = taskData->stack->top;
-                /* Handlers consist of one or more pairs of identifier and
-                   code address, followed by the address of the next handler. */
-                while (*t != Zero && *t != exId) {
-                    /* Loop until we find an ELSE handler or one that matches */
-                    t += 2; /* Go on to next. */
-                    /* If it points into stack it must be a pointer to the next
-                       handler. */
-                    if ((*t).AsStackAddr() > t && (*t).AsStackAddr() < endStack)
-                        t = (*t).AsStackAddr();
-                }
+                // The "identifier" should now always be zero meaning that it handles
+                // all exceptions.
+                ASSERT(*t == Zero);
                 t++; /* Skip over the identifier to point at the code address. */
                 if (*t == SPECIAL_PC_TRACE_EX)
                 { /* Trace this exception. */ 
@@ -839,7 +845,25 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     catch (IOException) {
                     }
                     taskData->saveVec.reset(marker);
-                    // This will have reraised the xception by calling SetException
+                    // This will have reraised the exception by calling SetException
+                    goto RESTART;
+                }
+                else if (*t == SPECIAL_PC_TRACE_EX_FN)
+                {
+                    // New exception trace
+                    *sp = PolyWord::FromCodePtr(pc); /* So that this function will be included. */
+                    // exceptionToTraceException expects the new format of exception handling that is
+                    // used in the X86 code-generator.  That does not push an exception id.
+                    taskData->stack->stack()->p_hr = t;
+                    Handle marker = taskData->saveVec.mark();
+                    try {
+                        exceptionToTraceException(taskData,
+                            taskData->saveVec.push(taskData->stack->stack()->p_reg[0]));
+                    }
+                    catch (IOException) {
+                    }
+                    taskData->saveVec.reset(marker);
+                    // This will have reraised the exception by calling SetException
                     goto RESTART;
                 }
                 else if (*t == SPECIAL_PC_END_THREAD)
@@ -1348,6 +1372,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_teststrgeq, TAGGED(POLY_SYS_teststrgeq));
     add_word_to_io_area(POLY_SYS_teststrleq, TAGGED(POLY_SYS_teststrleq));
     add_word_to_io_area(POLY_SYS_exception_trace, TAGGED(POLY_SYS_exception_trace));
+    add_word_to_io_area(POLY_SYS_exception_trace_fn, TAGGED(POLY_SYS_exception_trace_fn));
     add_word_to_io_area(POLY_SYS_lockseg, TAGGED(POLY_SYS_lockseg));
     add_word_to_io_area(POLY_SYS_profiler, TAGGED(POLY_SYS_profiler));
     add_word_to_io_area(POLY_SYS_is_short, TAGGED(POLY_SYS_is_short));

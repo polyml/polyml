@@ -277,6 +277,7 @@ Handle make_exn(TaskData *taskData, int id, Handle arg)
     case EXC_foreign: exName = "Foreign"; break;
     case EXC_Fail: exName = "Fail"; break;
     case EXC_thread: exName = "Thread"; break;
+    case EXC_extrace: exName = "ExTrace"; break;
     default: ASSERT(0); exName = "Unknown"; // Shouldn't happen.
     }
    
@@ -378,82 +379,57 @@ void raise_fail(TaskData *taskData, const char *errmsg)
     raise_exception_string(taskData, EXC_Fail, errmsg);
 }
 
-
-/******************************************************************************/
-/*                                                                            */
-/*      TRACE FUNCTIONS                                                       */
-/*                                                                            */
-/******************************************************************************/
-
-bool trace_allowed = false; // Allows ^C to abort a trace.
-
-/******************************************************************************/
-/*                                                                            */
-/*      give_stack_trace - utility function - doesn't allocate                */
-/*                                                                            */
-/******************************************************************************/
-void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
+// Build a list of the function names on the stack.
+Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endOfTrace)
 {
-    /* Now search for the return addresses on the stack.
-       The values we find on the stack which are not PolyWord aligned may be
-       either return addresses or the addresses of handlers. */
-
-    trace_allowed = true; /* May be switch off by catchINT. */
-    
-    // The exception handler is used to suppress the addresses of
-    // handlers which would otherwise look like return addresses.
-    // Since we don't pass that in we may find it is actually out of
-    // date if we are producing a trace as a result of pressing ^C.
+    Handle saved = taskData->saveVec.mark();
+    Handle list = SAVE(ListNull);
     StackObject *stack = taskData->stack->stack();
-    PolyWord *exceptions = stack->p_hr;
     PolyWord *endStack = taskData->stack->top;
-    
-#ifdef DEBUG    
-    printf("starting trace: sp = %p, finish = %p, end_of_stack = %p\n",
-        sp, finish, endStack);
-    fflush(stdout);
-#endif
-    
-    if (finish > endStack) finish = endStack;
-    
-    for(; trace_allowed && sp < finish-1; sp++)
+    if (endOfTrace > endStack) endOfTrace = endStack;
+
+    for (PolyWord *sp = endOfTrace; sp >= startOfTrace; sp--)
     {
         PolyWord pc = *sp;
-        
-        /* If this is an exception handler do not treat it as return
-           address, just get the next handler */
-        if (sp == exceptions)
+        if (pc.IsCodePtr() && sp != stack->p_hr)
         {
-            /* Skip over the handlers until we find the next pointer up the
-                stack. */
-            while (sp < finish) {
-                exceptions = (*sp).AsStackAddr();
-                if (exceptions >= sp && exceptions <= endStack)
-                    break;
-                sp++;
-            }
-        }
-        else if (pc.IsCodePtr())
-        {
-           /* A code pointer will be either a return address or a pointer
-              to the constant section. (Or an exception handler?) */
-            // We used to have a check that this was not a constant area
-            // pointer but we don't have those any more.
-            
-            /* Initialise ptr to points at the end-of-code marker */
-            // This used to use the OBJ_CODEPTR_TO_CONSTS_PTR macro which
-            // simply looked for the end-of-code marker.
+            // A code pointer can be a return address or an exception
+            // handler but if we're producing an exception trace the
+            // only exception handler will be the one for exception
+            // trace itself.
             PolyObject *ptr = ObjCodePtrToPtr(pc.AsCodePtr());
             PolyWord *consts = ptr->ConstPtrForCode();
-            PolyWord p_name = consts[0]; /* Get procedure name */
-            
-            /* The name may be zero if it is anonymous */
-            if (p_name == TAGGED(0)) fputs("<anon>\n",stdout);
-            else {
-                print_string(p_name);
-                putc('\n',stdout);
-            }
+
+            // The name may be zero if it is anonymous.
+            // We have to be careful that a GC might move the code or the name.
+            // Stack areas are no longer in the ML heap so we don't need to worry
+            // about the stack pointer.
+            Handle functionName =
+                consts[0] == TAGGED(0) ? SAVE(C_string_to_Poly(taskData, "<anon>")) : SAVE(consts[0]);
+            Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
+
+            DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(functionName); 
+            DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+
+            taskData->saveVec.reset(saved);
+            list = SAVE(DEREFHANDLE(next));
         }
+    }
+
+    return list;
+}
+
+void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
+{
+    Handle listHandle = buildStackList(taskData, sp, finish);
+    PolyWord list = listHandle->Word();
+
+    while (! (list.IsTagged()))
+    {
+        ML_Cons_Cell *p = (ML_Cons_Cell*)list.AsObjPtr();
+        print_string(p->h);
+        putc('\n',stdout);
+        list = p->t;
     }
     fflush(stdout);
 }
@@ -472,12 +448,7 @@ static Handle stack_trace_c(TaskData *taskData)
     return SAVE(TAGGED(0));
 }
 
-/******************************************************************************/
-/*                                                                            */
-/*      ex_tracec - called from assembly code                                 */
-/*                                                                            */
-/******************************************************************************/
-/* CALL_IO2(ex_trace, REF, REF, NOIND) */
+// Legacy exception trace
 Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
 {
     PolyWord *handler = DEREFWORD(handler_handle).AsStackAddr();
@@ -506,7 +477,7 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     give_stack_trace(taskData, stack->p_sp, handler);
     fputs("End of trace\n\n",stdout);
     fflush(stdout);
-    
+
     /* Set up the next handler so we don't come back here when we raise
        the exception again. */
     taskData->stack->stack()->p_hr = (PolyWord*)(handler->AsStackAddr());
@@ -518,7 +489,27 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     /*NOTREACHED*/
 }
 
-/* end of interrupt handling */
+// Current exception trace.  This creates a special exception packet and
+// raises it so that the ML code can print the trace.
+Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle)
+{
+    StackObject *stack = taskData->stack->stack();
+    // p_hr points at a pair of values.  The first word will be the
+    // entry point to the handler i.e. to this code, the second word is
+    // the stack address of the handler to restore.
+    PolyWord *handler = stack->p_hr+1;
+    Handle listHandle = buildStackList(taskData, stack->p_sp, handler);
+    // Construct a pair of the trace list and the exception packet
+    Handle pair = alloc_and_save(taskData, 2);
+    pair->WordP()->Set(0, listHandle->Word());
+    pair->WordP()->Set(1, exnHandle->Word());
+    // Set up the next handler so we don't come back here when we raise
+    // the exception again. */
+    taskData->stack->stack()->p_hr = (PolyWord*)(handler->AsStackAddr());
+    // Raise this as an exception.  The handler will be able to
+    // print the trace and reraise the exception.
+    raise_exception(taskData, EXC_extrace, pair);
+}
 
 // Return the address of the iovec entry for a given index.
 Handle io_operation_c(TaskData *taskData, Handle entry)
@@ -1207,7 +1198,13 @@ Handle EnterPolyCode(TaskData *taskData)
                 break;
 
             case POLY_SYS_exception_trace: // Special case.
-                machineDependent->SetExceptionTrace(taskData);
+                // This is the legacy version. 
+                machineDependent->SetExceptionTrace(taskData, true);
+                break;
+
+            case POLY_SYS_exception_trace_fn: // Special case.
+                // This is the current version. 
+                machineDependent->SetExceptionTrace(taskData, false);
                 break;
 
     //        case POLY_SYS_lockseg: machineDependent->CallIO1(taskData, &locksegc); break;
@@ -1685,6 +1682,10 @@ Handle EnterPolyCode(TaskData *taskData)
             // io vector.
             case POLY_SYS_give_ex_trace:
                 machineDependent->CallIO2(taskData, ex_tracec);
+                break;
+
+            case POLY_SYS_give_ex_trace_fn:
+                machineDependent->CallIO1(taskData, exceptionToTraceException);
                 break;
 
             default:

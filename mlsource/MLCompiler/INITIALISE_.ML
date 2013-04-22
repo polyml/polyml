@@ -217,6 +217,7 @@ struct
             val Unit   = unitType;
             val Char   = charType;
             val Word   = wordType;
+            val Exn    = exnType
             
             val mkTypeConstruction = mkTypeConstruction;
         end;
@@ -604,7 +605,8 @@ struct
                     ("XWindows",    EXC_XWindows,       String),
                     ("Foreign",     EXC_foreign,        String),
                     ("Thread",      EXC_thread,         String),
-                    ("SysErr",      EXC_syserr,         String ** Option Int)
+                    ("SysErr",      EXC_syserr,         String ** Option Int),
+                    ("ExTrace",     EXC_extrace,        List String ** Exn)
                 ]
         end
 

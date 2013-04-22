@@ -65,6 +65,7 @@ extern PolyObject *alloc(TaskData *taskData, POLYUNSIGNED words, unsigned flags 
 extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 
 extern Handle ex_tracec(TaskData *taskData, Handle exc_data, Handle handler_handle);
+extern Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle);
 
 /* exceptions and interrupts */
 NORETURNFN(extern void raise_exception(TaskData *taskData, int id, Handle arg));
@@ -84,8 +85,6 @@ extern Handle EnterPolyCode(TaskData *taskData);
 extern void give_stack_trace(TaskData *taskData, PolyWord *stackPtr, PolyWord *finish);
 
 Handle make_exn(TaskData *taskData, int id, Handle arg);
-
-extern bool trace_allowed;
 
 extern void add_word_to_io_area(unsigned sysop, PolyWord val);
 

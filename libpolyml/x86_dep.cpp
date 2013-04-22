@@ -195,7 +195,7 @@ public:
     virtual void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle));
     virtual void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle));
     virtual Handle CallBackResult(TaskData *taskData) { return ((X86TaskData*)taskData->mdTaskData)->callBackResult; } 
-    virtual void SetExceptionTrace(TaskData *taskData);
+    virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy);
     virtual void CallCodeTupled(TaskData *taskData);
     virtual void SetCallbackFunction(TaskData *taskData, Handle func, Handle args);
     // Increment or decrement the first word of the object pointed to by the
@@ -216,7 +216,7 @@ public:
     bool emulate_instrs(TaskData *taskData);
     Handle BuildCodeSegment(TaskData *taskData, const byte *code, unsigned bytes, char functionName);
     Handle BuildKillSelf(TaskData *taskData);
-    Handle BuildExceptionTrace(TaskData *taskData);
+    Handle BuildExceptionTrace(TaskData *taskData, bool isLegacy);
 };
 
 
@@ -353,7 +353,6 @@ enum RETURN_REASON {
 
 extern "C" {
 
-
     // These are declared in the assembly code segment.
     void X86AsmSwitchToPoly(MemRegisters *);
     void X86AsmSaveStateAndReturn(void);
@@ -361,6 +360,7 @@ extern "C" {
     unsigned X86AsmGetFPControlWord(void);
     byte *X86AsmRestoreHandlerAfterExceptionTraceCode(void);
     byte *X86AsmGiveExceptionTraceCode(void);
+    byte *X86AsmGiveExceptionTraceFnCode(void);
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 
@@ -369,6 +369,7 @@ extern "C" {
     byte *X86AsmCallPOLY_SYS_chdir(void);
     byte *X86AsmCallPOLY_SYS_get_flags(void);
     byte *X86AsmCallPOLY_SYS_exception_trace(void);
+    byte *X86AsmCallPOLY_SYS_exception_trace_fn(void);
     byte *X86AsmCallPOLY_SYS_profiler(void);
     byte *X86AsmCallPOLY_SYS_Real_str(void);
     byte *X86AsmCallPOLY_SYS_Real_Dispatch(void);
@@ -822,17 +823,18 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
 // If the handler isn't called the dummy handler is simply removed.
 // This is tricky since when we "return" we actually need to run the new
 // function.
-void X86Dependent::SetExceptionTrace(TaskData *taskData)
+void X86Dependent::SetExceptionTrace(TaskData *taskData, bool isLegacy)
 {
     taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
     Handle fun = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle extrace = BuildExceptionTrace(taskData);
+    Handle extrace = BuildExceptionTrace(taskData, isLegacy);
     PolyObject *functToCall = fun->WordP();
     PSP_EDX(taskData) = functToCall; // Closure address
     // Leave the return address where it is on the stack.
     taskData->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
     *(--PSP_SP(taskData)) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr);
     // Handler addresses must be word + 2 byte aligned.
+    // Is that still true or only for the old exception mechanism?
     *(--PSP_SP(taskData)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
     taskData->stack->stack()->p_hr = PSP_SP(taskData);
     byte *codeAddr = X86AsmRestoreHandlerAfterExceptionTraceCode();
@@ -1752,6 +1754,9 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_exception_trace, codeAddr);
     add_word_to_io_area(POLY_SYS_exception_trace, PolyWord::FromCodePtr(codeAddr));
 
+    MAKE_IO_CALL_SEQUENCE(POLY_SYS_exception_trace_fn, codeAddr);
+    add_word_to_io_area(POLY_SYS_exception_trace_fn, PolyWord::FromCodePtr(codeAddr));
+
     add_function_to_io_area(POLY_SYS_lockseg, &locksega);
 
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_profiler, codeAddr);
@@ -1955,9 +1960,10 @@ Handle X86Dependent::BuildKillSelf(TaskData *taskData)
 // Similarly for the exception trace code.  This is more complicated.
 // For backwards compatibility we need the address to be on a word + 2 byte
 // boundary.
-Handle X86Dependent::BuildExceptionTrace(TaskData *taskData)
+Handle X86Dependent::BuildExceptionTrace(TaskData *taskData, bool isLegacy)
 {
-    byte *codeAddr = X86AsmGiveExceptionTraceCode();
+    byte *codeAddr =
+        isLegacy ? X86AsmGiveExceptionTraceCode() : X86AsmGiveExceptionTraceFnCode();
     return BuildCodeSegment(taskData, codeAddr, 20, 'E');
 }
 

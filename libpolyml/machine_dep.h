@@ -106,7 +106,7 @@ public:
     virtual void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle)) = 0;
     // These next two are sufficiently different that they need to be implemented
     // as special cases.
-    virtual void SetExceptionTrace(TaskData *taskData) = 0;
+    virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy) = 0;
     virtual void CallCodeTupled(TaskData *taskData) = 0;
     // This is used to get the argument to the callback_result function.
     virtual Handle CallBackResult(TaskData *taskData) = 0;

@@ -40,6 +40,15 @@ in
     open PolyML;
 
     local
+        (* This is slightly awkward but is needed because otherwise the compiler
+           would complain about a free type variable. *)
+        val etrace: word->word = RunCall.run_call1 POLY_SYS_exception_trace;
+    in
+        fun exception_trace (f: unit->'a):'a =
+            RunCall.unsafeCast etrace f
+    end
+
+    local
         (* Initialise the list with the existing start-up function *)
         val onEntryList: (unit->unit) list ref = ref[]
         (* Run the list in reverse order. *)
@@ -148,68 +157,52 @@ in
             end
         end
     end
-        structure Exception =
-        struct
-            fun traceException(f: unit->'a, h: string list * exn -> 'a): 'a =
-                RunCall.run_call1 POLY_SYS_exception_trace_fn f
-                    handle RunCall.ExTrace(s, e) => h(s, e)
 
-            fun exceptionLocation(exn: exn): location option =
-            let
-                open RuntimeCalls
-                datatype RuntimeLocation =
-                    NoLocation
-                |   SomeLocation of
-                        (* file: *) string * 
-                        (*startLine:*) int *  (*startPosition:*) int *
-                        (*endLine:*) int * (*endPosition:*) int
-            in
-                (* If we get an exception in the compiler it may be code that was built using the
-                   old exception packet format that didn't include a loction so we need to check the
-                   length of the packet first.  This won't be needed once we can be sure we're using
-                   5.3. *)
-                if RunCall.run_call1 POLY_SYS_get_length exn < 0w4
-                then NONE
-                else case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
-                    NoLocation => NONE
-                |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
-                        SOME { file=file, startLine=startLine, startPosition=startPosition,
-                               endLine=endLine, endPosition=endPosition }
-            end
+    (* Raise an exception using a given location rather than the value in the packet. *)
+    fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
+    let
+        open RunCall RuntimeCalls
+        fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
+        (* This datatype is used in VALUE_OPS and FinalPolyML to define the format of a
+           location in an exception packet.  It includes the possibility that the location
+           information may be missing. *)
+        datatype RuntimeLocation =
+            NoLocation
+        |   SomeLocation of
+                (* file: *) string * 
+                (*startLine:*) int *  (*startPosition:*) int *
+                (*endLine:*) int * (*endPosition:*) int
+       val packet =
+        (getEntry 0, getEntry 1, getEntry 2,
+                SomeLocation(file, startLine, startPosition, endLine, endPosition))
+    in
+        run_call1 POLY_SYS_raisex packet
+    end
 
-            (* Raise an exception using a given location rather than the value in the packet. *)
-            fun raiseWithLocation(ex: exn, {file, startLine, startPosition, endLine, endPosition}: location) =
-            let
-                open RunCall RuntimeCalls
-                fun getEntry n = run_call2 POLY_SYS_load_word(ex, n)
-                (* This datatype is used in VALUE_OPS and FinalPolyML to define the format of a
-                   location in an exception packet.  It includes the possibility that the location
-                   information may be missing. *)
-                datatype RuntimeLocation =
-                    NoLocation
-                |   SomeLocation of
-                        (* file: *) string * 
-                        (*startLine:*) int *  (*startPosition:*) int *
-                        (*endLine:*) int * (*endPosition:*) int
-               val packet =
-                (getEntry 0, getEntry 1, getEntry 2,
-                        SomeLocation(file, startLine, startPosition, endLine, endPosition))
-            in
-                run_call1 POLY_SYS_raisex packet
-            end
 
-            (* Re-raise an exception that has been handled preserving the location. *)
-            (* This is in LibrarySupport but is probably generally useful. *)
-            fun reraise exn =
-                case exceptionLocation exn of
-                    NONE => raise exn
-                |   SOME location => raiseWithLocation (exn, location)
-        end
-
-        (* For backwards compatibility include these in the PolyML structure. *)
-        val exceptionLocation = Exception.exceptionLocation
-        and raiseWithLocation = Exception.raiseWithLocation
-
+    fun exceptionLocation(exn: exn): location option =
+    let
+        open RuntimeCalls
+        datatype RuntimeLocation =
+            NoLocation
+        |   SomeLocation of
+                (* file: *) string * 
+                (*startLine:*) int *  (*startPosition:*) int *
+                (*endLine:*) int * (*endPosition:*) int
+    in
+        (* If we get an exception in the compiler it may be code that was built using the
+           old exception packet format that didn't include a loction so we need to check the
+           length of the packet first.  This won't be needed once we can be sure we're using
+           5.3. *)
+        if RunCall.run_call1 POLY_SYS_get_length exn < 0w4
+        then NONE
+        else case RunCall.run_call2 POLY_SYS_load_word(exn, 0w3) of
+            NoLocation => NONE
+        |   SomeLocation(file, startLine, startPosition, endLine, endPosition) =>
+                SOME { file=file, startLine=startLine, startPosition=startPosition,
+                       endLine=endLine, endPosition=endPosition }
+    end
+    
         exception XWindows = RunCall.XWindows
         and       Foreign  = RunCall.Foreign
 

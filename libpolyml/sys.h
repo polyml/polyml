@@ -48,6 +48,8 @@
 #define POLY_SYS_teststrleq          29
 #define POLY_SYS_exception_trace     30
 #define POLY_SYS_give_ex_trace       31 /* Called from exception unwind code. */
+#define POLY_SYS_exception_trace_fn  32
+#define POLY_SYS_give_ex_trace_fn    33 // Called to produce the exception trace
 #define POLY_SYS_lockseg             47
 #define POLY_SYS_emptystring         48 // A value not a function
 #define POLY_SYS_nullvector          49 // A value not a function
@@ -215,6 +217,8 @@
 #define EXC_subscript   11 /* General.Subscript */
 
 #define EXC_thread      12 /* Thread.Thread. */  /* DCJM 13/3/07 */
+
+#define EXC_extrace     13 // Used for exception tracing
 
 #define EXC_foreign     23  /* nic 4/5/94 */
 

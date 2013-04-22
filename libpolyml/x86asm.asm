@@ -572,6 +572,8 @@ POLY_SYS_teststrgeq          EQU 28
 POLY_SYS_teststrleq          EQU 29
 POLY_SYS_exception_trace     EQU 30
 POLY_SYS_give_ex_trace       EQU 31
+POLY_SYS_exception_trace_fn  EQU 32
+POLY_SYS_give_ex_trace_fn    EQU 33
 POLY_SYS_lockseg             EQU 47
 POLY_SYS_emptystring         EQU 48
 POLY_SYS_nullvector          EQU 49
@@ -2625,6 +2627,7 @@ CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceCode
 
 ;# This also returns the address of some template code.  It is called
 ;# if the function set up by exception_trace raises an exception.
+;# This is retained for backwards compatibility
 CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceCode
     CALL    ReturnFromStack                 ;# Not a real call
 
@@ -2634,6 +2637,20 @@ CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceCode
     MOVL    HandlerRegister[Rebp],Reax  ;# Handler register
     ADDL    CONST POLYWORDSIZE,Reax     ;# Point at the handler to restore
 CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace
+    NOP                                 ;# More NOPs for padding
+    NOP
+    NOP
+
+;# This also returns the address of some template code.  It is called
+;# if the function set up by exception_trace raises an exception.
+;# The 
+CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnCode
+    CALL    ReturnFromStack                 ;# Not a real call
+
+    NOP                                 ;# Two NOPs - for alignment
+    NOP
+    ;# The exception packet is the first argument.
+CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace_fn
     NOP                                 ;# More NOPs for padding
     NOP
     NOP
@@ -2981,6 +2998,7 @@ CREATE_EXTRA_CALL MACRO index
     CREATE_IO_CALL  POLY_SYS_chdir
     CREATE_IO_CALL  POLY_SYS_get_flags
     CREATE_IO_CALL  POLY_SYS_exception_trace
+    CREATE_IO_CALL  POLY_SYS_exception_trace_fn
     CREATE_IO_CALL  POLY_SYS_profiler
     CREATE_IO_CALL  POLY_SYS_Real_str
     CREATE_IO_CALL  POLY_SYS_Real_Dispatch

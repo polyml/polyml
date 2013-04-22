@@ -94,6 +94,8 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_teststrleq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_exception_trace: return 0;
     case POLY_SYS_give_ex_trace: return 0;
+    case POLY_SYS_exception_trace_fn: return 0;
+    case POLY_SYS_give_ex_trace_fn: return 0;
     case POLY_SYS_lockseg: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_emptystring: return 0; // Not a function
     case POLY_SYS_nullvector: return 0; // Not a function
