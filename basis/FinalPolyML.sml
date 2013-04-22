@@ -948,7 +948,7 @@ local
             (
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                TextIO.StreamIO.input1 (! stream);
+                TextIO.StreamIO.closeIn (! stream);
                 LibrarySupport.reraise exn
             )
         end;
