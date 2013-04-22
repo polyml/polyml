@@ -2628,6 +2628,7 @@ CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceCode
 ;# This also returns the address of some template code.  It is called
 ;# if the function set up by exception_trace raises an exception.
 ;# This is retained for backwards compatibility
+;# N.B.  The length of this code (20 bytes) is built into X86Dependent::BuildExceptionTrace.
 CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceCode
     CALL    ReturnFromStack                 ;# Not a real call
 
@@ -2637,13 +2638,13 @@ CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceCode
     MOVL    HandlerRegister[Rebp],Reax  ;# Handler register
     ADDL    CONST POLYWORDSIZE,Reax     ;# Point at the handler to restore
 CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace
-    NOP                                 ;# More NOPs for padding
-    NOP
+    NOP                                 ;# Pad up to 20 bytes so it has
+    NOP                                 ;# the same length in 32 & 64-bits.
     NOP
 
 ;# This also returns the address of some template code.  It is called
-;# if the function set up by exception_trace raises an exception.
-;# The 
+;# if the function set up by traceException raises an exception.
+;# The length of this code (9 bytes) is built into X86Dependent::BuildExceptionTrace.
 CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnCode
     CALL    ReturnFromStack                 ;# Not a real call
 
@@ -2651,9 +2652,7 @@ CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnCode
     NOP
     ;# The exception packet is the first argument.
 CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace_fn
-    NOP                                 ;# More NOPs for padding
-    NOP
-    NOP
+
 
 ;# This implements atomic addition in the same way as atomic_increment
 CALLMACRO INLINE_ROUTINE X86AsmAtomicIncrement

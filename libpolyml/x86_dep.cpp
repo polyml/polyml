@@ -1962,9 +1962,16 @@ Handle X86Dependent::BuildKillSelf(TaskData *taskData)
 // boundary.
 Handle X86Dependent::BuildExceptionTrace(TaskData *taskData, bool isLegacy)
 {
-    byte *codeAddr =
-        isLegacy ? X86AsmGiveExceptionTraceCode() : X86AsmGiveExceptionTraceFnCode();
-    return BuildCodeSegment(taskData, codeAddr, 20, 'E');
+    if (isLegacy)
+    {
+        byte *codeAddr = X86AsmGiveExceptionTraceCode();
+        return BuildCodeSegment(taskData, codeAddr, 20, 'E');
+    }
+    else
+    {
+        byte *codeAddr = X86AsmGiveExceptionTraceFnCode();
+        return BuildCodeSegment(taskData, codeAddr, 9, 'E');
+    }
 }
 
 void X86Dependent::SetException(TaskData *taskData, poly_exn *exc)
