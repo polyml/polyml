@@ -283,7 +283,14 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
             break;
 
-        case INSTR_set_handler: /* Set up a handler */
+        case INSTR_set_handler_new: /* Set up a handler */
+            *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
+            taskData->stack->stack()->p_hr = sp;
+            pc += 1;
+            break;
+
+        case INSTR_set_handler_old: /* Set up a handler */
+            // Legacy version.  The handler pushes an exception id.
             *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
             taskData->stack->stack()->p_hr = sp-1; /*Point to identifier about to be pushed*/
             pc += 1;
@@ -293,11 +300,12 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             {
                 PolyWord u = *sp++;
                 sp = taskData->stack->stack()->p_hr;
-                PolyWord *t;
                 PolyWord *endStack = taskData->stack->top;
-                while ((t = (*sp).AsStackAddr()) < sp || t > endStack) sp++;
-                taskData->stack->stack()->p_hr = t;
-                *sp = u;
+                if (*sp == TAGGED(0)) sp++; // Legacy
+                sp++; // Skip handler entry point
+                // Restore old handler
+                taskData->stack->stack()->p_hr = (*sp).AsStackAddr();
+                *sp = u; // Put back the result
                 pc += *pc + 1; /* Skip the handler */
                 break;
             }
@@ -316,7 +324,17 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 break;
             }
 
-        case INSTR_set_handler_i: /* Set up a handler */
+        case INSTR_set_handler_new_i: /* Set up a handler */
+            {
+                byte *u = pc + *pc + 1;
+                *(--sp) = /* Address of handler */
+                    PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
+                taskData->stack->stack()->p_hr = sp;
+                pc += 1;
+                break;
+            }
+
+        case INSTR_set_handler_old_i: /* Set up a handler */
             {
                 byte *u = pc + *pc + 1;
                 *(--sp) = /* Address of handler */
@@ -828,10 +846,8 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 taskData->stack->stack()->p_sp = sp; /* Save this in case of trace. */
                 PolyWord *t = taskData->stack->stack()->p_hr;  /* First handler */
                 PolyWord *endStack = taskData->stack->top;
-                // The "identifier" should now always be zero meaning that it handles
-                // all exceptions.
-                ASSERT(*t == Zero);
-                t++; /* Skip over the identifier to point at the code address. */
+                // The legacy version pushes an identifier which is always zero.
+                if (*t == Zero) t++;
                 if (*t == SPECIAL_PC_TRACE_EX)
                 { /* Trace this exception. */ 
                     *sp = PolyWord::FromCodePtr(pc); /* So that this proc. will be included. */

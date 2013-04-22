@@ -37,7 +37,7 @@ INSTR_return_w   0x92 /* int */
 /* For use by the interpreter (only) SPF 26/6/95) */
 #define INSTR_tail_0_0      0x01
 
-#define INSTR_jump      0x02
+#define INSTR_jump          0x02
 #define INSTR_jump_false    0x03
 #define INSTR_container     0x04    /* Added DCJM 5/10/05. */
 #define INSTR_del_handler   0x05
@@ -45,11 +45,11 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_jump_i_false  0x07
 #define INSTR_set_container 0x08    /* Added DCJM 5/10/05. */
 #define INSTR_del_handler_i 0x09
-#define INSTR_case      0x0a
+#define INSTR_case          0x0a
 #define INSTR_call_sl       0x0b
 #define INSTR_call_closure  0x0c
 #define INSTR_return_w      0x0d /* relocated on mips! */
-#define INSTR_pad       0x0e
+#define INSTR_pad           0x0e
 #define INSTR_raise_ex      0x10
 #define INSTR_get_store_w   0x11
 #define INSTR_non_local     0x12
@@ -143,8 +143,8 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_tuple_2       0x69
 #define INSTR_tuple_3       0x6a
 #define INSTR_tuple_4       0x6b
-#define INSTR_lock      0x6c
-#define INSTR_ldexc     0x6d
+#define INSTR_lock          0x6c
+#define INSTR_ldexc         0x6d
 #define INSTR_io_vec_225    0x6e
 #define INSTR_io_vec_226    0x6f
 #define INSTR_io_vec_229    0x70
@@ -153,12 +153,14 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_io_vec_251    0x73
 #define INSTR_io_vec_253    0x74
 #define INSTR_io_vec_255    0x75
-#define INSTR_set_handler   0x76
+#define INSTR_set_handler_old 0x76
 #define INSTR_push_handler  0x78
-#define INSTR_set_handler_i 0x7a
+#define INSTR_set_handler_old_i 0x7a
 #define INSTR_tail_b_b      0x7b
-#define INSTR_tail      0x7c
+#define INSTR_tail          0x7c
 #define INSTR_tail_3_b      0x7d
 #define INSTR_tail_4_b      0x7e
 #define INSTR_tail_3_2      0x7f
 #define INSTR_tail_3_3      0x80
+#define INSTR_set_handler_new 0x81
+#define INSTR_set_handler_new_i 0x85

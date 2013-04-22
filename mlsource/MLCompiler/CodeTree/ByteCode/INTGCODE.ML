@@ -421,17 +421,8 @@ struct
            val () = genPushHandler cvec;
            val () = incsp ();
   
-           val genTag : handler =
-           let
-             (* Push address of new handler. *)
-             val handlerLab : labels = putBranchInstruction (setHandler, cvec);
-                 val () = incsp ();
- 
-             (* Push the exception to be caught.  This is now always zero *)
-             val () = gencde (BICConstnt(toMachineWord 0), ToStack, NotEnd, loopAddr)
-           in
-             handlerLab
-           end
+            val genTag =
+                putBranchInstruction (setHandler, cvec) before incsp()
 
             val handlerList : handler list = [genTag]
 

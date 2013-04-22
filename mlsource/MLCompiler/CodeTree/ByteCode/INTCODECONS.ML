@@ -329,7 +329,7 @@ struct
     val opcode_jumpFalse         = Opcode 3;
     val opcode_containerW        = Opcode 4; (* Added DCJM 5/10/05. *)
     val opcode_delHandler        = Opcode 5;
-    val opcode_jumpI             = Opcode 6;
+    val opcode_jumpI             = Opcode 6; (* The I versions are always original + 4 *)
     val opcode_jumpIFalse        = Opcode 7;
     val opcode_set_containerW    = Opcode 8; (* Added DCJM 5/10/05. *)
     val opcode_delHandlerI       = Opcode 9;
@@ -452,18 +452,22 @@ struct
     val opcode_ioVec_251         = Opcode 115;
     val opcode_ioVec_253         = Opcode 116;
     val opcode_ioVec_255         = Opcode 117;
-    val opcode_setHandler        = Opcode 118;
+    (*val opcode_setHandler        = Opcode 118; *)
     (* Opcode 119 not used *)
     val opcode_pushHandler       = Opcode 120;
     (* Opcode 121 not used *)
-    val opcode_setHandlerI       = Opcode 122;
+    (*val opcode_setHandlerI       = Opcode 122;*)
     val opcode_tailbb            = Opcode 123;
     val opcode_tail              = Opcode 124;
     val opcode_tail3b            = Opcode 125;
     val opcode_tail4b            = Opcode 126;
     val opcode_tail3_2           = Opcode 127;
     val opcode_tail3_3           = Opcode 128;
-
+    (* These have been moved since the old versions were for
+       the old exception mechanism. *)
+    val opcode_setHandler        = Opcode 129
+    val opcode_setHandlerI       = Opcode 134
+ 
     (* val opcode_last              = opcode_ioVec_225; *)
 
     local
