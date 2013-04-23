@@ -224,8 +224,9 @@ struct
                 SOME(pushSetContainer(optTuple, []))
             end
 
-    |   simpGeneral (context as { enterAddr, nextAddress, ...}) (BeginLoop{loop, arguments, ...}) =
+    |   simpGeneral (context as { enterAddr, nextAddress, reprocess, ...}) (BeginLoop{loop, arguments, ...}) =
         let
+            val didReprocess = ! reprocess
             (* To see if we really need the loop first try simply binding the
                arguments and process it.  It's often the case that if one
                or more arguments is a constant that the looping case will
@@ -246,6 +247,9 @@ struct
             then SOME withoutBeginLoop
             else
             let
+                (* Reset "reprocess".  It may have been set in the withoutBeginLoop
+                   that's not the code we're going to return. *)
+                val () = reprocess := didReprocess
                 (* We need the BeginLoop. Create new addresses for the arguments. *)
                 fun declArg({addr, value, use, ...}, typ) =
                     let
@@ -437,7 +441,7 @@ struct
             ((EnvGenLoad(LoadLocal newAddr), spec), decs @ [mkDec(newAddr, gen)])
         end
 
-    and simpLambda(original as {body, isInline, name, argTypes, resultType, closure, localCount, ...},
+    and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, ...},
                   { lookupAddr, reprocess, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
@@ -580,7 +584,7 @@ struct
             |   _ => false
     in
         case (specFunct, genFunct, isRecursiveArg) of
-            (EnvSpecInlineFunction({body=lambdaBody, localCount, ...}, functEnv), _, false) =>
+            (EnvSpecInlineFunction({body=lambdaBody, localCount, name, ...}, functEnv), _, false) =>
             let
                 val () = reprocess := true (* If we expand inline we have to reprocess *)
                 val (_, functDecs, _) = funct
