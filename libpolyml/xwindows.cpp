@@ -281,7 +281,7 @@ static Atom WM_DELETE_WINDOW(Display *d); /* was int SPF 6/1/94 */
 
 #define Make_int(x) Make_arbitrary_precision(taskData, x)
 #define Make_string(s) SAVE(C_string_to_Poly(taskData, s))
-#define Make_bool(b) Make_unsigned(taskData, (b) != 0)
+#define Make_bool(b) Make_arbitrary_precision(taskData, (b) != 0)
 
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
 
@@ -2420,13 +2420,13 @@ static Handle CreateStandardColormap
 /* Still allocating, so must use explicit DEREF for each element */
 #define tuple /* hack */((MLXStandardColormap *)DEREFHANDLE(tupleHandle))
   tuple->Colormap  = (X_Colormap_Object *)DEREFHANDLE(EmptyColormap(taskData, dsHandle,s->colormap));
-  tuple->redMax    = DEREFWORD(Make_unsigned(taskData, s->red_max));
-  tuple->redMult   = DEREFWORD(Make_unsigned(taskData, s->red_mult));
-  tuple->greenMax  = DEREFWORD(Make_unsigned(taskData, s->green_max));
-  tuple->greenMult = DEREFWORD(Make_unsigned(taskData, s->green_mult));
-  tuple->blueMax   = DEREFWORD(Make_unsigned(taskData, s->blue_max));
-  tuple->blueMult  = DEREFWORD(Make_unsigned(taskData, s->blue_mult));
-  tuple->basePixel = DEREFWORD(Make_unsigned(taskData, s->base_pixel));
+  tuple->redMax    = DEREFWORD(Make_arbitrary_precision(taskData, s->red_max));
+  tuple->redMult   = DEREFWORD(Make_arbitrary_precision(taskData, s->red_mult));
+  tuple->greenMax  = DEREFWORD(Make_arbitrary_precision(taskData, s->green_max));
+  tuple->greenMult = DEREFWORD(Make_arbitrary_precision(taskData, s->green_mult));
+  tuple->blueMax   = DEREFWORD(Make_arbitrary_precision(taskData, s->blue_max));
+  tuple->blueMult  = DEREFWORD(Make_arbitrary_precision(taskData, s->blue_mult));
+  tuple->basePixel = DEREFWORD(Make_arbitrary_precision(taskData, s->base_pixel));
   tuple->visual    = (X_Visual_Object *)DEREFHANDLE(EmptyVisual(taskData, dsHandle,T.visual));
 #undef tuple
   
@@ -2586,18 +2586,18 @@ static Handle CreateImage(TaskData *taskData, XImage *image)
 #define  X ((MLXImage *)DEREFHANDLE(XHandle))
   X->data            = Buffer_to_Poly(taskData, image->data,dsize);
   X->size            = DEREFWORD(CreateArea(image->width,image->height));
-  X->depth           = DEREFWORD(Make_unsigned(taskData, image->depth));
-  X->format          = DEREFWORD(Make_unsigned(taskData, MLImageFormat(image->format)));
+  X->depth           = DEREFWORD(Make_arbitrary_precision(taskData, image->depth));
+  X->format          = DEREFWORD(Make_arbitrary_precision(taskData, MLImageFormat(image->format)));
   X->xoffset         = DEREFWORD(Make_int(image->xoffset));
   X->bitmapPad       = DEREFWORD(Make_int(image->bitmap_pad));
-  X->byteOrder       = DEREFWORD(Make_unsigned(taskData, MLImageOrder(image->byte_order)));
-  X->bitmapUnit      = DEREFWORD(Make_unsigned(taskData, image->bitmap_unit));
-  X->bitsPerPixel    = DEREFWORD(Make_unsigned(taskData, image->bits_per_pixel));
+  X->byteOrder       = DEREFWORD(Make_arbitrary_precision(taskData, MLImageOrder(image->byte_order)));
+  X->bitmapUnit      = DEREFWORD(Make_arbitrary_precision(taskData, image->bitmap_unit));
+  X->bitsPerPixel    = DEREFWORD(Make_arbitrary_precision(taskData, image->bits_per_pixel));
   X->bytesPerLine    = DEREFWORD(Make_int(image->bytes_per_line));
-  X->visualRedMask   = DEREFWORD(Make_unsigned(taskData, image->red_mask));
-  X->bitmapBitOrder  = DEREFWORD(Make_unsigned(taskData, MLImageOrder(image->bitmap_bit_order)));
-  X->visualBlueMask  = DEREFWORD(Make_unsigned(taskData, image->blue_mask));
-  X->visualGreenMask = DEREFWORD(Make_unsigned(taskData, image->green_mask));
+  X->visualRedMask   = DEREFWORD(Make_arbitrary_precision(taskData, image->red_mask));
+  X->bitmapBitOrder  = DEREFWORD(Make_arbitrary_precision(taskData, MLImageOrder(image->bitmap_bit_order)));
+  X->visualBlueMask  = DEREFWORD(Make_arbitrary_precision(taskData, image->blue_mask));
+  X->visualGreenMask = DEREFWORD(Make_arbitrary_precision(taskData, image->green_mask));
 #undef X
 
   XDestroyImage(image);
@@ -2693,7 +2693,7 @@ static Handle GetPixel(TaskData *taskData, XImage *image, int x, int y)
   
   /* XFree((char *)image); */
   
-  return Make_unsigned(taskData, pixel);
+  return Make_arbitrary_precision(taskData, pixel);
 }
 
 static void PutPixel(XImage *image, int x, int y, unsigned pixel)
@@ -3171,7 +3171,7 @@ static Handle CreateEvent
   }
 
 #define event ((ML_Event *)DEREFHANDLE(eventHandle))
-  event->type      = DEREFWORD(Make_unsigned(taskData, type));
+  event->type      = DEREFWORD(Make_arbitrary_precision(taskData, type));
   event->sendEvent = DEREFWORD(Make_bool(send_event));
   event->window    = DEREFWINDOWHANDLE(W);
 
@@ -3185,11 +3185,11 @@ static Handle CreateEvent
 #define data ((ML_KeyEvent_Data *)DEREFHANDLE(dataHandle))
       data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xkey.root));
       data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xkey.subwindow));
-      data->time        = DEREFWORD(Make_unsigned(taskData, ev->xkey.time));
+      data->time        = DEREFWORD(Make_arbitrary_precision(taskData, ev->xkey.time));
       data->pointer     = (MLXPoint *)DEREFHANDLE(CreatePoint(taskData, ev->xkey.x,ev->xkey.y));
       data->rootPointer = (MLXPoint *)DEREFHANDLE(CreatePoint(taskData, ev->xkey.x_root,ev->xkey.y_root));
-      data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xkey.state));
-      data->keycode     = DEREFWORD(Make_unsigned(taskData, ev->xkey.keycode));
+      data->modifiers   = DEREFWORD(Make_arbitrary_precision(taskData, ev->xkey.state));
+      data->keycode     = DEREFWORD(Make_arbitrary_precision(taskData, ev->xkey.keycode));
 #undef data
 
       event->data = DEREFHANDLE(FINISHED(taskData, dataHandle));
@@ -3218,16 +3218,16 @@ static Handle CreateEvent
 #define data ((ML_ButtonClick_Data *)DEREFHANDLE(dataHandle))
         data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.root));
         data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.subwindow));
-        data->time        = DEREFWORD(Make_unsigned(taskData, ev->xbutton.time));
+        data->time        = DEREFWORD(Make_arbitrary_precision(taskData, ev->xbutton.time));
         data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x,ev->xbutton.y));
         data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x_root,ev->xbutton.y_root));
-        data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xbutton.state));
-        data->button      = DEREFWORD(Make_unsigned(taskData, ev->xbutton.button));
-        data->up          = DEREFWORD(Make_unsigned(taskData, A.up));
-        data->down        = DEREFWORD(Make_unsigned(taskData, A.down));
+        data->modifiers   = DEREFWORD(Make_arbitrary_precision(taskData, ev->xbutton.state));
+        data->button      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xbutton.button));
+        data->up          = DEREFWORD(Make_arbitrary_precision(taskData, A.up));
+        data->down        = DEREFWORD(Make_arbitrary_precision(taskData, A.down));
 #undef data
   
-        event->type = DEREFWORD(Make_unsigned(taskData, 42)); /* What's this for? */
+        event->type = DEREFWORD(Make_arbitrary_precision(taskData, 42)); /* What's this for? */
         event->data = DEREFWORD(FINISHED(taskData, dataHandle));
 
       }
@@ -3238,11 +3238,11 @@ static Handle CreateEvent
 #define data ((ML_ButtonEvent_Data *)DEREFHANDLE(dataHandle))
         data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.root));
         data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xbutton.subwindow));
-        data->time        = DEREFWORD(Make_unsigned(taskData, ev->xbutton.time));
+        data->time        = DEREFWORD(Make_arbitrary_precision(taskData, ev->xbutton.time));
         data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x,ev->xbutton.y));
         data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xbutton.x_root,ev->xbutton.y_root));
-        data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xbutton.state));
-        data->button      = DEREFWORD(Make_unsigned(taskData, ev->xbutton.button));
+        data->modifiers   = DEREFWORD(Make_arbitrary_precision(taskData, ev->xbutton.state));
+        data->button      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xbutton.button));
 #undef data
   
         event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3261,11 +3261,11 @@ static Handle CreateEvent
 #define data ((ML_MotionEvent_Data *)DEREFHANDLE(dataHandle))
       data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xmotion.root));
       data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xmotion.subwindow));
-      data->time        = DEREFWORD(Make_unsigned(taskData, ev->xmotion.time));
+      data->time        = DEREFWORD(Make_arbitrary_precision(taskData, ev->xmotion.time));
       data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xmotion.x,ev->xmotion.y));
       data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xmotion.x_root,ev->xmotion.y_root));
-      data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xmotion.state));
-      data->isHint      = DEREFWORD(Make_unsigned(taskData, ev->xmotion.is_hint));
+      data->modifiers   = DEREFWORD(Make_arbitrary_precision(taskData, ev->xmotion.state));
+      data->isHint      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xmotion.is_hint));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3282,13 +3282,13 @@ static Handle CreateEvent
 #define data ((ML_CrossingEvent_Data *)DEREFHANDLE(dataHandle))
       data->root        = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcrossing.root));
       data->subwindow   = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xcrossing.subwindow));
-      data->time        = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.time));
+      data->time        = DEREFWORD(Make_arbitrary_precision(taskData, ev->xcrossing.time));
       data->pointer     = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xcrossing.x,ev->xcrossing.y));
       data->rootPointer = (MLXPoint *)       DEREFHANDLE(CreatePoint(taskData, ev->xcrossing.x_root,ev->xcrossing.y_root));
-      data->mode        = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.mode));
-      data->detail      = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.detail));
+      data->mode        = DEREFWORD(Make_arbitrary_precision(taskData, ev->xcrossing.mode));
+      data->detail      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xcrossing.detail));
       data->focus       = DEREFWORD(Make_bool(ev->xcrossing.focus));
-      data->modifiers   = DEREFWORD(Make_unsigned(taskData, ev->xcrossing.state));
+      data->modifiers   = DEREFWORD(Make_arbitrary_precision(taskData, ev->xcrossing.state));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3324,7 +3324,7 @@ static Handle CreateEvent
 
 #define data ((ML_ExposeEvent_Data *)DEREFHANDLE(dataHandle))
       data->region = (MLXRectangle *)DEREFHANDLE(CreateRect(taskData, top,left,bottom,right));
-      data->count  = DEREFWORD(Make_unsigned(taskData, 0));
+      data->count  = DEREFWORD(Make_arbitrary_precision(taskData, 0));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3344,8 +3344,8 @@ static Handle CreateEvent
 
 #define data ((ML_GraphicsExposeEvent_Data *)DEREFHANDLE(dataHandle))
       data->region = (MLXRectangle *)DEREFHANDLE(CreateRect(taskData, top,left,bottom,right));
-      data->count  = DEREFWORD(Make_unsigned(taskData, ev->xgraphicsexpose.count));
-      data->code   = DEREFWORD(Make_unsigned(taskData, ev->xgraphicsexpose.major_code));
+      data->count  = DEREFWORD(Make_arbitrary_precision(taskData, ev->xgraphicsexpose.count));
+      data->code   = DEREFWORD(Make_arbitrary_precision(taskData, ev->xgraphicsexpose.major_code));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3355,7 +3355,7 @@ static Handle CreateEvent
 
     case NoExpose:
     {
-      event->data = DEREFWORD(Make_unsigned(taskData, ev->xnoexpose.major_code));
+      event->data = DEREFWORD(Make_arbitrary_precision(taskData, ev->xnoexpose.major_code));
       
       break;
     }
@@ -3575,8 +3575,8 @@ static Handle CreateEvent
       Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_SelectionClear_Data), F_MUTABLE_BIT);
 
 #define data ((ML_SelectionClear_Data *)DEREFHANDLE(dataHandle))
-      data->selection = DEREFWORD(Make_unsigned(taskData, ev->xselectionclear.selection));
-      data->time      = DEREFWORD(Make_unsigned(taskData, ev->xselectionclear.time));
+      data->selection = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselectionclear.selection));
+      data->time      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselectionclear.time));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3589,10 +3589,10 @@ static Handle CreateEvent
       Handle dataHandle = alloc_and_save(taskData, SIZEOF(ML_Selection_Data), F_MUTABLE_BIT);
 
 #define data ((ML_Selection_Data *)DEREFHANDLE(dataHandle))
-      data->selection = DEREFWORD(Make_unsigned(taskData, ev->xselection.selection));
-      data->target    = DEREFWORD(Make_unsigned(taskData, ev->xselection.target));
-      data->property  = DEREFWORD(Make_unsigned(taskData, ev->xselection.property));
-      data->time      = DEREFWORD(Make_unsigned(taskData, ev->xselection.time));
+      data->selection = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselection.selection));
+      data->target    = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselection.target));
+      data->property  = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselection.property));
+      data->time      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselection.time));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3606,10 +3606,10 @@ static Handle CreateEvent
 
 #define data ((ML_SelectionRequest_Data *)DEREFHANDLE(dataHandle))
       data->requestor = DEREFWINDOWHANDLE(EmptyWindow(taskData, dsHandle,ev->xselectionrequest.requestor));
-      data->selection = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.selection));
-      data->target    = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.target));
-      data->property  = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.property));
-      data->time      = DEREFWORD(Make_unsigned(taskData, ev->xselectionrequest.time));
+      data->selection = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselectionrequest.selection));
+      data->target    = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselectionrequest.target));
+      data->property  = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselectionrequest.property));
+      data->time      = DEREFWORD(Make_arbitrary_precision(taskData, ev->xselectionrequest.time));
 #undef data
 
       event->data = DEREFWORD(FINISHED(taskData, dataHandle));
@@ -3628,7 +3628,7 @@ static Handle CreateEvent
            ev->xclient.format       == 32        && 
            ev->xclient.data.l[0]    == deleteWindow)
       {
-        event->type = DEREFWORD(Make_unsigned(taskData, 43)); /* (?) */
+        event->type = DEREFWORD(Make_arbitrary_precision(taskData, 43)); /* (?) */
       
         break;
       }
@@ -3672,7 +3672,7 @@ static Handle LookupString(TaskData *taskData, Display *d, unsigned keycode, uns
   
   buffer[n] = '\0';
   
-  return CreatePair(taskData, Make_string(buffer),Make_unsigned(taskData, keysym));
+  return CreatePair(taskData, Make_string(buffer),Make_arbitrary_precision(taskData, keysym));
 }
 
 static Handle GetScreenSaver(TaskData *taskData, Display *d)
@@ -3687,8 +3687,8 @@ static Handle GetScreenSaver(TaskData *taskData, Display *d)
 #define data DEREFHANDLE(tuple)
   data->Set(0, DEREFWORD(Make_int(timeout)));
   data->Set(1, DEREFWORD(Make_int(interval)));
-  data->Set(2, DEREFWORD(Make_unsigned(taskData, blanking)));
-  data->Set(3, DEREFWORD(Make_unsigned(taskData, exposures)));
+  data->Set(2, DEREFWORD(Make_arbitrary_precision(taskData, blanking)));
+  data->Set(3, DEREFWORD(Make_arbitrary_precision(taskData, exposures)));
 #undef data
   
   return FINISHED(taskData, tuple);
@@ -3753,12 +3753,12 @@ static Handle QueryPointer
   tuple = alloc_and_save(taskData, 6, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)  
-  data->Set(0, DEREFWORD(Make_unsigned(taskData, s)));
+  data->Set(0, DEREFWORD(Make_arbitrary_precision(taskData, s)));
   data->Set(1, DEREFWORD(EmptyWindow(taskData, dsHandle,root)));
   data->Set(2, DEREFWORD(EmptyWindow(taskData, dsHandle,child)));
   data->Set(3, DEREFWORD(CreatePoint(taskData, rootX,rootY)));
   data->Set(4, DEREFWORD(CreatePoint(taskData, winX,winY)));
-  data->Set(5, DEREFWORD(Make_unsigned(taskData, mask)));
+  data->Set(5, DEREFWORD(Make_arbitrary_precision(taskData, mask)));
 #undef data
   
   return FINISHED(taskData, tuple);
@@ -3786,7 +3786,7 @@ static Handle ReadBitmap
 
 #define data DEREFHANDLE(tuple)
 
-  data->Set(0,DEREFWORD(Make_unsigned(taskData, s)));
+  data->Set(0,DEREFWORD(Make_arbitrary_precision(taskData, s)));
 
   if (s == BitmapSuccess)
   {
@@ -3820,7 +3820,7 @@ static Handle WriteBitmapFile
 
   s = XWriteBitmapFile(d,name,bitmap,w,h,x,y);
   
-  return Make_unsigned(taskData, s);
+  return Make_arbitrary_precision(taskData, s);
 }
 
 static Handle GetDefault(TaskData *taskData, Display *d, PolyStringObject *s1, PolyStringObject *s2)
@@ -4020,8 +4020,8 @@ static Handle GetGeometry
   data->Set(0, DEREFWORD(EmptyWindow(taskData, dsHandle,root)));
   data->Set(1, DEREFWORD(CreatePoint(taskData, x,y)));
   data->Set(2, DEREFWORD(CreateArea(width,height)));
-  data->Set(3, DEREFWORD(Make_unsigned(taskData, borderWidth)));
-  data->Set(4, DEREFWORD(Make_unsigned(taskData, depth)));
+  data->Set(3, DEREFWORD(Make_arbitrary_precision(taskData, borderWidth)));
+  data->Set(4, DEREFWORD(Make_arbitrary_precision(taskData, depth)));
 #undef data
 
   return FINISHED(taskData, dataHandle);
@@ -4047,22 +4047,22 @@ static Handle GetWindowAttributes
   DEREFHANDLE(dataHandle)->Set( 0, DEREFWORD(CreatePoint(taskData, wa.x,wa.y)));
   DEREFHANDLE(dataHandle)->Set( 1, DEREFWORD(CreateArea(wa.width,wa.height)));
   DEREFHANDLE(dataHandle)->Set( 2, DEREFWORD(Make_int(wa.border_width)));
-  DEREFHANDLE(dataHandle)->Set( 3, DEREFWORD(Make_unsigned(taskData, wa.depth)));
+  DEREFHANDLE(dataHandle)->Set( 3, DEREFWORD(Make_arbitrary_precision(taskData, wa.depth)));
   DEREFHANDLE(dataHandle)->Set( 4, DEREFWORD(EmptyVisual(taskData, dsHandle,wa.visual)));
   DEREFHANDLE(dataHandle)->Set( 5, DEREFWORD(EmptyWindow(taskData, dsHandle,wa.root)));
-  DEREFHANDLE(dataHandle)->Set( 6, DEREFWORD(Make_unsigned(taskData, wa.c_class)));
-  DEREFHANDLE(dataHandle)->Set( 7, DEREFWORD(Make_unsigned(taskData, wa.bit_gravity)));
-  DEREFHANDLE(dataHandle)->Set( 8, DEREFWORD(Make_unsigned(taskData, wa.win_gravity)));
-  DEREFHANDLE(dataHandle)->Set( 9, DEREFWORD(Make_unsigned(taskData, wa.backing_store)));
-  DEREFHANDLE(dataHandle)->Set(10, DEREFWORD(Make_unsigned(taskData, wa.backing_planes)));
-  DEREFHANDLE(dataHandle)->Set(11, DEREFWORD(Make_unsigned(taskData, wa.backing_pixel)));
+  DEREFHANDLE(dataHandle)->Set( 6, DEREFWORD(Make_arbitrary_precision(taskData, wa.c_class)));
+  DEREFHANDLE(dataHandle)->Set( 7, DEREFWORD(Make_arbitrary_precision(taskData, wa.bit_gravity)));
+  DEREFHANDLE(dataHandle)->Set( 8, DEREFWORD(Make_arbitrary_precision(taskData, wa.win_gravity)));
+  DEREFHANDLE(dataHandle)->Set( 9, DEREFWORD(Make_arbitrary_precision(taskData, wa.backing_store)));
+  DEREFHANDLE(dataHandle)->Set(10, DEREFWORD(Make_arbitrary_precision(taskData, wa.backing_planes)));
+  DEREFHANDLE(dataHandle)->Set(11, DEREFWORD(Make_arbitrary_precision(taskData, wa.backing_pixel)));
   DEREFHANDLE(dataHandle)->Set(12, DEREFWORD(Make_bool(wa.save_under)));
   DEREFHANDLE(dataHandle)->Set(13, DEREFWORD(EmptyColormap(taskData, dsHandle,wa.colormap)));
   DEREFHANDLE(dataHandle)->Set(14, DEREFWORD(Make_bool(wa.map_installed)));
-  DEREFHANDLE(dataHandle)->Set(15, DEREFWORD(Make_unsigned(taskData, wa.map_state)));
-  DEREFHANDLE(dataHandle)->Set(16, DEREFWORD(Make_unsigned(taskData, wa.all_event_masks)));
-  DEREFHANDLE(dataHandle)->Set(17, DEREFWORD(Make_unsigned(taskData, wa.your_event_mask)));
-  DEREFHANDLE(dataHandle)->Set(18, DEREFWORD(Make_unsigned(taskData, wa.do_not_propagate_mask)));
+  DEREFHANDLE(dataHandle)->Set(15, DEREFWORD(Make_arbitrary_precision(taskData, wa.map_state)));
+  DEREFHANDLE(dataHandle)->Set(16, DEREFWORD(Make_arbitrary_precision(taskData, wa.all_event_masks)));
+  DEREFHANDLE(dataHandle)->Set(17, DEREFWORD(Make_arbitrary_precision(taskData, wa.your_event_mask)));
+  DEREFHANDLE(dataHandle)->Set(18, DEREFWORD(Make_arbitrary_precision(taskData, wa.do_not_propagate_mask)));
   DEREFHANDLE(dataHandle)->Set(19, DEREFWORD(Make_bool(wa.override_redirect)));
   
   return FINISHED(taskData, dataHandle);
@@ -4174,10 +4174,10 @@ static Handle CreateXColor(TaskData *taskData, XColor *x)
   Handle XHandle = alloc_and_save(taskData, SIZEOF(MLXColor), F_MUTABLE_BIT);
 
 #define X ((MLXColor *)DEREFHANDLE(XHandle))
-  X->red     = DEREFWORD(Make_unsigned(taskData, x->red));
-  X->green   = DEREFWORD(Make_unsigned(taskData, x->green));
-  X->blue    = DEREFWORD(Make_unsigned(taskData, x->blue));
-  X->pixel   = DEREFWORD(Make_unsigned(taskData, x->pixel));
+  X->red     = DEREFWORD(Make_arbitrary_precision(taskData, x->red));
+  X->green   = DEREFWORD(Make_arbitrary_precision(taskData, x->green));
+  X->blue    = DEREFWORD(Make_arbitrary_precision(taskData, x->blue));
+  X->pixel   = DEREFWORD(Make_arbitrary_precision(taskData, x->pixel));
   X->doRed   = DEREFWORD(Make_bool(x->flags &DoRed));
   X->doGreen = DEREFWORD(Make_bool(x->flags &DoGreen));
   X->doBlue  = DEREFWORD(Make_bool(x->flags &DoBlue));
@@ -4232,12 +4232,12 @@ static Handle AllocColor(TaskData *taskData, Display *d, Colormap cmap, XColor *
 static Handle CreateUnsigned(TaskData *taskData, void *q)
 {
     unsigned *p = (unsigned *)q;
-    return Make_unsigned(taskData, *p);
+    return Make_arbitrary_precision(taskData, *p);
 }
 
 static Handle CreateUnsignedLong(TaskData *taskData, void *p)
 {
-    return Make_unsigned(taskData, *(unsigned long*)p);
+    return Make_arbitrary_precision(taskData, *(unsigned long*)p);
 }
 
 static Handle AllocColorCells
@@ -4298,9 +4298,9 @@ static Handle AllocColorPlanes
 
 #define data DEREFHANDLE(tuple)
   data->Set(0, DEREFWORD(CreateList4(taskData,ncolors,pixels,sizeof(unsigned long),CreateUnsignedLong)));
-  data->Set(1, DEREFWORD(Make_unsigned(taskData, rmask)));
-  data->Set(2, DEREFWORD(Make_unsigned(taskData, gmask)));
-  data->Set(3, DEREFWORD(Make_unsigned(taskData, bmask)));
+  data->Set(1, DEREFWORD(Make_arbitrary_precision(taskData, rmask)));
+  data->Set(2, DEREFWORD(Make_arbitrary_precision(taskData, gmask)));
+  data->Set(3, DEREFWORD(Make_arbitrary_precision(taskData, bmask)));
 #undef data
 
   return FINISHED(taskData, tuple);
@@ -4492,7 +4492,7 @@ static Handle GetTimeOfDay(TaskData *taskData)
   
   gettimeofday(&now, NULL);
   
-  return CreatePair(taskData, Make_unsigned(taskData, now.tv_sec),Make_unsigned(taskData, now.tv_usec));
+  return CreatePair(taskData, Make_arbitrary_precision(taskData, now.tv_sec),Make_arbitrary_precision(taskData, now.tv_usec));
 }
 
 static Handle GetState(TaskData *taskData, X_Window_Object *P)
@@ -4738,7 +4738,7 @@ static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Disp
             EventHandle E = alloc_and_save(taskData, SIZEOF(ML_Event), F_MUTABLE_BIT);
             
 #define event ((ML_Event *)DEREFHANDLE(E))
-            event->type       = DEREFWORD(Make_unsigned(taskData, 99));
+            event->type       = DEREFWORD(Make_arbitrary_precision(taskData, 99));
             event->sendEvent  = DEREFWORD(Make_bool(True));
             event->data       = TList->alpha;
             
@@ -4830,7 +4830,7 @@ static Handle NextEvent(TaskData *taskData, Handle dsHandle /* handle to (X_Disp
                         EventHandle E = alloc_and_save(taskData, SIZEOF(ML_Event), F_MUTABLE_BIT);
                         
 #define event ((ML_Event *)DEREFHANDLE(E))
-                        event->type      = DEREFWORD(Make_unsigned(taskData, 100));
+                        event->type      = DEREFWORD(Make_arbitrary_precision(taskData, 100));
                         event->sendEvent = DEREFWORD(Make_bool(True));
                         event->window    = TAGGED(0);
                         event->data      = TAGGED(0);
@@ -4885,7 +4885,7 @@ static Handle GetInputFocus(TaskData *taskData, Handle dsHandle /* handle to (X_
   
   XGetInputFocus(DEREFDISPLAYHANDLE(dsHandle)->display,&focus,&revertTo);
   
-  return CreatePair(taskData, EmptyWindow(taskData, dsHandle,focus),Make_unsigned(taskData, revertTo));
+  return CreatePair(taskData, EmptyWindow(taskData, dsHandle,focus),Make_arbitrary_precision(taskData, revertTo));
 }
 
 static void SetSelectionOwner
@@ -4964,7 +4964,7 @@ static Handle InternAtom
 
   Poly_string_to_C(string,name,sizeof(name));
 
-  return Make_unsigned(taskData, XInternAtom(d,name,only_if_exists));
+  return Make_arbitrary_precision(taskData, XInternAtom(d,name,only_if_exists));
 }
 
 static Handle GetAtomName(TaskData *taskData, Display *d, unsigned atom)
@@ -5004,7 +5004,7 @@ static Handle CreateCharStruct(TaskData *taskData, void *v)
   data->descent    = DEREFWORD(Make_int(cs->descent));
   data->lbearing   = DEREFWORD(Make_int(cs->lbearing));
   data->rbearing   = DEREFWORD(Make_int(cs->rbearing));
-  data->attributes = DEREFWORD(Make_unsigned(taskData, cs->attributes));
+  data->attributes = DEREFWORD(Make_arbitrary_precision(taskData, cs->attributes));
 #undef data
   
   return FINISHED(taskData, dataHandle);
@@ -5046,15 +5046,15 @@ static Handle CreateFontStruct
   data->font_object   = (X_Font_Object *)DEREFHANDLE(EmptyFont(taskData, dsHandle,fs->fid,fs));
   data->ascent        = DEREFWORD(Make_int(fs->ascent));
   data->descent       = DEREFWORD(Make_int(fs->descent));
-  data->maxChar       = DEREFWORD(Make_unsigned(taskData, fs->max_char_or_byte2));
-  data->minChar       = DEREFWORD(Make_unsigned(taskData, fs->min_char_or_byte2));
+  data->maxChar       = DEREFWORD(Make_arbitrary_precision(taskData, fs->max_char_or_byte2));
+  data->minChar       = DEREFWORD(Make_arbitrary_precision(taskData, fs->min_char_or_byte2));
   data->perChar       = DEREFHANDLE(CreateList4(taskData,n,fs->per_char,sizeof(XCharStruct),CreateCharStruct));
-  data->maxByte1      = DEREFWORD(Make_unsigned(taskData, fs->max_byte1));
-  data->minByte1      = DEREFWORD(Make_unsigned(taskData, fs->min_byte1));
-  data->direction     = DEREFWORD(Make_unsigned(taskData, (fs->direction == FontLeftToRight) ? 1 : 2));
+  data->maxByte1      = DEREFWORD(Make_arbitrary_precision(taskData, fs->max_byte1));
+  data->minByte1      = DEREFWORD(Make_arbitrary_precision(taskData, fs->min_byte1));
+  data->direction     = DEREFWORD(Make_arbitrary_precision(taskData, (fs->direction == FontLeftToRight) ? 1 : 2));
   data->maxBounds     = (MLXCharStruct *)DEREFHANDLE(CreateCharStruct(taskData, &fs->max_bounds));
   data->minBounds     = (MLXCharStruct *)DEREFHANDLE(CreateCharStruct(taskData, &fs->min_bounds));
-  data->defaultChar   = DEREFWORD(Make_unsigned(taskData, fs->default_char));
+  data->defaultChar   = DEREFWORD(Make_arbitrary_precision(taskData, fs->default_char));
   data->allCharsExist = DEREFWORD(Make_bool(fs->all_chars_exist));
 #undef data
   
@@ -5233,7 +5233,7 @@ static Handle TextExtents(TaskData *taskData, XFontStruct *fs, PolyStringObject 
   XTextExtents(fs,s->chars,s->length,&direction,&ascent,&descent,&overall);
 
 #define data DEREFHANDLE(dataHandle)  
-  data->Set(0, DEREFWORD(Make_unsigned(taskData, (direction == FontLeftToRight) ? 1 : 2)));
+  data->Set(0, DEREFWORD(Make_arbitrary_precision(taskData, (direction == FontLeftToRight) ? 1 : 2)));
   data->Set(1, DEREFWORD(Make_int(ascent)));
   data->Set(2, DEREFWORD(Make_int(descent)));
   data->Set(3, DEREFWORD(CreateCharStruct(taskData, &overall)));
@@ -5256,7 +5256,7 @@ static Handle TextExtents16(TaskData *taskData, XFontStruct *fs, Handle list)
   XTextExtents16(fs,L,N,&direction,&ascent,&descent,&overall);
   
 #define data DEREFHANDLE(dataHandle)  
-  data->Set(0, DEREFWORD(Make_unsigned(taskData, (direction == FontLeftToRight) ? 1 : 2)));
+  data->Set(0, DEREFWORD(Make_arbitrary_precision(taskData, (direction == FontLeftToRight) ? 1 : 2)));
   data->Set(1, DEREFWORD(Make_int(ascent)));
   data->Set(2, DEREFWORD(Make_int(descent)));
   data->Set(3, DEREFWORD(CreateCharStruct(taskData, &overall)));
@@ -5295,9 +5295,9 @@ static Handle GetTextProperty(TaskData *taskData, Display *d, Window w, unsigned
 
 #define data DEREFHANDLE(tuple)
   data->Set(0, Buffer_to_Poly(taskData, (char *)T.value,T.nitems * T.format / 8));
-  data->Set(1, DEREFWORD(Make_unsigned(taskData, T.encoding)));
+  data->Set(1, DEREFWORD(Make_arbitrary_precision(taskData, T.encoding)));
   data->Set(2, DEREFWORD(Make_int(T.format)));
-  data->Set(3, DEREFWORD(Make_unsigned(taskData, T.nitems)));
+  data->Set(3, DEREFWORD(Make_arbitrary_precision(taskData, T.nitems)));
 #undef data
   
   return FINISHED(taskData, tuple);
@@ -5507,13 +5507,13 @@ static Handle GetWMHints
   {
   
 #define data DEREFHANDLE(tuple)  
-    data->Set(0, DEREFWORD(Make_unsigned(taskData, H->input)));
-    data->Set(1, DEREFWORD(Make_unsigned(taskData, H->initial_state)));
+    data->Set(0, DEREFWORD(Make_arbitrary_precision(taskData, H->input)));
+    data->Set(1, DEREFWORD(Make_arbitrary_precision(taskData, H->initial_state)));
     data->Set(2, DEREFWORD(EmptyPixmap(taskData, dsHandle,H->icon_pixmap)));
     data->Set(3, DEREFWORD(EmptyWindow(taskData, dsHandle,H->icon_window)));
     data->Set(4, DEREFWORD(CreatePoint(taskData, H->icon_x,H->icon_y)));
     data->Set(5, DEREFWORD(EmptyPixmap(taskData, dsHandle,H->icon_mask)));
-    data->Set(6, DEREFWORD(Make_unsigned(taskData, H->flags)));
+    data->Set(6, DEREFWORD(Make_arbitrary_precision(taskData, H->flags)));
 #undef data
 
     XFree((char *)H);
@@ -5552,8 +5552,8 @@ static Handle GetWMSizeHints
     data->Set(4, DEREFWORD(CreateArea(H.width_inc,H.height_inc)));
     data->Set(5, DEREFWORD(CreatePair(taskData, p1,p2)));
     data->Set(6, DEREFWORD(CreateArea(H.base_width,H.base_height)));
-    data->Set(7, DEREFWORD(Make_unsigned(taskData, H.win_gravity)));
-    data->Set(8, DEREFWORD(Make_unsigned(taskData, H.flags)));
+    data->Set(7, DEREFWORD(Make_arbitrary_precision(taskData, H.win_gravity)));
+    data->Set(8, DEREFWORD(Make_arbitrary_precision(taskData, H.flags)));
 #undef data
   }
   
@@ -5597,7 +5597,7 @@ static Handle WMGeometry
                        borderWidth,
                        &H,&x,&y,&width,&height,&gravity);
   
-  return CreateTriple(taskData, CreatePoint(taskData, x,y),CreateArea(width,height),Make_unsigned(taskData, gravity));
+  return CreateTriple(taskData, CreatePoint(taskData, x,y),CreateArea(width,height),Make_arbitrary_precision(taskData, gravity));
 }
 
 static Handle CreateIconSize(TaskData *taskData, void *v)
@@ -5697,14 +5697,14 @@ static Handle GetID(TaskData *taskData, X_Object *P)
 {
     switch(UNTAGGED(P->type))
     {
-    case X_GC:       return Make_unsigned(taskData, GetGC(taskData, P)->gid);           /* GCID       */
-    case X_Font:     return Make_unsigned(taskData, GetFont(taskData, P));              /* FontID     */
-    case X_Cursor:   return Make_unsigned(taskData, GetCursor(taskData, P));            /* CursorId   */
-    case X_Window:   return Make_unsigned(taskData, GetWindow(taskData, P));            /* DrawableID */
-    case X_Pixmap:   return Make_unsigned(taskData, GetPixmap(taskData, P));            /* DrawableID */
-    case X_Colormap: return Make_unsigned(taskData, GetColormap(taskData, P));          /* ColormapID */
-    case X_Visual:   return Make_unsigned(taskData, GetVisual(taskData, P)->visualid);  /* VisualID   */
-    case X_Widget:   return Make_unsigned(taskData, (unsigned long)GetNWidget(taskData, P)); /* Widget -- SAFE(?) */
+    case X_GC:       return Make_arbitrary_precision(taskData, GetGC(taskData, P)->gid);           /* GCID       */
+    case X_Font:     return Make_arbitrary_precision(taskData, GetFont(taskData, P));              /* FontID     */
+    case X_Cursor:   return Make_arbitrary_precision(taskData, GetCursor(taskData, P));            /* CursorId   */
+    case X_Window:   return Make_arbitrary_precision(taskData, GetWindow(taskData, P));            /* DrawableID */
+    case X_Pixmap:   return Make_arbitrary_precision(taskData, GetPixmap(taskData, P));            /* DrawableID */
+    case X_Colormap: return Make_arbitrary_precision(taskData, GetColormap(taskData, P));          /* ColormapID */
+    case X_Visual:   return Make_arbitrary_precision(taskData, GetVisual(taskData, P)->visualid);  /* VisualID   */
+    case X_Widget:   return Make_arbitrary_precision(taskData, (unsigned long)GetNWidget(taskData, P)); /* Widget -- SAFE(?) */
     default:         Crash ("Bad X_Object type (%d) in GetID",UNTAGGED(P->type)) /*NOTREACHED*/;
     }
 }
@@ -6448,7 +6448,7 @@ static Handle CreateFontList
 
 static Handle CreateUChar(TaskData *taskData, void *p)
 {
-  return Make_unsigned(taskData, *(uchar *)p);
+  return Make_arbitrary_precision(taskData, *(uchar *)p);
 }
 
 static Handle CreateArg(TaskData *taskData, void *v, Handle   dsHandle /* Handle to (X_Display_Object *) */)
@@ -6465,12 +6465,12 @@ static Handle CreateArg(TaskData *taskData, void *v, Handle   dsHandle /* Handle
     case CDimension:     value = Make_int      (T->u.dim);       break;
     case CFontList:      value = CreateFontList(taskData, dsHandle,T->u.F);      break;
     case CInt:           value = Make_int      (T->u.i);         break;
-    case CKeySym:        value = Make_unsigned (taskData, T->u.keysym);    break;
+    case CKeySym:        value = Make_arbitrary_precision (taskData, T->u.keysym);    break;
     case CPixmap:        value = EmptyPixmap   (taskData, dsHandle,T->u.pixmap); break;
     case CPosition:      value = Make_int      (T->u.posn);      break;
     case CString:        value = Make_string   (T->u.string);    break;
     case CTrans:         value = EmptyTrans    (taskData, T->u.trans);     break;
-    case CUnsignedChar:  value = Make_unsigned (taskData, T->u.u);         break;
+    case CUnsignedChar:  value = Make_arbitrary_precision (taskData, T->u.u);         break;
     case CVisual:        value = EmptyVisual   (taskData, dsHandle,T->u.visual); break;
     case CWidget:        value = EmptyWidget   (taskData, dsHandle,T->u.widget); break;
         
@@ -7008,7 +7008,7 @@ static Handle WidgetToLong
 {
   Widget w = getWidget(taskData, func_name,arg1);
   long res  = applyFunc(w);
-  return(Make_unsigned(taskData, res));
+  return(Make_arbitrary_precision(taskData, res));
 }
 
 #if 0
@@ -7024,7 +7024,7 @@ static Handle WidgetToUnsigned
 {
   Widget w = getWidget(taskData, func_name,arg1);
   unsigned res  = applyFunc(w);
-  return(Make_unsigned(taskData, res));
+  return(Make_arbitrary_precision(taskData, res));
 }
 #endif
 
@@ -7364,22 +7364,22 @@ Handle XWindows_c(TaskData *taskData, Handle params)
     switch(code)
     {
     case XCALL_Not:
-        return Make_unsigned(taskData, ~ get_C_ulong(taskData, P1));
+        return Make_arbitrary_precision(taskData, ~ get_C_ulong(taskData, P1));
         
     case XCALL_And:
-        return Make_unsigned(taskData, get_C_ulong(taskData, P1) & get_C_ulong(taskData, P2));
+        return Make_arbitrary_precision(taskData, get_C_ulong(taskData, P1) & get_C_ulong(taskData, P2));
         
     case XCALL_Or:
-        return Make_unsigned(taskData, get_C_ulong(taskData, P1) | get_C_ulong(taskData, P2));
+        return Make_arbitrary_precision(taskData, get_C_ulong(taskData, P1) | get_C_ulong(taskData, P2));
         
     case XCALL_Xor:
-        return Make_unsigned(taskData, get_C_ulong(taskData, P1) ^ get_C_ulong(taskData, P2));
+        return Make_arbitrary_precision(taskData, get_C_ulong(taskData, P1) ^ get_C_ulong(taskData, P2));
         
     case XCALL_DownShift:
-        return Make_unsigned(taskData, get_C_ulong(taskData, P1) >> get_C_ulong(taskData, P2));
+        return Make_arbitrary_precision(taskData, get_C_ulong(taskData, P1) >> get_C_ulong(taskData, P2));
         
     case XCALL_UpShift:
-        return Make_unsigned(taskData, get_C_ulong(taskData, P1) << get_C_ulong(taskData, P2));
+        return Make_arbitrary_precision(taskData, get_C_ulong(taskData, P1) << get_C_ulong(taskData, P2));
         
     case XCALL_NoDrawable:
         return EmptyPixmap(taskData, SAVE(ListNull),(Pixmap)get_C_ulong(taskData, P1));
@@ -7458,12 +7458,12 @@ Handle XWindows_c(TaskData *taskData, Handle params)
         
     case XCALL_BlackPixel:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1); 
-        return Make_unsigned(taskData, BlackPixel(DEREFDISPLAYHANDLE(dsHandle)->display,
+        return Make_arbitrary_precision(taskData, BlackPixel(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen)); }
         
     case XCALL_WhitePixel:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
-        return Make_unsigned(taskData, WhitePixel(DEREFDISPLAYHANDLE(dsHandle)->display,
+        return Make_arbitrary_precision(taskData, WhitePixel(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen)); }
         
         /* Colormaps 150 */
@@ -7498,21 +7498,21 @@ Handle XWindows_c(TaskData *taskData, Handle params)
         
     case XCALL_DisplayCells:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1); 
-        return Make_unsigned(taskData, DisplayCells(DEREFDISPLAYHANDLE(dsHandle)->display,
+        return Make_arbitrary_precision(taskData, DisplayCells(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen));
         }
         
     case XCALL_VisualClass:
-        return Make_unsigned(taskData, GetVisual(taskData, XP1)->c_class);
+        return Make_arbitrary_precision(taskData, GetVisual(taskData, XP1)->c_class);
         
     case XCALL_VisualRedMask:
-        return Make_unsigned(taskData, GetVisual(taskData, XP1)->red_mask);
+        return Make_arbitrary_precision(taskData, GetVisual(taskData, XP1)->red_mask);
         
     case XCALL_VisualGreenMask:
-        return Make_unsigned(taskData, GetVisual(taskData, XP1)->green_mask);
+        return Make_arbitrary_precision(taskData, GetVisual(taskData, XP1)->green_mask);
         
     case XCALL_VisualBlueMask:
-        return Make_unsigned(taskData, GetVisual(taskData, XP1)->blue_mask);
+        return Make_arbitrary_precision(taskData, GetVisual(taskData, XP1)->blue_mask);
         
         /* Cursors 200 */
     case XCALL_XCreateFontCursor:
@@ -7569,13 +7569,13 @@ Handle XWindows_c(TaskData *taskData, Handle params)
 #define DODISPLAYOP(op) \
         {\
         Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);\
-        return Make_unsigned(taskData, op(DEREFDISPLAYHANDLE(dsHandle)->display,\
+        return Make_arbitrary_precision(taskData, op(DEREFDISPLAYHANDLE(dsHandle)->display,\
         DEREFDISPLAYHANDLE(dsHandle)->screen));\
         }
         
     case XCALL_CellsOfScreen:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
-        return Make_unsigned(taskData, CellsOfScreen(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,
+        return Make_arbitrary_precision(taskData, CellsOfScreen(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,
             DEREFDISPLAYHANDLE(dsHandle)->screen)));
         }
         
@@ -7607,7 +7607,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
 #define DODISPLAYSCREENOP(op) \
         {\
         Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);\
-        return Make_unsigned(taskData, op(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,\
+        return Make_arbitrary_precision(taskData, op(ScreenOfDisplay(DEREFDISPLAYHANDLE(dsHandle)->display,\
         DEREFDISPLAYHANDLE(dsHandle)->screen)));\
         }
             
@@ -7629,12 +7629,12 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             
     case XCALL_ProtocolRevision:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
-        return Make_unsigned(taskData, ProtocolRevision(DEREFDISPLAYHANDLE(dsHandle)->display));
+        return Make_arbitrary_precision(taskData, ProtocolRevision(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
     case XCALL_ProtocolVersion:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
-        return Make_unsigned(taskData, ProtocolVersion(DEREFDISPLAYHANDLE(dsHandle)->display));
+        return Make_arbitrary_precision(taskData, ProtocolVersion(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
     case XCALL_ServerVendor:
@@ -7644,7 +7644,7 @@ Handle XWindows_c(TaskData *taskData, Handle params)
         
     case XCALL_VendorRelease:
         { Handle dsHandle /* Handle to (X_Display_Object *) */ = GetDS(taskData, XP1);
-        return Make_unsigned(taskData, VendorRelease(DEREFDISPLAYHANDLE(dsHandle)->display));
+        return Make_arbitrary_precision(taskData, VendorRelease(DEREFDISPLAYHANDLE(dsHandle)->display));
         }
         
         /* Drawing Primitives 300 */
@@ -8120,16 +8120,16 @@ Handle XWindows_c(TaskData *taskData, Handle params)
             GetRectH(taskData, P3));
         
     case XCALL_BitmapBitOrder:
-        return Make_unsigned(taskData, MLImageOrder(BitmapBitOrder(GetDisplay(taskData, XP1))));
+        return Make_arbitrary_precision(taskData, MLImageOrder(BitmapBitOrder(GetDisplay(taskData, XP1))));
         
     case XCALL_BitmapPad:
-        return Make_unsigned(taskData, BitmapPad(GetDisplay(taskData, XP1)));
+        return Make_arbitrary_precision(taskData, BitmapPad(GetDisplay(taskData, XP1)));
         
     case XCALL_BitmapUnit:
-        return Make_unsigned(taskData, BitmapUnit(GetDisplay(taskData, XP1)));
+        return Make_arbitrary_precision(taskData, BitmapUnit(GetDisplay(taskData, XP1)));
         
     case XCALL_ByteOrder:
-        return Make_unsigned(taskData, MLImageOrder(ImageByteOrder(GetDisplay(taskData, XP1))));
+        return Make_arbitrary_precision(taskData, MLImageOrder(ImageByteOrder(GetDisplay(taskData, XP1))));
         
         /* Keyboard 600 */
     case XCALL_XLookupString:
