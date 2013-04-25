@@ -139,6 +139,11 @@ struct
 
     open Pretty
 
+    (* Common cases. *)
+    val space = PrettyBreak (1, 0)
+    fun block l = PrettyBlock (0, false, [], l)
+    val string = PrettyString
+
     fun pList ([]: 'b list, _: string, _: 'b->pretty) = []
     |   pList ([h],    _, disp) = [disp h]
     |   pList (h::t, sep, disp) =
@@ -162,11 +167,7 @@ struct
                 [ PrettyBreak (0, 0), PrettyString (")") ]
             )
 
-        fun prettyArgType GeneralType = PrettyString "G"
-        |   prettyArgType FloatingPtType = PrettyString "F"
-
-        fun prettyArg (c, t) =
-                PrettyBlock(1, false, [], [pretty c, PrettyBreak (1, 0), prettyArgType t])
+        fun prettyArg (c, _) = pretty c
 
         fun prettyArgs(start, lst, sep) : pretty =
             PrettyBlock (1, true, [],
@@ -177,102 +178,94 @@ struct
 
     in
         case pt of
-          Eval {function, argList, resultType} =>
-            let
-                val prettyArgs =
-                    PrettyBlock (1, true, [],
-                        PrettyString ("$(") ::
-                        pList(argList, ",", prettyArg) @
-                        [ PrettyBreak (0, 0), PrettyString (")") ]
-                    )
-            in
-                PrettyBlock (3, false, [],
-                    [ pretty function, PrettyBreak(1, 0), prettyArgType resultType, PrettyBreak(1, 0), prettyArgs ]
+            Eval {function, argList, ...} =>
+                PrettyBlock (2, false, [],
+                    [
+                        pretty function,
+                        PrettyBreak(1, 2),
+                        PrettyBlock(2, true, [],
+                            (
+                                string "(" ::
+                                PrettyBreak(0, 0) ::
+                                pList(argList, ",", prettyArg) @
+                                [PrettyBreak (0, 0), PrettyString (")")]
+                            )
+                        )
+                    ]
                 )
-            end
          
-        | Extract ext =>
-            let
-                val str =
-                    case ext of
-                        LoadArgument addr => concat ["PARAM(", Int.toString addr, ")"]
-                    |   LoadLocal addr => concat ["LOCAL(", Int.toString addr, ")"]
-                    |   LoadClosure addr => concat ["CLOS(", Int.toString addr, ")"]
-                    |   LoadRecursive => "RECURSIVE"
-            in
-                PrettyString str
-            end
-        
-        | Indirect {base, offset, isVariant} =>
-            let
-                val str = (if isVariant then "VARIND(" else "INDIRECT(") ^ Int.toString offset ^ ", ";
-            in
-                PrettyBlock(0, false, [],
-                    [ PrettyString str, pretty base, PrettyString ")" ]
+        |   Extract(LoadArgument addr) => string ("Arg" ^ Int.toString addr)
+        |   Extract(LoadLocal addr) => string ("Local" ^ Int.toString addr)
+        |   Extract(LoadClosure addr) => string ("Closure" ^ Int.toString addr)
+        |   Extract LoadRecursive => string "Recursive"
+
+        |   Indirect {base, offset, isVariant} =>
+                PrettyBlock(2, false, [],
+                    [
+                        pretty base,
+                        PrettyBreak(0, 2),
+                        string(concat["[", Int.toString offset, "]", if isVariant then "(*V*)" else ""])
+                    ]
                 )
-            end
         
-        | Lambda {body, isInline, name, closure, argTypes, resultType, localCount} =>
+        | Lambda {body, isInline, name, closure, argTypes, localCount, ...} =>
             let
                 val inl = 
                     case isInline of
                       NonInline   => ""
-                    | MaybeInline => "INLINE"
-                    | SmallFunction => "SMALL"
-                    | OnlyInline  => "ONLYINLINE"
-                fun prettyArgTypes [] = []
-                |   prettyArgTypes [(last, use)] = [prettyArgType last, prettyUses "" use]
-                |   prettyArgTypes ((hd, use)::tl) =
-                        prettyArgType hd :: prettyUses "" use :: PrettyBreak(1, 0) :: prettyArgTypes tl
+                    | MaybeInline => "inline,"
+                    | SmallFunction => "small,"
+                    | OnlyInline  => "functor,"
             in
-                PrettyBlock (1, true, [],
+                PrettyBlock(2, true, [],
+                [
+                    PrettyBlock(4, false, [],
                     [
-                        PrettyString ("LAMBDA"^inl^"("),
-                        PrettyBreak (1, 0),
-                        PrettyString name,
-                        PrettyBreak (1, 0),
-                        PrettyString (" LOCALS=" ^ Int.toString localCount),
-                        PrettyBreak(1, 0),
-                        PrettyBlock (1, false, [], PrettyString "ARGS=" :: prettyArgTypes argTypes),
-                        PrettyBreak(1, 0),
-                        PrettyBlock (1, false, [], [PrettyString "RES=", prettyArgType resultType]),
-                        printList (" CLOS=", map Extract closure, ","),
-                        PrettyBreak (1, 0),
-                        pretty body,
-                        PrettyString "){LAMBDA}"
-                    ]
-                )
+                        string "fn",
+                        space,
+                        string "(*", space, string("\"" ^ name ^ "\""), space, string inl,
+                        space, string(Int.toString localCount ^ " locals,"), space,
+                        string(Int.toString (List.length argTypes) ^ " args,"),
+                        space,
+                        printList ("closure=", map Extract closure, ","),
+                        space, string "*)"
+                    ]),
+                    PrettyBreak(1, 2),
+                    pretty body
+                ])
             end
         
         |   Constnt w => PrettyString (stringOfWord w)
         
         |   Cond (f, s, t) =>
-            PrettyBlock (1, true, [],
+            PrettyBlock (0, true, [],
                 [
-                    PrettyString "IF(",
-                    pretty f,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty s,
-                    PrettyString ", ",
-                    PrettyBreak (0, 0),
-                    pretty t,
-                    PrettyBreak (0, 0),
-                    PrettyString (")")
+                    PrettyBlock(2, false, [], [string "if", space, pretty f]),
+                    space,
+                    PrettyBlock(2, false, [], [string "then", space, pretty s]),
+                    space,
+                    PrettyBlock(2, false, [], [string "else", space, pretty t])
                 ]
             )
 
         | Newenv(decs, final) =>
-            PrettyBlock (1, true, [],
-                PrettyString ("BLOCK" ^ "(") ::
-                pList(decs @ [NullBinding final], ";", prettyBinding)
+            PrettyBlock (0, true, [],
+                [
+                    string "let",
+                    PrettyBreak (1, 2),
+                    PrettyBlock(2, false, [], pList(decs, ";", prettyBinding)),
+                    space,
+                    string "in",
+                    PrettyBreak(1, 2),
+                    PrettyBlock(2, false, [], [pretty final]),
+                    space,
+                    string "end"
+                ]
             )
 
         | BeginLoop{loop=loopExp, arguments=args } =>
             let
-                fun prettyArg (c, t) =
-                    PrettyBlock(1, false, [],
-                        [prettySimpleBinding c, PrettyBreak (1, 0), prettyArgType t])
+                fun prettyArg (c, _) = prettySimpleBinding c
             in
                 PrettyBlock (3, false, [],
                     [
@@ -378,22 +371,22 @@ struct
     |   prettyBinding(RecDecs ptl) =
         let
             fun prettyRDec {lambda, addr, use, ...} =
-            PrettyBlock (1, false, [],
-                [
-                    PrettyString ("DECL #" ^ Int.toString addr),
-                    PrettyBreak (1, 0),
+            block [
+                    string ("Local" ^ Int.toString addr),
+                    space,
+                    string "(*",
                     prettyUses "" use,
-                    PrettyBreak (1, 0),
-                    PrettyString "=",
-                    PrettyBreak (1, 0),
-                    pretty(Lambda lambda)
+                    space,
+                    string "*)",
+                    space,
+                    string "=",
+                    PrettyBreak (1, 2),
+                    PrettyBlock (2, false, [], [pretty(Lambda lambda)])
                 ]
-            )
         in
-            PrettyBlock (1, true, [],
-                PrettyString ("MUTUAL" ^ "(") ::
-                pList(ptl, " AND ", prettyRDec) @
-                [ PrettyBreak (0, 0), PrettyString (")") ]
+            PrettyBlock(0, true, [],
+                string "val rec " ::
+                pList(ptl, " and ", prettyRDec)
             )
         end
     |   prettyBinding(NullBinding c) = pretty c
@@ -401,13 +394,18 @@ struct
     and prettySimpleBinding{value, addr, use, ...} =
         PrettyBlock (1, false, [],
             [
-                PrettyString ("DECL #" ^ Int.toString addr),
-                PrettyBreak (1, 0),
+                string ("val Local" ^ Int.toString addr),
+                space,
+                string "(*",
+                string "",
+                space,
                 prettyUses "" use,
-                PrettyBreak(1, 0),
-                PrettyString "=",
-                PrettyBreak (1, 0),
-                pretty value
+                space,
+                string "*)",
+                space,
+                string "=",
+                PrettyBreak (1, 2),
+                PrettyBlock (2, false, [], [pretty value])
             ]
         )
 
