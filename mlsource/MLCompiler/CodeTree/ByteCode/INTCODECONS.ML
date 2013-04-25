@@ -235,7 +235,7 @@ struct
       constant.  The byte offset is then always the number of bytes to the end of
       the code.  DCJM 25/9/00.
   *)
-  val usePortableConstantOffset = true;
+  val usePortableConstantOffset = false;
 
   (* To make the code portable these are both functions.  Note that
      similar changes are needed in Code_seg.ML and in the basis library.
@@ -329,7 +329,6 @@ struct
     val opcode_jumpFalse         = Opcode 3;
     val opcode_containerW        = Opcode 4; (* Added DCJM 5/10/05. *)
     val opcode_delHandler        = Opcode 5;
-    val opcode_jumpI             = Opcode 6; (* The I versions are always original + 4 *)
     val opcode_jumpIFalse        = Opcode 7;
     val opcode_set_containerW    = Opcode 8; (* Added DCJM 5/10/05. *)
     val opcode_delHandlerI       = Opcode 9;
@@ -338,8 +337,7 @@ struct
     val opcode_callClosure       = Opcode 12;
     val opcode_returnW           = Opcode 13;
     val opcode_pad               = Opcode 14;
-    (* val opcode_projectW          = Opcode 15; *)
-    
+    val opcode_jumpI             = Opcode 15 (* Moved from 6 because this is unsigned *)
     val opcode_raiseEx           = Opcode 16;
     val opcode_getStoreW         = Opcode 17;
     val opcode_nonLocal          = Opcode 18;
@@ -356,10 +354,9 @@ struct
     val opcode_constIntW         = Opcode 27;
     val opcode_ioVecEntry        = Opcode 28;
     val opcode_constNil          = Opcode 29;
-    val opcode_jumpBack          = Opcode 30;
+    val opcode_jumpBack8         = Opcode 30;
     val opcode_returnB           = Opcode 31;
-    
-(*  val opcode_projectB          = Opcode 32; *)
+    val opcode_jumpBack16        = Opcode 32
     val opcode_getStoreB         = Opcode 33;
     val opcode_localB            = Opcode 34;
     val opcode_indirectB         = Opcode 35;
@@ -466,7 +463,7 @@ struct
     (* These have been moved since the old versions were for
        the old exception mechanism. *)
     val opcode_setHandler        = Opcode 129
-    val opcode_setHandlerI       = Opcode 134
+    val opcode_setHandlerI       = Opcode 130
  
     (* val opcode_last              = opcode_ioVec_225; *)
 
@@ -489,9 +486,6 @@ struct
       val () = repUpdate(opcode_callClosure,  "callClosure");
       val () = repUpdate(opcode_returnW,      "returnW");
       val () = repUpdate(opcode_pad,          "pad");
-(* ...
-      val () = repUpdate(opcode_projectW,     "projectW");
-... *)
       val () = repUpdate(opcode_raiseEx,      "raiseEx");
       val () = repUpdate(opcode_getStoreW,    "getStoreW");
       val () = repUpdate(opcode_nonLocal,     "nonLocal");
@@ -507,11 +501,9 @@ struct
       val () = repUpdate(opcode_constIntW,     "constIntW");
       val () = repUpdate(opcode_ioVecEntry,    "ioVecEntry");
       val () = repUpdate(opcode_constNil,      "constNil");
-      val () = repUpdate(opcode_jumpBack,      "jumpBack");
+      val () = repUpdate(opcode_jumpBack8,     "jumpBack8");
       val () = repUpdate(opcode_returnB,       "returnB");
-(* ...
-      val () = repUpdate(opcode_projectB,      "projectB");
-... *)
+      val () = repUpdate(opcode_jumpBack16,    "jumpBack16");
       val () = repUpdate(opcode_getStoreB,     "getStoreB");
       val () = repUpdate(opcode_localB,        "localB");
       val () = repUpdate(opcode_indirectB,     "indirectB");
@@ -625,14 +617,12 @@ struct
       val () = sizeUpdate(opcode_jump        , 2);
       val () = sizeUpdate(opcode_jumpFalse   , 2);
       val () = sizeUpdate(opcode_delHandler  , 2);
-      val () = sizeUpdate(opcode_jumpI       , 2);
       val () = sizeUpdate(opcode_jumpIFalse  , 2);
       val () = sizeUpdate(opcode_delHandlerI , 2);
       val () = sizeUpdate(opcode_caseSwitch  , 3);
       val () = sizeUpdate(opcode_callSl      , 7);
       val () = sizeUpdate(opcode_callSlX     , 9);
       val () = sizeUpdate(opcode_returnW     , 3);
-(*    val () = sizeUpdate(opcode_projectW    , 3); *)
       val () = sizeUpdate(opcode_getStoreW   , 3);
       val () = sizeUpdate(opcode_nonLocal    , 7);
       val () = sizeUpdate(opcode_localW      , 3);
@@ -646,9 +636,9 @@ struct
       val () = sizeUpdate(opcode_constAddrX_w , 5);
       val () = sizeUpdate(opcode_constIntW   , 3);
       val () = sizeUpdate(opcode_ioVecEntry  , 2);
-      val () = sizeUpdate(opcode_jumpBack    , 2);
+      val () = sizeUpdate(opcode_jumpBack8   , 2);
       val () = sizeUpdate(opcode_returnB     , 2);
-(*    val () = sizeUpdate(opcode_projectB    , 2); *)
+      val () = sizeUpdate(opcode_jumpBack16  , 3);
       val () = sizeUpdate(opcode_getStoreB   , 2);
       val () = sizeUpdate(opcode_localB      , 2);
       val () = sizeUpdate(opcode_indirectB   , 2);
@@ -936,47 +926,48 @@ struct
     labelList cvec     := removeEntry (! (labelList cvec))
   end;
 
-  fun fixupOffset (Jump8From addr, target : addrs, cvec : code) : unit =
-  let
-    (* Offsets are calculated from the END of the instruction, which explains the "+ 1" *)
-    val newOffset : int = target addrMinus (addr addrPlus 1);
+    fun fixupOffset (Jump8From addr, target, cvec) =
+        let
+            (* Offsets are calculated from the END of the instruction, which explains the "+ 1" *)
+            val newOffset : int = target addrMinus (addr addrPlus 1);
     
-    val () = 
-      if 0 <= newOffset andalso newOffset < 256 then ()
-      else raise InternalError "fixupOffset: jump too far (8-bit offset)"
+            val () = 
+                if 0 <= newOffset andalso newOffset < 256 then ()
+                else raise InternalError "fixupOffset: jump too far (8-bit offset)"
     
-    val oldOffset : int = getByte (addr, cvec);
+            val oldOffset : int = getByte (addr, cvec);
     
-    val () = 
-      if oldOffset = 0 then ()
-      else raise InternalError "fixupOffset: 8-bit branch already fixed up"
+            val () = 
+                if oldOffset = 0 then ()
+                else raise InternalError "fixupOffset: 8-bit branch already fixed up"
 
-    (* 
-       We're about to fix up the jump, so remove it from the
-       list of pending short jumps.
-     *)
-    val () = removeLabel (addr, cvec);
-  in
-    putByte (newOffset, addr, cvec)
-  end
-       
-    | fixupOffset (Jump16From addr, target : addrs, cvec : code) : unit =
-  let
-    (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
-    val newOffset     : int  = target addrMinus (addr addrPlus 2);
-    
-    val () = 
-      if ~32768 <= newOffset andalso newOffset < 32768 then ()
-      else raise InternalError "fixupOffset: jump too far (16-bit offset)"
-    
-    val oldOffset : int = getBytes (2, addr, cvec);
+            (* 
+               We're about to fix up the jump, so remove it from the
+               list of pending short jumps.
+             *)
+            val () = removeLabel (addr, cvec);
+        in
+            putByte (newOffset, addr, cvec)
+        end
 
-    val () = 
-      if oldOffset = 0 then ()
-      else raise InternalError "fixupOffset: 16-bit branch already fixed up"
-  in
-    putBytes (newOffset, 2, addr, cvec)
-  end;
+    |   fixupOffset (Jump16From addr, target, cvec) =
+        let
+            (* Offsets are calculated from the END of the instruction, which explains the "+ 2" *)
+            val newOffset = target addrMinus (addr addrPlus 2);
+    
+            val () =
+                (* Jumps are unsigned. *)
+                if 0 <= newOffset andalso newOffset < 65536 then ()
+                else raise InternalError "fixupOffset: jump too far (16-bit offset)"
+    
+            val oldOffset = getBytes (2, addr, cvec);
+
+            val () = 
+                if oldOffset = 0 then ()
+                else raise InternalError "fixupOffset: 16-bit branch already fixed up"
+        in
+            putBytes (newOffset, 2, addr, cvec)
+        end
 
 
   fun fixup ([]  : labels, _: code) : unit = ()
@@ -1060,11 +1051,21 @@ struct
               
             (* Convert the instruction to the "indirect" form *)
             val instrAddr    : addrs = addr addrPlus ~1;
-            val oldInstrByte : int   = getByte (instrAddr, cvec);
-            val newInstrByte : int   = oldInstrByte + 4;
+            val oldInstr = opcode_up(getByte (instrAddr, cvec))
+            
+            val newInstr =
+                if oldInstr = opcode_jump
+                then opcode_jumpI
+                else if oldInstr = opcode_jumpFalse
+                then opcode_jumpIFalse
+                else if oldInstr = opcode_delHandler
+                then opcode_delHandlerI
+                else if oldInstr = opcode_setHandler
+                then opcode_setHandlerI
+                else raise InternalError "Extending unknown branch instruction"
               
             (* Fix up the instruction and offset *)
-            val () = putByte (newInstrByte, instrAddr, cvec);
+            val () = putByte (opcode_down newInstr, instrAddr, cvec);
             val () = putByte (newOffset, addr, cvec);
 
         (* Generate the indirection itself, and alter the jump state *)
@@ -1325,39 +1326,38 @@ struct
       lab
     end;
 
-  (* Generate either a short or long jump. *)
-  fun jumpback (lab: addrs, cvec: code) : unit =
-  let
-    val () = resetSp cvec;
+    (* Generate either a short or long jump. *)
+    fun jumpback (lab: addrs, cvec: code) : unit =
+    let
+        val () = resetSp cvec;
   
-    (* Don't use genOpc(opcode_jump) because we want to check the branch
-       list afterwards, and also because it might generate some code if
-       we try to use a short branch and take it over the limit. *)
-    val newOffset : int = !(ic cvec) addrMinus lab;
+        (* Don't use genOpc(opcode_jump) because we want to check the branch
+           list afterwards, and also because it might generate some code if
+           we try to use a short branch and take it over the limit. *)
+        val newOffset : int = !(ic cvec) addrMinus lab;
     
-    val () =
-      if newOffset < 256
-      then let (* short *)
-        (* For opcode_jumpBack, exceptionally, the offset is relative
-           to the START of the instruction. Also, the offset is
-           backwards, as opposed to the usual forwards convention. *)
-    val () = genByte (opcode_down opcode_jumpBack, cvec);
-      in
-    genByte (newOffset, cvec)
-      end
-      else let (* must use indirect jump *)
-        (* For all other jumps, the offset is relative to the END of
-           the instruction, which explains the "0" and the "+ 4". *)
-    val () = genByte (opcode_down opcode_jumpI, cvec);
-    val () = genByte (0, cvec); (* Indirect through next word. *)
-      in
-    genWord (~ (newOffset + 4), cvec)
-      end;
-  in
-    (* Having just generated an unconditional branch we can extend
-       branches without the overhead of an extra branch. *)
-    checkBranchList(cvec, true, 0)
-  end; (* jumpback *)
+        val () =
+            if newOffset < 256
+            then
+            let (* short *)
+                (* For opcode_jumpBack, exceptionally, the offset is relative
+                   to the START of the instruction. Also, the offset is
+                   backwards, as opposed to the usual forwards convention. *)
+                val () = genByte (opcode_down opcode_jumpBack8, cvec);
+            in
+                genByte (newOffset, cvec)
+            end
+            else
+            let (* must use 16-bit jump *)
+                val () = genByte (opcode_down opcode_jumpBack16, cvec);
+            in
+                genWord (newOffset, cvec)
+            end;
+    in
+        (* Having just generated an unconditional branch we can extend
+           branches without the overhead of an extra branch. *)
+        checkBranchList(cvec, true, 0)
+    end
 
 
   local
@@ -1699,14 +1699,22 @@ struct
                     opc = opcode_delHandlerI
               then printDisp (1, "\t", true)
               
-            else if opc = opcode_jumpBack (* Should be negative *)
+            else if opc = opcode_jumpBack8 (* Should be negative *)
               then let
                 val () = printStream "\t";
                 val () = printHex((!ptr - 1) - getB(1,!ptr,seg));
               in
                 ptr := !ptr + 1
               end
-              
+
+             else if opc = opcode_jumpBack16 (* Should be negative *)
+              then let
+                val () = printStream "\t";
+                val () = printHex((!ptr - 1) - getB(2,!ptr,seg));
+              in
+                ptr := !ptr + 2
+              end
+             
             else if opc = opcode_nonLocal
               then let
                 val () = printOp (2, "\t");

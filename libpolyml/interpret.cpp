@@ -314,8 +314,17 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             if (*sp++ == True) { pc += 1; break; }
             /* else - false - take the jump */
 
+        case INSTR_jump_i_u: /* Indirect jump */
+            {
+                // This is always a forward jump
+                pc += *pc + 1;
+                pc += arg1 + 2;
+                break;
+            }
+
         case INSTR_jump_i: /* Indirect jump */
             {
+                // This is only for backwards compatibility
                 pc += *pc + 1;
                 /* This may jump backwards. */
                 int u = arg1;
@@ -1027,6 +1036,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         case INSTR_const_nil: *(--sp) = Zero; break;
 
         case INSTR_jump_back: pc -= *pc + 1; break;
+
+        case INSTR_jump_back16:
+            pc -= arg1 + 1; break;
 
         case INSTR_lock:
             {

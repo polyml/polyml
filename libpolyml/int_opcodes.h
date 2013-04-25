@@ -48,8 +48,9 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_case          0x0a
 #define INSTR_call_sl       0x0b
 #define INSTR_call_closure  0x0c
-#define INSTR_return_w      0x0d /* relocated on mips! */
+#define INSTR_return_w      0x0d
 #define INSTR_pad           0x0e
+#define INSTR_jump_i_u      0x0f
 #define INSTR_raise_ex      0x10
 #define INSTR_get_store_w   0x11
 #define INSTR_non_local     0x12
@@ -66,6 +67,7 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_const_nil     0x1d
 #define INSTR_jump_back     0x1e
 #define INSTR_return_b      0x1f
+#define INSTR_jump_back16   0x20
 #define INSTR_get_store_b   0x21
 #define INSTR_local_b       0x22
 #define INSTR_indirect_b    0x23
@@ -163,4 +165,4 @@ INSTR_return_w   0x92 /* int */
 #define INSTR_tail_3_2      0x7f
 #define INSTR_tail_3_3      0x80
 #define INSTR_set_handler_new 0x81
-#define INSTR_set_handler_new_i 0x85
+#define INSTR_set_handler_new_i 0x82
