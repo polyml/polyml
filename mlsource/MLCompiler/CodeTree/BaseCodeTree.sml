@@ -30,9 +30,7 @@ struct
 
     datatype inlineStatus =
         NonInline
-    |   MaybeInline
-    |   SmallFunction
-    |   OnlyInline
+    |   Inline
 
     (* How variables are used.  Added and examined by the optimisation pass. *)
     datatype codeUse =
@@ -213,9 +211,7 @@ struct
                 val inl = 
                     case isInline of
                       NonInline   => ""
-                    | MaybeInline => "inline,"
-                    | SmallFunction => "small,"
-                    | OnlyInline  => "functor,"
+                    | Inline => "inline,"
             in
                 PrettyBlock(2, true, [],
                 [

@@ -320,7 +320,10 @@ struct
     fun optimise (context, use) (Lambda (lambda as { isInline = NonInline, ...} )) =
             SOME(Lambda(optLambda(context, use, lambda)))
 
-    |   optimise (context, use) (Lambda (lambda as { isInline = MaybeInline, ...} )) =
+    |   optimise (context, use) (Lambda (lambda as { isInline = Inline, ...} )) =
+            (* If this is currently inlined and is exported we don't really know
+               how it will be used.  If it is purely local we just treat it as
+               any other function. *)
             if List.exists (fn UseExport => true | _ => false) use
             then NONE
             else SOME(Lambda(optLambda(context, use, lambda)))
@@ -350,7 +353,7 @@ struct
 
     |   optimise _ _ = NONE
 
-    and optLambda({ debugArgs, reprocess, ... }, use, { body, name, argTypes, resultType, closure, localCount, ...}) =
+    and optLambda({ debugArgs, reprocess, ... }, use, { body, name, argTypes, resultType, closure, localCount, isInline, ...}) =
     let
 (*
         val allApply = List.all(fn UseApply _ => true | _ => false)
@@ -379,23 +382,23 @@ struct
         val (inlineType, updatedBody, localCount) =
             case evaluateInlining(optBody, List.length argTypes,
                     DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs) of
-                NonRecursive  => (SmallFunction, optBody, ! addressAllocator)
+                NonRecursive  => (Inline, optBody, ! addressAllocator)
             |   TailRecursive bv =>
-                    (SmallFunction,
+                    (Inline,
                         replaceTailRecursiveWithLoop(optBody, argTypes, bv, addressAllocator), ! addressAllocator)
             |   NonTailRecursive bv =>
                     if Vector.exists (fn n => n) bv
-                    then (SmallFunction, 
+                    then (Inline, 
                             liftRecursiveFunction(
                                 optBody, argTypes, bv, List.length closure, name, resultType, !addressAllocator), 0)
                     else (NonInline, optBody, ! addressAllocator) (* All arguments have been modified *)
             |   TooBig => (NonInline, optBody, ! addressAllocator)
-        (* If this is to be inlined we may need to reprocess. *)
-        val () =
-            case inlineType of
-                SmallFunction => reprocess := true
-            |   _ => ()
     in
+        (* If this is to be inlined but was not before we may need to reprocess. *)
+        if inlineType = Inline andalso isInline = NonInline
+        then reprocess := true
+        else ();
+
         {
             body = updatedBody, name = name, argTypes = argTypes, closure = closure,
             resultType = resultType, isInline = inlineType, localCount = localCount
@@ -408,7 +411,7 @@ struct
     let
         fun topLevel _ = raise InternalError "top level reached"
 
-        fun processTree (code, nLocals, optAgain) =
+        fun processTree (code, nLocals, optAgain, count) =
         let
             (* First run the simplifier.  Among other things this does inline
                expansion and if it does any we at least need to run cleanProc
@@ -418,6 +421,8 @@ struct
             if optAgain orelse simpAgain
             then
             let
+                (* Check for looping at least during testing.*)
+                val _ = count < 10 orelse raise InternalError "Too many passes"
                 (* Identify usage information and remove redundant code. *)
                 val preOptCode =
                     REMOVE_REDUNDANT.cleanProc(
@@ -438,12 +443,12 @@ struct
                 val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
             in
                 (* Rerun the simplifier at least. *)
-                processTree(optCode, ! addressAllocator, ! reprocess)
+                processTree(optCode, ! addressAllocator, ! reprocess, count+1)
             end
             else (simpCode, simpCount) (* We're done *)
         end
 
-        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *))
+        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *), 1)
         val (rGeneral, rDecs, rSpec) = postOptCode
     in
         { numLocals = postOptCount, general = rGeneral, bindings = rDecs, special = rSpec }

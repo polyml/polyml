@@ -270,11 +270,12 @@ struct
               }
     in
         val mkProc = Lambda o mkSimpleFunction NonInline (* Normal function *)
-        and mkInlproc = Lambda o mkSimpleFunction MaybeInline (* Explicitly inlined by the front-end *)
+        and mkInlproc = Lambda o mkSimpleFunction Inline (* Explicitly inlined by the front-end *)
 
-        (* Functors are marked as "OnlyInline" unless Compiler.inlineFunctor is false.  They
-           are turned into constants-with-inlines unless there is something in the closure.  This
-           means that they are not processed until they are actually applied.  Almost always
+        (* Unless Compiler.inlineFunctor is false functors are treated as macros and expanded
+           when they are applied.  Unlike core-language functions they are not first-class
+           values so if they are inline the "value" returned in the initial binding can just
+           be zero except if there is something in the closure. Almost always
            the closure will be empty since free variables will come from previous topdecs and will
            be constants,  The exception is if a structure and a functor using the structure appear
            in the same topdec (no semicolon between them).  In that case we can't leave it.  We
@@ -283,10 +284,10 @@ struct
            e.g. structure S = struct val x = 1 end functor F() = struct open S end *)
         fun mkMacroProc (args as (_, _, _, [], _)) =
             ConstntWithInline(toMachineWord 0,
-                EnvSpecInlineFunction(mkSimpleFunction OnlyInline args,
+                EnvSpecInlineFunction(mkSimpleFunction Inline args,
                     fn _ => raise InternalError "mkMacroProc: closure"))
 
-        |   mkMacroProc args = Lambda(mkSimpleFunction OnlyInline args)
+        |   mkMacroProc args = Lambda(mkSimpleFunction Inline args)
     end
 
     local
@@ -303,7 +304,7 @@ struct
             }
     in
         val mkFunction = mkFunWithTypes NonInline
-        and mkInlineFunction = mkFunWithTypes MaybeInline
+        and mkInlineFunction = mkFunWithTypes Inline
     end
 
     fun mkEval (ct, clist)   =

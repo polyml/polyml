@@ -26,9 +26,7 @@ sig
     
     datatype inlineStatus =
         NonInline
-    |   MaybeInline
-    |   SmallFunction
-    |   OnlyInline
+    |   Inline
 
     datatype argumentType =
         GeneralType

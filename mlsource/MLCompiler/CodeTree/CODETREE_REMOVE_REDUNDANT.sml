@@ -64,10 +64,7 @@ struct
     let
         val locals = Array.array(localCount, [])
 
-        fun cleanLambda(lambda as { isInline = OnlyInline, ...}, _) = lambda
-            (* Don't process functors - they will be processed when they are applied. *)
-
-        |   cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm, lambdaUse) =
+        fun cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm, lambdaUse) =
         let
             (* If we have called this function somewhere and used the result that gives us a hint on the
                preferred result. *)

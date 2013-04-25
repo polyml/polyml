@@ -384,7 +384,7 @@ struct
                 local
                     val (inlines, nonInlines) =
                         List.partition (
-                            fn {lambda = { isInline=MaybeInline, ...}, ... } => true | _ => false) mutuals
+                            fn {lambda = { isInline=Inline, ...}, ... } => true | _ => false) mutuals
                 in
                     val orderedDecs = inlines @ nonInlines
                 end
@@ -518,10 +518,9 @@ struct
                is actually tail-recursion. *)
             val isNowInline =
                 case isInline of
-                    SmallFunction =>
-                        if ! isNowRecursive then NonInline else SmallFunction
+                    Inline =>
+                        if ! isNowRecursive then NonInline else Inline
                 |   NonInline => NonInline
-                |   isInline => (! isNowRecursive andalso raise InternalError "recursive"; isInline)
 
             (* Clean up the function body at this point if it could be inlined.
                There are examples where failing to do this can blow up.  This
@@ -584,7 +583,7 @@ struct
             |   _ => false
     in
         case (specFunct, genFunct, isRecursiveArg) of
-            (EnvSpecInlineFunction({body=lambdaBody, localCount, name, ...}, functEnv), _, false) =>
+            (EnvSpecInlineFunction({body=lambdaBody, localCount, ...}, functEnv), _, false) =>
             let
                 val () = reprocess := true (* If we expand inline we have to reprocess *)
                 val (_, functDecs, _) = funct
