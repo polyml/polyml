@@ -43,7 +43,8 @@ struct
         fun findTuple(Tuple{fields, isVariant=false}) = List.length fields
         |   findTuple(TupleFromContainer(_, c)) = c
         |   findTuple(Constnt w) =
-                if isShort w then 1 else Word.toInt(length(toAddress w))
+                if isShort w orelse flags (toAddress w) <> F_words then 1
+                else Word.toInt(length (toAddress w))
         |   findTuple(Extract _) = 1 (* TODO: record this for variables *)
         |   findTuple(Cond(_, t, e)) =
                 let

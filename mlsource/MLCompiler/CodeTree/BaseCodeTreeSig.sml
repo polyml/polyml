@@ -32,7 +32,6 @@ sig
         GeneralType
     |   FloatingPtType
 
-
     (* How variables are used.  Added and examined by the optimisation pass. *)
     datatype codeUse =
         UseGeneral (* Used in some other context. *)
@@ -41,6 +40,7 @@ sig
             (* Applied as a function - the list is where the result goes, the int list
                is the width of the tuples for each argument. *)
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
+    |   UseRecursive of codeUse list ref (* Passed or returned recursively. *)
 
     datatype codetree =
         Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)

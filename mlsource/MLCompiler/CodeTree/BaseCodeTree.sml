@@ -40,6 +40,7 @@ struct
             (* Applied as a function - the list is where the result goes, the int list
                is the width of the tuples for each argument. *)
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
+    |   UseRecursive of codeUse list ref (* Passed or returned recursively. *)
     
     datatype codetree =
         Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
@@ -212,17 +213,37 @@ struct
                     case isInline of
                       NonInline   => ""
                     | Inline => "inline,"
+                fun printArgs(n, (t, u) :: rest) =
+                    PrettyBlock(4, false, [],
+                        [
+                            string("Arg"^Int.toString n),
+                            space,
+                            prettyUses "" u
+                        ] @
+                        (
+                            case t of
+                                GeneralType => []
+                            |   FloatingPtType => [ space, string ":real" ]
+                        ) @
+                        (
+                            if null rest then []
+                            else [PrettyBreak(0,0), string ",", space]
+                        )
+                    ) :: printArgs(n+1, rest)
+                |   printArgs(_, []) = []
             in
                 PrettyBlock(2, true, [],
                 [
                     PrettyBlock(4, false, [],
                     [
-                        string "fn",
+                        string "fn(",
+                        space,
+                        block(printArgs(0, argTypes)),
+                        space,
+                        string ")",
                         space,
                         string "(*", space, string("\"" ^ name ^ "\""), space, string inl,
                         space, string(Int.toString localCount ^ " locals,"), space,
-                        string(Int.toString (List.length argTypes) ^ " args,"),
-                        space,
                         printList ("closure=", map Extract closure, ","),
                         space, string "*)"
                     ]),
@@ -249,11 +270,11 @@ struct
                 [
                     string "let",
                     PrettyBreak (1, 2),
-                    PrettyBlock(2, false, [], pList(decs, ";", prettyBinding)),
+                    PrettyBlock(2, true, [], pList(decs, ";", prettyBinding)),
                     space,
                     string "in",
                     PrettyBreak(1, 2),
-                    PrettyBlock(2, false, [], [pretty final]),
+                    PrettyBlock(2, true, [], [pretty final]),
                     space,
                     string "end"
                 ]
@@ -412,23 +433,34 @@ struct
                 [ PrettyBreak (0, 0), PrettyString ("]") ]
             )
 
-    and prettyUsage UseGeneral = PrettyString "UseGen"
-    |   prettyUsage UseExport = PrettyString "UseExp"
+    and prettyUsage UseGeneral = PrettyString "_"
+    |   prettyUsage UseExport = PrettyString "Export"
     |   prettyUsage (UseApply (cl, al)) =
            PrettyBlock (1, true, [],
-                PrettyString "UseApp[" ::
-                pList(al, ",", fn i => PrettyString(Int.toString i)) @
-                PrettyString "]" ::
-                PrettyBreak(1, 0) ::
-                PrettyString "[" ::
-                pList(cl, ",", prettyUsage) @
-                [ PrettyBreak (0, 0), PrettyString "]" ]
+                string "(" ::
+                pList(al, "|", fn i => string(Int.toString i)) @
+                string ")" ::
+                space ::
+                string "->" ::
+                space ::
+                string "(" ::
+                pList(cl, "|", prettyUsage) @
+                [ PrettyBreak (0, 0), string ")" ]
             )
     |   prettyUsage (UseField (n, cl)) =
            PrettyBlock (1, true, [],
-                PrettyString ("UseField"^ Int.toString n ^ "[") ::
+                string ("UseField"^ Int.toString n ^ "[") ::
                 pList(cl, ",", prettyUsage) @
-                [ PrettyBreak (0, 0), PrettyString "]" ]
+                [ PrettyBreak (0, 0), string "]" ]
+            )
+
+    |   prettyUsage (UseRecursive(ref cl)) =
+            PrettyBlock(1, false, [],
+                [
+                    string "UseRec [",
+                    space
+                ] @ pList(cl, "|", prettyUsage) @
+                [ space, string "]" ]
             )
 
     (* Mapping function to enable parts of the tree to be replaced. *)
