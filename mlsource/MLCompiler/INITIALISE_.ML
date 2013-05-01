@@ -93,11 +93,7 @@ sig
              functors: (string * functors) list, types: (string * typeConstrSet) list }) option
 end;
 
-structure ADDRESS :
-sig
-  type machineWord
-  val toMachineWord : 'a -> machineWord;
-end;
+structure ADDRESS : AddressSig
 
 structure DEBUG :
 sig

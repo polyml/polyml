@@ -65,40 +65,8 @@ sig
     val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
 end;
 
-structure PRETTY : PRETTYSIG;
-
-structure ADDRESS :
-sig
-  type machineWord;      (* any legal bit-pattern (tag = 0 or 1) *)
-  type address;   (* an object that's represented as a pointer *) 
-  type short = Word.word;   (* an object that's represented as a 30-bit int *)
-
-  val wordEq : 'a * 'a -> bool
-
-  val unsafeCast : 'a -> 'b;
-  
-  val isShort   : 'a -> bool;
-
-  (* The following casts are always safe *)
-  val toMachineWord : 'a    -> machineWord;
-  
-  (* The following casts are checked at run-time *)
-  val toShort   : 'a -> short;
-  val toAddress : 'a -> address;
-  
-  val alloc:  (short * Word8.word * machineWord)  -> address;
-
-  val loadByte:   (address * short) -> Word8.word;
-  val loadWord:   (address * short) -> machineWord;
-  val assignWord: (address * short * machineWord)  -> unit
-  val lock:       address -> unit
-
-  val length: address -> short;
-   
-  val F_words     : Word8.word;
-  val F_bytes     : Word8.word;
-  val F_mutable   : Word8.word;
-end;
+structure PRETTY : PRETTYSIG
+structure ADDRESS : AddressSig
 
 structure UTILITIES :
 sig
@@ -1234,7 +1202,7 @@ struct
                         fun getElem n (v, depth) =
                         let
                             val prettyFn =
-                                RunCall.unsafeCast(loadWord(toAddress elemFns, toShort n))
+                                RunCall.unsafeCast(loadWord(toAddress elemFns, Word.fromInt n))
                         in
                             addEntry(prettyFn(v, depth))
                         end

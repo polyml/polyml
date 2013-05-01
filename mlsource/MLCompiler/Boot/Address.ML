@@ -23,46 +23,42 @@ TODO: This duplicates some of the Word structure although it adds certain
 that we have the standard basis library.  DCJM June 2000.
 *)
 
-structure Address :>
 
-(*****************************************************************************)
-(*                  Address export signature                                 *)
-(*****************************************************************************)
+signature AddressSig =
 sig
-  type machineWord
-  type address
-  type handler
-  type short = Word.word
-  
-  val stringOfWord: machineWord -> string
-  
-  val wordEq : 'a * 'a -> bool
+    type machineWord
+    type address
+    type handler
+    type short = Word.word
 
-  val isShort   : 'a -> bool
+    val stringOfWord: machineWord -> string
 
-  exception Cast of string;
-  val unsafeCast: 'a -> 'b
-  val toMachineWord    : 'a    -> machineWord
-  val toShort   :  'a -> short
-  val toAddress : 'a -> address
-    
-  val loadByte:   (address * Word.word) -> Word8.word 
-  val loadWord:   (address * Word.word) -> machineWord
+    val wordEq : 'a * 'a -> bool
 
-  val assignByte: (address * Word.word * Word8.word) -> unit
-  val assignWord: (address * Word.word * machineWord)  -> unit
+    val isShort   : machineWord -> bool
 
-  val alloc:  (short * Word8.word * machineWord) -> address
-  val maxAllocation: word
+    exception Cast of string
+    val toMachineWord: 'a    -> machineWord
+    val toShort:         machineWord -> Word.word
+    val toAddress:       machineWord -> address
 
-  val lock:   address -> unit
-  val length: address -> short
-  val flags:  address -> Word8.word
+    val loadByte:   (address * Word.word) -> Word8.word 
+    val loadWord:   (address * Word.word) -> machineWord
 
-  val setFlags: address * Word8.word -> unit
-  val getFlags: address -> Word8.word
-  val wordSize: int
-  
+    val assignByte: (address * Word.word * Word8.word) -> unit
+    val assignWord: (address * Word.word * machineWord)  -> unit
+
+    val alloc:  (short * Word8.word * machineWord) -> address
+    val maxAllocation: word
+
+    val lock:   address -> unit
+    val length: address -> short
+    val flags:  address -> Word8.word
+
+    val setFlags: address * Word8.word -> unit
+    val getFlags: address -> Word8.word
+    val wordSize: int
+
     val F_words        : Word8.word
     val F_bytes        : Word8.word
     val F_code         : Word8.word
@@ -73,50 +69,49 @@ sig
     val F_weak         : Word8.word
     val F_profile      : Word8.word
 
-  val isWords : address -> bool;
-  val isBytes : address -> bool;
-  val isCode  : address -> bool;
-  val isMutable:address -> bool;
+    val isWords : address -> bool
+    val isBytes : address -> bool
+    val isCode  : address -> bool
+    val isMutable:address -> bool
 
-  val call: (address * machineWord) -> machineWord
+    val call: (address * machineWord) -> machineWord
 
-  val isIoAddress : address -> bool
+    val isIoAddress : address -> bool
 
     (* The following function is VERY unsafe and should only be
     used by the Poly/ML code generator *)    
-  val offsetAddr : address * short -> handler
-end =
+    val offsetAddr : address * short -> handler
+end
+
+structure Address :> AddressSig =
 
 struct
     type machineWord    = word (* a legal ML object (tag = 0 or 1) *)
     and address  = word (* a normal pointer (tag = 0) *)
     and handler  = word (* pointer to exception handler (tag = 2!) *)
-    and short    = word; (* a 31/63-bit int  (tag = 1) *)
+    and short    = word (* a 31/63-bit int  (tag = 1) *)
 
 
     open RuntimeCalls
 
   (* pointer equality *)
   val wordEq = PolyML.pointerEq
-  val unsafeCast : 'a -> 'b = RunCall.unsafeCast;
+  val unsafeCast : 'a -> 'b = RunCall.unsafeCast
 
-  local
-      val short : machineWord->bool = RunCall.run_call1 POLY_SYS_is_short
-  in
-      fun isShort (x:'a): bool = unsafeCast short x
-  end
+  val isShort : machineWord->bool = RunCall.run_call1 POLY_SYS_is_short
 
   (* The following cast is always safe *)
-  val toMachineWord : 'a    -> machineWord = unsafeCast;
+  val toMachineWord : 'a    -> machineWord = unsafeCast
 
   (* The following casts need checking *)
-  exception Cast of string;
-  
-  fun toShort   (w:'a) : short   = 
-    if isShort w then unsafeCast w else raise Cast "toShort";
+  exception Cast of string
    
-  fun toAddress (w:'a) : address =
-    if isShort w then raise Cast "toAddress" else unsafeCast w;
+  fun toAddress (w: machineWord) : address =
+    if isShort w then raise Cast "toAddress" else unsafeCast w
+
+    fun toShort (w: machineWord) : Word.word =
+        if isShort w then unsafeCast w else raise Cast "toShort"
+
   
   (* Note: 
        assignByte should *not* be used with word-objects
@@ -142,16 +137,16 @@ struct
   *)
   
   val loadByte:   (address * Word.word) -> Word8.word = 
-    RunCall.run_call2 POLY_SYS_load_byte;
+    RunCall.run_call2 POLY_SYS_load_byte
     
   val loadWord:   (address * Word.word) -> machineWord  =
-    RunCall.run_call2 POLY_SYS_load_word;
+    RunCall.run_call2 POLY_SYS_load_word
 
   val assignByte: (address * Word.word * Word8.word) -> unit =
-    RunCall.run_call3 POLY_SYS_assign_byte;
+    RunCall.run_call3 POLY_SYS_assign_byte
   
   val assignWord: (address * Word.word * machineWord)  -> unit =
-    RunCall.run_call3 POLY_SYS_assign_word;
+    RunCall.run_call3 POLY_SYS_assign_word
 
 
     val maxAllocation: word = RunCall.run_call2 POLY_SYS_process_env(100, ())
@@ -164,22 +159,22 @@ struct
         else RunCall.run_call3 POLY_SYS_alloc_store(len, flags, initial)
   
   val lock:   address -> unit =
-    RunCall.run_call1 POLY_SYS_lockseg;
+    RunCall.run_call1 POLY_SYS_lockseg
   
   val getFlags: address -> Word8.word =
-    RunCall.run_call1 POLY_SYS_get_flags;
+    RunCall.run_call1 POLY_SYS_get_flags
 
   val setFlags: address * Word8.word -> unit =
-    RunCall.run_call2 POLY_SYS_code_flags;
+    RunCall.run_call2 POLY_SYS_code_flags
 
   val wordSize: int =
-    RunCall.run_call0 POLY_SYS_bytes_per_word ();
+    RunCall.run_call0 POLY_SYS_bytes_per_word ()
 
   val length: address -> Word.word =
-     RunCall.run_call1 POLY_SYS_get_length;
+     RunCall.run_call1 POLY_SYS_get_length
   
   val flags:  address -> Word8.word  =
-    RunCall.run_call1 POLY_SYS_get_flags;
+    RunCall.run_call1 POLY_SYS_get_flags
   
   (* "call" added SPF 7/7/94, corrected 13/7/94, 8/9/94 *)
   (* call takes the address of the code of a function [N.B. *NOT*  *)
@@ -192,7 +187,7 @@ struct
   
   (* The run-time system functions all use Poly convention. *)
   val call: (address * machineWord) -> machineWord =
-    RunCall.run_call1 POLY_SYS_callcode_tupled;
+    RunCall.run_call1 POLY_SYS_callcode_tupled
   
     val F_words        : Word8.word = 0wx00 (* word object - contains pointers and/or tagged values. *)
     val F_bytes        : Word8.word = 0wx01 (* byte object (contains no pointers) *)
@@ -215,22 +210,22 @@ struct
 (* The following function is VERY unsafe and should only be *)
 (* used by the Poly/ML code generator (ML version).         *)    
   val offsetAddr : address * short -> handler =
-    RunCall.run_call2 POLY_SYS_offset_address;
+    RunCall.run_call2 POLY_SYS_offset_address
   
   local
-    val typeMask : Word8.word = 0wx03;
+    val typeMask : Word8.word = 0wx03
 
     fun isType (t: Word8.word) (a: address):bool = 
         Word8.andb(flags a, typeMask) = t
 
   in
-    val isWords = isType F_words;
-    val isBytes = isType F_bytes;
-    val isCode  = isType F_code;
+    val isWords = isType F_words
+    val isBytes = isType F_bytes
+    val isCode  = isType F_code
 
     (* The mutable flag may be used with any of the others. *)
     fun isMutable a = Word8.andb(flags a, F_mutable) = F_mutable
-  end;
+  end
 
     local
         val rtsTable =
@@ -358,7 +353,7 @@ struct
 
     fun stringOfWord w =
     if isShort w
-    then "LIT" ^ Word.toString (toShort w)
+    then "LIT" ^ Word.toString (unsafeCast w)
     else if isIoAddress(toAddress w)
     then (* RTS call - print the number. *)
         let
@@ -375,7 +370,7 @@ struct
     else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
     then (* If it's the closure of a function try to print that. *)
         let
-            val firstWord = loadWord(toAddress w, toShort 0)
+            val firstWord = loadWord(toAddress w, 0w0)
             val doCall: int*machineWord -> string
                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
         in

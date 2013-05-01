@@ -1752,7 +1752,7 @@ struct
                 then (pushConst(table, toMachineWord 0), [])
                 else if isShort i orelse Address.length (toAddress i) <= Word.fromInt wordOffset
                 then raise InternalError "indirect - invalid constant address"
-                else (pushConst (table, loadWord (toAddress i, toShort wordOffset)), [])
+                else (pushConst (table, loadWord (toAddress i, Word.fromInt wordOffset)), [])
             )
 
       |  _ =>

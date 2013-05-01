@@ -24,7 +24,6 @@ structure CodeGenTable =
   ( 
     structure CODECONS = CodeCons
     structure DEBUG    = Debug
-    structure ADDRESS  = Address
     structure MISC     = Misc
     structure PRETTY   = Pretty
    ) 

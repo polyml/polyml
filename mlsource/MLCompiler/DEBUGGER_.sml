@@ -39,13 +39,7 @@ sig
 end
 
 structure TYPETREE: TYPETREESIG
-
-structure ADDRESS :
-sig
-  type machineWord;
-  val toMachineWord: 'a -> machineWord
-end;
-
+structure ADDRESS : AddressSig
 structure COPIER: COPIERSIG
 structure TYPEIDCODE: TYPEIDCODESIG
 

@@ -45,7 +45,7 @@ struct
     datatype codetree =
         Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
-    |   Constnt of machineWord (* Load a constant *)
+    |   Constnt of machineWord * Universal.universal list (* Load a constant *)
 
     |   Extract of loadForm (* Get a local variable, an argument or a closure value *)
     
@@ -89,10 +89,6 @@ struct
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
-        (* A constant together with the code for either an inline function or a
-           tuple.  This is used for global values. *)
-    |   ConstntWithInline of machineWord * envSpecial
-
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
@@ -111,8 +107,16 @@ struct
        offset to one of these pairs; inline function entries are a
        lambda together with a map for the free variables. *)
     and envGeneral =
-        EnvGenLoad of loadForm | EnvGenConst of machineWord
+        EnvGenLoad of loadForm | EnvGenConst of machineWord * Universal.universal list
 
+    (* Special entries.  The type of both EnvSpecTuple and EnvSpecInlineFunction
+       includes a function from int, the index, to the (general, special) pair
+       rather than a list of either fields or closure entries.  The main
+       reason is that if we have a function that contains a reference to, say a tuple,
+       in its closure we can pass in a EnvSpecTuple entry with a function that
+       only adds a field to the closure if the field is actually used.  Passing
+       a list would require adding all the fields to the closure at the time
+       the EnvSpecTuple was passed. *)
     and envSpecial =
         EnvSpecNone
     |   EnvSpecTuple of int * (int -> envGeneral * envSpecial)
@@ -252,7 +256,7 @@ struct
                 ])
             end
         
-        |   Constnt w => PrettyString (stringOfWord w)
+        |   Constnt(w, _) => PrettyString (stringOfWord w)
         
         |   Cond (f, s, t) =>
             PrettyBlock (0, true, [],
@@ -368,18 +372,6 @@ struct
                 ]
             )
 
-        |   ConstntWithInline(w, _) =>
-            PrettyBlock (1, true, [],
-                [
-                    PrettyString "CONSTWITHINLINE (",
-                    PrettyString (stringOfWord w),
-                    PrettyString ", ",
-                    PrettyBreak (1, 0),
-                    (*pretty (spec),
-                    PrettyBreak (1, 0),*)
-                    PrettyString ") (*CONSTWITHINLINE*)"
-                ]
-            )
         (* That list should be exhaustive! *)
     end (* pretty *)
 
@@ -515,7 +507,6 @@ struct
                     container = mapCodetree f container, tuple = mapCodetree f tuple, size = size }
         |   mapt (TupleFromContainer(c, s)) = TupleFromContainer(mapCodetree f c, s)
         |   mapt (TagTest{test, tag, maxTag}) = TagTest{test = mapCodetree f test, tag = tag, maxTag = maxTag }
-        |   mapt (c as ConstntWithInline _) = c
     in
         (* Apply f to node.  If it returns SOME c use that otherwise
            traverse the tree. *)
@@ -561,12 +552,21 @@ struct
         |   ftree (SetContainer { container, tuple, ...}, v) = foldtree f (foldtree f v container) tuple
         |   ftree (TupleFromContainer(c, _), v) = foldtree f v c
         |   ftree (TagTest{test, ...}, v) = foldtree f v test
-        |   ftree (ConstntWithInline _, v) = v
     in
         case f (code, input) of
             (v, FOLD_DONT_DESCEND) => v
         |   (v, FOLD_DESCEND) => ftree(code, v)
     end
+
+    structure CodeTags =
+    struct
+        open Universal
+        (* Import tags from back end *)
+        open BackendIntermediateCode.CodeTags
+
+        val inlineCodeTag: envSpecial tag = tag()
+    end
+
 
     structure Sharing =
     struct

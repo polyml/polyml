@@ -29,7 +29,7 @@ sig
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
 
-    |   BICConstnt of machineWord (* Load a constant *)
+    |   BICConstnt of machineWord * Universal.universal list (* Load a constant *)
 
     |   BICExtract of bicLoadForm * bool (* Get a local variable, an argument or a closure value *)
 
@@ -125,6 +125,11 @@ sig
 
     type pretty
     val pretty : backendIC -> pretty
+
+    structure CodeTags:
+    sig
+        val tupleTag: Universal.universal list list Universal.tag
+    end
 
     structure Sharing:
     sig

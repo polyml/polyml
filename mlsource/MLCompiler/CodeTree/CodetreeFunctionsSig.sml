@@ -21,6 +21,7 @@ sig
     type codetree
     and codeBinding
     and loadForm
+    and envSpecial
 
     type machineWord = Address.machineWord
 
@@ -58,12 +59,16 @@ sig
     and addToClosure: createClosure -> loadForm -> loadForm
     and extractClosure: createClosure -> loadForm list
 
+    val findInline: Universal.universal list -> envSpecial
+    val setInline: envSpecial -> Universal.universal list -> Universal.universal list
+
     structure Sharing:
     sig
         type codetree = codetree
         and codeBinding = codeBinding
         and loadForm = loadForm
         and createClosure = createClosure
+        and envSpecial = envSpecial
     end
 
 end;

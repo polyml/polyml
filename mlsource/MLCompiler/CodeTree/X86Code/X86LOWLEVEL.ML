@@ -131,7 +131,7 @@ struct
             else if getFlags(toAddress source) <> F_bytes
                     orelse length(toAddress source) <> 0w8 div Word.fromInt wordSize
             then raise InternalError "moveConstantToRegister to fp reg: invalid source"
-            else unsafeCast source
+            else RunCall.unsafeCast source
     in
         FPLoadFromConst realConst
     end

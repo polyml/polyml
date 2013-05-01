@@ -145,10 +145,11 @@ structure BACKENDTREE: BackendIntermediateCodeSig
 (*                  GCODE export signature                                   *)
 (*****************************************************************************)
 sig
-  type backendIC
-  type machineWord
-  val gencode: backendIC * Universal.universal list * int -> unit -> machineWord
-  structure Sharing: sig type backendIC = backendIC end
+    type backendIC
+    type machineWord
+    val gencode:
+        backendIC * Universal.universal list * int -> ((unit -> machineWord) * Universal.universal list)
+    structure Sharing: sig type backendIC = backendIC end
 end =
 
 let
@@ -311,7 +312,7 @@ struct
        | BICLambda lam =>
            genProc (lam, false, fn () => ())
            
-       | BICConstnt w =>
+       | BICConstnt(w, _) =>
          let
            val () = pushConst (w, cvec);
          in
@@ -572,8 +573,8 @@ struct
                 (* Convert this into a simple equality function. *)
                 val code =
                     BICEval {
-                        function = BICConstnt(ioOp POLY_SYS_word_eq),
-                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
+                        function = BICConstnt(ioOp POLY_SYS_word_eq, []),
+                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag, []), GeneralType)],
                         resultType=GeneralType }
             in
                 gencde (code, whereto, tailKind, loopAddr)
@@ -1088,7 +1089,7 @@ struct
  end (* codegen *);
 
 
-  fun gencode (pt: backendIC, parameters, _) : unit -> machineWord =
+  fun gencode (pt: backendIC, parameters, _) : (unit -> machineWord) * Universal.universal list =
     case pt of
       BICLambda lam => (* We are compiling a function. *)
       let
@@ -1109,7 +1110,7 @@ struct
         val res : machineWord = toMachineWord closureAddr;
       in
         (* Result is a function which returns the address of the function. *)
-        fn () => res
+        (fn () => res, [])
       end
       
    | _ =>
@@ -1121,10 +1122,10 @@ struct
           raise InternalError "top level reached";
 
        val closureAddr : address =
-     codegen (pt, newCode, loadRecLink, 0, parameters)
+        codegen (pt, newCode, loadRecLink, 0, parameters)
      in
        (* Result is a function to execute the code. *)
-       fn () => call (closureAddr, toMachineWord ())
+       (fn () => call (closureAddr, toMachineWord ()), [])
      end; (* gencode *)
 end (* GCODE functor body *)
 

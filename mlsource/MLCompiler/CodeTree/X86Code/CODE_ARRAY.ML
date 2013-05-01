@@ -140,7 +140,7 @@ struct
         val lengthBytes = wordSize * lengthWords
     in
         if byteIndex < lengthBytes
-        then loadByte (addr, toShort byteIndex)
+        then loadByte (addr, byteIndex)
         else raise Subscript
     end
        
@@ -152,7 +152,7 @@ struct
             val lengthWords = objLength addr
             val lengthBytes = wordSize * lengthWords
         in
-            if byteIndex < lengthBytes then assignByte (addr, toShort byteIndex, value)
+            if byteIndex < lengthBytes then assignByte (addr, byteIndex, value)
       
             else if status <> Bytes then raise InternalError "csegSet: can't extend code segment"
       
@@ -167,14 +167,14 @@ struct
                 val newSize    = Word.max(expSize, minSize)
       
                 (* create temporary codeseg (with larger byte-vector) *)
-                val newVec = alloc (toShort newSize, F_mutable_bytes, toMachineWord 0w0)
+                val newVec = alloc (newSize, F_mutable_bytes, toMachineWord 0w0)
                 val newSeg = (Bytes, newVec)
             in
                 (* copy the old code into the new codeseg *)
                 csegCopySeg (r, ref newSeg, lengthBytes, 0w0);
       
                 (* assign the byte to the new codeseg's byte-vector *)
-                assignByte (newVec, toShort byteIndex, value);
+                assignByte (newVec, byteIndex, value);
 
                 (* update the old segment to point at the new byte-vector *)
                 r := newSeg
@@ -201,7 +201,7 @@ struct
         then raise InternalError "csegGetWord: can't load a a word from a byte segment"
         else if lengthWords <= wordIndex
         then raise Subscript
-        else loadWord (addr, toShort wordIndex)
+        else loadWord (addr, wordIndex)
     end
 
     (* csegPutConstant: store a constant into the code.  Exactly how this is

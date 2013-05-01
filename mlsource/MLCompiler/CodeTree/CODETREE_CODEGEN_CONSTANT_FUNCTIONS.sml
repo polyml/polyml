@@ -30,7 +30,8 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
     sig
         type codetree
         type machineWord = Address.machineWord
-        val codeGenerate: codetree * int * Universal.universal list -> unit -> machineWord
+        val codeGenerate:
+            codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
         structure Sharing : sig type codetree = codetree end
     end
 
@@ -51,7 +52,7 @@ functor CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
 sig
     type codetree
     type machineWord = Address.machineWord
-    val codeGenerate: codetree * int * Universal.universal list -> unit -> machineWord
+    val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
     structure Sharing: sig type codetree = codetree end
 end =
 struct
@@ -61,10 +62,12 @@ struct
 
     exception InternalError = Misc.InternalError
 
+    datatype lookupVal = EnvGenLoad of loadForm | EnvGenConst of machineWord * Universal.universal list
+
     type cgContext =
     {
-        lookupAddr: loadForm -> envGeneral,
-        enterConstant: int * machineWord -> unit,
+        lookupAddr: loadForm -> lookupVal,
+        enterConstant: int * (machineWord * Universal.universal list) -> unit,
         debugArgs: Universal.universal list
     }
 
@@ -80,11 +83,11 @@ struct
                 if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
                 then PRETTY.getCompilerOutput debugSwitches (BASECODETREE.pretty pt) else ()
 
-            val code = BACKEND.codeGenerate(pt, localCount, debugSwitches)
+            val (code, props) = BACKEND.codeGenerate(pt, localCount, debugSwitches)
         in
-            Constnt (code()) (* Evaluate it and convert any exceptions into Raise instrs. *)
+            Constnt (code(), props) (* Evaluate it and convert any exceptions into Raise instrs. *)
                 handle Interrupt => raise Interrupt (* Must not handle this *)
-                | exn => Raise (Constnt(toMachineWord exn))
+                | exn => Raise (Constnt(toMachineWord exn, []))
         end
     end
 
@@ -229,8 +232,6 @@ struct
             (* Create any constant tuples that have arisen because they contain
                constant functions. *)
             SOME((if isVariant then mkDatatype else mkTuple)(map (mapCodetree (cgFuns context)) fields))
-
-    |   cgFuns _ (ConstntWithInline(w, _)) = SOME(Constnt w) (* Strip off any inline part now. *)
 
     |   cgFuns _ _ = NONE
     

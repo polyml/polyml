@@ -63,14 +63,7 @@ functor MATCH_COMPILER (
         exception InternalError of string (* compiler error *)
     end
 
-    structure ADDRESS :
-    sig
-        type machineWord;    (* any legal bit-pattern (tag = 0 or 1) *)
-        val toMachineWord: 'a -> machineWord
-        type short = Word.word
-        val isShort: 'a -> bool
-        val toShort: 'a -> short
-    end
+    structure ADDRESS : AddressSig
 
     sharing BASEPARSETREE.Sharing
     =       PRINTTREE.Sharing
@@ -94,7 +87,6 @@ struct
     open DEBUG
     open STRUCTVALS
     open VALUEOPS
-    open ADDRESS
     open MISC
     open DATATYPEREP
     open TypeVarMap
@@ -1000,8 +992,8 @@ struct
             mkRaise (mkTuple [exIden, mkStr exName, CodeZero, codeLocation line]);
         (* Create exception values - Small integer values are used for
            run-time system exceptions. *)
-        val bindExceptionVal  = mkConst (toMachineWord EXC_Bind);
-        val matchExceptionVal = mkConst (toMachineWord EXC_Match);
+        val bindExceptionVal  = mkConst (ADDRESS.toMachineWord EXC_Bind);
+        val matchExceptionVal = mkConst (ADDRESS.toMachineWord EXC_Match);
     in
         (* Raise match and bind exceptions. *)        
         fun raiseBindException line = raiseException("Bind", bindExceptionVal, line)

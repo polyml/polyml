@@ -53,27 +53,25 @@ struct
        synch with the representation used in DATATYPE_REP.ML *)
     local
         open Address
+        fun cast p = toAddress(toMachineWord p)
     in
         type context = address
         type loc = { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
         (* Because the argument tuple has more than 4 fields the address is used rather than copying the fields. *)
-        fun ContextLocation(p: loc): context =
-            toAddress(0w0, p)
-        and ContextProperty(s1: string, s2: string): context =
-            toAddress(0w1, s1, s2)
+        fun ContextLocation(p: loc): context = cast(0w0, p)
+        and ContextProperty(s1: string, s2: string): context = cast(0w1, s1, s2)
     end
 
     local
         open Address
+        fun cast p = toAddress(toMachineWord p)
     in
         type pretty = address
 
         fun PrettyBlock(offset: int, consistent: bool, context: context list, items: pretty list): pretty =
-            toAddress(0w0, offset, consistent, context, items)
-        and PrettyBreak(breaks: int, offset: int): pretty =
-            toAddress(0w1, breaks, offset)
-        and PrettyString(s: string): pretty =
-            toAddress(0w2, s)
+            cast(0w0, offset, consistent, context, items)
+        and PrettyBreak(breaks: int, offset: int): pretty = cast(0w1, breaks, offset)
+        and PrettyString(s: string): pretty = cast(0w2, s)
 
         fun isPrettyBlock p = toShort(loadWord(p, 0w0)) = 0w0
         and isPrettyBreak p = toShort(loadWord(p, 0w0)) = 0w1
@@ -84,7 +82,7 @@ struct
             then
             let
                 val (_: int, offset: int, consistent: bool, context: context list, items: pretty list) =
-                    unsafeCast p
+                    RunCall.unsafeCast p
             in
                 (offset, consistent, context, items)
             end
@@ -94,7 +92,7 @@ struct
             if isPrettyBreak p
             then
             let
-                val (_: int, breaks: int, offset: int) = unsafeCast p
+                val (_: int, breaks: int, offset: int) = RunCall.unsafeCast p
             in
                 (breaks, offset)
             end
@@ -104,7 +102,7 @@ struct
             if isPrettyString p
             then
             let
-                val (_: int, s: string) = unsafeCast p
+                val (_: int, s: string) = RunCall.unsafeCast p
             in
                 s
             end

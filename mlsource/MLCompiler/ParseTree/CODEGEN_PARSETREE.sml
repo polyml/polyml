@@ -65,11 +65,7 @@ functor CODEGEN_PARSETREE (
         exception InternalError of string (* compiler error *)
     end
 
-    structure ADDRESS :
-    sig
-        type machineWord;    (* any legal bit-pattern (tag = 0 or 1) *)
-        val toMachineWord: 'a -> machineWord
-    end
+    structure ADDRESS : AddressSig
 
     sharing BASEPARSETREE.Sharing
     =       PRINTTREE.Sharing
@@ -97,7 +93,6 @@ struct
     open DEBUG
     open STRUCTVALS
     open VALUEOPS
-    open ADDRESS
     open MISC
     open DATATYPEREP
     open TypeVarMap
@@ -283,7 +278,7 @@ struct
                 debugFunction(debuggerFun lex, DebugStep, decName, location) ctEnv
         in
             lastDebugLine := currLine;
-            mkEval(mkConst(toMachineWord debugger), [rtEnv level])
+            mkEval(mkConst(ADDRESS.toMachineWord debugger), [rtEnv level])
         end
 
     (* Add a debug call if line has changed.  This is used between
@@ -355,9 +350,9 @@ struct
             and exceptionFunction (rtEnv, exn) =
                 (debugFunction(debuggerFun lex, DebugException exn, name, location) ctEnv rtEnv; raise exn)
 
-            val entryCode = toMachineWord enterFunction
-            and exitCode = toMachineWord leaveFunction
-            and exceptionCode = toMachineWord exceptionFunction
+            val entryCode = ADDRESS.toMachineWord enterFunction
+            and exitCode = ADDRESS.toMachineWord leaveFunction
+            and exceptionCode = ADDRESS.toMachineWord exceptionFunction
             val ldexAddr = mkAddr 1
         in
             mkEnv(

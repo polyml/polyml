@@ -118,7 +118,7 @@ struct
      |  freeze {contents = contents as ref (AnArray a), ...} =
         (
         contents := AVector(Array.vector a);
-        Address.lock(Address.toAddress contents)
+        Address.lock(Address.toAddress(Address.toMachineWord contents))
         )
 
 end;

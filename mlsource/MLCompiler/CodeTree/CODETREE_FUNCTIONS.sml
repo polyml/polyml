@@ -38,9 +38,9 @@ struct
 
     val F_mutable_words : Word8.word = Word8.orb (F_words, F_mutable)
 
-    val CodeFalse = Constnt False
-    and CodeTrue  = Constnt True
-    and CodeZero  = Constnt word0
+    val CodeFalse = Constnt(False, [])
+    and CodeTrue  = Constnt(True, [])
+    and CodeZero  = Constnt(word0, [])
 
   (* Test for possible side effects. If an expression has no side-effect
      and its result is not used then we don't need to generate it. An
@@ -113,7 +113,7 @@ struct
            function are constants.  This then gets converted to
            (exp1; true) and we can eliminate exp1 if it is simply
            a comparison. *)
-    | sideEffectFree (Eval{function=Constnt w, argList, ...}) =
+    | sideEffectFree (Eval{function=Constnt(w, _), argList, ...}) =
         isIoAddress(toAddress w) andalso sideEffectFreeRTSCall w
         andalso List.all (fn (c, _) => sideEffectFree c) argList
 
@@ -133,32 +133,40 @@ struct
     |   sideEffectBinding(NullBinding c) = sideEffectFree c
 
     (* Makes a constant value from an expression which is known to be
-       constant but may involve inline procedures, tuples etc.         *)
+       constant but may involve inline functions, tuples etc. *)
     fun makeConstVal (cVal:codetree) =
     let
-        fun makeVal (Constnt c) = c
-        |   makeVal (ConstntWithInline(c, _)) = c
-            (* should just be a tuple  *)
+        fun makeVal (c as Constnt _) = c
+             (* should just be a tuple  *)
             (* Get a vector, copy the entries into it and return it as a constant. *)
-        |   makeVal (Tuple {fields= [], ...}) = word0 (* should have been optimised already! *)
-        |   makeVal (Tuple {fields=xp, ...}) =
-            let
-                val vec : address = alloc (toShort (List.length xp), F_mutable_words, word0);
+        |   makeVal (Tuple {fields= [], ...}) = CodeZero (* should have been optimised already! *)
+        |   makeVal (Tuple {fields, ...}) =
+            let 
+                val vec : address = alloc (Word.fromInt(List.length fields), F_mutable_words, word0)
+                val fieldCode = map makeVal fields
       
-                fun copyToVec []       _ = ()
-                |   copyToVec (h :: t) locn =
+                fun copyToVec ([], _) = []
+                |   copyToVec (Constnt(w, prop) :: t, locn) =
                     (
-                        assignWord (vec, toShort locn, makeVal h);
-                        copyToVec t (locn + 1)
+                        assignWord (vec, locn, w);
+                        prop :: copyToVec (t, locn + 0w1)
                     )
+                |   copyToVec _ = raise InternalError "not constant"
+                
+                val props = copyToVec(fieldCode, 0w0)
+                (* If any of the constants have properties create a tuple property
+                   for the result. *)
+                val tupleProps =
+                    if List.all null props
+                    then []
+                    else [Universal.tagInject CodeTags.tupleTag props]
             in
-                copyToVec xp 0;
                 lock vec;
-                toMachineWord vec
+                Constnt(toMachineWord vec, tupleProps)
             end
-        |   makeVal _ = raise InternalError "makeVal - not constant or record"
+        |   makeVal _ = raise InternalError "makeVal - not constant or tuple"
     in
-        Constnt (makeVal cVal)
+        makeVal cVal
     end
 
     local
@@ -167,7 +175,7 @@ struct
         |   allConsts _ = false
         
         fun mkRecord isVar xp =
-       let
+        let
             val tuple = Tuple{fields = xp, isVariant = isVar }
         in
             if allConsts xp
@@ -179,6 +187,23 @@ struct
         val mkTuple = mkRecord false
         and mkDatatype = mkRecord true
     end
+
+    (* Return the inline property if it is set. *)
+    fun findInline [] = EnvSpecNone
+    |   findInline (h::t) =
+            if Universal.tagIs CodeTags.inlineCodeTag h
+            then Universal.tagProject CodeTags.inlineCodeTag h
+            else findInline t
+
+    (* Set the inline property.  If the property is already
+       present it is replaced.  If the property we are setting is
+       EnvSpecNone no property is set. *)
+    fun setInline p (h::t) =
+            if Universal.tagIs CodeTags.inlineCodeTag h
+            then setInline p t
+            else h :: setInline p t
+    |   setInline EnvSpecNone [] = []
+    |   setInline p [] = [Universal.tagInject CodeTags.inlineCodeTag p]
 
     (* These are very frequently used and it might be worth making
        special bindings for values such as 0, 1, 2, 3 etc to reduce
@@ -211,7 +236,7 @@ struct
         val except: exn = InternalError "Invalid load encountered in compiler"
         (* Exception value to use for invalid cases.  We put this in the code
            but it should never actually be executed.  *)
-        val raiseError = Raise (Constnt (toMachineWord except))
+        val raiseError = Raise (Constnt (toMachineWord except, []))
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
         fun findEntryInBlock (Tuple { fields, isVariant, ...}, offset, isVar) =
@@ -226,36 +251,42 @@ struct
                 else raise InternalError "findEntryInBlock: invalid address"
             )
 
-        |  findEntryInBlock (Constnt b, offset, isVar) =
-              (* The ML compiler may generate loads from invalid addresses as a
-                 result of a val binding to a constant which has the wrong shape.
-                 e.g. val a :: b = nil
-                 It will always result in a Bind exception being generated 
-                 before the invalid load, but we have to be careful that the
-                 optimiser does not fall over.  *)
-            if isShort b
-            orelse not (Address.isWords (toAddress b))
-            orelse Address.length (toAddress b) <= Word.fromInt offset
-            then if isVar
-            then raiseError
-            else raise InternalError "findEntryInBlock: invalid address"
-            else Constnt (loadWord (toAddress b, toShort offset))
+        |   findEntryInBlock (Constnt (b, props), offset, isVar) =
+            let
+                (* Find the tuple property if it is present and extract the field props. *)
+                val fieldProps =
+                    case List.find(Universal.tagIs CodeTags.tupleTag) props of
+                        NONE => []
+                    |   SOME p => List.nth(Universal.tagProject CodeTags.tupleTag p, offset)
+            in
+                case findInline props of
+                    EnvSpecTuple(_, env) =>
+                    (* Do the selection now.  This is especially useful if we
+                       have a global structure  *)
+                    (* At the moment at least we assume that we can get all the
+                       properties from the tuple selection. *)
+                    (
+                        case env offset of
+                            (EnvGenConst(w, p), inl) => Constnt(w, setInline inl p)
+                        (* The general value from selecting a field from a constant tuple must be a constant. *)
+                        |   _ => raise InternalError "findEntryInBlock: not constant"
+                    )
+                |   _ =>
+                      (* The ML compiler may generate loads from invalid addresses as a
+                         result of a val binding to a constant which has the wrong shape.
+                         e.g. val a :: b = nil
+                         It will always result in a Bind exception being generated 
+                         before the invalid load, but we have to be careful that the
+                         optimiser does not fall over.  *)
+                    if isShort b
+                        orelse not (Address.isWords (toAddress b))
+                        orelse Address.length (toAddress b) <= Word.fromInt offset
+                    then if isVar
+                    then raiseError
+                    else raise InternalError "findEntryInBlock: invalid address"
+                    else Constnt (loadWord (toAddress b, Word.fromInt offset), fieldProps)
+            end
 
-        |  findEntryInBlock (ConstntWithInline(_, EnvSpecTuple(_, env)), offset, _) =
-            (* Do the selection now.  This is especially useful if we
-               have a global structure  *)
-            (
-                case env offset of
-                    (EnvGenConst w, EnvSpecNone) => Constnt w
-                |   (EnvGenConst w, spec) => ConstntWithInline(w, spec)
-                (* The general value from selecting a field from a constant tuple must be a constant. *)
-                |   _ => raise InternalError "findEntryInBlock: not constant"
-            )
- 
-        |   findEntryInBlock (ConstntWithInline(general, _), offset, isVar) =
-                (* Is this possible?  If it's inline it should be a tuple. *)
-                 findEntryInBlock (Constnt general, offset, isVar)
-    
         |   findEntryInBlock(base, offset, isVar) =
                 Indirect {base = base, offset = offset, isVariant = isVar} (* anything else *)
      end
@@ -266,8 +297,7 @@ struct
        that the unused entries don't have
        side-effects/raise exceptions e.g. #1 (1, raise Fail "bad") *)
     local
-        fun mkIndirect isVar (addr, base as ConstntWithInline _ ) = findEntryInBlock(base, addr, isVar)
-        |   mkIndirect isVar (addr, base as Constnt _) = findEntryInBlock(base, addr, isVar)
+        fun mkIndirect isVar (addr, base as Constnt _) = findEntryInBlock(base, addr, isVar)
         |   mkIndirect isVar (addr, base) = Indirect {base = base, offset = addr, isVariant = isVar}
     
     in
@@ -275,8 +305,7 @@ struct
     end
         
     (* Get the value from the code. *)
-    fun evalue (Constnt c) = SOME c
-    |   evalue (ConstntWithInline(g, _)) = SOME g
+    fun evalue (Constnt(c, _)) = SOME c
     |   evalue _ = NONE
 
     (* This is really to simplify the change from mkEnv taking a codetree list to
@@ -405,6 +434,7 @@ struct
         and codeBinding = codeBinding
         and loadForm = loadForm
         and createClosure = createClosure
+        and envSpecial = envSpecial
     end
 
 end;

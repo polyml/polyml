@@ -50,20 +50,21 @@ struct
     withtype exportTree = location * ptProperties list *)
     local
         open Address
+        fun cast p = toAddress(toMachineWord p)
     in
         type ptProperties = address
         type exportTree = location * ptProperties list
 
-        fun PTdeclaredAt(loc: location): ptProperties = toAddress(0w0, loc)
-        and PTfirstChild(entry: unit -> exportTree): ptProperties = toAddress(0w1, entry)
-        and PTnextSibling(entry: unit -> exportTree): ptProperties = toAddress(0w2, entry)
-        and PTopenedAt(loc: location): ptProperties = toAddress(0w3, loc)
-        and PTparent(entry: unit -> exportTree): ptProperties = toAddress(0w4, entry)
-        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = toAddress(0w5, entry)
-        and PTprint(pr: int -> pretty): ptProperties = toAddress(0w6, pr)
-        and PTreferences(exp: bool, locs: location list): ptProperties = toAddress(0w7, exp, locs)
-        and PTstructureAt(loc: location): ptProperties = toAddress(0w8, loc)
-        and PTtype(typ: types): ptProperties = toAddress(0w9, typ)
+        fun PTdeclaredAt(loc: location): ptProperties = cast(0w0, loc)
+        and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w1, entry)
+        and PTnextSibling(entry: unit -> exportTree): ptProperties = cast(0w2, entry)
+        and PTopenedAt(loc: location): ptProperties = cast(0w3, loc)
+        and PTparent(entry: unit -> exportTree): ptProperties = cast(0w4, entry)
+        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = cast(0w5, entry)
+        and PTprint(pr: int -> pretty): ptProperties = cast(0w6, pr)
+        and PTreferences(exp: bool, locs: location list): ptProperties = cast(0w7, exp, locs)
+        and PTstructureAt(loc: location): ptProperties = cast(0w8, loc)
+        and PTtype(typ: types): ptProperties = cast(0w9, typ)
     end
 
     (* This representation is exported so we have to use a *)

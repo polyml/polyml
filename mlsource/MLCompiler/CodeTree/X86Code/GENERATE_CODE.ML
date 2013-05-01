@@ -44,7 +44,7 @@ functor GENERATE_CODE (
 sig
   type backendIC
   type machineWord
-  val gencode: backendIC * Universal.universal list * int -> unit -> machineWord
+  val gencode: backendIC * Universal.universal list * int -> (unit -> machineWord) * Universal.universal list
   structure Sharing: sig type backendIC = backendIC end
 end =
 
@@ -81,8 +81,9 @@ struct
     val True  : machineWord = word1;     (* true *)
     val Zero  : machineWord = word0;     (* 0 *)
 
-    val constntTrue  = BICConstnt True;
-    val constntFalse = BICConstnt False;
+    val constntTrue  = BICConstnt(True, [])
+    val constntFalse = BICConstnt(False, [])
+    val constntZero  = BICConstnt(Zero, [])
 
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
@@ -452,7 +453,7 @@ struct
                 (* Functions using the static-link convention must always occur in bindings. *)
                 raise InternalError "Function with static link convention found as expression"
 
-        | BICConstnt w => MergeIndex(pushConst (transtable, w))
+        | BICConstnt(w, _) => MergeIndex(pushConst (transtable, w))
 
         | BICCond (testPart, thenPart, elsePart) =>
             genCond (testPart, thenPart, elsePart, whereto, tailKind, loopAddr)
@@ -969,13 +970,13 @@ struct
                        recursive reference.  That does occur with equality functions. *)
                     (* Construct a mutable object and fill it in. *)
                     val toFill = ref vecsize
-                    val vec : address = alloc(toShort vecsize, F_mutable_words, toMachineWord 0)
+                    val vec : address = alloc(toShort(toMachineWord vecsize), F_mutable_words, toMachineWord 0)
 
                     (* Set the element in the address.  If this is a forward reference to a
                        code segment it won't be called until the code has been completed. *)
-                    fun setItem n (_, addr: machineWord) =
+                    fun setItem (n: int) (_, addr: machineWord) =
                     (
-                        assignWord(vec, toShort n, addr);
+                        assignWord(vec, toShort(toMachineWord n), addr);
                         toFill := !toFill - 1;
                         if !toFill = 0 then lock vec else ()
                     )
@@ -1092,8 +1093,8 @@ struct
                 (* Convert this into a simple equality function. *)
                 val code =
                     BICEval {
-                        function = BICConstnt(ioOp POLY_SYS_word_eq),
-                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
+                        function = BICConstnt(ioOp POLY_SYS_word_eq, []),
+                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag, []), GeneralType)],
                         resultType=GeneralType }
             in
                 gencde (code, true(* Try to put in-line *), whereto, tailKind, loopAddr)
@@ -1427,8 +1428,8 @@ struct
     let (* See if we can generate a conditional instruction. *)
         (* Those we can't deal with specially are evaluated to the stack and tested. *)
         fun genOtherTests () =
-            case checkAndReduceBranches(if jumpOn then testNeqW else testEqW, [pt, BICConstnt False],
-                                        fn (BICConstnt w) => SOME w | _ => NONE) of
+            case checkAndReduceBranches(if jumpOn then testNeqW else testEqW, [pt, constntFalse],
+                                        fn (BICConstnt (w, _)) => SOME w | _ => NONE) of
                 SOME (tst, args) =>
                     let
                         (* We can't use genToStack here because we need primBoolOps to be false. *)
@@ -1521,8 +1522,8 @@ struct
                branches this can probably be removed. *)
       | BICCase {cases = [(result, tag)], test, default, ...} =>
         let
-          val equalFun  : backendIC = BICConstnt (ioOp POLY_SYS_equala);
-          val arguments = [(test, GeneralType), (BICConstnt (toMachineWord tag), GeneralType)];
+          val equalFun  : backendIC = BICConstnt (ioOp POLY_SYS_equala, [])
+          val arguments = [(test, GeneralType), (BICConstnt (toMachineWord tag, []), GeneralType)]
           val eqTest    : backendIC = 
              BICEval {function = equalFun, argList = arguments, resultType=GeneralType};
         in
@@ -1530,7 +1531,7 @@ struct
         end
 
       (* Constants - primarily for andalso/orelse. *)
-      | BICConstnt w =>
+      | BICConstnt(w, _) =>
           (* If true and we jump on true or false and jump on false *)
           (* then put in an unconditional jump. *)
           if wordEq (w, True) = jumpOn
@@ -1554,14 +1555,14 @@ struct
                 (* Convert this into a simple equality function. *)
                 val code =
                     BICEval {
-                        function = BICConstnt(ioOp POLY_SYS_word_eq),
-                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag), GeneralType)],
+                        function = BICConstnt(ioOp POLY_SYS_word_eq, []),
+                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag, []), GeneralType)],
                         resultType=GeneralType }
             in
                 genTest(code, jumpOn)
             end
 
-      | BICEval {function = BICConstnt oper, argList = args, ...} =>
+      | BICEval {function = BICConstnt(oper, _), argList = args, ...} =>
       (* May be an interface operation which can be put in line. *)
       let
         (* Generate a compare instruction. *)
@@ -1570,7 +1571,7 @@ struct
             val test    = if jumpOn then t else f;
         in
             (* Check that the instruction is implemented. *)
-            case checkAndReduceBranches(test, args, fn (BICConstnt w) => SOME w | _ => NONE) of
+            case checkAndReduceBranches(test, args, fn (BICConstnt(w, _)) => SOME w | _ => NONE) of
                 SOME (test, args) =>
                    let (* Generate the instruction and get the direction. *)
                         (* Code generate each argument to the pstack. *)
@@ -1598,7 +1599,7 @@ struct
             then
             (
               case arg of
-                BICConstnt (w : machineWord) =>
+                BICConstnt (w, _) =>
                   if isShort w
                   then genTest (constntTrue,  jumpOn)
                   else genTest (constntFalse, jumpOn)
@@ -1606,7 +1607,7 @@ struct
               | _ =>
                 (
                     case checkAndReduceBranches(if jumpOn then Short else Long, [arg],
-                                                fn (BICConstnt w) => SOME w | _ => NONE) of
+                                                fn (BICConstnt(w, _)) => SOME w | _ => NONE) of
                         SOME (testOp, [arg]) =>
                         let
                             val locnOfArg1 = genToStack (arg);
@@ -2080,7 +2081,7 @@ struct
                    modified because otherwise we may find that we've locked them. *)
                 val registerSet =
                     case clos of
-                        SOME (BICConstnt w) =>
+                        SOME (BICConstnt(w, _)) =>
                             regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
                       | _ (* Recursive or not a constant. *) => allRegisters;
 
@@ -2124,7 +2125,7 @@ struct
                 in
                     fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
                       case clos of
-                         SOME(BICConstnt w) =>
+                         SOME(BICConstnt(w, _)) =>
                             (* Do we need to load the closure register? *)
                             let
                                 val addr = toAddress w;
@@ -2176,7 +2177,7 @@ struct
             end (* callClosure *)
 
             fun codeRTSFunction(instr, arguments, whereto) =
-                case checkAndReduce(instr, arguments, fn (BICConstnt w) => SOME w | _ => NONE) of
+                case checkAndReduce(instr, arguments, fn (BICConstnt(w, _)) => SOME w | _ => NONE) of
                     SOME(i, args) =>
                     let
                         (* Code generate each argument to the pstack. *)
@@ -2193,7 +2194,7 @@ struct
 
         in (* body of genEval *)
             case evalFun of
-                BICConstnt (oper : machineWord) =>
+                BICConstnt (oper, _) =>
                 let
                     val args = List.map #1 argList
                     val addr = toAddress oper
@@ -2230,11 +2231,11 @@ struct
 
                         (* Negation is coded as 0 - X. *)
                         else if wordEq (oper,ioOp POLY_SYS_aneg)
-                        then codeRTSFunction(instrSubA, BICConstnt Zero :: args, whereto)
+                        then codeRTSFunction(instrSubA, constntZero :: args, whereto)
 
                         (* Boolean "not" is coded as xor with "true" *)
                         else if wordEq (oper,ioOp POLY_SYS_not_bool)
-                        then codeRTSFunction(instrXorW, args @ [BICConstnt True], whereto)
+                        then codeRTSFunction(instrXorW, args @ [constntTrue], whereto)
 
                         else if  wordEq (oper,ioOp POLY_SYS_or_word)
                         then codeRTSFunction(instrOrW, args, whereto)
@@ -2292,7 +2293,7 @@ struct
                                allocation of refs so we consider them specially. *)
                         in
                             case args of
-                                [BICConstnt len, BICConstnt flag, initValArg] =>
+                                [BICConstnt(len, _), BICConstnt(flag, _), initValArg] =>
                                     if isShort len andalso toShort len = 0w1
                                        andalso isShort flag
                                        andalso toShort flag = Word.fromLargeWord(Word8.toLargeWord F_mutable)
@@ -2520,10 +2521,10 @@ struct
     end (* codegen *)
 
     fun gencode (BICLambda { name, body, argTypes, resultType, argLifetimes, localCount, ...}, debugSwitches, _) =
-        let (* We are compiling a procedure. *)
+        let (* We are compiling a function. *)
             (* It is not essential to treat this specially, but it saves generating
              a piece of code whose only function is to return the address of the
-             procedure. *)
+             function. *)
        
             (* make the code buffer for the new procedure. *)
             val profileObject = createProfileObject name
@@ -2546,8 +2547,8 @@ struct
 
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
-            (* Result is a procedure which returns the address of the procedure. *)
-            (fn () => toMachineWord closureAddr)
+            (* Result is a function which returns the address of the function. *)
+            (fn () => (toMachineWord closureAddr), [])
         end
  
     |   gencode (pt, debugSwitches, localCount) =
@@ -2566,8 +2567,8 @@ struct
                     profileObject,
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-        in (* Result is a procedure to execute the code. *)
-            fn () => call (closureAddr, toMachineWord ())
+        in (* Result is a function to execute the code. *)
+            (fn () => call (closureAddr, toMachineWord ()), [])
         end (* gencode *)
 
 end; (* GCODE functor body *)

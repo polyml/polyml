@@ -24,7 +24,7 @@ functor CODETREE_STATIC_LINK_AND_CASES(
     sig
       type backendIC
       type machineWord = Address.machineWord
-      val gencode: backendIC * Universal.universal list * int -> unit -> machineWord
+      val gencode: backendIC * Universal.universal list * int -> (unit -> machineWord) * Universal.universal list
       structure Sharing: sig type backendIC = backendIC end
     end
 
@@ -49,7 +49,7 @@ functor CODETREE_STATIC_LINK_AND_CASES(
 sig
     type codetree
     type machineWord = Address.machineWord
-    val codeGenerate: codetree * int * Universal.universal list -> unit -> machineWord
+    val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
     structure Sharing : sig type codetree = codetree end
 end
 =
@@ -68,7 +68,7 @@ struct
     datatype p2Codetree =
         P2Newenv of p2CodeBinding list * p2Codetree (* Set of bindings with an expression. *)
 
-    |   P2Constnt of machineWord (* Load a constant *)
+    |   P2Constnt of machineWord * Universal.universal list (* Load a constant *)
 
     |   P2Extract of p2LoadForm (* Get a local variable, an argument or a closure value *)
     
@@ -171,7 +171,7 @@ struct
                function are constants.  This then gets converted to
                (exp1; true) and we can eliminate exp1 if it is simply
                a comparison. *)
-        | sideEffectFree (P2Eval{function=P2Constnt w, argList, ...}) =
+        | sideEffectFree (P2Eval{function=P2Constnt(w, _), argList, ...}) =
             isIoAddress(toAddress w) andalso CODETREE_FUNCTIONS.sideEffectFreeRTSCall w
             andalso List.all (fn (c, _) => sideEffectFree c) argList
 
@@ -367,7 +367,7 @@ struct
 
                 |   insert(P2Field {base, offset}) = BICField {base = insert base, offset = offset}
 
-                |   insert(P2Constnt c) = BICConstnt c (* Constants can be returned untouched. *)
+                |   insert(P2Constnt cp) = BICConstnt cp (* Constants can be returned untouched. *)
 
                 |   insert(P2BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                     let
@@ -810,9 +810,7 @@ struct
 
             |   insert(Indirect {base, offset, ...}) = P2Field {base = insert base, offset = offset}
 
-            |   insert(Constnt w) = P2Constnt w (* Constants can be returned untouched. *)
-
-            |   insert(ConstntWithInline(g, _)) = P2Constnt g
+            |   insert(Constnt wp) = P2Constnt wp (* Constants can be returned untouched. *)
 
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
@@ -1069,7 +1067,7 @@ struct
 
                 (* If we have a call to the int equality operation *)
                 (* then we may be able to use a case statement. *)
-                fun findCase (P2Eval{ function=P2Constnt cv, argList, ... }) =
+                fun findCase (P2Eval{ function=P2Constnt(cv, _), argList, ... }) =
                 let
                     val isArbitrary = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_equala)
                     val isWord = wordEq (cv, ioOp RuntimeCalls.POLY_SYS_word_eq)
@@ -1077,12 +1075,12 @@ struct
                     if isArbitrary orelse isWord
                     then  (* Should be just two arguments. *)
                     case argList of
-                        [(P2Constnt c1, _), (arg2, _)] =>
+                        [(P2Constnt(c1, _), _), (arg2, _)] =>
                         if isShort c1
                         then SOME{tag=toShort c1, test=arg2, caseType = if isArbitrary then CaseInt else CaseWord}
                         else NONE (* Not a short constant. *)
                     
-                     | [(arg1, _), (P2Constnt c2, _)] =>
+                     | [(arg1, _), (P2Constnt(c2, _), _)] =>
                         if isShort c2
                         then SOME{tag=toShort c2, test=arg1, caseType = if isArbitrary then CaseInt else CaseWord}
                         else NONE (* Not a short constant. *)
@@ -1184,11 +1182,11 @@ struct
                                 val test =
                                     case caseType of
                                         CaseInt =>
-                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equala),
-                                                   [test, P2Constnt(toMachineWord t)])
+                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_equala, []),
+                                                   [test, P2Constnt(toMachineWord t, [])])
                                     |   CaseWord =>
-                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq),
-                                                   [test, P2Constnt(toMachineWord t)])
+                                            mkEval(P2Constnt(ioOp RuntimeCalls.POLY_SYS_word_eq, []),
+                                                   [test, P2Constnt(toMachineWord t, [])])
                                     |   CaseTag maxTag => P2TagTest { test=test, tag=t, maxTag=maxTag }
                             in
                                 P2Cond(test, c, reconvert rest)

@@ -45,7 +45,7 @@ sig
     datatype codetree =
         Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
-    |   Constnt of machineWord (* Load a constant *)
+    |   Constnt of machineWord * Universal.universal list (* Load a constant *)
 
     |   Extract of loadForm
     
@@ -85,10 +85,6 @@ sig
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
-        (* A constant together with the code for either an inline function or a
-           tuple.  This is used for global values. *)
-    |   ConstntWithInline of machineWord * envSpecial
-
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
@@ -107,7 +103,7 @@ sig
        offset to one of these pairs; inline function entries are a
        lambda together with a map for the free variables. *)
     and envGeneral =
-        EnvGenLoad of loadForm | EnvGenConst of machineWord
+        EnvGenLoad of loadForm | EnvGenConst of machineWord * Universal.universal list
 
     and envSpecial =
         EnvSpecNone
@@ -139,6 +135,13 @@ sig
 
     datatype foldControl = FOLD_DESCEND | FOLD_DONT_DESCEND
     val foldtree: (codetree * 'a -> 'a * foldControl) -> 'a -> codetree -> 'a
+
+    structure CodeTags:
+    sig
+        val tupleTag: Universal.universal list list Universal.tag
+        val inlineCodeTag: envSpecial Universal.tag
+    end
+
 
     structure Sharing:
     sig

@@ -31,21 +31,8 @@ functor TYPEIDCODE (
            'a Universal.tag -> Universal.universal list -> 'a
     end;
 
-    structure PRETTY : PRETTYSIG;
-
-    structure ADDRESS :
-    sig
-        type machineWord;
-        type address;   (* an object that's represented as a pointer *) 
-        type short = Word.word;   (* an object that's represented as a 30-bit int *)
-        val toMachineWord : 'a    -> machineWord;
-        val toAddress : 'a -> address;
-        val F_words     : Word8.word;
-        val F_bytes     : Word8.word;
-        val F_mutable   : Word8.word;
-        val isShort   : 'a -> bool;
-        val loadWord:   (address * short) -> machineWord;
-    end;
+    structure PRETTY : PRETTYSIG
+    structure ADDRESS : AddressSig
     
     sharing LEX.Sharing = STRUCTVALS.Sharing = PRETTY.Sharing = CODETREE.Sharing
             = TYPETREE.Sharing = ADDRESS

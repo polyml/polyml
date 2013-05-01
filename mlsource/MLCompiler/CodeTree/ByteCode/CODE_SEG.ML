@@ -91,7 +91,7 @@ struct
 
   fun csegMake (size : int) : cseg =
   let
-    val vec : address = alloc (toShort size, F_mutable_bytes, toMachineWord 0);
+    val vec : address = alloc (Word.fromInt size, F_mutable_bytes, toMachineWord 0);
   in
     ref (Bytes, vec)
   end;
@@ -149,9 +149,9 @@ struct
     fun copyBytes (fromPtr:int) (toPtr:int) =
       if fromPtr = lengthBytes then ()
       else let
-        val byte = loadByte (fromAddr, toShort fromPtr);
+        val byte = loadByte (fromAddr, Word.fromInt fromPtr);
       in
-        assignByte (toAddr, toShort toPtr, byte);
+        assignByte (toAddr, Word.fromInt toPtr, byte);
         copyBytes (fromPtr + 1) (toPtr + 1)
       end
       
@@ -204,7 +204,7 @@ struct
     val lengthBytes = wordSize * lengthWords;
   in
     if 0 <= byteIndex andalso byteIndex < lengthBytes
-    then loadByte (addr, toShort byteIndex)
+    then loadByte (addr, Word.fromInt byteIndex)
     else let
       val msg = 
         concat
@@ -241,7 +241,7 @@ struct
       end
     
     else if byteIndex < lengthBytes then
-      assignByte (addr, toShort byteIndex, value)
+      assignByte (addr, Word.fromInt byteIndex, value)
       
     else if status <> Bytes then
       raise InternalError "csegSet: can't extend code segment"
@@ -256,14 +256,14 @@ struct
       val newSize    : int = Int.max(expSize, minSize);
       
       (* create temporary codeseg (with larger byte-vector) *)
-      val newVec = alloc (toShort newSize, F_bytes, toMachineWord 0);
+      val newVec = alloc (Word.fromInt newSize, F_bytes, toMachineWord 0);
       val newSeg = (Bytes, newVec);
     in
       (* copy the old code into the new codeseg *)
       csegCopySeg (r, ref newSeg, lengthBytes, 0);
       
       (* assign the byte to the new codeseg's byte-vector *)
-      assignByte (newVec, toShort byteIndex, value);
+      assignByte (newVec, Word.fromInt byteIndex, value);
 
       (* update the old segment to point at the new byte-vector *)
       r := newSeg
@@ -288,7 +288,7 @@ struct
     in
       raise InternalError msg
     end
-    else assignWord (addr, toShort wordIndex, value)
+    else assignWord (addr, Word.fromInt wordIndex, value)
   end
     | csegPutWord _ =
         raise InternalError "csegPutWord: not an unlocked code segment"
@@ -313,7 +313,7 @@ struct
     in
       raise InternalError msg
     end
-    else loadWord (addr, toShort wordIndex)
+    else loadWord (addr, Word.fromInt wordIndex)
   end;
 
   (* csegPutConstant: store a constant into the code.  Exactly how this is
@@ -339,7 +339,7 @@ struct
       raise InternalError msg
     end
     else RunCall.run_call4 RuntimeCalls.POLY_SYS_set_code_constant
-			(addr, toShort byteIndex, value, data)
+			(addr, Word.fromInt byteIndex, value, data)
   end
     | csegPutConstant _ =
         raise InternalError "csegPutConstant: not an unlocked code segment"

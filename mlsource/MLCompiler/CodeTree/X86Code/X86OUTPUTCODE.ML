@@ -413,7 +413,7 @@ struct
     else raise InternalError "gen32s: invalid word"
 
     fun gen64u (ival: int, Code {ic, codeVec, ...}) : unit =
-    if 0 <= ival andalso (isShort ival orelse ival < exp2_64)
+    if 0 <= ival andalso (isShort(toMachineWord ival) orelse ival < exp2_64)
     then
     let
         val icVal = !ic;

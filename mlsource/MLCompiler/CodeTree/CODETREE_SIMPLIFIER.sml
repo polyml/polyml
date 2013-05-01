@@ -18,7 +18,7 @@
 
 (*
     This is a cut-down version of the optimiser which simplifies the code but
-    does not appply any heuristics.  It follows chained bindings, in particular
+    does not apply any heuristics.  It follows chained bindings, in particular
     through tuples, folds constants expressions involving built-in functions,
     expands inline functions that have previously been marked as inlineable.
     It does not detect small functions that can be inlined nor does it
@@ -100,7 +100,6 @@ struct
     |   mkEnv(decs, exp) = Newenv(decs, exp)
 
     fun isConstnt(Constnt _) = true
-    |   isConstnt(ConstntWithInline _) = true
     |   isConstnt _ = false
 
     (* Wrap up the general, bindings and special value as a codetree node.  The
@@ -108,8 +107,7 @@ struct
        to ConstntWithInline.  That allows any inlineable code to be carried
        forward to later passes. *)
     fun specialToGeneral(g, b as _ :: _, s) = mkEnv(b, specialToGeneral(g, [], s))
-    |   specialToGeneral(Constnt w, [], s as EnvSpecTuple _) = ConstntWithInline(w, s)
-    |   specialToGeneral(Constnt w, [], s as EnvSpecInlineFunction _) = ConstntWithInline(w, s)
+    |   specialToGeneral(Constnt(w, p), [], s) = Constnt(w, setInline s p)
     |   specialToGeneral(g, [], _) = g
 
     (* Call and RTS function to fold constants.  The function must be safe to evaluate "early". *)
@@ -122,7 +120,7 @@ struct
         (* Turn the arguments into a vector.  *)
         val argVector =
             case makeConstVal(mkTuple argList) of
-                Constnt w => w
+                Constnt(w, _) => w
             |   _ => raise InternalError "makeConstVal: Not constant"
 
         (* Call the function.  If it raises an exception (e.g. divide
@@ -131,9 +129,9 @@ struct
            by user interaction and not as a result of executing the
            code so we reraise that exception immediately. *)
     in
-        Constnt (call(toAddress rtsCall, argVector))
+        Constnt (call(toAddress rtsCall, argVector), [])
             handle exn as Interrupt => raise exn (* Must not handle this *)
-            | exn => Raise (Constnt(toMachineWord exn))
+            | exn => Raise (Constnt(toMachineWord exn, []))
     end
 
     fun simplify(c, s) = mapCodetree (simpGeneral s) c
@@ -271,7 +269,7 @@ struct
     |   simpGeneral context (TagTest{test, tag, maxTag}) =
         (
             case simplify(test, context) of
-                Constnt testResult =>
+                Constnt(testResult, _) =>
                     if isShort testResult andalso toShort testResult = tag
                     then SOME CodeTrue
                     else SOME CodeFalse
@@ -322,7 +320,7 @@ struct
                 in
                     (c, l @ b, s)
                 end
-            |   split(ConstntWithInline(m, s)) = (Constnt m, [], s)
+            |   split(Constnt(m, p)) = (Constnt(m, p), [], findInline p)
             |   split c = (c, [], EnvSpecNone)
         in
             split(simplify(c, s))
@@ -635,7 +633,7 @@ struct
                 (cGen, functDecs @ (copiedArgs @ cDecs), cSpec)
             end
 
-        |   (_, gen as Constnt w, _) => (* Not inlinable - constant function. *)
+        |   (_, gen as Constnt(w, _), _) => (* Not inlinable - constant function. *)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 (* If the function is an RTS call that is safe to evaluate immediately and all the
@@ -671,7 +669,7 @@ struct
         case simpSpecial(condTest, context) of
             (* If the test is a constant we can return the appropriate arm and
                ignore the other.  *)
-            (Constnt testResult, bindings, _) =>
+            (Constnt(testResult, _), bindings, _) =>
                 let
                     val arm = 
                         if wordEq (testResult, False) (* false - return else-part *)
@@ -688,7 +686,7 @@ struct
                 local
                     open RuntimeCalls
                     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation
-                    val rtsFunction = Constnt o ioOp
+                    fun rtsFunction v = Constnt(ioOp v, [])
 
                     fun mkEval (ct, clist)   =
                     Eval {
@@ -701,7 +699,7 @@ struct
                 end
             in
                 case (simpSpecial(condThen, context), simpSpecial(condElse, context)) of
-                    ((thenConst as Constnt thenVal, [], _), (elseConst as Constnt elseVal, [], _)) =>
+                    ((thenConst as Constnt(thenVal, _), [], _), (elseConst as Constnt(elseVal, _), [], _)) =>
                         (* Both arms return constants.  This situation can arise in
                            situations where we have andalso/orelse where the second
                            "argument" has been reduced to a constant. *)
@@ -751,9 +749,8 @@ struct
 
         (* Make sure we include any inline code in the result.  If this tuple is
            being "exported" we will lose the "special" part. *)
-        fun envResToCodetree(EnvGenLoad ext, _) = Extract ext
-        |   envResToCodetree(EnvGenConst w, EnvSpecNone) = Constnt w
-        |   envResToCodetree(EnvGenConst w, spec) = ConstntWithInline(w, spec)
+        fun envResToCodetree(EnvGenLoad(ext), _) = Extract ext
+        |   envResToCodetree(EnvGenConst(w, p), s) = Constnt(w, setInline s p)
 
         val generalFields = List.map envResToCodetree fieldEntries
 

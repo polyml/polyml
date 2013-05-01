@@ -181,38 +181,7 @@ end = CodeSeg;
 (*****************************************************************************)
 (*                  ADDRESS                                                  *)
 (*****************************************************************************)
-structure ADDRESS :
-sig
-  type machineWord;    (* NB *not* eqtype, 'cos it might be a closure *)
-  type short = Word.word;
-  type address;
-  type handler;
-
-  val wordEq : 'a * 'a -> bool
-  
-  val isShort:  'a     -> bool;
-  val toShort:  'a     -> short;
-  val toMachineWord:   'a     -> machineWord;
-  val toAddress: 'a -> address
-
-  val loadByte:  address * short -> Word8.word 
-  val loadWord:  address * short -> machineWord
-  val unsafeCast: 'a -> 'b
-  
-  val alloc:  (short * Word8.word * machineWord) -> address
-  val length: address -> short
-  val flags:  address -> Word8.word
-
-  val F_words : Word8.word
- 
-  val isWords : address -> bool;
-  val isBytes : address -> bool;
-  val isCode  : address -> bool;
-  
-  val lock : address -> unit;
-
-  val isIoAddress : address -> bool
-end = Address;
+structure ADDRESS : AddressSig = Address
 
 in
 
@@ -1814,7 +1783,7 @@ struct
             val addr: int =
                 if littleEndian() then byteOffset + wordLength() - i - 1
                 else byteOffset + i;
-            val b = loadByte (a, toShort addr);
+            val b = loadByte (a, Word.fromInt addr);
             val acc' = acc*256 + Word8.toInt b
         in
             loadBytes (i+1) acc'
@@ -1829,9 +1798,9 @@ struct
       val objLength  : int  = Word.toInt (ADDRESS.length a);
       val lastWord   : int  = objLength - 1;
       val constCount : int  = loadConstCount (a, lastWord);
-      val codeName   : machineWord = loadWord (a, toShort (lastWord - constCount));
+      val codeName   : machineWord = loadWord (a, Word.fromInt (lastWord - constCount));
     in
-      unsafeCast codeName
+      RunCall.unsafeCast codeName
     end;
 
   (* prints a string representation of a number *)

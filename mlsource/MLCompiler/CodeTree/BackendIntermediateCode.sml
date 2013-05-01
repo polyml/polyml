@@ -29,7 +29,7 @@ struct
     datatype backendIC =
         BICNewenv of bicCodeBinding list * backendIC (* Set of bindings with an expression. *)
 
-    |   BICConstnt of machineWord (* Load a constant *)
+    |   BICConstnt of machineWord * Universal.universal list (* Load a constant *)
 
     |   BICExtract of bicLoadForm * bool (* Get a local variable, an argument or a closure value *)
 
@@ -267,7 +267,7 @@ struct
                 )
             end
         
-        |   BICConstnt w => PrettyString (stringOfWord w)
+        |   BICConstnt (w, _) => PrettyString (stringOfWord w)
         
         |   BICCond (f, s, t) =>
             PrettyBlock (1, true, [],
@@ -448,6 +448,12 @@ struct
                 pretty value
             ]
         )
+
+    structure CodeTags =
+    struct
+        open Universal
+        val tupleTag: universal list list tag = tag()
+    end
 
     structure Sharing =
     struct
