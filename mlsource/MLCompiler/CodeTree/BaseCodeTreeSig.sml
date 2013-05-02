@@ -85,6 +85,10 @@ sig
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
+        (* A constant together with the code for either an inline function or a
+           tuple.  This is used for global values. *)
+    |   ConstntWithInline of machineWord * envSpecial
+
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
@@ -103,7 +107,7 @@ sig
        offset to one of these pairs; inline function entries are a
        lambda together with a map for the free variables. *)
     and envGeneral =
-        EnvGenLoad of loadForm | EnvGenConst of machineWord * Universal.universal list
+        EnvGenLoad of loadForm | EnvGenConst of machineWord
 
     and envSpecial =
         EnvSpecNone

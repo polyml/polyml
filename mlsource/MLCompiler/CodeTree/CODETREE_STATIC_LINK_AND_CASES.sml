@@ -812,6 +812,8 @@ struct
 
             |   insert(Constnt wp) = P2Constnt wp (* Constants can be returned untouched. *)
 
+            |   insert(ConstntWithInline(g, _)) = P2Constnt(g, [])
+
             |   insert(BeginLoop{loop=body, arguments=argList, ...}) = (* Start of tail-recursive inline function. *)
                 let
                     (* Make entries in the tables for the arguments. *)

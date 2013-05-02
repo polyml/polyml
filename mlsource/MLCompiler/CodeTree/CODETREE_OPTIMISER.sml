@@ -60,8 +60,7 @@ functor CODETREE_OPTIMISER(
     sig
         type codetree
         type machineWord = Address.machineWord
-        val codeGenerate:
-            codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
+        val codeGenerate: codetree * int * Universal.universal list -> (unit -> machineWord) * Universal.universal list
         structure Sharing : sig type codetree = codetree end
     end
 
@@ -189,6 +188,7 @@ struct
                 checkUse isMain (container, checkUse isMain (tuple, cl -- size, false), false)
 
         |   checkUse isMain (TupleFromContainer(container, len), cl, _) = checkUse isMain (container, cl -- (len+2), false)
+        |   checkUse isMain (ConstntWithInline(w, _), cl, _) = checkUse isMain (Constnt(w, []), cl, false)
         |   checkUse isMain (TagTest{test, ...}, cl, _) = checkUse isMain (test, cl -- 1, false)
         
         and checkUseList isMain (elems, cl) =

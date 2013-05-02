@@ -233,6 +233,8 @@ struct
                constant functions. *)
             SOME((if isVariant then mkDatatype else mkTuple)(map (mapCodetree (cgFuns context)) fields))
 
+    |   cgFuns _ (ConstntWithInline(w, _)) = SOME(Constnt(w, [])) (* Strip off any inline part now. *)
+
     |   cgFuns _ _ = NONE
     
     fun codeGenerate(code, nLocals, debugArgs) =
