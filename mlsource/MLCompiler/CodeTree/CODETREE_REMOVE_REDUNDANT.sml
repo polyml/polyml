@@ -42,9 +42,9 @@ struct
            datatypes where different variants could have different widths. *)
         fun findTuple(Tuple{fields, isVariant=false}) = List.length fields
         |   findTuple(TupleFromContainer(_, c)) = c
-        |   findTuple(Constnt(w, _)) =
+        (*|   findTuple(Constnt(w, _)) =
                 if isShort w orelse flags (toAddress w) <> F_words then 1
-                else Word.toInt(length (toAddress w))
+                else Word.toInt(length (toAddress w))*)
         |   findTuple(Extract _) = 1 (* TODO: record this for variables *)
         |   findTuple(Cond(_, t, e)) =
                 let

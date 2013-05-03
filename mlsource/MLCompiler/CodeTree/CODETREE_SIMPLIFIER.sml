@@ -78,7 +78,7 @@ struct
     }
 
     fun envGeneralToCodetree(EnvGenLoad ext) = Extract ext
-    |   envGeneralToCodetree(EnvGenConst w) = Constnt(w, [])
+    |   envGeneralToCodetree(EnvGenConst w) = Constnt w
 
     fun mkDec (laddr, res) = Declar{value = res, addr = laddr, use=[]}
 
@@ -100,7 +100,6 @@ struct
     |   mkEnv(decs, exp) = Newenv(decs, exp)
 
     fun isConstnt(Constnt _) = true
-    |   isConstnt(ConstntWithInline _) = true
     |   isConstnt _ = false
 
     (* Wrap up the general, bindings and special value as a codetree node.  The
@@ -108,8 +107,7 @@ struct
        to ConstntWithInline.  That allows any inlineable code to be carried
        forward to later passes. *)
     fun specialToGeneral(g, b as _ :: _, s) = mkEnv(b, specialToGeneral(g, [], s))
-    |   specialToGeneral(Constnt(w, _), [], s as EnvSpecTuple _) = ConstntWithInline(w, s)
-    |   specialToGeneral(Constnt(w, _), [], s as EnvSpecInlineFunction _) = ConstntWithInline(w, s)
+    |   specialToGeneral(Constnt(w, p), [], s) = Constnt(w, setInline s p)
     |   specialToGeneral(g, [], _) = g
 
     (* Call and RTS function to fold constants.  The function must be safe to evaluate "early". *)
@@ -322,7 +320,7 @@ struct
                 in
                     (c, l @ b, s)
                 end
-            |   split(ConstntWithInline(m, s)) = (Constnt(m, []), [], s)
+            |   split(Constnt(m, p)) = (Constnt(m, p), [], findInline p)
             |   split c = (c, [], EnvSpecNone)
         in
             split(simplify(c, s))
@@ -432,7 +430,7 @@ struct
        constant in the table. If it is a load (Extract) it is just renaming
        an existing entry so we can return it.  Otherwise we have to make
        a new binding and return a load (Extract) entry for it. *)
-    and makeNewDecl((Constnt(w, _), decs, spec), _) = ((EnvGenConst w, spec), decs)
+    and makeNewDecl((Constnt w, decs, spec), _) = ((EnvGenConst w, spec), decs)
                 (* No need to create a binding for a constant. *)
 
     |   makeNewDecl((Extract ext, decs, spec), _) = ((EnvGenLoad ext, spec), decs)
@@ -751,9 +749,8 @@ struct
 
         (* Make sure we include any inline code in the result.  If this tuple is
            being "exported" we will lose the "special" part. *)
-        fun envResToCodetree(EnvGenLoad ext, _) = Extract ext
-        |   envResToCodetree(EnvGenConst w, EnvSpecNone) = Constnt(w, [])
-        |   envResToCodetree(EnvGenConst w, spec) = ConstntWithInline(w, spec)
+        fun envResToCodetree(EnvGenLoad(ext), _) = Extract ext
+        |   envResToCodetree(EnvGenConst(w, p), s) = Constnt(w, setInline s p)
 
         val generalFields = List.map envResToCodetree fieldEntries
 
