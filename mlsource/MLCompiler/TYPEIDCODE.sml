@@ -915,7 +915,7 @@ struct
             else p (* String or Break *)
 
         fun printerForConstructors
-                (Value{name, typeOf, access, class = Constructor{nullary, ...}, ...} :: rest) =
+                (Value{name, typeOf, access, class = Constructor{nullary, ...}, locations, ...} :: rest) =
             let
                 (* The "value" for a value constructor is a tuple containing
                    the test code, the injection and the projection functions. *)
@@ -930,9 +930,15 @@ struct
 
                 open ValueConstructor
 
+                val locProps = (* Get the declaration location. *)
+                    List.foldl(fn (DeclaredAt loc, _) => [ContextLocation loc] | (_, l) => l) [] locations
+
+                val nameCode =
+                    codePrettyBlock(0, false, locProps, codeList([codePrettyString name], CodeZero))
+
                 val printCode =
                     if nullary
-                    then (* Just the name *) codePrettyString name
+                    then (* Just the name *) nameCode
                     else
                     let
                         val typeOfArg =
@@ -945,7 +951,8 @@ struct
                         codePrettyBlock(1, false, [],
                             codeList(
                                 [
-                                    codePrettyString name,
+                                    (* Put it in a block with the declaration location. *)
+                                    nameCode,
                                     codePrettyBreak (1, 0),
                                     (* Print the argument and parenthesise it if necessary. *)
                                     mkEval(mkConst(toMachineWord parenthesise),
