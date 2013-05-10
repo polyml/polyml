@@ -119,7 +119,7 @@ struct
         resultType    : argumentType,
         closureRefs   : int,
         localCount    : int,
-        makeClosure   : bool,
+        heapClosure   : bool,
         argLifetimes  : int list
     }
 
@@ -263,7 +263,7 @@ struct
             end
         
         |   BICLambda {body, name, closure, argTypes, closureRefs,
-                  makeClosure, resultType, localCount, argLifetimes} =>
+                  heapClosure, resultType, localCount, argLifetimes} =>
             let
                 fun prettyArgTypes [] = []
                 |   prettyArgTypes [last] = [prettyArgType last]
@@ -278,7 +278,7 @@ struct
                         PrettyBreak (1, 0),
                         PrettyString name,
                         PrettyBreak (1, 0),
-                        PrettyString ( "CL="  ^ Bool.toString makeClosure),
+                        PrettyString ( "CL="  ^ Bool.toString heapClosure),
                         PrettyString (" CR="  ^ Int.toString closureRefs),
                         PrettyString (" LOCALS=" ^ Int.toString localCount),
                         PrettyBreak(1, 0),

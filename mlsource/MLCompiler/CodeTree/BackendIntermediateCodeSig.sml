@@ -119,7 +119,7 @@ sig
         resultType    : argumentType,
         closureRefs   : int,
         localCount    : int,
-        makeClosure   : bool,
+        heapClosure   : bool,
         argLifetimes  : int list
     }
 

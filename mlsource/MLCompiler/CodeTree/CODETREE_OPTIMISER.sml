@@ -431,7 +431,7 @@ struct
                     val newAddr = ! localCounter before localCounter := ! localCounter + 1
                     val packFn =
                         Lambda {
-                            closure = [LoadArgument m], isInline = Inline, name = "",
+                            closure = [LoadArgument m], isInline = Inline, name = name ^ "-P",
                             argTypes = [(GeneralType, [UseGeneral])], resultType = GeneralType,
                             localCount = 0,
                             body = Eval { 
@@ -442,7 +442,7 @@ struct
                     val thisDec = Declar { addr = newAddr, use = [], value = packFn }
                     val thisArg =
                         Lambda {
-                            closure = [LoadArgument n], isInline = Inline, name = "",
+                            closure = [LoadArgument n], isInline = Inline, name = name ^ "-E",
                             argTypes = List.tabulate(width, fn _ => (GeneralType, [UseGeneral])),
                             resultType = GeneralType, localCount = 0,
                             body = Eval {

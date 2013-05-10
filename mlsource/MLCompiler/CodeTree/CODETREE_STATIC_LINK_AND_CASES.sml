@@ -139,7 +139,7 @@ struct
         argTypes      : argumentType list,
         resultType    : argumentType,
         localCount    : int,
-        makeClosure   : bool
+        heapClosure   : bool
     }
 
     val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
@@ -644,7 +644,7 @@ struct
                     end
 
                 and copyLambda({body=lambdaBody, argTypes,
-                                 name=lambdaName, resultType, localCount, closure, makeClosure, ...}: p2LambdaForm) = 
+                                 name=lambdaName, resultType, localCount, closure, heapClosure, ...}: p2LambdaForm) = 
                 let
                     val numArgs = List.length argTypes
                     (* The size is one more than the number of arguments because the
@@ -671,7 +671,7 @@ struct
                         resultType    = resultType,
                         closureRefs   = hd argUseList,
                         localCount    = localCount,
-                        makeClosure   = makeClosure,
+                        heapClosure   = heapClosure,
                         argLifetimes  = tl argUseList (* Exclusde the first item used for the closure itself. *)
                     }
                 end
@@ -823,6 +823,8 @@ struct
                         
                     fun mapArgs(n, (Extract ext, t) :: tail) =
                             (P2Extract(locaddr(ext, isIn n)), t) :: mapArgs(n+1, tail)
+                    |   mapArgs(n, (Lambda lam, t) :: tail) =
+                            (insertLambda(lam, isIn n), t) :: mapArgs(n+1, tail)
                     |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
                     |   mapArgs(_, []) = []
                     val newargs = mapArgs(0, argList)
@@ -845,6 +847,8 @@ struct
                         
                     fun mapArgs(n, (Extract ext, t) :: tail) =
                             (P2Extract(locaddr(ext, isIn n)), t) :: mapArgs(n+1, tail)
+                    |   mapArgs(n, (Lambda lam, t) :: tail) =
+                            (insertLambda(lam, isIn n), t) :: mapArgs(n+1, tail)
                     |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
                     |   mapArgs(_, []) = []
                     val newargs = mapArgs(0, argList)
@@ -916,7 +920,7 @@ struct
                             val () = Array.update(argProperties, caddr, cfArgs)
                             (* Process all the references to the function. *)
                             val rest = copyDeclarations vs
-                            (* We now know if we need a closure. *)
+                            (* We now know if we need a heap closure. *)
                             val dec =
                                 copyProcClosure(copiedLambda, newClosure,
                                         makeRecClosure orelse Array.sub(closuresForLocals, caddr))
@@ -1066,14 +1070,11 @@ struct
 
             |   insert Ldexc = P2Ldexc (* just a constant so return it *)
       
-            |   insert(Lambda lam)=
-                let
-                    val (copiedLambda, newClosure, _, _) = copyLambda lam
-                    (* Must make a closure for this function because
-                        it is not a simple binding. *)
-                in
-                    copyProcClosure (copiedLambda, newClosure, true)
-                end
+            |   insert(Lambda lam) =
+                    (* Using a lambda in a context other than a call or being passed
+                       to a function that is known only to call the function.  It
+                       requires a heap closure. *)
+                    insertLambda(lam, true)
 
             |   insert(Handle { exp, handler }) =
                 let
@@ -1094,6 +1095,14 @@ struct
                     P2TupleFromContainer(insert container, size)
 
             |   insert(TagTest{test, tag, maxTag}) = P2TagTest{test=insert test, tag=tag, maxTag=maxTag}
+
+
+            and insertLambda (lam, needsClosure) =
+            let
+                val (copiedLambda, newClosure, _, _) = copyLambda lam
+            in
+                copyProcClosure (copiedLambda, newClosure, needsClosure)
+            end
 
           and copyCond (condTest, condThen, condElse) =
             let
@@ -1344,7 +1353,7 @@ struct
                         argTypes      = map #1 argTypes,
                         resultType    = resultType,
                         localCount    = ! newLocalAddresses,
-                        makeClosure   = false
+                        heapClosure   = false
                     },
                  globalRefs, ! makeClosureForRecursion, cfArgs)
             end (* copyLambda *)
@@ -1352,12 +1361,12 @@ struct
                 (* Copy the closure of a function which has previously been
                 processed by copyLambda. *)
             and copyProcClosure (P2Lambda{ body, name, argTypes,
-                                           resultType, localCount, ...}, newClosure, makeClosure) =
+                                           resultType, localCount, ...}, newClosure, heapClosure) =
                 let
                     (* process the non-locals in this function *)
-                    (* If a closure is needed then any functions referred to
-                       from the closure also need closures.*)
-                    fun makeLoads ext = locaddr(ext, makeClosure)
+                    (* If a heap closure is needed then any functions referred to
+                       from the closure also need heap closures.*)
+                    fun makeLoads ext = locaddr(ext, heapClosure)
                
                     val copyRefs = rev (map makeLoads newClosure)
                 in
@@ -1369,7 +1378,7 @@ struct
                         argTypes      = argTypes,
                         resultType    = resultType,
                         localCount    = localCount,
-                        makeClosure   = makeClosure orelse null copyRefs (* False if closure is empty *)
+                        heapClosure   = heapClosure orelse null copyRefs (* False if closure is empty *)
                       }
                 end
             |  copyProcClosure(pt, _, _) = pt (* may now be a constant *)

@@ -447,11 +447,7 @@ struct
                 MergeIndex index
             end
 
-        |   BICLambda(lam as { makeClosure = true, ...}) => MergeIndex(genProc (lam, fn _ => (), whereto))
-        
-        |   BICLambda({makeClosure = false, ...}) =>
-                (* Functions using the static-link convention must always occur in bindings. *)
-                raise InternalError "Function with static link convention found as expression"
+        |   BICLambda lam => MergeIndex(genProc (lam, fn _ => (), whereto))
 
         | BICConstnt(w, _) => MergeIndex(pushConst (transtable, w))
 
@@ -507,10 +503,10 @@ struct
                     |   FloatingPtType => RegSet.floatingPtRegisters
                 val (_, decl, decCode) = loadEntryToSet(transtable, index, prefSet, true)
                 val () = codeGenerate(decCode, cvec)
-                (* It should not be a static-link function - just check. *) 
+                (* It should not be a non-heap function - just check. *) 
                 val _ = 
                   case value of
-                    BICLambda {makeClosure = false, ...} => 
+                    BICLambda {heapClosure = false, ...} => 
                         raise InternalError "LoopArg: static link function"
                   | _ => ()
             in
@@ -1213,7 +1209,7 @@ struct
     (* `mutualRecursive' is used for mutually recursive functions
        where a function may not be able to fill in its closure if it does
        not procedure address has been pushed but before the code is generated. *)
-    and genProc ({ closure=closureList, makeClosure=closureOnHeap, name=lambdaName, body=lambdaBody,
+    and genProc ({ closure=closureList, heapClosure, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
                  mutualRecursive: stackIndex -> unit, whereto) =
         (* Requires a closure but this may be a constant. *)
@@ -1325,7 +1321,7 @@ struct
                 val incomplete = List.exists(fn i => i = noIndex) initialLocs
 
                 val (vector, vecCode) =
-                    if closureOnHeap
+                    if heapClosure
                     then callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
                     else reserveStackSpace(transtable, nonConstCount+1)
                 (* TODO: If the closure is on the stack we can just fill the entries
@@ -1357,7 +1353,7 @@ struct
                 |   fillClosure _ = ()
                 val () = fillClosure(initialLocs, constants, 0)
                 val () =
-                    if closureOnHeap
+                    if heapClosure
                     then codeGenerate(allocationComplete, cvec)
                     else ()
 
@@ -1395,7 +1391,7 @@ struct
                         val () = fillRecursive(initialLocs, closureList, 0)
                         
                         val () =
-                            if closureOnHeap
+                            if heapClosure
                             then
                             let
                                 (* Finally we can lock this. *)
@@ -1819,10 +1815,111 @@ struct
            those called with a static-link and those called with a closure. *) 
         and genEval (evalFun, argList: (backendIC * argumentType) list, resultType, primBoolOps, whereto, tailKind) : mergeResult =
         let
-            (* This is used if we have a real function call rather than an RTS function we can
-               code-generate directly. *)
-            fun realFunctionCall(procLocn, modifiedRegisters, loadProc, argLocations, canTail) =
+
+            (* Call a closure function. *)
+            fun callClosure (clos : backendIC option, canTail): mergeResult =
             let
+                (* If we're actually calling the function where do the arguments go? *)
+                val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
+                val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
+
+                (* Get the set of registers modified by this call.  We have to include
+                   the argument, closure and code registers even if they're not actually
+                   modified because otherwise we may find that we've locked them. *)
+                val modifiedRegisters =
+                    case clos of
+                        SOME (BICConstnt(w, _)) =>
+                            regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
+                      | _ (* Recursive or not a constant. *) => allRegisters;
+
+                (* Add the registers to the set modified by this function.
+                   We don't need to do this for recursive calls.  In that
+                   case we must push all the registers (so we set registerSet
+                   to allRegisters) but the modification set for this function
+                   is simply the registers modified by everything else. *)
+                val _ =
+                    case clos of
+                        NONE => ()
+                    |   _ => addModifiedRegSet(transtable, modifiedRegisters);
+
+                (* Have to guarantee that the expression to return
+                   the procedure is evaluated before the arguments. *)
+                (* In the recursive case the use count for closureOrSlAddr
+                   is set by the caller. DCJM 1/12/99. *)
+                val procLocn = 
+                  case clos of
+                    SOME(BICConstnt _) => noIndex (* Unused. *)
+                  | SOME c          => genToStack (c) (* the closure *)
+                  | NONE            => noIndex  (* Unused. *);
+
+                local
+                    fun loadReg reg addr : stackIndex =
+                        let
+                          (* We don't need exclusive use of this value, because it
+                             only gets modified by the function call itself, not
+                             here. We either don't return from the function
+                             (tail-call: we set exited) or we explicitly clear
+                             the cache in setUpResult. *)
+                          val (regIndex, regCode) =
+                                loadToSpecificReg(transtable, reg, addr, false (* was bodyCall *));
+                        in
+                            codeGenerate(regCode, cvec);
+                          (* Lock the register down so that it doesn't get
+                             used to move values onto the stack. *)
+                          lockRegister (transtable, reg);
+                          regIndex
+                        end
+                in
+                    fun loadProc (): (stackIndex option * bool * stackIndex list * reg list) =
+                      case clos of
+                         SOME(BICConstnt(w, _)) =>
+                            (* Do we need to load the closure register? *)
+                            let
+                                val addr = toAddress w;
+                            in
+                                if isIoAddress addr
+                                then (* We don't need the closure register but we can't
+                                        do the indirection here.  That's because the
+                                        code address isn't valid.  We have to do the
+                                        indirection at run time. *)
+                                    (SOME(pushConst(transtable, w)), true, [], [])
+                                else
+                                let
+                                    val code : machineWord = loadWord (addr, 0w0)
+                                    val codeLocn = pushConst(transtable, code)
+                                in
+                                    if objLength addr = 0w1
+                                    then (* The closure is just one word - we don't need to
+                                            put it in the closure register since the function
+                                            won't need it.  Do the indirection now. *)
+                                        (SOME codeLocn, false, [], [])
+                                    else (* We need to load the closure register. 
+                                        We have a choice here.  We could either return
+                                        the closure register as the address as we do
+                                        in the general case, in which case we would do
+                                        an indirect call through the closure register,
+                                        or we can do the indirection here and do a
+                                        direct call.  On the i386 the latter is definitely
+                                        better but on the PPC it will generate longer
+                                        code, although possibly no slower if there was
+                                        a pipeline stall. *)
+                                        (SOME codeLocn, false,
+                                            [loadReg regClosure (pushConst(transtable, w))],
+                                            [regClosure])
+                                end
+                            end
+                       | SOME _ =>
+                            (* Calling a non-constant - load the closure register and
+                               set the code address as this with the "indirection"
+                               flag set to true. *)
+                            (SOME(loadReg regClosure procLocn), true, [], [regClosure])
+                       | NONE => (* Recursive *)
+                          (* If this function requires a closure we need to reload
+                             the closure register with our original closure. *)
+                          if closureLifetime = 0 then (NONE, false, [], [])
+                          else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
+                end
+
                 val needsResult = not (isNoResult whereto)
                 val regResult = resultReg(codeToCgType resultType)
 
@@ -1833,6 +1930,7 @@ struct
                 local
                     fun nonContainer(BICExtract(BICLoadLocal addr, _), _) =
                             not(isContainer(Array.sub(decToPstack, addr), transtable))
+                    |   nonContainer(BICLambda{heapClosure, ...}, _) = heapClosure
                     |   nonContainer _ = true
                 in
                     val isTail =
@@ -1879,7 +1977,7 @@ struct
                 end
             in
                 if isTail
-                then  (* Enter a procedure by jumping rather than calling. *)
+                then  (* Enter a function by jumping rather than calling. *)
                 let
                     (* Now move the arguments to their final destination. argAddr is a negative value and
                        is the address of the arguments in the original stack. *)
@@ -1971,7 +2069,7 @@ struct
                     List.app (fn index => codeGenerate(removeStackEntry(transtable, index), cvec))
                         (argEntries @ callEntries)
                     (* Since we've exited we don't need to clear the cache. *)
-                end  (* jumpToProc *)
+                end
 
                 else (* Call a function.  Used in cases when it's not tail-recursive. *)
                 let
@@ -1979,7 +2077,7 @@ struct
                        used in this call.  Values in registers not modified by the
                        call are locked in their current registers. *)
                     val (lockedRegs, pushInstrs) =
-                        pushNonArguments(transtable, procLocn @ argsOnPstack, modifiedRegisters);
+                        pushNonArguments(transtable, procLocn :: argsOnPstack, modifiedRegisters);
                     val () = codeGenerate(pushInstrs, cvec)
 
                     (* Push the arguments onto the real stack and/or load them
@@ -2044,7 +2142,7 @@ struct
                     (* Remove any registers from the cache which may have been modified
                        by the function. *)
                     codeGenerate(removeRegistersFromCache(transtable, modifiedRegisters), cvec)
-                end (* callProc *);
+                end;
 
                 (* Set up the results of the function call. *)
                 (* Unlock  the argument registers. *)
@@ -2076,113 +2174,6 @@ struct
                     codeGenerate(addRegUse (transtable, regResult), cvec); (* Needed? *)
                     MergeIndex(pushReg (transtable, regResult))
                 )
-            end (* realFunctionCall *)
-
-            (* Call a closure function, i.e. not one that requires a static link. *)
-            fun callClosure (clos : backendIC option, canTail): mergeResult =
-            let
-                (* If we're actually calling the function where do the arguments go? *)
-                val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
-                val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
-
-                (* Get the set of registers modified by this call.  We have to include
-                   the argument, closure and code registers even if they're not actually
-                   modified because otherwise we may find that we've locked them. *)
-                val registerSet =
-                    case clos of
-                        SOME (BICConstnt(w, _)) =>
-                            regSetUnion(listToSet(regClosure :: modifiedArgRegs), getRegisterSetForFunction w)
-                      | _ (* Recursive or not a constant. *) => allRegisters;
-
-                (* Add the registers to the set modified by this function.
-                   We don't need to do this for recursive calls.  In that
-                   case we must push all the registers (so we set registerSet
-                   to allRegisters) but the modification set for this function
-                   is simply the registers modified by everything else. *)
-                val _ =
-                    case clos of
-                        NONE => ()
-                    |   _ => addModifiedRegSet(transtable, registerSet);
-
-                (* Have to guarantee that the expression to return
-                   the procedure is evaluated before the arguments. *)
-                (* In the recursive case the use count for closureOrSlAddr
-                   is set by the caller. DCJM 1/12/99. *)
-                val procLocn = 
-                  case clos of
-                    SOME(BICConstnt _) => noIndex (* Unused. *)
-                  | SOME c          => genToStack (c) (* the closure *)
-                  | NONE            => noIndex  (* Unused. *);
-
-                local
-                    fun loadReg reg addr : stackIndex =
-                        let
-                          (* We don't need exclusive use of this value, because it
-                             only gets modified by the function call itself, not
-                             here. We either don't return from the function
-                             (tail-call: we set exited) or we explicitly clear
-                             the cache in setUpResult. *)
-                          val (regIndex, regCode) =
-                                loadToSpecificReg(transtable, reg, addr, false (* was bodyCall *));
-                        in
-                            codeGenerate(regCode, cvec);
-                          (* Lock the register down so that it doesn't get
-                             used to move values onto the stack. *)
-                          lockRegister (transtable, reg);
-                          regIndex
-                        end
-                in
-                    fun loadClosureProc (): (stackIndex option * bool * stackIndex list * reg list) =
-                      case clos of
-                         SOME(BICConstnt(w, _)) =>
-                            (* Do we need to load the closure register? *)
-                            let
-                                val addr = toAddress w;
-                            in
-                                if isIoAddress addr
-                                then (* We don't need the closure register but we can't
-                                        do the indirection here.  That's because the
-                                        code address isn't valid.  We have to do the
-                                        indirection at run time. *)
-                                    (SOME(pushConst(transtable, w)), true, [], [])
-                                else
-                                let
-                                    val code : machineWord = loadWord (addr, 0w0)
-                                    val codeLocn = pushConst(transtable, code)
-                                in
-                                    if objLength addr = 0w1
-                                    then (* The closure is just one word - we don't need to
-                                            put it in the closure register since the function
-                                            won't need it.  Do the indirection now. *)
-                                        (SOME codeLocn, false, [], [])
-                                    else (* We need to load the closure register. 
-                                        We have a choice here.  We could either return
-                                        the closure register as the address as we do
-                                        in the general case, in which case we would do
-                                        an indirect call through the closure register,
-                                        or we can do the indirection here and do a
-                                        direct call.  On the i386 the latter is definitely
-                                        better but on the PPC it will generate longer
-                                        code, although possibly no slower if there was
-                                        a pipeline stall. *)
-                                        (SOME codeLocn, false,
-                                            [loadReg regClosure (pushConst(transtable, w))],
-                                            [regClosure])
-                                end
-                            end
-                       | SOME _ =>
-                            (* Calling a non-constant - load the closure register and
-                               set the code address as this with the "indirection"
-                               flag set to true. *)
-                            (SOME(loadReg regClosure procLocn), true, [], [regClosure])
-                       | NONE => (* Recursive *)
-                          (* If this function requires a closure we need to reload
-                             the closure register with our original closure. *)
-                          if closureLifetime = 0 then (NONE, false, [], [])
-                          else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
-                end
-            in
-                realFunctionCall([procLocn], registerSet, loadClosureProc, argLocations, canTail)
             end (* callClosure *)
 
             fun codeRTSFunction(instr, arguments, whereto) =
