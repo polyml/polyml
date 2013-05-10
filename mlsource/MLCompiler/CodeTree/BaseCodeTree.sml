@@ -140,6 +140,15 @@ struct
         localCount    : int
     }
 
+    structure CodeTags =
+    struct
+        open Universal
+        (* Import tags from back end *)
+        open BackendIntermediateCode.CodeTags
+
+        val inlineCodeTag: envSpecial tag = tag()
+    end
+
     open Pretty
 
     (* Common cases. *)
@@ -257,7 +266,7 @@ struct
             end
         
         |   Constnt(w, _) => PrettyString (stringOfWord w)
-        
+
         |   Cond (f, s, t) =>
             PrettyBlock (0, true, [],
                 [
@@ -556,15 +565,6 @@ struct
         case f (code, input) of
             (v, FOLD_DONT_DESCEND) => v
         |   (v, FOLD_DESCEND) => ftree(code, v)
-    end
-
-    structure CodeTags =
-    struct
-        open Universal
-        (* Import tags from back end *)
-        open BackendIntermediateCode.CodeTags
-
-        val inlineCodeTag: envSpecial tag = tag()
     end
 
 

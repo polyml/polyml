@@ -1825,13 +1825,22 @@ struct
             let
                 val needsResult = not (isNoResult whereto)
                 val regResult = resultReg(codeToCgType resultType)
-                (* Can use a jump if we're at the end, not in a local static-link function and
-                   and the result is in the right register (we don't need to convert floating point
-                   to fixed point or vice versa). *)
-                val isTail =
-                    case tailKind of
-                        EndOfProc reg => canTail andalso regResult = reg
-                    |   _ => false
+
+                (* Can use a jump if we're at the end, the closure is not the stack,
+                   the result is in the right register (we don't need to convert floating point
+                   to fixed point or vice versa) and none of the arguments are functions
+                   with closures on the stack. *)
+                local
+                    fun nonContainer(BICExtract(BICLoadLocal addr, _), _) =
+                            not(isContainer(Array.sub(decToPstack, addr), transtable))
+                    |   nonContainer _ = true
+                in
+                    val isTail =
+                        case tailKind of
+                            EndOfProc reg => canTail andalso regResult = reg
+                                             andalso List.all nonContainer argList
+                        |   _ => false
+                end
 
                 (* Code-generate each entry to the pstack.  If this is a tail recursive call we have to
                    load any values that are currently used as arguments because we may overwrite them later. *)

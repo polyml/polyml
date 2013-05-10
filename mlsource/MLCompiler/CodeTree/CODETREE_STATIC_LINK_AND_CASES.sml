@@ -736,6 +736,12 @@ struct
     
     end (* local *)
 
+    open BACKENDTREE.CodeTags
+
+    (* Property tag to indicate which arguments to a function are functions
+       that are only ever called. *)
+    val closureFreeArgsTag: int list Universal.tag = Universal.tag()
+
     fun staticLinkAndCases (pt, localAddressCount) =
     let
         fun mkEval (ct, clist)   =
@@ -745,60 +751,113 @@ struct
             resultType=GeneralType
         }
 
-        fun copyCode (pt, previous, localCount, localAddresses) =
+        fun copyCode (pt, nonLocals, recursive, localCount, localAddresses, argClosure) =
         let
             (* "closuresForLocals" is a flag indicating that if the declaration
                is a function a closure must be made for it. *)
-            val closuresForLocals = Array.array(localCount, false);
-            
+            val closuresForLocals = Array.array(localCount, false)
             val newLocalAddresses = Array.array (localCount, 0)
+            val argProperties = Array.array(localCount, [])
 
+            (* Reference to local or non-local bindings.  This sets the "closure"
+               property on the binding depending on how the binding will be used. *)
             fun locaddr (LoadLocal addr, closure) =
                 let
                     val () =
                         if closure then Array.update (closuresForLocals, addr, true) else ()
                     val newAddr = Array.sub(newLocalAddresses, addr)
                 in
-                    P2Extract(P2LoadLocal newAddr)
+                    P2LoadLocal newAddr
                 end
 
-            |   locaddr(LoadArgument addr, _) = P2Extract(P2LoadArgument addr)
+            |   locaddr(LoadArgument addr, closure) =
+                (
+                    argClosure(addr, closure);
+                    P2LoadArgument addr
+                )
 
-            |   locaddr(ptr as LoadRecursive, closure) = previous (ptr, 0, closure)
-            |   locaddr(ptr as LoadClosure _, closure) = previous (ptr, 0, closure)
+            |   locaddr(LoadRecursive, closure) = recursive closure
+            |   locaddr(LoadClosure addr, closure) = #1 (nonLocals (addr, closure))
+
+            (* Argument properties.  This returns information of which arguments can have
+               functions passed in without requiring a full heap closure. *)
+            fun argumentProps(LoadLocal addr) = Array.sub(argProperties, addr)
+            |   argumentProps(LoadArgument _) = []
+            |   argumentProps LoadRecursive = []
+            |   argumentProps (LoadClosure addr) = #2 (nonLocals (addr, false))
 
             fun makeDecl addr =
-            (let
+            let
                 val newAddr = ! localAddresses before (localAddresses := !localAddresses+1)
                 val () = Array.update (closuresForLocals, addr, false)
                 val () = Array.update (newLocalAddresses, addr, newAddr)
+                val () = Array.update (argProperties, addr, [])
             in
                 newAddr
-            end handle Subscript => raise InternalError("makeDecl " ^ Int.toString addr ^ " of " ^ Int.toString localCount))
+            end
 
-            (* Map f onto a list tail first.  N.B. It doesn't reverse the list.
-               Generally used to map "insert" over a list where we need to
-               ensure that last references to variables are detected correctly. *)
-            fun mapright _ [] = []
-            |   mapright f (a::b) =
+            fun insert(Eval { function = Extract LoadRecursive, argList, resultType, ...}) =
                 let
-                    val rest = mapright f b
-                in
-                    f a :: rest
-                end
+                    (* Recursive.  If we pass an argument in the same position we
+                       don't necessarily need a closure.  It depends on what else
+                       happens to it. *)
+                    fun mapArgs(n, (Extract (ext as LoadArgument m), t) :: tail) =
+                            (P2Extract(locaddr(ext, n <> m)), t) :: mapArgs(n+1, tail)
+                    |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
+                    |   mapArgs(_, []) = []
 
-            fun insert(Eval { function, argList, resultType, ...}) =
-                let
-                    (* Process the arguments first. *)
-                    val newargs = mapright(fn (c, t) => (insert c, t)) argList
-                    val func  =
-                    case function of
-                        Extract ext => locaddr(ext, (* closure = *) false)
-                    |   first => insert first
+                    val newargs = mapArgs(0, argList)
+                    val func  = locaddr(LoadRecursive, (* closure = *) false)
                 in
                     (* If we are calling a function which has been declared this
                        does not require it to have a closure. Any other use of the
                        function would. *) 
+                    P2Eval {function = P2Extract func, argList = newargs, resultType=resultType}
+                end
+
+            |   insert(Eval { function = Extract ext, argList, resultType, ...}) =
+                let
+                    (* Non-recursive but a binding. *)
+                    val cfArgs = argumentProps ext
+                    fun isIn n = not(List.exists(fn m => m = n) cfArgs)
+                        
+                    fun mapArgs(n, (Extract ext, t) :: tail) =
+                            (P2Extract(locaddr(ext, isIn n)), t) :: mapArgs(n+1, tail)
+                    |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
+                    |   mapArgs(_, []) = []
+                    val newargs = mapArgs(0, argList)
+                    val func  = locaddr(ext, (* closure = *) false)
+                in
+                    (* If we are calling a function which has been declared this
+                       does not require it to have a closure. Any other use of the
+                       function would. *) 
+                    P2Eval {function = P2Extract func, argList = newargs, resultType=resultType}
+                end
+
+            |   insert(Eval { function = Constnt(w, p), argList, resultType, ...}) =
+                let
+                    (* Constant function. *)
+                    val cfArgs =
+                        case List.find (Universal.tagIs closureFreeArgsTag) p of
+                            NONE => []
+                        |   SOME u => Universal.tagProject closureFreeArgsTag u
+                    fun isIn n = not(List.exists(fn m => m = n) cfArgs)
+                        
+                    fun mapArgs(n, (Extract ext, t) :: tail) =
+                            (P2Extract(locaddr(ext, isIn n)), t) :: mapArgs(n+1, tail)
+                    |   mapArgs(n, (c, t) :: tail) = (insert c, t) :: mapArgs(n+1, tail)
+                    |   mapArgs(_, []) = []
+                    val newargs = mapArgs(0, argList)
+                in
+                    P2Eval {function = P2Constnt (w, p), argList = newargs, resultType=resultType}
+                end
+
+            |   insert(Eval { function, argList, resultType, ...}) =
+                let
+                    (* Process the arguments first. *)
+                    val newargs = map(fn (c, t) => (insert c, t)) argList
+                    val func  = insert function
+                in
                     P2Eval {function = func, argList = newargs, resultType=resultType}
                 end
 
@@ -806,7 +865,7 @@ struct
                     (* Load the value bound to an identifier. The closure flag is
                        set to true since the only cases where a closure is not needed,
                        eval and load-andStore, are handled separately. *)
-                    locaddr(ext, (* closure = *) true)
+                    P2Extract(locaddr(ext, (* closure = *) true))
 
             |   insert(Indirect {base, offset, ...}) = P2Field {base = insert base, offset = offset}
 
@@ -849,31 +908,30 @@ struct
                        list on the way back. *)
                     fun copyDeclarations ([])   = []
 
+                    |   copyDeclarations (Declar({addr=caddr, value = Lambda lam, ...}) :: vs)  =
+                        let
+                            (* Binding a Lambda - process the function first. *)
+                            val newAddr = makeDecl caddr
+                            val (copiedLambda, newClosure, makeRecClosure, cfArgs) = copyLambda lam
+                            val () = Array.update(argProperties, caddr, cfArgs)
+                            (* Process all the references to the function. *)
+                            val rest = copyDeclarations vs
+                            (* We now know if we need a closure. *)
+                            val dec =
+                                copyProcClosure(copiedLambda, newClosure,
+                                        makeRecClosure orelse Array.sub(closuresForLocals, caddr))
+                        in
+                            P2Declar(newAddr, dec) :: rest
+                        end
+
                     |   copyDeclarations (Declar({addr=caddr, value = pt, ...}) :: vs)  =
                         let
+                            (* Non-function binding. *)
                             val newAddr = makeDecl caddr
-                            (* This must be done first, even for non-lambdas -  why? *)
-                            (* The first declarative might be a set of mutual declarations,
-                               and we have to copy all their uses before we can successfully
-                               compile them because we need to know whether they will
-                               require closures. *)
                             val rest = copyDeclarations vs
                         in
-                            let
-                                val dec =
-                                    case pt of
-                                        Lambda lam =>
-                                        let 
-                                            val (copiedLambda, newClosure, makeRecClosure) = copyLambda lam
-                                        in
-                                            copyProcClosure(copiedLambda, newClosure,
-                                                    makeRecClosure orelse Array.sub(closuresForLocals, caddr))
-                                        end
-                                    |   _ => insert pt
-                            in
-                                P2Declar(newAddr, dec) :: rest
-                            end
-                        end (* copyDeclarations.isDeclar *)
+                            P2Declar(newAddr, insert pt) :: rest
+                        end
 
                     |   copyDeclarations (RecDecs mutualDecs :: vs)  =
                         let
@@ -906,9 +964,11 @@ struct
                                we don't copy the non-local lists of functions. *)
                             fun copyDec ({addr=caddr, lambda, ...}) = 
                                 let
-                                    val (dec, newClosure, makeRecClosure) = copyLambda lambda
+                                    val (dec, newClosure, makeRecClosure, cfArgs) = copyLambda lambda
                                     val () =
                                         if makeRecClosure then Array.update (closuresForLocals, caddr, true) else ()
+                                    val () = Array.update(argProperties, caddr, cfArgs)
+
                                 in
                                     (caddr, dec, newClosure)
                                 end             
@@ -1002,16 +1062,15 @@ struct
                     decSequenceWithFinalExp insElist
                 end (* isNewEnv *)
                 
-            |   insert(Tuple { fields, ...}) = (* perhaps it's a constant now? *)
-                    P2Tuple (mapright insert fields)
+            |   insert(Tuple { fields, ...}) = P2Tuple (map insert fields)
 
             |   insert Ldexc = P2Ldexc (* just a constant so return it *)
       
             |   insert(Lambda lam)=
                 let
-                    val (copiedLambda, newClosure, _) = copyLambda lam
+                    val (copiedLambda, newClosure, _, _) = copyLambda lam
                     (* Must make a closure for this function because
-                        it is not a simple declaration. *)
+                        it is not a simple binding. *)
                 in
                     copyProcClosure (copiedLambda, newClosure, true)
                 end
@@ -1209,7 +1268,7 @@ struct
                 val makeClosureForRecursion = ref false
        
                 (* A new table for the new function. *)
-                fun prev (LoadClosure closureAddr, _, closure: bool) =
+                fun prev (closureAddr, closure) =
                 let 
                     val loadEntry = List.nth(lambdaClosure, closureAddr)
 
@@ -1220,56 +1279,62 @@ struct
                             val newAddr = !newNorefs + 1;
                         in
                             newNorefs := newAddr; (* increment count *)
-                            P2Extract(P2LoadClosure(newAddr-1))
+                            newAddr-1
                         end
         
                     |   makeClosureEntry(oldEntry :: t, newAddr) =
                         if oldEntry = loadEntry
-                        then P2Extract(P2LoadClosure(newAddr-1))
+                        then newAddr-1
                         else makeClosureEntry(t, newAddr - 1)
 
-                in
-                    case loadEntry of
-                        LoadLocal addr =>
+                    (* Set the closure flag if necessary and get the argument props.
+                       At this point we discard the "Load" entry returned by nonLocals
+                       and "recursive".  The closure will be processed later. *)
+                    val argProps =
+                        case loadEntry of
+                            LoadLocal addr =>
                             let
                                 val () =
                                     if closure 
                                     then Array.update (closuresForLocals, addr, true)
                                     else ()
                             in
-                                makeClosureEntry (!newGrefs, !newNorefs)
+                                Array.sub(argProperties, addr)
                             end
 
-                    |   LoadArgument _ => makeClosureEntry (!newGrefs, !newNorefs)
-                    
-                    |   entry => (* LoadClosure, LoadRecursive *)
-                        let (* lev > 1 orelse (lev = 1 andalso addr = 0) *)
-                            (* Discard the result, unless it's a constant.
-                               We fix up the old (fp-relative) address in the
-                               closure list on the second pass. Why not now?
-                               That would make it harder to set the makeClosure
-                               flag for the closure lists of mutually-recursive
-                               definitions. But doesn't doing it this way risks
-                               making the refsToClosure count too high? SPF 19/5/95 *)
-                            val outerLoad = previous (entry, 1, closure)
-                        in
-                            case outerLoad of
-                                P2Constnt _ => outerLoad
-                                |   _ => makeClosureEntry (!newGrefs, !newNorefs)
-                        end
+                        |   LoadArgument addr => (argClosure(addr, closure); [])
+
+                        |   LoadRecursive => (recursive closure; [])
+                            
+                        |   LoadClosure entry => #2 (nonLocals (entry, closure))
+                in
+                    (* Just return the closure entry. *)
+                    (P2LoadClosure(makeClosureEntry (!newGrefs, !newNorefs)), argProps)
                 end
 
-                |   prev (LoadRecursive, _, closure) =
+                fun recCall closure =
                     (* Reference to the closure itself. *)
-                    ( if closure then makeClosureForRecursion := true else (); P2Extract P2LoadRecursive )
+                    ( if closure then makeClosureForRecursion := true else (); P2LoadRecursive )
 
-                |   prev _ = raise InternalError "prev: TODO"
-      
+                local
+                    datatype tri = TriUnref | TriCall | TriClosure
+                    val argClosureArray = Array.array(List.length argTypes, TriUnref)
+                in
+                    fun argClosure(n, t) =
+                        Array.update(argClosureArray, n,
+                            (* If this is true it requires a closure.  If it is false it
+                               requires a closure if any other reference does. *)
+                            if t orelse Array.sub(argClosureArray, n) = TriClosure then TriClosure else TriCall)
+                    fun closureFreeArgs() =
+                        Array.foldri(fn (n, TriCall, l) => n :: l | (_, _, l) => l) [] argClosureArray
+                end
+
                 (* process the body *)
                 val newLocalAddresses = ref 0
-                val insertedCode =
-                    copyCode (lambdaBody, prev, localCount, newLocalAddresses)
+                val (insertedCode, _) =
+                    copyCode (lambdaBody, prev, recCall, localCount, newLocalAddresses, argClosure)
                 val globalRefs = !newGrefs
+                val cfArgs = closureFreeArgs()
             in
                 (P2Lambda 
                     {
@@ -1281,7 +1346,7 @@ struct
                         localCount    = ! newLocalAddresses,
                         makeClosure   = false
                     },
-                 globalRefs, ! makeClosureForRecursion)
+                 globalRefs, ! makeClosureForRecursion, cfArgs)
             end (* copyLambda *)
 
                 (* Copy the closure of a function which has previously been
@@ -1292,10 +1357,7 @@ struct
                     (* process the non-locals in this function *)
                     (* If a closure is needed then any functions referred to
                        from the closure also need closures.*)
-                    fun makeLoads ext =
-                        case locaddr(ext, makeClosure) of
-                            P2Extract ext => ext
-                        |   _ => raise InternalError "makeLoads"
+                    fun makeLoads ext = locaddr(ext, makeClosure)
                
                     val copyRefs = rev (map makeLoads newClosure)
                 in
@@ -1312,26 +1374,68 @@ struct
                 end
             |  copyProcClosure(pt, _, _) = pt (* may now be a constant *)
             (* end copyProcClosure *)
-        in     
-            insert pt
+        in
+            case pt of
+                Lambda lam => 
+                    let
+                        val (copiedLambda, newClosure, _, cfArgs) = copyLambda lam
+                        val code = copyProcClosure (copiedLambda, newClosure, true)
+                        val props =
+                            if null cfArgs then [] else [Universal.tagInject closureFreeArgsTag cfArgs]
+                    in
+                        (code, props)
+                    end
+
+            |   c as Newenv(_, exp) =>
+                    let
+                        val code = insert c
+
+                        fun getProps(Extract(LoadLocal addr)) =
+                            let
+                                val cfArgs = Array.sub(argProperties, addr)
+                            in
+                                if null cfArgs then [] else [Universal.tagInject closureFreeArgsTag cfArgs]
+                            end
+
+                        |   getProps(Tuple { fields, ...}) =
+                            let
+                                val fieldProps = map getProps fields
+                            in
+                                if List.all null fieldProps
+                                then []
+                                else [Universal.tagInject CodeTags.tupleTag fieldProps]
+                            end
+
+                        |   getProps _ = []
+
+                        val props = getProps exp
+                     in
+                        (code, props)
+                    end
+
+            |   c as Constnt(_, p) => (insert c, p)
+
+            |   pt => (insert pt, [])
         end (* copyCode *)
 
         val outputAddresses = ref 0
-        val insertedCode = 
-            copyCode (pt, fn _ => raise InternalError "outer level reached in copyCode",
-                      localAddressCount, outputAddresses)
+        fun topLevel _ = raise InternalError "outer level reached in copyCode"
+        val (insertedCode, argProperties) = 
+            copyCode (pt, topLevel, topLevel, localAddressCount, outputAddresses, fn _ => ())
     in
-        (insertedCode, !outputAddresses)
+        (insertedCode, !outputAddresses, argProperties)
     end (* staticLinkAndCases *)
 
     fun codeGenerate(code, localCount, debugSwitches) =
     let
-        val (code, localCount) = staticLinkAndCases(code, localCount)
+        val (code, localCount, argProperties) = staticLinkAndCases(code, localCount)
         val backendCode = lifeTimes(code, localCount)
+        val () =
+            if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
+            then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ();
+        val (code, props) = GCODE.gencode(backendCode, debugSwitches, localCount)
     in
-        if DEBUG.getParameter DEBUG.codetreeAfterOptTag debugSwitches
-        then PRETTY.getCompilerOutput debugSwitches (BACKENDTREE.pretty backendCode) else ();
-        GCODE.gencode(backendCode, debugSwitches, localCount)
+        (code, argProperties @ props)
     end
 
     structure Sharing = struct type codetree = codetree end

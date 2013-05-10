@@ -123,6 +123,34 @@ struct
         argLifetimes  : int list
     }
 
+    structure CodeTags =
+    struct
+        open Universal
+        val tupleTag: universal list list tag = tag()
+
+        fun splitProps _ [] = (NONE, [])
+        |   splitProps tag (hd::tl) =
+                if Universal.tagIs tag hd
+                then (SOME hd, tl)
+                else let val (p, l) = splitProps tag tl in (p, hd :: l) end
+
+        fun mergeTupleProps(p, []) = p
+        |   mergeTupleProps([], p) = p
+        |   mergeTupleProps(m, n) =
+            (
+                case (splitProps tupleTag m, splitProps tupleTag n) of
+                    ((SOME mp, ml), (SOME np, nl)) =>
+                    let
+                        val mpl = Universal.tagProject tupleTag mp
+                        and npl = Universal.tagProject tupleTag np
+                        val merge = ListPair.mapEq mergeTupleProps (mpl, npl)
+                    in
+                        Universal.tagInject tupleTag merge :: (ml @ nl)
+                    end
+                |   _ => m @ n
+            )
+    end
+
     open Pretty
 
     fun pList ([]: 'b list, _: string, _: 'b->pretty) = []
@@ -448,12 +476,6 @@ struct
                 pretty value
             ]
         )
-
-    structure CodeTags =
-    struct
-        open Universal
-        val tupleTag: universal list list tag = tag()
-    end
 
     structure Sharing =
     struct

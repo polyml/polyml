@@ -235,9 +235,10 @@ struct
                             (* Get the properties for a field in the tuple.  Because the result is
                                a tuple all the properties should be contained in a tupleTag entry. *)
                             val fieldProps =
-                                case List.find(Universal.tagIs CodeTags.tupleTag) codeProps of
+                                case Option.map (Universal.tagProject CodeTags.tupleTag)
+                                        (List.find(Universal.tagIs CodeTags.tupleTag) codeProps) of
                                     NONE => (fn _ => [])
-                                |   SOME p => (fn n => List.nth(Universal.tagProject CodeTags.tupleTag p, n))
+                                |   SOME p => (fn n => List.nth(p, n))
                             val generalProps = fieldProps 0
                         end
 
@@ -250,7 +251,7 @@ struct
                             val genPair =
                                 case oldGeneral of
                                     EnvGenLoad(LoadLocal addr) =>
-                                        (resultWordN(Word.fromInt addr+0w1), fieldProps addr)
+                                        (resultWordN(Word.fromInt addr+0w1), fieldProps(addr+1))
                                 |   EnvGenConst c => c
                                 |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
                

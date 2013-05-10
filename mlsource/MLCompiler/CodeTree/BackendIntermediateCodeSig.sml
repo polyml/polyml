@@ -129,6 +129,8 @@ sig
     structure CodeTags:
     sig
         val tupleTag: Universal.universal list list Universal.tag
+        val mergeTupleProps:
+            Universal.universal list * Universal.universal list -> Universal.universal list
     end
 
     structure Sharing:

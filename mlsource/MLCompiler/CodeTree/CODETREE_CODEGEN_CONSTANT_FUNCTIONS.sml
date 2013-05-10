@@ -235,7 +235,7 @@ struct
 
     |   cgFuns _ _ = NONE
     
-    fun codeGenerate(code, nLocals, debugArgs) =
+    fun codeGenerate(original, nLocals, debugArgs) =
     let
         val cArray = Array.array(nLocals, NONE)
         fun lookupAddr(load as LoadLocal n) =
@@ -253,9 +253,36 @@ struct
             debugArgs = debugArgs
         }
         
-        val resultCode = mapCodetree (cgFuns context) code
+        val resultCode = mapCodetree (cgFuns context) original
+        val (code, props) = BACKEND.codeGenerate(resultCode, nLocals, debugArgs)
+
+        (* The code may consist of tuples (i.e. compiled ML structures) containing
+           a mixture of Loads, where the values are yet to be compiled, and
+           Constants, where the code has now been compiled.  We need to extract
+           any properties from the constants and return the whole lot as
+           tuple properties. *)
+        fun extractProps(Constnt(_, p)) = p
+        |   extractProps(Extract ext) =
+            (
+                case lookupAddr ext of
+                    EnvGenLoad _ => []
+                |   EnvGenConst(_, p) => p
+            )
+        |   extractProps(Tuple{fields, ...}) =
+            let
+                val fieldProps = map extractProps fields
+            in
+                if List.all null fieldProps
+                then []
+                else [Universal.tagInject CodeTags.tupleTag fieldProps]
+            end
+        |   extractProps(Newenv(_, exp)) = extractProps exp
+        |   extractProps _ = []
+
+        val newProps = extractProps original
+
     in
-        BACKEND.codeGenerate(resultCode, nLocals, debugArgs)
+        (code, CodeTags.mergeTupleProps(newProps, props))
     end
 
     structure Sharing = struct type codetree = codetree end
