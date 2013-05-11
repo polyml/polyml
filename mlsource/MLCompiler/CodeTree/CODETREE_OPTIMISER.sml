@@ -509,15 +509,13 @@ struct
                 }
 
             (* Return the pair of functions. *)
-            val mainFunction =
-                Declar { addr = mainAddress, use = [], value=Lambda transLambda }
+            val mainFunction = (mainAddress, transLambda)
             val shimBody =
                 Eval { function = Extract(LoadClosure 0), argList = transArgs, resultType = resultType }
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
                   resultType = resultType, isInline = Inline, localCount = 0 }
-            val shimFunction =
-                Declar { addr = shimAddress, use = [], value=Lambda shimLambda }
+            val shimFunction = (shimAddress, shimLambda)
             (* TODO:  We have two copies of the shim function here. *)
         in
             (shimLambda: lambdaForm, [mainFunction, shimFunction])
@@ -530,19 +528,13 @@ struct
             (lambda, [])
         end
 
-    fun optimise (context, use) (Lambda (lambda as { isInline, ...} )) =
-            (* If this is currently inlined and is exported we don't really know
-               how it will be used.  If it is purely local we just treat it as
-               any other function. *)
-            if isInline = Inline andalso List.exists (fn UseExport => true | _ => false) use
-            then NONE
-            else
-            let
-                val (newLambda, bindings) = optLambda(context, use, lambda)
-            in
-                SOME(mkEnv(bindings, Lambda newLambda))
-            end
-  
+    fun optimise (context, use) (Lambda lambda) =
+        let
+            val (bindings, newLambda) = optLambda(context, use, lambda, false)
+        in
+            SOME(mkEnv(map(fn(addr, lam) => Declar{addr=addr, use=[], value=Lambda lam}) bindings, newLambda))
+        end
+
     |   optimise (context, use) (Newenv(envDecs, envExp)) =
         let
             fun mapExp mapUse = mapCodetree (optimise(context, mapUse))
@@ -551,12 +543,11 @@ struct
             |   mapbinding(RecDecs l) =
                 let
                     fun mapRecDec({addr, lambda, use}, rest) =
-                        case mapExp use (Lambda lambda) of
-                            Lambda res => {addr=addr, use = use, lambda = res } :: rest
-                        |   Newenv(bindings, Lambda res) =>
-                                {addr=addr, use = use, lambda = res } ::
-                                    map (fn Declar{value=Lambda res, addr, use} => {addr=addr, use=use, lambda=res }
-                                         | _ => raise InternalError "mapbinding: not lambda") bindings @ rest
+                        case optLambda(context, use, lambda, true) of
+                            (bindings, Lambda lambdaRes) =>
+                                (* Turn any bindings into extra mutually-recursive functions. *)
+                                {addr=addr, use = use, lambda = lambdaRes } ::
+                                    map (fn (addr, res) => {addr=addr, use=use, lambda=res }) bindings @ rest
                         |   _ => raise InternalError "mapbinding: not lambda"
                 in
                     RecDecs(foldl mapRecDec [] l)
@@ -571,79 +562,150 @@ struct
     and optLambda(
             { debugArgs, reprocess, makeAddr, ... },
             use,
-            { body, name, argTypes, resultType, closure, localCount, isInline, ...}) =
+            { body, name, argTypes, resultType, closure, localCount, isInline, ...},
+            isRecursiveBinding) : (int * lambdaForm) list * codetree =
+    (*
+        Optimisations on lambdas.
+        1.  A lambda that simply calls another function with all its own arguments
+            can be replaced by a reference to the function provided the "function"
+            is a side-effect-free expression.
+        2.  Don't attempt to optimise inline functions that are exported.
+        3.  Transform lambdas that take tuples as arguments or are curried or where
+            an argument is a function with tupled or curried arguments into a pair
+            of an inline function with the original argument set and a new "main"
+            function with register/stack arguments.
+    *)
     let
-        val functionPattern = usageToPattern use
-        val argPatterns = map (usageToPattern o #2) argTypes
-
-        (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
-           the patterns. *)
-        val fullArgPattern =
-            case functionPattern of
-                ArgPattCurry(hd :: rest) =>
+        (* Check if it's a call to another function with all the original arguments.
+           This is really wanted when we are passing this lambda as an argument to
+           another function and really only when we have produced a shim function
+           that has been inline expanded.  Otherwise this will be a "small" function
+           and will be inline expanded when it's used. *)
+        val replaceBody =
+            case (body, isRecursiveBinding) of
+                (Eval { function, argList, resultType=callresult }, false) =>
                 let
-                    (* Merge the applications of the function with the use of the arguments. *)
-                    fun merge(a as ArgPattTuple _, _) = a
-                    |   merge(_, argUse) = argUse
+                    fun argSequence((Extract(LoadArgument a), _) :: rest, b) = a = b andalso argSequence(rest, b+1)
+                    |   argSequence([], _) = true
+                    |   argSequence _ = false
+        
+                    val argumentsMatch =
+                        argSequence(argList, 0) andalso 
+                            ListPair.allEq(fn((_, a), (b, _)) => a = b) (argList, argTypes) andalso
+                            callresult = resultType
                 in
-                    (ListPair.mapEq merge (hd, argPatterns)) :: rest
+                    if not argumentsMatch
+                    then NONE
+                    else
+                    case function of
+                        (* This could be any function which has neither side-effects nor
+                           depends on a reference nor depends on another argument but if
+                           it has local variables they would have to be renumbered into
+                           the surrounding scope.  In practice we're really only interested
+                           in simple cases that arise as a result of using a "shim" function
+                           created in the code below. *)
+                        c as Constnt _ => SOME c
+                    |   Extract(LoadClosure addr) => SOME(Extract(List.nth(closure, addr)))
+                    |   _ => NONE
                 end
-            |   _ => [argPatterns]
-
-        val requiresWork =
-            case fullArgPattern of
-                first :: _ => (*List.exists(fn ArgPattSimple => false | _ => true)*)
-                        List.exists(fn ArgPattTuple _ => true | ArgPattCurry([ArgPattTuple _] :: _) => true | _ => false) first
-            |   _ => false
-
-(*        val _ =
-            if requiresWork andalso isInline = NonInline
-            then print("****" ^ name ^ " => " ^ PolyML.makestring fullArgPattern ^ "\n")
-            else () *)
-
-        (* Allocate any new addresses after the existing ones. *)
-        val addressAllocator = ref localCount
-        val optContext =
-        {
-            makeAddr = fn () => (! addressAllocator) before addressAllocator := ! addressAllocator + 1,
-            reprocess = reprocess,
-            debugArgs = debugArgs
-        }
-        val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
-
-        (* See if this should be expanded inline. *)
-        val (inlineType, updatedBody, localCount) =
-            case evaluateInlining(optBody, List.length argTypes,
-                    DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs) of
-                NonRecursive  => (Inline, optBody, ! addressAllocator)
-            |   TailRecursive bv =>
-                    (Inline,
-                        replaceTailRecursiveWithLoop(optBody, argTypes, bv, addressAllocator), ! addressAllocator)
-            |   NonTailRecursive bv =>
-                    if Vector.exists (fn n => n) bv
-                    then (Inline, 
-                            liftRecursiveFunction(
-                                optBody, argTypes, bv, List.length closure, name, resultType, !addressAllocator), 0)
-                    else (NonInline, optBody, ! addressAllocator) (* All arguments have been modified *)
-            |   TooBig => (NonInline, optBody, ! addressAllocator)
-
-        val lambda =
-        {
-            body = updatedBody, name = name, argTypes = argTypes, closure = closure,
-            resultType = resultType, isInline = inlineType, localCount = localCount
-        }
-
-        (* See if it should be transformed. *)
-        val (newLambda, bindings) =
-            if requiresWork andalso isInline = NonInline
-            then transformFromUsage(lambda, fullArgPattern, makeAddr)
-            else (lambda, [])
+            |   _ => NONE
     in
-        (* If this is to be inlined but was not before we may need to reprocess. *)
-        if #isInline newLambda = Inline andalso isInline = NonInline
-        then reprocess := true
-        else ();
-        (newLambda, bindings)
+        case replaceBody of
+            SOME c => ([], c)
+        |   NONE =>
+            if isInline = Inline andalso List.exists (fn UseExport => true | _ => false) use
+            then
+            let
+                val addressAllocator = ref localCount
+                val optContext =
+                {
+                    makeAddr = fn () => (! addressAllocator) before addressAllocator := ! addressAllocator + 1,
+                    reprocess = reprocess,
+                    debugArgs = debugArgs
+                }
+                val lambdaRes =
+                    {
+                        body = mapCodetree (optimise(optContext, [UseGeneral])) body,
+                        isInline = isInline, name = name, closure = closure,
+                        argTypes = argTypes, resultType = resultType, localCount = localCount
+                    }
+            in
+                ([], Lambda lambdaRes) 
+            end
+            else
+            let
+                val functionPattern = usageToPattern use
+                val argPatterns = map (usageToPattern o #2) argTypes
+
+                (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
+                   the patterns. *)
+                val fullArgPattern =
+                    case functionPattern of
+                        ArgPattCurry(hd :: rest) =>
+                        let
+                            (* Merge the applications of the function with the use of the arguments. *)
+                            fun merge(a as ArgPattTuple _, _) = a
+                            |   merge(_, argUse) = argUse
+                        in
+                            (ListPair.mapEq merge (hd, argPatterns)) :: rest
+                        end
+                    |   _ => [argPatterns]
+
+                val requiresWork =
+                    case fullArgPattern of
+                        first :: _ => (*List.exists(fn ArgPattSimple => false | _ => true)*)
+                                List.exists(fn ArgPattTuple _ => true | ArgPattCurry([ArgPattTuple _] :: _) => true | _ => false) first
+                    |   _ => false
+
+        (*        val _ =
+                    if requiresWork andalso isInline = NonInline
+                    then print("****" ^ name ^ " => " ^ PolyML.makestring fullArgPattern ^ "\n")
+                    else () *)
+
+                (* Allocate any new addresses after the existing ones. *)
+                val addressAllocator = ref localCount
+                val optContext =
+                {
+                    makeAddr = fn () => (! addressAllocator) before addressAllocator := ! addressAllocator + 1,
+                    reprocess = reprocess,
+                    debugArgs = debugArgs
+                }
+                val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
+
+                (* See if this should be expanded inline. *)
+                val (inlineType, updatedBody, localCount) =
+                    case evaluateInlining(optBody, List.length argTypes,
+                            DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs) of
+                        NonRecursive  => (Inline, optBody, ! addressAllocator)
+                    |   TailRecursive bv =>
+                            (Inline,
+                                replaceTailRecursiveWithLoop(optBody, argTypes, bv, addressAllocator), ! addressAllocator)
+                    |   NonTailRecursive bv =>
+                            if Vector.exists (fn n => n) bv
+                            then (Inline, 
+                                    liftRecursiveFunction(
+                                        optBody, argTypes, bv, List.length closure, name, resultType, !addressAllocator), 0)
+                            else (NonInline, optBody, ! addressAllocator) (* All arguments have been modified *)
+                    |   TooBig => (NonInline, optBody, ! addressAllocator)
+
+                val lambda =
+                {
+                    body = updatedBody, name = name, argTypes = argTypes, closure = closure,
+                    resultType = resultType, isInline = inlineType, localCount = localCount
+                }
+
+                (* See if it should be transformed. *)
+                val (newLambda, bindings) =
+                    if requiresWork andalso isInline = NonInline
+                    then transformFromUsage(lambda, fullArgPattern, makeAddr)
+                    else (lambda, [])
+            in
+                (* If this is to be inlined but was not before we may need to reprocess. *)
+                if #isInline newLambda = Inline andalso isInline = NonInline
+                then reprocess := true
+                else ();
+                (bindings, Lambda newLambda)
+            end
     end
     (* TODO: convert "(if a then b else c) (args)" into if a then b(args) else c(args).  This would
        allow for possible inlining and also passing information about call patterns. *)
