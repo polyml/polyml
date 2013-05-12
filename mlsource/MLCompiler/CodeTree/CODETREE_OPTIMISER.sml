@@ -320,7 +320,7 @@ struct
     (* If the function arguments are used in a way that could be optimised the
        data structure represents it. *)
     datatype functionArgPattern =
-        ArgPattTuple of int
+        ArgPattTuple of { size: int, allConst: bool }
         (* ArgPattCurry is a list, one per level of application, of a
            list, one per argument of the pattern for that argument. *)
     |   ArgPattCurry of functionArgPattern list list
@@ -328,6 +328,31 @@ struct
 
     (* Returns ArgPattCurry even if it is just a single application. *)
     local
+        local
+            open Address
+        in
+            (* Return the width of a tuple.  Returns 1 for non-tuples including
+               datatypes where different variants could have different widths.
+               Also returns a flag indicating if the value came from a constant.
+               Constants are already tupled so there's no advantage in untupling
+               them unless there are other non-constant arguments as well. *)
+            fun findTuple(Tuple{fields, isVariant=false}) = (List.length fields, false)
+            |   findTuple(TupleFromContainer(_, c)) = (c, false)
+            |   findTuple(Constnt(w, _)) =
+                    if isShort w orelse flags (toAddress w) <> F_words then (1, false)
+                    else (Word.toInt(length (toAddress w)), true)
+            |   findTuple(Extract _) = (1, false) (* TODO: record this for variables *)
+            |   findTuple(Cond(_, t, e)) =
+                    let
+                        val (tl, tc) = findTuple t
+                        and (el, ec) = findTuple e
+                    in
+                        if tl = el then (tl, tc andalso ec) else (1, false)
+                    end
+            |   findTuple(Newenv(_, e)) = findTuple e
+            |   findTuple _ = (1, false)
+        end
+
         fun useToPattern [] = ArgPattSimple
         |   useToPattern (hd::tl) =
             let
@@ -341,9 +366,15 @@ struct
                                     case useToPattern resl of
                                         ArgPattCurry l => l
                                     |   _ => [] (* Not a function *)
-                                val thisArg =
-                                    map (fn n => if n <= 1 then ArgPattSimple else ArgPattTuple n)
-                                        tuples
+                                fun mapArg c =
+                                let
+                                    val (n, f) = findTuple c
+                                in
+                                    if n <= 1
+                                    then ArgPattSimple else ArgPattTuple{size=n, allConst=f}
+                                end
+                                
+                                val thisArg = map mapArg tuples
                             in
                                 ArgPattCurry(thisArg :: resultPatts)
                             end
@@ -366,11 +397,11 @@ struct
                         if null prefix then ArgPattSimple else ArgPattCurry prefix
                     end
                     
-                |   mergePattern(p as ArgPattTuple n1, ArgPattTuple n2) =
+                |   mergePattern(ArgPattTuple{size=n1, allConst=c1}, ArgPattTuple{size=n2, allConst=c2}) =
                         (* If the tuples are different sizes we can't use a tuple.
                            Unlike currying it would be safe to assume tupling where
                            there isn't (unless the function is actually polymorphic). *)
-                        if n1 = n2 then p else ArgPattSimple
+                        if n1 = n2 then ArgPattTuple{size=n1, allConst=c1 andalso c2} else ArgPattSimple
                 |   mergePattern _ = ArgPattSimple
             in
                 case tl of
@@ -407,7 +438,7 @@ struct
                into tuples.  Then when the code is run through the simplifier
                the tuples will be optimised away.  *)
             val localCounter = ref localCount
-            fun mapPattern(ArgPattTuple width :: patts, n, m) =
+            fun mapPattern(ArgPattTuple{size=width, allConst=false} :: patts, n, m) =
                 let
                     val (decs, args, mapList) = mapPattern(patts, n+1, m+width)
                     val newAddr = ! localCounter before localCounter := ! localCounter + 1
@@ -419,7 +450,7 @@ struct
                     (thisDec :: decs, thisArg @ args, LoadLocal newAddr :: mapList)
                 end
 
-            |   mapPattern(ArgPattCurry([ArgPattTuple width] :: _) :: patts, n, m) =
+            |   mapPattern(ArgPattCurry([ArgPattTuple{size=width, allConst=false}] :: _) :: patts, n, m) =
                 let
                     (* We have a function that has a single argument which is currently a tuple.
                        Change that so that the function takes a list of arguments.
@@ -491,7 +522,7 @@ struct
             local
                 (* The argument types for the main function have the tuples expanded,  Functions
                    are not affected. *)
-                fun expand(ArgPattTuple n, _, r) = List.tabulate(n, fn _ => (GeneralType, [])) @ r
+                fun expand(ArgPattTuple{size, allConst=false}, _, r) = List.tabulate(size, fn _ => (GeneralType, [])) @ r
                 |   expand(_, a, r) = a :: r
             in
                 val transArgTypes = ListPair.foldrEq expand [] (usage, argTypes)
@@ -654,13 +685,15 @@ struct
                 val requiresWork =
                     case fullArgPattern of
                         first :: _ => (*List.exists(fn ArgPattSimple => false | _ => true)*)
-                                List.exists(fn ArgPattTuple _ => true | ArgPattCurry([ArgPattTuple _] :: _) => true | _ => false) first
+                                List.exists(fn ArgPattTuple{allConst=false, ...} => true
+                                            |  ArgPattCurry([ArgPattTuple{allConst=false, ...}] :: _) => true
+                                            |  _ => false) first
                     |   _ => false
 
-        (*        val _ =
+(*                val _ =
                     if requiresWork andalso isInline = NonInline
                     then print("****" ^ name ^ " => " ^ PolyML.makestring fullArgPattern ^ "\n")
-                    else () *)
+                    else ()*)
 
                 (* Allocate any new addresses after the existing ones. *)
                 val addressAllocator = ref localCount

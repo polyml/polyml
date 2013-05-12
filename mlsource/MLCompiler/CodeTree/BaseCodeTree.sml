@@ -36,13 +36,13 @@ struct
     datatype codeUse =
         UseGeneral (* Used in some other context. *)
     |   UseExport  (* Exported i.e. the result of a top-level binding. *)
-    |   UseApply of codeUse list * int list
-            (* Applied as a function - the list is where the result goes, the int list
-               is the width of the tuples for each argument. *)
+    |   UseApply of codeUse list * codetree list
+            (* Applied as a function - the list is where the result goes, the codetree list
+               is the code that was used for each argument. *)
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
     |   UseRecursive of codeUse list ref (* Passed or returned recursively. *)
     
-    datatype codetree =
+    and codetree =
         Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
 
     |   Constnt of machineWord * Universal.universal list (* Load a constant *)
@@ -439,7 +439,7 @@ struct
     |   prettyUsage (UseApply (cl, al)) =
            PrettyBlock (1, true, [],
                 string "(" ::
-                pList(al, "|", fn i => string(Int.toString i)) @
+                pList(al, "|", fn _ => string "-") @
                 string ")" ::
                 space ::
                 string "->" ::
