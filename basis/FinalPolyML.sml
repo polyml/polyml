@@ -186,6 +186,9 @@ local
         (* Controls whether to add profiling information to each allocation.  Currently
            zero means no profiling and one means add the allocating function. *)
 
+    |   CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -> unit
+        (* The debugger function inserted at the start and end of *)
+
     (* References for control and debugging. *)
     val profiling = ref 0
     and timing = ref false
@@ -572,6 +575,9 @@ local
                 find (fn CPRootTree f => SOME f | _ => NONE)
                     { parent = NONE, next = NONE, previous = NONE } parameters
 
+            val debuggerFunction =
+                find (fn CPDebuggerFunction f => SOME f | _ => NONE) debugFunction parameters
+
             (* Pass all the settings.  Some of these aren't included in the parameters datatype (yet?). *)
             val treeAndCode =
                 PolyML.compiler(nameSpace, getChar,
@@ -597,7 +603,7 @@ local
                     tagInject lineLengthTag (! lineLength),
                     tagInject traceCompilerTag (! traceCompiler),
                     tagInject debugTag debugging,
-                    tagInject debuggerTag debugFunction,
+                    tagInject debuggerTag debuggerFunction,
                     tagInject printOutputTag prettyOut,
                     tagInject rootTreeTag parentTree,
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
