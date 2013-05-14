@@ -998,7 +998,7 @@ struct
                 MergeIndex reserveEntry
             end
 
-        | BICSetContainer{container, tuple, size} =>
+        |   BICSetContainer{container, tuple, size} =>
             (* Copy the contents of a tuple into a container. *)
             let
                 val vec = genToStack (container);
@@ -1007,6 +1007,7 @@ struct
                     BICTuple cl =>
                         (* Simply set the container from the values. *)
                     let
+                        val _ = List.length cl = size orelse raise InternalError "BICSetContainer: size"
                         fun setValue(v, wordOffset) =
                         let
                             val entry = genToStack (v)
@@ -1053,7 +1054,7 @@ struct
                 else MergeIndex(pushConst (transtable, DummyValue))
             end
 
-        | BICTupleFromContainer(container, size) =>
+        |   BICTupleFromContainer(container, size) =>
             (* Create a tuple from the contents of a container. *)
             let
                 val vec = genToStack (container);

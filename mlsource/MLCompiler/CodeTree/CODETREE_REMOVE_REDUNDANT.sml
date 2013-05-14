@@ -233,6 +233,13 @@ struct
 
             |   doClean codeUse (Cond(i, t, e)) =
                     SOME(Cond(cleanCode(i, [UseGeneral]), cleanCode(t, codeUse), cleanCode(e, codeUse)))
+
+            |   doClean use (BeginLoop{loop, arguments}) =
+                    SOME(BeginLoop {
+                        loop = cleanCode(loop, use),
+                        arguments = map(fn({value, addr, use}, t) => 
+                            ({value=cleanCode(value, use), addr=addr, use=use}, t)) arguments
+                    })
         
             |   doClean _ _ = NONE (* Anything else *)
         in

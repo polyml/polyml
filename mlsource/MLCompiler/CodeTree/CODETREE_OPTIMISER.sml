@@ -559,6 +559,7 @@ struct
             (lambda, [])
         end
 
+
     fun optimise (context, use) (Lambda lambda) =
         let
             val (bindings, newLambda) = optLambda(context, use, lambda, false)
@@ -588,7 +589,42 @@ struct
             SOME(Newenv(map mapbinding envDecs, mapExp use envExp))
         end
 
+    |   optimise (context, use) (Eval {function, argList, resultType}) =
+        (* If nothing else we need to ensure that "use" is correctly set on
+           the function and arguments and we don't simply pass the original. *)
+        let
+            val args = map (fn (c, t) => (optGeneral context c, t)) argList
+            val argTuples = map #1 args
+        in
+            SOME(
+                Eval{
+                    function= mapCodetree (optimise (context, [UseApply(use, argTuples)])) function,
+                    argList=args, resultType = resultType
+                })
+        end
+
+    |   optimise (context, use) (Indirect{base, offset, isVariant = false}) =
+        SOME(Indirect{base = mapCodetree (optimise(context, [UseField(offset, use)])) base,
+                      offset = offset, isVariant = false})
+
+    |   optimise (context, use) (code as Cond _) =
+        (* If the result of the if-then-else is always taken apart as fields
+           then we are better off taking it apart further down and putting
+           the fields into a container on the stack. *)
+        if List.all(fn UseField _ => true | _ => false) use
+        then SOME(optFields(code, context, use))
+        else NONE
+
+    |   optimise (context, use) (code as BeginLoop _) =
+        (* If the result of the loop is taken apart we should push
+           this down as well. *)
+        if List.all(fn UseField _ => true | _ => false) use
+        then SOME(optFields(code, context, use))
+        else NONE
+
     |   optimise _ _ = NONE
+    
+    and optGeneral context exp = mapCodetree (optimise(context, [UseGeneral])) exp
 
     and optLambda(
             { debugArgs, reprocess, makeAddr, ... },
@@ -647,6 +683,10 @@ struct
             if isInline = Inline andalso List.exists (fn UseExport => true | _ => false) use
             then
             let
+                (* If it's inline any application of this will be optimised after
+                   inline expansion.  We still apply any opimisations to the body
+                   at this stage because we will compile and code-generate a version
+                   for use if we want a "general" value. *)
                 val addressAllocator = ref localCount
                 val optContext =
                 {
@@ -654,11 +694,13 @@ struct
                     reprocess = reprocess,
                     debugArgs = debugArgs
                 }
+                val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
                 val lambdaRes =
                     {
-                        body = mapCodetree (optimise(optContext, [UseGeneral])) body,
+                        body = optBody,
                         isInline = isInline, name = name, closure = closure,
-                        argTypes = argTypes, resultType = resultType, localCount = localCount
+                        argTypes = argTypes, resultType = resultType,
+                        localCount = !addressAllocator (* After optimising body. *)
                     }
             in
                 ([], Lambda lambdaRes) 
@@ -740,6 +782,101 @@ struct
                 (bindings, Lambda newLambda)
             end
     end
+
+    and optFields (code, context as { reprocess, makeAddr, ...}, use) =
+    let
+        (* We have an if-then-else or a loop whose result is only ever
+           taken apart.  We push this down. *)
+        (* Find the fields that are used.  Not all may be. *)
+        local
+            val maxField =
+                List.foldl(fn (UseField(f, _), m) => Int.max(f, m) | (_, m) => m) 0 use
+            val fieldUse = BoolArray.array(maxField+1, false)
+            val _ =
+                List.app(fn UseField(f, _) => BoolArray.update(fieldUse, f, true) | _ => ()) use
+        in
+            val maxField = maxField
+            val useList = BoolArray.foldri (fn (i, true, l) => i :: l | (_, _, l) => l) [] fieldUse
+        end
+
+        fun pushContainer(Cond(ifpt, thenpt, elsept), leafFn) =
+                Cond(ifpt, pushContainer(thenpt, leafFn), pushContainer(elsept, leafFn))
+
+        |   pushContainer(Newenv(decs, exp), leafFn) =
+                Newenv(decs, pushContainer(exp, leafFn))
+
+        |   pushContainer(BeginLoop{loop, arguments}, leafFn) =
+                BeginLoop{loop = pushContainer(loop, leafFn), arguments=arguments}
+
+        |   pushContainer(l as Loop _, _) = l
+                (* Within a BeginLoop only the non-Loop leaves return
+                   values.  Loop entries go back to the BeginLoop so
+                   these are unchanged. *)
+
+        |   pushContainer(tuple, leafFn) = leafFn tuple (* Anything else. *)
+
+        val () = reprocess := true;
+    in
+        case useList of
+            [offset] => (* We only want a single field.  Push down an Indirect. *)
+            let
+                (* However the context still requires a tuple.  We need to
+                   reconstruct one with unused fields set to zero.  They will
+                   be filtered out later by the simplifier pass. *)
+                val field =
+                    optGeneral context (pushContainer(code, fn t => mkInd(offset, t)))
+                fun mkFields n = if n = offset then field else CodeZero
+            in
+                Tuple{ fields = List.tabulate(offset+1, mkFields), isVariant = false }
+            end
+
+        |   _ =>
+            let
+                (* We require a container. *)
+                val containerAddr = makeAddr()
+                val width = List.length useList
+                val makeContainer =
+                    Declar{addr=containerAddr, use=[], value=Container width}
+                val loadContainer = Extract(LoadLocal containerAddr)
+
+                fun setContainer tuple =
+                (* At the leaf set the container.  At the moment that always
+                   involves extracting the fields individually.  We can't currently
+                   tell whether the "tuple" has the same width as the container. *)
+                let
+                    val cAddr = makeAddr()
+                    val dec = Declar{addr=cAddr, use=[], value=tuple}
+                    val load = Extract(LoadLocal cAddr)
+                    val fields = map(fn n => mkInd(n, load)) useList
+                in
+                    mkEnv([dec],
+                        SetContainer{
+                            container = loadContainer,
+                            tuple = Tuple{fields=fields, isVariant=false},
+                            size = width })
+                end
+
+                val setCode = optGeneral context (pushContainer(code, setContainer))
+                (* The context requires a tuple of the original width.  We need
+                   to add dummy fields where necessary. *)
+                val container =
+                    if width = maxField+1
+                    then TupleFromContainer(loadContainer, width)
+                    else
+                    let
+                        fun mkField(n, m, hd::tl) =
+                            if n = hd 
+                            then mkInd(m, loadContainer) :: mkField(n+1, m+1, tl)
+                            else CodeZero :: mkField(n+1, m, hd::tl)
+                        |   mkField _ = []
+                    in
+                        Tuple{fields = mkField(0, 0, useList), isVariant=false}
+                    end
+            in
+                mkEnv([makeContainer, NullBinding setCode], container)
+            end
+    end
+
     (* TODO: convert "(if a then b else c) (args)" into if a then b(args) else c(args).  This would
        allow for possible inlining and also passing information about call patterns. *)
 
