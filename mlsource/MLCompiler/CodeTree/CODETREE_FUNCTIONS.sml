@@ -132,6 +132,13 @@ struct
     |   sideEffectBinding(RecDecs _) = true (* These should all be lambdas *)
     |   sideEffectBinding(NullBinding c) = sideEffectFree c
 
+    (* Return the inline property if it is set. *)
+    fun findInline [] = EnvSpecNone
+    |   findInline (h::t) =
+            if Universal.tagIs CodeTags.inlineCodeTag h
+            then Universal.tagProject CodeTags.inlineCodeTag h
+            else findInline t
+
     (* Makes a constant value from an expression which is known to be
        constant but may involve inline functions, tuples etc. *)
     fun makeConstVal (cVal:codetree) =
@@ -141,8 +148,9 @@ struct
             (* Get a vector, copy the entries into it and return it as a constant. *)
         |   makeVal (Tuple {fields= [], ...}) = CodeZero (* should have been optimised already! *)
         |   makeVal (Tuple {fields, ...}) =
-            let 
-                val vec : address = alloc (Word.fromInt(List.length fields), F_mutable_words, word0)
+            let
+                val tupleSize = List.length fields
+                val vec : address = alloc (Word.fromInt tupleSize, F_mutable_words, word0)
                 val fieldCode = map makeVal fields
       
                 fun copyToVec ([], _) = []
@@ -159,7 +167,25 @@ struct
                 val tupleProps =
                     if List.all null props
                     then []
-                    else [Universal.tagInject CodeTags.tupleTag props]
+                    else
+                    let
+                        (* We also need to construct an EnvSpecTuple property because findInline
+                           does not look at tuple properties. *)
+                        val inlineProps = map findInline props
+                        val inlineProp =
+                            if List.all (fn EnvSpecNone => true | _ => false) inlineProps
+                            then []
+                            else
+                            let
+                                fun tupleEntry n =
+                                    (EnvGenConst(loadWord(vec, Word.fromInt n), List.nth(props, n)),
+                                     List.nth(inlineProps, n))
+                            in
+                                [Universal.tagInject CodeTags.inlineCodeTag (EnvSpecTuple(tupleSize, tupleEntry))]
+                            end
+                    in
+                        Universal.tagInject CodeTags.tupleTag props :: inlineProp
+                    end
             in
                 lock vec;
                 Constnt(toMachineWord vec, tupleProps)
@@ -187,13 +213,6 @@ struct
         val mkTuple = mkRecord false
         and mkDatatype = mkRecord true
     end
-
-    (* Return the inline property if it is set. *)
-    fun findInline [] = EnvSpecNone
-    |   findInline (h::t) =
-            if Universal.tagIs CodeTags.inlineCodeTag h
-            then Universal.tagProject CodeTags.inlineCodeTag h
-            else findInline t
 
     (* Set the inline property.  If the property is already
        present it is replaced.  If the property we are setting is
