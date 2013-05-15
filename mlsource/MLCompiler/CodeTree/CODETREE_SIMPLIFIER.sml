@@ -586,8 +586,10 @@ struct
             |   _ => false
     in
         case (specFunct, genFunct, isRecursiveArg) of
-            (EnvSpecInlineFunction({body=lambdaBody, localCount, ...}, functEnv), _, false) =>
+            (EnvSpecInlineFunction({body=lambdaBody, localCount, argTypes, ...}, functEnv), _, false) =>
             let
+                val _ = List.length argTypes = List.length argList
+                            orelse raise InternalError "simpFunctionCall: argument mismatch"
                 val () = reprocess := true (* If we expand inline we have to reprocess *)
                 val (_, functDecs, _) = funct
                 and { nextAddress, reprocess, ...} = context

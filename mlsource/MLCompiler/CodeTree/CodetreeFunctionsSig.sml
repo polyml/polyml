@@ -43,7 +43,9 @@ sig
     val decSequenceWithFinalExp: codeBinding list -> codetree
     
     val sideEffectFree: codetree -> bool
-    val sideEffectFreeRTSCall: machineWord -> bool
+    and reorderable: codetree -> bool
+    and sideEffectFreeRTSCall: machineWord -> bool
+
     val makeConstVal: codetree -> codetree
     
     val evalue:    codetree -> machineWord option

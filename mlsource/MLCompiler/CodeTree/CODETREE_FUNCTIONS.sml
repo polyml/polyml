@@ -42,16 +42,11 @@ struct
     and CodeTrue  = Constnt(True, [])
     and CodeZero  = Constnt(word0, [])
 
-  (* Test for possible side effects. If an expression has no side-effect
-     and its result is not used then we don't need to generate it. An
-     expresssion is side-effect free if it does not call a procedure or
-     involve an instruction which could raise an exception. Only the more
-     common instructions are included. There may be some safe expressions
-     which this procedure thinks are unsafe. *)
-  (* Calls which could raise an exception must not be included.
-     Most arbitrary precision operations, word operations and
-     real operations don't raise exceptions (we don't get overflow
-     exceptions) so are safe.  *)
+    (* Properties of code.  This indicates the extent to which the
+       code has side-effects (i.e. where even if the result is unused
+       the code still needs to be produced) or is applicative
+       (i.e. where its value depends only arguments and can safely
+       be reordered). *)
 
     local
         val doCall: int*machineWord -> Word.word
@@ -88,49 +83,77 @@ struct
         Word.andb(props, noUpdateNoRaise) = noUpdateNoRaise
     end
 
-  (* Note: This simply returns true or false.  For complex expressions,
-     such as an RTS call whose argument has a side-effect, we could
-     reduce the code by extracting the sub-expressions with side-effects
-     and returning just those. *)
-  fun sideEffectFree (Lambda _) = true
-    | sideEffectFree (Constnt _) = true
-    | sideEffectFree (Extract _) = true
-    | sideEffectFree (Cond(i, t, e)) =
-          sideEffectFree i andalso
-          sideEffectFree t andalso
-          sideEffectFree e
-    | sideEffectFree (Newenv(decs, exp)) = List.all sideEffectBinding decs andalso sideEffectFree exp
-    | sideEffectFree (Handle { exp, handler }) =
-          sideEffectFree exp andalso sideEffectFree handler
-    | sideEffectFree (Tuple { fields, ...}) = testList fields
-    | sideEffectFree (Indirect{base, ...}) = sideEffectFree base
+    local
+        infix orb andb
+        val op orb = Word.orb and op andb = Word.andb
+        val noSideEffect = PROPWORD_NORAISE orb PROPWORD_NOUPDATE
+        val applicative = noSideEffect orb PROPWORD_NODEREF
+    in
+        fun codeProps (Lambda _) = applicative
 
-        (* An RTS call, which may actually be code which is inlined
-           by the code-generator, may be side-effect free.  This can
-           occur if we have, for example, "if exp1 orelse exp2"
-           where exp2 can be reduced to "true", typically because it's
-           inside an inline function and some of the arguments to the
-           function are constants.  This then gets converted to
-           (exp1; true) and we can eliminate exp1 if it is simply
-           a comparison. *)
-    | sideEffectFree (Eval{function=Constnt(w, _), argList, ...}) =
-        isIoAddress(toAddress w) andalso sideEffectFreeRTSCall w
-        andalso List.all (fn (c, _) => sideEffectFree c) argList
+        |   codeProps (Constnt _) = applicative
 
-    | sideEffectFree(Container _) = true
-        (* But since SetContainer has a side-effect we'll always create the
-           container even if it isn't used.  *)
+        |   codeProps (Extract _) = applicative
 
-    | sideEffectFree(TupleFromContainer(c, _)) = sideEffectFree c
+        |   codeProps (TagTest{ test, ... }) = codeProps test
 
-    | sideEffectFree _ = false
-             (* Rest are unsafe (or too rare to be worth checking) *)
+        |   codeProps (Cond(i, t, e)) = codeProps i andb codeProps t andb codeProps e
 
-    and testList t = List.all sideEffectFree t
+        |   codeProps (Newenv(decs, exp)) =
+                List.foldl (fn (d, r) => bindingProps d andb r) (codeProps exp) decs
+
+        |   codeProps (Handle { exp, handler }) =
+                (* A handler processes all the exceptions in the body *)
+                (codeProps exp orb PROPWORD_NORAISE) andb codeProps handler
+
+        |   codeProps (Tuple { fields, ...}) = testList fields
+
+        |   codeProps (Indirect{base, ...}) = codeProps base
+
+            (* An RTS call, which may actually be code which is inlined
+               by the code-generator, may be side-effect free.  This can
+               occur if we have, for example, "if exp1 orelse exp2"
+               where exp2 can be reduced to "true", typically because it's
+               inside an inline function and some of the arguments to the
+               function are constants.  This then gets converted to
+               (exp1; true) and we can eliminate exp1 if it is simply
+               a comparison. *)
+        |   codeProps (Eval{function=Constnt(w, _), argList, ...}) =
+                if isIoAddress(toAddress w)
+                then List.foldl(fn ((c, _), r) => codeProps c andb r) (rtsProperties w) argList
+                else 0w0 (* Any other function is assumed to be unsafe *)
+        
+        |   codeProps (Eval _) = 0w0
+
+        |   codeProps(Container _) = applicative
+            (* But since SetContainer has a side-effect we'll always create the
+               container even if it isn't used.  *)
+
+        |   codeProps(TupleFromContainer(c, _)) =
+                codeProps c andb (Word.notb PROPWORD_NODEREF)
+
+        |   codeProps(Raise exp) = codeProps exp andb (Word.notb PROPWORD_NORAISE)
+
+            (* Treat these as unsafe at least for the moment. *)
+        |   codeProps(BeginLoop _) = 0w0
+
+        |   codeProps(Loop _) = 0w0
+
+        |   codeProps Ldexc = 0w0
+
+        |   codeProps (SetContainer _) = 0w0
+
+        and testList t = List.foldl(fn (c, r) => codeProps c andb r) applicative t
     
-    and sideEffectBinding(Declar{value, ...}) = sideEffectFree value
-    |   sideEffectBinding(RecDecs _) = true (* These should all be lambdas *)
-    |   sideEffectBinding(NullBinding c) = sideEffectFree c
+        and bindingProps(Declar{value, ...}) = codeProps value
+        |   bindingProps(RecDecs _) = applicative (* These should all be lambdas *)
+        |   bindingProps(NullBinding c) = codeProps c
+
+        (* sideEffectFree - does not raise an exception or make an assignment. *)
+        fun sideEffectFree c = (codeProps c andb noSideEffect) = noSideEffect
+        (* reorderable - does not raise an exception or access a reference. *)
+        and reorderable c = codeProps c = applicative
+    end
 
     (* Return the inline property if it is set. *)
     fun findInline [] = EnvSpecNone
