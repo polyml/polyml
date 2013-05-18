@@ -526,7 +526,7 @@ void Statistics::updatePeriodicStats(POLYUNSIGNED freeWords, unsigned threadsInM
 {
     setSize(PSS_ALLOCATION_FREE, freeWords*sizeof(PolyWord));
 
-#ifdef HAVE_WINDOWS_H
+#if (defined(HAVE_WINDOWS_H) && ! defined(__CYGWIN__))
     FILETIME ct, et, st, ut;
     GetProcessTimes(GetCurrentProcess(), &ct, &et, &st, &ut);
     subFiletimes(&st, &gcSystemTime);
