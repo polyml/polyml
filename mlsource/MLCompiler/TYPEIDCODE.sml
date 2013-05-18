@@ -551,10 +551,20 @@ struct
                         val isTuple = recordIsFrozen r andalso isRec(recList, 1) andalso List.length recList >= 2
                         val localLevel = newLevel level
                         val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
+                        val fields = List.tabulate(List.length recList, fn n => n)
+                        val items = ListPair.zipEq(recList, fields)
+                        (* The ordering on fields is designed to allow mixing of tuples and
+                           records (e.g. #1).  It puts shorter names before longer so that
+                           #11 comes after #2 and before #100.  For named records it does
+                           not make for easy reading so we sort those alphabetically when
+                           printing. *)
+                        val printItems =
+                            if isTuple then items
+                            else Misc.quickSort(fn ({name = a, ...}, _) => fn ({name = b, ...}, _) => a <= b) items
 
-                        fun asRecord([], _, _) = raise Empty (* Shouldn't happen. *)
+                        fun asRecord([], _) = raise Empty (* Shouldn't happen. *)
 
-                        |   asRecord([{name, typeof, ...}], offset, _) =
+                        |   asRecord([({name, typeof, ...}, offset)], _) =
                             let
                                 val entryCode =
                                     (* Last or only field: no separator. *)
@@ -570,7 +580,7 @@ struct
                                 codeList(start @ [entryCode, codePrettyString terminator], CodeZero)
                             end
 
-                        |   asRecord({name, typeof, ...} :: fields, offset, depth) =
+                        |   asRecord(({name, typeof, ...}, offset) :: fields, depth) =
                             let
                                 val (start, terminator) =
                                     if isTuple then ([], ")")
@@ -586,14 +596,14 @@ struct
                                             codePrettyString ",",
                                             codePrettyBreak (1, 0)
                                         ],
-                                        asRecord(fields, offset+1, depth+1)),
+                                        asRecord(fields, depth+1)),
                                     codeList([codePrettyString ("..." ^ terminator)], CodeZero)
                                 )
                             end
                     in
                         mkProc(
                             codePrettyBlock(1, false, [],
-                                mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(recList, 0, 0)]),
+                                mkTuple[codePrettyString (if isTuple then "(" else "{"), asRecord(printItems, 0)]),
                             1, "print-labelled", getClosure localLevel, 0)
                     end
 

@@ -1027,33 +1027,43 @@ struct
                     PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
                         prettyList (map (fn {typeof, ...} => typeof) recList) depth "*")
                 else (* Print as a record *)
-                PrettyBlock (2, false, [],
-                    PrettyString "{" ::
-                    (let
-                        fun pRec [] _ = []
-                          | pRec ({name, typeof} :: T) depth =
-                            if depth <= 0 then [PrettyString "..."]
-                            else
-                                [
-                                PrettyBlock(0, false, [],
+                let
+                    (* The ordering on fields is designed to allow mixing of tuples and
+                       records (e.g. #1).  It puts shorter names before longer so that
+                       #11 comes after #2 and before #100.  For named records it does
+                       not make for easy reading so we sort those alphabetically when
+                       printing. *)
+                    val sortedRecList =
+                        Misc.quickSort(fn {name = a, ...} => fn {name = b, ...} => a <= b) recList
+                in
+                    PrettyBlock (2, false, [],
+                        PrettyString "{" ::
+                        (let
+                            fun pRec [] _ = []
+                              | pRec ({name, typeof} :: T) depth =
+                                if depth <= 0 then [PrettyString "..."]
+                                else
                                     [
-                                        PrettyBlock(0, false, [],
-                                            [
-                                            PrettyString (name ^ ":"),
-                                            PrettyBreak(1, 0),
-                                            dispP(typeof, depth - 1)
-                                            ] @
-                                            (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
+                                    PrettyBlock(0, false, [],
+                                        [
+                                            PrettyBlock(0, false, [],
+                                                [
+                                                PrettyString (name ^ ":"),
+                                                PrettyBreak(1, 0),
+                                                dispP(typeof, depth - 1)
+                                                ] @
+                                                (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
+                                            )
+                                        ]@
+                                        (if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
                                         )
-                                    ]@
-                                    (if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
-                                    )
-                                ]
-                    in
-                        pRec recList (depth - 1)
-                    end) @
-                    [ PrettyString (if recordIsFrozen r then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
-                    )
+                                    ]
+                        in
+                            pRec sortedRecList (depth - 1)
+                        end) @
+                        [ PrettyString (if recordIsFrozen r then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
+                        )
+                end
 
             |   OverloadSet {typeset = []} => PrettyString "no type"
 
