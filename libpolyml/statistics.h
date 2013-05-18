@@ -29,6 +29,38 @@
 #include "globals.h"
 #include "locking.h"
 #include "../polystatistics.h"
+enum {
+    PSC_THREADS = 0,                // Total number of threads
+    PSC_THREADS_IN_ML,              // Threads running ML code
+    PSC_THREADS_WAIT_IO,            // Threads waiting for IO
+    PSC_THREADS_WAIT_MUTEX,         // Threads waiting for a mutex
+    PSC_THREADS_WAIT_CONDVAR,       // Threads waiting for a condition var
+    PSC_THREADS_WAIT_SIGNAL,        // Special case - signal handling thread
+    PSC_GC_FULLGC,                  // Number of full garbage collections
+    PSC_GC_PARTIALGC,               // Number of partial GCs
+
+    PSS_TOTAL_HEAP,                 // Total size of the local heap
+    PSS_AFTER_LAST_GC,              // Space free after last GC
+    PSS_AFTER_LAST_FULLGC,          // Space free after the last full GC
+    PSS_ALLOCATION,                 // Size of allocation space
+    PSS_ALLOCATION_FREE,            // Space available in allocation area
+    N_PS_INTS
+};
+
+enum {
+    PST_NONGC_UTIME,
+    PST_NONGC_STIME,
+    PST_GC_UTIME,
+    PST_GC_STIME,
+    N_PS_TIMES
+};
+
+// A few counters that can be used by the application
+#define N_PS_USER   8
+
+class TaskData;
+class SaveVecEntry;
+typedef SaveVecEntry *Handle;
 
 class Statistics  
 {
@@ -36,8 +68,8 @@ public:
     Statistics();
     ~Statistics();
 
-    bool getLocalsStatistics(struct polystatistics *statCopy);
-    bool getRemoteStatistics(POLYUNSIGNED processId, struct polystatistics *statCopy);
+    Handle getLocalStatistics(TaskData *taskData);
+    Handle getRemoteStatistics(TaskData *taskData, POLYUNSIGNED processId);
 
     void incCount(int which);
     void decCount(int which);
@@ -47,14 +79,16 @@ public:
     void decSize(int which, size_t s);
     size_t getSize(int which);
 
-    void setUserCounter(unsigned which, int value);
+    void setUserCounter(unsigned which, POLYSIGNED value);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     // Native Windows
     void copyGCTimes(const FILETIME &gcUtime, const FILETIME &gcStime);
+    FILETIME gcUserTime, gcSystemTime;
 #else
     // Unix and Cygwin
     void copyGCTimes(const struct timeval &gcUtime, const struct timeval &gcStime);
+    struct timeval gcUserTime, gcSystemTime;
 #endif
     
     void updatePeriodicStats(POLYUNSIGNED freeSpace, unsigned threadsInML);
@@ -67,9 +101,24 @@ private:
 #else
     char *mapFileName;
     int mapFd;
-    size_t memSize;
 #endif
-    struct polystatistics *statMemory;
+    size_t memSize;
+    unsigned char *statMemory;
+    unsigned char *newPtr;
+
+    unsigned char *counterAddrs[N_PS_INTS];
+    struct { unsigned char *secAddr; unsigned char *usecAddr; } timeAddrs[N_PS_TIMES];
+    unsigned char *userAddrs[N_PS_USER];
+
+    Handle returnStatistics(TaskData *taskData, unsigned char *stats);
+    void addCounter(int cEnum, unsigned statId, const char *name);
+    void addSize(int cEnum, unsigned statId, const char *name);
+    void addTime(int cEnum, unsigned statId, const char *name);
+    void addUser(int n, unsigned statId, const char *name);
+
+    size_t getSizeWithLock(int which);
+    void setSizeWithLock(int which, size_t s);
+    void setTimeValue(int which, unsigned long secs, unsigned long usecs);
 };
 
 extern Statistics globalStats;

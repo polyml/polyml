@@ -229,6 +229,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     }
 }
 
+#if (0)
 // Convert the statistics into ML data.  This is further unpicked within ML.
 static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
 {
@@ -291,6 +292,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     resultVec->WordP()->Set(3, users->Word());
     return resultVec;
 }
+#endif
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
@@ -375,21 +377,9 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 24: // Return the name of the immediate parent stored in a child
         return ShowParent(taskData, args);
 
-    case 25: // Get the local statistics
-        {
-            polystatistics localStats;
-            if (! globalStats.getLocalsStatistics(&localStats))
-                raise_exception_string(taskData, EXC_Fail, "No statistics available");
-            return unpackStats(taskData, &localStats);
-        }
-
-    case 26: // Get remote statistics.  The argument is the process ID to get the statistics.
-        {
-            polystatistics localStats;
-            if (! globalStats.getRemoteStatistics(get_C_ulong(taskData, DEREFHANDLE(args)), &localStats))
-                raise_exception_string(taskData, EXC_Fail, "No statistics available");
-            return unpackStats(taskData, &localStats);
-        }
+    case 25: // Old statistics - now removed
+    case 26:
+        raise_exception_string(taskData, EXC_Fail, "No statistics available");
 
     case 27: // Get number of user statistics available
         return Make_arbitrary_precision(taskData, N_PS_USER);
@@ -399,10 +389,16 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             unsigned index = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(0));
             if (index >= N_PS_USER)
                 raise_exception0(taskData, EXC_subscript);
-            int value = get_C_int(taskData, DEREFHANDLE(args)->Get(1));
+            POLYSIGNED value = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
             globalStats.setUserCounter(index, value);
             Make_arbitrary_precision(taskData, 0);
         }
+
+    case 29: // Get local statistics.
+        return globalStats.getLocalStatistics(taskData);
+
+    case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
+        return globalStats.getRemoteStatistics(taskData, get_C_ulong(taskData, DEREFHANDLE(args)));
 
     case 50: // GCD
         return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));

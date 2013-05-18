@@ -29,55 +29,49 @@
 // In Unix this is in /tmp
 #define POLY_STATS_NAME "poly-stats-"
 
-enum {
-    PSC_THREADS = 0,                // Total number of threads
-    PSC_THREADS_IN_ML,              // Threads running ML code
-    PSC_THREADS_WAIT_IO,            // Threads waiting for IO
-    PSC_THREADS_WAIT_MUTEX,         // Threads waiting for a mutex
-    PSC_THREADS_WAIT_CONDVAR,       // Threads waiting for a condition var
-    PSC_THREADS_WAIT_SIGNAL,        // Special case - signal handling thread
-    PSC_GC_FULLGC,                  // Number of full garbage collections
-    PSC_GC_PARTIALGC,               // Number of partial GCs
-    N_PS_COUNTERS
-};
+// ASN1 tags for the statistics
+#define POLY_STATS_C_STATISTICS     0x60    // Application 0 - Implicit set
+#define POLY_STATS_C_COUNTERSTAT    0x61    // Application 1 - Implicit sequence
+#define POLY_STATS_C_SIZESTAT       0x62    // Application 2 - Implicit sequence
+#define POLY_STATS_C_TIMESTAT       0x63    // Application 3 - Implicit sequence
+#define POLY_STATS_C_IDENTIFIER     0x44    // Application 4 - Implicit integer
+#define POLY_STATS_C_NAME           0x45    // Application 5 - Implicit visible string
+#define POLY_STATS_C_COUNTER_VALUE  0x46    // Application 6 - Implicit integer
+#define POLY_STATS_C_BYTE_COUNT     0x47    // Application 7 - Implicit integer
+#define POLY_STATS_C_TIME           0x68    // Application 8 - Implicit sequence
+#define POLY_STATS_C_SECONDS        0x49    // Application 9 - Implicit integer
+#define POLY_STATS_C_MICROSECS      0x4A    // Application 10 - Implicit integer
+#define POLY_STATS_C_USERSTAT       0x6B    // Application 11 - Implicit sequence
 
-enum {
-    PSS_TOTAL_HEAP = 0,             // Total size of the local heap
-    PSS_AFTER_LAST_GC,              // Space free after last GC
-    PSS_AFTER_LAST_FULLGC,          // Space free after the last full GC
-    PSS_ALLOCATION,                 // Size of allocation space
-    PSS_ALLOCATION_FREE,            // Space available in allocation area
-    N_PS_SIZES
-};
+// Identifiers for the particular statistics
+#define POLY_STATS_ID_THREADS                 1   // Total number of threads
+#define POLY_STATS_ID_THREADS_IN_ML           2   // Threads running ML code
+#define POLY_STATS_ID_THREADS_WAIT_IO         3   // Threads waiting for IO
+#define POLY_STATS_ID_THREADS_WAIT_MUTEX      4   // Threads waiting for a mutex
+#define POLY_STATS_ID_THREADS_WAIT_CONDVAR    5   // Threads waiting for a condition var
+#define POLY_STATS_ID_THREADS_WAIT_SIGNAL     6   // Special case - signal handling thread
+#define POLY_STATS_ID_GC_FULLGC               7   // Number of full garbage collections
+#define POLY_STATS_ID_GC_PARTIALGC            8   // Number of partial GCs
 
-enum {
-    PST_NONGC_UTIME,
-    PST_NONGC_STIME,
-    PST_GC_UTIME,
-    PST_GC_STIME,
-    N_PS_TIMES
-};
+#define POLY_STATS_ID_TOTAL_HEAP              9   // Total size of the local heap
+#define POLY_STATS_ID_AFTER_LAST_GC          10   // Space free after last GC
+#define POLY_STATS_ID_AFTER_LAST_FULLGC      11    // Space free after the last full GC
+#define POLY_STATS_ID_ALLOCATION             12    // Size of allocation space
+#define POLY_STATS_ID_ALLOCATION_FREE        13    // Space available in allocation area
 
-// A few counters that can be used by the application
-#define N_PS_USER   8
+#define POLY_STATS_ID_NONGC_UTIME            14
+#define POLY_STATS_ID_NONGC_STIME            15
+#define POLY_STATS_ID_GC_UTIME               16
+#define POLY_STATS_ID_GC_STIME               17
 
-// A random number to help identify a valid shared memory block.
-#define POLY_STATS_MAGIC    0x8022E96B
-
-typedef struct polystatistics {
-    unsigned psSize; // Size of the data structure
-    unsigned magic; // Magic number
-    unsigned long psCounters[N_PS_COUNTERS];
-    size_t psSizes[N_PS_SIZES];
-#if defined(HAVE_WINDOWS_H)
-    FILETIME psTimers[N_PS_TIMES];
-#elif defined(HAVE_GETRUSAGE)
-    struct timeval psTimers[N_PS_TIMES];
-#else
-    int psTimers[N_PS_TIMES];
-#endif
-    int psUser[N_PS_USER];
-} polystatistics;
+#define POLY_STATS_ID_USER0                  18
+#define POLY_STATS_ID_USER1                  19
+#define POLY_STATS_ID_USER2                  20
+#define POLY_STATS_ID_USER3                  21
+#define POLY_STATS_ID_USER4                  22
+#define POLY_STATS_ID_USER5                  23
+#define POLY_STATS_ID_USER6                  24
+#define POLY_STATS_ID_USER7                  25
 
 #endif // POLY_STATISTICS_INCLUDED
 

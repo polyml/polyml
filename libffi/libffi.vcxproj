@@ -131,10 +131,6 @@
     <OutDir Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">.\IntRelease64\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='IntRelease|Win32'">.\IntRelease\</IntDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='IntRelease|x64'">.\IntRelease64\</IntDir>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">.\Release\</OutDir>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.\Release64\</OutDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">.\Release\</IntDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.\Release64\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

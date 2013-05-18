@@ -13,23 +13,23 @@
 <!-- These defines allow the paths to the sources to be given on the command line. -->
 <?ifndef POLYLIBSRC ?>
   <?if $(var.Platform) = x64 ?>
-      <?define POLYLIBSRC = '..\Release64\PolyLib.dll' ?>
+      <?define POLYLIBSRC = '..\x64\Release\PolyLib.dll' ?>
   <?else?>
       <?define POLYLIBSRC = '..\Release\PolyLib.dll' ?>
   <?endif?>
 <?endif?>
 <?ifndef POLYEXESRC ?>
   <?if $(var.Platform) = x64 ?>
-      <?define POLYEXESRC = '..\Release64\PolyML.exe' ?>
+      <?define POLYEXESRC = '..\x64\Release\PolyML.exe' ?>
   <?else?>
       <?define POLYEXESRC = '..\Release\PolyML.exe' ?>
   <?endif?>
 <?endif?>
 <?ifndef POLYPERFSRC ?>
   <?if $(var.Platform) = x64 ?>
-      <?define POLYPERFSRC = '..\PolyPerf\Release64\PolyPerf.dll' ?>
+      <?define POLYPERFSRC = '..\x64\Release\PolyPerf.dll' ?>
   <?else?>
-    <?define POLYPERFSRC = '..\PolyPerf\Release\PolyPerf.dll' ?>
+    <?define POLYPERFSRC = '..\Release\PolyPerf.dll' ?>
   <?endif?>
 <?endif?>
 

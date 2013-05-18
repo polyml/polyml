@@ -125,6 +125,7 @@ val () = Bootstrap.use "basis/processes.ML";
 val () = Bootstrap.use "basis/HashArray.ML";
 val () = Bootstrap.use "basis/UniversalArray.ML";
 val () = Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
+val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
 

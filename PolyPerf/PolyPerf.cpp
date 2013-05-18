@@ -30,6 +30,39 @@
 
 #include "../polystatistics.h"
 
+// Statistics currently provided.  These are copied from statistics.cpp
+// although the statistics returned may not match.
+enum {
+    PSC_THREADS = 0,                // Total number of threads
+    PSC_THREADS_IN_ML,              // Threads running ML code
+    PSC_THREADS_WAIT_IO,            // Threads waiting for IO
+    PSC_THREADS_WAIT_MUTEX,         // Threads waiting for a mutex
+    PSC_THREADS_WAIT_CONDVAR,       // Threads waiting for a condition var
+    PSC_THREADS_WAIT_SIGNAL,        // Special case - signal handling thread
+    PSC_GC_FULLGC,                  // Number of full garbage collections
+    PSC_GC_PARTIALGC,               // Number of partial GCs
+    N_PS_COUNTERS
+};
+
+enum {
+    PSS_TOTAL_HEAP = 0,                 // Total size of the local heap
+    PSS_AFTER_LAST_GC,              // Space free after last GC
+    PSS_AFTER_LAST_FULLGC,          // Space free after the last full GC
+    PSS_ALLOCATION,                 // Size of allocation space
+    PSS_ALLOCATION_FREE,            // Space available in allocation area
+    N_PS_SIZES
+};
+
+enum {
+    PST_NONGC_UTIME = 0,
+    PST_NONGC_STIME,
+    PST_GC_UTIME,
+    PST_GC_STIME,
+    N_PS_TIMES
+};
+
+#define N_PS_USER   8
+
 /*
 This DLL is a plug-in for Windows performance monitoring.  The whole
 interface is extremely messy and seems to have remained unchanged
@@ -40,13 +73,6 @@ replaces the old method of using lodctr with .ini and .h files.
 The DLL is loaded by the performance monitor.  In XP that seems to
 be part of the management console application mmc.exe and perfmon.exe
 seems to be just a stub.
-
-There are still some issues with 32-bit/64-bit compatibility.  Currently,
-the counters are all defined as 32-bit quantities although the actual
-values in psSizes will be 64-bit on a 64-bit system.  Since the x86 is
-little-endian that will work so long as the values fit in the low-order
-word.  It isn't clear if Wix supports 64-bit values for the base and
-fraction.
 */
 
 extern "C" {
@@ -74,22 +100,44 @@ public:
 
     PolyProcess();
 
-    polystatistics *statistics; // Pointer to shared memory
+    unsigned char *sharedMem; // Pointer to shared memory
     DWORD processID; // Process ID
     WCHAR *processName; // Unicode name
 };
 
+// This is the structure of the decoded statistics.  These values
+// are set from the ASN1 coding.
+// The types of the fields must match the types set in the registry
+// by the installer (PolyML.wxs).  For counters that is numberOfItems32
+// and for sizes they have to be DWORDs.  The information we display
+// for sizes is always a ratio of two sizes (i.e. % full) so we
+// have to scale the values consistently to get them to fit.
+// Since we also provide type information in the PERF_COUNTER_DEFINITION
+// structure it's possible we may be able to override that but it's
+// not clear.
+typedef struct {
+    PERF_COUNTER_BLOCK header;
+    // Statistics decoded
+    UINT32 psCounters[N_PS_COUNTERS];       // numberOfItems32
+#define SIZEOF_COUNTER  (sizeof(UINT32))
+    DWORD psSizes[N_PS_SIZES];              // rawFraction/rawBase (i.e. 32-bits)
+#define SIZEOF_SIZE     (sizeof(DWORD))
+    FILETIME psTimers[N_PS_TIMES];          // timer100Ns
+#define SIZEOF_TIME     (sizeof(FILETIME))
+    UINT32 psUser[N_PS_USER];               // numberOfItems32
+#define SIZEOF_USER     (sizeof(UINT32))
+} statistics;
 
 PolyProcess::PolyProcess()
 {
-    statistics = NULL;
+    sharedMem = NULL;
     processName = NULL;
 }
 
 PolyProcess::~PolyProcess()
 {
-    if (statistics)
-        ::UnmapViewOfFile(statistics);
+    if (sharedMem)
+        ::UnmapViewOfFile(sharedMem);
     free(processName);
 }
 
@@ -103,11 +151,11 @@ PolyProcess *PolyProcess::CreateProcessEntry(DWORD pId)
     if (hRemMemory == NULL)
         return NULL; // Probably not a Poly/ML process
 
-    polystatistics *sMem = (polystatistics*)MapViewOfFile(hRemMemory, FILE_MAP_READ, 0, 0, sizeof(polystatistics));
+    unsigned char *sMem = (unsigned char*)MapViewOfFile(hRemMemory, FILE_MAP_READ, 0, 0, 0);
     CloseHandle(hRemMemory); // We don't need this whether it succeeded or not
     if (sMem == NULL)
         return NULL;
-    if (sMem->magic != POLY_STATS_MAGIC || sMem->psSize < sizeof(polystatistics))
+    if (*sMem != POLY_STATS_C_STATISTICS)
     {
         UnmapViewOfFile(sMem);
         return NULL;
@@ -115,7 +163,7 @@ PolyProcess *PolyProcess::CreateProcessEntry(DWORD pId)
     // Looks good.
     PolyProcess *result = new PolyProcess;
     result->processID = pId;
-    result->statistics = sMem;
+    result->sharedMem = sMem;
 
     // Find the name of the process.
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pId);
@@ -139,12 +187,233 @@ PolyProcess *PolyProcess::CreateProcessEntry(DWORD pId)
             // Add the process Id in the name
             _snwprintf(processName+len, MAX_PATH-len, L" (%lu)", pId);
             // Copy it into the heap
-            result->processName = wcsdup(processName);
+            result->processName = _wcsdup(processName);
         }
         CloseHandle(hProcess);
     }
 
     return result;
+}
+
+class ASN1Parse {
+public:
+    ASN1Parse (statistics *s, unsigned char *p): stats(s), ptr(p) {}
+    void asn1Decode();
+    unsigned getLength();
+    INT64 parseInt(unsigned length);
+    UINT32 parseUnsigned(unsigned length);
+    DWORD parseSize(unsigned length);
+    void parseAStatistic(int subTag, unsigned statlen);
+    void parseTime(FILETIME *ft, unsigned length);
+
+    statistics *stats;
+    unsigned char *ptr;
+};
+
+// Decode the ASN1 encoding.  If the decoding fails we just leave the
+// values as zero rather than returning any error.
+void ASN1Parse::asn1Decode()
+{
+    unsigned char ch = *ptr++;
+    if (ch != POLY_STATS_C_STATISTICS) return;
+    unsigned overallLength = getLength();
+    unsigned char *endOfData = ptr+overallLength;
+    while (ptr < endOfData)
+    {
+        // Decode a statistic
+        unsigned tag = *ptr++;
+        unsigned statLen = getLength();
+        switch (tag)
+        {
+        case POLY_STATS_C_COUNTERSTAT:
+            parseAStatistic(POLY_STATS_C_COUNTER_VALUE, statLen);
+            break;
+        case POLY_STATS_C_SIZESTAT:
+            parseAStatistic(POLY_STATS_C_BYTE_COUNT, statLen);
+            break;
+        case POLY_STATS_C_TIMESTAT:
+            parseAStatistic(POLY_STATS_C_TIME, statLen);
+            break;
+        case POLY_STATS_C_USERSTAT:
+            parseAStatistic(POLY_STATS_C_COUNTER_VALUE, statLen);
+            break; 
+        default: ptr += statLen; // Skip it; it's not known
+        }
+    }
+}
+
+// Return the length of the next item
+unsigned ASN1Parse::getLength()
+{
+    unsigned ch = *ptr++;
+    if (ch & 0x80)
+    {
+        int lengthOfLength = ch & 0x7f;
+        unsigned length = 0;
+        // Ignore "indefinite length", it's not used here.
+        while (lengthOfLength--)
+        {
+            ch = *ptr++;
+            length = (length << 8) | ch;
+        }
+        return length;
+    }
+    else return ch;
+}
+
+// General case for integer.
+INT64 ASN1Parse::parseInt(unsigned length)
+{
+    if (length == 0) return 0;
+    INT64 result = *ptr & 0x80 ? -1 : 0;
+    while (length--) result = (result << 8) | *ptr++;
+    return result;
+}
+
+UINT32 ASN1Parse::parseUnsigned(unsigned length)
+{
+    INT64 value = parseInt(length);
+    if (value < 0) return 0; // Can't display negative nos
+    return (UINT32)value;
+}
+
+DWORD ASN1Parse::parseSize(unsigned length)
+{
+    INT64 value = parseInt(length);
+    if (value < 0) return 0; // Can't display negative nos
+    return (DWORD)(value / 1024); // Return kilobytes
+}
+
+void ASN1Parse::parseTime(FILETIME *ft, unsigned length)
+{
+    unsigned char *end = ptr+length;
+    UINT32 seconds = 0, useconds = 0;
+    while (ptr < end)
+    {
+        unsigned char tag = *ptr++;
+        unsigned elemLen = getLength();
+        switch (tag)
+        {
+        case POLY_STATS_C_SECONDS:
+            seconds = parseUnsigned(elemLen);
+            break;
+        case POLY_STATS_C_MICROSECS:
+            useconds = parseUnsigned(elemLen);
+            break;
+        default: ptr += elemLen;
+        }
+    }
+    ULARGE_INTEGER li;
+    li.QuadPart = (ULONGLONG)seconds * 10000000 + (ULONGLONG)useconds * 10;
+    ft->dwHighDateTime = li.HighPart;
+    ft->dwLowDateTime = li.LowPart;
+}
+
+void ASN1Parse::parseAStatistic(int subTag, unsigned statLen)
+{
+    unsigned char *endOfStat = ptr+statLen;
+    unsigned tagId = 0;
+    while (ptr < endOfStat)
+    {
+        unsigned char tag = *ptr++;
+        unsigned elemLen = getLength();
+        switch (tag)
+        {
+        case POLY_STATS_C_IDENTIFIER:
+            // The identifier of the statistic
+            // We rely on the fact that the Id occurs before the value.
+            tagId = parseUnsigned(elemLen);
+            break;
+
+        case POLY_STATS_C_COUNTER_VALUE:
+            if (subTag = POLY_STATS_C_COUNTER_VALUE)
+            {
+                UINT32 cValue = parseUnsigned(elemLen);
+                // A counter value occurs in these statistics
+                switch (tagId)
+                {
+                case POLY_STATS_ID_THREADS:
+                    stats->psCounters[PSC_THREADS] = cValue; break;
+                case POLY_STATS_ID_THREADS_IN_ML:
+                    stats->psCounters[PSC_THREADS_IN_ML] = cValue; break;
+                case POLY_STATS_ID_THREADS_WAIT_IO:
+                    stats->psCounters[PSC_THREADS_WAIT_IO] = cValue; break;
+                case POLY_STATS_ID_THREADS_WAIT_MUTEX:
+                    stats->psCounters[PSC_THREADS_WAIT_MUTEX] = cValue; break;
+                case POLY_STATS_ID_THREADS_WAIT_CONDVAR:
+                    stats->psCounters[PSC_THREADS_WAIT_CONDVAR] = cValue; break;
+                case POLY_STATS_ID_THREADS_WAIT_SIGNAL:
+                    stats->psCounters[PSC_THREADS_WAIT_SIGNAL] = cValue; break;
+                case POLY_STATS_ID_GC_FULLGC:
+                    stats->psCounters[PSC_GC_FULLGC] = cValue; break;
+                case POLY_STATS_ID_GC_PARTIALGC:
+                    stats->psCounters[PSC_GC_PARTIALGC] = cValue; break;
+                case POLY_STATS_ID_USER0:
+                    stats->psUser[0] = cValue; break;
+                case POLY_STATS_ID_USER1:
+                    stats->psUser[1] = cValue; break;
+                case POLY_STATS_ID_USER2:
+                    stats->psUser[2] = cValue; break;
+                case POLY_STATS_ID_USER3:
+                    stats->psUser[3] = cValue; break;
+                case POLY_STATS_ID_USER4:
+                    stats->psUser[4] = cValue; break;
+                case POLY_STATS_ID_USER5:
+                    stats->psUser[5] = cValue; break;
+                case POLY_STATS_ID_USER6:
+                    stats->psUser[6] = cValue; break;
+                case POLY_STATS_ID_USER7:
+                    stats->psUser[7] = cValue; break;
+                // Anything else is an unknown tag; skip
+                }
+            }
+            else ptr += elemLen; // Skip it - not expected here
+            break;
+
+        case POLY_STATS_C_BYTE_COUNT:
+            if (subTag == POLY_STATS_C_BYTE_COUNT)
+            {
+                DWORD cValue = parseSize(elemLen);
+                switch (tagId)
+                {
+                case POLY_STATS_ID_TOTAL_HEAP:
+                    stats->psSizes[PSS_TOTAL_HEAP] = cValue; break;
+                case POLY_STATS_ID_AFTER_LAST_GC:
+                    stats->psSizes[PSS_AFTER_LAST_GC] = cValue; break;
+                case POLY_STATS_ID_AFTER_LAST_FULLGC:
+                    stats->psSizes[PSS_AFTER_LAST_FULLGC] = cValue; break;
+                case POLY_STATS_ID_ALLOCATION:
+                    stats->psSizes[PSS_ALLOCATION] = cValue; break;
+                case POLY_STATS_ID_ALLOCATION_FREE:
+                    stats->psSizes[PSS_ALLOCATION_FREE] = cValue; break;
+                }
+            }
+            else ptr += elemLen; // Skip it - not expected here
+            break;
+
+        case POLY_STATS_C_TIME:
+            if (subTag == POLY_STATS_C_TIME)
+            {
+                FILETIME ft = { 0, 0};
+                parseTime(&ft, elemLen);
+                switch (tagId)
+                {
+                case POLY_STATS_ID_NONGC_UTIME:
+                    stats->psTimers[PST_NONGC_UTIME] = ft; break;
+                case POLY_STATS_ID_NONGC_STIME:
+                    stats->psTimers[PST_NONGC_STIME] = ft; break;
+                case POLY_STATS_ID_GC_UTIME:
+                    stats->psTimers[PST_GC_UTIME] = ft; break;
+                case POLY_STATS_ID_GC_STIME:
+                    stats->psTimers[PST_GC_STIME] = ft; break;
+                }
+            }
+            else ptr += elemLen;
+            break;
+
+        default: ptr += elemLen; // Unknown - skip
+        }
+    }
 }
 
 // Pointer to table of processes with the Poly/ML run-time
@@ -176,7 +445,7 @@ DWORD APIENTRY OpenPolyPerfMon(LPWSTR lpInstanceNames)
     }
     // How many of these processes provide the Poly/ML shared memory?
     // Make an array big enough for all processes to simplify allocation.
-    polyProcesses = (PolyProcess **)malloc(numItems * sizeof(polystatistics));
+    polyProcesses = (PolyProcess **)malloc(numItems * sizeof(PolyProcess*));
     if (polyProcesses == NULL)
     {
         free(processIds);
@@ -211,7 +480,7 @@ DWORD APIENTRY ClosePolyPerfMon(void)
     return ERROR_SUCCESS;
 }
 
-static LPVOID allocBuffSpace(LPVOID * &lppData, LPDWORD &lpcbTotalBytes, DWORD &dwBytesAvailable, size_t size)
+static LPVOID allocBuffSpace(LPVOID * &lppData, LPDWORD &lpcbTotalBytes, DWORD &dwBytesAvailable, DWORD size)
 {
     if (dwBytesAvailable < size) return NULL;
     LPVOID pResult = *lppData;
@@ -298,8 +567,8 @@ DWORD APIENTRY CollectPolyPerfMon(
         pCounters[i].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
         pCounters[i].DetailLevel = PERF_DETAIL_NOVICE;
         pCounters[i].CounterType = PERF_COUNTER_RAWCOUNT;
-        pCounters[i].CounterOffset =
-            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psCounters)+i*sizeof(unsigned long);
+        pCounters[i].CounterSize = SIZEOF_COUNTER;
+        pCounters[i].CounterOffset = offsetof(statistics, psCounters)+i*SIZEOF_COUNTER;
         pObjectType->NumCounters++;
     }
 
@@ -315,16 +584,18 @@ DWORD APIENTRY CollectPolyPerfMon(
     pSizes[0].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pSizes[0].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[0].CounterType = PERF_RAW_FRACTION;
+    pSizes[0].CounterSize = SIZEOF_SIZE;
     pSizes[0].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_AFTER_LAST_GC*sizeof(size_t);
+        offsetof(statistics, psSizes)+PSS_AFTER_LAST_GC*SIZEOF_SIZE;
     pObjectType->NumCounters++;
     pSizes[1].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
     pSizes[1].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
     pSizes[1].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pSizes[1].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[1].CounterType = PERF_RAW_BASE;
+    pSizes[1].CounterSize = SIZEOF_SIZE;
     pSizes[1].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_TOTAL_HEAP*sizeof(size_t);
+        offsetof(statistics, psSizes)+PSS_TOTAL_HEAP*SIZEOF_SIZE;
     pObjectType->NumCounters++;
     // Second - Heap usage after last full GC
     pSizes[2].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
@@ -332,16 +603,18 @@ DWORD APIENTRY CollectPolyPerfMon(
     pSizes[2].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pSizes[2].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[2].CounterType = PERF_RAW_FRACTION;
+    pSizes[2].CounterSize = SIZEOF_SIZE;
     pSizes[2].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_AFTER_LAST_FULLGC*sizeof(size_t);
+        offsetof(statistics, psSizes)+PSS_AFTER_LAST_FULLGC*SIZEOF_SIZE;
     pObjectType->NumCounters++;
     pSizes[3].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
     pSizes[3].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
     pSizes[3].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pSizes[3].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[3].CounterType = PERF_RAW_BASE;
+    pSizes[3].CounterSize = SIZEOF_SIZE;
     pSizes[3].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_TOTAL_HEAP*sizeof(size_t);
+        offsetof(statistics, psSizes)+PSS_TOTAL_HEAP*SIZEOF_SIZE;
     pObjectType->NumCounters++;
     // Third - Unreserved space in allocation area
     pSizes[4].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
@@ -349,16 +622,18 @@ DWORD APIENTRY CollectPolyPerfMon(
     pSizes[4].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pSizes[4].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[4].CounterType = PERF_RAW_FRACTION;
+    pSizes[4].CounterSize = SIZEOF_SIZE;
     pSizes[4].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_ALLOCATION_FREE*sizeof(size_t);
+        offsetof(statistics, psSizes)+PSS_ALLOCATION_FREE*SIZEOF_SIZE;
     pObjectType->NumCounters++;
     pSizes[5].ByteLength = sizeof(PERF_COUNTER_DEFINITION);
     pSizes[5].CounterNameTitleIndex = dwFirstCounter + stringCount*2;
     pSizes[5].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
     pSizes[5].DetailLevel = PERF_DETAIL_NOVICE;
     pSizes[5].CounterType = PERF_RAW_BASE;
+    pSizes[5].CounterSize = SIZEOF_SIZE;
     pSizes[5].CounterOffset =
-        sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psSizes)+PSS_ALLOCATION*sizeof(size_t);
+        offsetof(statistics, psSizes)+PSS_ALLOCATION*SIZEOF_SIZE;
     pObjectType->NumCounters++;
 
     // Then the times
@@ -373,8 +648,8 @@ DWORD APIENTRY CollectPolyPerfMon(
         pTimes[k].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
         pTimes[k].DetailLevel = PERF_DETAIL_NOVICE;
         pTimes[k].CounterType = PERF_100NSEC_TIMER;
-        pTimes[k].CounterOffset =
-            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psTimers)+k*sizeof(FILETIME);
+        pTimes[k].CounterSize = SIZEOF_TIME;
+        pTimes[k].CounterOffset = offsetof(statistics, psTimers)+k*SIZEOF_TIME;
         pObjectType->NumCounters++;
     }
 
@@ -390,8 +665,8 @@ DWORD APIENTRY CollectPolyPerfMon(
         pUsers[l].CounterHelpTitleIndex = dwFirstHelp + (stringCount++)*2;
         pUsers[l].DetailLevel = PERF_DETAIL_NOVICE;
         pUsers[l].CounterType = PERF_COUNTER_RAWCOUNT;
-        pUsers[l].CounterOffset =
-            sizeof(PERF_COUNTER_BLOCK)+offsetof(polystatistics, psUser)+l*sizeof(int);
+        pUsers[l].CounterSize = SIZEOF_USER;
+        pUsers[l].CounterOffset = offsetof(statistics, psUser)+l*SIZEOF_USER;
         pObjectType->NumCounters++;
     }
 
@@ -407,7 +682,7 @@ DWORD APIENTRY CollectPolyPerfMon(
         PolyProcess *pProc = polyProcesses[dw];
         pInst->UniqueID = PERF_NO_UNIQUE_ID; // Better to show the name
         pInst->NameOffset = sizeof(PERF_INSTANCE_DEFINITION); // Name follows
-        DWORD len = wcslen(pProc->processName);
+        DWORD len = (DWORD)wcslen(pProc->processName);
         DWORD byteLength = (len+1)*sizeof(WCHAR); // Length including terminators
         pInst->NameLength = byteLength;
         byteLength = (byteLength + 7) / 8 * 8; // Must be rounded up to an eight-byte boundary.
@@ -415,17 +690,15 @@ DWORD APIENTRY CollectPolyPerfMon(
         WCHAR *pName = (WCHAR*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable, byteLength);
         wcscpy(pName, pProc->processName);
 
-        // Now a PERF_COUNTER_BLOCK
-        PERF_COUNTER_BLOCK *pCb =
-            (PERF_COUNTER_BLOCK*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable, sizeof(PERF_COUNTER_BLOCK));
-        if (pCb == NULL) return ERROR_MORE_DATA;
-        pCb->ByteLength = sizeof(PERF_COUNTER_BLOCK)+sizeof(polystatistics);
-
-        // Now the actual counters.  Currently we just copy the data from the shared memory.
-        polystatistics *pStats =
-            (polystatistics*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable, sizeof(polystatistics));
+        // Now the statistics including a PERF_COUNTER_BLOCK
+        DWORD statSize = (sizeof(statistics) + 7) / 8 * 8;
+        statistics *pStats  =
+            (statistics*)allocBuffSpace(lppData, lpcbTotalBytes, dwBytesAvailable, statSize);
         if (pStats == NULL) return ERROR_MORE_DATA;
-        memcpy(pStats, pProc->statistics, sizeof(polystatistics));
+
+        pStats->header.ByteLength = sizeof(PERF_COUNTER_BLOCK)+statSize;
+        ASN1Parse decode(pStats, pProc->sharedMem);
+        decode.asn1Decode();
     }
 
     pObjectType->TotalByteLength = *lpcbTotalBytes;
