@@ -39,11 +39,14 @@ struct
        the optimiser to choose the best alternative for code.  It also discards bindings that
        are unused and side-effect-free.  These can arise as the result of optimiser constructing
        bindings in case they are required.  That was originally its only function; hence the name. *)
-    fun cleanProc (pt, procUses: codeUse list, prev: int * codeUse list -> loadForm, localCount, checkArg) =
+    fun cleanProc (pt, procUses: codeUse list, prev: int * codeUse list -> loadForm, recursiveRef: codeUse list -> unit, localCount, checkArg) =
     let
         val locals = Array.array(localCount, [])
+        fun addLocalUse addr use =
+            Array.update(locals, addr, use @ Array.sub(locals, addr))
 
-        fun cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm, lambdaUse) =
+        fun cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm,
+                        lambdaUse, recursiveRef) =
         let
             (* If we have called this function somewhere and used the result that gives us a hint on the
                preferred result. *)
@@ -69,7 +72,7 @@ struct
             val argUses = Array.array (List.length argTypes, [])
             fun checkArg(addr, uses) = Array.update(argUses, addr, uses @ Array.sub(argUses, addr))
 
-            val bodyCode = cleanProc(body, bodyUse, lookup, localCount, checkArg)
+            val bodyCode = cleanProc(body, bodyUse, lookup, recursiveRef, localCount, checkArg)
 
             val newClosure = extractClosure closureUse
 
@@ -86,7 +89,7 @@ struct
             (
                 (* Check we're actually adding to the usage. *)
                 null codeUse andalso raise InternalError "cleanExtract: empty usage";
-                Array.update(locals, addr, codeUse @ Array.sub(locals, addr));
+                addLocalUse addr codeUse;
                 ext
             )
 
@@ -98,7 +101,7 @@ struct
 
         |   cleanExtract(LoadClosure addr, codeUse) = prev(addr, codeUse)
         
-        |   cleanExtract(LoadRecursive, _) = LoadRecursive
+        |   cleanExtract(LoadRecursive, codeUse) = (recursiveRef codeUse; LoadRecursive)
 
         and cleanCode (code, codeUse) =
         let
@@ -124,7 +127,16 @@ struct
                                If we retain the binding we must set at least one reference. *)
                             if null decUses
                             then processedRest (* Skip it *)
-                            else Declar{value=cleanCode (value, decUses), addr=addr, use=decUses} :: processedRest
+                            else
+                            let
+                                val cleanvalue =
+                                    case value of
+                                        Lambda lambda =>
+                                            Lambda(cleanLambda(lambda, decUses, addLocalUse addr))
+                                    |   value => cleanCode (value, decUses)
+                            in
+                                Declar{value=cleanvalue, addr=addr, use=decUses} :: processedRest
+                            end
                         end
 
                     |   processDecs(RecDecs decs :: rest) =
@@ -153,7 +165,7 @@ struct
                                             processMutuals(rest, this::excluded, added)
                                     |   useSoFar =>
                                             (* Process this then the rest of the list. *)
-                                            (addr, cleanLambda(lambda, useSoFar)) ::
+                                            (addr, cleanLambda(lambda, useSoFar, addLocalUse addr)) ::
                                                 processMutuals(rest, excluded, true)
                                 )
                             val entriesUsed = processMutuals(decs, [], false)
@@ -215,7 +227,7 @@ struct
                     SOME(Tuple{ fields = processField(fields, 0), isVariant = isVariant})
                 end
 
-            |   doClean codeUse (Lambda lam) = SOME(Lambda(cleanLambda(lam, codeUse)))
+            |   doClean codeUse (Lambda lam) = SOME(Lambda(cleanLambda(lam, codeUse, fn _ => ())))
 
             |   doClean codeUse (Eval{function, argList, resultType}) =
                 (* As with Indirect we try to pass this information down so that if
@@ -256,7 +268,7 @@ struct
 
     val cleanProc =
         fn (code, procUse, prev, localCount) =>
-            cleanProc(code, procUse, fn (i, _) => prev i, localCount, fn _ => ())
+            cleanProc(code, procUse, fn (i, _) => prev i, fn _ => (), localCount, fn _ => ())
 
     structure Sharing =
     struct
