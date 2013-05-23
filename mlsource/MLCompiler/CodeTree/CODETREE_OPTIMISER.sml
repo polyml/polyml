@@ -204,6 +204,22 @@ struct
         else NonTailRecursive(Array.vector argMod)
     end
 
+    (* When transforming code we only process one level and do not descend into sub-functions. *)
+    local
+        fun deExtract(Extract l) = l | deExtract _ = raise Misc.InternalError "deExtract"
+        fun onlyFunction repEntry (Lambda{ body, isInline, name, closure, argTypes, resultType, localCount }) =
+            SOME(
+                Lambda {
+                    body = body, isInline = isInline, name = name,
+                    closure = map (deExtract o mapCodetree repEntry o Extract) closure,
+                    argTypes = argTypes, resultType = resultType, localCount = localCount
+                }
+            )
+        |   onlyFunction repEntry code = repEntry code
+    in
+        fun mapFunctionCode repEntry = mapCodetree (onlyFunction repEntry)
+    end
+
     local
         (* This transforms the body of a "small" recursive function replacing any reference
            to the arguments by the appropriate entry and the recursive calls themselves
@@ -211,15 +227,6 @@ struct
         fun mapCodeForFunctionRewriting(code, argMap, modVec, transformCall) =
         let
             fun repEntry(Extract(LoadArgument n)) = SOME(Extract(Vector.sub(argMap, n)))
-            |   repEntry(Lambda{ body, isInline, name, closure, argTypes, resultType, localCount }) =
-                    (* Process the closure but leave the body untouched *)
-                    SOME(
-                        Lambda {
-                            body = body, isInline = isInline, name = name,
-                            closure = map (fn (LoadArgument n) => Vector.sub(argMap, n) | l => l) closure,
-                            argTypes = argTypes, resultType = resultType, localCount = localCount
-                        }
-                    )
             |   repEntry(Eval { function = Extract LoadRecursive, argList, resultType }) =
                 let
                     (* Filter arguments to include only those that are changed and map any values we pass.
@@ -233,7 +240,7 @@ struct
                 end
             |   repEntry _ = NONE
         
-            and mapCode code = mapCodetree repEntry code
+            and mapCode code = mapFunctionCode repEntry code
         in
             mapCode code
         end
@@ -320,10 +327,10 @@ struct
     (* If the function arguments are used in a way that could be optimised the
        data structure represents it. *)
     datatype functionArgPattern =
-        ArgPattTuple of { size: int, allConst: bool }
+        ArgPattTuple of { size: int, allConst: bool, fromFields: bool }
         (* ArgPattCurry is a list, one per level of application, of a
            list, one per argument of the pattern for that argument. *)
-    |   ArgPattCurry of functionArgPattern list list
+    |   ArgPattCurry of functionArgPattern list list * functionArgPattern
     |   ArgPattSimple
 
 
@@ -369,16 +376,16 @@ struct
                                 (* If the result is also curried extend the list. *)
                                 val subCheck =
                                     case checkCurry of CurryCheck => CurryReorderable | c => c
-                                val resultPatts =
+                                val (resultPatts, resultResult) =
                                     case useToPattern subCheck resl of
                                         ArgPattCurry l => l
-                                    |   _ => [] (* Not a function *)
+                                    |   tupleOrSimple => ([], tupleOrSimple)
                                 fun mapArg c =
                                 let
                                     val (n, f) = findTuple c
                                 in
                                     if n <= 1
-                                    then ArgPattSimple else ArgPattTuple{size=n, allConst=f}
+                                    then ArgPattSimple else ArgPattTuple{size=n, allConst=f, fromFields=false}
                                 end
                                 
                                 val thisArg = map mapArg arguments
@@ -391,15 +398,12 @@ struct
                                 if checkCurry = CurryReorderable
                                     andalso List.exists(not o reorderable) arguments
                                 then ArgPattSimple
-                                else ArgPattCurry(thisArg :: resultPatts)
+                                else ArgPattCurry(thisArg :: resultPatts, resultResult)
                             end
-                    (* It would be possible to include UseField here and try to see
-                       if we can detect cases where we always take apart a tuple inside
-                       the function.  A possible problem is that we don't know the
-                       maximum width of the tuple. *)
+                    |   UseField (n, _) => ArgPattTuple{size=n+1, allConst=false, fromFields=true}
                     |   _ => ArgPattSimple
 
-                fun mergePattern(ArgPattCurry l1, ArgPattCurry l2) =
+                fun mergePattern(ArgPattCurry(l1, r1), ArgPattCurry(l2, r2)) =
                     let
                         (* Each argument list should be the same length.
                            The length here is the number of arguments
@@ -413,14 +417,17 @@ struct
                            shorter. *)
                         val prefix = ListPair.map mergeArgLists (l1, l2)
                     in
-                        if null prefix then ArgPattSimple else ArgPattCurry prefix
+                        if null prefix then ArgPattSimple else ArgPattCurry(prefix, mergePattern(r1, r2))
                     end
                     
-                |   mergePattern(ArgPattTuple{size=n1, allConst=c1}, ArgPattTuple{size=n2, allConst=c2}) =
+                |   mergePattern(ArgPattTuple{size=n1, allConst=c1, fromFields=f1}, ArgPattTuple{size=n2, allConst=c2, fromFields=f2}) =
                         (* If the tuples are different sizes we can't use a tuple.
                            Unlike currying it would be safe to assume tupling where
                            there isn't (unless the function is actually polymorphic). *)
-                        if n1 = n2 then ArgPattTuple{size=n1, allConst=c1 andalso c2} else ArgPattSimple
+                        if n1 = n2 orelse (f1 andalso f2)
+                        then ArgPattTuple{size=Int.max(n1, n2), allConst=c1 andalso c2, fromFields = f1 andalso f2}
+                        else ArgPattSimple
+
                 |   mergePattern _ = ArgPattSimple
             in
                 case tl of
@@ -467,7 +474,7 @@ struct
                into tuples.  Then when the code is run through the simplifier
                the tuples will be optimised away.  *)
             val localCounter = ref localCount
-            fun mapPattern(ArgPattTuple{size=width, allConst=false} :: patts, n, m) =
+            fun mapPattern(ArgPattTuple{size=width, allConst=false, ...} :: patts, n, m) =
                 let
                     val (decs, args, mapList) = mapPattern(patts, n+1, m+width)
                     val newAddr = ! localCounter before localCounter := ! localCounter + 1
@@ -479,7 +486,7 @@ struct
                     (thisDec :: decs, thisArg @ args, LoadLocal newAddr :: mapList)
                 end
 
-            |   mapPattern(ArgPattCurry(currying as firstArgSet :: _) :: patts, n, m) =
+            |   mapPattern(ArgPattCurry(currying as firstArgSet :: _, _) :: patts, n, m) =
                 (* Transform it if it's curried or if there is a tuple in the first arg. *)
                 if List.length currying >= 2 orelse
                    List.exists(fn ArgPattTuple{allConst=false, ...} => true | _ => false) firstArgSet
@@ -524,7 +531,7 @@ struct
                             fun mapArgs(c :: ctl, args) =
                             let
                                 fun mapArg([], args) = mapArgs(ctl, args)
-                                |   mapArg(ArgPattTuple{size=width, allConst=false} :: patts, arg :: argctl) =
+                                |   mapArg(ArgPattTuple{size=width, allConst=false, ...} :: patts, arg :: argctl) =
                                         List.tabulate(width, fn p => (mkInd(p, Extract arg), GeneralType)) @
                                             mapArg(patts, argctl)
                                 |   mapArg(_ :: patts, arg :: argctl) =
@@ -558,7 +565,7 @@ struct
                     val packFn = curryPack(argumentArgs, loadPack)
                 end
                 val thisDec = Declar { addr = newAddr, use = [], value = packFn }
-                fun argCount(ArgPattTuple{size=width, allConst=false}, m) = width + m
+                fun argCount(ArgPattTuple{size=width, allConst=false, ...}, m) = width + m
                 |   argCount(_, m) = m+1
                 local
                     (* In the shim function, i.e. the inline function outside, we have
@@ -569,7 +576,7 @@ struct
                     fun curryApply(hd :: tl, n, c) =
                         let
                             fun makeArgs(_, []) = []
-                            |   makeArgs(q, ArgPattTuple{size=width, allConst=false} :: args) =
+                            |   makeArgs(q, ArgPattTuple{size=width, allConst=false, ...} :: args) =
                                     (mkTuple(List.tabulate(width, fn r => mkLoadArgument(r+q))), GeneralType) ::
                                          makeArgs(q+width, args)
                             |   makeArgs(q, _ :: args) =
@@ -611,24 +618,15 @@ struct
 
                 fun doMap(Extract(LoadArgument n)) = SOME(Extract(Vector.sub(argMap, n)))
                 |   doMap(Extract LoadRecursive) = SOME(Extract recEntry)
-                |   doMap(Lambda{ body, isInline, name, closure, argTypes, resultType, localCount }) =
-                    (* Process the closure but leave the body untouched *)
-                    SOME(
-                        Lambda {
-                            body = body, isInline = isInline, name = name,
-                            closure = map (fn (LoadArgument n) => Vector.sub(argMap, n) | LoadRecursive => recEntry | l => l) closure,
-                            argTypes = argTypes, resultType = resultType, localCount = localCount
-                        }
-                    )
                 |   doMap _ = NONE
             in
-                val transBody = mapCodetree doMap body
+                val transBody = mapFunctionCode doMap body
             end
 
             local
                 (* The argument types for the main function have the tuples expanded,  Functions
                    are not affected. *)
-                fun expand(ArgPattTuple{size, allConst=false}, _, r) = List.tabulate(size, fn _ => (GeneralType, [])) @ r
+                fun expand(ArgPattTuple{size, allConst=false, ...}, _, r) = List.tabulate(size, fn _ => (GeneralType, [])) @ r
                 |   expand(_, a, r) = a :: r
             in
                 val transArgTypes = ListPair.foldrEq expand [] (usage, argTypes)
@@ -658,17 +656,67 @@ struct
             (shimLambda: lambdaForm, [mainFunction, shimFunction])
         end
 
-    |   transformFromUsage(lambda, _, _) =
-        (* Curried - just unwind one level this time. *)
+    |   transformFromUsage(
+            { argTypes, name, resultType, closure, isInline, localCount,
+              body as Lambda { argTypes=subArgTypes, resultType=subResultType, ... } , ...} , _, makeAddress) =
+        (* Curried - just unwind one level this time.  This case is normally dealt with by
+           the front-end at least for fun bindings. *)
         let
+            local
+                fun mapArg f n ((t, _) :: tl) = (Extract(f n), t) :: mapArg f (n+1) tl
+                |   mapArg _ _ [] = []
+            in
+                fun mapArgs f l = mapArg f 0 l
+            end
+
+            val mainAddress = makeAddress() and shimAddress = makeAddress()
+            (* The main function calls the original body as a function.  The body
+               is a lambda which will contain references to the outer arguments but
+               because we're just adding arguments these will be as before. *)
+            val arg1Count = List.length argTypes
+            val mainLambda =
+                {
+                    body =
+                        Eval{ function = body, resultType = subResultType,
+                            argList = mapArgs (fn n => LoadArgument(n+arg1Count)) subArgTypes
+                        },
+                    name = name, resultType = subResultType,
+                    closure = closure, isInline = isInline, localCount = localCount,
+                    argTypes = argTypes @ subArgTypes
+                }
+            val mainFunction = (mainAddress, mainLambda)
+
+            val shimInnerLambda =
+                Lambda {
+                    (* The inner shim closure contains the main function and the outer arguments. *)
+                    closure = LoadClosure 0 :: List.tabulate(arg1Count, LoadArgument),
+                    body = Eval {
+                                function = Extract(LoadClosure 0),
+                                resultType = resultType,
+                                (* Calls main function with both sets of args. *)
+                                argList = mapArgs (fn n => LoadClosure(n+1)) argTypes @
+                                          mapArgs LoadArgument subArgTypes
+                            },
+                    name = name ^ "-", resultType = subResultType, localCount = 0, isInline = Inline,
+                    argTypes = subArgTypes
+                }
+
+            val shimOuterLambda =
+                { body = shimInnerLambda, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
+                  resultType = resultType, isInline = Inline, localCount = 0 }
+            val shimFunction = (shimAddress, shimOuterLambda)
         in
-            (lambda, [])
+            (shimOuterLambda: lambdaForm, [mainFunction, shimFunction])
         end
 
+    |   transformFromUsage _ = raise InternalError "transformFromUsage"
+
+    (* Process a Lambda slightly differently in different contexts. *)
+    datatype lambdaContext = LCNormal | LCRecursive | LCImmediateCall
 
     fun optimise (context, use) (Lambda lambda) =
         let
-            val (bindings, newLambda) = optLambda(context, use, lambda, false)
+            val (bindings, newLambda) = optLambda(context, use, lambda, LCNormal)
         in
             SOME(mkEnv(map(fn(addr, lam) => Declar{addr=addr, use=[], value=Lambda lam}) bindings, newLambda))
         end
@@ -681,7 +729,7 @@ struct
             |   mapbinding(RecDecs l) =
                 let
                     fun mapRecDec({addr, lambda, use}, rest) =
-                        case optLambda(context, use, lambda, true) of
+                        case optLambda(context, use, lambda, LCRecursive) of
                             (bindings, Lambda lambdaRes) =>
                                 (* Turn any bindings into extra mutually-recursive functions. *)
                                 {addr=addr, use = use, lambda = lambdaRes } ::
@@ -693,6 +741,18 @@ struct
             |   mapbinding(NullBinding exp) = NullBinding(mapExp [UseGeneral] exp)
         in
             SOME(Newenv(map mapbinding envDecs, mapExp use envExp))
+        end
+
+        (* Immediate call to a function.  We may be able to expand this inline unless it
+           is recursive. *)
+    |   optimise (context, use) (Eval {function = Lambda lambda, argList, resultType}) =
+        let
+            val args = map (fn (c, t) => (optGeneral context c, t)) argList
+            val argTuples = map #1 args
+            val (bindings, newLambda) = optLambda(context, [UseApply(use, argTuples)], lambda, LCImmediateCall)
+            val call = Eval { function=newLambda, argList=args, resultType = resultType }
+        in
+            SOME(mkEnv(map(fn(addr, lam) => Declar{addr=addr, use=[], value=Lambda lam}) bindings, call))
         end
 
     |   optimise (context, use) (Eval {function, argList, resultType}) =
@@ -736,7 +796,7 @@ struct
             { debugArgs, reprocess, makeAddr, ... },
             use,
             { body, name, argTypes, resultType, closure, localCount, isInline, ...},
-            isRecursiveBinding) : (int * lambdaForm) list * codetree =
+            lambdaContext) : (int * lambdaForm) list * codetree =
     (*
         Optimisations on lambdas.
         1.  A lambda that simply calls another function with all its own arguments
@@ -755,7 +815,7 @@ struct
            that has been inline expanded.  Otherwise this will be a "small" function
            and will be inline expanded when it's used. *)
         val replaceBody =
-            case (body, isRecursiveBinding) of
+            case (body, lambdaContext = LCRecursive) of
                 (Eval { function, argList, resultType=callresult }, false) =>
                 let
                     fun argSequence((Extract(LoadArgument a), _) :: rest, b) = a = b andalso argSequence(rest, b+1)
@@ -813,53 +873,6 @@ struct
             end
             else
             let
-                val functionPattern =
-                    case usageForFunctionBody use of
-                        ArgPattCurry(arg1 :: arg2 :: _) =>
-                            (* The function is always called with at least two curried arguments.
-                               We can decurry the function if the body is applicative - typically
-                               if it's a lambda - but not if applying the body would have a
-                               side-effect.  We only do it one level at this stage.  If it's
-                               curried more than that we'll come here again. *)
-                            if reorderable body
-                            then ArgPattCurry[arg1, arg2]
-                            else ArgPattCurry[arg1]
-                    |   usage => usage
-
-                val argPatterns = map (usageForFunctionArg o #2) argTypes
-
-                (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
-                   the patterns. *)
-                val fullArgPattern =
-                    case functionPattern of
-                        ArgPattCurry(hd :: rest) =>
-                        let
-                            (* Merge the applications of the function with the use of the arguments. *)
-                            fun merge(a as ArgPattTuple _, _) = a
-                            |   merge(_, argUse) = argUse
-                        in
-                            (ListPair.mapEq merge (hd, argPatterns)) :: rest
-                        end
-                    |   _ =>
-                        if List.exists (fn UseExport => true | _ => false) use
-                        then [argPatterns]
-                        else []
-
-                val requiresWork =
-                    case fullArgPattern of
-                    (*    _ :: _ :: _ => (raise InternalError "TODO"; true) (* Curried *)
-                    |*)   first :: _ =>
-                            (* It isn't curried - look at the arguments. *)
-                            List.exists(fn ArgPattTuple{allConst=false, ...} =>
-                                             (* Function has at least one tupled arg. *) true
-                                        |  ArgPattCurry(currying as firstArgSet :: _) =>
-                                                List.length currying >= 2 orelse
-                                                List.exists(fn ArgPattTuple{allConst=false, ...} => true | _ => false) firstArgSet
-                                             (* Function has an arg that is a function that is curried or
-                                                takes a tuple in its first argument set. *)
-                                         |  _ => false) first
-                    |   _ => false
-
                 (* Allocate any new addresses after the existing ones. *)
                 val addressAllocator = ref localCount
                 val optContext =
@@ -870,10 +883,15 @@ struct
                 }
                 val optBody = mapCodetree (optimise(optContext, [UseGeneral])) body
 
-                (* See if this should be expanded inline. *)
+                (* See if this should be expanded inline.  If we are calling the lambda
+                   immediately we try to expand it unless maxInlineSize is zero.  We
+                   may not be able to expand it if it is recursive. (It may have been
+                   inside an inline function). *)
+                val maxInlineSize = DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs
                 val (inlineType, updatedBody, localCount) =
                     case evaluateInlining(optBody, List.length argTypes,
-                            DEBUG.getParameter DEBUG.maxInlineSizeTag debugArgs) of
+                            if maxInlineSize <> 0 andalso lambdaContext = LCImmediateCall
+                            then 1000 else maxInlineSize) of
                         NonRecursive  => (Inline, optBody, ! addressAllocator)
                     |   TailRecursive bv =>
                             (Inline,
@@ -892,10 +910,82 @@ struct
                     resultType = resultType, isInline = inlineType, localCount = localCount
                 }
 
-                (* See if it should be transformed. *)
+                (* See if it should be transformed.  We only do this if the function is not going
+                   to be inlined.  If it is then there's no point because the transformation is
+                   going to be done as part of the inling process.  Even if it's marked for
+                   inlining we may not actually call the function and instead pass it as an
+                   argument or return it as result but in that case transformation doesn't
+                   achieve anything because we are going to pass the untransformed "shim"
+                   function anyway. *)
                 val (newLambda, bindings) =
-                    if requiresWork andalso isInline = NonInline
-                    then transformFromUsage(lambda, fullArgPattern, makeAddr)
+                    if isInline = NonInline
+                    then
+                    let
+                        val functionPattern =
+                            case usageForFunctionBody use of
+                                ArgPattCurry(arg1 :: arg2 :: _, res) =>
+                                    (* The function is always called with at least two curried arguments.
+                                       We can decurry the function if the body is applicative - typically
+                                       if it's a lambda - but not if applying the body would have a
+                                       side-effect.  We only do it one level at this stage.  If it's
+                                       curried more than that we'll come here again. *)
+                                    (* In order to get the types we restrict this to the case of
+                                       a body that is a lambda. *)
+                                    if (*reorderable body*) case body of Lambda _ => true | _ => false
+                                    then ArgPattCurry([arg1, arg2], res)
+                                    else ArgPattCurry([arg1], res)
+                            |   usage => usage
+
+                        val _ =
+                            case functionPattern of
+                                ArgPattCurry(_, ArgPattTuple _) => print("Tuple result in " ^ name ^ "\n")
+                            |   _ => ()
+
+                        val argPatterns = map (usageForFunctionArg o #2) argTypes
+
+                        (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
+                           the patterns. *)
+                        val fullArgPattern =
+                            case functionPattern of
+                                ArgPattCurry(hd :: rest, _) =>
+                                let
+                                    (* Merge the applications of the function with the use of the arguments. *)
+                                    fun merge(a as ArgPattTuple _, _) = a
+                                    |   merge(_, argUse) = argUse
+                                in
+                                    (ListPair.mapEq merge (hd, argPatterns)) :: rest
+                                end
+                            |   _ =>
+                                if List.exists (fn UseExport => true | _ => false) use
+                                then [argPatterns]
+                                else []
+
+                        val requiresWork =
+                            case fullArgPattern of
+                                _ :: _ :: _ => true (* Curried *)
+                            |   first :: _ =>
+                                    (* It isn't curried - look at the arguments. *)
+                                    List.exists(fn ArgPattTuple{allConst=false, ...} =>
+                                                     (* Function has at least one tupled arg. *) true
+                                                |  ArgPattCurry(currying as firstArgSet :: _, argResult) =>
+                                                    (
+                                                        case argResult of ArgPattTuple _ => print("Arg returns tuple - " ^ name ^ "\n") | _ => ();
+                                                        List.length currying >= 2 orelse
+                                                        List.exists(fn ArgPattTuple{allConst=false, ...} => true | _ => false) firstArgSet
+                                                    )
+                                                     (* Function has an arg that is a function that is curried or
+                                                        takes a tuple in its first argument set. *)
+                                                 |  _ => false) first
+                            |   _ => false
+                    in
+                        if requiresWork
+                        then
+                        (
+                            reprocess := true;
+                            transformFromUsage(lambda, fullArgPattern, makeAddr)
+                        )
+                        else (lambda, [])
+                    end
                     else (lambda, [])
             in
                 (* If this is to be inlined but was not before we may need to reprocess. *)
