@@ -138,7 +138,7 @@ end;
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sharing
         = PRETTY.Sharing = CODETREE.Sharing = MAKE = ADDRESS = DATATYPEREP.Sharing
-        = TYPEIDCODE.Sharing
+        = TYPEIDCODE.Sharing = DEBUGGER.Sharing = LEX.Sharing
 
 ) : 
 
@@ -658,11 +658,11 @@ struct
             (* When we start the compiler we don't have any conversion functions.
                We can't even use a literal string until we have installed a
                basic converter. *)
-            val () = addVal ("convStringName", "convString", String);
-            val () = addVal ("convInt", intOfString, String ->> Int);
-            val () = addVal ("convWord", wordOfString, String ->> Word);
+            val () = addVal ("convStringName", "convString": string, String);
+            val () = addVal ("convInt", intOfString : string -> int, String ->> Int);
+            val () = addVal ("convWord", wordOfString : string -> word, String ->> Word);
             (* Convert a string, recognising and converting the escape codes. *)
-            val () = addVal ("convString", unescapeString, String ->> String);
+            val () = addVal ("convString", unescapeString: string -> string, String ->> String);
 
         end;
 
@@ -919,6 +919,10 @@ struct
           in
             val nameSpaceType = mkTypeConstruction ("nameSpace", recordType, [], declInBasis)
             val execResult = mkLabelled(sortLabels resultFields, true)
+            type execResult =
+                { fixes: (string * fixStatus) list, values: (string * values) list,
+                  structures: (string * structVals) list, signatures: (string * signatures) list,
+                  functors: (string * functors) list, types: (string * typeConstrSet) list }
 
             val valueVal = valueVal
             val typeVal = typeVal
@@ -1081,13 +1085,22 @@ struct
             val a = makeTV()
             (* val tagInject  : 'a tag -> 'a -> universal *)
             val injectType = Tag a ->> a ->> Universal
-            val () = enterUniversal ("tagInject", makePolymorphic([a], mkConst (toMachineWord Universal.tagInject)), injectType)
+            val () = enterUniversal ("tagInject",
+                        makePolymorphic([a],
+                            mkConst (toMachineWord (Universal.tagInject: 'a Universal.tag -> 'a -> Universal.universal))),
+                            injectType)
             (* We don't actually need tagIs and tagProject since this is only used for
                the compiler.  Universal is redefined in the basis library. *)          
             val projectType = Tag a ->> Universal ->> a 
-            val () = enterUniversal ("tagProject", makePolymorphic([a], mkConst (toMachineWord Universal.tagProject)), projectType)
+            val () = enterUniversal ("tagProject",
+                        makePolymorphic([a],
+                            mkConst (toMachineWord(Universal.tagProject: 'a Universal.tag -> Universal.universal -> 'a))),
+                            projectType)
             val testType = Tag a ->> Universal ->> Bool
-            val () = enterUniversal ("tagIs", makePolymorphic([a], mkConst (toMachineWord Universal.tagIs)), testType)
+            val () = enterUniversal ("tagIs",
+                        makePolymorphic([a],
+                            mkConst (toMachineWord(Universal.tagIs: 'a Universal.tag -> Universal.universal -> bool))),
+                            testType)
          in
             val Tag = Tag and Universal = Universal
         end
@@ -1152,11 +1165,13 @@ struct
  
             val compilerType : types =
                 mkProductType[nameSpaceType, Unit ->> Option Char, List Universal] ->>
-                    mkProductType[Option ParseTree, Option (Unit ->> execResult)];
+                    mkProductType[Option ParseTree, Option (Unit ->> execResult)]
+            type compilerType =
+                    nameSpace * (unit -> char option) * Universal.universal list -> exportTree option * (unit->execResult) option
         in
-            val () = enterBootstrap ("use", mkConst (toMachineWord (useIntoEnv globalTable)), String ->> Unit)            
-            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord compiler), declInBasis));
-            val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable)), nameSpaceType)
+            val () = enterBootstrap ("use", mkConst (toMachineWord ((useIntoEnv globalTable): string -> unit)), String ->> Unit)            
+            val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
+            val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
         end;
 
 (*****************************************************************************)
@@ -1191,9 +1206,8 @@ struct
             open DEBUG;
             val debuggerType =
                 TYPETREE.mkProductType[Int, valueVal, Int, String, String, nameSpaceType] ->> Unit
-
-            val errorMessageProcType =
-            let
+            type debuggerType = int * values * int * string * string * nameSpace -> unit
+            local
                 open TYPETREE
                 val fields =
                 [
@@ -1201,10 +1215,12 @@ struct
                     mkLabelEntry("message", PrettyType), mkLabelEntry("context", Option PrettyType)
                 ]
             in
-                mkLabelled(sortLabels fields, true) ->> Unit
+                val errorMessageProcType = mkLabelled(sortLabels fields, true) ->> Unit
+                type errorMessageProcType =
+                    { location: location, hard: bool, message: pretty, context: pretty option } -> unit
             end
-            val navigationType =
-            let
+
+            local
                 open TYPETREE
                 val optNav = Option(Unit->>ParseTree)
                 val fields =
@@ -1214,39 +1230,42 @@ struct
                     mkLabelEntry("previous", optNav)
                 ]
             in
-                mkLabelled(sortLabels fields, true)
+                val navigationType = mkLabelled(sortLabels fields, true)
+                type navigationType =
+                    { parent: (unit->exportTree) option, next: (unit->exportTree) option, previous: (unit->exportTree) option }
             end
+            type 'a tag = 'a Universal.tag
         in
             val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
                 [
-                ("compilerVersion",        toMachineWord VERSION.compilerVersion, String),
-                ("compilerVersionNumber",  toMachineWord VERSION.versionNumber,  Int),
-                ("lineNumberTag",          toMachineWord lineNumberTag,          Tag (Unit->>Int)),
-                ("offsetTag",              toMachineWord offsetTag,              Tag (Unit->>Int)),
-                ("fileNameTag",            toMachineWord fileNameTag,            Tag String),
-                ("maxInlineSizeTag",       toMachineWord maxInlineSizeTag,       Tag Int),
-                ("assemblyCodeTag",        toMachineWord assemblyCodeTag,        Tag Bool),
-                ("parsetreeTag",           toMachineWord parsetreeTag,           Tag Bool),
-                ("codetreeTag",            toMachineWord codetreeTag,            Tag Bool),
-                ("pstackTraceTag",         toMachineWord pstackTraceTag,         Tag Bool),
-                ("lowlevelOptimiseTag",    toMachineWord lowlevelOptimiseTag,    Tag Bool),
-                ("codetreeAfterOptTag",    toMachineWord codetreeAfterOptTag,    Tag Bool),
-                ("traceCompilerTag",       toMachineWord traceCompilerTag,       Tag Bool),
-                ("inlineFunctorsTag",      toMachineWord inlineFunctorsTag,      Tag Bool),
-                ("debugTag",               toMachineWord debugTag,               Tag Bool),
-                ("profilingTag",           toMachineWord DEBUG.profilingTag,     Tag Int),
-                ("timingTag",              toMachineWord DEBUG.timingTag,        Tag Bool),
-                ("printDepthFunTag",       toMachineWord DEBUG.printDepthFunTag, Tag (Unit->>Int)),
-                ("errorDepthTag",          toMachineWord DEBUG.errorDepthTag,    Tag Int),
-                ("lineLengthTag",          toMachineWord DEBUG.lineLengthTag,    Tag Int),
-                ("profileAllocationTag",   toMachineWord DEBUG.profileAllocationTag, Tag Int),
-                ("debuggerTag",            toMachineWord DEBUGGER.debuggerFunTag, Tag debuggerType),
-                ("printOutputTag",         toMachineWord PRETTY.printOutputTag,  Tag (PrettyType->>Unit)) ,               
-                ("compilerOutputTag",      toMachineWord PRETTY.compilerOutputTag, Tag (PrettyType->>Unit)),
-                ("errorMessageProcTag",    toMachineWord LEX.errorMessageProcTag, Tag errorMessageProcType),
-                ("rootTreeTag",            toMachineWord EXPORTTREE.rootTreeTag, Tag navigationType),
-                ("reportUnreferencedIdsTag", toMachineWord reportUnreferencedIdsTag, Tag Bool),
-                ("reportExhaustiveHandlersTag", toMachineWord reportExhaustiveHandlersTag, Tag Bool)
+                ("compilerVersion",        toMachineWord (VERSION.compilerVersion: string),     String),
+                ("compilerVersionNumber",  toMachineWord (VERSION.versionNumber: int),          Int),
+                ("lineNumberTag",          toMachineWord (lineNumberTag : (unit->int) tag),     Tag (Unit->>Int)),
+                ("offsetTag",              toMachineWord (offsetTag: (unit->int) tag),          Tag (Unit->>Int)),
+                ("fileNameTag",            toMachineWord (fileNameTag: string tag),             Tag String),
+                ("maxInlineSizeTag",       toMachineWord (maxInlineSizeTag: int tag),           Tag Int),
+                ("assemblyCodeTag",        toMachineWord (assemblyCodeTag: bool tag),           Tag Bool),
+                ("parsetreeTag",           toMachineWord (parsetreeTag: bool tag),              Tag Bool),
+                ("codetreeTag",            toMachineWord (codetreeTag: bool tag),               Tag Bool),
+                ("pstackTraceTag",         toMachineWord (pstackTraceTag: bool tag),            Tag Bool),
+                ("lowlevelOptimiseTag",    toMachineWord (lowlevelOptimiseTag: bool tag),       Tag Bool),
+                ("codetreeAfterOptTag",    toMachineWord (codetreeAfterOptTag: bool tag),       Tag Bool),
+                ("traceCompilerTag",       toMachineWord (traceCompilerTag: bool tag),          Tag Bool),
+                ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),
+                ("debugTag",               toMachineWord (debugTag: bool tag),                  Tag Bool),
+                ("profilingTag",           toMachineWord (DEBUG.profilingTag: int tag),         Tag Int),
+                ("timingTag",              toMachineWord (DEBUG.timingTag: bool tag),           Tag Bool),
+                ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->int) tag), Tag (Unit->>Int)),
+                ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: int tag),        Tag Int),
+                ("lineLengthTag",          toMachineWord (DEBUG.lineLengthTag: int tag),        Tag Int),
+                ("profileAllocationTag",   toMachineWord (DEBUG.profileAllocationTag: int tag), Tag Int),
+                ("debuggerTag",            toMachineWord (DEBUGGER.debuggerFunTag: debuggerType tag), Tag debuggerType),
+                ("printOutputTag",         toMachineWord (PRETTY.printOutputTag: (pretty->unit) tag),  Tag (PrettyType->>Unit)) ,               
+                ("compilerOutputTag",      toMachineWord (PRETTY.compilerOutputTag: (pretty->unit) tag), Tag (PrettyType->>Unit)),
+                ("errorMessageProcTag",    toMachineWord (LEX.errorMessageProcTag: errorMessageProcType tag), Tag errorMessageProcType),
+                ("rootTreeTag",            toMachineWord (EXPORTTREE.rootTreeTag: navigation tag), Tag navigationType),
+                ("reportUnreferencedIdsTag", toMachineWord (reportUnreferencedIdsTag: bool tag), Tag Bool),
+                ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool)
                 ]
         end;
  
@@ -1288,32 +1307,37 @@ struct
             val () = applyList (fn (name, v, t) =>
                                 #enterVal codetreeEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
-                ("pretty", toMachineWord CodeTree.pretty, CodeTree ->> PrettyType),
-                ("mkConstant", toMachineWord mkConst, MachineWord ->> CodeTree),
-                ("genCode", toMachineWord genCode, mkProductType[CodeTree, List Universal, Int] ->> (Unit ->> CodeTree)),
-                ("evalue", toMachineWord evalue, CodeTree ->> Option MachineWord),
-                ("mkFunction", toMachineWord simpleFn,
+                ("pretty", toMachineWord (CODETREE.pretty: codetree -> pretty), CodeTree ->> PrettyType),
+                ("mkConstant", toMachineWord(mkConst: machineWord -> codetree), MachineWord ->> CodeTree),
+                ("genCode", toMachineWord (genCode: codetree * Universal.universal list * int -> (unit->codetree)),
+                        mkProductType[CodeTree, List Universal, Int] ->> (Unit ->> CodeTree)),
+                ("evalue", toMachineWord (evalue: codetree -> machineWord option), CodeTree ->> Option MachineWord),
+                ("mkFunction", toMachineWord (simpleFn: codetree * int * string * codetree list * int -> codetree),
                     mkProductType[CodeTree, Int, String, List CodeTree, Int] ->> CodeTree),
-                ("mkInlineFunction", toMachineWord simpleInlineFn,
+                ("mkInlineFunction", toMachineWord (simpleInlineFn: codetree * int * string * codetree list * int -> codetree),
                     mkProductType[CodeTree, Int, String, List CodeTree, Int] ->> CodeTree),
-                ("mkCall", toMachineWord simpleCall, CodeTree ** List CodeTree ->> CodeTree),
-                ("mkLoadLocal", toMachineWord mkLoadLocal, Int ->> CodeTree),
-                ("mkLoadArgument", toMachineWord mkLoadArgument, Int ->> CodeTree),
-                ("mkLoadClosure", toMachineWord mkLoadClosure, Int ->> CodeTree),
-                ("mkDec", toMachineWord mkDec, Int ** CodeTree ->> CodeBinding),
-                ("mkInd", toMachineWord mkInd, Int ** CodeTree ->> CodeTree),
-                ("mkIf", toMachineWord mkIf, mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),
-                ("mkWhile", toMachineWord mkWhile, CodeTree ** CodeTree ->> CodeTree),
-                ("mkLoop", toMachineWord mkLoop, List CodeTree ->> CodeTree),
-                ("mkBeginLoop", toMachineWord mkBeginLoop, CodeTree ** List(Int ** CodeTree) ->> CodeTree),
-                ("mkEnv", toMachineWord mkEnv, List CodeBinding ** CodeTree ->> CodeTree),
-                ("mkMutualDecs", toMachineWord mkMutualDecs, List(Int ** CodeTree) ->> CodeTree),
-                ("mkTuple", toMachineWord mkTuple, List CodeTree ->> CodeTree),
-                ("mkRaise", toMachineWord mkRaise, CodeTree ->> CodeTree),
-                ("mkHandle", toMachineWord mkHandle, CodeTree ** CodeTree ->> CodeTree),
-                ("mkNullDec", toMachineWord mkNullDec, CodeTree ->> CodeBinding),
-                ("Ldexc", toMachineWord Ldexc, CodeTree),
-                ("rtsFunction", toMachineWord rtsFunction, Int ->> CodeTree)
+                ("mkCall", toMachineWord (simpleCall: codetree * codetree list -> codetree), CodeTree ** List CodeTree ->> CodeTree),
+                ("mkLoadLocal", toMachineWord (mkLoadLocal: int -> codetree), Int ->> CodeTree),
+                ("mkLoadArgument", toMachineWord (mkLoadArgument: int -> codetree), Int ->> CodeTree),
+                ("mkLoadClosure", toMachineWord (mkLoadClosure: int -> codetree), Int ->> CodeTree),
+                ("mkDec", toMachineWord (mkDec: int * codetree -> codeBinding), Int ** CodeTree ->> CodeBinding),
+                ("mkInd", toMachineWord (mkInd: int * codetree -> codetree), Int ** CodeTree ->> CodeTree),
+                ("mkIf", toMachineWord (mkIf: codetree * codetree * codetree -> codetree),
+                    mkProductType[CodeTree, CodeTree, CodeTree] ->> CodeTree),
+                ("mkWhile", toMachineWord (mkWhile: codetree * codetree -> codetree), CodeTree ** CodeTree ->> CodeTree),
+                ("mkLoop", toMachineWord (mkLoop: codetree list -> codetree), List CodeTree ->> CodeTree),
+                ("mkBeginLoop", toMachineWord (mkBeginLoop: codetree * (int * codetree) list -> codetree),
+                    CodeTree ** List(Int ** CodeTree) ->> CodeTree),
+                ("mkEnv", toMachineWord (mkEnv: codeBinding list * codetree -> codetree),
+                    List CodeBinding ** CodeTree ->> CodeTree),
+                ("mkMutualDecs", toMachineWord (mkMutualDecs: (int * codetree) list -> codeBinding),
+                    List(Int ** CodeTree) ->> CodeBinding),
+                ("mkTuple", toMachineWord (mkTuple: codetree list -> codetree), List CodeTree ->> CodeTree),
+                ("mkRaise", toMachineWord (mkRaise: codetree -> codetree), CodeTree ->> CodeTree),
+                ("mkHandle", toMachineWord (mkHandle: codetree * codetree -> codetree), CodeTree ** CodeTree ->> CodeTree),
+                ("mkNullDec", toMachineWord (mkNullDec: codetree -> codeBinding), CodeTree ->> CodeBinding),
+                ("Ldexc", toMachineWord (Ldexc: codetree), CodeTree),
+                ("rtsFunction", toMachineWord (rtsFunction: int->codetree), Int ->> CodeTree)
                 ]
         end
 
@@ -1355,6 +1379,8 @@ struct
                     displayValues(valu, depth, makeTypeEnv nameSpace)
             and exportedDisplayStructs(str, depth, nameSpace: nameSpace) =
                     displayStructures(str, depth, makeTypeEnv nameSpace)
+            and exportedPrintValue(v, depth, nameSpace: nameSpace) =
+                    printValues(v, depth, makeTypeEnv nameSpace)
 
             fun codeForValue (Value{access = Global code, class = ValBound, ...}) = code
             |   codeForValue _ = raise Fail "Not a global value"
@@ -1369,35 +1395,36 @@ struct
             val () = applyList (fn (name, v, t) =>
                                 #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
-                ("displayFix",             toMachineWord displayFix, String ** fixityVal ->> PrettyType),
-                ("displaySig",             toMachineWord exportedDisplaySigs,
+                ("displayFix",             toMachineWord (displayFix: string * fixStatus -> pretty),
+                    String ** fixityVal ->> PrettyType),
+                ("displaySig",             toMachineWord (exportedDisplaySigs: signatures * int * nameSpace -> pretty),
                     mkProductType[signatureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayStruct",             toMachineWord exportedDisplayStructs,
+                ("displayStruct",             toMachineWord (exportedDisplayStructs: structVals * int * nameSpace -> pretty),
                     mkProductType[structureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayFunct",             toMachineWord exportedDisplayFunctors,
+                ("displayFunct",             toMachineWord (exportedDisplayFunctors: functors * int * nameSpace -> pretty),
                     mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayVal",             toMachineWord exportedDisplayValues,
+                ("displayVal",             toMachineWord (exportedDisplayValues: values * int * nameSpace -> pretty),
                     mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayType",             toMachineWord exportedDisplayTypeConstr,
+                ("displayType",             toMachineWord (exportedDisplayTypeConstr: typeConstrSet * int * nameSpace -> pretty),
                     mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
                 (* displayTypeExpression doesn't really belong here since it's used
                    as part of the parse tree rather the name space. *)
-                ("displayTypeExpression",    toMachineWord exportedDisplayTypeExp,
+                ("displayTypeExpression",    toMachineWord(exportedDisplayTypeExp: types * int * nameSpace -> pretty),
                     mkProductType[Types, Int, nameSpaceType] ->> PrettyType),
                 (* Code functions *)
-                ("codeForValue",    toMachineWord codeForValue, valueVal ->> CodeTree),
-                ("codeForStruct",   toMachineWord codeForStruct, structureVal ->> CodeTree),
-                ("codeForFunct",    toMachineWord codeForFunct, functorVal ->> CodeTree)
+                ("codeForValue",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
+                ("codeForStruct",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
+                ("codeForFunct",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree)
                ]
             (* Put this in Bootstrap, at least for the moment.
                Used to print values in the debugger without the "val", "=" and the type. *)
            val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
-                [("printValue",             toMachineWord printValues,
+                [("printValue",             toMachineWord (exportedPrintValue: values * int * nameSpace -> pretty),
                     mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
                  (* This is used to get the actual value out of a global "value".
                     It's currently used only in the debugger to get the exception
                     packet out of a global exception value. *)
-                 ("getValue",               toMachineWord getValue, valueVal ->> TYPETREE.exnType)]
+                 ("getValue",               toMachineWord (getValue: values -> machineWord), valueVal ->> TYPETREE.exnType)]
         end;
 
     in
