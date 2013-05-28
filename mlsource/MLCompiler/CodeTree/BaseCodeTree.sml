@@ -193,7 +193,19 @@ struct
             Eval {function, argList, ...} =>
                 PrettyBlock (2, false, [],
                     [
-                        pretty function,
+                        case function of
+                            Extract _ => pretty function
+                        |   Constnt _ => pretty function
+                        |   _ => PrettyBlock(2, true, [],
+                                    [
+                                        string "(",
+                                        PrettyBreak(0, 0),
+                                        pretty function,
+                                        PrettyBreak(0, 0),
+                                        string ")"
+                                    ]
+                                 )
+                        ,
                         PrettyBreak(1, 2),
                         PrettyBlock(2, true, [],
                             (

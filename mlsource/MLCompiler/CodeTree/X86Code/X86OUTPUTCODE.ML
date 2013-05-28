@@ -2197,8 +2197,8 @@ Calling conventions:
         |   MoveConstR { source, output } =>
                 (stream "MoveCR "; printReg output; stream " <="; stream(Int.toString source))
 
-        |   MoveLongConstR { output, ... } =>
-                (stream "MoveCR "; printReg output; stream " <= LONG")
+        |   MoveLongConstR { output, source } =>
+                (stream "MoveCR "; printReg output; stream " <= "; stream(Address.stringOfWord source))
 
         |   LoadMemR { source, output } =>
                 (stream "MoveMR "; printReg output; stream " <= "; printMemAddress source )
@@ -2212,8 +2212,8 @@ Calling conventions:
         |   ArithRConst { opc, output, source } =>
                 (stream (arithOpRepr opc ^ "RC "); printReg output; stream " <= "; stream(Int.toString source) )
 
-        |   ArithRLongConst { opc, output, ... } =>
-                (stream (arithOpRepr opc ^ "RC "); printReg output; stream " <= LONG" )
+        |   ArithRLongConst { opc, output, source } =>
+                (stream (arithOpRepr opc ^ "RC "); printReg output; stream " <= "; stream(Address.stringOfWord source) )
 
         |   ArithRMem { opc, output, offset, base } =>
                 (stream (arithOpRepr opc ^ "RM "); printReg output; stream " <= "; printBaseOffset(base, NoIndex, offset) )
@@ -2224,8 +2224,12 @@ Calling conventions:
                 stream " "; stream(Int.toString source)
             )
 
-        |   ArithMemLongConst { opc, offset, base, ... } =>
-                ( stream (arithOpRepr opc ^ "MC "); printBaseOffset(base, NoIndex, offset); stream " <= LONG")
+        |   ArithMemLongConst { opc, offset, base, source } =>
+            (
+                stream (arithOpRepr opc ^ "MC ");
+                printBaseOffset(base, NoIndex, offset);
+                stream " <= "; stream(Address.stringOfWord source)
+            )
 
         |   ShiftConstant { shiftType, output, shift } =>
             (
@@ -2253,7 +2257,7 @@ Calling conventions:
 
         |   PushConst source => (stream "PushC "; stream(Int.toString source))
 
-        |   PushLongConst _ => stream "PushC LONG"
+        |   PushLongConst source => (stream "PushC "; stream(Address.stringOfWord source))
 
         |   PushMem{base, offset} => (stream "PushM "; printBaseOffset(base, NoIndex, offset))
 
@@ -2271,9 +2275,9 @@ Calling conventions:
                 stream " <= "; stream(Int.toString toStore)
             )
 
-        |   StoreLongConstToMemory { address, ... } =>
+        |   StoreLongConstToMemory { address, toStore } =>
             (
-                stream "StoreLongConstToMemory "; printMemAddress address; stream " <= LONG"
+                stream "StoreLongConstToMemory "; printMemAddress address; stream " <= "; stream(Address.stringOfWord toStore)
             )
 
         |   StoreByteRegToMemory { toStore, address } =>
@@ -2375,7 +2379,7 @@ Calling conventions:
                 printBaseOffset(base, NoIndex, offset)
             )
         |   FPArithR{ opc, source } => (stream(fpOpRepr opc); stream " "; printReg source)
-        |   FPArithConst{ opc, source=_ } => (stream(fpOpRepr opc); stream " LONG")
+        |   FPArithConst{ opc, source } => (stream(fpOpRepr opc); stream(Address.stringOfWord source))
         |   FPArithMemory{ opc, base, offset } => (stream(fpOpRepr opc); stream " "; printBaseOffset(base, NoIndex, offset))
         |   FPUnary opc => stream(fpUnaryRepr opc)
         |   FPStatusToEAX => (stream "FPStatus "; printReg eax)

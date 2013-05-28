@@ -378,9 +378,17 @@ struct
                     SOME(_, name) => name | _ => " RTS" ^ Int.toString n)
     end
 
+    local
+        val doCall: int*machineWord -> string
+            = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+    in
+        fun functionName w = doCall(105, w)
+    end
+
     fun stringOfWord w =
     if isShort w
     then "LIT" ^ Word.toString (unsafeCast w)
+
     else if isIoAddress(toAddress w)
     then (* RTS call - print the number. *)
         let
@@ -394,15 +402,17 @@ struct
         in
             matchIo 0
         end
+
+    else if isCode(toAddress w)
+    then "CODE \"" ^ functionName w ^ "\""
+    
     else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
     then (* If it's the closure of a function try to print that. *)
         let
             val firstWord = loadWord(toAddress w, 0w0)
-            val doCall: int*machineWord -> string
-                = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
         in
             if not (isShort firstWord) andalso isCode(toAddress firstWord)
-            then "FUN \"" ^ doCall(105, firstWord) ^ "\"" (* Get the function name. *)
+            then "FUN \"" ^ functionName firstWord ^ "\"" (* Get the function name. *)
             else "LIT <long>"
         end
     else "LIT <long>"
