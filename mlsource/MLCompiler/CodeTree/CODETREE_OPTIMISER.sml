@@ -207,12 +207,13 @@ struct
     (* When transforming code we only process one level and do not descend into sub-functions. *)
     local
         fun deExtract(Extract l) = l | deExtract _ = raise Misc.InternalError "deExtract"
-        fun onlyFunction repEntry (Lambda{ body, isInline, name, closure, argTypes, resultType, localCount }) =
+        fun onlyFunction repEntry (Lambda{ body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
             SOME(
                 Lambda {
                     body = body, isInline = isInline, name = name,
                     closure = map (deExtract o mapCodetree repEntry o Extract) closure,
-                    argTypes = argTypes, resultType = resultType, localCount = localCount
+                    argTypes = argTypes, resultType = resultType, localCount = localCount,
+                    recUse = recUse
                 }
             )
         |   onlyFunction repEntry code = repEntry code
@@ -312,8 +313,7 @@ struct
                     name = name ^ "()",
                     closure = List.tabulate(closureSize, fn n => LoadClosure n) @ stableArgs,
                     argTypes = List.map (fn (_, t, u) => (t, u)) changeArgsAndTypes,
-                    resultType = resultType,
-                    localCount = localCount
+                    resultType = resultType, localCount = localCount, recUse = [UseGeneral]
                 }
         in
             Eval {
@@ -496,12 +496,13 @@ struct
                 val newBody =
                     mkEnv([Declar{addr=bindAddr, use=[], value=transBody}],
                           SetContainer{container = containerArg, tuple = mkTuple fields, size=size })
-                val mainLambda =
+                val mainLambda: lambdaForm =
                     {
                         body = newBody, name = name, resultType=GeneralType,
                         argTypes=argTypes @ [(GeneralType, [])],
                         closure=closure @ [LoadLocal shimAddress],
-                        localCount=localCount + 1, isInline=isInline
+                        localCount=localCount + 1, isInline=isInline,
+                        recUse = [UseGeneral]
                     }
             in
                 val mainFunction = (mainAddress, mainLambda)
@@ -522,7 +523,7 @@ struct
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 1 }
+                  resultType = resultType, isInline = Inline, localCount = 1, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
          in
             (shimLambda, [mainFunction, shimFunction])
@@ -621,7 +622,7 @@ struct
                             Lambda { closure = fnclosure,
                                 isInline = Inline, name = name ^ "-P", resultType = GeneralType,
                                 argTypes = List.tabulate(nArgs, fn _ => (GeneralType, [UseGeneral])),
-                                localCount = 0,
+                                localCount = 0, recUse = [UseGeneral],
                                 body = curryPack(tl,
                                             (* The closure for the next level is the current closure
                                                together with all the arguments at this level. *)
@@ -668,7 +669,7 @@ struct
                         Lambda {
                             closure = loadThisArg, isInline = Inline, name = name ^ "-E",
                             argTypes = List.tabulate(totalArgCount, fn _ => (GeneralType, [UseGeneral])),
-                            resultType = GeneralType, localCount = 0, body = thisBody
+                            resultType = GeneralType, localCount = 0, recUse = [UseGeneral], body = thisBody
                         }
                 end
             in
@@ -708,7 +709,7 @@ struct
                 {
                     body = mkEnv(extraBindings, transBody), name = name, argTypes = transArgTypes,
                     closure = closure @ [LoadLocal shimAddress], resultType = resultType, isInline = isInline,
-                    localCount = ! localCounter
+                    localCount = ! localCounter, recUse = [UseGeneral]
                 }
 
             (* Return the pair of functions. *)
@@ -717,7 +718,7 @@ struct
                 Eval { function = Extract(LoadClosure 0), argList = transArgs, resultType = resultType }
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 0 }
+                  resultType = resultType, isInline = Inline, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
             (* TODO:  We have two copies of the shim function here. *)
         in
@@ -760,7 +761,7 @@ struct
                         },
                     name = name, resultType = subResultType,
                     closure = closure @ [LoadLocal shimAddress], isInline = isInline, localCount = localCount,
-                    argTypes = argTypes @ subArgTypes
+                    argTypes = argTypes @ subArgTypes, recUse = [UseGeneral]
                 }
             val mainFunction = (mainAddress, mainLambda)
 
@@ -776,12 +777,12 @@ struct
                                           mapArgs LoadArgument subArgTypes
                             },
                     name = name ^ "-", resultType = subResultType, localCount = 0, isInline = Inline,
-                    argTypes = subArgTypes
+                    argTypes = subArgTypes, recUse = [UseGeneral]
                 }
 
             val shimOuterLambda =
                 { body = shimInnerLambda, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = Inline, localCount = 0 }
+                  resultType = resultType, isInline = Inline, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimOuterLambda)
         in
             (shimOuterLambda: lambdaForm, [mainFunction, shimFunction])
@@ -874,8 +875,8 @@ struct
 
     and optLambda(
             { debugArgs, reprocess, makeAddr, ... },
-            use,
-            { body, name, argTypes, resultType, closure, localCount, isInline, ...},
+            contextUse,
+            { body, name, argTypes, resultType, closure, localCount, isInline, recUse, ...},
             lambdaContext) : (int * lambdaForm) list * codetree =
     (*
         Optimisations on lambdas.
@@ -889,6 +890,8 @@ struct
             function with register/stack arguments.
     *)
     let
+        (* The overall use of the function is the context plus the recursive use. *)
+        val use = contextUse @ recUse
         (* Check if it's a call to another function with all the original arguments.
            This is really wanted when we are passing this lambda as an argument to
            another function and really only when we have produced a shim function
@@ -945,7 +948,7 @@ struct
                     {
                         body = optBody,
                         isInline = isInline, name = name, closure = closure,
-                        argTypes = argTypes, resultType = resultType,
+                        argTypes = argTypes, resultType = resultType, recUse = recUse,
                         localCount = !addressAllocator (* After optimising body. *)
                     }
             in
@@ -984,10 +987,11 @@ struct
                             else (NonInline, optBody, ! addressAllocator) (* All arguments have been modified *)
                     |   TooBig => (NonInline, optBody, ! addressAllocator)
 
-                val lambda =
+                val lambda: lambdaForm =
                 {
                     body = updatedBody, name = name, argTypes = argTypes, closure = closure,
-                    resultType = resultType, isInline = inlineType, localCount = localCount
+                    resultType = resultType, isInline = inlineType, localCount = localCount,
+                    recUse = recUse
                 }
 
                 (* See if it should be transformed.  We only do this if the function is not going
@@ -1187,12 +1191,15 @@ struct
                 (* Check for looping at least during testing.*)
                 val _ = count < 10 orelse raise InternalError "Too many passes"
                 (* Identify usage information and remove redundant code. *)
-                val preOptCode =
-                    REMOVE_REDUNDANT.cleanProc(
-                        SIMPLIFIER.specialToGeneral simpCode, [UseExport], topLevel, simpCount)
-                (* Print the code with the use information before it goes into the optimiser. *)
                 val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
                 and compilerOut        = PRETTY.getCompilerOutput debugSwitches
+                val simpCode = SIMPLIFIER.specialToGeneral simpCode
+                val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of simplifier") else ()
+                val () = if printCodeTree then compilerOut (BASECODETREE.pretty simpCode) else ()
+                val preOptCode =
+                    REMOVE_REDUNDANT.cleanProc(simpCode, [UseExport], topLevel, simpCount)
+                (* Print the code with the use information before it goes into the optimiser. *)
+                val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of cleaner") else ()
                 val () = if printCodeTree then compilerOut (BASECODETREE.pretty preOptCode) else ()
 
                 val reprocess = ref false (* May be set in the optimiser *)
@@ -1209,9 +1216,8 @@ struct
                 (* Optimise the code, rewriting it as necessary. *)
                 val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
 
-                (* Print the code with the use information before it goes into the optimiser. *)
-                val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
-                and compilerOut        = PRETTY.getCompilerOutput debugSwitches
+                (* Print the code after the optimiser. *)
+                val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of optimiser") else ()
                 val () = if printCodeTree then compilerOut (BASECODETREE.pretty optCode) else ()
             in
                 (* Rerun the simplifier at least. *)

@@ -102,7 +102,7 @@ struct
         )
 
     |   cgFuns ({lookupAddr, debugArgs, ...}) 
-            (Lambda { body, isInline, name, closure, argTypes, resultType, localCount}) =
+            (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse}) =
         let
             val cArray = Array.array(localCount, NONE)
             val newClosure = makeClosure()
@@ -136,7 +136,8 @@ struct
             val resultLambda =
                 Lambda { 
                     body = newBody, isInline = isInline, name = name, closure = resultClosure,
-                    argTypes = argTypes, resultType = resultType, localCount = localCount
+                    argTypes = argTypes, resultType = resultType, localCount = localCount,
+                    recUse = recUse
                 }
         in
             (* If the closure is (now) empty we can code-generate it. *)

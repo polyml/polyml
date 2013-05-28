@@ -123,9 +123,10 @@ sig
         isInline      : inlineStatus,       (* Whether it's inline - modified by optimiser *)
         name          : string,             (* Text name for profiling etc. *)
         closure       : loadForm list,      (* List of items for closure. *)
-        argTypes      : (argumentType * codeUse list) list,  (* "Types" of arguments. *)
+        argTypes      : (argumentType * codeUse list) list,  (* "Types" and usage of arguments. *)
         resultType    : argumentType,       (* Result "type" of the function. *)
-        localCount    : int                (* Maximum (+1) declaration address for locals.  Added by optimiser. *)
+        localCount    : int,                (* Maximum (+1) declaration address for locals. *)
+        recUse        : codeUse list        (* Recursive use of the function *)
     }
 
     type pretty

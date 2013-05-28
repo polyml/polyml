@@ -534,7 +534,7 @@ struct
                     NonInline => newCode
                 |   _ => REMOVE_REDUNDANT.cleanProc(newCode, [UseExport], LoadClosure, localCount)
 
-            val copiedLambda =
+            val copiedLambda: lambdaForm =
                 {
                     body          = cleanBody,
                     isInline      = isNowInline,
@@ -542,7 +542,8 @@ struct
                     closure       = closureAfterOpt,
                     argTypes      = argTypes,
                     resultType    = resultType,
-                    localCount    = localCount
+                    localCount    = localCount,
+                    recUse        = []
                 }
 
             val inlineCode =

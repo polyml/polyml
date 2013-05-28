@@ -46,12 +46,25 @@ struct
             Array.update(locals, addr, use @ Array.sub(locals, addr))
 
         fun cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm,
-                        lambdaUse, recursiveRef) =
+                        lambdaUse) =
         let
             (* If we have called this function somewhere and used the result that gives us a hint on the
-               preferred result. *)
+               preferred result.  If the function is recursive, though, we can't assume anything
+               because the result of the recursive calls may be used in some other context.  For
+               example they could be passed into an argument function which may require more fields.
+               That in turn affects any functions whose results are used.  See Test138.ML. *)
+            local
+                fun checkRecursive (Extract LoadRecursive, _) = (true, FOLD_DONT_DESCEND)
+                |   checkRecursive (Lambda { closure, ...}, a) = (a orelse List.exists (fn LoadRecursive => true | _ => false) closure, FOLD_DONT_DESCEND)
+                |   checkRecursive (_, a) = (a, FOLD_DESCEND)
+            in
+                val isRecursive = foldtree checkRecursive false body
+            end
+
             val bodyUse =
-                List.foldl
+                if isRecursive
+                then [UseGeneral]
+                else List.foldl
                     (fn (UseApply (l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r)
                     [] lambdaUse
             (* Rebuild the closure with the entries actually used. *)
@@ -71,8 +84,11 @@ struct
             (* This array records the way the arguments are used inside the function. *)
             val argUses = Array.array (List.length argTypes, [])
             fun checkArg(addr, uses) = Array.update(argUses, addr, uses @ Array.sub(argUses, addr))
+            
+            val recursiveRefRef = ref []
+            fun addRef use = recursiveRefRef := use @ !recursiveRefRef
 
-            val bodyCode = cleanProc(body, bodyUse, lookup, recursiveRef, localCount, checkArg)
+            val bodyCode = cleanProc(body, bodyUse, lookup, addRef, localCount, checkArg)
 
             val newClosure = extractClosure closureUse
 
@@ -80,7 +96,7 @@ struct
         in
             {body=bodyCode, isInline=isInline, name=name,
                closure=newClosure, argTypes=newArgTypes, resultType=resultType,
-               localCount=localCount} : lambdaForm
+               localCount=localCount, recUse = !recursiveRefRef} : lambdaForm
         end
 
         (* Process a load from a variable.  Locals and arguments operate on the relevant array,
@@ -131,8 +147,7 @@ struct
                             let
                                 val cleanvalue =
                                     case value of
-                                        Lambda lambda =>
-                                            Lambda(cleanLambda(lambda, decUses, addLocalUse addr))
+                                        Lambda lambda => Lambda(cleanLambda(lambda, decUses))
                                     |   value => cleanCode (value, decUses)
                             in
                                 Declar{value=cleanvalue, addr=addr, use=decUses} :: processedRest
@@ -145,11 +160,9 @@ struct
                             (* We now know the entries that have actually been used
                                in the rest of the code.  We need to include those
                                declarations and any that they use.
-                               TODO:  We process a binding as soon as we know it is
-                               used in order to detect other bindings.  However there
-                               may be other recursive references.  That means that the
-                               "useSoFar" passed as the way the function result is used
-                               may be incomplete.  *)
+                               The result we pass down may well exclude some or all
+                               recursive uses.  We need to include UseGeneral in
+                               the result for safety. *)
                             fun processMutuals([], excluded, true) =
                                     (* If we have included a function in this
                                        pass we have to reprocess the list of
@@ -165,7 +178,7 @@ struct
                                             processMutuals(rest, this::excluded, added)
                                     |   useSoFar =>
                                             (* Process this then the rest of the list. *)
-                                            (addr, cleanLambda(lambda, useSoFar, addLocalUse addr)) ::
+                                            (addr, cleanLambda(lambda, UseGeneral :: useSoFar)) ::
                                                 processMutuals(rest, excluded, true)
                                 )
                             val entriesUsed = processMutuals(decs, [], false)
@@ -227,7 +240,7 @@ struct
                     SOME(Tuple{ fields = processField(fields, 0), isVariant = isVariant})
                 end
 
-            |   doClean codeUse (Lambda lam) = SOME(Lambda(cleanLambda(lam, codeUse, fn _ => ())))
+            |   doClean codeUse (Lambda lam) = SOME(Lambda(cleanLambda(lam, codeUse)))
 
             |   doClean codeUse (Eval{function, argList, resultType}) =
                 (* As with Indirect we try to pass this information down so that if

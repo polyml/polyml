@@ -137,7 +137,8 @@ struct
         closure       : loadForm list,
         argTypes      : (argumentType * codeUse list) list,
         resultType    : argumentType,
-        localCount    : int
+        localCount    : int,
+        recUse        : codeUse list
     }
 
     structure CodeTags =
@@ -232,7 +233,7 @@ struct
                     ]
                 )
         
-        | Lambda {body, isInline, name, closure, argTypes, localCount, ...} =>
+        | Lambda {body, isInline, name, closure, argTypes, localCount, recUse, ...} =>
             let
                 val inl = 
                     case isInline of
@@ -270,6 +271,8 @@ struct
                         string "(*", space, string("\"" ^ name ^ "\""), space, string inl,
                         space, string(Int.toString localCount ^ " locals,"), space,
                         printList ("closure=", map Extract closure, ","),
+                        space,
+                        prettyUses "recursive use=" recUse,
                         space, string "*)"
                     ]),
                     PrettyBreak(1, 2),
@@ -504,11 +507,12 @@ struct
                     argList = map (fn(c, a) => (mapCodetree f c, a)) argList,
                     resultType = resultType
                 }
-        |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount }) =
+        |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
                 Lambda {
                     body = mapCodetree f body, isInline = isInline, name = name,
                     closure = map (deExtract o (mapCodetree f) o Extract) closure,
-                    argTypes = argTypes, resultType = resultType, localCount = localCount
+                    argTypes = argTypes, resultType = resultType, localCount = localCount,
+                    recUse = recUse
                 }
         |   mapt (Cond(i, t, e)) = Cond(mapCodetree f i, mapCodetree f t, mapCodetree f e)
         |   mapt (BeginLoop{loop, arguments}) =

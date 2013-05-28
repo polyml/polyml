@@ -280,7 +280,8 @@ struct
                 closure       = map deExtract closure,
                 argTypes      = List.tabulate(args, fn _ => (GeneralType, [])),
                 resultType    = GeneralType,
-                localCount    = numLocals
+                localCount    = numLocals,
+                recUse        = []
               }
     in
         val mkProc = Lambda o mkSimpleFunction NonInline (* Normal function *)
@@ -315,7 +316,8 @@ struct
                 closure       = map deExtract closure,
                 argTypes      = map (fn t => (t, [])) argsAndTypes,
                 resultType    = resultType,
-                localCount    = numLocals
+                localCount    = numLocals,
+                recUse        = []
             }
     in
         val mkFunction = mkFunWithTypes NonInline
