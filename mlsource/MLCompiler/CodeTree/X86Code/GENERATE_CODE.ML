@@ -1066,37 +1066,6 @@ struct
                 else MergeIndex(pushConst (transtable, DummyValue))
             end
 
-        |   BICTupleFromContainer(container, size) =>
-            (* Create a tuple from the contents of a container. *)
-            let
-                val vec = genToStack (container);
-                val (tup, tupleCode) = callgetvec (size, F_words, whereto, transtable)
-
-                val () = codeGenerate(tupleCode, cvec)
-
-                fun copy n =
-                    if n = size
-                    then ()
-                    else
-                    let
-                        (* We need to ensure that the container entry is only removed
-                           when we load the last item from it. *)
-                        val _ =
-                            if n = size - 1
-                            then ()
-                            else codeGenerate(incrUseCount(transtable, vec, 1), cvec)
-                        val (entry, entryCode) = indirect (n, vec, transtable)
-                        val () = codeGenerate(entryCode, cvec)
-                    in
-                        codeGenerate(moveToVec (tup, entry, n, transtable), cvec);
-                        copy (n+1)
-                    end
-            in
-                copy 0;
-                codeGenerate(allocationComplete, cvec);
-                MergeIndex tup (* Result is the tuple. *)
-            end
-
         |   BICTagTest { test, tag, ... } =>
             let
                 (* Convert this into a simple equality function. *)

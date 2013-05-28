@@ -83,8 +83,6 @@ struct
             filter:    BoolVector.vector
         }
 
-    |   BICTupleFromContainer of backendIC * int (* Make a tuple from the contents of a container. *)
-
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
 
     and bicCodeBinding =
@@ -424,17 +422,6 @@ struct
                     ]
                 )
             end
-        
-        |   BICTupleFromContainer (container, size) =>
-            PrettyBlock (3, false, [],
-                [
-                    PrettyString ("TUPLECONTAINER(" ^ Int.toString size ^ ","),
-                    PrettyBreak (0, 0),
-                    pretty container,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
 
         |   BICTagTest { test, tag, maxTag } =>
             PrettyBlock (3, false, [],

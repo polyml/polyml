@@ -1506,16 +1506,14 @@ struct
                                     it in the function, then create a tuple from it.
                                     Most of the time this will be optimised away. *)
                             let
-                                val localAddrs = ref 0
-                                fun newAddr () = (! localAddrs) before (localAddrs := !localAddrs+1)
-                                val {load, dec} =
-                                    multipleUses(mkContainer resTupleSize, newAddr, innerLevel)
-                                val ld = load innerLevel
+                                val containerAddr = 0 (* In a new space *)
+                                val loadContainer = mkLoadLocal containerAddr
                             in
-                                (mkEnv(dec @
-                                   [mkNullDec(mkCall (loadInnerFun, parms @ polyParms @ [(ld, GeneralType)], GeneralType))],
-                                    mkTupleFromContainer(ld, resTupleSize)),
-                                 ! localAddrs)
+                                (mkEnv(
+                                    [mkContainer(containerAddr, resTupleSize,
+                                       mkCall(loadInnerFun, parms @ polyParms @ [(loadContainer, GeneralType)], GeneralType))],
+                                    mkTupleFromContainer(containerAddr, resTupleSize)),
+                                 containerAddr+1 (* One local *))
                             end
                         end
                 |    makeFuns(innerLevel, decName, mkParms, t::ts) =

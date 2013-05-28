@@ -577,15 +577,6 @@ struct
                     end
             )
 
-        | BICTupleFromContainer(container, _) =>
-            (* Create a tuple from the contents of a container. *)
-            (
-                (* TODO: This returns a MUTABLE record which is different from the
-                   other code-generators.  That could cause problems if we expect
-                   an immutable object. *)
-                gencde(container, ToStack, NotEnd, loopAddr)
-            )
-
         |   BICTagTest { test, tag, ... } =>
             let
                 (* Convert this into a simple equality function. *)

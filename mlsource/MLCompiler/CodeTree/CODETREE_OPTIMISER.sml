@@ -131,6 +131,7 @@ struct
                 fun checkBind (Declar{value, ...}, cl) = checkUse isMain(value, cl, false)
                 |   checkBind (RecDecs decs, cl) = List.foldl(fn ({lambda, ...}, n) => checkUse isMain (Lambda lambda, n, false)) cl decs
                 |   checkBind (NullBinding c, cl) = checkUse isMain (c, cl, false)
+                |   checkBind (Container{setter, ...}, cl) = checkUse isMain(setter, cl -- 1, false)
             in
                 checkUse isMain (exp, List.foldl checkBind cl decs, isTail)
             end
@@ -180,7 +181,6 @@ struct
         |   checkUse isMain (Handle {exp, handler}, cl, isTail) =
                 checkUse isMain (exp, checkUse isMain (handler, cl, isTail), false)
         |   checkUse isMain (Tuple{ fields, ...}, cl, _) = checkUseList isMain (fields, cl)
-        |   checkUse _      (Container _, cl, _) = cl -- 1
 
         |   checkUse isMain (SetContainer{container, tuple = Tuple { fields, ...}, ...}, cl, _) =
                 (* This can be optimised *)
@@ -188,7 +188,6 @@ struct
         |   checkUse isMain (SetContainer{container, tuple, filter}, cl, _) =
                 checkUse isMain (container, checkUse isMain (tuple, cl -- (BoolVector.length filter), false), false)
 
-        |   checkUse isMain (TupleFromContainer(container, len), cl, _) = checkUse isMain (container, cl -- (len+2), false)
         |   checkUse isMain (TagTest{test, ...}, cl, _) = checkUse isMain (test, cl -- 1, false)
         
         and checkUseList isMain (elems, cl) =
@@ -360,7 +359,6 @@ struct
                Constants are already tupled so there's no advantage in untupling
                them unless there are other non-constant arguments as well. *)
             fun findTuple(Tuple{fields, isVariant=false}) = (List.length fields, false)
-            |   findTuple(TupleFromContainer(_, c)) = (c, false)
             |   findTuple(Constnt(w, _)) =
                     if isShort w orelse flags (toAddress w) <> F_words then (1, false)
                     else (Word.toInt(length (toAddress w)), true)
@@ -502,7 +500,7 @@ struct
                 val containerArg = Extract(LoadArgument(List.length argTypes))
                 val filter = BoolVector.tabulate(size, fn _ => true)
                 val newBody =
-                          SetContainer{container = containerArg, tuple = transBody, filter=filter }
+                    SetContainer{container = containerArg, tuple = transBody, filter=filter }
                 val mainLambda: lambdaForm =
                     {
                         body = newBody, name = name, resultType=GeneralType,
@@ -519,14 +517,15 @@ struct
                builds a tuple from the container. *)
             val shimBody =
                 mkEnv(
-                    [Declar{addr = 0, use = [], value = Container size},
-                     NullBinding(
-                        Eval {
-                            function = Extract(LoadClosure 0),
-                            argList = mapArgs LoadArgument argTypes @ [(Extract(LoadLocal 0), GeneralType)],
-                            resultType = GeneralType
-                        })],
-                    TupleFromContainer(Extract(LoadLocal 0), size)
+                    [Container{addr = 0, use = [], size = size,
+                        setter= Eval {
+                                function = Extract(LoadClosure 0),
+                                argList = mapArgs LoadArgument argTypes @ [(Extract(LoadLocal 0), GeneralType)],
+                                resultType = GeneralType
+                            }
+                        }
+                    ],
+                    mkTupleFromContainer(0, size)
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
@@ -827,6 +826,8 @@ struct
                     RecDecs(foldl mapRecDec [] l)
                 end
             |   mapbinding(NullBinding exp) = NullBinding(mapExp [UseGeneral] exp)
+            |   mapbinding(Container{addr, use, size, setter}) =
+                    Container{addr=addr, use=use, size=size, setter = mapExp [UseGeneral] setter}
         in
             SOME(Newenv(map mapbinding envDecs, mapExp use envExp))
         end
@@ -1136,19 +1137,19 @@ struct
                 (* We require a container. *)
                 val containerAddr = makeAddr()
                 val width = List.length useList
-                val makeContainer =
-                    Declar{addr=containerAddr, use=[], value=Container width}
                 val loadContainer = Extract(LoadLocal containerAddr)
 
                 fun setContainer tuple = (* At the leaf set the container. *)
                     SetContainer{container = loadContainer, tuple = tuple, filter = fieldsToFilter useList }
 
                 val setCode = optGeneral context (pushContainer(code, setContainer))
+                val makeContainer =
+                    Container{addr=containerAddr, use=[], size=width, setter=setCode}
                 (* The context requires a tuple of the original width.  We need
                    to add dummy fields where necessary. *)
                 val container =
                     if width = maxField+1
-                    then TupleFromContainer(loadContainer, width)
+                    then mkTupleFromContainer(containerAddr, width)
                     else
                     let
                         fun mkField(n, m, hd::tl) =
@@ -1160,7 +1161,7 @@ struct
                         Tuple{fields = mkField(0, 0, useList), isVariant=false}
                     end
             in
-                mkEnv([makeContainer, NullBinding setCode], container)
+                mkEnv([makeContainer], container)
             end
     end
 

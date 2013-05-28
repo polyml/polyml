@@ -199,11 +199,11 @@ struct
             let
                 val decArray = Array.array(localCount, CodeZero)
     
-                fun addDecs(Declar{addr, value = Container size, ...}) =
-                        Array.update(decArray, addr, TupleFromContainer(mkLoadLocal addr, size))
-                |   addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoadLocal addr)
+                fun addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoadLocal addr)
                 |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoadLocal addr)) decs
                 |   addDecs(NullBinding _) = ()
+                |   addDecs(Container{addr, size, ...}) =
+                        Array.update(decArray, addr, mkTupleFromContainer(addr, size))
 
                 val () = List.app addDecs decs
 
@@ -427,10 +427,12 @@ struct
     end
 
     val mkNullDec = NullBinding
+    
+    fun mkContainer(addr, size, setter) =
+        Container{addr=addr, size=size, use=[], setter=setter}
 
     val mkIf                = Cond
     and mkRaise             = Raise
-    and mkContainer         = Container
 
     fun mkConst v = Constnt(v, [])
 

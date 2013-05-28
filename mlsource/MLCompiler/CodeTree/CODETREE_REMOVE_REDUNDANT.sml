@@ -201,6 +201,23 @@ struct
                             else NullBinding(cleanCode(exp, [UseGeneral])) :: processedRest
                         end
 
+                    |   processDecs(Container{setter, size, addr, ...} :: rest) =
+                        let
+                            val processedRest = processDecs rest
+                            val decUses =
+                                case Array.sub(locals, addr) of
+                                    [] => if sideEffectFree setter then [] else [UseGeneral]
+                                |   uses => uses
+                        in
+                            (* We can drop bindings that are unused if they have no side-effects.
+                               If we retain the binding we must set at least one reference. *)
+                            (* Currently SetContainer is treated as having a side-effect so
+                               we will never discard this even if the container is unused. *)
+                            if null decUses
+                            then processedRest (* Skip it *)
+                            else Container{setter=cleanCode (setter, [UseGeneral]), addr=addr, size=size, use=decUses} :: processedRest
+                        end
+
                     val processedDecs = processDecs decs
                 in
                     SOME(mkEnv(processedDecs, processedExp))

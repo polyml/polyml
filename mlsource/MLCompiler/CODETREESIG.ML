@@ -73,9 +73,9 @@ sig
     val mkEval:             codetree * codetree list -> codetree;
     val identityFunction:   string -> codetree;
     val Ldexc:              codetree;
-    val mkContainer:        int -> codetree
+
     val mkSetContainer:     codetree * codetree * int -> codetree
-    val mkTupleFromContainer: codetree * int -> codetree
+    val mkTupleFromContainer: int * int -> codetree
     val mkTagTest:          codetree * word * word -> codetree
     val mkBeginLoop:        codetree * (int * codetree) list -> codetree
     val mkLoop:             codetree list -> codetree
@@ -83,6 +83,7 @@ sig
     val mkDec:              int * codetree -> codeBinding
     val mkMutualDecs:       (int * codetree) list -> codeBinding
     val mkNullDec:          codetree -> codeBinding
+    val mkContainer:        int * int * codetree -> codeBinding
 
     val decSequenceWithFinalExp: codeBinding list -> codetree
 

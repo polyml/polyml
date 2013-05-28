@@ -76,8 +76,6 @@ struct
 
     |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
 
-    |   Container of int (* Create a container for a tuple on the stack. *)
-
     |   SetContainer of (* Copy a tuple to a container. *)
         {
             container: codetree,
@@ -85,14 +83,15 @@ struct
             filter:    BoolVector.vector
         }
 
-    |   TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
-
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
     and codeBinding =
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
+    |   Container of { addr: int, use: codeUse list, size: int, setter: codetree }
+                (* Container: allocate a piece of stack space and set it to
+                   the values from a tuple.  *)
 
     and loadForm =
         LoadArgument of int
@@ -357,9 +356,7 @@ struct
          
         |   Tuple { fields, isVariant } =>
                 printList(if isVariant then "DATATYPE" else "TUPLE", fields, ",")
-        
-        | Container size => PrettyString ("CONTAINER " ^ Int.toString size)
-        
+
         |   SetContainer{container, tuple, filter} =>
             let
                 val source = BoolVector.length filter
@@ -378,17 +375,6 @@ struct
                     ]
                 )
             end
-        
-        | TupleFromContainer (container, size) =>
-            PrettyBlock (3, false, [],
-                [
-                    PrettyString ("TUPLECONTAINER(" ^ Int.toString size ^ ","),
-                    PrettyBreak (0, 0),
-                    pretty container,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
 
         |   TagTest { test, tag, maxTag } =>
             PrettyBlock (3, false, [],
@@ -428,6 +414,25 @@ struct
             )
         end
     |   prettyBinding(NullBinding c) = pretty c
+    |   prettyBinding(Container{addr, use, size, setter}) =
+            PrettyBlock(1, false, [],
+                [
+                    string ("val Local" ^ Int.toString addr),
+                    space,
+                    string "(*",
+                    string "",
+                    space,
+                    prettyUses "" use,
+                    space,
+                    string "*)",
+                    space,
+                    string ("= Container " ^  Int.toString size),
+                    space,
+                    string "with",
+                    space,
+                    pretty setter
+                ]
+            )
 
     and prettySimpleBinding{value, addr, use, ...} =
         PrettyBlock (1, false, [],
@@ -499,6 +504,8 @@ struct
                         RecDecs(map(fn {addr, lambda, use} =>
                             {addr=addr, use = use, lambda = deLambda(mapCodetree f (Lambda lambda))}) l)
                 |   mapbinding(NullBinding exp) = NullBinding(mapCodetree f exp)
+                |   mapbinding(Container{addr, use, size, setter}) =
+                        Container{addr=addr, use=use, size=size, setter=mapCodetree f setter}
             in
                 Newenv(map mapbinding decs, mapCodetree f exp)
             end
@@ -531,11 +538,9 @@ struct
         |   mapt Ldexc = Ldexc
         |   mapt (Handle{exp, handler}) = Handle{exp=mapCodetree f exp, handler=mapCodetree f handler }
         |   mapt (Tuple { fields, isVariant} ) = Tuple { fields = map (mapCodetree f) fields, isVariant = isVariant }
-        |   mapt (c as Container _) = c
         |   mapt (SetContainer{container, tuple, filter}) =
                 SetContainer{
                     container = mapCodetree f container, tuple = mapCodetree f tuple, filter = filter }
-        |   mapt (TupleFromContainer(c, s)) = TupleFromContainer(mapCodetree f c, s)
         |   mapt (TagTest{test, tag, maxTag}) = TagTest{test = mapCodetree f test, tag = tag, maxTag = maxTag }
     in
         (* Apply f to node.  If it returns SOME c use that otherwise
@@ -560,6 +565,7 @@ struct
                 |   foldbinding(RecDecs l, w) =
                         foldl(fn ({lambda, ...}, x) => foldtree f x (Lambda lambda)) w l
                 |   foldbinding(NullBinding exp, w) = foldtree f w exp
+                |   foldbinding(Container{setter, ...}, w) = foldtree f w setter
             in
                 foldtree f (foldl foldbinding v decs) exp
             end
@@ -578,9 +584,7 @@ struct
         |   ftree (Ldexc, v) = v
         |   ftree (Handle{exp, handler}, v) = foldtree f (foldtree f v exp) handler
         |   ftree (Tuple { fields, ...}, v) = foldl (fn (c, w) => foldtree f w c) v fields
-        |   ftree (Container _, v) = v
         |   ftree (SetContainer { container, tuple, ...}, v) = foldtree f (foldtree f v container) tuple
-        |   ftree (TupleFromContainer(c, _), v) = foldtree f v c
         |   ftree (TagTest{test, ...}, v) = foldtree f v test
     in
         case f (code, input) of

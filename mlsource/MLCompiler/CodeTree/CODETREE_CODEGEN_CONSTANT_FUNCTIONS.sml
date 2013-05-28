@@ -219,6 +219,10 @@ struct
                     else RecDecs processedGroup :: processBindings tail
                 end
 
+            |   processBindings(Container{addr, use, size, setter} :: tail) =
+                    Container{addr=addr, use=use, size=size,
+                              setter = mapCodetree (cgFuns context) setter} :: processBindings tail
+                
             |   processBindings [] = []
 
             val bindings = processBindings expandedBindings

@@ -76,12 +76,8 @@ sig
 
     |   Tuple of { fields: codetree list, isVariant: bool } (* Tuples and datatypes *)
 
-    |   Container of int (* Create a container for a tuple on the stack. *)
-    
     |   SetContainer of { container: codetree, tuple: codetree, filter: BoolVector.vector}
          (* Copy a tuple to a container. *)
-    
-    |   TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
 
     |   TagTest of { test: codetree, tag: word, maxTag: word }
 
@@ -89,6 +85,7 @@ sig
         Declar  of simpleBinding (* Make a local declaration or push an argument *)
     |   RecDecs of { addr: int, lambda: lambdaForm, use: codeUse list } list (* Set of mutually recursive declarations. *)
     |   NullBinding of codetree (* Just evaluate the expression and discard the result. *)
+    |   Container of { addr: int, use: codeUse list, size: int, setter: codetree }
 
     and loadForm =
         LoadArgument of int

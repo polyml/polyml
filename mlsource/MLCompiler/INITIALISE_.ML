@@ -518,13 +518,13 @@ struct
                 let
                     val f     = mkLoadClosure 0        (* first item from enclosing scope *)
                     val tuple = mkLoadArgument 0       (* the inner parameter *)
-                    val container = mkDec(0, mkContainer containerWidth)
+                    val ca = 0 (* Address of container *)
                     val args  =
-                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoadLocal 0]
+                        List.tabulate(width, fn n => mkInd (n, tuple)) @ [mkLoadLocal ca]
                 in
                     mkInlproc(
-                        mkEnv([container, mkNullDec(mkEval (f, args))],
-                              mkTupleFromContainer(mkLoadLocal 0, containerWidth)),
+                        mkEnv([mkContainer(ca, containerWidth, mkEval (f, args))],
+                              mkTupleFromContainer(ca, containerWidth)),
                         1, name ^ "(1)", [mkLoadLocal 0], 1)
                 end
 

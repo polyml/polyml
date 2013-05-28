@@ -125,13 +125,6 @@ struct
         
         |   codeProps (Eval _) = 0w0
 
-        |   codeProps(Container _) = applicative
-            (* But since SetContainer has a side-effect we'll always create the
-               container even if it isn't used.  *)
-
-        |   codeProps(TupleFromContainer(c, _)) =
-                codeProps c andb (Word.notb PROPWORD_NODEREF)
-
         |   codeProps(Raise exp) = codeProps exp andb (Word.notb PROPWORD_NORAISE)
 
             (* Treat these as unsafe at least for the moment. *)
@@ -148,6 +141,7 @@ struct
         and bindingProps(Declar{value, ...}) = codeProps value
         |   bindingProps(RecDecs _) = applicative (* These should all be lambdas *)
         |   bindingProps(NullBinding c) = codeProps c
+        |   bindingProps(Container{setter, ...}) = codeProps setter
 
         (* sideEffectFree - does not raise an exception or make an assignment. *)
         fun sideEffectFree c = (codeProps c andb noSideEffect) = noSideEffect
@@ -271,9 +265,6 @@ struct
     |   mkSetContainer(container, tuple, filter) =
             SetContainer{container = container, tuple = tuple, filter = filter }
 
-    (* Create a tuple from a container. *)
-    val mkTupleFromContainer = TupleFromContainer
-
     local
         val except: exn = InternalError "Invalid load encountered in compiler"
         (* Exception value to use for invalid cases.  We put this in the code
@@ -345,7 +336,11 @@ struct
     in
         val mkInd = mkIndirect false and mkVarField = mkIndirect true
     end
-        
+
+    (* Create a tuple from a container. *)
+    fun mkTupleFromContainer(addr, size) =
+        Tuple{fields = List.tabulate(size, fn n => mkInd(n, mkLoadLocal addr)), isVariant = false}
+
     (* Get the value from the code. *)
     fun evalue (Constnt(c, _)) = SOME c
     |   evalue _ = NONE

@@ -160,9 +160,6 @@ struct
     |   simpGeneral context (Tuple { fields, isVariant }) =
             SOME(specialToGeneral(simpTuple(fields, isVariant, context)))
 
-    |   simpGeneral context (TupleFromContainer(code, width)) =
-            SOME(specialToGeneral(simpTupleContainer(code, width, context)))
-
     |   simpGeneral context (Indirect{ base, offset, isVariant }) =
             SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context)))
 
@@ -324,8 +321,6 @@ struct
 
     |   simpSpecial (Tuple { fields, isVariant }, context) = simpTuple(fields, isVariant, context)
 
-    |   simpSpecial (TupleFromContainer(code, width), context) = simpTupleContainer(code, width, context)
-
     |   simpSpecial (Indirect{ base, offset, isVariant }, context) = simpFieldSelect(base, offset, isVariant, context)
 
     |   simpSpecial (c: codetree, s: simpContext): codetree * codeBinding list * envSpecial =
@@ -350,7 +345,7 @@ struct
         fun copyDecs [] =
             (* End of the list - process the result expression. *)
             simpSpecial(envExp, context)
-        
+
         |   copyDecs (Declar{addr, value, ...} :: vs) =
             (
                 case simpSpecial(value, context) of
@@ -438,7 +433,18 @@ struct
                 (* and put these declarations onto the list. *)
                 (rGen, partitionMutableBindings(RecDecs rlist) @ rDecs, rSpec)
             end
-    in
+
+        |   copyDecs (Container{addr, size, setter, ...} :: vs) =
+            let
+                val decAddr = nextAddress()
+                val () = enterAddr (addr, (EnvGenLoad(LoadLocal decAddr), EnvSpecNone))
+                val dec =
+                    Container{addr=decAddr, use=[], size=size, setter=simplify(setter, context)}
+                val (rGen, rDecs, rSpec) = copyDecs vs
+            in
+                (rGen, dec :: rDecs, rSpec)
+            end
+     in
         copyDecs envDecs
     end
 
@@ -785,37 +791,6 @@ struct
         val specRec = EnvSpecTuple(tupleSize, fn addr => List.nth(fieldEntries, addr))
     in
         (genRec, allBindings, specRec)
-    end
-
-    (* Containers are tuple on the stack.  We may be able to avoid constructing a
-       tuple on the heap in the same way as for Tuple. *)
-    and simpTupleContainer(container, width, context as {nextAddress, ...}) =
-    let
-        (* Currently the code for the container should always be an Extract. *)
-        val (genSource, decSource, _) = simpSpecial(container, context)
-        (* Since "container" will always be an Extract entry we can have multiple
-           references to it in the declarations.  Include an assertion to that
-           effect just in case future changes make that no longer true. *)
-        val _ =
-            case genSource of
-                Extract _ => ()
-            |   _ => raise InternalError "simpTupleContainer - container is not Extract"
-        (* The fields have to be extracted and bound to local variables so they can be
-           referenced in EnvGenLoad *)
-        val entries =
-            List.tabulate(width,
-                fn n =>
-                let
-                    val addr = nextAddress()
-                    val binding = mkDec(addr, mkInd(n, genSource))
-                    val field = (EnvGenLoad(LoadLocal addr), EnvSpecNone)
-                in
-                    (binding, field)
-                end)
-        val (bindings, fieldEntries) = ListPair.unzip entries
-        val specTuple = EnvSpecTuple(width, fn addr => List.nth(fieldEntries, addr))
-    in
-        (TupleFromContainer(genSource, width), decSource @ bindings, specTuple)
     end
 
     and simpFieldSelect(base, offset, isVariant, context) =

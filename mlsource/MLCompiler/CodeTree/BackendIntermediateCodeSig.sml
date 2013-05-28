@@ -83,8 +83,6 @@ sig
             filter:    BoolVector.vector
         }
 
-    |   BICTupleFromContainer of backendIC * int (* Make a tuple from the contents of a container. *)
-
     |   BICTagTest of { test: backendIC, tag: word, maxTag: word }
 
     and bicCodeBinding =

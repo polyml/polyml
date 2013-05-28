@@ -116,8 +116,6 @@ struct
             filter:    BoolVector.vector
         }
 
-    |   P2TupleFromContainer of p2Codetree * int (* Make a tuple from the contents of a container. *)
-
     |   P2TagTest of { test: p2Codetree, tag: word, maxTag: word }
  
     and p2CodeBinding =
@@ -178,8 +176,6 @@ struct
         | sideEffectFree(P2Container _) = true
             (* But since SetContainer has a side-effect we'll always create the
                container even if it isn't used.  *)
-
-        | sideEffectFree(P2TupleFromContainer(c, _)) = sideEffectFree c
 
         | sideEffectFree _ = false
                  (* Rest are unsafe (or too rare to be worth checking) *)
@@ -608,9 +604,6 @@ struct
 
                 |   insert(P2SetContainer {container, tuple, filter}) =
                         BICSetContainer{container = insert container, tuple = insert tuple, filter = filter}
-
-                |   insert(P2TupleFromContainer(container, size)) =
-                        BICTupleFromContainer(insert container, size)
 
                 |   insert(P2TagTest{test, tag, maxTag}) = BICTagTest{test=insert test, tag=tag, maxTag=maxTag}
             
@@ -1045,7 +1038,16 @@ struct
                             case copiedNode of
                                 P2Newenv(decs, exp) => decs @ (P2NullBinding exp :: copiedRest)
                             |   _ => P2NullBinding copiedNode :: copiedRest
-                        end (* copyDeclarations *)
+                        end
+
+                    |   copyDeclarations (Container{addr, size, setter, ...} :: vs) =
+                        let
+                            val newAddr = makeDecl addr
+                            val rest = copyDeclarations vs
+                            val setCode = insert setter
+                        in
+                            P2Declar(newAddr, P2Container size) :: P2NullBinding setCode :: rest
+                        end
 
                     val insElist = copyDeclarations(ptElist @ [NullBinding ptExp])
 
@@ -1086,13 +1088,8 @@ struct
                     P2Handle {exp = exp, handler = hand}
                 end
 
-            |   insert(Container c) = P2Container c
-
             |   insert(SetContainer {container, tuple, filter}) =
                     P2SetContainer{container = insert container, tuple = insert tuple, filter = filter}
-
-            |   insert(TupleFromContainer(container, size)) =
-                    P2TupleFromContainer(insert container, size)
 
             |   insert(TagTest{test, tag, maxTag}) = P2TagTest{test=insert test, tag=tag, maxTag=maxTag}
 
