@@ -37,7 +37,7 @@ sig
 
     val CodeFalse: codetree and CodeTrue: codetree and CodeZero: codetree
 
-    val mkSetContainer:     codetree * codetree * int -> codetree
+    val mkSetContainer:     codetree * codetree * BoolVector.vector -> codetree
     val mkTupleFromContainer: codetree * int -> codetree
 
     val decSequenceWithFinalExp: codeBinding list -> codetree

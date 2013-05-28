@@ -998,54 +998,66 @@ struct
                 MergeIndex reserveEntry
             end
 
-        |   BICSetContainer{container, tuple, size} =>
+        |   BICSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container. *)
             let
-                val vec = genToStack (container);
+                val vec = genToStack container
             in
                 case tuple of
                     BICTuple cl =>
-                        (* Simply set the container from the values. *)
+                        (* Simply set the container from the values filtering out those required. *)
                     let
-                        val _ = List.length cl = size orelse raise InternalError "BICSetContainer: size"
-                        fun setValue(v, wordOffset) =
-                        let
-                            val entry = genToStack (v)
-                        in
-                            (* Move the entry into the container.  Does not affect the
-                               use count for the container entry. *)
-                            codeGenerate(moveToVec (vec, entry, wordOffset, transtable), cvec);
-                            wordOffset + 1
-                        end
+                        fun setValues([], _, _) = ()
+
+                        |   setValues(v::tl, sourceOffset, destOffset) =
+                            let
+                                val entry = genToStack v
+                            in
+                                (* Move the entry into the container.  Does not affect the
+                                   use count for the container entry. *)
+                                if sourceOffset < BoolVector.length filter andalso BoolVector.sub(filter, sourceOffset)
+                                then
+                                (
+                                    codeGenerate(moveToVec (vec, entry, destOffset, transtable), cvec);
+                                    setValues(tl, sourceOffset+1, destOffset+1)
+                                )
+                                else
+                                (
+                                    codeGenerate(removeStackEntry(transtable, entry), cvec);
+                                    setValues(tl, sourceOffset+1, destOffset)
+                                )
+                            end
                     in
-                        List.foldl setValue 0 cl;
-                        ()
+                        setValues(cl, 0, 0)
                     end
 
                 |   _ =>
                     let
-                        val tup = genToStack (tuple);
-        
-                        fun copy n =
-                        if n = size
-                        then ()
-                        else
-                        let
-                            (* We need to ensure that the tuple entry is only removed
-                               when we load the last item from it. *)
-                            val wordOffset = n
-                            val _ =
-                                if n = size - 1
+                        val tup = genToStack tuple
+                        val last = BoolVector.foldli(fn (i, true, _) => i | (_, false, n) => n) ~1 filter
+
+                        fun copy (sourceOffset, destOffset) =
+                            if BoolVector.sub(filter, sourceOffset)
+                            then
+                            let
+                                (* We need to ensure that the tuple entry is only removed
+                                   when we load the last item from it. *)
+                                val _ =
+                                    if sourceOffset = last
+                                    then ()
+                                    else codeGenerate(incrUseCount(transtable, tup, 1), cvec)
+                                val (entry, entryCode) = indirect (sourceOffset, tup, transtable)
+                                val () = codeGenerate(entryCode, cvec)
+                            in
+                                codeGenerate(moveToVec (vec, entry, destOffset, transtable), cvec);
+                                if sourceOffset = last
                                 then ()
-                                else codeGenerate(incrUseCount(transtable, tup, 1), cvec)
-                            val (entry, entryCode) = indirect (wordOffset, tup, transtable)
-                            val () = codeGenerate(entryCode, cvec)
-                        in
-                            codeGenerate(moveToVec (vec, entry, wordOffset, transtable), cvec);
-                            copy (n+1)
-                        end
+                                else copy (sourceOffset+1, destOffset+1)
+                            end
+                            else copy(sourceOffset+1, destOffset)
+         
                     in
-                        copy 0
+                        copy (0, 0)
                     end;
 
                 codeGenerate(removeStackEntry(transtable, vec), cvec); (* Free the container entry. *)

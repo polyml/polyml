@@ -80,7 +80,7 @@ sig
         {
             container: backendIC,
             tuple:     backendIC,
-            size:      int
+            filter:    BoolVector.vector
         }
 
     |   BICTupleFromContainer of backendIC * int (* Make a tuple from the contents of a container. *)

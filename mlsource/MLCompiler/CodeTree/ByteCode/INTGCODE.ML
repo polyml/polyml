@@ -102,9 +102,6 @@ sig
    (* Create a container on the stack *)
    val genContainer : int * code -> unit;
 
-   (* Copy a tuple into a container. *)
-   val genSetContainer : int * code -> unit;
- 
    (* Create a tuple from a container. *)
    val genTupleFromContainer : int * code -> unit;
      
@@ -523,40 +520,61 @@ struct
             incsp() (* Pushes a single word. *)
             )
 
-        | BICSetContainer{container, tuple, size} =>
+        | BICSetContainer{container, tuple, filter} =>
             (* Copy the contents of a tuple into a container.  If the tuple is a
-               Recconstr instruction we can avoid generating the tuple and then
+               Tuple instruction we can avoid generating the tuple and then
                unpacking it and simply copy the fields that make up the tuple
                directly into the container. *)
             (
-                (* Load the address of the container. *)
-                gencde (container, ToStack, NotEnd, loopAddr);
-            
                 case tuple of
                     BICTuple cl =>
                         (* Simply set the container from the values. *)
                     let
-                        fun setValue(v, offset) =
-                        (
-                            gencde (v, ToStack, NotEnd, loopAddr);
-                            (* Move the entry into the container. This instruction
-                               pops the value to be moved but not the destination. *)
-                            genMoveToVec(offset, cvec);
-                            decsp();
-                            offset + 1
-                        )
+                        (* Load the address of the container. *)
+                        val _ = gencde (container, ToStack, NotEnd, loopAddr);
+                        fun setValues([], _, _) = ()
+
+                        |   setValues(v::tl, sourceOffset, destOffset) =
+                            if sourceOffset < BoolVector.length filter andalso BoolVector.sub(filter, sourceOffset)
+                            then
+                            (
+                                gencde (v, ToStack, NotEnd, loopAddr);
+                                (* Move the entry into the container. This instruction
+                                   pops the value to be moved but not the destination. *)
+                                genMoveToVec(destOffset, cvec);
+                                decsp();
+                                setValues(tl, sourceOffset+1, destOffset+1)
+                            )
+                            else setValues(tl, sourceOffset+1, destOffset)
                     in
-                        List.foldl setValue 0 cl;
-                        () (* The container address is still on the stack. *)
+                        setValues(cl, 0, 0)
+                        (* The container address is still on the stack. *)
                     end
 
                 |   _ =>
-                    ( (* General case. *)
-                        gencde (tuple, ToStack, NotEnd, loopAddr);
-                        genSetContainer(size, cvec);
-                        decsp(); decsp()
-                    )
+                    let (* General case. *)
+                        (* First the target tuple, then the container. *)
+                        val () = gencde (tuple, ToStack, NotEnd, loopAddr)
+                        val () = gencde (container, ToStack, NotEnd, loopAddr)
+                        val last = BoolVector.foldli(fn (i, true, _) => i | (_, false, n) => n) ~1 filter
 
+                        fun copy (sourceOffset, destOffset) =
+                            if BoolVector.sub(filter, sourceOffset)
+                            then
+                            (
+                                (* Duplicate the tuple address . *)
+                                genLocal(1, cvec);
+                                genIndirect(sourceOffset, cvec);
+                                genMoveToVec(destOffset, cvec);
+                                if sourceOffset = last
+                                then ()
+                                else copy (sourceOffset+1, destOffset+1)
+                            )
+                            else copy(sourceOffset+1, destOffset)
+                    in
+                        copy (0, 0)
+                        (* The container and tuple addresses are still on the stack. *)
+                    end
             )
 
         | BICTupleFromContainer(container, _) =>

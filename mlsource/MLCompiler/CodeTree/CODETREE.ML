@@ -452,6 +452,8 @@ struct
     fun mkCor(xp1, xp2)  = mkIf(xp1, CodeTrue, xp2);
     fun mkCand(xp1, xp2)  = mkIf(xp1, xp2, CodeZero);
 
+    val mkSetContainer =
+        fn (container, tuple, size) => mkSetContainer(container, tuple, BoolVector.tabulate(size, fn _ => true))
 
     structure Sharing =
     struct

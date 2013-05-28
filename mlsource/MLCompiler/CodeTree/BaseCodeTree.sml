@@ -82,7 +82,7 @@ struct
         {
             container: codetree,
             tuple:     codetree,
-            size:      int
+            filter:    BoolVector.vector
         }
 
     |   TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)
@@ -360,19 +360,24 @@ struct
         
         | Container size => PrettyString ("CONTAINER " ^ Int.toString size)
         
-        | SetContainer{container, tuple, size} =>
-            PrettyBlock (3, false, [],
-                [
-                    PrettyString ("SETCONTAINER(" ^ Int.toString size ^ ", "),
-                    pretty container,
-                    PrettyBreak (0, 0),
-                    PrettyString ",",
-                    PrettyBreak (1, 0),
-                    pretty tuple,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
+        |   SetContainer{container, tuple, filter} =>
+            let
+                val source = BoolVector.length filter
+                val dest = BoolVector.foldl(fn (true, n) => n+1 | (false, n) => n) 0 filter
+            in
+                PrettyBlock (3, false, [],
+                    [
+                        string (concat["SETCONTAINER(", Int.toString dest, "/", Int.toString source, ", "]),
+                        pretty container,
+                        PrettyBreak (0, 0),
+                        PrettyString ",",
+                        PrettyBreak (1, 0),
+                        pretty tuple,
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ]
+                )
+            end
         
         | TupleFromContainer (container, size) =>
             PrettyBlock (3, false, [],
@@ -527,9 +532,9 @@ struct
         |   mapt (Handle{exp, handler}) = Handle{exp=mapCodetree f exp, handler=mapCodetree f handler }
         |   mapt (Tuple { fields, isVariant} ) = Tuple { fields = map (mapCodetree f) fields, isVariant = isVariant }
         |   mapt (c as Container _) = c
-        |   mapt (SetContainer{container, tuple, size}) =
+        |   mapt (SetContainer{container, tuple, filter}) =
                 SetContainer{
-                    container = mapCodetree f container, tuple = mapCodetree f tuple, size = size }
+                    container = mapCodetree f container, tuple = mapCodetree f tuple, filter = filter }
         |   mapt (TupleFromContainer(c, s)) = TupleFromContainer(mapCodetree f c, s)
         |   mapt (TagTest{test, tag, maxTag}) = TagTest{test = mapCodetree f test, tag = tag, maxTag = maxTag }
     in

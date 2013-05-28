@@ -78,7 +78,7 @@ sig
 
     |   Container of int (* Create a container for a tuple on the stack. *)
     
-    |   SetContainer of { container: codetree, tuple: codetree, size: int}
+    |   SetContainer of { container: codetree, tuple: codetree, filter: BoolVector.vector}
          (* Copy a tuple to a container. *)
     
     |   TupleFromContainer of codetree * int (* Make a tuple from the contents of a container. *)

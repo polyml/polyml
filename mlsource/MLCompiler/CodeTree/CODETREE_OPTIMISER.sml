@@ -185,8 +185,8 @@ struct
         |   checkUse isMain (SetContainer{container, tuple = Tuple { fields, ...}, ...}, cl, _) =
                 (* This can be optimised *)
                 checkUse isMain (container, checkUseList isMain (fields, cl), false)
-        |   checkUse isMain (SetContainer{container, tuple, size}, cl, _) =
-                checkUse isMain (container, checkUse isMain (tuple, cl -- size, false), false)
+        |   checkUse isMain (SetContainer{container, tuple, filter}, cl, _) =
+                checkUse isMain (container, checkUse isMain (tuple, cl -- (BoolVector.length filter), false), false)
 
         |   checkUse isMain (TupleFromContainer(container, len), cl, _) = checkUse isMain (container, cl -- (len+2), false)
         |   checkUse isMain (TagTest{test, ...}, cl, _) = checkUse isMain (test, cl -- 1, false)
@@ -203,6 +203,17 @@ struct
         else if ! allTail then TailRecursive(Array.vector argMod)
         else NonTailRecursive(Array.vector argMod)
     end
+
+    (* Turn a list of fields to use into a filter for SetContainer. *)
+    fun fieldsToFilter useList =
+    let
+        val maxDest = List.foldl Int.max ~1 useList
+        val fields = BoolArray.array(maxDest+1, false)
+        val _ = List.app(fn n => BoolArray.update(fields, n, true)) useList
+    in
+        BoolArray.vector fields
+    end
+
 
     (* When transforming code we only process one level and do not descend into sub-functions. *)
     local
@@ -486,16 +497,12 @@ struct
             end
 
             (* The size of the container is the smallest necessary to hold the fields
-               actually required.  The "body" could be returning a larger tuple so we
-               bind the result to a variable and recreate it with the fields used. *)
+               actually required. *)
             local
-                val bindAddr = localCount
-                val resultDec = Extract(LoadLocal bindAddr)
-                val fields = List.tabulate(size, fn n => mkInd(n, resultDec))
                 val containerArg = Extract(LoadArgument(List.length argTypes))
+                val filter = BoolVector.tabulate(size, fn _ => true)
                 val newBody =
-                    mkEnv([Declar{addr=bindAddr, use=[], value=transBody}],
-                          SetContainer{container = containerArg, tuple = mkTuple fields, size=size })
+                          SetContainer{container = containerArg, tuple = transBody, filter=filter }
                 val mainLambda: lambdaForm =
                     {
                         body = newBody, name = name, resultType=GeneralType,
@@ -1133,22 +1140,8 @@ struct
                     Declar{addr=containerAddr, use=[], value=Container width}
                 val loadContainer = Extract(LoadLocal containerAddr)
 
-                fun setContainer tuple =
-                (* At the leaf set the container.  At the moment that always
-                   involves extracting the fields individually.  We can't currently
-                   tell whether the "tuple" has the same width as the container. *)
-                let
-                    val cAddr = makeAddr()
-                    val dec = Declar{addr=cAddr, use=[], value=tuple}
-                    val load = Extract(LoadLocal cAddr)
-                    val fields = map(fn n => mkInd(n, load)) useList
-                in
-                    mkEnv([dec],
-                        SetContainer{
-                            container = loadContainer,
-                            tuple = Tuple{fields=fields, isVariant=false},
-                            size = width })
-                end
+                fun setContainer tuple = (* At the leaf set the container. *)
+                    SetContainer{container = loadContainer, tuple = tuple, filter = fieldsToFilter useList }
 
                 val setCode = optGeneral context (pushContainer(code, setContainer))
                 (* The context requires a tuple of the original width.  We need

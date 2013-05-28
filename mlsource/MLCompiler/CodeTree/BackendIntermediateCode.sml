@@ -80,7 +80,7 @@ struct
         {
             container: backendIC,
             tuple:     backendIC,
-            size:      int
+            filter:    BoolVector.vector
         }
 
     |   BICTupleFromContainer of backendIC * int (* Make a tuple from the contents of a container. *)
@@ -406,19 +406,24 @@ struct
         
         |   BICContainer size => PrettyString ("CONTAINER " ^ Int.toString size)
         
-        |   BICSetContainer{container, tuple, size} =>
-            PrettyBlock (3, false, [],
-                [
-                    PrettyString ("SETCONTAINER(" ^ Int.toString size ^ ", "),
-                    pretty container,
-                    PrettyBreak (0, 0),
-                    PrettyString ",",
-                    PrettyBreak (1, 0),
-                    pretty tuple,
-                    PrettyBreak (0, 0),
-                    PrettyString ")"
-                ]
-            )
+        |   BICSetContainer{container, tuple, filter} =>
+            let
+                val source = BoolVector.length filter
+                val dest = BoolVector.foldl(fn (true, n) => n+1 | (false, n) => n) 0 filter
+            in
+                PrettyBlock (3, false, [],
+                    [
+                        PrettyString (concat["SETCONTAINER(", Int.toString dest, "/", Int.toString source, ", "]),
+                        pretty container,
+                        PrettyBreak (0, 0),
+                        PrettyString ",",
+                        PrettyBreak (1, 0),
+                        pretty tuple,
+                        PrettyBreak (0, 0),
+                        PrettyString ")"
+                    ]
+                )
+            end
         
         |   BICTupleFromContainer (container, size) =>
             PrettyBlock (3, false, [],

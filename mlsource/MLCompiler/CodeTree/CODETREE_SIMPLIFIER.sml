@@ -166,7 +166,7 @@ struct
     |   simpGeneral context (Indirect{ base, offset, isVariant }) =
             SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context)))
 
-    |   simpGeneral context (SetContainer{container, tuple, size}) =
+    |   simpGeneral context (SetContainer{container, tuple, filter}) =
             (* Push the set-container down the tree and then process it. If we've
                expanded an inline function we want to be able to find any
                tuple we're creating. *)
@@ -191,7 +191,25 @@ struct
                 |   pushSetContainer(Newenv(envDecs, envExp), decs) =
                         pushSetContainer(envExp, List.rev envDecs @ decs)
 
-                |   pushSetContainer(TupleFromContainer(ext as Extract(LoadLocal innerAddr), innerSize), decs) =
+                |   pushSetContainer(Tuple{fields, isVariant=false}, decs) =
+                    let (* Do any filtering now. *)
+                        fun doFilter([], _) = []
+                        |   doFilter(hd::tl, n) =
+                            if n < BoolVector.length filter andalso BoolVector.sub(filter, n)
+                            then hd :: doFilter(tl, n+1)
+                            else
+                            (
+                                (* We should have taken any side-effecting fields out, but check anyway. *)
+                                sideEffectFree hd orelse raise InternalError "pushSetContainer: discard";
+                                doFilter(tl, n+1)
+                            )
+                        val outTuple = doFilter(fields, 0)
+                        val outFilter = BoolVector.tabulate(List.length outTuple, fn _ => true)
+                    in
+                        mkEnv(List.rev decs, mkSetContainer(optCont, mkTuple outTuple, outFilter))
+                    end
+
+(*                |   pushSetContainer(TupleFromContainer(ext as Extract(LoadLocal innerAddr), innerSize), decs) =
                     (* If the inner container is declared among the decs we have here we can replace
                        the declaration and remove the inner container by replacing it by
                        a reference to the outer. *)
@@ -216,10 +234,10 @@ struct
                         mkEnv(removeFinalDecs(List.map changeDec decs))
                     end
                     else (* We can't replace it. Instead just copy the inner container to the outer, *)
-                        mkEnv(List.rev decs, mkSetContainer(optCont, ext, size))
-
+                        mkEnv(List.rev decs, mkSetContainer(optCont, ext, filter))
+*)
                 |   pushSetContainer(tuple, decs) =
-                        mkEnv(List.rev decs, mkSetContainer(optCont, tuple, size))
+                        mkEnv(List.rev decs, mkSetContainer(optCont, tuple, filter))
               
             in
                 SOME(pushSetContainer(optTuple, []))

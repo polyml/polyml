@@ -113,7 +113,7 @@ struct
         {
             container: p2Codetree,
             tuple:     p2Codetree,
-            size:      int
+            filter:    BoolVector.vector
         }
 
     |   P2TupleFromContainer of p2Codetree * int (* Make a tuple from the contents of a container. *)
@@ -606,8 +606,8 @@ struct
 
                 |   insert(P2Container c) = BICContainer c
 
-                |   insert(P2SetContainer {container, tuple, size}) =
-                        BICSetContainer{container = insert container, tuple = insert tuple, size = size}
+                |   insert(P2SetContainer {container, tuple, filter}) =
+                        BICSetContainer{container = insert container, tuple = insert tuple, filter = filter}
 
                 |   insert(P2TupleFromContainer(container, size)) =
                         BICTupleFromContainer(insert container, size)
@@ -1088,8 +1088,8 @@ struct
 
             |   insert(Container c) = P2Container c
 
-            |   insert(SetContainer {container, tuple, size}) =
-                    P2SetContainer{container = insert container, tuple = insert tuple, size = size}
+            |   insert(SetContainer {container, tuple, filter}) =
+                    P2SetContainer{container = insert container, tuple = insert tuple, filter = filter}
 
             |   insert(TupleFromContainer(container, size)) =
                     P2TupleFromContainer(insert container, size)

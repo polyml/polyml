@@ -129,9 +129,6 @@ sig
    (* Create a container on the stack *)
    val genContainer : int * code -> unit;
 
-   (* Copy a tuple into a container. *)
-   val genSetContainer : int * code -> unit;
- 
    (* Create a tuple from a container. *)
    val genTupleFromContainer : int * code -> unit;
       
@@ -1559,9 +1556,6 @@ struct
 
   fun genContainer (size : int, cvec: code) : unit =
     (genOpc(opcode_containerW, 3, cvec); genWord(size, cvec));
-
-  fun genSetContainer (size : int, cvec: code) : unit =
-    (genOpc(opcode_set_containerW, 3, cvec); genWord(size, cvec));
 
   fun genTupleFromContainer (size : int, cvec: code) : unit =
     (genOpc(opcode_tuple_containerW, 3, cvec); genWord(size, cvec));

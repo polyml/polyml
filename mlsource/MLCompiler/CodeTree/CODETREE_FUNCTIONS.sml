@@ -257,19 +257,19 @@ struct
 
     (* Set the container to the fields of the record.  Try to push this
        down as far as possible. *)
-    fun mkSetContainer(container, Cond(ifpt, thenpt, elsept), size) =
-        Cond(ifpt, mkSetContainer(container, thenpt, size),
-            mkSetContainer(container, elsept, size))
+    fun mkSetContainer(container, Cond(ifpt, thenpt, elsept), filter) =
+        Cond(ifpt, mkSetContainer(container, thenpt, filter),
+            mkSetContainer(container, elsept, filter))
 
-    |  mkSetContainer(container, Newenv(decs, exp), size) =
-            Newenv(decs, mkSetContainer(container, exp, size))
+    |  mkSetContainer(container, Newenv(decs, exp), filter) =
+            Newenv(decs, mkSetContainer(container, exp, filter))
 
     |  mkSetContainer(_, r as Raise _, _) =
         r (* We may well have the situation where one branch of an "if" raises an
              exception.  We can simply raise the exception on that branch. *)
 
-    |   mkSetContainer(container, tuple, size) =
-            SetContainer{container = container, tuple = tuple, size = size }
+    |   mkSetContainer(container, tuple, filter) =
+            SetContainer{container = container, tuple = tuple, filter = filter }
 
     (* Create a tuple from a container. *)
     val mkTupleFromContainer = TupleFromContainer
