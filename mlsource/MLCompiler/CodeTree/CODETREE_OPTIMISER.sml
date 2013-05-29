@@ -549,6 +549,7 @@ struct
                into tuples.  Then when the code is run through the simplifier
                the tuples will be optimised away.  *)
             val localCounter = ref localCount
+
             fun mapPattern(ArgPattTuple{size=width, allConst=false, ...} :: patts, n, m) =
                 let
                     val (decs, args, mapList) = mapPattern(patts, n+1, m+width)
@@ -561,6 +562,16 @@ struct
                     (thisDec :: decs, thisArg @ args, LoadLocal newAddr :: mapList)
                 end
 
+            |   mapPattern(ArgPattCurry(currying, ArgPattTuple{allConst=false, size, ...}) :: patts, n, m) =
+                (* It's a function that returns a tuple. *)
+                let
+                    val (thisDec, thisArg, thisMap) =
+                        transformFunctionArgument(currying, [LoadArgument m], [LoadArgument n], SOME size)
+                    val (decs, args, mapList) = mapPattern(patts, n+1, m+1)
+                in
+                    (thisDec :: decs, thisArg :: args, thisMap :: mapList)
+                end
+
             |   mapPattern(ArgPattCurry(currying as firstArgSet :: _, _) :: patts, n, m) =
                 (* Transform it if it's curried or if there is a tuple in the first arg. *)
                 if List.length currying >= 2 orelse
@@ -568,7 +579,7 @@ struct
                 then
                 let
                     val (thisDec, thisArg, thisMap) =
-                        transformFunctionArgument(currying, [LoadArgument m], [LoadArgument n])
+                        transformFunctionArgument(currying, [LoadArgument m], [LoadArgument n], NONE)
                     val (decs, args, mapList) = mapPattern(patts, n+1, m+1)
                 in
                     (thisDec :: decs, thisArg :: args, thisMap :: mapList)
@@ -589,7 +600,7 @@ struct
 
             |   mapPattern([], _, _) = ([], [], [])
 
-            and transformFunctionArgument(argumentArgs, loadPack, loadThisArg) =
+            and transformFunctionArgument(argumentArgs, loadPack, loadThisArg, resTupleOpt) =
             let
                 (* We have a function that takes a series of curried argument.
                    Change that so that the function takes a list of arguments. *)
@@ -598,6 +609,7 @@ struct
                    fashion.  We need to construct a function that packages up the
                    arguments and, when all of them have been provided, calls the actual
                    argument. *)
+                val testCount = ref 0
                 local
                     fun curryPack([], fnclosure) =
                         let
@@ -618,17 +630,36 @@ struct
                             |   mapArgs _ = []
                             val argList = mapArgs(argumentArgs, tl fnclosure)
                         in
-                            Eval { function = Extract(hd fnclosure), resultType = GeneralType,
-                                    argList = argList }
+                            case resTupleOpt of
+                                NONE =>
+                                    ( testCount := List.length argList;
+                                    Eval { function = Extract(hd fnclosure), resultType = GeneralType,
+                                            argList = argList }
+                                    )
+                            |   SOME size =>
+                                    (* We need a container here for the result. *)
+                                    (testCount := List.length argList + 1;
+                                    mkEnv(
+                                        [
+                                            Container{addr=0, size=size, use=[UseGeneral], setter=
+                                                Eval { function = Extract(hd fnclosure), resultType = GeneralType,
+                                                    argList = argList @ [(mkLoadLocal 0, GeneralType)] }
+                                            }
+                                        ],
+                                        mkTupleFromContainer(0, size)
+                                    )
+                                    )
                         end
                     |   curryPack(hd :: tl, fnclosure) =
                         let
                             val nArgs = List.length hd
+                            (* If this is the last then we need to include the container if required. *)
+                            val needContainer = case (tl, resTupleOpt) of ([], SOME _) => true | _ => false
                         in
                             Lambda { closure = fnclosure,
                                 isInline = Inline, name = name ^ "-P", resultType = GeneralType,
                                 argTypes = List.tabulate(nArgs, fn _ => (GeneralType, [UseGeneral])),
-                                localCount = 0, recUse = [UseGeneral],
+                                localCount = if needContainer then 1 else 0, recUse = [],
                                 body = curryPack(tl,
                                             (* The closure for the next level is the current closure
                                                together with all the arguments at this level. *)
@@ -667,15 +698,24 @@ struct
                 end
                 local
                     (* We have one argument for each argument at each level of currying, or
-                       where we've expanded a tuple, one argument for each field. *)
+                       where we've expanded a tuple, one argument for each field.
+                       If the function is returning a tuple we have an extra argument for
+                       the container. *)
                     val totalArgCount =
-                        List.foldl(fn (c, n) => n + List.foldl argCount 0 c) 0 argumentArgs
+                        List.foldl(fn (c, n) => n + List.foldl argCount 0 c) 0 argumentArgs +
+                        (case resTupleOpt of SOME _ => 1 | _ => 0)
+                    val _ = totalArgCount = ! testCount orelse raise InternalError "bad"
+                    val functionBody =
+                        case resTupleOpt of
+                            NONE => thisBody
+                        |   SOME size => mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody,
+                                                    BoolVector.tabulate(size, fn _ => true))
                 in
                     val thisArg =
                         Lambda {
                             closure = loadThisArg, isInline = Inline, name = name ^ "-E",
                             argTypes = List.tabulate(totalArgCount, fn _ => (GeneralType, [UseGeneral])),
-                            resultType = GeneralType, localCount = 0, recUse = [UseGeneral], body = thisBody
+                            resultType = GeneralType, localCount = 0, recUse = [UseGeneral], body = functionBody
                         }
                 end
             in
@@ -1058,20 +1098,24 @@ struct
                                 ( reprocess := true; detupleResult(lambda, size, makeAddr))
 
                         |   (first :: _, _) =>
+                            let
+                                fun checkArg (ArgPattTuple{allConst=false, ...}) = true
+                                        (* Function has at least one tupled arg. *)
+                                |   checkArg (ArgPattCurry(_, ArgPattTuple{allConst=false, ...})) = true
+                                        (* Function has an arg that is a function that returns a tuple. *)
+                                |   checkArg (ArgPattCurry(_ :: _ :: _, _)) = true
+                                        (* Function has an arg that is a curried function. *)
+                                |   checkArg (ArgPattCurry(firstArgSet :: _, _)) =
+                                        (* Function has an arg that is a function that
+                                           takes a tuple in its first argument set. *)
+                                        List.exists(fn ArgPattTuple{allConst=false, ...} => true | _ => false) firstArgSet
+                                |   checkArg _ = false
+                            in
                                 (* It isn't curried - look at the arguments. *)
-                                if List.exists(fn ArgPattTuple{allConst=false, ...} =>
-                                                 (* Function has at least one tupled arg. *) true
-                                            |  ArgPattCurry(currying as firstArgSet :: _, argResult) =>
-                                                 (* Function has an arg that is a function that is curried or
-                                                    takes a tuple in its first argument set. *)
-                                                (
-                                                    case argResult of ArgPattTuple _ => print("Arg returns tuple - " ^ name ^ "\n") | _ => ();
-                                                    List.length currying >= 2 orelse
-                                                    List.exists(fn ArgPattTuple{allConst=false, ...} => true | _ => false) firstArgSet
-                                                )
-                                             |  _ => false) first
+                                if List.exists checkArg first
                                 then ( reprocess := true; transformFunctionArgs(lambda, first, makeAddr) )
                                 else (lambda, [])
+                            end
 
                         |   _ => (lambda, [])
                     end
