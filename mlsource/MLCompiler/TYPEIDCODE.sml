@@ -542,6 +542,20 @@ struct
                 |   LabelledType { recList=[], ...} =>
                         (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
 
+
+                |   LabelledType {recList=[{name, typeof}], ...} =>
+                    let (* Optimised unary record *)
+                        val localLevel = newLevel level
+                        val entryCode = mkEval(printCode(typeof, localLevel), [arg1])
+                        val printItem =
+                            codeList([codePrettyString(name^" ="), codePrettyBreak(1, 0), entryCode, codePrettyString "}"], CodeZero)
+                    in
+                        mkProc(
+                            codePrettyBlock(1, false, [],
+                                mkTuple[codePrettyString "{", printItem]),
+                            1, "print-labelled", getClosure localLevel, 0)
+                    end
+
                 |   LabelledType (r as { recList, ...}) =>
                     let
                         (* See if this has fields numbered 1=, 2= etc.   N.B.  If it has only one field
@@ -567,11 +581,8 @@ struct
                         |   asRecord([({name, typeof, ...}, offset)], _) =
                             let
                                 val entryCode =
-                                    (* Last or only field: no separator. *)
-                                    if offset = 0
-                                    then (* optimised unary records *)
-                                        mkEval(printCode(typeof, localLevel), [arg1])
-                                    else mkEval(printCode(typeof, localLevel),
+                                    (* Last field: no separator. *)
+                                    mkEval(printCode(typeof, localLevel),
                                                 [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]])
                                 val (start, terminator) =
                                     if isTuple then ([], ")")
