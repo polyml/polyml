@@ -340,7 +340,7 @@ struct
         end
 
     (* Process a Newenv.  We need to add the bindings to the context. *)
-    and simpNewenv((envDecs, envExp), context as { enterAddr, nextAddress, ...}) =
+    and simpNewenv((envDecs, envExp), context as { enterAddr, nextAddress, reprocess, ...}) =
     let
         fun copyDecs [] =
             (* End of the list - process the result expression. *)
@@ -436,15 +436,45 @@ struct
 
         |   copyDecs (Container{addr, size, setter, ...} :: vs) =
             let
+                (* Enter the new address immediately - it's needed in the setter. *)
                 val decAddr = nextAddress()
                 val () = enterAddr (addr, (EnvGenLoad(LoadLocal decAddr), EnvSpecNone))
-                val dec =
-                    Container{addr=decAddr, use=[], size=size, setter=simplify(setter, context)}
-                val (rGen, rDecs, rSpec) = copyDecs vs
+                val (setGen, setDecs, _) = simpSpecial(setter, context)
             in
-                (rGen, dec :: rDecs, rSpec)
+                (* If we have inline expanded a function that sets the container
+                   we're better off eliminating the container completely. *)
+                case setGen of
+                    SetContainer { tuple, filter, container } =>
+                    let
+                        (* Check the container we're setting is the address we've made for it. *)
+                        val _ =
+                            (case container of Extract(LoadLocal a) => a = decAddr | _ => false)
+                                orelse raise InternalError "copyDecs: Container/SetContainer"
+                        val newDecAddr = nextAddress()
+                        val () = enterAddr (addr, (EnvGenLoad(LoadLocal newDecAddr), EnvSpecNone))
+                        val (rGen, rDecs, rSpec) = copyDecs vs
+                        val tupleAddr = nextAddress()
+                        val tupleDec = Declar{addr=tupleAddr, use=[], value=tuple}
+                        val tupleLoad = mkLoadLocal tupleAddr
+                        val resultTuple =
+                            BoolVector.foldri(fn (i, true, l) => mkInd(i, tupleLoad) :: l | (_, false, l) => l) [] filter
+                        val _ = List.length resultTuple = size
+                                    orelse raise InternalError "copyDecs: Container/SetContainer size"
+                        val containerDec = Declar{addr=newDecAddr, use=[], value=mkTuple resultTuple}
+                        val _ = reprocess := true
+                    in
+                        (rGen, setDecs @ tupleDec :: containerDec :: rDecs, rSpec)
+                    end
+
+                |   _ =>
+                    let
+                        val (rGen, rDecs, rSpec) = copyDecs vs
+                        val dec = Container{addr=decAddr, use=[], size=size, setter=mkEnv(setDecs, setGen)}
+                    in
+                        (rGen, dec :: rDecs, rSpec)
+                    end
             end
-     in
+    in
         copyDecs envDecs
     end
 
