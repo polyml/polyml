@@ -129,7 +129,9 @@ struct
             fun testTagOf(tag, maxTag, v) = mkTagTest (v, tag, maxTag)
       
             fun testBoxedTagOf (tag, maxTag, v) =
-                testTagOf (tag, maxTag, mkVarField (0, v)); (* tag is first field *)
+                testTagOf (tag, maxTag, mkInd (0, v))
+                (* Tag is first field.  It is always present and is always the tag so
+                   we can use mkInd here rather than mkVarField. *)
 
             fun testBoxed (v: codetree) : codetree = (* not (isShort v) *)
                 mkEval (rtsFunction POLY_SYS_not_bool,
