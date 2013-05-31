@@ -1458,7 +1458,11 @@ struct
            optimiser happy. *) CodeZero
 
     |   makeInverse (Value{class=Exception, ...}, _, arg, _, _) =
-      (* Exceptions. - Get the parameter from third word *) mkInd (2,arg)
+            (* Exceptions. - Get the parameter from third word *)
+            (* We have to use a VarField here even though this field is present in
+               every exception.  The format of the value that is returned depends
+               on the exception id. *)
+            mkVarField (2,arg)
 
     |   makeInverse _ = raise InternalError "makeInverse"
 
