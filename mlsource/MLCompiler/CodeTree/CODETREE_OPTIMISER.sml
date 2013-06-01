@@ -507,7 +507,6 @@ struct
         (* The function returns a tuple or at least the uses of the function take apart a tuple.
            Transform it to take a container as an argument and put the result in there. *)
         let
-            val size = BoolVector.length filter
             local
                 fun mapArg f n ((t, _) :: tl) = (Extract(f n), t) :: mapArg f (n+1) tl
                 |   mapArg _ _ [] = []
@@ -528,11 +527,8 @@ struct
                 val transBody = mapFunctionCode doMap body
             end
 
-            (* The size of the container is the smallest necessary to hold the fields
-               actually required. *)
             local
                 val containerArg = Extract(LoadArgument(List.length argTypes))
-                val filter = BoolVector.tabulate(size, fn _ => true)
                 val newBody =
                     SetContainer{container = containerArg, tuple = transBody, filter=filter }
                 val mainLambda: lambdaForm =
@@ -551,7 +547,7 @@ struct
                builds a tuple from the container. *)
             val shimBody =
                 mkEnv(
-                    [Container{addr = 0, use = [], size = size,
+                    [Container{addr = 0, use = [], size = setInFilter filter,
                         setter= Eval {
                                 function = Extract(LoadClosure 0),
                                 argList = mapArgs LoadArgument argTypes @ [(Extract(LoadLocal 0), GeneralType)],
@@ -559,7 +555,7 @@ struct
                             }
                         }
                     ],
-                    mkTupleFromContainer(0, size)
+                    buildFullTuple(filter, fn n => mkInd(n, mkLoadLocal 0))
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
@@ -644,7 +640,6 @@ struct
                    fashion.  We need to construct a function that packages up the
                    arguments and, when all of them have been provided, calls the actual
                    argument. *)
-                val testCount = ref 0
                 local
                     fun curryPack([], fnclosure) =
                         let
@@ -655,9 +650,9 @@ struct
                                 fun mapArg([], args) = mapArgs(ctl, args)
                                 |   mapArg(ArgPattTuple{filter, allConst=false, ...} :: patts, arg :: argctl) =
                                     let
-                                        val width = BoolVector.length filter
+                                        val fields = filterToFields filter
                                     in
-                                        List.tabulate(width, fn p => (mkInd(p, Extract arg), GeneralType)) @
+                                        List.map(fn p => (mkInd(p, Extract arg), GeneralType)) fields @
                                             mapArg(patts, argctl)
                                     end
                                 |   mapArg(_ :: patts, arg :: argctl) =
@@ -671,26 +666,19 @@ struct
                         in
                             case filterOpt of
                                 NONE =>
-                                    ( testCount := List.length argList;
                                     Eval { function = Extract(hd fnclosure), resultType = GeneralType,
                                             argList = argList }
-                                    )
                             |   SOME filter =>
-                                let
-                                    val size = BoolVector.length filter
-                                in
                                     (* We need a container here for the result. *)
-                                    testCount := List.length argList + 1;
                                     mkEnv(
                                         [
-                                            Container{addr=0, size=size, use=[UseGeneral], setter=
+                                            Container{addr=0, size=setInFilter filter, use=[UseGeneral], setter=
                                                 Eval { function = Extract(hd fnclosure), resultType = GeneralType,
                                                     argList = argList @ [(mkLoadLocal 0, GeneralType)] }
                                             }
                                         ],
-                                        mkTupleFromContainer(0, size)
+                                        buildFullTuple(filter, fn n => mkInd(n, mkLoadLocal 0))
                                     )
-                                end
                         end
                     |   curryPack(hd :: tl, fnclosure) =
                         let
@@ -713,7 +701,7 @@ struct
                     val packFn = curryPack(argumentArgs, loadPack)
                 end
                 val thisDec = Declar { addr = newAddr, use = [], value = packFn }
-                fun argCount(ArgPattTuple{filter, allConst=false, ...}, m) = let val width = BoolVector.length filter in width + m end
+                fun argCount(ArgPattTuple{filter, allConst=false, ...}, m) = setInFilter filter + m
                 |   argCount(_, m) = m+1
                 local
                     (* In the shim function, i.e. the inline function outside, we have
@@ -725,12 +713,8 @@ struct
                         let
                             fun makeArgs(_, []) = []
                             |   makeArgs(q, ArgPattTuple{filter, allConst=false, ...} :: args) =
-                                let
-                                    val width = BoolVector.length filter
-                                in
-                                    (mkTuple(List.tabulate(width, fn r => mkLoadArgument(r+q))), GeneralType) ::
-                                         makeArgs(q+width, args)
-                                end
+                                    (buildFullTuple(filter, fn r => mkLoadArgument(r+q)), GeneralType) ::
+                                         makeArgs(q + setInFilter filter, args)
                             |   makeArgs(q, _ :: args) =
                                     (mkLoadArgument q, GeneralType) :: makeArgs(q+1, args)
                             val args = makeArgs(n, hd)
@@ -750,17 +734,10 @@ struct
                     val totalArgCount =
                         List.foldl(fn (c, n) => n + List.foldl argCount 0 c) 0 argumentArgs +
                         (case filterOpt of SOME _ => 1 | _ => 0)
-                    val _ = totalArgCount = ! testCount orelse raise InternalError "bad"
                     val functionBody =
                         case filterOpt of
                             NONE => thisBody
-                        |   SOME filter =>
-                            let
-                                val size = BoolVector.length filter
-                            in
-                                mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody,
-                                                    BoolVector.tabulate(size, fn _ => true))
-                            end
+                        |   SOME filter => mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody, filter)
                 in
                     val thisArg =
                         Lambda {
@@ -792,8 +769,7 @@ struct
             local
                 (* The argument types for the main function have the tuples expanded,  Functions
                    are not affected. *)
-                fun expand(ArgPattTuple{filter, allConst=false, ...}, _, r) =
-                        List.tabulate(setInFilter filter, fn _ => (GeneralType, [])) @ r
+                fun expand(ArgPattTuple{filter, allConst=false, ...}, _, r) = List.tabulate(setInFilter filter, fn _ => (GeneralType, [])) @ r
                 |   expand(_, a, r) = a :: r
             in
                 val transArgTypes = ListPair.foldrEq expand [] (usage, argTypes)
