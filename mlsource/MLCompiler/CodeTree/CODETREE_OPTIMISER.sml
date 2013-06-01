@@ -213,6 +213,24 @@ struct
         BoolArray.vector fields
     end
 
+    and filterToFields filter =
+        BoolVector.foldri (fn (i, true, l) => i :: l | (_, _, l) => l) [] filter
+
+    and setInFilter filter = BoolVector.foldl (fn (true, n) => n+1 | (false, n) => n) 0 filter
+
+    (* Work-around for bug in bytevector equality. *)
+    and boolVectorEq(a, b) = filterToFields a = filterToFields b
+ 
+    fun buildFullTuple(filter, select) =
+    let
+        fun extArg(t, u) =
+            if t = BoolVector.length filter then []
+            else if BoolVector.sub(filter, t)
+            then select u :: extArg(t+1, u+1)
+            else CodeZero :: extArg (t+1, u)
+    in
+        mkTuple(extArg(0, 0))
+    end
 
     (* When transforming code we only process one level and do not descend into sub-functions. *)
     local
@@ -337,7 +355,7 @@ struct
     (* If the function arguments are used in a way that could be optimised the
        data structure represents it. *)
     datatype functionArgPattern =
-        ArgPattTuple of { size: int, allConst: bool, fromFields: bool }
+        ArgPattTuple of { filter: BoolVector.vector, allConst: bool, fromFields: bool }
         (* ArgPattCurry is a list, one per level of application, of a
            list, one per argument of the pattern for that argument. *)
     |   ArgPattCurry of functionArgPattern list list * functionArgPattern
@@ -394,7 +412,9 @@ struct
                                     val (n, f) = findTuple c
                                 in
                                     if n <= 1
-                                    then ArgPattSimple else ArgPattTuple{size=n, allConst=f, fromFields=false}
+                                    then ArgPattSimple
+                                    else ArgPattTuple{filter=BoolVector.tabulate(n, fn _ => true),
+                                                      allConst=f, fromFields=false}
                                 end
                                 
                                 val thisArg = map mapArg arguments
@@ -409,7 +429,10 @@ struct
                                 then ArgPattSimple
                                 else ArgPattCurry(thisArg :: resultPatts, resultResult)
                             end
-                    |   UseField (n, _) => ArgPattTuple{size=n+1, allConst=false, fromFields=true}
+
+                    |   UseField (n, _) =>
+                            ArgPattTuple{filter=BoolVector.tabulate(n+1, fn m => m=n), allConst=false, fromFields=true}
+
                     |   _ => ArgPattSimple
 
                 fun mergePattern(ArgPattCurry(l1, r1), ArgPattCurry(l2, r2)) =
@@ -429,12 +452,22 @@ struct
                         if null prefix then ArgPattSimple else ArgPattCurry(prefix, mergePattern(r1, r2))
                     end
                     
-                |   mergePattern(ArgPattTuple{size=n1, allConst=c1, fromFields=f1}, ArgPattTuple{size=n2, allConst=c2, fromFields=f2}) =
+                |   mergePattern(ArgPattTuple{filter=n1, allConst=c1, fromFields=f1}, ArgPattTuple{filter=n2, allConst=c2, fromFields=f2}) =
                         (* If the tuples are different sizes we can't use a tuple.
                            Unlike currying it would be safe to assume tupling where
                            there isn't (unless the function is actually polymorphic). *)
-                        if n1 = n2 orelse (f1 andalso f2)
-                        then ArgPattTuple{size=Int.max(n1, n2), allConst=c1 andalso c2, fromFields = f1 andalso f2}
+                        if boolVectorEq(n1, n2)
+                        then ArgPattTuple{filter=n1, allConst=c1 andalso c2, fromFields = f1 andalso f2}
+                        else if f1 andalso f2
+                        then
+                        let
+                            open BoolVector
+                            val l1 = length n1 and l2 = length n2
+                            fun safesub(n, v) = if n < length v then v sub n else false
+                            val union = tabulate(Int.max(l1, l2), fn n => safesub(n, n1) orelse safesub(n, n2))
+                        in
+                            ArgPattTuple{filter=union, allConst=c1 andalso c2, fromFields = f1 andalso f2}
+                        end
                         else ArgPattSimple
 
                 |   mergePattern _ = ArgPattSimple
@@ -470,10 +503,11 @@ struct
        apply and it would be possible to merge them all.  For the moment keep them
        separate.  If another of the cases applies this will be re-entered on a
        subsequent pass. *)
-    fun detupleResult({ argTypes, name, resultType, closure, isInline, localCount, body, ...}: lambdaForm , size, makeAddress) =
+    fun detupleResult({ argTypes, name, resultType, closure, isInline, localCount, body, ...}: lambdaForm , filter, makeAddress) =
         (* The function returns a tuple or at least the uses of the function take apart a tuple.
            Transform it to take a container as an argument and put the result in there. *)
         let
+            val size = BoolVector.length filter
             local
                 fun mapArg f n ((t, _) :: tl) = (Extract(f n), t) :: mapArg f (n+1) tl
                 |   mapArg _ _ [] = []
@@ -550,23 +584,24 @@ struct
                the tuples will be optimised away.  *)
             val localCounter = ref localCount
 
-            fun mapPattern(ArgPattTuple{size=width, allConst=false, ...} :: patts, n, m) =
+            fun mapPattern(ArgPattTuple{filter, allConst=false, ...} :: patts, n, m) =
                 let
-                    val (decs, args, mapList) = mapPattern(patts, n+1, m+width)
+                    val fieldList = filterToFields filter
+                    val (decs, args, mapList) = mapPattern(patts, n+1, m + setInFilter filter)
                     val newAddr = ! localCounter before localCounter := ! localCounter + 1
-                    val fields = List.tabulate(width, fn r => mkLoadArgument(m+r))
-                    val thisDec = Declar { addr = newAddr, use = [], value = mkTuple fields }
+                    val tuple = buildFullTuple(filter, fn u => mkLoadArgument(m+u))
+                    val thisDec = Declar { addr = newAddr, use = [], value = tuple }
                     (* Arguments for the call *)
-                    val thisArg = List.tabulate(width, fn p => mkInd(p, mkLoadArgument n))
+                    val thisArg = List.map(fn p => mkInd(p, mkLoadArgument n)) fieldList
                 in
                     (thisDec :: decs, thisArg @ args, LoadLocal newAddr :: mapList)
                 end
 
-            |   mapPattern(ArgPattCurry(currying, ArgPattTuple{allConst=false, size, ...}) :: patts, n, m) =
+            |   mapPattern(ArgPattCurry(currying, ArgPattTuple{allConst=false, filter, ...}) :: patts, n, m) =
                 (* It's a function that returns a tuple. *)
                 let
                     val (thisDec, thisArg, thisMap) =
-                        transformFunctionArgument(currying, [LoadArgument m], [LoadArgument n], SOME size)
+                        transformFunctionArgument(currying, [LoadArgument m], [LoadArgument n], SOME filter)
                     val (decs, args, mapList) = mapPattern(patts, n+1, m+1)
                 in
                     (thisDec :: decs, thisArg :: args, thisMap :: mapList)
@@ -600,7 +635,7 @@ struct
 
             |   mapPattern([], _, _) = ([], [], [])
 
-            and transformFunctionArgument(argumentArgs, loadPack, loadThisArg, resTupleOpt) =
+            and transformFunctionArgument(argumentArgs, loadPack, loadThisArg, filterOpt) =
             let
                 (* We have a function that takes a series of curried argument.
                    Change that so that the function takes a list of arguments. *)
@@ -618,9 +653,13 @@ struct
                             fun mapArgs(c :: ctl, args) =
                             let
                                 fun mapArg([], args) = mapArgs(ctl, args)
-                                |   mapArg(ArgPattTuple{size=width, allConst=false, ...} :: patts, arg :: argctl) =
+                                |   mapArg(ArgPattTuple{filter, allConst=false, ...} :: patts, arg :: argctl) =
+                                    let
+                                        val width = BoolVector.length filter
+                                    in
                                         List.tabulate(width, fn p => (mkInd(p, Extract arg), GeneralType)) @
                                             mapArg(patts, argctl)
+                                    end
                                 |   mapArg(_ :: patts, arg :: argctl) =
                                         (Extract arg, GeneralType) :: mapArg(patts, argctl)
                                 |   mapArg(_, []) = raise InternalError "mapArgs: mismatch"
@@ -630,15 +669,18 @@ struct
                             |   mapArgs _ = []
                             val argList = mapArgs(argumentArgs, tl fnclosure)
                         in
-                            case resTupleOpt of
+                            case filterOpt of
                                 NONE =>
                                     ( testCount := List.length argList;
                                     Eval { function = Extract(hd fnclosure), resultType = GeneralType,
                                             argList = argList }
                                     )
-                            |   SOME size =>
+                            |   SOME filter =>
+                                let
+                                    val size = BoolVector.length filter
+                                in
                                     (* We need a container here for the result. *)
-                                    (testCount := List.length argList + 1;
+                                    testCount := List.length argList + 1;
                                     mkEnv(
                                         [
                                             Container{addr=0, size=size, use=[UseGeneral], setter=
@@ -648,13 +690,13 @@ struct
                                         ],
                                         mkTupleFromContainer(0, size)
                                     )
-                                    )
+                                end
                         end
                     |   curryPack(hd :: tl, fnclosure) =
                         let
                             val nArgs = List.length hd
                             (* If this is the last then we need to include the container if required. *)
-                            val needContainer = case (tl, resTupleOpt) of ([], SOME _) => true | _ => false
+                            val needContainer = case (tl, filterOpt) of ([], SOME _) => true | _ => false
                         in
                             Lambda { closure = fnclosure,
                                 isInline = Inline, name = name ^ "-P", resultType = GeneralType,
@@ -671,7 +713,7 @@ struct
                     val packFn = curryPack(argumentArgs, loadPack)
                 end
                 val thisDec = Declar { addr = newAddr, use = [], value = packFn }
-                fun argCount(ArgPattTuple{size=width, allConst=false, ...}, m) = width + m
+                fun argCount(ArgPattTuple{filter, allConst=false, ...}, m) = let val width = BoolVector.length filter in width + m end
                 |   argCount(_, m) = m+1
                 local
                     (* In the shim function, i.e. the inline function outside, we have
@@ -682,9 +724,13 @@ struct
                     fun curryApply(hd :: tl, n, c) =
                         let
                             fun makeArgs(_, []) = []
-                            |   makeArgs(q, ArgPattTuple{size=width, allConst=false, ...} :: args) =
+                            |   makeArgs(q, ArgPattTuple{filter, allConst=false, ...} :: args) =
+                                let
+                                    val width = BoolVector.length filter
+                                in
                                     (mkTuple(List.tabulate(width, fn r => mkLoadArgument(r+q))), GeneralType) ::
                                          makeArgs(q+width, args)
+                                end
                             |   makeArgs(q, _ :: args) =
                                     (mkLoadArgument q, GeneralType) :: makeArgs(q+1, args)
                             val args = makeArgs(n, hd)
@@ -703,13 +749,18 @@ struct
                        the container. *)
                     val totalArgCount =
                         List.foldl(fn (c, n) => n + List.foldl argCount 0 c) 0 argumentArgs +
-                        (case resTupleOpt of SOME _ => 1 | _ => 0)
+                        (case filterOpt of SOME _ => 1 | _ => 0)
                     val _ = totalArgCount = ! testCount orelse raise InternalError "bad"
                     val functionBody =
-                        case resTupleOpt of
+                        case filterOpt of
                             NONE => thisBody
-                        |   SOME size => mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody,
+                        |   SOME filter =>
+                            let
+                                val size = BoolVector.length filter
+                            in
+                                mkSetContainer(mkLoadArgument(totalArgCount-1), thisBody,
                                                     BoolVector.tabulate(size, fn _ => true))
+                            end
                 in
                     val thisArg =
                         Lambda {
@@ -741,7 +792,8 @@ struct
             local
                 (* The argument types for the main function have the tuples expanded,  Functions
                    are not affected. *)
-                fun expand(ArgPattTuple{size, allConst=false, ...}, _, r) = List.tabulate(size, fn _ => (GeneralType, [])) @ r
+                fun expand(ArgPattTuple{filter, allConst=false, ...}, _, r) =
+                        List.tabulate(setInFilter filter, fn _ => (GeneralType, [])) @ r
                 |   expand(_, a, r) = a :: r
             in
                 val transArgTypes = ListPair.foldrEq expand [] (usage, argTypes)
@@ -1094,8 +1146,8 @@ struct
                             (_ :: _ :: _, _) => (* Curried *)
                                 ( reprocess := true; decurryFunction(lambda, makeAddr))
 
-                        |   (_, ArgPattTuple {size, ...}) => (* Result is a tuple *)
-                                ( reprocess := true; detupleResult(lambda, size, makeAddr))
+                        |   (_, ArgPattTuple {filter, ...}) => (* Result is a tuple *)
+                                ( reprocess := true; detupleResult(lambda, filter, makeAddr))
 
                         |   (first :: _, _) =>
                             let
