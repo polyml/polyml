@@ -758,12 +758,20 @@ struct
                             (* Test the lengths. *)
                             mkEval(rtsFunction POLY_SYS_word_eq, [mkLoadLocal 0, mkLoadLocal 1]),
                             (* Equal - test the contents. *)
-                            mkEval(rtsFunction POLY_SYS_bytevec_eq,
-                                [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 0]),
+                            mkEnv([
+                                (* POLY_SYS_bytevec_eq takes a byte length so we have to multiply by
+                                   the number of bytes per word. *)
+                                mkDec(2,
+                                    mkEval(rtsFunction POLY_SYS_mul_word,
+                                        [mkEval(rtsFunction POLY_SYS_bytes_per_word, []), mkLoadLocal 0]
+                                    ))
+                                ],
+                                mkEval(rtsFunction POLY_SYS_bytevec_eq,
+                                    [mkLoadArgument 0, CodeZero, mkLoadArgument 1, CodeZero, mkLoadLocal 2])),
                             CodeFalse (* Not same length- result false *)
                         )
                     ),
-                    2, "byteVector-eq", [], 2)
+                    2, "byteVector-eq", [], 3)
 
             val idCode = (* Polytype *)
                 let
