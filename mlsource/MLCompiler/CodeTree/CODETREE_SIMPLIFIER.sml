@@ -164,81 +164,22 @@ struct
             SOME(specialToGeneral(simpFieldSelect(base, offset, isVariant, context)))
 
     |   simpGeneral context (SetContainer{container, tuple, filter}) =
-            (* Push the set-container down the tree and then process it. If we've
-               expanded an inline function we want to be able to find any
-               tuple we're creating. *)
-            let
-                val optCont = simplify(container, context)
-                and optTuple = simplify(tuple, context)
+        let
+            val optCont = simplify(container, context)
+            val (cGen, cDecs, cSpec) = simpSpecial(tuple, context)
+        in
+            case cSpec of
+                (* If the tuple is a local binding it is simpler to pick it up from the
+                   "special" entry. *)
+                EnvSpecTuple(size, recEnv) =>
+                let
+                    val fields = List.tabulate(size, envGeneralToCodetree o #1 o recEnv)
+                in
+                    SOME(simpPostSetContainer(optCont, Tuple{isVariant=false, fields=fields}, cDecs, filter))
+                end
 
-                val () =
-                    case optCont of
-                        Extract(LoadLocal _) => () (* Local *)
-                    |   Extract(LoadArgument _) => () (* Local argument *)
-                    |   _ => raise InternalError "optimise: SetContainer - not local"
-                
-                (* If the "tuple" is an expanded inline function it may well
-                   contain an if-expression.  If both branches were tuples
-                   we will have expanded it already and the result will be
-                   a TupleFromContainer. *)
-                fun pushSetContainer(Cond(ifpt, thenpt, elsept), decs): codetree =
-                    mkEnv(List.rev decs,
-                           Cond(ifpt, pushSetContainer(thenpt, []), pushSetContainer(elsept, [])))
-
-                |   pushSetContainer(Newenv(envDecs, envExp), decs) =
-                        pushSetContainer(envExp, List.rev envDecs @ decs)
-
-                |   pushSetContainer(Tuple{fields, isVariant=false}, decs) =
-                    let (* Do any filtering now. *)
-                        fun doFilter([], _) = []
-                        |   doFilter(hd::tl, n) =
-                            if n < BoolVector.length filter andalso BoolVector.sub(filter, n)
-                            then hd :: doFilter(tl, n+1)
-                            else
-                            (
-                                (* We should have taken any side-effecting fields out, but check anyway. *)
-                                sideEffectFree hd orelse raise InternalError "pushSetContainer: discard";
-                                doFilter(tl, n+1)
-                            )
-                        val outTuple = doFilter(fields, 0)
-                        val outFilter = BoolVector.tabulate(List.length outTuple, fn _ => true)
-                    in
-                        mkEnv(List.rev decs, mkSetContainer(optCont, mkTuple outTuple, outFilter))
-                    end
-
-(*                |   pushSetContainer(TupleFromContainer(ext as Extract(LoadLocal innerAddr), innerSize), decs) =
-                    (* If the inner container is declared among the decs we have here we can replace
-                       the declaration and remove the inner container by replacing it by
-                       a reference to the outer. *)
-                    if List.exists (fn (Declar{addr, ...}) => addr = innerAddr | _ => false) decs
-                    then
-                    let
-                        val _ = innerSize = size orelse raise InternalError "pushSetContainer: different sizes"
-                        fun changeDec (d as Declar{addr, ...}) = if addr = innerAddr then mkDec(addr, optCont) else d
-                        |   changeDec d = d 
-                        (* Sometimes the TupleFromContainer is preceded by some
-                           Declar entries.  We need to remove them so that the
-                           last entry in the list is the NullBinding that contains the
-                           code that sets the container, usually as the result of
-                           passing it as an argument to a function.  For some reason
-                           just adding a dummy CodeZero at the end results in a
-                           reference to a non-local container.  I don't understand this. *)
-                        fun removeFinalDecs(Declar _ :: tl) = removeFinalDecs tl
-                        |   removeFinalDecs(RecDecs _ :: tl) = removeFinalDecs tl
-                        |   removeFinalDecs(NullBinding c :: tl) = (List.rev tl, c)
-                        |   removeFinalDecs [] = raise InternalError "removeFinalDecs: Empty"
-                    in
-                        mkEnv(removeFinalDecs(List.map changeDec decs))
-                    end
-                    else (* We can't replace it. Instead just copy the inner container to the outer, *)
-                        mkEnv(List.rev decs, mkSetContainer(optCont, ext, filter))
-*)
-                |   pushSetContainer(tuple, decs) =
-                        mkEnv(List.rev decs, mkSetContainer(optCont, tuple, filter))
-              
-            in
-                SOME(pushSetContainer(optTuple, []))
-            end
+            |   _ => SOME(simpPostSetContainer(optCont, cGen, cDecs, filter))
+        end
 
     |   simpGeneral (context as { enterAddr, nextAddress, reprocess, ...}) (BeginLoop{loop, arguments, ...}) =
         let
@@ -845,6 +786,122 @@ struct
                     will do the selection immediately. *)
                 ((if isVariant then mkVarField else mkInd) (offset, genSource), decSource, EnvSpecNone)
     end
+
+    (* Process a SetContainer.  Unlike the other simpXXX functions this is called
+       after the arguments have been processed.  We try to push the SetContainer
+       to the leaves of the expression. *)
+    and simpPostSetContainer(container, Tuple{fields, ...}, tupleDecs, filter) =
+        let
+            (* Apply the filter now. *)
+            fun select(n, hd::tl) =
+                if n >= BoolVector.length filter
+                then []
+                else if BoolVector.sub(filter, n) then hd :: select(n+1, tl) else select(n+1, tl)
+            |   select(_, []) = []
+            val selected = select(0, fields)
+            (* Frequently we will have produced an indirection from the same base.  These
+               will all be bindings so we have to reverse the process. *)
+
+            fun findOriginal a =
+                List.find(fn Declar{addr, ...} => addr = a | _ => false) tupleDecs
+
+            fun checkFields(last, Extract(LoadLocal a) :: tl) =
+                (
+                    case findOriginal a of
+                        SOME(Declar{value=Indirect{base=Extract ext, isVariant=false, offset, ...}, ...}) =>
+                        (
+                            case last of
+                                NONE => checkFields(SOME(ext, [offset]), tl)
+                            |   SOME(lastExt, offsets) =>
+                                    (* It has to be the same base and with increasing offsets
+                                       (no reordering). *)
+                                    if lastExt = ext andalso offset > hd offsets
+                                    then checkFields(SOME(ext, offset :: offsets), tl)
+                                    else NONE
+                        )
+                    |   _ => NONE
+                )
+            |   checkFields(_, _ :: _) = NONE
+            |   checkFields(last, []) = last
+
+            fun fieldsToFilter fields =
+            let
+                val maxDest = List.foldl Int.max ~1 fields
+                val filterArray = BoolArray.array(maxDest+1, false)
+                val _ = List.app(fn n => BoolArray.update(filterArray, n, true)) fields
+            in
+                BoolArray.vector filterArray
+            end
+        in
+            case checkFields(NONE, selected) of
+                SOME (ext, fields) =>
+                    let
+                        val filter = fieldsToFilter fields
+                    in
+                        case ext of
+                            LoadLocal localAddr =>
+                            let
+                                (* Is this a container?  If it is and we're copying all of it we can
+                                   replace the inner container with a binding to the outer.
+                                   We have to be careful because it is possible that we may create
+                                   and set the inner container, then have some bindings that do some
+                                   side-effects with the inner container before then copying it to
+                                   the outer container.  For simplicity and to maintain the condition
+                                   that the container is set in the tails we only merge the containers
+                                   if it's at the end (after any "filtering"). *)
+                                val allSet = BoolVector.foldl (fn (a, t) => a andalso t) true filter
+
+                                fun findContainer [] = NONE
+                                |   findContainer (Declar{value, ...} :: tl) =
+                                        if sideEffectFree value then findContainer tl else NONE
+                                |   findContainer (Container{addr, size, setter, ...} :: tl) =
+                                        if localAddr = addr andalso size = BoolVector.length filter andalso allSet
+                                        then SOME (setter, tl)
+                                        else NONE
+                                |   findContainer _ = NONE
+                            in
+                                case findContainer (List.rev tupleDecs) of
+                                    SOME (setter, decs) =>
+                                        (* Put in a binding for the inner container address so the
+                                           setter will set the outer container. *)
+                                        mkEnv(List.rev(Declar{addr=localAddr, value=container, use=[]} :: decs), setter)
+                                |   NONE =>
+                                        mkEnv(tupleDecs,
+                                                SetContainer{container=container, tuple = Extract ext, filter=filter})
+                            end
+                        |   _ =>
+                            mkEnv(tupleDecs,
+                                    SetContainer{container=container, tuple = Extract ext, filter=filter})
+                    end
+
+            |   NONE =>
+                    mkEnv(tupleDecs,
+                         SetContainer{container=container, tuple = mkTuple selected,
+                                       filter=BoolVector.tabulate(List.length selected, fn _ => true)})
+        end
+
+    |   simpPostSetContainer(container, Cond(ifpt, thenpt, elsept), tupleDecs, filter) =
+            mkEnv(tupleDecs,
+                Cond(ifpt,
+                    simpPostSetContainer(container, thenpt, [], filter),
+                    simpPostSetContainer(container, elsept, [], filter)))
+
+    |   simpPostSetContainer(container, Newenv(envDecs, envExp), tupleDecs, filter) =
+            simpPostSetContainer(container, envExp, tupleDecs @ envDecs, filter)
+
+    |   simpPostSetContainer(container, BeginLoop{loop, arguments}, tupleDecs, filter) =
+            mkEnv(tupleDecs,
+                BeginLoop{loop = simpPostSetContainer(container, loop, [], filter),
+                    arguments=arguments})
+
+    |   simpPostSetContainer(_, loop as Loop _, tupleDecs, _) =
+            (* If we are inside a BeginLoop we only set the container on leaves
+               that exit the loop.  Loop entries will go back to the BeginLoop
+               so we don't add SetContainer nodes. *)
+            mkEnv(tupleDecs, loop)
+
+    |   simpPostSetContainer(container, tupleGen, tupleDecs, filter) =
+            mkEnv(tupleDecs, mkSetContainer(container, tupleGen, filter))
 
     fun simplifier(c, numLocals) =
     let
