@@ -277,11 +277,18 @@ struct
                     SOME(Cond(cleanCode(i, [UseGeneral]), cleanCode(t, codeUse), cleanCode(e, codeUse)))
 
             |   doClean use (BeginLoop{loop, arguments}) =
-                    SOME(BeginLoop {
-                        loop = cleanCode(loop, use),
-                        arguments = map(fn({value, addr, use}, t) => 
-                            ({value=cleanCode(value, use), addr=addr, use=use}, t)) arguments
-                    })
+                let
+                    val cleanBody = cleanCode(loop, use)
+                    (* TODO: If the arguments are not actually used (e.g. Succeed/Test114) we should
+                       remove them but then we also have to remove the corresponding arguments from
+                       the Loop nodes.  We have to be careful about side-effects.  At the moment
+                       we add a UseGeneral if the value is not used to ensure that we always
+                       pass a non-null list to any Extract node used in the actual argument. *)
+                    fun mapArg({value, addr, use}, t) =
+                        ({value=cleanCode(value, if null use then [UseGeneral] else use), addr=addr, use=use}, t)
+                in
+                    SOME(BeginLoop {loop = cleanBody, arguments = map mapArg arguments})
+                end
         
             |   doClean _ _ = NONE (* Anything else *)
         in
