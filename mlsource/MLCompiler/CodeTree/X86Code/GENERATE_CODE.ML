@@ -1805,6 +1805,26 @@ struct
                 val argLocations = argRegs (List.map (codeToCgType o #2)  argList)
                 val modifiedArgRegs = List.map valOf (List.filter isSome argLocations)
 
+                val needsResult = not (isNoResult whereto)
+                val regResult = resultReg(codeToCgType resultType)
+
+                (* Can use a jump if we're at the end, the closure is not the stack,
+                   the result is in the right register (we don't need to convert floating point
+                   to fixed point or vice versa) and none of the arguments are functions
+                   with closures on the stack. *)
+                local
+                    fun nonContainer(BICExtract(BICLoadLocal addr, _), _) =
+                            not(isContainer(Array.sub(decToPstack, addr), transtable))
+                    |   nonContainer(BICLambda{heapClosure, ...}, _) = heapClosure
+                    |   nonContainer _ = true
+                in
+                    val isTail =
+                        case tailKind of
+                            EndOfProc reg => canTail andalso regResult = reg
+                                             andalso List.all nonContainer argList
+                        |   _ => false
+                end
+
                 (* Get the set of registers modified by this call.  We have to include
                    the argument, closure and code registers even if they're not actually
                    modified because otherwise we may find that we've locked them. *)
@@ -1822,17 +1842,28 @@ struct
                 val _ =
                     case clos of
                         NONE => ()
-                    |   _ => addModifiedRegSet(transtable, modifiedRegisters);
+                    |   _ => addModifiedRegSet(transtable, modifiedRegisters)
+
+                (* In a tail-recursive call we may overwrite arguments on the stack.
+                   We have to load any argument values we need before we overwrite them.*)
+                fun checkTailArgument originalLocn =
+                    if isTail
+                    then
+                    let
+                        val (safeLocn, safeCode) = loadIfArg (transtable, originalLocn)
+                        val () = codeGenerate(safeCode, cvec)
+                    in
+                        safeLocn
+                    end
+                    else originalLocn
 
                 (* Have to guarantee that the expression to return
                    the procedure is evaluated before the arguments. *)
-                (* In the recursive case the use count for closureOrSlAddr
-                   is set by the caller. DCJM 1/12/99. *)
                 val procLocn = 
-                  case clos of
-                    SOME(BICConstnt _) => noIndex (* Unused. *)
-                  | SOME c          => genToStack (c) (* the closure *)
-                  | NONE            => noIndex  (* Unused. *);
+                    case clos of
+                        SOME(BICConstnt _) => noIndex (* Unused. *)
+                    |   SOME c          => checkTailArgument(genToStack c)
+                    |   NONE            => noIndex  (* Unused. *)
 
                 local
                     fun loadReg reg addr : stackIndex =
@@ -1902,26 +1933,6 @@ struct
                           else (NONE, false, [loadReg regClosure closureOrSlAddr], [regClosure])
                 end
 
-                val needsResult = not (isNoResult whereto)
-                val regResult = resultReg(codeToCgType resultType)
-
-                (* Can use a jump if we're at the end, the closure is not the stack,
-                   the result is in the right register (we don't need to convert floating point
-                   to fixed point or vice versa) and none of the arguments are functions
-                   with closures on the stack. *)
-                local
-                    fun nonContainer(BICExtract(BICLoadLocal addr, _), _) =
-                            not(isContainer(Array.sub(decToPstack, addr), transtable))
-                    |   nonContainer(BICLambda{heapClosure, ...}, _) = heapClosure
-                    |   nonContainer _ = true
-                in
-                    val isTail =
-                        case tailKind of
-                            EndOfProc reg => canTail andalso regResult = reg
-                                             andalso List.all nonContainer argList
-                        |   _ => false
-                end
-
                 (* Code-generate each entry to the pstack.  If this is a tail recursive call we have to
                    load any values that are currently used as arguments because we may overwrite them later. *)
                 local
@@ -1942,17 +1953,9 @@ struct
                                         MergeIndex index => index
                                      |  NoMerge => raise InternalError "ldArgs: No result"
                                 end
-                            |   NONE => (* On the stack *) genToStack (arg)
+                            |   NONE => (* On the stack *) genToStack arg
                     in
-                        if isTail
-                        then
-                        let
-                            val (safeLocn, safeCode)= loadIfArg (transtable, originalLocn)
-                            val () = codeGenerate(safeCode, cvec)
-                        in
-                            safeLocn
-                        end
-                        else originalLocn
+                        checkTailArgument originalLocn
                     end
                 in
                     val argsOnPstack = ListPair.mapEq loadArg(argList, argLocations)
@@ -1987,9 +1990,7 @@ struct
                     (* the arguments are now all in their rightful places *)
                     val argEntries = moveArgs(argsOnPstack, argLocations, ~numberOfArgsOnStack)
     
-                    (* Now load regClosure as appropriate. We delay this
-                       until now, because we don't want to zap regCode before
-                       we've loaded all the constant arguments. *)
+                    (* Now load regClosure as appropriate. *)
                     val (codeAddrOpt, isIndirect, callEntries, registersLocked) = loadProc ()
                     (* Compute the number of stack arguments we're passing. *)
                     val stackArgCount = List.length(List.filter(not o isSome) argLocations)
