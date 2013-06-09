@@ -381,13 +381,13 @@ structure TextIO :> TEXT_IO = struct
     (* Get the entries for standard input, standard output and standard error. *)
     val stdIn =
         let
-        val buffsize = sys_get_buffsize stdInDesc
+            val buffsize = sys_get_buffsize stdInDesc
         in
-        InStream(
-            ref (Direct{descr=stdInDesc, name="stdIn",
-                    buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
-                    buflimit=ref ~1}),
-            mutex())
+            InStream(
+                ref (Direct{descr=stdInDesc, name="stdIn",
+                        buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
+                        buflimit=ref ~1}),
+                mutex())
         end
 
     (* This is a bit of a mess.  When we load a saved state the references associated with stdIn
@@ -397,21 +397,37 @@ structure TextIO :> TEXT_IO = struct
     local
         fun onLoad doLoad =
             case stdIn of
-            InStream(ref(Direct{buffer, bufp as ref savedBufp, buflimit as ref savedBufLimit, ...}), _) =>
-                let
-                    (* Have to extract the contents and save it in a local variable. *)
-                    val savedBuff =
-                        if savedBufLimit < 0
-                        then ""
-                        else CharArraySlice.vector(
-                            CharArraySlice.slice(buffer, savedBufp, SOME(savedBufLimit - savedBufp)));
-                in
-                    doLoad();
-                    CharArray.copyVec { src=savedBuff, dst=buffer, di=savedBufp };
-                    bufp := savedBufp;
-                    buflimit := savedBufLimit
-                end
-            | _ => doLoad() (* Ignore this case for the moment. *)
+                InStream(ref(Direct{buffer, bufp as ref savedBufp, buflimit as ref savedBufLimit, ...}), _) =>
+                    let
+                        (* Have to extract the contents and save it in a local variable. *)
+                        val savedBuff =
+                            if savedBufLimit < 0
+                            then ""
+                            else CharArraySlice.vector(
+                                CharArraySlice.slice(buffer, savedBufp, SOME(savedBufLimit - savedBufp)));
+                    in
+                        doLoad();
+                        CharArray.copyVec { src=savedBuff, dst=buffer, di=savedBufp };
+                        bufp := savedBufp;
+                        buflimit := savedBufLimit
+                    end
+
+            |   InStream(ir as ref(Underlying impStream), _) =>
+                    let
+                        open ImpIO
+                        open StreamIO
+                        val s = ImpIO.getInstream impStream
+                        val (r, v) = getReader s
+                    in
+                        (* Because we may have this function installed more than once
+                           and because getReader truncates the stream so that a second
+                           call to getReader raises an exception we have to set
+                           the stream back before as well as after the load. *)
+                        ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)));
+                        doLoad();
+                        ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)))
+                    end
+
         (* On startup truncate the buffer in case there was some pending input when
            we exported.  Also install the onLoad function. *)
         fun onStartUp () =
