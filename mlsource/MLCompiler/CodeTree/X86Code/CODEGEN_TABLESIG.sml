@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2009, 2012
+    Copyright David C. J. Matthews 2009, 2012-13
     
     Derived from code
     Copyright (c) 2000
@@ -140,7 +140,7 @@ sig
     val getLoopDestinations: stackIndex list * ttab -> argdest list * operation list
 
     val callCode: stackIndex * bool * ttab -> operation list
-    val jumpToCode: stackIndex * bool * reg option * ttab -> operation list
+    val jumpToCode: stackIndex * bool * ttab -> operation list
 
     (* Get constants or code refs, which are really constants. *)
     datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst

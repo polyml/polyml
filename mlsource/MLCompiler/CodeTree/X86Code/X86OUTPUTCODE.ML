@@ -1695,10 +1695,11 @@ SS-relative addressing modes:
         lab := !ic
     );
 
-  datatype callKinds =
+    datatype callKinds =
         Recursive           (* The function calls itself. *)
-    |   ConstantFun of machineWord * bool (* A pre-compiled or io function. *)
-    |   CodeFun of code     (* A static link call. *)
+    |   ConstantClosure of machineWord (* A pre-compiled or io function. *)
+    |   ConstantCode of machineWord (* A function that doesn't need a closure *)
+    |   CodeFun of code      (* Forward reference to code *)
     |   FullCall            (* Full closure call *)
   
 (*****************************************************************************
@@ -1773,7 +1774,7 @@ Calling conventions:
     		    )
             )
 
-        |   ConstantFun(w, false) =>
+        |   ConstantCode w =>
             (
                 (* Make sure anything pending is done first. *)
                 doPending (cvec, maxInstrSize+3); 
@@ -1796,7 +1797,7 @@ Calling conventions:
     		    )
             )
 
-        |   ConstantFun(w, true) =>
+        |   ConstantClosure w =>
             if isX64
             then
             let
@@ -1841,12 +1842,8 @@ Calling conventions:
      stack check.  We need to make sure that we check the stack in any
      function that my be recursive, directly or indirectly.
   *)
-    fun jumpToFunction (callKind, returnReg, cvec as Code{exited, ic, ...}) =
-    ( (* Must push the return register? *)
-        case returnReg of
-            NONE => ()
-        |   SOME returnReg => genPushPop(PUSH_R, returnReg, cvec);
-            
+    fun jumpToFunction (callKind, cvec as Code{exited, ic, ...}) =
+    (
         case callKind of 
             Recursive =>
             (
@@ -1875,7 +1872,7 @@ Calling conventions:
 			    codeConst (c, InlineRelative, cvec)
             )
 
-        |   ConstantFun(w, false) =>
+        |   ConstantCode w =>
             if isX64
             then
             (
@@ -1889,7 +1886,7 @@ Calling conventions:
     			addConstToVec (WVal w, InlineRelative, cvec)
             )
 
-        |   ConstantFun(w, true) =>
+        |   ConstantClosure w =>
 		  	(* Indirect jumps are used to call into the RTS. *)
             if isX64
             then
@@ -1914,7 +1911,7 @@ Calling conventions:
 
 
     (* Return and remove args. *)
-    fun returnFromFunction (NONE, args, cvec as Code{exited, ...}) : unit =
+    fun returnFromFunction (args, cvec as Code{exited, ...}) : unit =
     (
         if args = 0
         then genop (RET, NONE, cvec)
@@ -1929,7 +1926,6 @@ Calling conventions:
      
         exited := true (* We're not coming back. *)
     )
-    |   returnFromFunction _ = raise InternalError "Wrong argument"
 
     (* Backwards jump for loops. *)
 
@@ -2141,9 +2137,9 @@ Calling conventions:
     |   AllocStore of { size: int, output: reg }
     |   AllocStoreVariable of reg
     |   StoreInitialised
-    |   CallFunction of { callKind: callKinds }
-    |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
-    |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
+    |   CallFunction of callKinds
+    |   JumpToFunction of callKinds
+    |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
     |   ResetStack of int
@@ -2191,8 +2187,8 @@ Calling conventions:
         |   printMemAddress(ConstantAddress addr) = stream(stringOfWord addr)
         
         fun printCallKind Recursive = stream "Recursive"
-        |   printCallKind (ConstantFun(w, true)) = (stream "closure="; stream(stringOfWord w))
-        |   printCallKind (ConstantFun(w, false)) = (stream "code="; stream(stringOfWord w))
+        |   printCallKind (ConstantClosure w) = (stream "closure="; stream(stringOfWord w))
+        |   printCallKind (ConstantCode w) = (stream "code="; stream(stringOfWord w))
         |   printCallKind (CodeFun(Code{procName, ...})) = stream("CODE-" ^ procName)
         |   printCallKind FullCall = stream "via ClosureReg"
      in
@@ -2340,13 +2336,11 @@ Calling conventions:
         |   TagValue { source, output } =>
                 (stream "TagValue "; printReg output; stream " <= "; printReg source)
 
-        |   CallFunction { callKind } =>
-                (stream "CallFunction "; printCallKind callKind)
+        |   CallFunction callKind => (stream "CallFunction "; printCallKind callKind)
 
-        |   JumpToFunction { callKind, returnReg= _ } =>
-                (stream "JumpToFunction "; printCallKind callKind)
+        |   JumpToFunction callKind => (stream "JumpToFunction "; printCallKind callKind)
 
-        |   ReturnFromFunction { returnReg= _, argsToRemove } =>
+        |   ReturnFromFunction argsToRemove =>
                 (stream "ReturnFromFunction "; stream(Int.toString argsToRemove))
 
         |   RaiseException =>
@@ -3128,13 +3122,13 @@ Calling conventions:
                 cgOp remainder
             )
 
-        |   cgOp(CallFunction{ callKind } :: remainder) = (callFunction(callKind, code); cgOp remainder)
+        |   cgOp(CallFunction callKind :: remainder) = (callFunction(callKind, code); cgOp remainder)
 
-        |   cgOp(JumpToFunction{ callKind, returnReg } :: remainder) = (jumpToFunction(callKind, returnReg, code); cgOp remainder)
+        |   cgOp(JumpToFunction callKind :: remainder) = (jumpToFunction(callKind, code); cgOp remainder)
 
-        |   cgOp(ReturnFromFunction{ returnReg, argsToRemove } :: remainder) =
+        |   cgOp(ReturnFromFunction argsToRemove :: remainder) =
             (
-                returnFromFunction(returnReg, argsToRemove, code);
+                returnFromFunction(argsToRemove, code);
                 cgOp remainder
             )
 

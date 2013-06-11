@@ -80,7 +80,8 @@ sig
 
     datatype callKinds =
         Recursive
-    |   ConstantFun of machineWord * bool
+    |   ConstantClosure of machineWord
+    |   ConstantCode of machineWord
     |   CodeFun of code
     |   FullCall
 
@@ -139,9 +140,9 @@ sig
     |   AllocStore of { size: int, output: reg }
     |   AllocStoreVariable of reg
     |   StoreInitialised
-    |   CallFunction of { callKind: callKinds }
-    |   JumpToFunction of { callKind: callKinds, returnReg: reg option }
-    |   ReturnFromFunction of { returnReg: reg option, argsToRemove: int }
+    |   CallFunction of callKinds
+    |   JumpToFunction of callKinds
+    |   ReturnFromFunction of int
     |   RaiseException
     |   UncondBranch of label
     |   ResetStack of int

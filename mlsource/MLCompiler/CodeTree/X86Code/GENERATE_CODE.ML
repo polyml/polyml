@@ -145,25 +145,7 @@ struct
 
         (* Push the return address - may have multiple references because
            we may exit at any of the "tails". *)
-        val returnAddress =
-            case regReturn of
-                NONE =>
-                let
-                    (* The return address has already been pushed onto the stack,
-                       probably because the normal call sequence does it. *)
-                    val addr = incsp transtable
-                in
-                    addr
-                end
-            |   SOME regReturn => 
-                let
-                    (* The return address has already been pushed onto the stack,
-                       probably because the normal call sequence does it. *)
-                    val addr = parameterInRegister(regReturn, 1, transtable)
-                    val () = codeGenerate(activeRegister regReturn, cvec)
-                in
-                    addr
-                end
+        val returnAddress = incsp transtable
 
         (* If discardClosure is true, all uses of the closure are
            directly-recursive calls which will be handled as "Recursive".
@@ -219,21 +201,8 @@ struct
         fun exit () =
         let
             val stackArgs = List.length(List.filter(not o isSome) argLocations)
-            val exitCode =
-                case regReturn of
-                    NONE => (* Reset to just above the return address. *)
-                            returnFromFunction{returnReg=NONE, argsToRemove=stackArgs} @
-                            resetStack (realstackptr transtable - 1)
-                |   SOME _ =>
-                    let
-                        val (returnReg, returnOffset, returnCode) =
-                            loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false);
-                        val freeCode = removeStackEntry (transtable, returnOffset)
-                    in
-                        returnFromFunction{returnReg=SOME returnReg, argsToRemove=stackArgs} @
-                        resetStack (realstackptr transtable) @ freeCode @
-                        returnCode
-                    end;
+            val exitCode = (* Reset to just above the return address. *)
+                returnFromFunction stackArgs @ resetStack (realstackptr transtable - 1)
         in
             exiting transtable;
             exitCode
@@ -1997,33 +1966,20 @@ struct
         
                     (* Get the return address. *)
                     val returnReg : reg option =
-                    case regReturn of
-                        NONE =>
-                            (* The return address is on the stack.  Do we need to load it? *)
-                            (* Only if we're passing a different number of arguments on
-                               stack - this would change the offset of the return address. *)
-                            if stackArgCount = numberOfArgsOnStack
-                            then NONE (* Leave it there. *)
-                            else
-                            let
-                                val (reg, regIndex, loadCode) =
-                                    loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false)
-                                val () = codeGenerate(loadCode, cvec)
-                            in
-                                codeGenerate(removeStackEntry(transtable, regIndex), cvec);
-                                SOME reg
-                            end
-                    |   SOME regReturn =>
-                            let
-                                (* Reload the return address into the return register. *)
-                                val (regIndex, regCode) =
-                                    loadToSpecificReg (transtable, regReturn, returnAddress, false);
-                                val () = codeGenerate(regCode, cvec)
-                            in
-                                codeGenerate(removeStackEntry(transtable, regIndex), cvec);
-                                SOME regReturn
-                            end
-
+                        (* The return address is on the stack.  Do we need to load it? *)
+                        (* Only if we're passing a different number of arguments on
+                           stack - this would change the offset of the return address. *)
+                        if stackArgCount = numberOfArgsOnStack
+                        then NONE (* Leave it there. *)
+                        else
+                        let
+                            val (reg, regIndex, loadCode) =
+                                loadEntryToSet (transtable, returnAddress, RegSet.generalRegisters, false)
+                            val () = codeGenerate(loadCode, cvec)
+                        in
+                            codeGenerate(removeStackEntry(transtable, regIndex), cvec);
+                            SOME reg
+                        end
                     local
                         (* Move the stack pointer if necessary. *)           
                         val diffInArgs = numberOfArgsOnStack - stackArgCount
@@ -2034,6 +1990,8 @@ struct
                     end
                 in
                     codeGenerate(resetStack stackMove, cvec);
+                    (* Push the register with the return address. *)
+                    case returnReg of NONE => () | SOME r => codeGenerate(pushRegisterToStack r, cvec);
                     (* Call the function.  If it's not recursive we have to get the
                        entry point. *)
                     (* We have to include a stack check in this function to ensure that
@@ -2041,10 +1999,9 @@ struct
                        more stack. *)
                     callsAFunction := true; (* Don't really need this for RTS calls. *)
                     case codeAddrOpt of
-                        NONE =>
-                           codeGenerate(jumpToFunction{callKind=Recursive, returnReg=returnReg}, cvec)
-                    |   SOME codeAddr => 
-                            codeGenerate(jumpToCode(codeAddr, isIndirect, returnReg, transtable), cvec);
+                        NONE => codeGenerate(jumpToFunction Recursive, cvec)
+                    |   SOME codeAddr =>
+                            codeGenerate(jumpToCode(codeAddr, isIndirect, transtable), cvec);
 
                     (* Unlock any registers we locked. *)
                     List.app (fn r => codeGenerate(unlockRegister (transtable, r), cvec)) registersLocked;
@@ -2111,7 +2068,7 @@ struct
                     val () = callsAFunction := true; 
                     val callCode =
                       case codeAddrOpt of
-                         NONE => callFunction{callKind=Recursive}
+                         NONE => callFunction Recursive
                       |  SOME codeAddr => callCode(codeAddr, isIndirect, transtable)
                 in
                     codeGenerate(callCode @ checkContiguous, cvec);

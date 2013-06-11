@@ -2878,23 +2878,23 @@ struct
     end
 
     (* Tail recursive jump to a function. *)
-    fun jumpToCode(codeAddr, isIndirect, returnReg, transtable) =
+    fun jumpToCode(codeAddr, isIndirect, transtable) =
     let
         val {ent, ...} = pstackRealEntry(transtable, codeAddr)
         val code =
         case ent of
             Literal lit =>
-                jumpToFunction{callKind=ConstantFun(lit, isIndirect), returnReg=returnReg}
+                jumpToFunction(if isIndirect then ConstantClosure lit else ConstantCode lit)
 
         |  CodeRef code =>
             if isIndirect
             then raise InternalError "jumpToCode: indirect call to codeRef"
-            else jumpToFunction{callKind=CodeFun code, returnReg=returnReg}
+            else jumpToFunction(CodeFun code)
 
         |  Register(reg, _) => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
-            then jumpToFunction{callKind=FullCall, returnReg=returnReg}
+            then jumpToFunction FullCall
             else raise InternalError "jumpToCode: Not indirection through closure reg"
 
         |  _ => (* Anything else shouldn't happen. *)
@@ -2911,17 +2911,17 @@ struct
         val code =
         case ent of
             Literal lit =>
-                callFunction{callKind=ConstantFun(lit, isIndirect)}
+                callFunction(if isIndirect then ConstantClosure lit else ConstantCode lit)
 
         |  CodeRef code =>
             if isIndirect
             then raise InternalError "callCode: indirect call to codeRef"
-            else callFunction{callKind=CodeFun code}
+            else callFunction(CodeFun code)
 
         |  Register(reg, _) => (* Should only be the closure register and only in
                            the indirect case. *)
             if isIndirect andalso reg = regClosure
-            then callFunction{callKind=FullCall}
+            then callFunction FullCall
             else raise InternalError "callCode: Not indirection through closure reg"
 
         |  _ => (* Anything else shouldn't happen. *)

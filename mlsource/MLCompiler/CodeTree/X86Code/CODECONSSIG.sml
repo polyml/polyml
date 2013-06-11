@@ -36,7 +36,6 @@ sig
     val regNone:     reg option
     val regClosure:  reg
     val regStackPtr: reg
-    val regReturn:   reg option
 
     (* For vector indexing we provide a numbering for the registers. *)
     val regs:   int
@@ -160,7 +159,8 @@ sig
 
     datatype callKinds =
         Recursive
-    |   ConstantFun of machineWord * bool
+    |   ConstantClosure of machineWord
+    |   ConstantCode of machineWord
     |   CodeFun of code
     |   FullCall
 
@@ -184,9 +184,9 @@ sig
 
     val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
     val allocationComplete: operations
-    val callFunction: { callKind: callKinds } -> operations
-    val jumpToFunction: { callKind: callKinds, returnReg: reg option } -> operations
-    val returnFromFunction: { returnReg: reg option, argsToRemove: int } -> operations
+    val callFunction: callKinds -> operations
+    val jumpToFunction: callKinds  -> operations
+    val returnFromFunction: int -> operations
     val raiseException: operations
     val uncondBranch: unit -> operations * forwardLabel
     val resetStack: int -> operations

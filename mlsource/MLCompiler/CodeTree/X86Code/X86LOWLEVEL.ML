@@ -76,7 +76,6 @@ struct
     val regClosure  = edx; (* Addr. of closure for fn. call goes here. *)
     
     val regStackPtr = esp;
-    val regReturn   = NONE; (* Return address is on the stack. *)
  
     datatype argType = ArgGeneral | ArgFP
 
