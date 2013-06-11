@@ -567,7 +567,6 @@ void ELFExport::exportStore(void)
 
     exportDescription exports;
     memset(&exports, 0, sizeof(exports));
-    memset(memTable, 0, sizeof(memTable));
     exports.structLength = sizeof(exportDescription);
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;

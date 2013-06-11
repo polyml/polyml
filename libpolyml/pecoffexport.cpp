@@ -320,7 +320,6 @@ void PECOFFExport::exportStore(void)
 
     sections[memTableEntries].PointerToRawData = ftell(exportFile);
     memset(&exports, 0, sizeof(exports));
-    memset(memTable, 0, sizeof(memTable));
     exports.structLength = sizeof(exportDescription);
     exports.memTableSize = sizeof(memoryTableEntry);
     exports.memTableEntries = memTableEntries;
