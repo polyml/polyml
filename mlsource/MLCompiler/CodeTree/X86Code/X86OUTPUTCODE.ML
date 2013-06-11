@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012
+    Copyright David C. J. Matthews 1989, 2000, 2009-10, 2012-13
     
     Based on original code:    
     Copyright (c) 2000
@@ -2188,7 +2188,13 @@ Calling conventions:
             |   Index8 x => (stream "["; printReg x; stream "*8]")
         )
         fun printMemAddress(BaseOffset{ base, offset, index }) = printBaseOffset(base, index, offset)
-        |   printMemAddress(ConstantAddress _) = stream "ADDRESS"
+        |   printMemAddress(ConstantAddress addr) = stream(stringOfWord addr)
+        
+        fun printCallKind Recursive = stream "Recursive"
+        |   printCallKind (ConstantFun(w, true)) = (stream "closure="; stream(stringOfWord w))
+        |   printCallKind (ConstantFun(w, false)) = (stream "code="; stream(stringOfWord w))
+        |   printCallKind (CodeFun(Code{procName, ...})) = stream("CODE-" ^ procName)
+        |   printCallKind FullCall = stream "via ClosureReg"
      in
         case operation of
             MoveRR { source, output } =>
@@ -2334,12 +2340,15 @@ Calling conventions:
         |   TagValue { source, output } =>
                 (stream "TagValue "; printReg output; stream " <= "; printReg source)
 
-        |   CallFunction { callKind=_ } =>
-                stream "CallFunction"
-        |   JumpToFunction { callKind=_, returnReg=_ } =>
-                stream "JumpToFunction"
-        |   ReturnFromFunction { returnReg=_, argsToRemove=_ } =>
-                stream "ReturnFromFunction"
+        |   CallFunction { callKind } =>
+                (stream "CallFunction "; printCallKind callKind)
+
+        |   JumpToFunction { callKind, returnReg= _ } =>
+                (stream "JumpToFunction "; printCallKind callKind)
+
+        |   ReturnFromFunction { returnReg= _, argsToRemove } =>
+                (stream "ReturnFromFunction "; stream(Int.toString argsToRemove))
+
         |   RaiseException =>
                 stream "RaiseException"
         |   UncondBranch(Labels{labId=ref lab, ...})=>
