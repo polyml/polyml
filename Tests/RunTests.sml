@@ -88,7 +88,7 @@ let
     
                     val code =
                         PolyML.compiler(getChar, [CPOutStream discardOut, CPNameSpace localNameSpace])
-                            handle Fail _ => raise CompilerException
+                            handle Fail "Static Errors" => raise CompilerException
                 in
                     code()
                 end;
