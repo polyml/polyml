@@ -1486,10 +1486,11 @@ struct
                     (t, List.map (fn t => {value=t, equality=false, printity=false}) polyVars)
                 end
             | _ => generaliseWithMap(typeOf, TypeVarMap.mapTypeVars typeVarMap)
-        val () = 
-            case unifyTypes(t, expType) of
-                NONE => ()
-            |   SOME report => (print(name ^ ":\n"); PolyML.print report; raise InternalError "unifyTypes failed in pass 3")
+        (* Ignore the result.  There are circumstances in which we can get a
+           unification error as the result of failing to find a fixed record type
+           where the possible records we could find have non-unifiable types.
+           See Tests/Fail/Test072.ML *)
+        val _ = unifyTypes(t, expType)
     in
         polyVars
     end
