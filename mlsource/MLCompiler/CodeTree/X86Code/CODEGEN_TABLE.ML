@@ -441,7 +441,17 @@ struct
                     |   Direct {base, ...} => free regset base
                     |   Container{items, dependencies} =>
                         let
-                            val releaseList = List.foldl(fn (i, f) => incrUseCount(table, i, ~1) @ f)
+                            (* Release the dependencies.  The normal use count mechanism
+                               doesn't remove mutually recursive closures and so they may be
+                               forcibly removed at the end of a block.  Since the dependencies
+                               form a loop when we come back to the start we will find an
+                               entry that has already been clobbered. *)
+                            fun releaseDep(i, f) =
+                                case pstackEntry(table, i) of
+                                    NoStackEntry => f
+                                |   _ => incrUseCount(table, i, ~1) @ f
+
+                            val releaseList = List.foldl releaseDep
                         in
                             releaseList (releaseList [] items) dependencies
                         end
