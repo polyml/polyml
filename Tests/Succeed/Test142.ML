@@ -1,7 +1,9 @@
 (* Polymorphic declaration.  Ensure that Bind is raised. *)
 
-let
+(let
     val SOME (f: 'a -> 'a) = NONE
 in
-    f (f 1)
-end;
+    f (f 1);
+    raise Fail "No exception"
+end) handle Bind => ()
+;

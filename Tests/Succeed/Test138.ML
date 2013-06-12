@@ -7,7 +7,7 @@ fun foldr f n [] = n
 
 fun g z =
 let
-    val (x, _) = foldr (fn (h, t) => (print(Int.toString(#2 t)); t)) (0, 0) z
+    val (x, _) = foldr (fn (h, t) => (ref(#2 t); t)) (0, 0) z
 in
     x
 end;

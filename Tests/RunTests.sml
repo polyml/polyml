@@ -4,7 +4,7 @@ fun runTests parentDir =
 let
     val defaultInlineSize = ! PolyML.Compiler.maxInlineSize
 
-    fun runTests (dirName, expect) =
+    fun runTests (dirName, expectSuccess) =
     let
         (* Run a file.  Returns true if it succeeds, false if it fails. *)
         fun runTest fileName =
@@ -76,6 +76,9 @@ let
                 allStruct    = #all strSpace
             }
 
+            (* The tests in the Fail directory should all raise exceptions
+               in the compiler as a result of detecting errors. *)
+            exception CompilerException
         in
             (
                 while not (TextIO.StreamIO.endOfStream(!stream)) do
@@ -83,14 +86,18 @@ let
                     fun discardOut _ = ()
                     val nameSpace = PolyML.globalNameSpace
     
-                    val code = PolyML.compiler(getChar, [CPOutStream discardOut, CPNameSpace localNameSpace])
+                    val code =
+                        PolyML.compiler(getChar, [CPOutStream discardOut, CPNameSpace localNameSpace])
+                            handle Fail _ => raise CompilerException
                 in
                     code()
                 end;
                 (* Normal termination: close the stream. *)
                 TextIO.StreamIO.closeIn (! stream);
-                true (* Succeeded. *)
-            ) handle exn => (TextIO.StreamIO.closeIn(!stream); false)
+                expectSuccess (* OK if we expected success. *)
+            ) handle
+                CompilerException => (TextIO.StreamIO.closeIn(!stream); not expectSuccess)
+                | exn => (TextIO.StreamIO.closeIn(!stream); false)
 
         end;
 
@@ -105,7 +112,7 @@ let
                 then
                 (
                     print f; print " => ";
-                    if runTest(joinDirFile{dir=testPath, file=f}) = expect
+                    if runTest(joinDirFile{dir=testPath, file=f})
                     then (print "Passed\n"; runDir fails)
                     else (print "Failed!!\n"; runDir(fails @ [joinDirFile{dir=dirName, file=f}]))
                 )
