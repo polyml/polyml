@@ -849,6 +849,17 @@ struct
                     P2Eval {function = P2Constnt (w, p), argList = newargs, resultType=resultType}
                 end
 
+            |   insert(Eval { function = Lambda lam, argList, resultType, ...}) =
+                let
+                    (* Call of a lambda.  Typically this will be a recursive function that
+                       can't be inlined. *)
+                    val newargs = map(fn (c, t) => (insert c, t)) argList
+                    val (copiedLambda, newClosure, makeRecClosure, _) = copyLambda lam
+                    val func  = copyProcClosure (copiedLambda, newClosure, makeRecClosure)
+                in
+                    P2Eval {function = func, argList = newargs, resultType=resultType}
+                end
+
             |   insert(Eval { function, argList, resultType, ...}) =
                 let
                     (* Process the arguments first. *)
