@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10, 2012
+    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10, 2012-13
 
     Derived from code
 
@@ -86,7 +86,12 @@ struct
     |   CodeRef   of code        (* Forward reference to code *)
     |   Direct    of {base: reg, offset: int}  (* Register/Offset *)
     |   StackW    of int         (* On the real stack. *)
-    |   Container of stackIndex list (* A group of stack entries. *)
+        (* Container entries are a group of items on the stack.  They are used
+           for tuples and also for function closures.  A function closure
+           can contain the addresses of other function closures so these
+           must be retained until the last references to the closure
+           that references them.  *)
+    |   Container of { items: stackIndex list, dependencies: stackIndex list}
 
     datatype stackEntry =
         NoStackEntry
@@ -302,10 +307,10 @@ struct
             printStream ")"
         )
 
-     | Container l =>
+     | Container{items, ...} =>
         (
             printStream "[";
-            List.app (fn i => (printStream(Int.toString(i)); printStream " ")) l;
+            List.app (fn i => (printStream(Int.toString(i)); printStream " ")) items;
             printStream "]"
         )
 
@@ -434,7 +439,12 @@ struct
                     case stacken of
                         Register(reg, _)   => free regset reg
                     |   Direct {base, ...} => free regset base
-                    |   Container l        => List.foldl(fn (i, f) => incrUseCount(table, i, ~1) @ f) [] l
+                    |   Container{items, dependencies} =>
+                        let
+                            val releaseList = List.foldl(fn (i, f) => incrUseCount(table, i, ~1) @ f)
+                        in
+                            releaseList (releaseList [] items) dependencies
+                        end
                     |   _                  => []
                 val () = clearOff table
             in
@@ -1323,8 +1333,8 @@ struct
             |   Direct {base, offset} => moveFromMemory(base, offset, destReg)
             |   StackW index =>
                     moveFromMemory(regStackPtr, (! realstackptr - index - 1) * wordSize, destReg)
-            |   Container l => (* The first entry in the container gives us the address. *)
-                case pstackRealEntry(table, hd l) of
+            |   Container{items, ...} => (* The first entry in the container gives us the address. *)
+                case pstackRealEntry(table, hd items) of
                     {ent = StackW index, ...} => moveStackAddress(! realstackptr - index -1, destReg)
                 |   _ => raise InternalError "loadPstackEntry: container entry is not on stack";
        (* Decrement use count and remove if done. *)
@@ -1449,9 +1459,9 @@ struct
                            the real stack before the function is called. *)
                         val stackOffset =
                             case ent of
-                                Container l =>
+                                Container{items, ...} =>
                                 (
-                                    case pstackRealEntry(table, hd l) of
+                                    case pstackRealEntry(table, hd items) of
                                         {ent = StackW index, ...} => index
                                     |   _ => raise InternalError "loadPstackEntry: container entry is not on stack"
                                 )
@@ -1715,21 +1725,22 @@ struct
                 val (pushRest, pushCode) = pushEntries (n-1, code)
                 val stackLocn = incsp table
             in
-                (* Reserve space on the stac. *)
+                (* Reserve space on the stack. *)
                 (stackLocn :: pushRest, pushToReserveSpace @ pushCode)
             end;
         val (entries, code) = pushEntries(space, alignCode)
     in
-        (pushPstack(table, Container entries, "reserveStackSpace", code), code)
+        (pushPstack(table, Container{items=entries, dependencies=[]}, "reserveStackSpace", code), code)
     end
-    
+
+
     (* Generates an indirection on an item on the pseudo-stack. *)
     fun indirect (wordOffset, entry, table as Ttab{pstackptr, lowestDirect, ...}) : stackIndex * operation list =
         case pstackRealEntry(table, entry) of
-            {ent = Container l, ...} =>
+            {ent = Container {items, ...}, ...} =>
                 (* If we are indirecting off a container we can simply load the entry. *)
                 let
-                    val resIndex = List.nth(l, wordOffset)
+                    val resIndex = List.nth(items, wordOffset)
                 in
                     (* Increment its use count. *)
                     incrUseCount (table, resIndex, 1);
@@ -2758,9 +2769,9 @@ struct
                 |   StackW index =>
                             ActBaseOffset(regStackPtr, (! realstackptr - 1 - index) * wordSize)
 
-                |   Container l =>
+                |   Container{items, ...} =>
                     (
-                        case pstackRealEntry(table, hd l) of
+                        case pstackRealEntry(table, hd items) of
                             {ent = StackW index, ...} =>
                                  ActStackAddress((! realstackptr - index -1) * wordSize)
                         |   _ => raise InternalError "argAsSource: container entry is not on stack"
@@ -3085,7 +3096,10 @@ struct
             |   StackEntry {uses = 0, ...} => () (* May be a cache entry. *)
             |   StackEntry _ =>
                 if (case result of NoMerge => true | MergeIndex m => m <> entry)
-                then print "checkBlockResult: Entry not removed\n"
+                (* Comment out for the moment.  Container entries from mutually
+                   recursive stack closures will never get their use counts zero
+                   so they and their stack entries will not be removed. *)
+                then () (*print "checkBlockResult: Entry not removed\n"*)
                 else ();
             checkStack(entry+1)
         )
@@ -3111,7 +3125,79 @@ struct
             {ent = Container _, ...} => true
         |   _ => false
 
-    structure Sharing =
+    (* Create a closure on the stack.  There may be entries in the list which have
+       not yet been set. *)
+    fun createStackClosure(table, entries) =
+    let
+        (* If any entries are containers they need to be added to the dependencies. *)
+        local
+            fun depFold (index, (code, deps)) =
+                if index = noIndex
+                then (code, deps)
+                else case pstackEntry(table, index) of
+                        StackEntry { ent = Container _, ...} =>
+                            (incrUseCount(table, index, 1) @ code, index :: deps)
+                    |   _ => (code, deps)
+        in
+            val (incCode, depends) = List.foldl depFold ([], []) entries
+        end
+
+        (* We must first make sure that the space we're going to allocate
+           hasn't been reserved for a register. *)
+        val alignCode = alignStack(table, [], NONE)
+
+        (* Push all entries.  There may be entries that refer to other
+           closures in the same mutually recursive set.  Use a zero for
+           these and fill them in later. *)
+        fun pushEntry(index :: indices) =
+            let
+                (* Push the later entries first. *)
+                val (pushEntries, pushTail) = pushEntry indices
+
+                val sp = realstackptr table
+                val indexOrDummy =
+                    if index = noIndex
+                    then (* Recursive entry. *) pushConst (table, toMachineWord 0)
+                    else index
+                val (pushedEntry, pushThis) = pushValueToStack (table, indexOrDummy, sp + 1)
+            in
+                (pushedEntry :: pushEntries, pushThis @ pushTail)
+            end
+        |  pushEntry [] = ([], [])
+
+        val (fillEntries, fillCode) = pushEntry entries
+
+        val container =
+            pushPstack(table, Container{items=fillEntries, dependencies=depends}, "createStackClosure", fillCode)
+    in
+        (container, fillCode @ alignCode @ incCode)
+    end
+
+    (* If we are creating mutually recursive closures on the stack we
+       will have to complete the loop by updating earlier closures
+       with the addresses of later ones. *)
+    (* TODO: This effectively prevents the closures from ever being
+       removed.  If we have two mutually recursive closures then the
+       use-count of neither will ever go to zero. *)
+    fun setRecursiveClosureEntry(vecEntry, valueEntry, offset, table as Ttab{pstack, ...}) =
+    let
+        (* This is a dependency of the container. *)
+        val stackent = pstackEntry(table, vecEntry)
+        (* Increment the use count so it's not thrown away in moveToVec but
+           instead add it to the dependencies of the container. *)
+        val incCode = incrUseCount(table, valueEntry, 1)
+        val _ =
+            case stackent of
+                StackEntry{ ent = Container{items, dependencies}, uses, cache, destStack, lifeTime} =>
+                    StretchArray.update(pstack, vecEntry,
+                        StackEntry{ ent=Container{items=items, dependencies = valueEntry:: dependencies},
+                                    uses=uses, cache=cache, destStack=destStack, lifeTime=lifeTime})
+            |   _ => raise InternalError "setRecursiveClosureEntry: not container"
+    in
+        moveToVec(vecEntry, valueEntry, offset, table) @ incCode
+    end
+
+   structure Sharing =
     struct
         type code       = code
         and  negotiation = negotiation

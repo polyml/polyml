@@ -1270,19 +1270,18 @@ struct
                 (* Build the closure.  If there are outstanding entries it has to be mutable and we
                    can't complete it until we've done the other mutually recursive entries.  *)
                 val incomplete = List.exists(fn i => i = noIndex) initialLocs
+            in
+                if heapClosure
+                then
+                let
+                    val (vector, vecCode) =
+                        callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
 
-                val (vector, vecCode) =
-                    if heapClosure
-                    then callgetvec (nonConstCount+1, if incomplete then F_mutable_words else F_words, whereto, transtable)
-                    else reserveStackSpace(transtable, nonConstCount+1)
-                (* TODO: If the closure is on the stack we can just fill the entries
-                   by pushing them rather than first pushing zeros and then overwriting them. *)
-
-                val () = codeGenerate(vecCode, cvec)
-                (* First word is the address of the code. *)
-                val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
-                (* Put in everything else *)
-                fun fillClosure(index::indices, NotConst::constEntries, n) =
+                    val () = codeGenerate(vecCode, cvec)
+                    (* First word is the address of the code. *)
+                    val () = codeGenerate(moveToVec (vector, pushConst (transtable, res), 0, transtable), cvec)
+                    (* Put in everything else *)
+                    fun fillClosure(index::indices, NotConst::constEntries, n) =
                         let
                             val indexOrDummy =
                                 if index = noIndex
@@ -1295,76 +1294,113 @@ struct
                             codeGenerate(moveToVec(vector, indexOrDummy, vecAddr, transtable), cvec);
                             fillClosure(indices, constEntries, n+1)
                         end
-                |   fillClosure(index::indices, _::constEntries, n) =
-                    (
-                        (* It was a constant.  Remove it. *)
-                        codeGenerate(incrUseCount(transtable, index, ~1), cvec);
-                        fillClosure(indices, constEntries, n+1)
-                    )
-                |   fillClosure _ = ()
-                val () = fillClosure(initialLocs, constants, 0)
-                val () =
-                    if heapClosure
-                    then codeGenerate(allocationComplete, cvec)
-                    else ()
+                    |   fillClosure(index::indices, _::constEntries, n) =
+                        (
+                            (* It was a constant.  Remove it. *)
+                            codeGenerate(incrUseCount(transtable, index, ~1), cvec);
+                            fillClosure(indices, constEntries, n+1)
+                        )
+                    |   fillClosure _ = ()
+                    val () = fillClosure(initialLocs, constants, 0)
+                    val () = codeGenerate(allocationComplete, cvec)
 
-                (* Have to ensure that the closure remains on the psuedo-stack until
-                   we've filled in all uses of it. The only references may be in the
-                   closures of other procedures so it's possible that its use-count
-                   could be zero when `mutualRecursive' returns. Have to  increment
-                   the use-count and then decrement it afterwards to make sure it
-                    is still on the stack. *)
-                val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
+                    (* Have to ensure that the closure remains on the psuedo-stack until
+                       we've filled in all uses of it. The only references may be in the
+                       closures of other functions so it's possible that its use-count
+                       could be zero when `mutualRecursive' returns. Have to  increment
+                       the use-count and then decrement it afterwards to make sure it
+                        is still on the stack. *)
+                    val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
 
-                  (* Any mutually recursive references. *)
-                val () = mutualRecursive vector
+                      (* Any mutually recursive references. *)
+                    val () = mutualRecursive vector
 
-                (* We should now be able to fill in the recursive references. *)
-                val () =
-                    if incomplete
-                    then
-                    let
-                        fun fillRecursive(index::indices, entry::entries, n) =
-                            (
-                                if index = noIndex (* Deferred entry*)
-                                then
-                                let
-                                    val loadEntry = genToStack entry
-                                    val addr = valOf(Vector.sub(closureIndexes, n))
-                                    val moveCode = moveToVec(vector, loadEntry, addr, transtable)
-                                in
-                                    codeGenerate(moveCode, cvec)
-                                end
-                                else ();
-                                fillRecursive(indices, entries, n+1)
-                            )
-                        |   fillRecursive _ = ()
-                        val () = fillRecursive(initialLocs, closureList, 0)
-                        
-                        val () =
-                            if heapClosure
+                    (* We should now be able to fill in the recursive references. *)
+                    fun fillRecursive(index::indices, entry::entries, n) =
+                        (
+                            if index = noIndex (* Deferred entry*)
                             then
                             let
-                                (* Finally we can lock this. *)
-                                (* Increment the use count before the lock. *)
-                                val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
-                                val lockInstr =
-                                    case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
-                                        SOME(lockInstr, _) => lockInstr
-                                    |   NONE => raise InternalError "Lock instruction not implemented"
-                                val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
+                                val loadEntry = genToStack entry
+                                val addr = valOf(Vector.sub(closureIndexes, n))
+                                val moveCode = moveToVec(vector, loadEntry, addr, transtable)
                             in
-                                codeGenerate(lockCode, cvec)
+                                codeGenerate(moveCode, cvec)
                             end
-                            else ()
-                    in
-                        ()
-                    end
-                    else ()
-                (* Restore the use count *)
-                val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
-            in
-                vector
+                            else ();
+                            fillRecursive(indices, entries, n+1)
+                        )
+                    |   fillRecursive _ = ()
+
+                    val () = fillRecursive(initialLocs, closureList, 0)
+                
+                    val () =
+                        let
+                            (* Finally we can lock this. *)
+                            (* Increment the use count before the lock. *)
+                            val () = codeGenerate(incrUseCount (transtable, vector, 1), cvec)
+                            val lockInstr =
+                                case checkAndReduce(instrLockSeg, [], fn _ => NONE) of
+                                    SOME(lockInstr, _) => lockInstr
+                                |   NONE => raise InternalError "Lock instruction not implemented"
+                            val (_, lockCode) = dataOp([vector], lockInstr, transtable, NoResult)
+                        in
+                            codeGenerate(lockCode, cvec)
+                        end
+                    (* Restore the use count *)
+                    val () = codeGenerate(incrUseCount (transtable, vector, ~1), cvec)
+                in
+                    vector
+                end
+            else
+                let (* Stack closure *)
+                    (* Get the non-constant entries and release the constants. *)
+                    val nonConstEntries =
+                        ListPair.foldr (fn (index, NotConst, l) => index :: l |
+                                           (index, _, l) => (codeGenerate(incrUseCount(transtable, index, ~1), cvec); l))
+                                    [] (initialLocs, constants)
+                    
+                    val (container, containerCode) =
+                        createStackClosure(transtable, pushConst (transtable, res) :: nonConstEntries)
+
+                    val () = codeGenerate(containerCode, cvec)
+                    (* Have to ensure that the closure remains on the psuedo-stack until
+                       we've filled in all uses of it. The only references may be in the
+                       closures of other functions so it's possible that its use-count
+                       could be zero when `mutualRecursive' returns. Have to  increment
+                       the use-count and then decrement it afterwards to make sure it
+                        is still on the stack. *)
+                    val () = codeGenerate(incrUseCount (transtable, container, 1), cvec)
+
+                      (* Any mutually recursive references. *)
+                    val () = mutualRecursive container
+
+                    (* We should now be able to fill in the recursive references. *)
+                    fun fillRecursive(index::indices, entry::entries, n) =
+                        (
+                            if index = noIndex (* Deferred entry*)
+                            then
+                            let
+                                val loadEntry = genToStack entry
+                                val addr = valOf(Vector.sub(closureIndexes, n))
+                                (* Move this into the stack. *)
+                                val moveCode =
+                                    setRecursiveClosureEntry(container, loadEntry, addr, transtable)
+                            in
+                                codeGenerate(moveCode, cvec)
+                            end
+                            else ();
+                            fillRecursive(indices, entries, n+1)
+                        )
+                    |   fillRecursive _ = ()
+
+                    val () = fillRecursive(initialLocs, closureList, 0)
+
+                    (* Restore the use count *)
+                    val () = codeGenerate(incrUseCount (transtable, container, ~1), cvec)
+                in
+                    container
+                end
             end
         end (* genProc *)
 
@@ -2374,6 +2410,11 @@ struct
                     else ();
                     callClosure (if selfCall then NONE else SOME evalFun, canTail)
                 end (* BICExtract *)
+
+            |   evalLambda as BICLambda{heapClosure, ...} =>
+                    (* If we're going to put the closure on the stack we can't
+                       call it with tail-recursion. *)
+                    callClosure (SOME evalLambda, heapClosure)
 
             |   _ => (* The procedure is not being found by simply loading a value
                         from the stack or the closure and is not a constant. *)

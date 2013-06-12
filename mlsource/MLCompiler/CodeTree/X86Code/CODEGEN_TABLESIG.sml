@@ -149,6 +149,9 @@ sig
     val isRegister: stackIndex * ttab -> reg option
     val isContainer: stackIndex * ttab -> bool
 
+    val createStackClosure: ttab * stackIndex list -> stackIndex * operation list
+    val setRecursiveClosureEntry: stackIndex * stackIndex * int * ttab -> operation list
+
     structure Sharing:
     sig
         type code       = code
