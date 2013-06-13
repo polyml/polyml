@@ -1369,12 +1369,12 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     else if ((buf->st_mode & S_IFMT) == S_IFSOCK) kind = 6;
     else /* Regular. */ kind = 0;
     kindHandle = Make_arbitrary_precision(taskData, kind);
-    inoHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)buf->st_ino);
-    devHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)buf->st_dev);
+    inoHandle = Make_arbitrary_precision(taskData, buf->st_ino);
+    devHandle = Make_arbitrary_precision(taskData, buf->st_dev);
     linkHandle = Make_arbitrary_precision(taskData, buf->st_nlink);
     uidHandle = Make_arbitrary_precision(taskData, buf->st_uid);
     gidHandle = Make_arbitrary_precision(taskData, buf->st_gid);
-    sizeHandle = Make_arbitrary_precision(taskData, (POLYUNSIGNED)buf->st_size);
+    sizeHandle = Make_arbitrary_precision(taskData, buf->st_size);
     /* TODO: The only really standard time fields give the seconds part.  There
        are various extensions which would give us microseconds or nanoseconds. */
     atimeHandle = Make_arb_from_pair_scaled(taskData, buf->st_atime, 0, 1000000);

@@ -463,7 +463,8 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long uval)
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
 
-#if (SIZEOF_LONG_LONG != 0 && SIZEOF_LONG_LONG <= SIZEOF_VOIDP)
+#if SIZEOF_LONG_LONG != 0
+#if SIZEOF_LONG_LONG <= SIZEOF_VOIDP
 Handle Make_arbitrary_precision(TaskData *taskData, long long val)
 {
     return ArbitraryPrecionFromSigned(taskData, val);
@@ -473,6 +474,41 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long uval)
 {
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
+#else
+Handle Make_arbitrary_precision(TaskData *taskData, long long val)
+{
+    if (val < 0)
+    {
+        Handle pos;
+
+        // Have to handle the most negative long long specially
+        if (val == -val)
+        {
+            val = -(val + 1LL);
+            pos = Make_arb_from_pair(taskData,
+                                     (unsigned)(val >> (sizeof(unsigned) * 8)),
+                                     (unsigned)val);
+            Handle one = Make_arbitrary_precision(taskData, 1);
+            return neg_longc(taskData, add_longc(taskData, pos, one));
+        }
+        val = -val;
+        pos = Make_arb_from_pair(taskData,
+                                 (unsigned)(val >> (sizeof(unsigned) * 8)),
+                                 (unsigned)val);
+        return neg_longc(taskData, pos);
+    }
+    return Make_arb_from_pair(taskData,
+                              (unsigned)(val >> (sizeof(unsigned) * 8)),
+                              (unsigned)val);
+}
+
+Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long uval)
+{
+    return Make_arb_from_pair(taskData,
+                              (unsigned)(uval >> (sizeof(unsigned) * 8)),
+                              (unsigned)uval);
+}
+#endif
 #endif
 
 /* Creates an arbitrary precision number from two words.

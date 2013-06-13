@@ -91,6 +91,9 @@ AC_PROG_CPP
 
 AM_PROG_AS
 
+# Activate large file mode if needed
+AC_SYS_LARGEFILE
+
 # Checks for libraries.
 AC_CHECK_LIB(gcc, main)
 AC_CHECK_LIB(gcc_s, main)

@@ -1385,7 +1385,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
     struct stat fbuff;
     if (proper_stat(string_buffer, &fbuff) != 0)
         raise_syscall(taskData, "stat failed", errno);
-    return Make_arbitrary_precision(taskData, (POLYUNSIGNED)fbuff.st_size);
+    return Make_arbitrary_precision(taskData, fbuff.st_size);
     }
 #endif
 }
@@ -1886,7 +1886,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (proper_stat(string_buffer, &fbuff) != 0)
                 raise_syscall(taskData, "stat failed", errno);
             /* Assume that inodes are always non-negative. */
-            return Make_arbitrary_precision(taskData, (POLYUNSIGNED)fbuff.st_ino);
+            return Make_arbitrary_precision(taskData, fbuff.st_ino);
 #endif
         }
 
