@@ -293,6 +293,10 @@ int polymain(int argc, char **argv, exportDescription *exports)
     if (exports == 0 && importFileName == 0)
         Usage("Missing import file name\n");
 
+    // If the maximum is provided it must be not less than the minimum.
+    if (maxsize != 0 && maxsize < minsize)
+        Usage("Minimum heap size must not be less than maximum size\n");
+
     if (userOptions.gcthreads == 0)
     {
         // If the gcthreads option is missing or zero the default is to try to

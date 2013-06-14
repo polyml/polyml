@@ -169,6 +169,8 @@ void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, u
     {
         if (memsize == 0) maxHeapSize = MAXIMUMADDRESS;
         else maxHeapSize = memsize - memsize / 5;
+        // But if this must not be smaller than the minimum size.
+        if (maxHeapSize < minHeapSize) maxHeapSize = minHeapSize;
     }
 
     // Set the initial size to the minimum if that has been provided.
@@ -179,6 +181,7 @@ void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, u
         if (memsize == 0) // Unable to determine memory size so default to 64M.
             initialSize = 64 * 1024 * 1024;
         else initialSize =  memsize / 4;
+        if (initialSize > maxHeapSize) initialSize = maxHeapSize;
     }
 
     // Initially we divide the space equally between the major and
