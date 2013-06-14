@@ -262,6 +262,10 @@ struct
         r (* We may well have the situation where one branch of an "if" raises an
              exception.  We can simply raise the exception on that branch. *)
 
+    |   mkSetContainer(container, Handle {exp, handler}, filter) =
+            Handle{exp=mkSetContainer(container, exp, filter),
+                   handler=mkSetContainer(container, handler, filter)}
+
     |   mkSetContainer(container, tuple, filter) =
             SetContainer{container = container, tuple = tuple, filter = filter }
 

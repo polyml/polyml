@@ -198,6 +198,7 @@ struct
             |   hasLoop (Newenv(_, exp)) = hasLoop exp
             |   hasLoop (Cond(_, t, e)) = hasLoop t orelse hasLoop e
             |   hasLoop (Handle {handler, ...}) = hasLoop handler
+            |   hasLoop (SetContainer{tuple, ...}) = hasLoop tuple
             |   hasLoop _ = false
         in
             if not (hasLoop withoutBeginLoop)
@@ -899,6 +900,12 @@ struct
                that exit the loop.  Loop entries will go back to the BeginLoop
                so we don't add SetContainer nodes. *)
             mkEnv(tupleDecs, loop)
+
+    |   simpPostSetContainer(container, Handle{exp, handler}, tupleDecs, filter) =
+            mkEnv(tupleDecs,
+                Handle{
+                    exp = simpPostSetContainer(container, exp, [], filter),
+                    handler = simpPostSetContainer(container, handler, [], filter)})
 
     |   simpPostSetContainer(container, tupleGen, tupleDecs, filter) =
             mkEnv(tupleDecs, mkSetContainer(container, tupleGen, filter))
