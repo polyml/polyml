@@ -370,7 +370,7 @@ struct
 
         local
             open Address
-        in
+
             (* Return the width of a tuple.  Returns 1 for non-tuples including
                datatypes where different variants could have different widths.
                Also returns a flag indicating if the value came from a constant.
@@ -390,6 +390,17 @@ struct
                     end
             |   findTuple(Newenv(_, e)) = findTuple e
             |   findTuple _ = (1, false)
+            
+        in
+            fun mapArg c =
+            let
+                val (n, f) = findTuple c
+            in
+                if n <= 1
+                then ArgPattSimple
+                else ArgPattTuple{filter=BoolVector.tabulate(n, fn _ => true),
+                                  allConst=f, fromFields=false}
+            end
         end
 
         fun useToPattern _ [] = ArgPattSimple
@@ -407,15 +418,6 @@ struct
                                     case useToPattern subCheck resl of
                                         ArgPattCurry l => l
                                     |   tupleOrSimple => ([], tupleOrSimple)
-                                fun mapArg c =
-                                let
-                                    val (n, f) = findTuple c
-                                in
-                                    if n <= 1
-                                    then ArgPattSimple
-                                    else ArgPattTuple{filter=BoolVector.tabulate(n, fn _ => true),
-                                                      allConst=f, fromFields=false}
-                                end
                                 
                                 val thisArg = map mapArg arguments
                             in
@@ -496,7 +498,57 @@ struct
            function arguments we have to check how it is applied. *)
         val usageForFunctionBody = usageToPattern CurryNoCheck
         and usageForFunctionArg  = usageToPattern CurryCheck
+
+        (* To decide whether we want to detuple the argument we look to see
+           if the function is ever applied to a tuple.  This is rather different
+           to currying where we only decurry if every application is to multiple
+           arguments.  This information is then merged with information about the
+           arguments within the function. *)
+        fun existTupling (use: codeUse list): functionArgPattern list =
+        let
+            val argListLists =
+                List.foldl (fn (UseApply(_, args), l) => map mapArg args :: l | (_, l) => l) [] use
+            fun orMerge [] = raise Empty
+            |   orMerge [hd] = hd
+            |   orMerge (hd1 :: hd2 :: tl) =
+                let
+                    fun merge(a as ArgPattTuple _, _) = a
+                    |   merge(_, b) = b
+                in
+                    orMerge(ListPair.mapEq merge (hd1, hd2) :: tl)
+                end
+        in
+            orMerge argListLists
+        end
+
+        (* If the result of a function contains a tuple but it is not detupled on
+           every path, see if it is detupled on at least one. *)
+        fun existDetupling(UseApply(resl, _) :: rest) =
+            List.exists(fn UseField _ => true | _ => false) resl orelse
+                existDetupling rest
+        |   existDetupling(_ :: rest) = existDetupling rest
+        |   existDetupling [] = false
     end
+
+    (* Return a tuple if any of the branches returns a tuple.  The idea is
+       that if the body actually constructs a tuple on the heap on at least
+       one branch it is probably worth attempting to detuple the result. *)
+    fun bodyReturnsTuple (Tuple{fields, isVariant=false}) =
+        ArgPattTuple{
+            filter=BoolVector.tabulate(List.length fields, fn _ => true),
+            allConst=false, fromFields=false
+        }
+
+    |   bodyReturnsTuple(Cond(_, t, e)) =
+        (
+            case bodyReturnsTuple t of
+                a as ArgPattTuple _ => a
+            |   _ => bodyReturnsTuple e
+        )
+
+    |   bodyReturnsTuple(Newenv(_, exp)) = bodyReturnsTuple exp
+
+    |   bodyReturnsTuple _ = ArgPattSimple
 
     (* If the usage indicates that the body of the function should be transformed
        these do the transformation.  It is possible that each of these cases could
@@ -1100,23 +1152,42 @@ struct
 
                         (* fullArgPattern is a list, one per level of currying, of a list, one per argument of
                            the patterns.  resultPattern is used to detect whether the result is a tuple that
-                           is taken apart.  TODO: This only looks at the use and not at the body to see
-                           if we're returning a tuple.  That is largely handled by the front-end but it
-                           would be better to try to see if there is a tuple being created. *)
+                           is taken apart. *)
                         val (fullArgPattern, resultPattern) =
                             case functionPattern of
-                                ArgPattCurry(hd :: rest, resPattern) =>
+                                ArgPattCurry(_ :: rest, resPattern) =>
                                 let
-                                    (* Merge the applications of the function with the use of the arguments. *)
-                                    fun merge(a as ArgPattTuple _, _) = a
-                                    |   merge(_, argUse) = argUse
+                                    (* The function is always applied at least to the first set of arguments.
+                                       (It's never just passed). Merge the applications of the function
+                                       with the use of the arguments.  Return the usage within the
+                                       function unless the function takes apart a tuple but no
+                                       application passes in a tuple. *)
+                                    fun merge(ArgPattTuple _, argUse as ArgPattTuple _) = argUse
+                                    |   merge(_, ArgPattTuple _) = ArgPattSimple
+                                    |   merge(_, argUse)  = argUse
+
+                                    val mergedArgs =
+                                        (ListPair.mapEq merge (existTupling use, argPatterns)) :: rest
+
+                                    (* *)
+                                    val mergedResult =
+                                        case (bodyReturnsTuple body, resPattern) of
+                                            (bodyTuple as ArgPattTuple _, ArgPattSimple) =>
+                                                if existDetupling use
+                                                then bodyTuple
+                                                else ArgPattSimple
+                                        |   _ => resPattern
+                                            
                                 in
-                                    ((ListPair.mapEq merge (hd, argPatterns)) :: rest, resPattern)
+                                    (mergedArgs, mergedResult)
                                 end
-                            |   _ =>
-                                (if List.exists (fn UseExport => true | _ => false) use
-                                then [argPatterns]
-                                else [], ArgPattSimple)
+                            |   _ => (* Not called: either exported or passed as a value. *)
+                                (* If this is exported we don't know how it will be used
+                                   so we assume that it is called with all its args and
+                                   we detuple the result if it contains a tuple. *)
+                                if List.exists (fn UseExport => true | _ => false) use
+                                then ([argPatterns], bodyReturnsTuple body)
+                                else ([], ArgPattSimple)
                     in
                         case (fullArgPattern, resultPattern) of
                             (_ :: _ :: _, _) => (* Curried *)
@@ -1149,8 +1220,12 @@ struct
                     end
                     else (lambda, [])
             in
-                (* If this is to be inlined but was not before we may need to reprocess. *)
-                if #isInline newLambda = Inline andalso isInline = NonInline
+                (* If this is to be inlined but was not before we may need to reprocess.
+                   We don't reprocess if this is only exported.  If it's only exported
+                   we're not going to expand it within this code and we can end up with
+                   repeated processing. *)
+                if #isInline newLambda = Inline andalso isInline = NonInline andalso
+                    (case use of [UseExport] => false | _ => true)
                 then reprocess := true
                 else ();
                 (bindings, Lambda newLambda)
@@ -1189,7 +1264,7 @@ struct
 
         |   pushContainer(tuple, leafFn) = leafFn tuple (* Anything else. *)
 
-        val () = reprocess := true;
+        val () = reprocess := true
     in
         case useList of
             [offset] => (* We only want a single field.  Push down an Indirect. *)
