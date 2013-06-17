@@ -87,7 +87,7 @@ struct
 
     fun isNoResult NoResult     = true | isNoResult _ = false;
 
-    (* Are we at the end of the procedure. *)
+    (* Are we at the end of the function. *)
     datatype tail = EndOfProc of reg | NotEnd
 
     fun isEndOfProc (EndOfProc _) = true | isEndOfProc _ = false;
@@ -107,7 +107,7 @@ struct
         toMachineWord profileObject
     end
 
-    (* Code generate a procedure or global declaration *)
+    (* Code generate a function or global declaration *)
     fun codegen
        (pt               : backendIC,
         declOnPrevLevel  : bicLoadForm * (unit -> stackIndex * operations) * ttab -> stackIndex * operations,
@@ -141,7 +141,7 @@ struct
             else (setLifetime(transtable, index, lifeTime); [])
         )
 
-        (* Header code for procedure. *)
+        (* Header code for function. *)
 
         (* Push the return address - may have multiple references because
            we may exit at any of the "tails". *)
@@ -281,7 +281,7 @@ struct
             end
          (* locaddr *);
     
-        (* For each load of a local in the tree it calls the `add' procedure. *)
+        (* For each load of a local in the tree it calls the `add' function. *)
         fun identifyLoads expList add =
         let 
             (* Need to identify declarations within the current block.  This was originally
@@ -1159,7 +1159,7 @@ struct
 
     (* `mutualRecursive' is used for mutually recursive functions
        where a function may not be able to fill in its closure if it does
-       not procedure address has been pushed but before the code is generated. *)
+       not function address has been pushed but before the code is generated. *)
     and genProc ({ closure=closureList, heapClosure, name=lambdaName, body=lambdaBody,
                    argTypes, resultType, closureRefs, argLifetimes, localCount, ... },
                  mutualRecursive: stackIndex -> unit, whereto) =
@@ -1258,7 +1258,7 @@ struct
                 val newCode =
                     codeCreate (true (* just the code *), lambdaName, profileObject, debugSwitches)
         
-                val (ops, maxStack, regList, callsAFunction) = (* code-gen procedure *)
+                val (ops, maxStack, regList, callsAFunction) = (* code-gen function *)
                     codegen (lambdaBody, previous,
                         closureRefs, argTypes, argLifetimes, resultType, localCount,
                         profileObject, debugSwitches)
@@ -1863,7 +1863,7 @@ struct
                     else originalLocn
 
                 (* Have to guarantee that the expression to return
-                   the procedure is evaluated before the arguments. *)
+                   the function is evaluated before the arguments. *)
                 val procLocn = 
                     case clos of
                         SOME(BICConstnt _) => noIndex (* Unused. *)
@@ -2416,7 +2416,7 @@ struct
                        call it with tail-recursion. *)
                     callClosure (SOME evalLambda, heapClosure)
 
-            |   _ => (* The procedure is not being found by simply loading a value
+            |   _ => (* The function is not being found by simply loading a value
                         from the stack or the closure and is not a constant. *)
                     callClosure (SOME evalFun, true)
         end (* genEval *)
@@ -2468,7 +2468,7 @@ struct
                 fun genMutualDecs []      = ()
                 |   genMutualDecs (({lambda, addr, references, ...})::ds) =
                     let
-                        (* This procedure is called once the closure has been
+                        (* This function is called once the closure has been
                            created but before the entries have been filled in. *) 
                         fun nextMutual r =
                         let
@@ -2496,7 +2496,7 @@ struct
         val () = if not (haveExited transtable) then codeGenerate(exit (), cvec) else ()
     in
     
-        (* Having code generated the body of the procedure,
+        (* Having code generated the body of the function,
           it is copied into a new data segment. *)
         (!cvec, maxstack transtable, getModifedRegSet transtable, !callsAFunction)
     end (* codegen *)
@@ -2507,7 +2507,7 @@ struct
              a piece of code whose only function is to return the address of the
              function. *)
        
-            (* make the code buffer for the new procedure. *)
+            (* make the code buffer for the new function. *)
             val profileObject = createProfileObject name
             val newCode = codeCreate (false (* don't make a closure *), name, profileObject, debugSwitches); 
 
