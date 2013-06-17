@@ -1274,18 +1274,24 @@ struct
                             (FValClause{dec= { args, ...}, ...} :: _) => List.map tupleWidth args
                         |   _ => raise InternalError "badly formed parse tree";
 
-                    fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
+                    local
+                        fun getResultTuple(FValClause{exp, ...}) = tupleWidth exp
 
-                    val resultTuples =
-                        List.foldl(fn(t, [_]) => getResultTuple t  | (_, s) => s) [GeneralType] clauses
+                        val resultTuples =
+                            List.foldl(fn(t, [_]) => getResultTuple t  | (_, s) => s) [GeneralType] clauses
 
-                    (* If we're debugging we want the result of the function so we don't do this optimisation. *)
-                    val resultTuple =
-                        if (getParameter debugTag (debugParams lex)) then [GeneralType] else resultTuples
-
-                    (* If there's a single argument return the type of that otherwise if we're tupling the
-                       result is general. *)
-                    val (resultType, extraArg) = case resultTuple of [one] => (one, 0) | _ => (GeneralType, 1)
+                        (* If we're debugging we want the result of the function so we don't do this optimisation. *)
+                        (* Now disable this optimisation completely.  The lower-level optimiser does this. *)
+                        val resultTuple =
+                            if (getParameter debugTag (debugParams lex)) then [GeneralType]
+                            else if List.length resultTuples > 1 then [GeneralType] else resultTuples
+                    in
+                        val resTupleLength = List.length resultTuple
+                        (*val _ = resTupleLength = 1 orelse raise InternalError "resTupleLength <> 1"*)
+                        (* If there's a single argument return the type of that otherwise if we're tupling the
+                           result is general. *)
+                        val (resultType, extraArg) = case resultTuple of [one] => (one, 0) | _ => (GeneralType, 1)
+                    end
 
                     (* Count the total number of arguments needed. *)
                     val totalArgs = List.foldl (op +) (extraArg+nPolyVars) (List.map List.length tupleSeq)
@@ -1338,7 +1344,7 @@ struct
                         fun makeArgs(parms, []) =
                             let
                                 val polyParms = List.tabulate(nPolyVars, fn _ => GeneralType)
-                                val resTupleSize = List.length resultTuple
+                                val resTupleSize = resTupleLength
                             in
                                 if resTupleSize = 1
                                 then parms @ polyParms
@@ -1376,7 +1382,7 @@ struct
     
                         local
                             (* The poly args come after any result tuple. *)
-                            val tupleOffset = if List.length resultTuple = 1 then 0 else 1
+                            val tupleOffset = if resTupleLength = 1 then 0 else 1
                             val argAddrs =
                                 List.tabulate(nPolyVars, fn n => fn l => mkLoadParam(n+nArgTypes-nPolyVars-tupleOffset, l, fnLevel))
                             val mainTypeVars = ListPair.zipEq(polyVars, argAddrs)
@@ -1452,7 +1458,7 @@ struct
                            an extra argument to the inline function and setting this to
                            the result. *)
                         val bodyCode =
-                        if List.length resultTuple = 1
+                        if resTupleLength = 1
                         then codeMatches
                         else
                             (* The function sets the extra argument to the result
@@ -1463,7 +1469,7 @@ struct
                                result this argument is more likely to have to be
                                pushed onto the stack within the function than an
                                argument which may have its last use early on. *)
-                            mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, List.length resultTuple)
+                            mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, resTupleLength)
 
                         (* If we're debugging add the debug info before resetting the level. *)
                         val wrapped =
@@ -1496,7 +1502,7 @@ struct
                             val loadInnerFun = mkLoad (addr + 1, innerLevel, level)
                             val polyParms =
                                 List.tabulate(nPolyVars, fn n => (mkLoadParam(n, innerLevel, polyLevel), GeneralType))
-                            val resTupleSize = List.length resultTuple
+                            val resTupleSize = resTupleLength
                             val parms = mkParms innerLevel
                         in
                             (* Got to the bottom. - put in a call to the procedure. *)
