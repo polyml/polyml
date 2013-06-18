@@ -153,36 +153,44 @@ static POLYUNSIGNED GetPhysicalMemorySize(void);
 #   define MAXIMUMADDRESS   0x1fffffffffffffff
 #endif
 
-// Set the initial size based on any parameters specified on the command line
-void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned percent)
+// Set the initial size based on any parameters specified on the command line.
+// Any of these can be zero indicating they should default.
+void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned initialsize, unsigned percent)
 {
     minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
     maxHeapSize = K_to_words(maxsize);
+    POLYUNSIGNED initialSize = K_to_words(initialsize);
 
-    POLYUNSIGNED memsize = 0;
-    if (minHeapSize == 0 || maxHeapSize == 0)
-        memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
+    POLYUNSIGNED memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
 
     // If no maximum is given default it to 80% of the physical memory.
     // This allows some space for the OS and other things.
     if (maxHeapSize == 0 || maxHeapSize > MAXIMUMADDRESS)
     {
-        if (memsize == 0) maxHeapSize = MAXIMUMADDRESS;
-        else maxHeapSize = memsize - memsize / 5;
+        if (memsize != 0)
+            maxHeapSize = memsize - memsize / 5;
+        else maxHeapSize = MAXIMUMADDRESS;
         // But if this must not be smaller than the minimum size.
         if (maxHeapSize < minHeapSize) maxHeapSize = minHeapSize;
+        if (maxHeapSize < initialSize) maxHeapSize = initialSize;
     }
 
-    // Set the initial size to the minimum if that has been provided.
-    POLYUNSIGNED initialSize = minHeapSize;
+    // The default minimum is zero; in practice the live data size.
 
-    if (initialSize == 0) {
-        // If no -H option was given set the default initial size to a quarter of the memory.
-        if (memsize == 0) // Unable to determine memory size so default to 64M.
-            initialSize = 64 * 1024 * 1024;
-        else initialSize =  memsize / 4;
+    // The default initial size is the minimum if that has been provided,
+    // otherwise it is a quarter of the memory or 64M if we can't calculate the memory.
+    if (initialSize == 0)
+    {
+        if (minHeapSize != 0)
+            initialSize = minHeapSize;
+        else if (memsize != 0)
+            initialSize =  memsize / 4;
+        else initialSize = 64 * 1024 * 1024;
+        // But not more than the maximum
         if (initialSize > maxHeapSize) initialSize = maxHeapSize;
     }
+    // Together with the constraints on user settings that ensures this holds.
+    ASSERT(initialSize >= minHeapSize && initialSize <= maxHeapSize);
 
     // Initially we divide the space equally between the major and
     // minor heaps.  That means that there will definitely be space

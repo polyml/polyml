@@ -34,7 +34,7 @@ public:
     Handle getGCUtime(TaskData *taskData) const;
     Handle getGCStime(TaskData *taskData) const;
 
-    void SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned percent);
+    void SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned initialsize, unsigned percent);
 
     void SetReservation(unsigned rsize);
 

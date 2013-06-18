@@ -94,6 +94,7 @@ time_t exportTimeStamp;
 enum {
     OPT_HEAPMIN,
     OPT_HEAPMAX,
+    OPT_HEAPINIT,
     OPT_GCPERCENT,
     OPT_RESERVE,
     OPT_GCTHREADS,
@@ -106,7 +107,7 @@ static struct __argtab {
     unsigned argKey;
 } argTable[] =
 {
-    { "-H",             "Minimum heap size (MB)",                               OPT_HEAPMIN },
+    { "-H",             "Initial heap size (MB)",                               OPT_HEAPINIT },
     { "--minheap",      "Minimum heap size (MB)",                               OPT_HEAPMIN },
     { "--maxheap",      "Maximum heap size (MB)",                               OPT_HEAPMAX },
     { "--gcpercent",    "Target percentage time in GC (1-99)",                  OPT_GCPERCENT },
@@ -179,7 +180,7 @@ unsigned parseSize(const char *p, const char *arg)
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
-    unsigned minsize=0, maxsize=0, gcpercent=0;
+    unsigned minsize=0, maxsize=0, gcpercent=0, initsize=0;
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 0; // Default multi-threaded
@@ -229,6 +230,9 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         break;
                     case OPT_HEAPMAX:
                         maxsize = parseSize(p, argTable[j].argName);
+                        break;
+                    case OPT_HEAPINIT:
+                        initsize = parseSize(p, argTable[j].argName);
                         break;
                     case OPT_GCPERCENT:
                         gcpercent = strtol(p, &endp, 10);
@@ -295,7 +299,13 @@ int polymain(int argc, char **argv, exportDescription *exports)
 
     // If the maximum is provided it must be not less than the minimum.
     if (maxsize != 0 && maxsize < minsize)
-        Usage("Minimum heap size must not be less than maximum size\n");
+        Usage("Minimum heap size must not be more than maximum size\n");
+    // The initial size must be not more than the maximum
+    if (maxsize != 0 && maxsize < initsize)
+        Usage("Initial heap size must not be more than maximum size\n");
+    // The initial size must be not less than the minimum
+    if (initsize != 0 && initsize < minsize)
+        Usage("Initial heap size must not be less than minimum size\n");
 
     if (userOptions.gcthreads == 0)
     {
@@ -310,7 +320,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
     }
 
     // Set the heap size if it has been provided otherwise use the default.
-    gHeapSizeParameters.SetHeapParameters(minsize, maxsize, gcpercent);
+    gHeapSizeParameters.SetHeapParameters(minsize, maxsize, initsize, gcpercent);
    
     // Initialise the run-time system before creating the heap.
     InitModules();
