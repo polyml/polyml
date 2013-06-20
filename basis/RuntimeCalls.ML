@@ -124,10 +124,12 @@ struct
   val POLY_SYS_poly_specific       = 153  (* DCJM 17/6/06 *)
   val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_io_operation        = 189
+  val POLY_SYS_move_words_overlap  = 193
   val POLY_SYS_set_code_constant   = 194  (* DCJM 2/1/01 *)
   val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)
   val POLY_SYS_shift_right_arith_word   = 196  (* DCJM 9/10/99 *)
   val POLY_SYS_move_bytes          = 198  (* DCJM 9/10/99 *)
+  val POLY_SYS_move_bytes_overlap  = 199
   val POLY_SYS_code_flags          = 200  (* SPF 10/11/1998 *)
   val POLY_SYS_shrink_stack        = 201  (* SPF 10/11/1998 *)
   val POLY_SYS_stderr              = 202  (* SPF 10/11/1998 *)

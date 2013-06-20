@@ -76,6 +76,8 @@ local
     val System_zero: word   = RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_nullvector; (* A zero word. *)
     val System_move_words:
         word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words
+    val System_move_words_overlap:
+        word*int*word*int*int->unit = RunCall.run_call5 POLY_SYS_move_words_overlap
 
     (* Unsafe subscript and update functions used internally for cases
        where we've already checked the range. 
@@ -309,25 +311,11 @@ struct
     
     (* Copy one array into another.  It's possible for the arrays
        to be the same and for the source and destinations to overlap so we
-       have to take care of that.  We don't actually check that the source
-       and destination are the same but simply use either incrementing or
-       decrementing copy operations depending on the index values. *)
+       have to take care of that. *)
     fun copy {src = Slice{array=s, start=srcStart, length=srcLen}, dst, di: int} =
-            if di < 0 orelse di+srcLen > Array.length dst
-            then raise General.Subscript
-            else (* We can't use System_move_words because of the potential overlap problem. *)
-            let
-                fun copyUp n =
-                if n = srcLen then ()
-                else (Array.update(dst, n+di, Array.sub(s, n+srcStart)); copyUp(n+1))
-                
-                and copyDown n =
-                if n < 0 then ()
-                else (Array.update(dst, n+di, Array.sub(s, n+srcStart)); copyDown(n-1))
-            in
-                if di > srcStart then copyDown(srcLen-1) else copyUp 0
-            end
-            (*System_move_words(RunCall.unsafeCast s, srcStart+1, RunCall.unsafeCast d, di+1, srcLen)*)
+        if di < 0 orelse di+srcLen > Array.length dst
+        then raise General.Subscript
+        else System_move_words_overlap(RunCall.unsafeCast s, srcStart+1, RunCall.unsafeCast dst, di+1, srcLen)
 
     (* Copy a vector into an array. *)
     fun copyVec {src: 'a VectorSlice.slice, dst: 'a array as d, di: int} =

@@ -1535,10 +1535,12 @@ Handle EnterPolyCode(TaskData *taskData)
                 break;
 
             case POLY_SYS_move_bytes:
+            case POLY_SYS_move_bytes_overlap:
                 machineDependent->CallIO5(taskData, &move_bytes_long_c);
                 break;
 
             case POLY_SYS_move_words:
+            case POLY_SYS_move_words_overlap:
                 machineDependent->CallIO5(taskData, &move_words_long_c);
                 break;
 

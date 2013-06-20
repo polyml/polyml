@@ -1892,18 +1892,20 @@ void X86Dependent::InitInterfaceVector(void)
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_poly_specific, codeAddr); /* DCJM 19/6/06 */
     add_word_to_io_area(POLY_SYS_poly_specific, PolyWord::FromCodePtr(codeAddr));
 
-    add_function_to_io_area(POLY_SYS_bytevec_eq,       &bytevec_eq);
-    add_function_to_io_area(POLY_SYS_move_bytes,       &move_bytes);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_move_words,       &move_words);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_mul_word,         &mul_word);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_plus_word,        &plus_word);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_minus_word,       &minus_word);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_div_word,         &div_word);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_mod_word,         &mod_word);        /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_word_geq,         &word_geq);
-    add_function_to_io_area(POLY_SYS_word_leq,         &word_leq);
-    add_function_to_io_area(POLY_SYS_word_gtr,         &word_gtr);
-    add_function_to_io_area(POLY_SYS_word_lss,         &word_lss);
+    add_function_to_io_area(POLY_SYS_bytevec_eq,        &bytevec_eq);
+    add_function_to_io_area(POLY_SYS_move_bytes,        &move_bytes); 
+    add_function_to_io_area(POLY_SYS_move_bytes_overlap,&move_bytes); 
+    add_function_to_io_area(POLY_SYS_move_words,        &move_words);
+    add_function_to_io_area(POLY_SYS_move_words_overlap,&move_words);
+    add_function_to_io_area(POLY_SYS_mul_word,          &mul_word);
+    add_function_to_io_area(POLY_SYS_plus_word,         &plus_word);
+    add_function_to_io_area(POLY_SYS_minus_word,        &minus_word);
+    add_function_to_io_area(POLY_SYS_div_word,          &div_word);
+    add_function_to_io_area(POLY_SYS_mod_word,          &mod_word);
+    add_function_to_io_area(POLY_SYS_word_geq,          &word_geq);
+    add_function_to_io_area(POLY_SYS_word_leq,          &word_leq);
+    add_function_to_io_area(POLY_SYS_word_gtr,          &word_gtr);
+    add_function_to_io_area(POLY_SYS_word_lss,          &word_lss);
 
     // This used to contain the code itself.  Now this is set up as a "closure"
     // but is only used for exceptions raised within the RTS.

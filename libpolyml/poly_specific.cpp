@@ -181,9 +181,11 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_set_code_constant: return 0;
     case POLY_SYS_move_words: return PROPWORD_NORAISE;
+    case POLY_SYS_move_words_overlap: return PROPWORD_NORAISE;
     case POLY_SYS_shift_right_arith_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_to_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_move_bytes: return PROPWORD_NORAISE;
+    case POLY_SYS_move_bytes_overlap: return PROPWORD_NORAISE;
     case POLY_SYS_code_flags: return 0;
     case POLY_SYS_shrink_stack: return 0;
     case POLY_SYS_stderr: return 0; // Not a function

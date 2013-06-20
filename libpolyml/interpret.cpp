@@ -1501,6 +1501,8 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_set_code_constant,TAGGED(POLY_SYS_set_code_constant));
     add_word_to_io_area(POLY_SYS_move_bytes,       TAGGED(POLY_SYS_move_bytes));
     add_word_to_io_area(POLY_SYS_move_words,       TAGGED(POLY_SYS_move_words));
+    add_word_to_io_area(POLY_SYS_move_bytes_overlap,        TAGGED(POLY_SYS_move_bytes_overlap));
+    add_word_to_io_area(POLY_SYS_move_words_overlap,        TAGGED(POLY_SYS_move_words_overlap));
     add_word_to_io_area(POLY_SYS_eq_longword,               TAGGED(POLY_SYS_eq_longword));
     add_word_to_io_area(POLY_SYS_neq_longword,              TAGGED(POLY_SYS_neq_longword));
     add_word_to_io_area(POLY_SYS_geq_longword,              TAGGED(POLY_SYS_geq_longword));
