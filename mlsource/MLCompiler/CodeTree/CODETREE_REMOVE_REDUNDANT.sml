@@ -45,28 +45,9 @@ struct
         fun addLocalUse addr use =
             Array.update(locals, addr, use @ Array.sub(locals, addr))
 
-        fun cleanLambda({body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm,
+        fun cleanLambda(lambda as {body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm,
                         lambdaUse) =
         let
-            (* If we have called this function somewhere and used the result that gives us a hint on the
-               preferred result.  If the function is recursive, though, we can't assume anything
-               because the result of the recursive calls may be used in some other context.  For
-               example they could be passed into an argument function which may require more fields.
-               That in turn affects any functions whose results are used.  See Test138.ML. *)
-            local
-                fun checkRecursive (Extract LoadRecursive, _) = (true, FOLD_DONT_DESCEND)
-                |   checkRecursive (Lambda { closure, ...}, a) = (a orelse List.exists (fn LoadRecursive => true | _ => false) closure, FOLD_DONT_DESCEND)
-                |   checkRecursive (_, a) = (a, FOLD_DESCEND)
-            in
-                val isRecursive = foldtree checkRecursive false body
-            end
-
-            val bodyUse =
-                if isRecursive
-                then [UseGeneral]
-                else List.foldl
-                    (fn (UseApply (l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r)
-                    [] lambdaUse
             (* Rebuild the closure with the entries actually used. *)
             val closureUse = makeClosure()
 
@@ -88,15 +69,53 @@ struct
             val recursiveRefRef = ref []
             fun addRef use = recursiveRefRef := use @ !recursiveRefRef
 
+            val resultOfApps =
+                List.foldl
+                    (fn (UseApply (l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r) []
+            
+            val bodyUse = resultOfApps lambdaUse
+
             val bodyCode = cleanProc(body, bodyUse, lookup, addRef, localCount, checkArg)
-
-            val newClosure = extractClosure closureUse
-
-            val newArgTypes = ListPair.zip(map #1 argTypes, Array.foldr (op ::) [] argUses)
+            val recursiveApps = !recursiveRefRef
+            (* If we have called this function somewhere and used the result that gives us a hint on the
+               preferred result.  If the function is recursive, though, we can't assume anything
+               because the result of the recursive calls may be used in some other context.  For
+               example they could be passed into an argument function which may require more fields.
+               That in turn affects any functions whose results are used.  See Test138.ML.
+               So, we check to see whether the result of recursive use has added anything to the
+               original usage and reprocess the body if it has. *)
+            val recursiveResults = resultOfApps recursiveApps
+            val needReprocess =
+                if null recursiveApps orelse
+                    List.exists(fn UseGeneral => true | UseExport => true | _ => false) bodyUse
+                then NONE (* Not recursive or already general or export *)
+                else if List.all(fn UseField _ => true | _ => false) bodyUse andalso
+                            List.all(fn UseField _ => true | _ => false) recursiveResults
+                then (* All the entries are UseField - has the recursion added something new? *)
+                    if List.foldl
+                        (fn (UseField(n, _), false) =>
+                            List.all
+                                (fn UseField(m, _) => m <> n | _ => raise InternalError "not UseField")
+                                bodyUse (* false if it's already there *)
+                          | (_, true) => true
+                          | _ => raise InternalError "not UseField")
+                        false recursiveResults
+                then SOME recursiveApps
+                else NONE
+                else SOME [UseGeneral] (* If there's anything else reprocess it with UseGeneral *)
         in
-            {body=bodyCode, isInline=isInline, name=name,
-               closure=newClosure, argTypes=newArgTypes, resultType=resultType,
-               localCount=localCount, recUse = !recursiveRefRef} : lambdaForm
+            case needReprocess of
+                SOME reprocessWith => cleanLambda(lambda, lambdaUse @ reprocessWith)
+            |   NONE =>
+                let
+                    val newClosure = extractClosure closureUse
+
+                    val newArgTypes = ListPair.zip(map #1 argTypes, Array.foldr (op ::) [] argUses)
+                in
+                    {body=bodyCode, isInline=isInline, name=name,
+                       closure=newClosure, argTypes=newArgTypes, resultType=resultType,
+                       localCount=localCount, recUse = recursiveApps} : lambdaForm
+                end
         end
 
         (* Process a load from a variable.  Locals and arguments operate on the relevant array,
