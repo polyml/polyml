@@ -964,6 +964,19 @@ struct
             SOME(mapLambdaResult(bindings, call))
         end
 
+    |   optimise (context as { reprocess, ...}, use) (Eval {function = Cond(i, t, e), argList, resultType}) =
+        let
+            (* Transform "(if i then t else e) x" into "if i then t x else e x".  This
+               allows for other optimisations and inline expansion. *)
+            (* We duplicate the function arguments which could cause the size of the code
+               to blow-up if they involve complicated expressions. *)
+            fun pushFunction l =
+                 mapCodetree (optimise(context, use)) (Eval{function=l, argList=argList, resultType=resultType})
+        in
+            reprocess := true;
+            SOME(Cond(i, pushFunction t, pushFunction e))
+        end
+
     |   optimise (context, use) (Eval {function, argList, resultType}) =
         (* If nothing else we need to ensure that "use" is correctly set on
            the function and arguments and we don't simply pass the original. *)
