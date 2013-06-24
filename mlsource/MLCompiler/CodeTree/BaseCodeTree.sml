@@ -40,7 +40,6 @@ struct
             (* Applied as a function - the list is where the result goes, the codetree list
                is the code that was used for each argument. *)
     |   UseField of int * codeUse list (* Selected as a field - the list is where the result goes *)
-    |   UseRecursive of codeUse list ref (* Passed or returned recursively. *)
     
     and codetree =
         Newenv of codeBinding list * codetree (* Set of bindings with an expression. *)
@@ -478,15 +477,6 @@ struct
                 string ("UseField"^ Int.toString n ^ "[") ::
                 pList(cl, ",", prettyUsage) @
                 [ PrettyBreak (0, 0), string "]" ]
-            )
-
-    |   prettyUsage (UseRecursive(ref cl)) =
-            PrettyBlock(1, false, [],
-                [
-                    string "UseRec [",
-                    space
-                ] @ pList(cl, "|", prettyUsage) @
-                [ space, string "]" ]
             )
 
     (* Mapping function to enable parts of the tree to be replaced. *)
