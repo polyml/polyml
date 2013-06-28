@@ -1156,7 +1156,7 @@ struct
                                        curried more than that we'll come here again. *)
                                     (* In order to get the types we restrict this to the case of
                                        a body that is a lambda. *)
-                                    if (*reorderable body*) case body of Lambda _ => true | _ => false
+                                    if (*reorderable body*) case updatedBody of Lambda _ => true | _ => false
                                     then ArgPattCurry([arg1, arg2], res)
                                     else ArgPattCurry([arg1], res)
                             |   usage => usage
@@ -1184,7 +1184,7 @@ struct
 
                                     (* *)
                                     val mergedResult =
-                                        case (bodyReturnsTuple body, resPattern) of
+                                        case (bodyReturnsTuple updatedBody, resPattern) of
                                             (bodyTuple as ArgPattTuple _, ArgPattSimple) =>
                                                 if existDetupling use
                                                 then bodyTuple
@@ -1199,7 +1199,7 @@ struct
                                    so we assume that it is called with all its args and
                                    we detuple the result if it contains a tuple. *)
                                 if List.exists (fn UseExport => true | _ => false) use
-                                then ([argPatterns], bodyReturnsTuple body)
+                                then ([argPatterns], bodyReturnsTuple updatedBody)
                                 else ([], ArgPattSimple)
                     in
                         case (fullArgPattern, resultPattern) of
