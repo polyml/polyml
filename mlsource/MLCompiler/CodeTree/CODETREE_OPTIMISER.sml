@@ -1148,17 +1148,18 @@ struct
                     let
                         val functionPattern =
                             case usageForFunctionBody use of
-                                ArgPattCurry(arg1 :: arg2 :: _, res) =>
+                                ArgPattCurry(arg1 :: arg2 :: moreArgs, res) =>
                                     (* The function is always called with at least two curried arguments.
                                        We can decurry the function if the body is applicative - typically
                                        if it's a lambda - but not if applying the body would have a
                                        side-effect.  We only do it one level at this stage.  If it's
                                        curried more than that we'll come here again. *)
                                     (* In order to get the types we restrict this to the case of
-                                       a body that is a lambda. *)
+                                       a body that is a lambda.  The result is a function and therefore
+                                       ArgPattSimple unless we are using up all the args. *)
                                     if (*reorderable body*) case updatedBody of Lambda _ => true | _ => false
-                                    then ArgPattCurry([arg1, arg2], res)
-                                    else ArgPattCurry([arg1], res)
+                                    then ArgPattCurry([arg1, arg2], if null moreArgs then res else ArgPattSimple)
+                                    else ArgPattCurry([arg1], ArgPattSimple)
                             |   usage => usage
 
                         val argPatterns = map (usageForFunctionArg o #2) argTypes
