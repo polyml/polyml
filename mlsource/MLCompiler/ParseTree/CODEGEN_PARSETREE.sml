@@ -979,7 +979,7 @@ struct
             codeSequence (pTail, leading @ firstDec, codeSeqContext |> repDebugEnv firstEnv, processBody)
         end
 
-    |   codeSequence ((firstEntry as ValDeclaration {dec, ...}) :: pTail, leading, codeSeqContext as {lex, ...}, processBody) =
+    |   codeSequence ((firstEntry as ValDeclaration {dec, location, ...}) :: pTail, leading, codeSeqContext as {lex, ...}, processBody) =
         let
             (* Check the types for escaped datatypes. *)
             local
@@ -1003,7 +1003,7 @@ struct
             val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
             val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
         in
-            codeSequence (pTail, leading @ nonRecCode @ recCode @ decEnv,
+            codeSequence (pTail, leading @ changeLine(location, codeSeqContext) @ nonRecCode @ recCode @ decEnv,
                     codeSeqContext |> repDebugEnv env, processBody)
         end
 
