@@ -1269,12 +1269,17 @@ struct
                 Newenv(decs, pushContainer(exp, leafFn))
 
         |   pushContainer(BeginLoop{loop, arguments}, leafFn) =
+                (* If we push it through a BeginLoop we MUST then push it through
+                   anything that could contain the Loop i.e. Cond, Newenv, Handle. *)
                 BeginLoop{loop = pushContainer(loop, leafFn), arguments=arguments}
 
         |   pushContainer(l as Loop _, _) = l
                 (* Within a BeginLoop only the non-Loop leaves return
                    values.  Loop entries go back to the BeginLoop so
                    these are unchanged. *)
+
+        |   pushContainer(Handle{exp, handler}, leafFn) =
+                Handle{exp=pushContainer(exp, leafFn), handler=pushContainer(handler, leafFn)}
 
         |   pushContainer(tuple, leafFn) = leafFn tuple (* Anything else. *)
 
