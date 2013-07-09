@@ -1349,7 +1349,7 @@ struct
             then
             let
                 (* Check for looping at least during testing.*)
-                val _ = count < 20 orelse raise InternalError "Too many passes"
+                val _ = count < 100 orelse raise InternalError "Too many passes"
                 (* Identify usage information and remove redundant code. *)
                 val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
                 and compilerOut        = PRETTY.getCompilerOutput debugSwitches
