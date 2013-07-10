@@ -837,9 +837,11 @@ bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
     if (debugOptions & DEBUG_MEMMGR)
         Log("MMGR: Size of stack %p changed from %lu to %lu at %p\n", space, space->spaceSize(), newSize, newSpace);
     RemoveTree(space); // Remove it BEFORE freeing the space - another thread may allocate it
-    osMemoryManager->Free(space->bottom, (char*)space->top - (char*)space->bottom);
-    space->bottom = newSpace;
+    PolyWord *oldBottom = space->bottom;
+    size_t oldSize = (char*)space->top - (char*)space->bottom;
+    space->bottom = newSpace; // Switch this before freeing - We could get a profile trap during the free
     space->top = newSpace+newSize;
+    osMemoryManager->Free(oldBottom, oldSize);
     return true;
 }
 

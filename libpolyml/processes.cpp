@@ -721,6 +721,14 @@ void Processes::ThreadExit(TaskData *taskData)
     if (debugOptions & DEBUG_THREADS)
         Log("THREAD: Thread %p exiting\n", taskData);
 
+#ifdef HAVE_PTHREAD
+    // Block any profile interrupt from now on.  We're deleting the ML stack for this thread.
+    sigset_t block_sigs;
+    sigemptyset(&block_sigs);
+    sigaddset(&block_sigs, SIGVTALRM);
+    pthread_sigmask(SIG_BLOCK, &block_sigs, NULL);
+#endif
+
     globalStats.decCount(PSC_THREADS);
 
     if (singleThreaded) finish(0);
