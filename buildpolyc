@@ -39,6 +39,19 @@ usage()
     exit 1
 }
 
+checkml()
+{
+    extension="${1#*.}"
+    case "$extension" in
+        sml)
+             return 0 ;;
+        ML)
+             return 0;;
+        *)
+             return 1;;
+    esac
+}
+
 sourcefile=""
 objectfile=""
 execfile=""
@@ -67,7 +80,12 @@ case "$compileonly" in
          compile $sourcefile $objectfile
          ;;
      no)
-         compile $sourcefile $TMPOBJFILE && link $TMPOBJFILE $execfile
+         if checkml $sourcefile
+         then
+             compile $sourcefile $TMPOBJFILE && link $TMPOBJFILE $execfile
+         else
+             link $sourcefile $execfile
+         fi
          ;;
 esac
 EOF
