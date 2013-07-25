@@ -41,14 +41,14 @@ usage()
 
 checkml()
 {
-    extension="${1#*.}"
+    extension="${1##*.}"
     case "$extension" in
-        sml)
+        sml|ML)
              return 0 ;;
-        ML)
-             return 0;;
-        *)
+        o|obj)
              return 1;;
+        *)
+             test -r $1 && file -b $1 | grep -q text ;;
     esac
 }
 
