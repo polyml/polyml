@@ -929,7 +929,7 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
     return false;
 #endif
     // Check the sp value is in the current stack.
-    if (sp >= (PolyWord*)taskData->stack && sp < taskData->stack->stack()->Offset(taskData->stack->spaceSize()))
+    if (sp >= taskData->stack->bottom && sp < taskData->stack->top)
         return true;
     else
         return false; // Bad stack pointer
