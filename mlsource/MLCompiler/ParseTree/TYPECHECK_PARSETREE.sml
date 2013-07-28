@@ -1661,7 +1661,7 @@ struct
                             (case argTypeList of
                                 [] => badType (* error *)
                             |   [single] => single
-                            |   multiple => mkProductType(List.rev multiple))
+                            |   multiple => mkProductType multiple)
 
                         (* The identifiers declared in the pattern are available in the
                            body of the function. Since it is recursive the function
