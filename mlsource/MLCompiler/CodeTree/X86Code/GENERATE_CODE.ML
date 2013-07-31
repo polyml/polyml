@@ -2124,24 +2124,10 @@ struct
                 (* Unlock  the argument registers. *)
                 List.app(fn SOME r => codeGenerate(unlockRegister (transtable, r), cvec) | NONE => ()) argLocations;
 
-                (* Remove any stack arguments. For tail-calls, we mustn't do this, because
-                   the stack arguments have already vanished from the pstack - that's
-                   because storeInStack consumes its argument. Conversely, pushValueToStack,
-                   used to set up stack arguments normal calls, does NOT consume its pstack
-                   argument. This means that we mustn't call decsp for tail-calls, which
-                   in turn means that the real stack pointer doesn't get correctly adjusted.
-                   Fortunately, this is (just about) OK because this code is unreachable,
-                   and CODEGEN_TABLE.mergeLab is clever enough to avoid merging unreachable states. 
-                   This whole area is a right mess, which I must sort out some time.
-                   SPF 13/3/97
-                   Agreed.  I've tried to tidy this up a bit.  decsp now ONLY affects the
-                   real stack pointer rather than popping items from the pstack as
-                   well.  It still needs more work.
-                   DCJM 25/11/99
-                 *)
-                if isTail then exiting transtable else ();
-
-                List.app(fn SOME _ => () | NONE => decsp(transtable, 1)) argLocations;
+                (* Remove any stack arguments.  Don't do this for tail calls*)
+                if isTail
+                then exiting transtable
+                else List.app(fn SOME _ => () | NONE => decsp(transtable, 1)) argLocations;
 
                 if not needsResult
                 then NoMerge (* Unused *)
