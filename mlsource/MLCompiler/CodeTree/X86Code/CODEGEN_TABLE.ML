@@ -2388,6 +2388,48 @@ struct
                make it a register entry. *)
             fun loadToReg (s, prefReg: reg option, tabEnt, tabCache: regSet, tabUses, tabDest, tabLife) =
             let
+                (* First get the register to put the value in. *)
+                val (dReg, getRegCode) =
+                    case prefReg of
+                        NONE => getAnyRegister table
+                    |   SOME prefReg =>
+                            if (case tabEnt of Register(reg, _) => reg = prefReg | _ => false) orelse
+                                inSet(prefReg, tabCache) (* Already there. *)
+                            then (addRegUse (table, prefReg); (prefReg, [])) (* Already there. *)
+                            else (prefReg, getRegister (table, prefReg))
+
+                (* Now load it.  However, we have to be careful.  We only call loadToReg
+                   if an entry was in a register or a "Direct".  But in the process of getting
+                   the destination register we could have ended up pushing it onto the stack.
+                   This can happen if the destination register was in use.  We always
+                   push unpushed entries with a lower "destStack" first so if the register we
+                   want was in an entry with a higher "destStack" and this entry has a lower
+                   "destStack" we could have pushed it.  In that case we MUST leave it where
+                   it is and NOT overwrite it. (See Test145.ML) *)
+            in
+                case pstackEntry(table, s) of
+                    StackEntry {ent = StackW _, ...} => free regset dReg @ getRegCode
+
+                |   _ =>
+                    let
+                        val loadCode = loadPstackEntry(table, s, dReg)
+                        (* loadPstackEntry will have decremented the use count and may
+                         have completely removed the entry.  If it hasn't we need to
+                         remove it before we replace it with the loaded register. *)
+                        val freeCode =
+                            case (pstackEntry(table, s)) of
+                                NoStackEntry => []
+                            |   StackEntry _ => removeEntry(table, s, false)
+                    in
+                        StretchArray.update (pstack, s,
+                            StackEntry{ent=Register(dReg, 0), cache=noRegisters, uses=tabUses,
+                                       destStack=tabDest, lifeTime=tabLife});
+                        freeCode @ loadCode @ getRegCode
+                    end
+            end
+
+(*
+
                 val (dReg, dRegCode) =
                     case prefReg of
                         NONE =>
@@ -2425,7 +2467,7 @@ struct
                                destStack=tabDest, lifeTime=tabLife});
                 freeCode @ dRegCode
             end (* loadToReg *)
-
+*)
             fun loadEntries(s, others) =
             if s >= first
             then
