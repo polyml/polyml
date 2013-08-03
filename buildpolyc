@@ -13,7 +13,7 @@ compile()
 
 link()
 {
-    if [ X"$2" == "X" ]
+    if [ X"$2" = "X" ]
     then
         ${LINK} ${EXTRALDFLAGS} $1 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
     else
@@ -68,7 +68,7 @@ do
             [ $# -eq 0 ] && usage "Expected file name after -o"
             execfile="$1";;
         *)
-            [ X"$sourcefile" == "X" ] || usage "Only one source file name allowed"
+            [ X"$sourcefile" = "X" ] || usage "Only one source file name allowed"
             sourcefile="$1";;
     esac
     shift
