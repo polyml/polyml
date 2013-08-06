@@ -598,7 +598,9 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, StackSpace *space, H
     else newStack->p_eax = DEREFWORD(arg);
     newStack->p_ebx = TAGGED(0);
     newStack->p_ecx = TAGGED(0);
-    newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
+    // We may set the function in SetCallbackFunction
+    if (proc == 0) newStack->p_edx = TAGGED(0);
+    else newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
     newStack->p_esi = TAGGED(0);
     newStack->p_edi = TAGGED(0);
 #ifdef HOSTARCHITECTURE_X86_64

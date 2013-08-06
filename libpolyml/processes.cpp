@@ -205,6 +205,9 @@ public:
     virtual void ThreadPauseForIO(TaskData *taskData, Waiter *pWait);
     // Return the task data for the current thread.
     virtual TaskData *GetTaskDataForThread(void);
+    // Create a new task data object for the current thread.
+    virtual TaskData *CreateNewTaskData(Handle threadId, Handle threadFunction,
+                           Handle args, PolyWord flags);
     // ForkFromRTS.  Creates a new thread from within the RTS.
     virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
     // Create a new thread.  The "args" argument is only used for threads
@@ -1074,6 +1077,85 @@ TaskData *Processes::GetTaskDataForThread(void)
 #endif
 }
 
+// Called to create a task data object in the current thread.
+// This is currently only used if a thread created in foreign code calls
+// a callback.
+TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
+                           Handle args, PolyWord flags)
+{
+    ProcessTaskData *taskData = new ProcessTaskData;
+    taskData->mdTaskData = machineDependent->CreateTaskData();
+#ifdef HAVE_PTHREAD
+    taskData->pthreadId = pthread_self();
+#elif defined(HAVE_WINDOWS_H)
+    HANDLE thisProcess = GetCurrentProcess();
+    DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
+        &(taskData->threadHandle), THREAD_ALL_ACCESS, FALSE, 0);
+#endif
+    unsigned thrdIndex;
+
+    {
+        PLocker lock(&schedLock);
+        // See if there's a spare entry in the array.
+        for (thrdIndex = 0;
+                thrdIndex < taskArraySize && taskArray[thrdIndex] != 0;
+                thrdIndex++);
+
+        if (thrdIndex == taskArraySize) // Need to expand the array
+        {
+            ProcessTaskData **newArray =
+                (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *)*(taskArraySize+1));
+            if (newArray)
+            {
+                taskArray = newArray;
+                taskArraySize++;
+            }
+            else
+            {
+                delete(taskData);
+                schedLock.Unlock();
+                throw MemoryException();
+            }
+        }
+        // Add into the new entry
+        taskArray[thrdIndex] = taskData;
+    }
+
+    taskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
+    if (taskData->stack == 0)
+    {
+        delete(taskData);
+        throw MemoryException();
+    }
+
+    machineDependent->InitStackFrame(taskData, taskData->stack, threadFunction, args);
+
+    ThreadUseMLMemory(taskData);
+
+    // If the forking thread has created an ML thread object use that
+    // otherwise create a new one in the current context.
+    if (threadId != 0)
+        taskData->threadObject = (ThreadObject*)threadId->WordP();
+    else
+    {
+        taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
+        taskData->threadObject->index = TAGGED(thrdIndex); // Set to the index
+        taskData->threadObject->flags = flags != TAGGED(0) ? TAGGED(PFLAG_SYNCH): flags;
+        taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
+        taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+    }
+
+#ifdef HAVE_PTHREAD
+    initThreadSignals(taskData);
+    pthread_setspecific(tlsId, taskData);
+#elif defined(HAVE_WINDOWS_H)
+    TlsSetValue(tlsId, taskData);
+#endif
+    globalStats.incCount(PSC_THREADS);
+
+    return taskData;
+}
+
 // This function is run when a new thread has been forked.  The
 // parameter is the taskData value for the new thread.  This function
 // is also called directly for the main thread.
@@ -1241,13 +1323,29 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             {
                 if (p == sigTask) signalThreadRunning = true;
                 else noUserThreads = false;
-            }
-            if (p && p->inMLHeap)
-            {
-                allStopped = false;
-                // It must be running - interrupt it if we are waiting.
-                if (threadRequest != 0)
-                    machineDependent->InterruptCode(p);
+
+                if (p->inMLHeap)
+                {
+                    allStopped = false;
+                    // It must be running - interrupt it if we are waiting.
+                    if (threadRequest != 0)
+                        machineDependent->InterruptCode(p);
+                }
+                else
+                {
+                    // It could have terminated in foreign code and we wouldn't know.
+                    bool thread_killed = false;
+#ifdef HAVE_PTHREAD
+                    thread_killed = pthread_kill(p->pthreadId, 0) != 0);
+#elif defined(HAVE_WINDOWS_H)
+                    thread_killed = WaitForSingleObject(p->threadHandle, 0) == WAIT_OBJECT_0;
+#endif
+                    if (thread_killed)
+                    {
+                        delete(p);
+                        taskArray[i] = 0;
+                    }
+                }
             }
         }
         if (noUserThreads)
@@ -1278,10 +1376,12 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             for (unsigned i = 0; i < taskArraySize; i++)
             {
                 ProcessTaskData *taskData = taskArray[i];
-                if (taskData)
+                if (taskData && taskData->requests != kRequestKill)
                     MakeRequest(taskData, kRequestKill);
             }
-            exitRequest = false; // Don't need to repeat this.
+            // Leave exitRequest set so that if we're in the process of
+            // creating a new thread we will request it to stop when the
+            // taskData object has been added to the table.
         }
 
         // Now release schedLock and wait for a thread

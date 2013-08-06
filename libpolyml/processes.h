@@ -195,6 +195,8 @@ public:
     virtual ~ProcessExternal() {} // Defined to suppress a warning from GCC
 
     virtual TaskData *GetTaskDataForThread(void) = 0;
+    virtual TaskData *CreateNewTaskData(Handle threadId, Handle threadFunction,
+                           Handle args, PolyWord flags) = 0;
     // Request all ML threads to exit and set the result code.  Does not cause
     // the calling thread itself to exit since this may be called on the GUI thread.
     virtual void Exit(int n) = 0;

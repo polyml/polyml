@@ -89,6 +89,7 @@ typedef char TCHAR;
 #endif
 
 #include <ffi.h>
+#include <new>
 
 #include "globals.h"
 #include "arb.h"
@@ -1498,10 +1499,24 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     ASSERT(cbIndex >= 0 && cbIndex < callBackEntries);
     struct _cbStructEntry *cbEntry = &callbackTable[cbIndex];
     // We should get the task data for the thread that is running this code.
+    // If this thread has been created by the foreign code we will have to
+    // create a new one here.
     TaskData *taskData = processes->GetTaskDataForThread();
-    Handle mark = taskData->saveVec.mark();
-    processes->ThreadUseMLMemory(taskData);
+    if (taskData == 0)
+    {
+        try {
+            taskData = processes->CreateNewTaskData(0, 0, 0, TAGGED(0));
+        }
+        catch (std::bad_alloc a) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+        catch (MemoryException a) {
+            ::Exit("Unable to create thread data - insufficient memory");
+        }
+    }
+    else processes->ThreadUseMLMemory(taskData);
 
+    Handle mark = taskData->saveVec.mark();
     Handle h = SAVE(cbEntry->mlFunction);
 
     // Construct an ML argument list from the arguments.
