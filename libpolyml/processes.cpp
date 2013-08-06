@@ -1268,7 +1268,6 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             interrupt_exn =
                 DEREFEXNHANDLE(make_exn(taskData, EXC_interrupt, taskData->saveVec.push(TAGGED(0))));
 
-
         if (singleThreaded)
         {
             // If we don't have threading enter the code as if this were a new thread.
@@ -1336,7 +1335,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                     // It could have terminated in foreign code and we wouldn't know.
                     bool thread_killed = false;
 #ifdef HAVE_PTHREAD
-                    thread_killed = pthread_kill(p->pthreadId, 0) != 0);
+                    thread_killed = pthread_kill(p->pthreadId, 0) != 0;
 #elif defined(HAVE_WINDOWS_H)
                     thread_killed = WaitForSingleObject(p->threadHandle, 0) == WAIT_OBJECT_0;
 #endif
