@@ -177,9 +177,6 @@ public:
 #ifdef HAVE_WINDOWS_H
     LONGLONG lastCPUTime; // Used for profiling
 #endif
-#ifdef HAVE_PTHREAD
-    pthread_t pthreadId;
-#endif
 #ifdef HAVE_WINDOWS_H
     HANDLE threadHandle;
 #endif
@@ -650,9 +647,6 @@ ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLH
 #ifdef HAVE_WINDOWS_H
     lastCPUTime = 0;
 #endif
-#ifdef HAVE_PTHREAD
-    pthreadId = 0;
-#endif
 #ifdef HAVE_WINDOWS_H
     threadHandle = 0;
 #endif
@@ -1085,9 +1079,7 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
 {
     ProcessTaskData *taskData = new ProcessTaskData;
     taskData->mdTaskData = machineDependent->CreateTaskData();
-#ifdef HAVE_PTHREAD
-    taskData->pthreadId = pthread_self();
-#elif defined(HAVE_WINDOWS_H)
+#if defined(HAVE_WINDOWS_H)
     HANDLE thisProcess = GetCurrentProcess();
     DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
         &(taskData->threadHandle), THREAD_ALL_ACCESS, FALSE, 0);
@@ -1247,9 +1239,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         taskData->threadObject->flags = TAGGED(PFLAG_BROADCAST|PFLAG_ASYNCH); // Flags
         taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
-#ifdef HAVE_PTHREAD
-        taskData->pthreadId = pthread_self();
-#elif defined(HAVE_WINDOWS_H)
+#if defined(HAVE_WINDOWS_H)
         taskData->threadHandle = mainThreadHandle;
 #endif
         taskArray[0] = taskData;
@@ -1283,13 +1273,15 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         pthread_attr_t attrs;
         pthread_attr_init(&attrs);
         pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-        if (pthread_create(&taskData->pthreadId, &attrs, NewThreadFunction, taskData) != 0)
+        // N.B.  Because we create the thread detached the thread ID will be deleted
+        // by the thread itself so may be invalid at any time, unlike the Windows handle.
+        pthread_t pthreadId;
+        if (pthread_create(&pthreadId, &attrs, NewThreadFunction, taskData) != 0)
             errorCode = errno;
         pthread_attr_destroy(&attrs);
 #elif defined(HAVE_WINDOWS_H)
-        DWORD dwThrdId; // Have to provide this although we don't use it.
         taskData->threadHandle =
-            CreateThread(NULL, 0, NewThreadFunction, taskData, 0, &dwThrdId);
+            CreateThread(NULL, 0, NewThreadFunction, taskData, 0, NULL);
         if (taskData->threadHandle == NULL) errorCode = 0-GetLastError();
 #endif
         if (errorCode != 0)
@@ -1491,12 +1483,12 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
         pthread_attr_t attrs;
         pthread_attr_init(&attrs);
         pthread_attr_setdetachstate(&attrs, PTHREAD_CREATE_DETACHED);
-        success = pthread_create(&newTaskData->pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
+        pthread_t pthreadId;
+        success = pthread_create(&pthreadId, &attrs, NewThreadFunction, newTaskData) == 0;
         pthread_attr_destroy(&attrs);
 #elif defined(HAVE_WINDOWS_H)
-        DWORD dwThrdId; // Have to provide this although we don't use it.
         newTaskData->threadHandle =
-            CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, &dwThrdId);
+            CreateThread(NULL, 0, NewThreadFunction, newTaskData, 0, NULL);
         success = newTaskData->threadHandle != NULL;
 #endif
         if (success)
