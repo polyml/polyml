@@ -1322,29 +1322,13 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             {
                 if (p == sigTask) signalThreadRunning = true;
                 else noUserThreads = false;
-
-                if (p->inMLHeap)
-                {
-                    allStopped = false;
-                    // It must be running - interrupt it if we are waiting.
-                    if (threadRequest != 0)
-                        machineDependent->InterruptCode(p);
-                }
-                else
-                {
-                    // It could have terminated in foreign code and we wouldn't know.
-                    bool thread_killed = false;
-#ifdef HAVE_PTHREAD
-                    thread_killed = pthread_kill(p->pthreadId, 0) != 0;
-#elif defined(HAVE_WINDOWS_H)
-                    thread_killed = WaitForSingleObject(p->threadHandle, 0) == WAIT_OBJECT_0;
-#endif
-                    if (thread_killed)
-                    {
-                        delete(p);
-                        taskArray[i] = 0;
-                    }
-                }
+            }
+            if (p && p->inMLHeap)
+            {
+                allStopped = false;
+                // It must be running - interrupt it if we are waiting.
+                if (threadRequest != 0)
+                    machineDependent->InterruptCode(p);
             }
         }
         if (noUserThreads)
