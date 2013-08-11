@@ -2196,6 +2196,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0xff: /* Group5 */
             {
                 pt++;
+#if (0)
+// Disable this optimisation for the moment.  There is a problem with CopyScan when saving very large
+// states or exporting large object files.  If we copy data out of an existing saved state or from the
+// executable we may have relative branches that are too long.
 #ifdef HOSTARCHITECTURE_X86_64
                 if (*pt == 0x15 || *pt == 0x25)
                 {
@@ -2217,6 +2221,7 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 }
                 else
 #endif /* HOSTARCHITECTURE_X86_64 */
+#endif
                 skipea(&pt, process, false); break;
             }
 
