@@ -1690,14 +1690,14 @@ struct
            
                         (* Now the body. *)
                         val expTyp = assignValues(varLevel, letDepth, bodyEnv, exp, exp);
-                        (* Remember the result type for the debugger. Actually this
-                           assigns the result type for each clause in the fun but
-                           they'll all be the same. *)
-                        val () = resultType := expTyp;
                         (* Check the expression type against any explicit type constraint. *)
-                        val () =
+                        (* Return the explicit constraint if possible.  For the purposes of
+                           type checking this is identical to "expTyp" but if there is a
+                           type abbreviation this will be used when printing the result.
+                           .e.g type t = int * int; fun f ((x, y):t): t = (y, x); *)
+                        val typeOfBody =
                             case constraint of
-                                NONE => ()
+                                NONE => expTyp
                             |   SOME given =>
                                 let
                                     val theType = ptAssignTypes(given, v)
@@ -1714,10 +1714,15 @@ struct
                                                         display(theType, 10000 (* All *), typeEnv)
                                                     ]),
                                                 unifyErrorReport (lex, typeEnv) report,
-                                                lex, line, foundNear clauseAsTree)
+                                                lex, line, foundNear clauseAsTree);
+                                    theType
                                 end
+                        (* Remember the result type for the debugger. Actually this
+                           assigns the result type for each clause in the fun but
+                           they'll all be the same. *)
+                        val () = resultType := typeOfBody
                         (* The type of this clause is a function type. *)
-                        val clauseType = List.foldr mkFunctionType expTyp argTypeList
+                        val clauseType = List.foldr mkFunctionType typeOfBody argTypeList
                         (* Unify this with the type we're using for the other clauses. *)
                         val () =
                             case unifyTypes(clauseType, funType) of
