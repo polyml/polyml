@@ -227,9 +227,12 @@ void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigne
 {
     if ( IS_INT(number) )
     {
-        /* It will fit in the low-order word. */
         *pLo = (unsigned long) UNTAGGED(number);
+#if (SIZEOF_VOIDP > SIZEOF_LONG)
+        *pHi = (unsigned long) (UNTAGGED(number) >> sizeof(unsigned long)*8);
+#else
         *pHi = 0;
+#endif
         return;
     }
     if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size);
