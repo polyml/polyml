@@ -751,24 +751,6 @@ void LoadRelocate::RelocateObject(PolyObject *p)
     }
 }
 
-#ifdef HOSTARCHITECTURE_X86_64
-class UpdateRelativeBranches: public ScanAddress {
-private:
-    virtual bool ReplaceX8664Relative(byte *addressOfRelative, PolyWord destination);
-
-    // At the moment we should only get calls to ScanConstant.
-    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
-};
-
-bool UpdateRelativeBranches::ReplaceX8664Relative(byte *addressOfRelative, PolyWord destination)
-{
-    POLYSIGNED displacement = destination.AsCodePtr() - addressOfRelative - 4;
-    // If the target address is within a 32-bit offset we can use
-    // relative branches.
-    return (displacement < 0x80000000 && displacement >= -(POLYSIGNED)0x80000000);
-}
-#endif
-
 // Load a saved state file.  Calls itself to handle parent files.
 bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
 {
@@ -990,18 +972,6 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
             }
         }
     }
-
-#ifdef HOSTARCHITECTURE_X86_64
-    UpdateRelativeBranches update;
-    for (unsigned k = 0; k < relocate.nDescrs; k++)
-    {
-        SavedStateSegmentDescr *descr = &relocate.descrs[k];
-        MemSpace *space =
-            descr->segmentIndex == 0 ? gMem.IoSpace() : gMem.SpaceForIndex(descr->segmentIndex);
-        if (space->spaceType == ST_PERMANENT)
-            update.ScanAddressesInRegion(space->bottom, space->top);
-    }
-#endif
 
     // Add an entry to the hierarchy table for this file.
     if (! AddHierarchyEntry(thisFile, header.timeStamp))

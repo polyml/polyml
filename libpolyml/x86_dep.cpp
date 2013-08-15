@@ -2187,43 +2187,12 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         case 0x88: /* MOVB_R_A */ case 0x89: /* MOVL_R_A */
         case 0x8b: /* MOVL_A_R */
         case 0x62: /* BOUNDL */
+        case 0xff: /* Group5 */
         case 0xd1: /* Group2_1_A */
         case 0x8f: /* POP_A */
         case 0xd3: /* Group2_CL_A */
         case 0x87: // XCHNG
             pt++; skipea(&pt, process, false); break;
-
-        case 0xff: /* Group5 */
-            {
-                pt++;
-#if (0)
-// Disable this optimisation for the moment.  There is a problem with CopyScan when saving very large
-// states or exporting large object files.  If we copy data out of an existing saved state or from the
-// executable we may have relative branches that are too long.
-#ifdef HOSTARCHITECTURE_X86_64
-                if (*pt == 0x15 || *pt == 0x25)
-                {
-                    bool isCall = *pt == 0x15;
-                    // Call or jump indirect through PC-relative address.  In some circumstances
-                    // this can be relaced with a 32-bit PC-relative call or jump.
-                    pt++;
-                    PolyWord addr = ScanAddress::GetConstantValue(pt, PROCESS_RELOC_I386RELATIVE);
-                    PolyWord destination = addr.AsObjPtr()->Get(0); // From constant area.
-                    if (process->ReplaceX8664Relative(pt, destination))
-                    {
-                        // Replace the entry with a PC-relative jump.
-                        pt[-2] = 0x90; // No-op
-                        pt[-1] = isCall ? 0xe8 : 0xe9;
-                        ScanAddress::SetConstantValue(pt, destination, PROCESS_RELOC_I386RELATIVE);
-                        process->ScanConstant(pt, PROCESS_RELOC_I386RELATIVE);
-                    }
-                    pt += 4;
-                }
-                else
-#endif /* HOSTARCHITECTURE_X86_64 */
-#endif
-                skipea(&pt, process, false); break;
-            }
 
         case 0xf6: /* Group3_a */
             {
@@ -2283,9 +2252,10 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                 // If the new address is within the current piece of code we don't do anything
                 if (absAddr >= (byte*)addr && absAddr < (byte*)end) {}
                 else {
-                    if (addr == old)
-                        process->ScanConstant(pt, PROCESS_RELOC_I386RELATIVE);
-                    else
+#ifdef HOSTARCHITECTURE_X86_64
+                    ASSERT(sizeof(PolyWord) == 4); // Should only be used internally on x64
+#endif /* HOSTARCHITECTURE_X86_64 */
+                    if (addr != old)
                     {
                         // The old value of the displacement was relative to the old address before
                         // we copied this code segment.
@@ -2294,33 +2264,13 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
                         // We have to correct the displacement for the new location and store
                         // that away before we call ScanConstant.
                         POLYSIGNED newDisp = absAddr - pt - 4;
-#ifdef HOSTARCHITECTURE_X86_64
-                        if (newDisp >= 0x80000000 || newDisp < -(POLYSIGNED)0x80000000)
+                        for (unsigned i = 0; i < 4; i++)
                         {
-                            // We must have converted a PC-relative indirect call/jump into a
-                            // 32-bit relative call/jump.  Convert it back.
-                            ASSERT(pt[-2] == 0x90); // It was a NOP
-                            pt[-2] = 0xff;
-                            pt[-1] = pt[-1] == 0xe8 ? 0x15: 0x25;
-                            PolyWord *cp;
-                            POLYUNSIGNED count, n = 0;
-                            addr->GetConstSegmentForCode(cp, count);
-                            while (n < count && cp[n].AsCodePtr() != absAddr) n++;
-                            ASSERT(n != count);
-                            ScanAddress::SetConstantValue(pt, PolyWord::FromStackAddr(cp+n), PROCESS_RELOC_I386RELATIVE);
-                            // It now points to the constant area so doesn't need to be scanned.
-                        }
-                        else
-#endif
-                        {
-                            for (unsigned i = 0; i < 4; i++)
-                            {
-                                pt[i] = (byte)(newDisp & 0xff);
-                                newDisp >>= 8;
-                            }
-                            process->ScanConstant(pt, PROCESS_RELOC_I386RELATIVE);
+                            pt[i] = (byte)(newDisp & 0xff);
+                            newDisp >>= 8;
                         }
                     }
+                    process->ScanConstant(pt, PROCESS_RELOC_I386RELATIVE);
                 }
                 pt += 4;
                 break;

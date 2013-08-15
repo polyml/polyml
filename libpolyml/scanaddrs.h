@@ -101,8 +101,6 @@ public:
     static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
     // Store a constant in the code.
     static void SetConstantValue(byte *addressOfConstant, PolyWord p, ScanRelocationKind code);
-    // Special case for X86-64.  Test if a relative address can be used.
-    virtual bool ReplaceX8664Relative(byte *addressOfRelative, PolyWord target) { return false; }
 };
 
 // Recursive scan over a data structure.
