@@ -177,6 +177,9 @@ public:
 #ifdef HAVE_WINDOWS_H
     LONGLONG lastCPUTime; // Used for profiling
 #endif
+#ifdef HAVE_PTHREAD
+    bool threadExited;
+#endif
 #ifdef HAVE_WINDOWS_H
     HANDLE threadHandle;
 #endif
@@ -650,6 +653,9 @@ ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLH
 #ifdef HAVE_WINDOWS_H
     threadHandle = 0;
 #endif
+#ifdef HAVE_PTHREAD
+    threadExited = false;
+#endif
 }
 
 ProcessTaskData::~ProcessTaskData()
@@ -720,23 +726,18 @@ void Processes::ThreadExit(TaskData *taskData)
 
 #ifdef HAVE_PTHREAD
     // Block any profile interrupt from now on.  We're deleting the ML stack for this thread.
+    // Even now we delete the stack in the main thread there is a small possibility that the
+    // thread may not have completely exited after setting threadExited.
     sigset_t block_sigs;
     sigemptyset(&block_sigs);
     sigaddset(&block_sigs, SIGVTALRM);
     pthread_sigmask(SIG_BLOCK, &block_sigs, NULL);
 #endif
 
-    globalStats.decCount(PSC_THREADS);
-
     if (singleThreaded) finish(0);
 
     schedLock.Lock();
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
-    // Remove this from the taskArray
-    unsigned index = get_C_unsigned(taskData, taskData->threadObject->index);
-    ASSERT(index < taskArraySize && taskArray[index] == taskData);
-    taskArray[index] = 0;
-    delete(taskData);
     initialThreadWait.Signal(); // Tell it we've finished.
     schedLock.Unlock();
 #ifdef HAVE_PTHREAD
@@ -1314,13 +1315,32 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             {
                 if (p == sigTask) signalThreadRunning = true;
                 else noUserThreads = false;
-            }
-            if (p && p->inMLHeap)
-            {
-                allStopped = false;
-                // It must be running - interrupt it if we are waiting.
-                if (threadRequest != 0)
-                    machineDependent->InterruptCode(p);
+
+                if (p->inMLHeap)
+                {
+                    allStopped = false;
+                    // It must be running - interrupt it if we are waiting.
+                    if (threadRequest != 0)
+                        machineDependent->InterruptCode(p);
+                }
+                else
+                {
+                    // Has the thread terminated?  Doing this in the main thread
+                    // allows us to remove the taskData object even if the thread
+                    // terminated in foreign code.
+                    bool thread_killed = false;
+#ifdef HAVE_PTHREAD
+                    thread_killed = p->threadExited;
+#elif defined(HAVE_WINDOWS_H)
+                    thread_killed = WaitForSingleObject(p->threadHandle, 0) == WAIT_OBJECT_0;
+#endif
+                    if (thread_killed)
+                    {
+                        delete(p);
+                        taskArray[i] = 0;
+                        globalStats.decCount(PSC_THREADS);
+                    }
+                }
             }
         }
         if (noUserThreads)
@@ -1892,6 +1912,15 @@ void Processes::SignalArrived(void)
         sigTask->threadLock.Signal();
 }
 
+#ifdef HAVE_PTHREAD
+// This is called when the thread exits.  This happens
+// even if the thread terminated in foreign code.
+static void threaddata_destructor(void *p)
+{
+    ProcessTaskData *pt = (ProcessTaskData *)p;
+    pt->threadExited = true;
+}
+#endif
 
 void Processes::Init(void)
 {
@@ -1901,7 +1930,7 @@ void Processes::Init(void)
 #endif
 
 #ifdef HAVE_PTHREAD
-    pthread_key_create(&tlsId, NULL);
+    pthread_key_create(&tlsId, threaddata_destructor);
 #elif defined(HAVE_WINDOWS_H)
     tlsId = TlsAlloc();
 #else
