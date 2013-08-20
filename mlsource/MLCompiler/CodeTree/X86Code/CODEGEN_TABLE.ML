@@ -3197,6 +3197,12 @@ struct
         (* We must first make sure that the space we're going to allocate
            hasn't been reserved for a register. *)
         val alignCode = alignStack(table, [], NONE)
+        (* There's a potential problem if some of the entries are base+offset.  We
+           need to load them into a register before we can push them but that
+           may involve pushing a register to get a free one.  Make sure there
+           is at least one free register. *)
+        val (aReg, getRegCode) = getAnyRegister table
+        val freeCode = freeRegister(table, aReg)
 
         (* Push all entries.  There may be entries that refer to other
            closures in the same mutually recursive set.  Use a zero for
@@ -3222,7 +3228,7 @@ struct
         val container =
             pushPstack(table, Container{items=fillEntries, dependencies=depends}, "createStackClosure", fillCode)
     in
-        (container, fillCode @ alignCode @ incCode)
+        (container, fillCode @ freeCode @ getRegCode @ alignCode @ incCode)
     end
 
     (* If we are creating mutually recursive closures on the stack we
