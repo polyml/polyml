@@ -55,6 +55,8 @@ struct
 
     fun fromInt (i: int): word = fromLargeWord(LargeWord.fromInt i)
 
+    val fromLargeInt = fromInt
+
             (* Arithmetic shift - sign extends. *) 
     (* Shift the "sign" bit into the real sign bit position then
        shift right down again. *)
