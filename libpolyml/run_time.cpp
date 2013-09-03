@@ -385,7 +385,7 @@ Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endO
     Handle saved = taskData->saveVec.mark();
     Handle list = SAVE(ListNull);
     StackObject *stack = taskData->stack->stack();
-    PolyWord *endStack = taskData->stack->top;
+    PolyWord *endStack = taskData->stack->top - 1;
     if (endOfTrace > endStack) endOfTrace = endStack;
 
     for (PolyWord *sp = endOfTrace; sp >= startOfTrace; sp--)
