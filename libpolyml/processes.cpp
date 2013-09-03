@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008 David C.J. Matthews
+    Copyright (c) 2007,2008,2013 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -726,18 +726,26 @@ void Processes::ThreadExit(TaskData *taskData)
 
 #ifdef HAVE_PTHREAD
     // Block any profile interrupt from now on.  We're deleting the ML stack for this thread.
-    // Even now we delete the stack in the main thread there is a small possibility that the
-    // thread may not have completely exited after setting threadExited.
     sigset_t block_sigs;
     sigemptyset(&block_sigs);
     sigaddset(&block_sigs, SIGVTALRM);
     pthread_sigmask(SIG_BLOCK, &block_sigs, NULL);
+    // Remove the thread-specific data since it's no
+    // longer valid.
+    pthread_setspecific(tlsId, 0);
 #endif
+
+    globalStats.decCount(PSC_THREADS);
 
     if (singleThreaded) finish(0);
 
     schedLock.Lock();
     ThreadReleaseMLMemoryWithSchedLock(taskData); // Allow a GC if it was waiting for us.
+    // Remove this from the taskArray
+    unsigned index = get_C_unsigned(taskData, taskData->threadObject->index);
+    ASSERT(index < taskArraySize && taskArray[index] == taskData);
+    taskArray[index] = 0;
+    delete(taskData);
     initialThreadWait.Signal(); // Tell it we've finished.
     schedLock.Unlock();
 #ifdef HAVE_PTHREAD
@@ -1325,9 +1333,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 }
                 else
                 {
-                    // Has the thread terminated?  Doing this in the main thread
-                    // allows us to remove the taskData object even if the thread
-                    // terminated in foreign code.
+                    // Has the thread terminated in foreign code?
                     bool thread_killed = false;
 #ifdef HAVE_PTHREAD
                     thread_killed = p->threadExited;
@@ -1913,8 +1919,9 @@ void Processes::SignalArrived(void)
 }
 
 #ifdef HAVE_PTHREAD
-// This is called when the thread exits.  This happens
-// even if the thread terminated in foreign code.
+// This is called when the thread exits in foreign code and
+// ThreadExit has not been called.  Normally the thread-specific
+// data is cleared.
 static void threaddata_destructor(void *p)
 {
     ProcessTaskData *pt = (ProcessTaskData *)p;
