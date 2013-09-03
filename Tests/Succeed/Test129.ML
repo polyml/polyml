@@ -21,5 +21,5 @@ check (let val r = ref 0w4 in Word.~>>(!r, 0w1) end) 0w2;
 
 (* Checks that fromLargeInt returns the same result as fromInt *)
 
-check(Word32.fromLargeInt ~1 = 0wxFFFFFFFF);
-check(Word32.fromLargeInt (IntInf.pow (2, 32)) = 0wx0);
+check(Word32.fromLargeInt ~1) 0wxFFFFFFFF;
+check(Word32.fromLargeInt (IntInf.pow (2, 32))) 0wx0;
