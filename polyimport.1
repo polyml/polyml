@@ -1,4 +1,4 @@
-.TH POLY 1 "Poly/ML Version 5.3 2009"
+.TH POLY 1 "Poly/ML Version 5.5.1 2013"
 .SH NAME
 polyimport \- the Poly/ML import program
 .SH SYNOPSIS
@@ -9,24 +9,29 @@ polyimport \- the Poly/ML import program
 reads in a Poly/ML import file and runs it.  Import files are generated using the PolyML.exportPortable
 function.
 .SH OPTIONS
+.B \-H " size"
+Sets the initial heap size.  The size may be written as a number optionally followed by
+K, M or G representing kilobytes, megabytes or gigabytes.  If none of these is given the
+number is taken as megabytes.
 .TP
-.BI \-H " size"
-Set the initial heap size, in MB.
+.BI \--minheap " size, "
+Set the minimum heap size.  The heap will not shrink below this value.
 .TP
-.BI \--heap " size"
-Set the initial heap size, in MB.
+.BI \--maxheap " size"
+Set the maximum heap size.  The heap will not grow above this value.
 .TP
-.BI \--immutable " size"
-Set the size of the immutables buffer, in MB.
+.BI \--gcpercent " percent"
+Set the target percentage of time that the code should spend in the garbage collector.  The heap
+sizer will attempt to set the heap size to achieve this target consistent with the minimum and
+maximum heap sizes given by the arguments and also consistent with keeping paging under control.
 .TP
-.BI \--mutable " size"
-Set the size of the mutables buffer, in MB.
+.BI \--gcthreads " threads"
+Sets the number of threads used in the parallel garbage collector.  Setting this to 1 forces the
+garbage collector to be single-threaded.  The value 0, the default, is taken to be the number of
+processors (cores) available.
 .TP
-.BI \--timeslice " timeslice
-Set the timeslice.
-.TP
-.BI \--debug " level"
-Set the debugging level.
+.BI \--debug " options"
+Set various debugging options for the run-time system.
 .fi
 .SH SEE ALSO
 .PP

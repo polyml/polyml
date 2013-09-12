@@ -18,8 +18,15 @@ Print a list of the arguments and exit.
 .B \-q
 Suppress the start-up message.
 .TP
+.B \-i
+Interactive mode.  Output a prompt for each input line.  This is the default if input
+is from a terminal.
+.TP
 .B \--use FILE
 Reads input from FILE as though executing the ML command 'use "FILE";' before the ML shell starts.
+.TP
+.B \--eval STRING
+Compiles and executes STRING as ML before the ML shell starts.
 .TP
 .B \--error-exit
 Normally if the ML code raises an unhandled exception control returns to the ML shell.  With this
@@ -33,12 +40,19 @@ an environment that is able to decode the additional information.
 Run the IDE communications protocol rather than the normal read-eval-print loop.  Only suitable
 for running within a development environment.
 .TP
-.BI \--minheap " size, " \-H " size" 
-Set the minimum heap size, in MB.  The heap will not shrink below this value.  It is also used as
-the initial heap size
+.B \--script
+The input is a shell script.  The first line is skipped if it begins with #!.
+.TP
+.B \-H " size"
+Sets the initial heap size.  The size may be written as a number optionally followed by
+K, M or G representing kilobytes, megabytes or gigabytes.  If none of these is given the
+number is taken as megabytes.
+.TP
+.BI \--minheap " size, "
+Set the minimum heap size.  The heap will not shrink below this value.
 .TP
 .BI \--maxheap " size"
-Set the maximum heap size, in MB.  The heap will not grow above this value.
+Set the maximum heap size.  The heap will not grow above this value.
 .TP
 .BI \--gcpercent " percent"
 Set the target percentage of time that the code should spend in the garbage collector.  The heap
