@@ -19,7 +19,7 @@ bin_PROGRAMS = polyimport poly
 
 dist_bin_SCRIPTS = polyc
 
-man_MANS = poly.1 polyimport.1
+man_MANS = poly.1 polyimport.1 polyc.1
 
 # Select the architecture-specific modules
 if ARCHI386

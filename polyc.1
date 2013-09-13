@@ -1,0 +1,32 @@
+.TH POLY 1 "Poly/ML Version 5.5.1 2013"
+.SH NAME
+polyc \- Compile and link a Standard ML program using Poly/ML
+.SH SYNOPSIS
+.B polyc
+.I sourcefile
+.SH DESCRIPTION
+.I polyc 
+is a script that compiles a Standard ML program using the Poly/ML compile and creates an
+executable program from it.  It can also be used to link object files created using the
+PolyML.export function with the Poly/ML libraries or to produce an object file.  When
+used to compile a Standard ML program it expects the main function to be called "main"
+e.g.
+fun main() = print "Hello World\\n";
+
+If the source file is a text file it is assumed to be ML source.  If it is a binary file
+it is assumed to be an object file and will be linked with the Poly/ML library.
+.SH OPTIONS
+.B \-c ""
+Compile but do not link.  The object file is written to a file whose name is based on
+the source file name with any extension replaced with .o
+.TP
+.BI \-o " output"
+Write the executable file to "output".
+.TP
+.BI \--help ""
+Write a list of the arguments and exit.
+.fi
+.SH SEE ALSO
+.PP
+.B http://www.polyml.org
+The Poly/ML web site.
