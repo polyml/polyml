@@ -657,7 +657,7 @@ struct
 
             |   mapPattern(ArgPattCurry(currying as firstArgSet :: _, _) :: patts, n, m) =
                 (* Transform it if it's curried or if there is a tuple in the first arg. *)
-                if List.length currying >= 2 orelse
+                if (*List.length currying >= 2 orelse *) (* This transformation is unsafe. *)
                    List.exists(fn ArgPattTuple{allConst=false, ...} => true | _ => false) firstArgSet
                 then
                 let
@@ -685,6 +685,13 @@ struct
 
             and transformFunctionArgument(argumentArgs, loadPack, loadThisArg, filterOpt) =
             let
+                (* Disable the transformation of curried arguments for the moment.
+                   This is unsafe.  See Test146.  The problem is that this transformation
+                   is only safe if the function is applied immediately to all the arguments.
+                   However the usage information is propagated so that if the result of
+                   the first application is bound to a variable and then that variable is
+                   applied it still appears as curried. *)
+                val argumentArgs = [hd argumentArgs]
                 (* We have a function that takes a series of curried argument.
                    Change that so that the function takes a list of arguments. *)
                 val newAddr = ! localCounter before localCounter := ! localCounter + 1
@@ -1216,7 +1223,8 @@ struct
                                         (* Function has at least one tupled arg. *)
                                 |   checkArg (ArgPattCurry(_, ArgPattTuple{allConst=false, ...})) = true
                                         (* Function has an arg that is a function that returns a tuple. *)
-                                |   checkArg (ArgPattCurry(_ :: _ :: _, _)) = true
+                                (* This transformation is unsafe.  See comment in transformFunctionArgument above. *)
+                                (*|   checkArg (ArgPattCurry(_ :: _ :: _, _)) = true *)
                                         (* Function has an arg that is a curried function. *)
                                 |   checkArg (ArgPattCurry(firstArgSet :: _, _)) =
                                         (* Function has an arg that is a function that
