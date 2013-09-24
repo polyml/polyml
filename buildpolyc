@@ -74,6 +74,9 @@ do
     shift
 done
 
+[ X"$sourcefile" = "X" ] && usage "No input files"
+[ -r "$sourcefile" ] || usage "Error: $sourcefile: No such file"
+
 case "$compileonly" in
      yes)
          objectfile=${sourcefile%%.*}
