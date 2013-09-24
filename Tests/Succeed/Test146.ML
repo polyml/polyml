@@ -17,3 +17,8 @@ fun bar f = let val r = f() in (r 1; r 2; List.map r [1, 2, 3]) end;
 bar foo;
 
 checkOnce();
+
+exception A and B and C;
+fun rA () = raise A and rB () = raise B;
+fun h (f, g) = let val a = f() in g(); a () end;
+h(rA, rB) handle A => ();
