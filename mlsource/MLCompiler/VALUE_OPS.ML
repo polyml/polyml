@@ -609,7 +609,7 @@ struct
                         fun addToList nv = declist := nv :: !declist
                         (* For the moment order them by name.  We may change this to
                            order primarily by kind and secondarily by name. *)
-                        fun order (s1: string, _) (s2: string, _) = s1 <= s2
+                        fun order (s1: string, _) (s2: string, _) = s1 > s2
                     in
                         (* Put all the entries into a list. *)
                         UNIVERSALTABLE.app addToList tab;
