@@ -174,6 +174,10 @@ unsigned parseSize(const char *p, const char *arg)
     }
     if (*p != 0)
         Usage("Malformed %s option\n", arg);
+    // Check that the number of kbytes is less than the address space.
+    // The value could overflow when converted to bytes.
+    if (result >= (1 << (SIZEOF_VOIDP*8 - 10)))
+        Usage("Value of %s option is too large\n", arg);
     return result;
 }
 
