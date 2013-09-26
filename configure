@@ -21296,7 +21296,7 @@ ac_config_commands="$ac_config_commands basis"
 ac_config_commands="$ac_config_commands mlsource"
 
 
-ac_config_files="$ac_config_files Makefile libpolyml/Makefile libpolymain/Makefile"
+ac_config_files="$ac_config_files Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -22455,6 +22455,7 @@ do
     "mlsource") CONFIG_COMMANDS="$CONFIG_COMMANDS mlsource" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "libpolyml/Makefile") CONFIG_FILES="$CONFIG_FILES libpolyml/Makefile" ;;
+    "libpolyml/polyml.pc") CONFIG_FILES="$CONFIG_FILES libpolyml/polyml.pc" ;;
     "libpolymain/Makefile") CONFIG_FILES="$CONFIG_FILES libpolymain/Makefile" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;

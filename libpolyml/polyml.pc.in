@@ -1,0 +1,13 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+bindir=@bindir@
+
+Name: Poly/ML
+Description: Poly/ML run-time and main program libraries
+URL: http://www.polyml.org/
+Version: @PACKAGE_VERSION@
+Requires:
+Libs: -L${libdir} -lpolymain -lpolyml @LIBS@
+Cflags: -I${includedir}

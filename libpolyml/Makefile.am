@@ -151,6 +151,9 @@ libpolyml_la_SOURCES = \
     xwindows.cpp \
     $(ARCHSOURCE) $(EXPORTSOURCE) $(OSSOURCE)
 
+pkgconfigdir = $(libdir)/pkgconfig
+pkgconfig_DATA = polyml.pc
+
 # Convert the portable format to a native binary
 polyexport.o: polyimport exportPoly.sml
 	(cd ..; driver/polyimport driver/$(POLYIMPORT) < driver/exportPoly.sml > /dev/null)
