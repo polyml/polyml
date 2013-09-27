@@ -6,7 +6,7 @@ LINK=@CC@
 LIBDIR=@libdir@
 LIBS="@LIBS@"
 
-# Extra options for Windows.  config.status sets these conditionals to either ""Â or "#".
+# Extra options for Windows.  config.status sets these conditionals to either "" or "#".
 
 @NATIVE_WINDOWS_FALSE@EXTRALDFLAGS=""
 @NATIVE_WINDOWS_TRUE@@ARCHX86_64_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,WinMain"
