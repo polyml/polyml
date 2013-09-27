@@ -103,8 +103,8 @@ polyresource.o: PolyML.rc poly.ico
 polytemp.txt: $(POLYIMPORT)
 	cp $(POLYIMPORT) polytemp.txt
 
-polyc: buildpolyc
-	./buildpolyc LINK=\"$(CC)\" BINDIR=\"$(bindir)\" LIBDIR=\"$(libdir)\" LIBS=\"$(LIBS)\" EXTRALDFLAGS=\"$(EXTRALDFLAGS)\" SUFFIX=\"$(OBJECTSUFFIX)\"
+#polyc: buildpolyc
+#	./buildpolyc LINK=\"$(CC)\" BINDIR=\"$(bindir)\" LIBDIR=\"$(libdir)\" LIBS=\"$(LIBS)\" EXTRALDFLAGS=\"$(EXTRALDFLAGS)\" SUFFIX=\"$(OBJECTSUFFIX)\"
 
 # This builds the compiler but does not update the files in the imports directory.
 # It then builds a version of poly containing the new compiler.

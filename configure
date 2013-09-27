@@ -21298,6 +21298,8 @@ ac_config_commands="$ac_config_commands mlsource"
 
 ac_config_files="$ac_config_files Makefile libpolyml/Makefile libpolyml/polyml.pc libpolymain/Makefile"
 
+ac_config_files="$ac_config_files polyc"
+
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
 # tests run on this system so they can be shared between configure
@@ -22457,6 +22459,7 @@ do
     "libpolyml/Makefile") CONFIG_FILES="$CONFIG_FILES libpolyml/Makefile" ;;
     "libpolyml/polyml.pc") CONFIG_FILES="$CONFIG_FILES libpolyml/polyml.pc" ;;
     "libpolymain/Makefile") CONFIG_FILES="$CONFIG_FILES libpolymain/Makefile" ;;
+    "polyc") CONFIG_FILES="$CONFIG_FILES polyc" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5;;
   esac
@@ -23949,6 +23952,7 @@ _LT_EOF
  ;;
     "basis":C) test -e basis || ln -sf ${ac_top_srcdir}/basis . ;;
     "mlsource":C) test -e mlsource || ln -sf ${ac_top_srcdir}/mlsource . ;;
+    "polyc":F) chmod +x polyc ;;
 
   esac
 done # for ac_tag

@@ -1,7 +1,22 @@
 #! /bin/sh
-echo "#! /bin/sh" > polyc
-echo $* >> polyc
-cat << "EOF" >>polyc
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+BINDIR=@bindir@
+LINK=@CC@
+LIBDIR=@libdir@
+LIBS="@LIBS@"
+
+# Extra options for Windows.  config.status sets these conditionals to either ""Â or "#".
+
+@NATIVE_WINDOWS_FALSE@EXTRALDFLAGS=""
+@NATIVE_WINDOWS_TRUE@@ARCHX86_64_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,WinMain"
+@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET64_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,WinMain"
+@NATIVE_WINDOWS_TRUE@@ARCHI386_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,_WinMain@16"
+@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,_WinMain@16"
+
+@NATIVE_WINDOWS_TRUE@SUFFIX=".obj"
+@NATIVE_WINDOWS_FALSE@SUFFIX=".o"
+
 TMPSRCFILE=/tmp/polysrc.$$
 TMPOBJFILE=/tmp/polyobj.$$.$SUFFIX
 trap 'rm -f $TMPSRCFILE $TMPOBJFILE' 0
@@ -91,5 +106,3 @@ case "$compileonly" in
          fi
          ;;
 esac
-EOF
-chmod +x polyc
