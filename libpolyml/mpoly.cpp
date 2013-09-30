@@ -137,9 +137,9 @@ static struct __debugOpts {
 
 // Parse a parameter that is meant to be a size.  Returns the value as a number
 // of kilobytes.
-unsigned parseSize(const char *p, const char *arg)
+POLYUNSIGNED parseSize(const char *p, const char *arg)
 {
-    unsigned result = 0;
+    POLYUNSIGNED result = 0;
     if (*p < '0' || *p > '9')
         // There must be at least one digit
         Usage("Incomplete %s option\n", arg);
@@ -176,7 +176,7 @@ unsigned parseSize(const char *p, const char *arg)
         Usage("Malformed %s option\n", arg);
     // Check that the number of kbytes is less than the address space.
     // The value could overflow when converted to bytes.
-    if (result >= (1 << (SIZEOF_VOIDP*8 - 10)))
+    if (result >= ((POLYUNSIGNED)1 << (SIZEOF_VOIDP*8 - 10)))
         Usage("Value of %s option is too large\n", arg);
     return result;
 }
@@ -184,7 +184,8 @@ unsigned parseSize(const char *p, const char *arg)
 /* In the Windows version this is called from WinMain in Console.c */
 int polymain(int argc, char **argv, exportDescription *exports)
 {
-    unsigned minsize=0, maxsize=0, gcpercent=0, initsize=0;
+    POLYUNSIGNED minsize=0, maxsize=0, initsize=0;
+    unsigned gcpercent=0;
     /* Get arguments. */
     memset(&userOptions, 0, sizeof(userOptions)); /* Reset it */
     userOptions.gcthreads = 0; // Default multi-threaded
@@ -250,9 +251,9 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         break;
                     case OPT_RESERVE:
                         {
-                            unsigned reserve = parseSize(p, argTable[j].argName);
+                            POLYUNSIGNED reserve = parseSize(p, argTable[j].argName);
                             if (reserve != 0)
-                                gHeapSizeParameters.SetReservation(strtol(p, &endp, 10) * 1024);
+                                gHeapSizeParameters.SetReservation(reserve);
                             break;
                         }
                     case OPT_GCTHREADS:

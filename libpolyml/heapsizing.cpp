@@ -155,7 +155,7 @@ static POLYUNSIGNED GetPhysicalMemorySize(void);
 
 // Set the initial size based on any parameters specified on the command line.
 // Any of these can be zero indicating they should default.
-void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned initialsize, unsigned percent)
+void HeapSizeParameters::SetHeapParameters(POLYUNSIGNED minsize, POLYUNSIGNED maxsize, POLYUNSIGNED initialsize, unsigned percent)
 {
     minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
     maxHeapSize = K_to_words(maxsize);
@@ -220,7 +220,7 @@ void HeapSizeParameters::SetHeapParameters(unsigned minsize, unsigned maxsize, u
     }
 }
 
-void HeapSizeParameters::SetReservation(unsigned rsize)
+void HeapSizeParameters::SetReservation(POLYUNSIGNED rsize)
 {
     gMem.SetReservation(K_to_words(rsize));
 }

@@ -34,9 +34,9 @@ public:
     Handle getGCUtime(TaskData *taskData) const;
     Handle getGCStime(TaskData *taskData) const;
 
-    void SetHeapParameters(unsigned minsize, unsigned maxsize, unsigned initialsize, unsigned percent);
+    void SetHeapParameters(POLYUNSIGNED minsize, POLYUNSIGNED maxsize, POLYUNSIGNED initialsize, unsigned percent);
 
-    void SetReservation(unsigned rsize);
+    void SetReservation(POLYUNSIGNED rsize);
 
     // Called in the minor GC if a GC thread needs to grow the heap.
     // Returns zero if the heap cannot be grown.
