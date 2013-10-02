@@ -3,7 +3,7 @@
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-    and David C. J. Matthews 2006, 2010-12
+    and David C. J. Matthews 2006, 2010-13
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -141,10 +141,10 @@ private:
         { SortRange((Item*)s, (Item*)l); }
 };
 
-class ShareData {
+class ShareDataClass {
 public:
-    ShareData() { depthVectors = 0; depthVectorSize = 0; }
-    ~ShareData();
+    ShareDataClass() { depthVectors = 0; depthVectorSize = 0; }
+    ~ShareDataClass();
 
     bool RunShareData(PolyObject *root);
 
@@ -156,14 +156,14 @@ private:
     POLYUNSIGNED depthVectorSize;
 };
 
-ShareData::~ShareData()
+ShareDataClass::~ShareDataClass()
 {
     // Free the bitmaps associated with the permanent spaces.
     for (unsigned j = 0; j < gMem.npSpaces; j++)
         gMem.pSpaces[j]->shareBitmap.Destroy();
 }
 
-DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
+DepthVector *ShareDataClass::AddDepth(POLYUNSIGNED depth)
 {
     if (depth >= depthVectorSize) {
         POLYUNSIGNED newDepth = depth+1;
@@ -182,7 +182,7 @@ DepthVector *ShareData::AddDepth(POLYUNSIGNED depth)
 }
 
 // Add an object to a depth vector
-void ShareData::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
+void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject *pt)
 {
     DepthVector *v = AddDepth (depth);
 
@@ -492,9 +492,9 @@ void ProcessFixupAddress::FixupItems (DepthVector *v)
 class ProcessAddToVector: public ScanAddress
 {
 public:
-    ProcessAddToVector(ShareData *p): m_parent(p), addStack(0), stackSize(0), asp(0) {}
+    ProcessAddToVector(ShareDataClass *p): m_parent(p), addStack(0), stackSize(0), asp(0) {}
 
-    ~ProcessAddToVector() { free(addStack); }
+    ~ProcessAddToVector();
 
     virtual POLYUNSIGNED ScanAddressAt(PolyWord *pt)
         { (void)AddObjectsToDepthVectors(*pt); return 0; }
@@ -508,12 +508,33 @@ protected:
 
     void PushToStack(PolyObject *obj);
 
-    ShareData *m_parent;
+    ShareDataClass *m_parent;
     PolyObject **addStack;
     unsigned stackSize;
     unsigned asp;
 };
 
+ProcessAddToVector::~ProcessAddToVector()
+{
+    // Normally the stack will be empty.  However if we have run out of
+    // memory and thrown an exception we may well have items left.
+    // We have to remove the mark bits otherwise it will mess up any
+    // subsequent GC.
+    for (unsigned i = 0; i < asp; i++)
+    {
+        PolyObject *obj = addStack[i];
+        if (obj->LengthWord() & _OBJ_GC_MARK)
+            obj->SetLengthWord(obj->LengthWord() & (~_OBJ_GC_MARK));
+    }
+
+    free(addStack); // Now free the stack
+}
+
+// We use _OBJ_GC_MARK to detect when we have visited a cell but not yet
+// computed the depth.  We have to be careful that this bit is removed
+// before we finish in the case that we run out of memory and throw an
+// exception.  PushToStack may throw the exception if the stack needs to
+// grow.
 POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
 {
     // If this is a tagged integer or an IO pointer that's simply a constant.
@@ -540,11 +561,11 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
         // Mutable data in the local or permanent areas
         if (! obj->IsByteObject())
         {
-            obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
             // Add it to the vector so we will update any addresses it contains.
             m_parent->AddToVector(0, L, old.AsObjPtr());
             // and follow any addresses to try to merge those.
             PushToStack(obj);
+            obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
         }
         return 0; // Level is zero
     }
@@ -574,24 +595,25 @@ POLYUNSIGNED ProcessAddToVector::AddObjectsToDepthVectors(PolyWord old)
        different.  For that reason we don't share code segments.  DCJM 4/1/01 */
     if (obj->IsCodeObject())
     {
-        obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
         // We want to update addresses in the code segment.
         m_parent->AddToVector(0, L, old.AsObjPtr());
         PushToStack(obj);
+        obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
+
         return 0;
     }
 
     // Byte objects always have depth 1 and can't contain addresses.
     if (obj->IsByteObject())
     {
-        obj->SetLengthWord(OBJ_SET_DEPTH(1));
         m_parent->AddToVector (1, L, old.AsObjPtr());// add to vector at correct depth
+        obj->SetLengthWord(OBJ_SET_DEPTH(1));
         return 1;
     }
 
     ASSERT(OBJ_IS_WORD_OBJECT(L)); // That leaves immutable data objects.
-    obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
     PushToStack(obj);
+    obj->SetLengthWord(L | _OBJ_GC_MARK); // To prevent rescan
 
     return 0;
 }
@@ -652,6 +674,7 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
             // If it's local set the depth with the value zero.
             if (obj->LengthWord() & _OBJ_GC_MARK)
             {
+                obj->SetLengthWord(obj->LengthWord() & (~_OBJ_GC_MARK));
                 m_parent->AddToVector(0, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
                 obj->SetLengthWord(OBJ_SET_DEPTH(0)); // Now scanned
             }
@@ -677,6 +700,7 @@ void ProcessAddToVector::ProcessRoot(PolyObject *root)
                 // We've finished it
                 asp--; // Pop this item.
                 depth++; // One more for this object
+                obj->SetLengthWord(obj->LengthWord() & (~_OBJ_GC_MARK));
                 m_parent->AddToVector(depth, obj->LengthWord() & (~_OBJ_GC_MARK), obj);
                 obj->SetLengthWord(OBJ_SET_DEPTH(depth));
             }
@@ -733,7 +757,7 @@ static void RestoreLengthWords(DepthVector *vec)
 }
 
 // This is called by the root thread to do the work.
-bool ShareData::RunShareData(PolyObject *root)
+bool ShareDataClass::RunShareData(PolyObject *root)
 {
     // We use a bitmap to indicate when we've visited an object to avoid
     // infinite recursion in cycles in the data.
@@ -850,14 +874,14 @@ public:
 
     virtual void Perform()
     {
-        ShareData s; 
+        ShareDataClass s; 
         // Do a full GC.  If we have a large heap the allocation of the vectors
         // can cause paging.  Doing this now reduces the heap and discards the
         // allocation spaces.  It may be overkill if we are applying the sharing
         // to a small root but generally it seems to be applied to the whole heap.
         FullGCForShareCommonData();
         // Now do the sharing.
-        result = s.RunShareData(shareRoot->WordP()); 
+        result = s.RunShareData(shareRoot->WordP());
     }
     Handle shareRoot;
     bool result;
