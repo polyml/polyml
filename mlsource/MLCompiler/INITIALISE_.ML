@@ -343,7 +343,7 @@ struct
         local
             val refCons =
                 let
-                    val a : types = makeTV ();
+                    val a = TypeVar(hd(tcTypeVars refConstr))
                 in
                     mkGconstr ("ref", a ->> Ref a,
                         createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
