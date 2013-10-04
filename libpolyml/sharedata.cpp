@@ -190,14 +190,24 @@ void ShareDataClass::AddToVector(POLYUNSIGNED depth, POLYUNSIGNED L, PolyObject 
 
     if (v->nitems == v->vsize)
     {
-        POLYUNSIGNED new_vsize  = 2 * v->vsize + 1;
+        // The vector is full or has not yet been allocated.  Grow it by 50%.
+        POLYUNSIGNED new_vsize  = v->vsize + v->vsize / 2 + 1;
         if (new_vsize < 15)
             new_vsize = 15;
 
         Item *new_vector = (Item *)realloc (v->vector, new_vsize*sizeof(Item));
 
         if (new_vector == 0)
-            throw MemoryException();
+        {
+            // The vectors can get large and we may not be able to grow them
+            // particularly if the address space is limited in 32-bit mode.
+            // Try again with just a small increase.
+            new_vsize = v->vsize + 15;
+            new_vector = (Item *)realloc (v->vector, new_vsize*sizeof(Item));
+            // If that failed give up.
+            if (new_vector == 0)
+                throw MemoryException();
+        }
 
         v->vector = new_vector;
         v->vsize  = new_vsize;
