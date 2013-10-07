@@ -645,8 +645,9 @@ struct
                     (thisDec :: decs, thisArg @ args, LoadLocal newAddr :: mapList)
                 end
 
-            |   mapPattern(ArgPattCurry(currying, ArgPattTuple{allConst=false, filter, ...}) :: patts, n, m) =
-                (* It's a function that returns a tuple. *)
+            |   mapPattern(ArgPattCurry(currying as [_], ArgPattTuple{allConst=false, filter, ...}) :: patts, n, m) =
+                (* It's a function that returns a tuple.  The function must not be curried because
+                   otherwise it returns a function not a tuple. *)
                 let
                     val (thisDec, thisArg, thisMap) =
                         transformFunctionArgument(currying, [LoadArgument m], [LoadArgument n], SOME filter)
@@ -1221,8 +1222,9 @@ struct
                             let
                                 fun checkArg (ArgPattTuple{allConst=false, ...}) = true
                                         (* Function has at least one tupled arg. *)
-                                |   checkArg (ArgPattCurry(_, ArgPattTuple{allConst=false, ...})) = true
-                                        (* Function has an arg that is a function that returns a tuple. *)
+                                |   checkArg (ArgPattCurry([_], ArgPattTuple{allConst=false, ...})) = true
+                                        (* Function has an arg that is a function that returns a tuple.
+                                           It must not be curried otherwise it returns a function not a tuple. *)
                                 (* This transformation is unsafe.  See comment in transformFunctionArgument above. *)
                                 (*|   checkArg (ArgPattCurry(_ :: _ :: _, _)) = true *)
                                         (* Function has an arg that is a curried function. *)
