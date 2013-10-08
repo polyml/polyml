@@ -603,13 +603,20 @@ struct
                         mkProductType[intTypeConstr, boolTypeConstr,
                                       listConstruct contextType, listConstruct prettyType]),
                      ("PrettyBreak", mkProductType[intTypeConstr, intTypeConstr]),
-                     ("PrettyString", stringTypeConstr)];
+                     ("PrettyLineBreak", EmptyType),
+                     ("PrettyString", stringTypeConstr),
+                     ("PrettyStringWithWidth", mkProductType[stringTypeConstr, intTypeConstr])];
                 (* The representation of this datatype is given in Pretty.sml and must be the same
                    as the representation that chooseConstrRepr will use. *)
                 val numConstrs = List.length constrs
                 fun makeCons(s,t) =
-                    makeValueConstr(s, mkFunctionType(t, prettyType), false, numConstrs,
+                let
+                    val (ctype, nullary) =
+                        case t of EmptyType => (prettyType, true) | t => (mkFunctionType(t, prettyType), false)
+                in
+                    makeValueConstr(s, ctype, nullary, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
+                end
                 val {constrs=constrCode, ...} = chooseConstrRepr(constrs, [])
             in
                 (ListPair.zipEq(List.map makeCons constrs, constrCode), TypeValue.boxedEither, TypeValue.singleWord)

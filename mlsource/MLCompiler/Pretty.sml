@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews 2008.
+    Copyright (c) 2009 David C.J. Matthews 2008, 2013.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,6 +28,8 @@ struct
         AbsPrettyBlock of int * bool * context list * pretty list
     |   AbsPrettyBreak of int * int
     |   AbsPrettyString of string
+    |   AbsPrettyStringAndWidth of string * int
+    |   AbsPrettyLineBreak
     
     with
         val ContextLocation = AbsContextLocation
@@ -67,15 +69,21 @@ struct
         fun cast p = toAddress(toMachineWord p)
     in
         type pretty = address
+        
+        val tagPrettyBlock = 0w0
+        and tagPrettyBreak = 0w1
+        (*and tagPrettyLineBreak = 0w2*)        (* Not used in the compiler. *)
+        and tagPrettyString = 0w3
+        (*and tagPrettyStringWithWidth = 0w4*)   (* Not used in the compiler. *)
 
         fun PrettyBlock(offset: int, consistent: bool, context: context list, items: pretty list): pretty =
-            cast(0w0, offset, consistent, context, items)
-        and PrettyBreak(breaks: int, offset: int): pretty = cast(0w1, breaks, offset)
-        and PrettyString(s: string): pretty = cast(0w2, s)
+            cast(tagPrettyBlock, offset, consistent, context, items)
+        and PrettyBreak(breaks: int, offset: int): pretty = cast(tagPrettyBreak, breaks, offset)
+        and PrettyString(s: string): pretty = cast(tagPrettyString, s)
 
-        fun isPrettyBlock p = toShort(loadWord(p, 0w0)) = 0w0
-        and isPrettyBreak p = toShort(loadWord(p, 0w0)) = 0w1
-        and isPrettyString p = toShort(loadWord(p, 0w0)) = 0w2
+        fun isPrettyBlock p = toShort(loadWord(p, 0w0)) = tagPrettyBlock
+        and isPrettyBreak p = toShort(loadWord(p, 0w0)) = tagPrettyBreak
+        and isPrettyString p = toShort(loadWord(p, 0w0)) = tagPrettyString
 
         fun projPrettyBlock p =
             if isPrettyBlock p

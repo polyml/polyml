@@ -1,7 +1,7 @@
 (*
     Title:      Pretty Printer.
     Author:     David C. J. Matthews
-    Copyright (c) 2009, 2013
+    Copyright (c) 2009
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -29,11 +29,6 @@
 
    PrettyString s -
         Prints out the string s
-   PrettyStringWithWidth (s, w) -
-        The same as PrettyString except that the width is given explicitly
-        rather than being the length of the string.  This is intended for
-        multibyte encodings where the number of columns is not the same as
-        the number of characters in the string
    PrettyBreak(blanks, offset) -
         Provides a place where the text may be broken.  If no break is needed it
         prints "blanks" spaces.  If a break is needed it add a temporary indent of
@@ -47,10 +42,7 @@
         inserted at a PrettyBreak only if the following entry will not fit.
         "indent" is the value that is added to the effective indentation
         each time the line is broken within this block.  It does not affect
-        the indentation of the first string in the block.
-    PrettyLineBreak
-        Insert an explicit line break
-*)
+        the indentation of the first string in the block. *)
 
 (* N.B. The effect of compiling this file is to extend the PolyML structure. *)
 
@@ -80,13 +72,6 @@ struct
                 then SOME(spaceLeft-size)
                 else NONE
             end
-
-        |   getSize(PrettyStringWithWidth(_, w), spaceLeft) =
-                if w <= spaceLeft
-                then SOME(spaceLeft-w)
-                else NONE
-
-        |   getSize(PrettyLineBreak, _) = NONE
 
         (* Lay out the block and return the space that is left after the line
            has been printed. *)
@@ -144,22 +129,9 @@ struct
                                 stream s;
                                 doPrint(rest, left-size s)
                             )
- 
-                        |   doPrint(PrettyStringWithWidth(s, w) :: rest, left) =
-                            (
-                                stream s;
-                                doPrint(rest, left-w)
-                            )
 
                         |   doPrint((b as PrettyBlock _) :: rest, left) =
                                 doPrint(rest, layOut(b, blockIndent, left))
-
-                        |   doPrint(PrettyLineBreak :: rest, _) =
-                            (
-                                stream "\n";
-                                printBlanks blockIndent;
-                                doPrint(rest, lineWidth-blockIndent)
-                            )
 
                         val () = beginContext context;
                         val onLine = doPrint(entries, spaceLeft);
@@ -168,18 +140,10 @@ struct
                         onLine
                     end
             end
-
         |   layOut (PrettyBreak (blanks, _), _, spaceLeft) =
                 ( printBlanks blanks; Int.max(spaceLeft-blanks, 0) )
-
         |   layOut (PrettyString st, _, spaceLeft) =
                 ( stream st; Int.max(spaceLeft-String.size st, 0) )
-
-        |   layOut (PrettyStringWithWidth(st, w), _, spaceLeft) =
-                ( stream st; Int.max(spaceLeft-w, 0) )
-
-        |   layOut (PrettyLineBreak, _, spaceLeft) =
-                spaceLeft
 
     in
         if layOut(pretty, 0, lineWidth) <> lineWidth
