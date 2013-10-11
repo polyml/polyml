@@ -5,6 +5,7 @@ BINDIR=@bindir@
 LINK=@CC@
 LIBDIR=@libdir@
 LIBS="@LIBS@"
+CFLAGS="@CFLAGS@"
 
 # Extra options for Windows.  config.status sets these conditionals to either "" or "#".
 
@@ -14,8 +15,8 @@ LIBS="@LIBS@"
 @NATIVE_WINDOWS_TRUE@@ARCHI386_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,_WinMain@16"
 @NATIVE_WINDOWS_TRUE@@ARCHINTERPRET_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,_WinMain@16"
 
-@NATIVE_WINDOWS_TRUE@SUFFIX=".obj"
-@NATIVE_WINDOWS_FALSE@SUFFIX=".o"
+@NATIVE_WINDOWS_TRUE@SUFFIX="obj"
+@NATIVE_WINDOWS_FALSE@SUFFIX="o"
 
 TMPSRCFILE=/tmp/polysrc.$$
 TMPOBJFILE=/tmp/polyobj.$$.$SUFFIX
@@ -30,9 +31,9 @@ link()
 {
     if [ X"$2" = "X" ]
     then
-        ${LINK} ${EXTRALDFLAGS} $1 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} $1 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
     else
-        ${LINK} ${EXTRALDFLAGS} $1 -o $2 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} $1 -o $2 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
     fi
 }
 
