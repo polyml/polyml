@@ -4,7 +4,7 @@ exec_prefix=@exec_prefix@
 BINDIR=@bindir@
 LINK=@CC@
 LIBDIR=@libdir@
-LIBS="@LIBS@"
+LIBS="@LIBS@ @FFI_LIBS@"
 CFLAGS="@CFLAGS@"
 
 # Extra options for Windows.  config.status sets these conditionals to either "" or "#".
