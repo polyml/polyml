@@ -266,8 +266,6 @@ if test "x$with_threads" != "xno"; then
     AC_SEARCH_LIBS([pthread_create], [pthread],
         [AC_DEFINE([HAVE_LIBPTHREAD], [1],
               [Define to 1 if you have the `pthread' library (-lpthread).])
-         [LIBS="-lpthread $LIBS"
-         ]
          AC_CHECK_HEADER([pthread.h],
              [AC_DEFINE([HAVE_PTHREAD_H], [1],
                   [Define to 1 if you have the <pthread.h> header file.])],
