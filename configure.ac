@@ -98,8 +98,11 @@ AC_SYS_LARGEFILE
 AC_CHECK_LIB(gcc, main)
 AC_CHECK_LIB(gcc_s, main)
 AC_CHECK_LIB(stdc++, main)
-AC_CHECK_LIB(dl, dlopen)
-AC_CHECK_LIB(m, floor)
+
+# These can sometimes be in the standard libraries
+AC_SEARCH_LIBS([dlopen], [dl dld])
+AC_SEARCH_LIBS([floor], [m])
+
 # The next two are only used with mingw
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
@@ -119,11 +122,9 @@ fi
 
 
 # Solaris needs -lsocket, -lnsl and -lrt
-# Use AC_CHECK_FUNC first so that the library is only included if it's really needed
-# and not just because it's present.
-AC_CHECK_FUNC(gethostbyname, , AC_CHECK_LIB(nsl, gethostbyname))
-AC_CHECK_FUNC(getsockopt, , AC_CHECK_LIB(socket, getsockopt))
-AC_CHECK_FUNC(sem_wait, , AC_CHECK_LIB(rt, sem_wait))
+AC_SEARCH_LIBS([gethostbyname], [nsl])
+AC_SEARCH_LIBS([getsockopt], [socket])
+AC_SEARCH_LIBS([sem_wait], [rt])
 
 # Check for X and Motif headers and libraries
 AC_PATH_X
@@ -180,7 +181,7 @@ AC_CHECK_HEADERS([ieeefp.h io.h math.h memory.h netinet/tcp.h poll.h pwd.h sigin
 AC_CHECK_HEADERS([stdarg.h sys/errno.h sys/filio.h sys/mman.h sys/resource.h])
 AC_CHECK_HEADERS([sys/signal.h sys/sockio.h sys/stat.h termios.h sys/termios.h sys/times.h])
 AC_CHECK_HEADERS([sys/types.h sys/uio.h sys/un.h sys/utsname.h sys/select.h sys/sysctl.h])
-AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h])
+AC_CHECK_HEADERS([sys/elf_SPARC.h sys/elf_386.h sys/elf_amd64.h asm/elf.h])
 AC_CHECK_HEADERS([windows.h tchar.h semaphore.h])
 
 # Only check for the X headers if the user said --with-x.
@@ -260,8 +261,9 @@ AC_ARG_WITH([threads],
             [with_threads=check])
 
 # If we want pthreads check that the library and headers are installed.
+# On Android pthread_create is in the standard library
 if test "x$with_threads" != "xno"; then
-    AC_CHECK_LIB([pthread], [pthread_create],
+    AC_SEARCH_LIBS([pthread_create], [pthread],
         [AC_DEFINE([HAVE_LIBPTHREAD], [1],
               [Define to 1 if you have the `pthread' library (-lpthread).])
          [LIBS="-lpthread $LIBS"
@@ -355,6 +357,7 @@ AC_CHECK_FUNCS([uname dlopen getrusage strtod dtoa sigaction mkstemp getpagesize
 AC_CHECK_DECLS([fpsetmask], [], [], [[#include <ieeefp.h>]])
 AC_CHECK_FUNCS([sysctl sysctlbyname])
 AC_CHECK_FUNCS([localtime_r gmtime_r])
+AC_CHECK_FUNCS([ctermid tcdrain])
 
 # Where are the registers?
 #Linux:

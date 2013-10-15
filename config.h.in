@@ -25,6 +25,9 @@
    */
 #undef HAVE_ALLOCA_H
 
+/* Define to 1 if you have the <asm/elf.h> header file. */
+#undef HAVE_ASM_ELF_H
+
 /* Define to 1 if you have the <assert.h> header file. */
 #undef HAVE_ASSERT_H
 
@@ -33,6 +36,9 @@
 
 /* Define to 1 if your system has a working `chown' function. */
 #undef HAVE_CHOWN
+
+/* Define to 1 if you have the `ctermid' function. */
+#undef HAVE_CTERMID
 
 /* Define to 1 if you have the <ctype.h> header file. */
 #undef HAVE_CTYPE_H
@@ -138,9 +144,6 @@
 /* Define to 1 if you have the <io.h> header file. */
 #undef HAVE_IO_H
 
-/* Define to 1 if you have the `dl' library (-ldl). */
-#undef HAVE_LIBDL
-
 /* Define to 1 if you have the `gcc' library (-lgcc). */
 #undef HAVE_LIBGCC
 
@@ -153,20 +156,8 @@
 /* Define to 1 if you have libgmp */
 #undef HAVE_LIBGMP
 
-/* Define to 1 if you have the `m' library (-lm). */
-#undef HAVE_LIBM
-
-/* Define to 1 if you have the `nsl' library (-lnsl). */
-#undef HAVE_LIBNSL
-
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
-
-/* Define to 1 if you have the `rt' library (-lrt). */
-#undef HAVE_LIBRT
-
-/* Define to 1 if you have the `socket' library (-lsocket). */
-#undef HAVE_LIBSOCKET
 
 /* Define to 1 if you have the `stdc++' library (-lstdc++). */
 #undef HAVE_LIBSTDC__
@@ -484,6 +475,9 @@
 
 /* Define to 1 if you have <sys/wait.h> that is POSIX.1 compatible. */
 #undef HAVE_SYS_WAIT_H
+
+/* Define to 1 if you have the `tcdrain' function. */
+#undef HAVE_TCDRAIN
 
 /* Define to 1 if you have the <tchar.h> header file. */
 #undef HAVE_TCHAR_H

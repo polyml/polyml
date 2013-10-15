@@ -682,12 +682,16 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 29: /* uname */ return getUname(taskData);
 
     case 30: /* Get controlling terminal. */
+#ifdef HAVE_CTERMID
         {
             char *term = ctermid(0);
             /* Can this generate an error? */
             if (term == 0) raise_syscall(taskData, "ctermid failed", errno);
             return SAVE(C_string_to_Poly(taskData, term));
         }
+#else
+       raise_syscall(taskData, "ctermid is not implemented", 0);
+#endif
 
     case 31: /* Get terminal name for file descriptor. */
         {
@@ -1168,8 +1172,12 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                process until it has. */
             PIOSTRUCT strm = get_stream(args->WordP());
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
+#ifdef HAVE_TCDRAIN
             if (tcdrain(strm->device.ioDesc) < 0)
                 raise_syscall(taskData, "tcdrain failed", errno);
+#else
+            raise_syscall(taskData, "tcdrain is not implemented", 0);
+#endif
             return Make_arbitrary_precision(taskData, 0);
         }
     

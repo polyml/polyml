@@ -65,6 +65,12 @@
 #ifdef HAVE_SYS_ELF_AMD64_H
 #include <sys/elf_amd64.h>
 #endif
+
+// Android has the ARM relocation symbol here
+#ifdef HAVE_ASM_ELF_H
+#include <asm/elf.h>
+#endif
+
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
