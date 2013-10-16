@@ -213,6 +213,8 @@ struct
         fun inputN (f, n) =
         if n < 0
         then raise Size
+        else if n = 0 (* Defined to return the empty vector and f *)
+        then (emptyVec, f)
         else
         let
             val (vecs, f') = inputNList (f, n)

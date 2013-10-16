@@ -597,6 +597,8 @@ structure TextIO :> TEXT_IO = struct
         |   inputN' n (ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
             if n < 0 orelse n > CharVector.maxLen
             then raise Size
+            else if n = 0
+            then "" (* Return the empty string without blocking *)
             else if !buflimit = 0
             then (* Last read returned end-of-file.  Clear the EOF state once
                     we return this empty string. *)
