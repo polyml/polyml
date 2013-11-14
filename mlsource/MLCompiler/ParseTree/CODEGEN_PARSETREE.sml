@@ -283,9 +283,12 @@ struct
 
     (* Add a debug call if line has changed.  This is used between
        declarations and expression sequences to avoid more than one
-       call on a line. *)
+       call on a line.  If there is no line number, e.g. input typed
+       at the top level, always put this in. *)
     fun changeLine (loc, context as { lex, lastDebugLine, ...}) =
-        if not (getParameter debugTag (debugParams lex)) orelse #startLine loc = !lastDebugLine then []
+        if not (getParameter debugTag (debugParams lex)) orelse
+           (#startLine loc = !lastDebugLine andalso #startLine loc <> 0)
+        then []
         else [mkNullDec(addDebugCall(loc, context))]
 
     fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv: level -> codetree), lex, ...}: cgContext) =
@@ -651,7 +654,7 @@ struct
                    applied to their arguments rather than to a tuple. *)
                 (* The only other optimisation we make is to remove applications
                    of constructors such as ``::'' which are no-ops. *)
-                val argument : codetree = codegen (arg, context);
+                val argument : codetree = codegen (arg, context)
             in
                 (* Some functions are special e.g. overloaded and type-specific functions.
                    These need to picked out and processed by applyFunction. *)
