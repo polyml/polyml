@@ -639,9 +639,9 @@ local
        the structure if we use opaque matching. *)
     fun printAF _ _ x = PolyML.PrettyString(Socket.AF.toString x)
     fun printSK _ _ x = PolyML.PrettyString(Socket.SOCK.toString x)
+    fun prettySocket _ _ (_: ('a, 'b) Socket.sock) = PolyML.PrettyString "?"
 in
     val () = PolyML.addPrettyPrinter printAF
     val () = PolyML.addPrettyPrinter printSK
-end
-
-
+    val () = PolyML.addPrettyPrinter prettySocket
+end;
