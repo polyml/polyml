@@ -951,18 +951,15 @@ struct
                                     (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
                                 |   (_, id) => id
                             in
-                                if idName = "" then names
+                                if idName = "" then "?" :: names
                                 else
                                 case nameToList(idName, []) of
                                     (idNames, true) => idNames
-                                |   (_, _) => names (*@ ["(*N*)"] *) (* Temporary marker *)(* Use the type constructor name anyway. *)
+                                |   (_, _) => "?" :: names (* Print it as "?.t".  This isn't ideal but will help in
+                                                              situations where we have redefined "t". *)
                             end
                     val newName = String.concatWith "." names
-                    (* TODO: If we don't find the type we want we should:
-                       1.  If it's a type equivalence apply that.
-                       2.  Report this in much more detail.  Perhaps the type has
-                           been hidden e.g. by a type with the same name. *)
-                     (* Get the declaration position for the type constructor. *)
+                    (* Get the declaration position for the type constructor. *)
                     val constrContext =
                         if isUndefined typeConstructor then []
                         else
