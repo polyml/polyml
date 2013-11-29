@@ -119,6 +119,7 @@ sig
   val debugTag                : bool Universal.tag;
   val reportUnreferencedIdsTag: bool Universal.tag;
   val reportExhaustiveHandlersTag: bool Universal.tag;
+  val narrowOverloadFlexRecordTag: bool Universal.tag
 end;
 
 structure MISC :
@@ -1273,8 +1274,9 @@ struct
                 ("errorMessageProcTag",    toMachineWord (LEX.errorMessageProcTag: errorMessageProcType tag), Tag errorMessageProcType),
                 ("rootTreeTag",            toMachineWord (EXPORTTREE.rootTreeTag: navigation tag), Tag navigationType),
                 ("reportUnreferencedIdsTag", toMachineWord (reportUnreferencedIdsTag: bool tag), Tag Bool),
-                ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool)
-                ]
+                ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool),
+                ("narrowOverloadFlexRecordTag", toMachineWord (narrowOverloadFlexRecordTag: bool tag), Tag Bool)
+                 ]
         end;
  
 

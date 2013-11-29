@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008.
+    Modified David C.J. Matthews 2008, 2013.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -83,7 +83,9 @@ struct
         (* Report unreferenced identifiers as warnings *)
         val reportUnreferencedIdsTag: bool tag       = tag()
         (* Report catch-all handlers as warnings *)
-        val reportExhaustiveHandlersTag: bool tag      = tag()
+        val reportExhaustiveHandlersTag: bool tag    = tag()
+        (* Use a narrow context to resolve overloading and flexible records. *)
+        val narrowOverloadFlexRecordTag: bool tag    = tag()
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
@@ -118,7 +120,8 @@ struct
             tagInject traceCompilerTag false,
             tagInject debugTag false,
             tagInject reportUnreferencedIdsTag false,
-            tagInject reportExhaustiveHandlersTag false
+            tagInject reportExhaustiveHandlersTag false,
+            tagInject narrowOverloadFlexRecordTag false
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

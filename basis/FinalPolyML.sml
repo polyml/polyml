@@ -204,6 +204,7 @@ local
     and parsetree = ref false
     and reportUnreferencedIds = ref false
     and reportExhaustiveHandlers = ref false
+    and narrowOverloadFlexRecord = ref false
     val lowlevelOptimise = ref true
     
     val debug = ref false
@@ -402,7 +403,7 @@ local
         (* Default error message function. *)
         fun defaultErrorProc printString
             {message: PolyML.pretty, hard: bool,
-             location={startLine, startPosition, endPosition, file, ...},
+             location={startLine, startPosition, endPosition, file, ...}: PolyML.location,
              context: PolyML.pretty option} =
         let
             open PolyML
@@ -607,7 +608,8 @@ local
                     tagInject printOutputTag prettyOut,
                     tagInject rootTreeTag parentTree,
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
-                    tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers)
+                    tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers),
+                    tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord)
                     ])
         in
             compilerResultFun treeAndCode
@@ -1420,6 +1422,7 @@ in
             and codetreeAfterOpt = codetreeAfterOpt and pstackTrace = pstackTrace
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
+            and narrowOverloadFlexRecord = narrowOverloadFlexRecord
             
             val debug = debug
             val inlineFunctors = inlineFunctors
@@ -1518,7 +1521,7 @@ in
             (* Just print the functions without any other context. *)
             fun stack () : unit =
             let
-                fun printTrace {funName, lineNo, fileName, ...} =
+                fun printTrace ({funName, lineNo, fileName, ...} : debugStackEntry) =
                     printSourceLine(fileName, lineNo, funName, true)
             in
                 List.app printTrace (! (getStack()))
@@ -1528,7 +1531,7 @@ in
                 fun printVal v =
                     prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
                         (NameSpace.displayVal(v, !printDepth, globalNameSpace))
-                fun printStack stack =
+                fun printStack (stack: debugStackEntry) =
                     List.app (fn (_,v) => printVal v) (#allVal (#space stack) ())
             in
                 (* Print all variables at the current level. *)

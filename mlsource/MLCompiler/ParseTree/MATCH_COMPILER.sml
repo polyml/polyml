@@ -502,11 +502,6 @@ struct
                    e.g. case X of (a = 1, ...) => ___ | (b = 2, a = 3) => ___ *)
 
                 (* Check that the type is frozen. *)
-                (* This check is probably redundant since we now check at the
-                   point when we generalise the type (except for top-level
-                   expressions - those could be detected in
-                   checkForFreeTypeVariables).  Retain it for the moment.
-                   DCJM 15/8/2000. *)
                 val () =
                     if recordNotFrozen expType
                     then errorNear (lex, true, vars, location,

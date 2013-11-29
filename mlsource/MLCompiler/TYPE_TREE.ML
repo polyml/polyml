@@ -36,6 +36,7 @@ functor TYPE_TREE (
     structure DEBUG :
     sig
         val errorDepthTag: int Universal.tag
+        val narrowOverloadFlexRecordTag: bool Universal.tag
         val getParameter :
            'a Universal.tag -> Universal.universal list -> 'a
     end;
@@ -2706,60 +2707,81 @@ struct
             }
         end
 
+        local
+            open DEBUG
+            val parameters = debugParams lex
+        in
+            val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
+        end
+
         fun general t (genArgs as (showError, nonExpansive)) =
             case eventual t of
                 TypeVar tvar =>
-                if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
-                    andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
-                then
                 let
-                    (* Is this an overload set ? *)
-                    val isOverloadSet = 
-                        case tvValue tvar of
-                            OverloadSet _ => true
-                        |    _ => false
-
-                    (* Make a new generisable type variable, except that type
-                       variables in an expansive context cannot be generalised.
-                       We also don't generalise if this is an overload set.
-                       The reason for that is that it allows us to get overloading
-                       information from the surrounding context.
-                       e.g. let fun f x y = x+y in f 2.0 end.  An alternative
-                       would be take the default type (in this case int).
-                       DCJM 1/9/00. *)
-                    val nonCopiable = not nonExpansive orelse isOverloadSet;
-                    val newLevel =
-                       if nonCopiable then level-1 else generalisable (* copiable *);
-
-                    val isOk =
-                        (* If the type variable has top-level scope then we have
-                           a free type variable.  We only want to generate this
-                           message once even if we have multiple type variables.*)
-                        (* If the type variable is non-unifiable and the expression is
-                           expansive then we have an error since this will have to
-                           be a monotype.  *)
-                        if tvNonUnifiable tvar andalso nonCopiable andalso showError
+                    val argSet =
+                        if tvLevel tvar >= level andalso tvLevel tvar <> generalisable
+                            andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
                         then
-                            (
-                            giveError("Type", "includes a free type variable");
-                            false
-                            )
-                        else showError;
-                    val newVal =
-                         mkTypeVar 
-                           (newLevel, tvEquality tvar,
-                            if nonCopiable then (tvNonUnifiable tvar) else false,
-                            tvPrintity tvar)
+                        let
+                            (* Make a new generisable type variable, except that type
+                               variables in an expansive context cannot be generalised.
+                               We also don't generalise if this is an overload set.
+                               The reason for that is that it allows us to get overloading
+                               information from the surrounding context.
+                               e.g. let fun f x y = x+y in f 2.0 end.  An alternative
+                               would be take the default type (in this case int).
+                               DCJM 1/9/00. *)
+                            val nonCopiable = not nonExpansive
+                            val newLevel =
+                               if nonCopiable then level-1 else generalisable (* copiable *);
+
+                            val isOk =
+                                (* If the type variable has top-level scope then we have
+                                   a free type variable.  We only want to generate this
+                                   message once even if we have multiple type variables.*)
+                                (* If the type variable is non-unifiable and the expression is
+                                   expansive then we have an error since this will have to
+                                   be a monotype.  *)
+                                if tvNonUnifiable tvar andalso nonCopiable andalso showError
+                                then
+                                    (
+                                    giveError("Type", "includes a free type variable");
+                                    false
+                                    )
+                                else showError;
+                            val newVal =
+                                 mkTypeVar 
+                                   (newLevel, tvEquality tvar,
+                                    if nonCopiable then (tvNonUnifiable tvar) else false,
+                                    tvPrintity tvar)
+                        in
+                            (* If an explicit type variable is going out of scope we can
+                               generalise it, except if it is nonunifiable. *)
+                            (* It may be a flexible record so we have to transfer the
+                               record to the new variable. *)
+                            tvSetValue (typesTypeVar newVal, tvValue tvar);
+                            tvSetValue (tvar, newVal);
+                            (isOk, nonExpansive)
+                        end
+                        else genArgs
                 in
-                    (* If an explicit type variable is going out of scope we can
-                       generalise it, except if it is nonunifiable. *)
-                    (* It may be a flexible record so we have to transfer the
-                       record to the new variable. *)
-                    tvSetValue (typesTypeVar newVal, tvValue tvar);
-                    tvSetValue (tvar, newVal);
-                    general (tvValue tvar) (isOk, nonExpansive) (* Process any flexible record. *)
+                    (* If we are using the "narrow" context for overloading and
+                       flexible records we should apply this here.  Otherwise it is
+                       dealt with in the next pass when we have the full program context. *)
+                    case (checkOverloadFlex, tvValue tvar) of
+                        (true, LabelledType _) => giveError("Type", "is an unresolved flexible record")
+                    |   (true, OverloadSet {typeset, ...}) =>
+                        (   (* Set this to the "preferred" type.  Typically this is "int" but for overloaded literals
+                               (e.g. 0w0) it could be something else. *)
+                            case preferredOverload typeset of
+                                SOME tycons =>
+                                    tvSetValue(tvar,
+                                        mkTypeConstruction(tcName tycons, tycons, [], []))
+                            |   NONE => raise InternalError "general: No matching type"
+                        )
+                    |   _ => ();
+                    general (tvValue tvar) argSet (* Process any flexible record. *)
                 end
-                else general (tvValue tvar) genArgs (* Process the value - it may be a flexible record *)
            
             |   TypeConstruction {args, constr, ...} =>
                     (* There is a pathological case here.  If we have a type equivalence
