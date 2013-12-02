@@ -107,6 +107,8 @@ sig
 
         (* Return the number of processors that will be used to run threads. *)
         val numProcessors: unit -> int
+        (* and the number of physical processors if that is available. *)
+        and numPhysicalProcessors: unit -> int option
     end
         
     structure Mutex:
@@ -387,6 +389,10 @@ struct
             val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
         in
             fun numProcessors():int = doCall(13, 0)
+
+            and numPhysicalProcessors(): int option =
+                (* It is not always possible to get this information *)
+                case doCall(14, 0) of 0 => NONE | n => SOME n
         end
     end
     

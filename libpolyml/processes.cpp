@@ -612,6 +612,10 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
         // Returns 1 if there is any problem.
         return Make_arbitrary_precision(taskData, NumberOfProcessors());
 
+    case 14: // Return the number of physical processors.
+        // Returns 0 if there is any problem.
+        return Make_arbitrary_precision(taskData, NumberOfPhysicalProcessors());
+
     default:
         {
             char msg[100];
@@ -2176,5 +2180,6 @@ extern unsigned NumberOfPhysicalProcessors(void)
 #endif
     numProcs = LinuxNumPhysicalProcessors();
     if (numProcs != 0) return numProcs;
+    // Any other cases?
     return numProcs;
 }
