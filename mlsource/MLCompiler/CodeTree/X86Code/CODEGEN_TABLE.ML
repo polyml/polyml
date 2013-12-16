@@ -30,6 +30,10 @@
 (* This part of the code-generator deals with the pseudo-stack and the
   translation of addresses into stack offsets. *)
 
+(* TODO: Many of the functions involve complete scans of the pseudo-stack.
+   This leads to quadratic increase in compile-time with large numbers
+   of bindings.  Hotspots are marked in the code. *)
+
 functor CODEGEN_TABLE (
 
     structure CODECONS : CODECONSSIG
@@ -389,12 +393,13 @@ struct
        This has been added since much of the other code was written and that assumed
        that the stack wouldn't be popped so there are only a few places where this
        is safe to use. *)
+    (* TODO: When there are a lot of bindings this becomes a major hotspot. *)
     fun removeOldItemsFromRealStack(
            table as Ttab{realstackptr as ref current, markReal=ref markReal, pstackptr=ref pstackptr, ...}) =
     let
         fun maxStack(i, n) =
         if i = pstackptr then n
-        else case pstackEntry(table, i) of
+        else case pstackEntry(table, i) of (* HOTSPOT - 510 *)
             StackEntry{ent=StackW addr, ...} => maxStack(i+1, Int.max(addr+1, n))
         |   StackEntry{ent=Register(_, addr), ...} => maxStack(i+1, Int.max(addr+1, n))
         |   _ => maxStack(i+1, n)
@@ -595,7 +600,7 @@ struct
     end
 
     fun clearCacheEntry(table as Ttab{pstack, regset, ...}, regSet, entry): operation list =
-        case pstackEntry(table, entry) of
+        case pstackEntry(table, entry) of (* HOTSPOT - 198 *)
             NoStackEntry => []
       
         |   StackEntry {ent = stacken, cache, uses, destStack, lifeTime} =>
@@ -675,7 +680,7 @@ struct
             fun enumerate(n, l) =
                 if n >= ! pstackptr
                 then l
-                else case pstackEntry(table, n) of
+                else case pstackEntry(table, n) of (* HOTSPOT - 103 *)
                     StackEntry{lifeTime, ent=Direct _, ...} => enumerate(n+1, (lifeTime, n) :: l)
                 |   StackEntry{lifeTime, ent=Register _, ...} => enumerate(n+1, (lifeTime, n) :: l)
                 |   _ => enumerate(n+1, l)
@@ -945,7 +950,7 @@ struct
             DCJM 25/1/01.*)
     let
         fun minReserved s i =
-            case pstackEntry(table, s) of
+            case pstackEntry(table, s) of (* HOTSPOT - 117 *)
                 StackEntry {destStack=NONE, ...} => i
             |   StackEntry {destStack=SOME destStack, ...} => Int.max(destStack+1, i)
             |   _ => i
@@ -1048,7 +1053,7 @@ struct
         then (* Ignore this. *) getRegisterList (entry + 1) regs
         else
         let
-            val stackent = pstackEntry(table, entry)
+            val stackent = pstackEntry(table, entry) (* HOTSPOT - 90 *)
             val nextRegs = 
                 case stackent of
                    StackEntry {uses, ent = Direct {base, ...}, ...} =>
