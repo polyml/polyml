@@ -168,12 +168,12 @@ struct
            we want the value at some time in the future when we use something
            from the "special" entry we can extract the corresponding value
            from this tuple.
-           We check to see if the special entry contains a function and if
-           it does not we simply generate the version without any special
-           entry at all.  This speeds up compilation in certain pathological
-           cases. *)
-        (* Simplify tuples by removing entries that do not contain inline
-           functions. *)
+           Previously, this code always generated a tuple containing every
+           declaration.  That led to some very long compilation times because
+           the back-end has some code which is quadratic in the number of entries
+           on the stack.  We now try to prune bindings by only generating the tuple
+           if we have an inline function somewhere and only generating bindings
+           we actually need. *)
         fun simplifySpec (EnvSpecTuple(size, env)) =
             let
                 (* Get all the field entries. *)
@@ -197,13 +197,55 @@ struct
 
         |   simpleSpec  =>
             let
+                local
+                    val refArray = Array.array(localCount, false)
+
+                    fun findDecs EnvSpecNone = ()
+
+                    |   findDecs (EnvSpecTuple(size, env)) =
+                        let
+                            val fields = List.tabulate(size, env)
+                        in
+                            List.app processGenAndSpec fields
+                        end
+
+                    |   findDecs (EnvSpecInlineFunction({closure, ...}, env)) =
+                        let
+                            val closureItems = List.tabulate(List.length closure, env)
+                        in
+                            List.app processGenAndSpec closureItems
+                        end
+
+                    and processGenAndSpec (gen, spec) =
+                        (* The spec part needs only to be processed if this entry has
+                           not yet been visited, *)
+                        case gen of
+                            EnvGenLoad(LoadLocal addr) =>
+                                if Array.sub(refArray, addr) then ()
+                                else (* It's not yet been checked. *)
+                                (
+                                    Array.update(refArray, addr, true);
+                                    findDecs spec
+                                )
+                        |   EnvGenConst _ => ()
+                        |   _ => raise InternalError "doGeneral: not LoadLocal or Constant"
+
+                    val () = findDecs simpleSpec
+                in
+                    (* Convert to an immutable data structure.  This will continue
+                       to be referenced in any inline function after the code has run. *)
+                    val refVector = Array.vector refArray
+                end
+ 
                 val decArray = Array.array(localCount, CodeZero)
+                
+                fun addDec(addr, dec) =
+                    if Vector.sub(refVector, addr) then Array.update(decArray, addr, dec) else ()
     
-                fun addDecs(Declar{addr, ...}) = Array.update(decArray, addr, mkLoadLocal addr)
-                |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => Array.update(decArray, addr, mkLoadLocal addr)) decs
+                fun addDecs(Declar{addr, ...}) = addDec(addr, mkLoadLocal addr)
+                |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => addDec(addr, mkLoadLocal addr)) decs
                 |   addDecs(NullBinding _) = ()
-                |   addDecs(Container{addr, size, ...}) =
-                        Array.update(decArray, addr, mkTupleFromContainer(addr, size))
+                |   addDecs(Container{addr, size, ...}) = addDec(addr, mkTupleFromContainer(addr, size))
 
                 val () = List.app addDecs decs
 
@@ -251,7 +293,12 @@ struct
                             val genPair =
                                 case oldGeneral of
                                     EnvGenLoad(LoadLocal addr) =>
-                                        (resultWordN(Word.fromInt addr+0w1), fieldProps(addr+1))
+                                        (
+                                            (* For the moment retain this check.  It's better to have an assertion
+                                               failure than a segfault. *)
+                                            Vector.sub(refVector, addr) orelse raise InternalError "Reference to non-existent binding";
+                                            (resultWordN(Word.fromInt addr+0w1), fieldProps(addr+1))
+                                        )
                                 |   EnvGenConst c => c
                                 |   _ => raise InternalError "codetree newEnviron: Not Extract or Constnt"
                
