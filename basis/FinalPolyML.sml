@@ -292,6 +292,7 @@ local
     (* Single stepping. *)
     val stepDebug = ref false;
     val stepDepth = ref ~1; (* Only break at a stack size less than this. *)
+    val alreadyInDebug = ref false (* If true we are already at a breakpoint. *)
     (* Break points.  We have three breakpoint lists: a list of file-line
        pairs, a list of function names and a list of exceptions. *)
     val lineBreakPoints = ref []
@@ -706,7 +707,7 @@ local
                                         PrettyBreak(1, 3),
                                         PrettyString "raised"
                                     ]));
-                            raise exn
+                            LibrarySupport.reraise exn
                         end
                 end
             end; (* readEvalPrint *)
@@ -730,6 +731,9 @@ local
         (* Debug function.  Calls to this function are inserted in the compiled code
            if the code is compiled with debugging on. *)
         and debugFunction(code, value, line, file, name, debugEnv) =
+        if ! alreadyInDebug
+        then () (* If we're executing code at the debug prompt we don't want to break or change the stack. *)
+        else
         let
             val stack: debugStackEntry list ref = getStack()
             fun printVal v =
@@ -747,6 +751,7 @@ local
                 val () = exitLoop := false;
                 val () = debugLevel := 0;
                 val () = breakNext := false;
+                val () = alreadyInDebug := true
                 val () =
                     case !stack of
                         {fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName, false)
@@ -783,7 +788,10 @@ local
             in
                 topLevel
                     { isDebug = true, nameSpace = compositeNameSpace, exitLoop = fn _ => ! exitLoop,
-                      exitOnError = false, isInteractive = true };
+                      exitOnError = false, isInteractive = true }
+                    handle exn => (alreadyInDebug := false; LibrarySupport.reraise exn);
+
+                alreadyInDebug := false;
 
                 (* If this was continueWithEx raise the exception. *)
                 case ! debugExPacket of
@@ -1254,7 +1262,7 @@ local
                             [CPNameSpace makeEnv, CPFileName fileName, CPLineNo(fn () => !lineNo)])
                     in
                         code ()
-                            handle exn as Fail _ => raise exn
+                            handle exn as Fail _ => LibrarySupport.reraise exn
                             |  exn =>
                             (
                                 print ("Exception- " ^ exnMessage exn ^ " raised\n");
@@ -1372,7 +1380,7 @@ local
                 handle exn  => 
                 (
                     print (targetName ^ " was not declared\n");
-                    raise exn
+                    LibrarySupport.reraise exn
                 )
         end
     end (* make *)
