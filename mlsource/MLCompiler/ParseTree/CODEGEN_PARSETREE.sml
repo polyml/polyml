@@ -832,16 +832,30 @@ struct
                 mkEnv (codeList ptl)
             end
 
-        | Raise (pt, location) =>
+        |   Raise (pt, location) =>
             let
                 val {dec, load} = 
-                    multipleUses (codegen (pt, context), fn () => mkAddr 1, level);
-                val load = load(level)
-            in
+                    multipleUses (codegen (pt, context), fn () => mkAddr 1, level)
+                val load = load level
                 (* Copy the identifier, name and argument from the packet and add this location. *)
-                mkRaise (
+                val excPacket =
                     mkEnv(dec,
-                        mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location]))
+                        mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location])
+            in
+                if getParameter debugTag (debugParams lex)
+                then
+                let
+                    (* If we are compiling with debugging on we call the debugger before raising the
+                       exception in case we are tracing this exception. *)
+                    open DEBUGGER
+                    val {debugEnv=(ctEnv, rtEnv), ...} = context
+                    fun exceptionFunction (rtEnv, exn) =
+                        (debugFunction(debuggerFun lex, DebugException exn, decName ^ "-raise", location) ctEnv rtEnv; raise exn)
+                    val exceptionCode = ADDRESS.toMachineWord exceptionFunction
+                in
+                    mkEval(mkConst exceptionCode, [mkTuple[rtEnv level, excPacket]])
+                end
+                else mkRaise excPacket
             end
 
         | HandleTree {exp, hrules, ...} =>
