@@ -197,8 +197,16 @@ struct
 
         |   simpleSpec  =>
             let
+                (* The bindings are marked using a three-valued mark.  A binding is needed
+                   if it is referenced in any way.  During the scan to find the references
+                   we need to avoid processing an entry that has already been processed but
+                   it is possible that a binding may be referenced as a general value only
+                   (e.g. from a function closure) and separately as a special value.  See
+                   Test148.ML *)
+                datatype visit = UnVisited | VisitedGeneral | VisitedSpecial
+
                 local
-                    val refArray = Array.array(localCount, false)
+                    val refArray = Array.array(localCount, UnVisited)
 
                     fun findDecs EnvSpecNone = ()
 
@@ -221,12 +229,24 @@ struct
                            not yet been visited, *)
                         case gen of
                             EnvGenLoad(LoadLocal addr) =>
-                                if Array.sub(refArray, addr) then ()
-                                else (* It's not yet been checked. *)
-                                (
-                                    Array.update(refArray, addr, true);
-                                    findDecs spec
-                                )
+                                let
+                                    val previous = Array.sub(refArray, addr)
+                                in
+                                    case (previous, spec) of
+                                        (VisitedSpecial, _) => () (* Fully done *)
+                                    |   (VisitedGeneral, EnvSpecNone) => () (* Nothing useful *)
+                                    |   (_, EnvSpecNone) =>
+                                            (* We need this entry but we don't have any special
+                                               entry to process.  We could find another reference with a
+                                               special entry. *)
+                                            Array.update(refArray, addr, VisitedGeneral)
+                                    |   (_, _) =>
+                                            (
+                                                (* This has a special entry.  Mark it and process. *)
+                                                Array.update(refArray, addr, VisitedSpecial);
+                                                findDecs spec
+                                            )
+                                end
                         |   EnvGenConst _ => ()
                         |   _ => raise InternalError "doGeneral: not LoadLocal or Constant"
 
@@ -240,7 +260,7 @@ struct
                 val decArray = Array.array(localCount, CodeZero)
                 
                 fun addDec(addr, dec) =
-                    if Vector.sub(refVector, addr) then Array.update(decArray, addr, dec) else ()
+                    if Vector.sub(refVector, addr) <> UnVisited then Array.update(decArray, addr, dec) else ()
     
                 fun addDecs(Declar{addr, ...}) = addDec(addr, mkLoadLocal addr)
                 |   addDecs(RecDecs decs) = List.app(fn {addr, ...} => addDec(addr, mkLoadLocal addr)) decs
@@ -296,7 +316,7 @@ struct
                                         (
                                             (* For the moment retain this check.  It's better to have an assertion
                                                failure than a segfault. *)
-                                            Vector.sub(refVector, addr) orelse raise InternalError "Reference to non-existent binding";
+                                            Vector.sub(refVector, addr) <> UnVisited orelse raise InternalError "Reference to non-existent binding";
                                             (resultWordN(Word.fromInt addr+0w1), fieldProps(addr+1))
                                         )
                                 |   EnvGenConst c => c
