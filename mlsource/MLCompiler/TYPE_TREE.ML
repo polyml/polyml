@@ -892,18 +892,24 @@ struct
                 let
                     val constrName = (* Use the type constructor name unless we're had an error. *)
                         if isUndefined typeConstructor then name else tcName typeConstructor
+
+                    (* There are three possible cases: we may not find any type with the
+                       name, we may look up the name and find the type or we may look up the
+                       name and find a different type. *)
+                    datatype isFound = NotFound | FoundMatch | FoundNotMatch
                     
                     (* If we're printing a value that refers to a type constructor we
                        want to print the correct amount of any structure prefix for the
                        current context. *)
-                    fun findType (_, []) = false
+                    fun findType (_, []) = NotFound
                     |   findType ({ lookupType, ... }, [typeName]) =
                         (
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME (t, map) =>
-                                    equalTypeIds(tcIdentifier typeConstructor, sigMap, tcIdentifier(tsConstr t), map)
-                            |   NONE => false
+                                    if equalTypeIds(tcIdentifier typeConstructor, sigMap, tcIdentifier(tsConstr t), map)
+                                    then FoundMatch else FoundNotMatch
+                            |   NONE => NotFound
                         )
                     |   findType ({ lookupStruct, ... }, structName :: tail) =
                         (
@@ -924,39 +930,52 @@ struct
                                     in
                                         findType({lookupType=subLookupType, lookupStruct=subLookupStruct}, tail)
                                     end
-                            |   NONE => false
+                            |   NONE => NotFound
                         )
 
                     (* See if we have this type in the current environment or in some structure in
                        the current environment.  The name we have may be a full structure path. *)
-                    fun nameToList ("", l) = (l, false) (* Not there. *)
+                    fun nameToList ("", l) = (l, NotFound) (* Not there. *)
                     |   nameToList (s, l) = 
                         let
                             val { first, second } = splitString s
                             val currentList = second :: l
                         in
-                            if findType(env, currentList)
-                            then (currentList, true)
-                            else nameToList(first, currentList)
+                            case findType(env, currentList) of
+                                FoundMatch => (currentList, FoundMatch)
+                            |   FoundNotMatch =>
+                                (
+                                    case nameToList(first, currentList) of
+                                        result as (_, FoundMatch) => result
+                                    |   (l, _) => (l, FoundNotMatch)
+                                )
+                            |   NotFound => nameToList(first, currentList)
                         end
                     (* Try the type constructor name first.  This is usually accurate.  If not
                        fall back to the type identifier.  This may be needed in rarer cases. *)
                     val names =
                         case nameToList(constrName, []) of
-                            (names, true) => names (* Found the type constructor name. *)
-                        |   (names, false) =>
+                            (names, FoundMatch) => names (* Found the type constructor name. *)
+                        |   (names, f) =>
                             let
                                 (* Try the type identifier name. *)
                                 val TypeId { description = { name=idName, ...}, ...} =
                                     case (sigMap, tcIdentifier typeConstructor) of
                                     (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
                                 |   (_, id) => id
+                                (* Only add "?" if we actually found a type with the required
+                                   name but it wasn't the right one.  This allows us to print a
+                                   sensible result where the type has been shadowed but doesn't
+                                   affect situations such as where we create a unique type name
+                                   for a free type variable. *)
+                                fun addQuery n =
+                                    case f of FoundNotMatch => "?" :: n | _ => n
                             in
-                                if idName = "" then "?" :: names
+                                if idName = "" then addQuery names
                                 else
                                 case nameToList(idName, []) of
-                                    (idNames, true) => idNames
-                                |   (_, _) => "?" :: names (* Print it as "?.t".  This isn't ideal but will help in
+                                    (idNames, FoundMatch) => idNames
+                                |   (_, _) => addQuery names (* Print it as "?.t".  This isn't ideal but will help in
                                                               situations where we have redefined "t". *)
                             end
                     val newName = String.concatWith "." names
