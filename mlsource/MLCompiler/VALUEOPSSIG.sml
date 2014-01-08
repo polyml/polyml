@@ -54,8 +54,6 @@ sig
     val mkGconstr:     string * types * codetree * bool * int * locationProp list -> values
     val mkGex:         string * types * codetree * locationProp list -> values
     val mkEx:          string * types * locationProp list -> values
-  
-    val mkSelectedType: typeConstrSet * string * structVals option * locationProp list -> typeConstrSet
 
     type nameSpace =
     { 

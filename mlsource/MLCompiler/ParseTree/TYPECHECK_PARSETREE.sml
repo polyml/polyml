@@ -1003,25 +1003,65 @@ struct
                   (* Adds both the type and the constructors to the
                    current environment. *)
               let
-            (* Look up the type constructor in the environment. *)
+                (* Look up the type constructor in the environment. *)
                 val oldTypeCons: typeConstrSet =
                     lookupTyp 
                          ({lookupType = #lookupType env, lookupStruct = #lookupStruct env},
                           oldType,
-                          giveError (near, lex, oldLoc));
-
-                (* If the type name was qualified (e.g. S.t) we need to find the
-                   value constructors from the same structure. *)
-                val {first = namePrefix, ...} = splitString oldType;
-                val baseStruct =
-                    if namePrefix = ""
-                    then NONE
-                    else SOME(lookupStructure("Structure", {lookupStruct = #lookupStruct env},
-                                namePrefix, giveError (v, lex, oldLoc)))
+                          giveError (near, lex, oldLoc))
 
                 (* Copy the datatype, converting any Formal constructors to Selected. *)
-                val newTypeCons as TypeConstrSet(_, newValConstrs) =
-                    mkSelectedType(oldTypeCons, newType, baseStruct, [DeclaredAt newLoc])
+                local
+                    (* If the type name was qualified (e.g. S.t) we need to find the
+                       value constructors from the same structure. *)
+                    val {first = namePrefix, ...} = splitString oldType;
+                    val baseStruct =
+                        if namePrefix = ""
+                        then NONE
+                        else SOME(lookupStructure("Structure", {lookupStruct = #lookupStruct env},
+                                    namePrefix, giveError (v, lex, oldLoc)))
+                    val TypeConstrSet(tcons, tcConstructors) = oldTypeCons
+                    val newName = newType
+                    val locations = [DeclaredAt newLoc]
+                    (* Create a new constructor with the same unique ID. *)
+                    val typeID = tcIdentifier tcons
+                    val newTypeCons =
+                        makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
+    
+                    (* Copy the value constructors. *)
+                    fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
+                        let
+                            (* Copy the types of value constructors replacing
+                               occurrences of the old type with the new one.
+                               This is not strictly necessary but improves printing.
+                               e.g. local datatype X = A | B in datatype Y = datatype X end;
+                               A; prints  A: Y rather than A: X *)
+                            fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
+                                if sameTypeId(tcIdentifier tcon, typeID)
+                                then newTypeCons
+                                else tcon;
+                            fun copyTyp (t : types) : types =
+                               copyType (t, fn x => x, (* Don't bother with type variables. *)
+                                   copyTypeCons);
+                            val newType = copyTyp typeOf;
+                            val newAccess =
+                                case (access, baseStruct) of
+                                    (* If we are opening a structure we must have a base structure
+                                       and we turn Formal entries into Selected.  If we are replicating
+                                       a datatype within a signature the original constructors will
+                                       be Formal. *)
+                                    (Formal addr, SOME base) => Selected{base=base, addr=addr}
+                                |    (Formal _, NONE) => access
+                                |    _ => access; (* Probably already a global. *)
+                        in
+                            Value{name=cName, typeOf=newType, class=class, access=newAccess, locations=locations,
+                                  references = NONE, instanceTypes=NONE}
+                        end
+
+                in
+                    val newValConstrs = map copyAConstructor tcConstructors
+                    val newTypeCons = TypeConstrSet(newTypeCons, newValConstrs)
+                end
             in
                 (* This previously checked that it was a datatype but that's
                    not actually correct. *)
