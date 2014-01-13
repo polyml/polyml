@@ -173,7 +173,12 @@ struct
        }
   
     and structDec =
-        StructureDec   of structBind list * location       (* List of structure decs *)
+        StructureDec   of (* List of structure decs *)
+        {
+            bindings: structBind list,
+            typeIdsForDebug: typeId list ref,
+            line: location
+        }   
 
     |   CoreLang      of (* Any other decln. *)
         {
@@ -182,7 +187,7 @@ struct
             location: location
         }
  
-    |   Localdec of (* Local strdec in strdec and let strdec in strexp. *)
+    |   Localdec of (* Local strdec in strdec. *)
         {
             decs:     structDec list,
             body:     structDec list,
@@ -270,7 +275,8 @@ struct
             opaqueIds=ref nil, matchToConstraint = ref []
         }
 
-    val mkStructureDec = StructureDec
+    fun mkStructureDec(bindings, line) =
+        StructureDec { bindings = bindings, typeIdsForDebug = ref [], line = line }
  
     fun mkStructureBinding ((name, nameLoc), signat, value, fullLoc): structBind =
     let
@@ -398,7 +404,7 @@ struct
 
         else
         case str of
-            StructureDec (structList : structBind list, _) =>
+            StructureDec { bindings = structList, ...} =>
             let
                 fun displayStructBind (
                         {name, haveSig, value, ...}: structBind, depth) =
@@ -588,7 +594,7 @@ struct
         fun asParent () = structExportTree(navigation, s)
     in
         case s of
-            StructureDec(sbl, location) =>
+            StructureDec{ bindings = sbl, line = location, ...} =>
             let
                 fun exportSB(navigation, sb as {name, nameLoc, haveSig, value, line, ...}) =
                     let
@@ -1783,7 +1789,7 @@ struct
          structPath: string
          ) : unit =
     let
-        fun pass2StructureDec (str : structDec, structList : structBind list) : unit =
+        fun pass2StructureDec (str : structDec, structList : structBind list, typeIdsForDebug) : unit =
         let (* Declaration of structures. *)
             (* The declarations must be made in parallel. i.e.
                 structure A = struct ... end and B = A; binds B to the A
@@ -1794,12 +1800,18 @@ struct
                       errorNear (lex, true, fn n => displayStruct(str, n), lno, 
                                  "Structure " ^ name ^ 
                                  " has already been bound in this declaration")
-                    );
+                    )
+
+            (* Any new type Ids we create need to be added onto a list in case we need
+               them for the debugger. *)
+            fun captureIds args =
+                let val id = makeLocalTypeId args in typeIdsForDebug := id :: ! typeIdsForDebug; id end
+
             (* Put the new names into this environment. *)
             fun pass2StructureBind ({name, value, valRef, line, ...}) : unit=
             let (* Each element in the list is a structure binding. *)
                 val resSig =
-                    structValue(value, makeLocalTypeId, makeCurrentTypeCount, makeTypeIdEnv,
+                    structValue(value, captureIds, makeCurrentTypeCount, makeTypeIdEnv,
                                 Env env, lex, line, structPath ^ name ^ ".");
                 (* Any values in the signature are counted as exported. *)
                 val () = markValsAsExported resSig;
@@ -1951,8 +1963,8 @@ struct
          ()
        end; (* pass2Singleton *)
 
-        fun pass2Dec (str as StructureDec (structList : structBind list, _)) =
-                pass2StructureDec (str, structList)
+        fun pass2Dec (str as StructureDec { bindings, typeIdsForDebug, ... }) =
+                pass2StructureDec (str, bindings, typeIdsForDebug)
 
         |   pass2Dec(Localdec {decs, body, ...}) =
                 pass2Localdec (decs, body)
@@ -2378,9 +2390,9 @@ struct
            type for a value, typically a function, but it is frequently used in
            situations where a less general type would suffice. *)
         local
-            fun leastGenStructDec(StructureDec(sbinds, _)) =
+            fun leastGenStructDec(StructureDec { bindings, ... }) =
                     (* Declarations are independent so can be processed in order. *)
-                    List.app (leastGenStructValue o #value) sbinds
+                    List.app (leastGenStructValue o #value) bindings
 
             |   leastGenStructDec(CoreLang{dec, ...}) = setLeastGeneralTypes(dec, lex)
 
@@ -2625,6 +2637,57 @@ struct
         List.map decId opaqueIds
     end
 
+    (* Create a debugging entry for a structure.  TODO: This code is duplicated in the
+       OpenDec case in CODEGEN_PARSETREE. *)
+    fun makeStructDebugEntries (strs: structVals list, debugEnv, level, lex, mkAddr) =
+    if getParameter debugTag (debugParams lex)
+    then
+        let
+            fun loadStruct (str, (decs, (ctEnv, rtEnv))) =
+                let
+                    val loadStruct = codeStruct (str, level)
+                    val newEnv = mkTuple [ loadStruct (* Structure. *), rtEnv level ]
+                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                    val ctEntry =
+                        case str of
+                            NoStruct => raise InternalError "loadStruct: NoStruct"
+                        |   Struct { name, signat, locations, ...} =>
+                                EnvStructure(name, signat, locations)
+                in
+                    (decs @ dec, (ctEntry :: ctEnv, load))
+                end
+        in
+            List.foldl loadStruct ([], debugEnv) strs
+        end
+    else ([], debugEnv)
+
+    (* Create debug entries for typeIDs.  The idea is that if we stop in the debugger we
+       can access the type ID, particularly for printing values of the type.
+       "envTypeId" creates a free id for each bound id but the print and equality
+       functions are extracted when we are stopped in the debugger. *)
+    fun makeTypeIdDebugEntries(typeIds, debugEnv, level, lex, mkAddr) =
+    if not (getParameter debugTag (debugParams lex))
+    then ([], debugEnv)
+    else
+    let
+        fun foldIds(id :: ids, (ctEnv, rtEnv)) =
+            let
+                (* This code will build a cons cell containing the run-time value
+                   associated with the type Id as the hd and the rest of the run-time
+                   environment as the tl. *)                
+                val loadTypeId = codeId(id, level)
+                val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                val (decs, newEnv) =
+                    foldIds(ids, (DEBUGGER.envTypeId id :: ctEnv, load))
+            in
+                (dec @ decs, newEnv)
+            end
+        |   foldIds([], debugEnv) = ([], debugEnv)
+    in
+        foldIds(typeIds, debugEnv)
+    end
+
     (* Code-generate a structure value. *)
     fun structureCode (str, strName, debugEnv, mkAddr, level: level):
                 { code: codeBinding list, load: codetree } =
@@ -2730,36 +2793,41 @@ struct
     and codeStrdecs (strName, [], debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
             processBody(leadingDecs: codeBinding list, strName, debugEnv, mkAddr, level, typeVarMap) (* Do the continuation. *)
         
-    |   codeStrdecs (strName, (StructureDec (structList : structBind list, _)) :: sTail,
+    |   codeStrdecs (strName, (StructureDec { bindings = structList, typeIdsForDebug = ref debugIds, ... }) :: sTail,
                      debugEnv, mkAddr, level, _(*typeVarMap*), leadingDecs, processBody) =
         let
-            fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
+            fun codeStructureBind ({name, value, valRef=ref structureVal, ...}: structBind, debug) =
             let
                 val sName = strName ^ name ^ "."
                 val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug, mkAddr, level)
                 val addr = mkAddr 1; 
-                val var  = vaLocal (structAccess (!valRef));
+                val var  = vaLocal (structAccess structureVal);
                 val () = #addr var  := addr; 
                 val () = #level var := level;
+                val (debugDecs, newDebug) = makeStructDebugEntries([structureVal], debugEnv, level, lex, mkAddr)
             in (* Get the code and save the result in the variable. *)
                 {
-                    code = strCode @ [mkDec (addr, strLoad)] : codeBinding list,
-                    debug = debug (* TODO: We don't do structures at the moment. *)
+                    code = strCode @ [mkDec (addr, strLoad)] @ debugDecs : codeBinding list,
+                    debug = newDebug
                 }
             end
             
-            val { code: codeBinding list, debug } = (* Code-generate each declaration. *)
+            val { code: codeBinding list, debug = strDebug } = (* Code-generate each declaration. *)
                 mapPair codeStructureBind structList debugEnv
-            (* TODO: Get the debug environment right. *)
+
+            val (debugIdDecs, idDebug) = makeTypeIdDebugEntries(debugIds, strDebug, level, lex, mkAddr)
+            val _ = case debugIdDecs of [] => () | _ => print(concat["Debug ", PolyML.makestring debugIdDecs, "\n"])
 
             (* A structure binding may introduce new type IDs either directly or by way of
                opaque signatures or functor application.  Ideally we'd add these using something like
                markTypeConstructors but for now just start a new environment. *)
+            (* TODO: Check this.  It looks as though TypeVarMap.getCachedTypeValues newTypeVarMap
+               always returns the empty list. *)
             val newTypeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
             val (codeRest, debugRest) =
-                codeStrdecs (strName, sTail, debug, mkAddr, level, newTypeVarMap, [], processBody)
+                codeStrdecs (strName, sTail, idDebug, mkAddr, level, newTypeVarMap, [], processBody)
         in
-            (leadingDecs @ code @ TypeVarMap.getCachedTypeValues newTypeVarMap @ codeRest, debugRest)
+            (leadingDecs @ code @ debugIdDecs @ TypeVarMap.getCachedTypeValues newTypeVarMap @ codeRest, debugRest)
         end
 
     |   codeStrdecs (strName, (Localdec {decs, body, ...}) :: sTail,
@@ -2799,7 +2867,7 @@ struct
     (* end codeStrdecs *)
 
     (* Generate a list of load instructions to build the result tuple. *)
-    and codeLoadStrdecs(StructureDec (structList : structBind list, _), _) =
+    and codeLoadStrdecs(StructureDec { bindings, ... }, _) =
         let
             fun loadStructureBind ({valRef = ref v, ...}, loads) =
             let
@@ -2809,7 +2877,7 @@ struct
             end
         in
             (* Code-generate each declaration. *)
-            List.foldl loadStructureBind [] structList
+            List.foldl loadStructureBind [] bindings
         end
 
     |   codeLoadStrdecs(Localdec {body, ...}, level) =
@@ -2990,7 +3058,7 @@ struct
     let
         fun extractStruct(str, mapTypeIds, args as (addr, { fixes, values, structures, signatures, functors, types } )) =
         case str of
-            StructureDec (structList : structBind list, _) =>
+            StructureDec { bindings, ... } =>
             let
                 fun extractStructureBind ({name, valRef, line, ...}: structBind, (addr, structures)) =
                 let
@@ -3005,10 +3073,10 @@ struct
                     end
                 in
                     (* Make a global structure. *)
-                    (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode, line)) :: structures)
+                    (addr + 1, (name, makeGlobalStruct (name, resultSig, structCode, [DeclaredAt line])) :: structures)
                 end
 
-                val (newAddr, newstructures) = List.foldl extractStructureBind (addr, structures) structList
+                val (newAddr, newstructures) = List.foldl extractStructureBind (addr, structures) bindings
             in
                 (newAddr, { structures=newstructures, functors=functors, signatures=signatures,
                       fixes=fixes, values=values, types=types })

@@ -264,7 +264,7 @@ sig
     val structLocations:   structVals -> locationProp list
 
     val makeEmptyGlobal:   string -> structVals
-    val makeGlobalStruct:  string * signatures * codetree * location -> structVals
+    val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
     val makeLocalStruct:   string * signatures * locationProp list -> structVals
     val makeFormalStruct:  string * signatures * int * locationProp list -> structVals
 

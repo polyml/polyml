@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2014 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -93,8 +93,15 @@ sig
         } 
 
     |   OpenDec             of
-            (* Open a structure. *)
-            { decs: structureIdentForm list, variables: values list ref, location: location }
+            (* Open a structure.  The variables, structures and types are just needed if
+               debugging information is being generated. *)
+        {
+            decs: structureIdentForm list,
+            variables: values list ref,
+            structures: structVals list ref,
+            typeconstrs: typeConstrSet list ref,
+            location: location
+        }
 
     |   Constraint          of
            (* Constraint (explicit type given) *)
@@ -220,6 +227,7 @@ sig
            typeVars: typeVarForm list,
            decType: typeParsetree option,
            isEqtype: bool, (* True if this was an eqtype in a signature. *)
+           tcon:     typeConstrSet ref,
            nameLoc:  location,
            fullLoc:  location
          } 

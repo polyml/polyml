@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-13 David C.J. Matthews
+    Copyright (c) 2000-14 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -144,7 +144,7 @@ struct
         };
     
     fun mkOpenTree(ptl : structureIdentForm list, location): parsetree =
-        OpenDec{decs=ptl, variables=ref [], location = location};
+        OpenDec{decs=ptl, variables=ref [], structures = ref [], typeconstrs = ref [], location = location};
     
     fun mkStructureIdent (name, location) : structureIdentForm =
         { 
@@ -349,6 +349,7 @@ struct
           typeVars = typeVars,
           decType  = decType,
           isEqtype = isEqtype,
+          tcon     = ref(TypeConstrSet(undefConstr, [])),
           nameLoc = nameLoc,
           fullLoc = fullLoc
         };

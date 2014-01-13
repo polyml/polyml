@@ -1,7 +1,7 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2009
+    Copyright  (c)   David Matthews 2000, 2009, 2014
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,6 +39,8 @@ sig
     |   EnvVConstr of string * types * bool * int * locationProp list
     |   EnvTypeid of { original: typeId, freeId: typeId }
     |   EnvStaticLevel
+    |   EnvStructure of string * signatures * locationProp list
+    |   EnvTConstr of string * typeConstrSet
 
     val envTypeId: typeId -> environEntry
 

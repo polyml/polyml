@@ -525,8 +525,8 @@ struct
     |   structSignat (Struct {signat,...}) = signat;
     
     (* Global structure *)
-    fun makeGlobalStruct (name, signat, code, location) =
-        makeStruct (name, signat, makeGlobal code, [DeclaredAt location]);
+    fun makeGlobalStruct (name, signat, code, locations) =
+        makeStruct (name, signat, makeGlobal code, locations)
  
     (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =

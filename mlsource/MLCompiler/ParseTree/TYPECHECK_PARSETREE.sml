@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2014 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -851,7 +851,7 @@ struct
           | FunDeclaration fund =>
                 (assFunDeclaration fund; badType (* Should never be used. *))
 
-          | OpenDec{decs=ptl, variables, location, ...} =>
+          | OpenDec{decs=ptl, variables, structures, typeconstrs, location, ...} =>
                 let
                     (* Go down the list of names opening the structures. *)
                     (* We have to be careful because open A B is not the same as
@@ -860,6 +860,8 @@ struct
                        information if we need to.  Note: we have to be careful if
                        we have the same name in multiple structures. *)
                     val valTable = HashTable.hashMake 10
+                    and typeTable = HashTable.hashMake 10
+                    and structTable = HashTable.hashMake 10
     
                     (* First get the structures... *)
                     fun findStructure ({name, location, ...}: structureIdentForm) = 
@@ -891,32 +893,28 @@ struct
                             (sigTbl,
                             {
                                 enterType   =
-                                fn (s, tySet as TypeConstrSet(ty, valConstrs)) =>
-                                #enterType env (s, 
-                                    case valConstrs of
-                                        [] => tySet
-                                    |   cons =>
-                                        let
-                                            (* We also have to turn the value constructors into
-                                               "selected" entries in case we use datatype
-                                               replication. Unlike with "include" in signatures,
-                                               there's no guarantee that the constructors will also
-                                               be part of the value environment. They could have
-                                               been redefined. *)
-                                            val newTy =
-                                                makeTypeConstructor(tcName ty, tcTypeVars ty,
-                                                    tcIdentifier ty, tcLocations ty)
-                                        in
-                                            TypeConstrSet(newTy,
-                                                List.map (fn c => mkSelectedVar (c, str, openLocs)) cons)
-                                        end
-                                ),
+                                fn (name, TypeConstrSet(ty, valConstrs)) =>
+                                    let
+                                        (* We also have to turn the value constructors into
+                                           "selected" entries in case we use datatype
+                                           replication. Unlike with "include" in signatures,
+                                           there's no guarantee that the constructors will also
+                                           be part of the value environment. They could have
+                                           been redefined. *)
+                                        val newTypeSet =
+                                            TypeConstrSet(ty,
+                                                List.map (fn c => mkSelectedVar (c, str, openLocs)) valConstrs)
+                                    in
+                                        HashTable.hashSet(typeTable, name, newTypeSet);
+                                        #enterType env (name, newTypeSet)
+                                    end,
                                 enterStruct =
                                 fn (name, strVal) =>
                                     let
                                         val selectedStruct = 
                                             makeSelectedStruct (strVal, str, openLocs);
                                     in
+                                        HashTable.hashSet(structTable, name, selectedStruct);
                                         #enterStruct env (name, selectedStruct)
                                     end,
                                 enterVal    =
@@ -942,6 +940,8 @@ struct
                     val () = List.app copyEntries strs;
                 in
                     variables := HashTable.fold (fn (_, v, t) => v :: t) [] valTable;
+                    structures := HashTable.fold (fn (_, v, t) => v :: t) [] structTable;
+                    typeconstrs := HashTable.fold (fn (_, v, t) => v :: t) [] typeTable;
                     badType (* Does not return a type *)
                 end
     
@@ -961,7 +961,7 @@ struct
                 val resTypes = List.map processTypeBody tlist;
               
                 (* Can now declare the new types. *)
-                fun processType (TypeBind {name, typeVars, isEqtype, nameLoc, ...}, decType) =
+                fun processType (TypeBind {name, typeVars, isEqtype, nameLoc, tcon=tcRef, ...}, decType) =
                 let
                     (* Construct a type constructor which is an alias of the
                        right-hand side of the declaration.  If we are effectively
@@ -989,6 +989,7 @@ struct
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
+                    tcRef := TypeConstrSet(tcon, []);
                     #enterType env  (name, TypeConstrSet(tcon, []))  (* Put in the surrounding scope. *)
                 end
                    
@@ -1915,7 +1916,7 @@ struct
             end;
 
             (* Can now enter the `withtypes'. *)
-            fun enterWithType (TypeBind {name, typeVars, nameLoc, ...}, decType) =
+            fun enterWithType (TypeBind {name, typeVars, nameLoc, tcon=tcRef, ...}, decType) =
             let
                 val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
@@ -1925,6 +1926,7 @@ struct
                         makeTypeId(false, false, (typeVars, decType), description), [DeclaredAt nameLoc])
                 val tset = TypeConstrSet(tcon, [])
             in
+                tcRef := tset;
                 enterType(tset, name); (* Checks for duplicates. *)
                 #enterType env (name, tset) (* Put in the global environment. *)
             end

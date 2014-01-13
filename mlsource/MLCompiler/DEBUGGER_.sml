@@ -1,7 +1,7 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000
+    Copyright  (c)   David Matthews 2000, 2014
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -58,6 +58,8 @@ struct
     |   EnvVConstr of string * types * bool * int * locationProp list
     |   EnvTypeid of { original: typeId, freeId: typeId }
     |   EnvStaticLevel
+    |   EnvStructure of string * signatures * locationProp list
+    |   EnvTConstr of string * typeConstrSet
 
     datatype debugReason =
         DebugEnter of machineWord * types
@@ -86,65 +88,108 @@ struct
     and debugLineChange = 4
     
     val dummyValue = mkGvar("", TYPETREE.unitType, CodeZero, [])
-    fun makeSpace ctEnv rtEnv =
+
+
+    fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
+    (
+        case (match (staticEntry, dynamicEntry), staticEntry) of
+            (SOME result, _) => SOME result
+        |   (NONE, EnvTypeid _) => searchEnvs match (statics, dynamics)
+        |   (NONE, EnvVConstr _) => searchEnvs match (statics, dynamics)
+        |   (NONE, EnvValue _) => searchEnvs match (statics, dynamics)
+        |   (NONE, EnvException _) => searchEnvs match (statics, dynamics)
+        |   (NONE, EnvStructure _) => searchEnvs match (statics, dynamics)
+                (* EnvStaticLevel and EnvTConstr don't have entries in the dynamic list *)
+        |   (NONE, EnvStaticLevel) => searchEnvs match (statics, dlist)
+        |   (NONE, EnvTConstr _) => searchEnvs match (statics, dlist)
+            
+    )
+    |   searchEnvs _ ([], []) = NONE
+    
+    |   searchEnvs _ _ = raise Misc.InternalError "searchEnvs: Static and dynamic lists have different lengths"
+
+    fun makeSpace debugEnviron =
     let
         (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
         local
-            fun searchType (EnvTypeid{original, freeId } :: ntl, valu :: vl) typeid =
+            fun searchType envs typeid =
             let
+                fun match (EnvTypeid{original, freeId }, valu) =
+                    if sameTypeId(original, typeid)
+                    then 
+                        case freeId of
+                            TypeId{description, idKind as Free _, typeFn, ...} =>
+                                (* This can occur for datatypes inside functions. *)
+                                SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn })
+                        |   _ => raise Misc.InternalError "searchType: TypeFunction"
+                    else NONE
+                |   match _ = NONE
             in
-                if sameTypeId(original, typeid)
-                then
-                case freeId of
-                    TypeId{description, idKind as Free _, typeFn, ...} =>
-                        (* This can occur for datatypes inside functions. *)
-                        TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn }
-                |   _ => raise Misc.InternalError "searchType: TypeFunction"
-                else searchType(ntl, vl) typeid
+                case (searchEnvs match envs, typeid) of
+                    (SOME t, _) => t
+                |   (NONE, typeid as TypeId{description, typeFn=(_, EmptyType), ...}) =>
+                        (* The type ID is missing.  Make a new temporary ID. *)
+                        makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+
+                |   (NONE, TypeId{description, typeFn, ...}) => makeTypeFunction(description, typeFn)
             end
 
-            |   searchType(EnvVConstr _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
-            |   searchType(EnvValue _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
-            |   searchType(EnvStaticLevel :: ntl, vl) typeid = searchType(ntl, vl) typeid
-            |   searchType(EnvException _ :: ntl, _ :: vl) typeid = searchType(ntl, vl) typeid
-
-            |   searchType _ (typeid as TypeId{description, typeFn=(_, EmptyType), ...}) =
-                    (* The type ID is missing.  Make a new temporary ID. *)
-                    makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
-
-            |   searchType _ (TypeId{description, typeFn, ...}) = makeTypeFunction(description, typeFn)
-
             fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
-            |   copyId id = SOME(searchType(ctEnv, rtEnv) id)
+            |   copyId id = SOME(searchType debugEnviron id)
         in
             fun runTimeType ty =
                 copyType (ty, fn x => x,
-                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))                            
+                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
+
+            fun copyTheTypeConstructor (TypeConstrSet(tcons, (*tcConstructors*) _)) =
+            let
+                val typeID = searchType debugEnviron (tcIdentifier tcons)
+                val newTypeCons =
+                    makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
+
+                val newValConstrs = (*map copyAConstructor tcConstructors*) []
+            in
+                TypeConstrSet(newTypeCons, newValConstrs)
+            end
+
+            (* When creating a structure we have to add a type map that will look up the bound Ids. *)
+            fun replaceSignature (Signatures{ name, tab, typeIdMap, minTypes, maxTypes, declaredAt, ... }) =
+            let
+                fun getFreeId n = searchType debugEnviron (makeBoundId(Global CodeZero, n, false, false, basisDescription ""))
+            in
+                makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, getFreeId), [])
+            end
         end
 
-        (* Create the environment. *)
+        (* Lookup and "all" functions for the environment.  We can't easily use a general
+           function for the lookup because we have dynamic entries for values and structures
+           but not for type constructors. *)
         fun lookupValues (EnvValue(name, ty, location) :: ntl, valu :: vl) s =
                 if name = s
                 then SOME(mkGvar(name, runTimeType ty, mkConst valu, location))
                 else lookupValues(ntl, vl) s
 
-          |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
+        |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
                 if name = s
                 then SOME(mkGex(name, runTimeType ty, mkConst valu, location))
                 else lookupValues(ntl, vl) s
 
-          |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
+        |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
                 if name = s
                 then SOME(makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location))
                 else lookupValues(ntl, vl) s
 
-          |  lookupValues (EnvStaticLevel :: ntl, vl) s =
+        |  lookupValues (EnvStaticLevel :: ntl, vl) s =
                 (* Static level markers have no effect here. *)
                 lookupValues(ntl, vl) s
 
-          |  lookupValues (EnvTypeid _ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
+        |  lookupValues (EnvTypeid _ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
 
-          |  lookupValues _ _ =
+        |  lookupValues (EnvStructure _ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
+
+        |  lookupValues (EnvTConstr _ :: ntl, vl) s = lookupValues(ntl, vl) s
+
+        |  lookupValues _ _ =
              (* The name we are looking for isn't in
                 the environment.
                 The lists should be the same length. *)
@@ -164,24 +209,102 @@ struct
 
          |  allValues (EnvTypeid _ :: ntl, _ :: vl) = allValues(ntl, vl)
 
+         |  allValues (EnvStructure _ :: ntl, _ :: vl) = allValues(ntl, vl)
+
+         |  allValues (EnvTConstr _ :: ntl, vl) = allValues(ntl, vl)
+
          |  allValues _ = []
-         
+
+        fun lookupTypes (EnvValue _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
+
+        |   lookupTypes (EnvException _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
+
+        |   lookupTypes (EnvVConstr _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
+
+        |   lookupTypes (EnvStaticLevel :: ntl, vl) s = lookupTypes(ntl, vl) s
+
+        |   lookupTypes (EnvTypeid _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
+
+        |   lookupTypes (EnvStructure _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
+
+        |   lookupTypes (EnvTConstr (name, tcSet) :: ntl, vl) s =
+                if name = s
+                then SOME (copyTheTypeConstructor tcSet)
+                else lookupTypes(ntl, vl) s
+
+        |   lookupTypes _ _ = NONE
+
+        fun allTypes (EnvValue _ :: ntl, _ :: vl) = allTypes(ntl, vl)
+
+         |  allTypes (EnvException _ :: ntl, _ :: vl) = allTypes(ntl, vl)
+
+         |  allTypes (EnvVConstr _ :: ntl, _ :: vl) = allTypes(ntl, vl)
+
+         |  allTypes (EnvStaticLevel :: ntl, vl) = allTypes(ntl, vl)
+
+         |  allTypes (EnvTypeid _ :: ntl, _ :: vl) = allTypes(ntl, vl)
+
+         |  allTypes (EnvStructure _ :: ntl, _ :: vl) = allTypes(ntl, vl)
+
+         |  allTypes (EnvTConstr(name, tcSet) :: ntl, vl) =
+                (name, copyTheTypeConstructor tcSet) :: allTypes(ntl, vl)
+
+         |  allTypes _ = []
+
+        fun lookupStructs (EnvValue _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
+
+        |   lookupStructs (EnvException _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
+
+        |   lookupStructs (EnvVConstr _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
+
+        |   lookupStructs (EnvStaticLevel :: ntl, vl) s = lookupStructs(ntl, vl) s
+
+        |   lookupStructs (EnvTypeid _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
+
+        |   lookupStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) s =
+                if name = s
+                then SOME(makeGlobalStruct (name, replaceSignature rSig, mkConst valu, locations))
+                else lookupStructs(ntl, vl) s
+
+        |   lookupStructs (EnvTConstr _ :: ntl, vl) s = lookupStructs(ntl, vl) s
+
+        |   lookupStructs _ _ = NONE
+
+        fun allStructs (EnvValue _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+
+         |  allStructs (EnvException _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+
+         |  allStructs (EnvVConstr _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+
+         |  allStructs (EnvStaticLevel :: ntl, vl) = allStructs(ntl, vl)
+
+         |  allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+
+         |  allStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) =
+                (name, makeGlobalStruct(name, replaceSignature rSig, mkConst valu, locations)) :: allStructs(ntl, vl)
+
+         |  allStructs (EnvTConstr _ :: ntl, vl) = allStructs(ntl, vl)
+
+         |  allStructs _ = []
+
         (* We have a full environment here for future expansion but at
-           the moment only the value environment is used. *)
+           the moment only some of the entries are used. *)
         fun noLook _ = NONE
         and noEnter _ = raise Fail "Cannot update this name space"
         and allEmpty _ = []
    in
        {
-            lookupVal = lookupValues(ctEnv, rtEnv),
-            lookupType = noLook, lookupFix = noLook, lookupStruct = noLook,
+            lookupVal = lookupValues debugEnviron,
+            lookupType = lookupTypes debugEnviron,
+            lookupFix = noLook,
+            lookupStruct = lookupStructs debugEnviron,
             lookupSig = noLook, lookupFunct = noLook, enterVal = noEnter,
             enterType = noEnter, enterFix = noEnter, enterStruct = noEnter,
             enterSig = noEnter, enterFunct = noEnter,
-            allVal = fn () => allValues(ctEnv, rtEnv),
-            allType = allEmpty,
+            allVal = fn () => allValues debugEnviron,
+            allType = fn () => allTypes debugEnviron,
             allFix = allEmpty,
-            allStruct = allEmpty,
+            allStruct = fn () => allStructs debugEnviron,
             allSig = allEmpty,
             allFunct = allEmpty }
     end;
@@ -235,7 +358,7 @@ struct
             |   DebugStep =>
                     (debugLineChange, dummyValue)
     in
-        debugger(code, value, #startLine location, #file location, processedName, makeSpace staticEnv valueList)
+        debugger(code, value, #startLine location, #file location, processedName, makeSpace(staticEnv, valueList))
     end
 
     structure Sharing =
