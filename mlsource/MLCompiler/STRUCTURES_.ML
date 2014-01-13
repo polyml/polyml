@@ -2816,7 +2816,6 @@ struct
                 mapPair codeStructureBind structList debugEnv
 
             val (debugIdDecs, idDebug) = makeTypeIdDebugEntries(debugIds, strDebug, level, lex, mkAddr)
-            val _ = case debugIdDecs of [] => () | _ => print(concat["Debug ", PolyML.makestring debugIdDecs, "\n"])
 
             (* A structure binding may introduce new type IDs either directly or by way of
                opaque signatures or functor application.  Ideally we'd add these using something like
