@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9
+    Copyright   David Matthews 2008-9, 2014
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,6 +39,30 @@ The rootFunction has now been pulled out into a separate file and is added on
 after this. 
 *)
 local
+    (* A hash table with a mutex that protects against multiple threads
+       rehashing the table by entering values at the same time. *)
+    (* Currently only used for the debugger.  TODO: replace globalTable *)
+    structure ProtectedTable :>
+    sig
+        type 'a ptable
+        val create: unit -> 'a ptable
+        val lookup: 'a ptable -> string -> 'a option
+        val enter: 'a ptable -> string * 'a -> unit
+        val all: 'a ptable -> unit -> (string * 'a) list
+        val delete: 'a ptable -> string -> unit
+    end
+    =
+    struct
+        open HashArray Thread.Mutex LibraryIOSupport
+        type 'a ptable = 'a hash * mutex
+
+        fun create () = (hash 10, mutex())
+        and lookup(tab, mutx) = protect mutx (fn s => sub(tab, s))
+        and enter(tab, mutx) = protect mutx (fn (s, v) => update(tab, s, v))
+        and all(tab, mutx) = protect mutx (fn () => fold (fn (s, v, l) => ((s, v) :: l)) [] tab)
+        and delete(tab, mutx) = protect mutx (fn s => HashArray.delete (tab, s))
+    end
+
     open PolyML.NameSpace
     (*****************************************************************************)
     (*                  top-level name space                                     *)
@@ -757,32 +781,41 @@ local
                         {fileName, funName, ...} :: _ => printSourceLine(fileName, line, funName, false)
                     |   [] => () (* Shouldn't happen. *)
 
-                val compositeNameSpace = (* Compose any debugEnv with the global environment *)
+                val compositeNameSpace =
+                (* Compose any debugEnv with the global environment.  Create a new temporary environment
+                   to contain any bindings made within the shell.  They are discarded when we continue
+                   from the break-point.  Previously, bindings were made in the global environment but
+                   that is problematic.  It is possible to capture local types in the bindings which
+                   could actually be different at the next breakpoint. *)
                 let
+                    val fixTab = ProtectedTable.create() and sigTab = ProtectedTable.create()
+                    and valTab = ProtectedTable.create() and typTab = ProtectedTable.create()
+                    and fncTab = ProtectedTable.create() and strTab = ProtectedTable.create()
                     (* The debugging environment depends on the currently selected stack frame. *)
                     fun debugEnv() = #space (List.nth(!stack, !debugLevel))
-                    fun dolookup f s = case f (debugEnv()) s of NONE => f globalNameSpace s | v => v
-                    fun getAll f () = f (debugEnv()) () @ f globalNameSpace ()
+                    fun dolookup f t s =
+                        case ProtectedTable.lookup t s of NONE => (case f (debugEnv()) s of NONE => f globalNameSpace s | v => v) | v => v
+                    fun getAll f t () = ProtectedTable.all t () @ f (debugEnv()) () @ f globalNameSpace ()
                 in
                     {
-                    lookupFix    = dolookup #lookupFix,
-                    lookupSig    = dolookup #lookupSig,
-                    lookupVal    = dolookup #lookupVal,
-                    lookupType   = dolookup #lookupType,
-                    lookupFunct  = dolookup #lookupFunct,
-                    lookupStruct = dolookup #lookupStruct,
-                    enterFix     = #enterFix globalNameSpace,
-                    enterSig     = #enterSig globalNameSpace,
-                    enterVal     = #enterVal globalNameSpace,
-                    enterType    = #enterType globalNameSpace,
-                    enterFunct   = #enterFunct globalNameSpace,
-                    enterStruct  = #enterStruct globalNameSpace,
-                    allFix       = getAll #allFix,
-                    allSig       = getAll #allSig,
-                    allVal       = getAll #allVal,
-                    allType      = getAll #allType,
-                    allFunct     = getAll #allFunct,
-                    allStruct    = getAll #allStruct
+                    lookupFix    = dolookup #lookupFix fixTab,
+                    lookupSig    = dolookup #lookupSig sigTab,
+                    lookupVal    = dolookup #lookupVal valTab,
+                    lookupType   = dolookup #lookupType typTab,
+                    lookupFunct  = dolookup #lookupFunct fncTab,
+                    lookupStruct = dolookup #lookupStruct strTab,
+                    enterFix     = ProtectedTable.enter fixTab,
+                    enterSig     = ProtectedTable.enter sigTab,
+                    enterVal     = ProtectedTable.enter valTab,
+                    enterType    = ProtectedTable.enter typTab,
+                    enterFunct   = ProtectedTable.enter fncTab,
+                    enterStruct  = ProtectedTable.enter strTab,
+                    allFix       = getAll #allFix fixTab,
+                    allSig       = getAll #allSig sigTab,
+                    allVal       = getAll #allVal valTab,
+                    allType      = getAll #allType typTab,
+                    allFunct     = getAll #allFunct fncTab,
+                    allStruct    = getAll #allStruct strTab
                     }
                 end
             in
