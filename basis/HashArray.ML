@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008
+    Modified David C.J. Matthews 2008, 2014
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -22,156 +22,159 @@
 (* Hash table type - Creates a hash table of specified initial size. This
    version expands the hash table and rehashes when the table gets too full *)
 
-structure HashArray:
-
-(*****************************************************************************)
-(*                  HashArray export signature                               *)
-(*****************************************************************************)
+structure HashArray:>
 sig
     type 'a hash
     
     val hash: int -> 'a hash
     val update: 'a hash * string * 'a -> unit
     val sub: 'a hash * string -> 'a option
+    val delete: 'a hash * string -> unit
     
     val fold: (string * 'a * 'b -> 'b) -> 'b -> 'a hash -> 'b
 end =
 
-(*****************************************************************************)
-(*                  HashArray structure body                                 *)
-(*****************************************************************************)
 struct
 
 local
-  infix 8 sub
+    infix 8 sub
 
-  (* Each entry in the table is a pair containing the key and the value. *)
-  
-  (* make namedOption local, because that means the new compiler can
-     optimise its representation. SPF 11/5/95 *)
-  datatype 'a namedOption = None | Some of (string * 'a);
+    (* Each entry in the table is a pair containing the key and the value. *)
+
+    (* The type of each entry in the array.  Putting the tuple in here
+       allows the compiler to use an optimised representation.
+       We have to distinguish empty entries, which stop the search,
+       from deleted entries that don't. *)
+    datatype 'a namedOption = Empty | Deleted | Used of string * 'a
 in
 
-  fun hashValue (N : int) (str: string) : int =
+    fun hashValue vecLen str =
         Word.toInt(
             Word.mod(
                 CharVector.foldr
-                    (fn (ch: char, n: Word.word) => Word.fromInt(Char.ord ch) + 0w7*n)
+                    (fn (ch, n) => Word.fromInt(Char.ord ch) + 0w7*n)
                     0w0 str,
-                (Word.fromInt N)))
+                (Word.fromInt vecLen)))
 
-(* The above function is the quickest and simplest way of computing the
-   hash value now that we have Word.* and Word.mod compiled inline.
-   They aren't implemented in all code-generators so it could be worth
-   retaining the old code.  DCJM 26/2/01. *)
+    (* The above function is the quickest and simplest way of computing the
+       hash value now that we have Word.* and Word.mod compiled inline.
+       They aren't implemented in all code-generators so it could be worth
+       retaining the old code.  DCJM 26/2/01. *)
 
-  datatype 'a hash =
+    datatype 'a hash =
     Hash of
-      { 
+    { 
         used: int ref,
-        entries: 'a namedOption array ref,
-        hash: (string -> int) ref
-      }
-  
-    fun hash (n : int) =
+        entries: 'a namedOption array ref
+    }
+
+    (* Create an empty table. *)
+    fun hash size =
         Hash
-          {
+        {
             used    = ref 0,
-            entries = ref (Array.array (n, None)),
-            hash    = ref (hashValue n)
-          }
+            entries = ref (Array.array (size, Empty))
+        }
      
-    fun op sub (Hash {entries = ref A, hash = ref hashN, ...}, name : string) : 'a option =
+    fun op sub (Hash {entries = ref arr, ...}, name : string) : 'a option =
       (* Searches the table starting from the position given by the hash value. *)
     let
         open Array
+        val vecLen = length arr
         (* Loops until it either finds an empty entry - in which case it
            returns NONE, or it finds the name it is looking for.
            There will always be several empty entries because we rehash
            if it gets too full. *)
         fun find i =
         let
-            val h = A sub i;
+            val h = arr sub i
         in
             case h of
-                None => NONE
-            |   Some (n,v) => 
-                    if name = n then SOME v else find ((if i = 0 then length A else i) - 1)
+                Empty => NONE
+            |   Deleted => find ((if i = 0 then vecLen else i) - 1)
+            |   Used (n,v) => 
+                    if name = n then SOME v else find ((if i = 0 then vecLen else i) - 1)
         end
     in
-        find (hashN name)
+        find (hashValue vecLen name)
     end
 
-    fun update (Hash {entries, used, hash}, name : string, value :  '_a) =
+    fun update (Hash {entries as ref currentArray, used}, name, value) =
     let
         open Array
-        (* Enters the value at the first free entry at or after the
-           one pointed to by the hash value. *)
-        fun enterTab (_ : '_a namedOption array, _ : int, None : '_a namedOption) = ()
-          | enterTab (A, i, entry as Some (name,_)) =
-        let
-          fun enter (i : int) : unit =
-            (* Loops until it either finds an empty entry - in which case it
-               enters the value in there, or it finds the string. *)
-            case (A sub i) of
-              None        => update (A, i, entry)
-            | Some (n : string, _) => 
-               if n = name
-               then update (A, i, entry) (* Same name as previous - overwrite it *)
-               else enter ((if i = 0 then length A else i) - 1);
-        in
-          enter i
-        end 
-        
-        val A : '_a namedOption array = !entries;
-        val N : int                   = length A;
-        val hashN : string -> int     = !hash
-        
-        val () = enterTab (A, hashN name, Some (name, value));
-        val () = used := !used + 1;
+
+        fun enter a i (entry as (name, _)) =
+        (* Loops until it either finds an empty entry - in which case it
+           enters the value in there, or it finds the string. *)
+        case a sub i of
+            Empty =>  (* Empty.  Add the entry and increment "used". *)
+                (update (a, i, Used entry); true)
+        |   Deleted => (* Deleted.  Use this entry. *)
+                (update (a, i, Used entry); false)
+        |   Used (n, _) =>  (* In use.  Overwrite if it's the same name. *)
+                if n = name
+                then (update (a, i, Used entry); false) (* Same name as previous - overwrite it *)
+                else enter a ((if i = 0 then length a else i) - 1) entry;
+ 
+        val () =
+            if enter currentArray (hashValue (length currentArray) name) (name, value)
+            then used := !used + 1
+            else ()
+
+        val currentSize = length currentArray
     in
         (* Do we need to rehash ? *)
-        if !used * 5 > N * 4 (* More than 80% full so rehash *)
+        if !used * 5 > currentSize * 4 (* More than 80% full so rehash *)
         then
         let
-            val newN  : int                   = N * 2; (* Double the size *)
-            val newA  : '_a namedOption array = array (newN, None);
-            val hashNewN : string -> int      = hashValue newN;
-          
-            fun copyOver (index : int) : unit =
-                if index < 0 then ()
-                else
-                (
-                  case (A sub index) of
-                    None                => ()
-                  | entry as Some (name : string,_) =>
-                      enterTab (newA, hashNewN name, entry);
-                  
-                  copyOver (index - 1)
-                );
+            val newN     = currentSize * 2 (* Double the size *)
+            val newA     = array (newN, Empty)
+            val hashNewN = hashValue newN
+
+            fun copyOver(Used(entry as (name, _))) =
+                if enter newA (hashNewN name) entry
+                then used := !used+1
+                else ()
+            |   copyOver _ = ()
             
-            val () = entries := newA;
-            val () = hash := hashNewN;
         in
-            copyOver (length A - 1)
+            (* Reset the count to include only non-deleted entries. *)
+            used := 0;
+            (* Copy into the new array *)
+            Array.app copyOver currentArray;
+            entries := newA
         end
         else ()
-    end;
+    end
 
     fun fold f init (Hash { entries = ref e, ...}) =
     let
-        val length = Array.length e
-
-        fun foldF i acc =
-            if i >= length then acc
-            else foldF (i+1)
-                (case Array.sub(e, i) of
-                     None => acc
-                 |   Some (name,alpha) => f (name,alpha,acc)
-                )
+        fun getEntry(Used(name,alpha), acc) = f (name, alpha, acc)
+        |   getEntry(_, acc) = acc
     in
-        foldF 0 init
-    end;
+        Array.foldl getEntry init e
+    end
+
+    fun delete(Hash {entries = ref arr, ...}, name) =
+    let
+        open Array
+        val vecLen = length arr
+        (* Similar to "sub" except that it overwrites the entry if it finds it. *)
+        fun find i =
+        let
+            val h = arr sub i
+        in
+            case h of
+                Empty => () (* Not there *)
+            |   Deleted => find ((if i = 0 then vecLen else i) - 1)
+            |   Used (n, _) => 
+                    if name = n
+                    then update(arr, i, Deleted)
+                    else find ((if i = 0 then vecLen else i) - 1)
+        end
+    in
+        find (hashValue vecLen name)
+    end
 
 end (* local *);
 
