@@ -41,7 +41,6 @@ after this.
 local
     (* A hash table with a mutex that protects against multiple threads
        rehashing the table by entering values at the same time. *)
-    (* Currently only used for the debugger.  TODO: replace globalTable *)
     structure ProtectedTable :>
     sig
         type 'a ptable
@@ -64,64 +63,40 @@ local
     end
 
     open PolyML.NameSpace
-    (*****************************************************************************)
-    (*                  top-level name space                                     *)
-    (*****************************************************************************)
-    val globalTable = UniversalArray.univArray 10 (* Choose a number for the initial size. *)
-    and tableMutex = Thread.Mutex.mutex() (* Lock to protect the table. *)
  
     local
-        open Universal UniversalArray Thread.Thread Thread.Mutex
-        (* Create universal tags for the name space. *)
-        (* Should these be kept private here or included in the PolyML
-           structure? *)
-        val valTag: valueVal tag = tag()
-        and fixTag: fixityVal tag = tag()
-        and functorTag: functorVal tag = tag()
-        and signatureTag: signatureVal tag = tag()
-        and structureTag: structureVal tag = tag()
-        and typeTag: typeVal tag = tag()
-        
-        (* Lock the mutex during any lookup or entry.  This is primarily to
-           avoid the underlying hash table from being rehashed by different
-           threads at the same time. *)
-        fun protect mutx f = LibraryIOSupport.protect mutx f ()
-        
-        fun lookup t s = protect tableMutex (fn () => sub(globalTable, t, s));
-        fun enter t (s,v) = protect tableMutex (fn () => update(globalTable, t, s, v));
-        fun all t () = protect tableMutex (fn () => 
-           fold (fn (s, v, l) => if tagIs t v then (s, tagProject t v)::l else l)
-           [] globalTable)
-        fun forget t tag s = protect tableMutex (fn () => delete(t, tag, s))
+        open ProtectedTable
+        val fixTable = create() and sigTable = create() and valTable = create()
+        and typTable = create() and fncTable = create() and strTable = create()
     in
         val globalNameSpace: PolyML.NameSpace.nameSpace =
-            {
-            lookupFix    = lookup fixTag,
-            lookupSig    = lookup signatureTag,
-            lookupVal    = lookup valTag,
-            lookupType   = lookup typeTag,
-            lookupFunct  = lookup functorTag,
-            lookupStruct = lookup structureTag,
-            enterFix     = enter fixTag,
-            enterSig     = enter signatureTag,
-            enterVal     = enter valTag,
-            enterType    = enter typeTag,
-            enterFunct   = enter functorTag,
-            enterStruct  = enter structureTag,
-            allFix       = all fixTag,
-            allSig       = all signatureTag,
-            allVal       = all valTag,
-            allType      = all typeTag,
-            allFunct     = all functorTag,
-            allStruct    = all structureTag
-            }
+        {
+            lookupFix    = lookup fixTable,
+            lookupSig    = lookup sigTable,
+            lookupVal    = lookup valTable,
+            lookupType   = lookup typTable,
+            lookupFunct  = lookup fncTable,
+            lookupStruct = lookup strTable,
+            enterFix     = enter fixTable,
+            enterSig     = enter sigTable,
+            enterVal     = enter valTable,
+            enterType    = enter typTable,
+            enterFunct   = enter fncTable,
+            enterStruct  = enter strTable,
+            allFix       = all fixTable,
+            allSig       = all sigTable,
+            allVal       = all valTable,
+            allType      = all typTable,
+            allFunct     = all fncTable,
+            allStruct    = all strTable
+        }
 
-        val forgetFix    = forget globalTable fixTag
-        and forgetSig    = forget globalTable signatureTag
-        and forgetVal    = forget globalTable valTag
-        and forgetType   = forget globalTable typeTag
-        and forgetFunct  = forget globalTable functorTag
-        and forgetStruct = forget globalTable structureTag
+        val forgetFix    = delete fixTable
+        and forgetSig    = delete sigTable
+        and forgetVal    = delete valTable
+        and forgetType   = delete typTable
+        and forgetFunct  = delete fncTable
+        and forgetStruct = delete strTable
     end
 
     (* PolyML.compiler takes a list of these parameter values.  They all
@@ -1092,14 +1067,25 @@ local
     val fileTimeStamp : string -> timeStamp = OS.FileSys.modTime
     
     local
-        open Universal
+        open ProtectedTable
+        (* Global tables to hold information about entities that have been made using "make". *)
+        val timeStampTable: timeStamp ptable = create()
+        and dependencyTable: string list ptable = create()
     in
-        val timeStampTagMethods    : timeStamp tag   = tag ();
-        val dependenciesTagMethods : string list tag = tag ();
-    end;
+        (* When was the entity last built?  Returns zeroTime if it hasn't. *)
+        fun lastMade (objectName : string) : timeStamp =
+            getOpt(lookup timeStampTable objectName, firstTimeStamp)
 
-    fun lastMade (objectName : string) : timeStamp =
-        getOpt(UniversalArray.sub(globalTable, timeStampTagMethods, objectName), firstTimeStamp);
+        (* Get the dependencies as an option type. *)
+        val getMakeDependencies = lookup dependencyTable
+
+        (* Set the time stamp and dependencies. *)
+        fun updateMakeData(objectName, times, depends) =
+        (
+            enter timeStampTable (objectName, times);
+            enter dependencyTable (objectName, depends)
+        )
+    end
 
     (* Main make function *)
     fun make (targetName: string) : unit =
@@ -1244,8 +1230,7 @@ local
                             val timeStamp = maxTime(newest, newTimeStamp());
                         in         
                             setStatus (name, Checked);
-                            UniversalArray.update(globalTable, dependenciesTagMethods, name, depends);
-                            UniversalArray.update(globalTable, timeStampTagMethods, name, timeStamp)
+                            updateMakeData(name, timeStamp, depends)
                         end
                         else ()
                     ) (* enterMakeEnv *);
@@ -1357,7 +1342,7 @@ local
                     (
                         (* Get the dependency list. There may not be one if
                            this object has not been compiled with "make". *) 
-                        case UniversalArray.sub(globalTable, dependenciesTagMethods, objName) of
+                        case getMakeDependencies objName of
                             SOME d => processChildren d
                         |   NONE => true (* No dependency list - must use "make" on it. *)
                     )       
