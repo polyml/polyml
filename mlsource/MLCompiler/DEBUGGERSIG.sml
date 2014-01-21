@@ -30,6 +30,11 @@ sig
     type functors
     type locationProp
     type typeId
+    type level
+    type lexan
+    type codeBinding
+    type codetree
+    type typeVarMap
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
@@ -84,6 +89,16 @@ sig
     val debugFunction:
         debugger * debugReason * string * location -> environEntry list -> machineWord list -> unit
 
+    (* Functions to make debug entries for various values, types etc. *)
+    type debugenv = environEntry list * (level->codetree)
+    val makeValDebugEntries:
+        values list * debugenv * level * lexan * (int -> int) * typeVarMap -> codeBinding list * debugenv
+    val makeTypeConstrDebugEntries:  typeConstrSet list * debugenv * level * lexan * (int -> int) -> codeBinding list * debugenv
+    val makeStructDebugEntries: structVals list * debugenv * level * lexan * (int->int) ->
+        codeBinding list * debugenv
+    val makeTypeIdDebugEntries: typeId list * debugenv * level * lexan * (int->int) -> codeBinding list * debugenv
+        
+
     structure Sharing:
     sig
         type types          = types
@@ -97,5 +112,10 @@ sig
         type locationProp   = locationProp
         type environEntry   = environEntry
         type typeId         = typeId
+        type level          = level
+        type lexan          = lexan
+        type codeBinding    = codeBinding
+        type codetree       = codetree
+        type typeVarMap     = typeVarMap
     end
 end;

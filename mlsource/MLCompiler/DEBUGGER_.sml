@@ -20,36 +20,34 @@
 
 functor DEBUGGER_ (
 
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
-structure STRUCTVALS : STRUCTVALSIG;
+    structure STRUCTVALS : STRUCTVALSIG
+    structure VALUEOPS : VALUEOPSSIG
+    structure CODETREE : CODETREESIG
+    structure TYPETREE: TYPETREESIG
+    structure ADDRESS : AddressSig
+    structure COPIER: COPIERSIG
+    structure TYPEIDCODE: TYPEIDCODESIG
+    structure LEX : LEXSIG
 
-(*****************************************************************************)
-(*                  VALUEOPS                                                 *)
-(*****************************************************************************)
-structure VALUEOPS : VALUEOPSSIG;
+    structure DEBUG :
+    sig
+        val debugTag: bool Universal.tag
+        val getParameter :
+           'a Universal.tag -> Universal.universal list -> 'a
+    end
 
-structure CODETREE :
-sig
-  type machineWord
-  type codetree
-  val mkConst:          machineWord -> codetree;
-  val CodeZero:         codetree;
-end
-
-structure TYPETREE: TYPETREESIG
-structure ADDRESS : AddressSig
-structure COPIER: COPIERSIG
-structure TYPEIDCODE: TYPEIDCODESIG
+    structure UTILITIES :
+    sig
+        val splitString: string -> { first:string,second:string }
+    end
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = COPIER.Sharing =
-        TYPEIDCODE.Sharing = CODETREE = ADDRESS
+        TYPEIDCODE.Sharing = CODETREE.Sharing = ADDRESS = LEX.Sharing
 )
 : DEBUGGERSIG
 =
 struct
-    open STRUCTVALS VALUEOPS CODETREE COPIER TYPETREE
+    open STRUCTVALS VALUEOPS CODETREE COPIER TYPETREE DEBUG
 
     (* The static environment contains these kinds of entries. *)
     datatype environEntry =
@@ -361,6 +359,129 @@ struct
         debugger(code, value, #startLine location, #file location, processedName, makeSpace(staticEnv, valueList))
     end
 
+    (* Functions to make the debug entries.   These are needed both in CODEGEN_PARSETREE for
+       the core language and STRUCTURES for the module language. *)
+    type debugenv = environEntry list * (level->codetree)
+
+    fun makeValDebugEntries (vars: values list, debugEnv: debugenv, level, lex, mkAddr, typeVarMap) =
+    if getParameter debugTag (LEX.debugParams lex)
+    then
+        let
+            fun loadVar (var, (decs, env)) =
+                let
+                    val loadVal =
+                        codeVal (var, level, typeVarMap, [], lex, LEX.nullLocation)
+                    (*val {dec, rtEnv, ctEnv} =
+                        createValDebugEntry(var, loadVal, level, lex, mkAddr, env)*)
+                    val (ctEnv, rtEnv) = env
+                    val newEnv =
+                    (* Create a new entry in the environment. *)
+                          mkTuple [ loadVal (* Value. *), rtEnv level ]
+                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                    val ctEntry =
+                        case var of
+                            Value{class=Exception, name, typeOf, locations, ...} =>
+                                EnvException(name, typeOf, locations)
+                        |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
+                                EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
+                        |   Value{name, typeOf, locations, ...} =>
+                                EnvValue(name, typeOf, locations)
+                in
+                    (decs @ dec, (ctEntry :: ctEnv, load))
+                end
+        in
+            List.foldl loadVar ([], debugEnv) vars
+        end
+    else ([], debugEnv)
+
+    fun makeTypeConstrDebugEntries(typeCons, debugEnv, level, lex, mkAddr) =
+    if not (getParameter debugTag (LEX.debugParams lex))
+    then ([], debugEnv)
+    else
+    let
+        fun foldIds(tc :: tcs, (ctEnv, rtEnv)) =
+            let
+                val cons = tsConstr tc
+                val id = tcIdentifier cons
+                val {second = typeName, ...} = UTILITIES.splitString(tcName cons)
+            in
+                if isTypeFunction (tcIdentifier(tsConstr tc))
+                then foldIds(tcs, (EnvTConstr(typeName, tc) :: ctEnv, rtEnv))
+                else
+                let
+                    (* This code will build a cons cell containing the run-time value
+                       associated with the type Id as the hd and the rest of the run-time
+                       environment as the tl. *)                
+                    val loadTypeId = TYPEIDCODE.codeId(id, level)
+                    val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                    (* Make an entry for the type constructor itself as well as the new type id.
+                       The type Id is used both for the type constructor and also for any values
+                       of the type. *)
+                    val (decs, newEnv) =
+                        foldIds(tcs, (EnvTConstr(typeName, tc) :: envTypeId id :: ctEnv, load))
+                in
+                    (dec @ decs, newEnv)
+                end
+            end
+        |   foldIds([], debugEnv) = ([], debugEnv)
+    in
+        foldIds(typeCons, debugEnv)
+    end
+
+    fun makeStructDebugEntries (strs: structVals list, debugEnv, level, lex, mkAddr) =
+    if getParameter debugTag (LEX.debugParams lex)
+    then
+        let
+            fun loadStruct (str, (decs, (ctEnv, rtEnv))) =
+                let
+                    val loadStruct = codeStruct (str, level)
+                    val newEnv = mkTuple [ loadStruct (* Structure. *), rtEnv level ]
+                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                    val ctEntry =
+                        case str of
+                            NoStruct => raise Misc.InternalError "loadStruct: NoStruct"
+                        |   Struct { name, signat, locations, ...} =>
+                                EnvStructure(name, signat, locations)
+                in
+                    (decs @ dec, (ctEntry :: ctEnv, load))
+                end
+        in
+            List.foldl loadStruct ([], debugEnv) strs
+        end
+    else ([], debugEnv)
+
+    (* Create debug entries for typeIDs.  The idea is that if we stop in the debugger we
+       can access the type ID, particularly for printing values of the type.
+       "envTypeId" creates a free id for each bound id but the print and equality
+       functions are extracted when we are stopped in the debugger. *)
+    fun makeTypeIdDebugEntries(typeIds, debugEnv, level, lex, mkAddr) =
+    if not (getParameter debugTag (LEX.debugParams lex))
+    then ([], debugEnv)
+    else
+    let
+        fun foldIds(id :: ids, (ctEnv, rtEnv)) =
+            let
+                (* This code will build a cons cell containing the run-time value
+                   associated with the type Id as the hd and the rest of the run-time
+                   environment as the tl. *)                
+                val loadTypeId =
+                    case id of TypeId { access = Formal addr, ... } =>
+                        (* If we are processing functor arguments we will have a Formal here. *)
+                        mkInd(addr, mkLoadArgument 0)
+                    |   _ => TYPEIDCODE.codeId(id, level)
+                val newEnv = mkTuple [ loadTypeId, rtEnv level ]
+                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                val (decs, newEnv) =
+                    foldIds(ids, (envTypeId id :: ctEnv, load))
+            in
+                (dec @ decs, newEnv)
+            end
+        |   foldIds([], debugEnv) = ([], debugEnv)
+    in
+        foldIds(typeIds, debugEnv)
+    end
+
     structure Sharing =
     struct
         type types          = types
@@ -374,5 +495,10 @@ struct
         type locationProp   = locationProp
         type environEntry   = environEntry
         type typeId         = typeId
+        type level          = level
+        type lexan          = lexan
+        type codeBinding    = codeBinding
+        type codetree       = codetree
+        type typeVarMap     = typeVarMap
     end
 end;

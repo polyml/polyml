@@ -99,7 +99,6 @@ local
             structure DEBUG      = Debug
             structure MISC          = Misc
             structure ADDRESS    = Address
-            structure UTILITIES  = Utilities
         )
     
 in

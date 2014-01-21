@@ -27,4 +27,7 @@ structure Debugger =
         structure ADDRESS = Address
         structure COPIER = CopierStruct
         structure TYPEIDCODE = TypeIDCodeStruct
+        structure LEX = Lex
+        structure UTILITIES  = Utilities
+        structure DEBUG = Debug
     );

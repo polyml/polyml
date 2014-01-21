@@ -67,11 +67,6 @@ functor CODEGEN_PARSETREE (
 
     structure ADDRESS : AddressSig
 
-    structure UTILITIES :
-    sig
-        val splitString: string -> { first:string,second:string }
-    end
-
     sharing BASEPARSETREE.Sharing
     =       PRINTTREE.Sharing
     =       EXPORTTREE.Sharing
@@ -101,6 +96,7 @@ struct
     open MISC
     open DATATYPEREP
     open TypeVarMap
+    open DEBUGGER
 
     open RuntimeCalls; (* for POLY_SYS numbers *)
 
@@ -296,6 +292,7 @@ struct
         then []
         else [mkNullDec(addDebugCall(loc, context))]
 
+    (* TODO: This could probably use makeValDebugEntries *)
     fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv: level -> codetree), lex, ...}: cgContext) =
         if not (getParameter debugTag (debugParams lex))
         then { dec = [], rtEnv = rtEnv, ctEnv = ctEnv }
@@ -321,58 +318,8 @@ struct
        environment. *)
     fun newDebugLevel (ctEnv, rtEnv) = (EnvStaticLevel :: ctEnv, rtEnv)
 
-    fun makeDebugEntries (vars: values list, context as {debugEnv: debugenv, level, typeVarMap, lex, ...}: cgContext) =
-    if getParameter debugTag (debugParams lex)
-    then
-        let
-            fun loadVar (var, (decs, env)) =
-                let
-                    val loadVal =
-                        codeVal (var, level, typeVarMap, [], lex, nullLocation)
-                    val {dec, rtEnv, ctEnv} =
-                        createDebugEntry(var, loadVal, context |> repDebugEnv env)
-                in
-                    (decs @ dec, (ctEnv, rtEnv))
-                end
-        in
-            List.foldl loadVar ([], debugEnv) vars
-        end
-    else ([], debugEnv)
-
-    fun makeTypeConstrDebugEntries(typeCons, {debugEnv: debugenv, level, lex, mkAddr, ...}: cgContext) =
-    if not (getParameter debugTag (debugParams lex))
-    then ([], debugEnv)
-    else
-    let
-        fun foldIds(tc :: tcs, (ctEnv, rtEnv)) =
-            let
-                val cons = tsConstr tc
-                val id = tcIdentifier cons
-                val {second = typeName, ...} = UTILITIES.splitString(tcName cons)
-            in
-                if isTypeFunction (tcIdentifier(tsConstr tc))
-                then foldIds(tcs, (DEBUGGER.EnvTConstr(typeName, tc) :: ctEnv, rtEnv))
-                else
-                let
-                    (* This code will build a cons cell containing the run-time value
-                       associated with the type Id as the hd and the rest of the run-time
-                       environment as the tl. *)                
-                    val loadTypeId = codeId(id, level)
-                    val newEnv = mkTuple [ loadTypeId, rtEnv level ]
-                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                    (* Make an entry for the type constructor itself as well as the new type id.
-                       The type Id is used both for the type constructor and also for any values
-                       of the type. *)
-                    val (decs, newEnv) =
-                        foldIds(tcs, (DEBUGGER.EnvTConstr(typeName, tc) :: DEBUGGER.envTypeId id :: ctEnv, load))
-                in
-                    (dec @ decs, newEnv)
-                end
-            end
-        |   foldIds([], debugEnv) = ([], debugEnv)
-    in
-        foldIds(typeCons, debugEnv)
-    end
+    fun makeDebugEntries (vars: values list, {debugEnv, level, typeVarMap, lex, mkAddr, ...}: cgContext) =
+        DEBUGGER.makeValDebugEntries(vars, debugEnv, level, lex, mkAddr, typeVarMap)
 
     (* In order to build a call stack in the debugger we need to know about
        function entry and exit.  It would be simpler to wrap the whole function
@@ -1132,7 +1079,7 @@ struct
 
     |   codeSequence (
             AbsDatatypeDeclaration {typelist, declist, equalityStatus = ref absEq, isAbsType, withtypes, ...} :: pTail,
-            leading, codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, ...}, processBody) =
+            leading, codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
         let (* Code-generate the eq and print functions for the abstype first
                then the declarations, which may use these. *)
             (* The debugging environment for the declarations should include
@@ -1186,10 +1133,10 @@ struct
             local
                 (* Create debug entries for the type constructors and the new type ids. *)
                 val (dataTypeDebugDecs, dataTypeDebugEnv) =
-                    makeTypeConstrDebugEntries(typeCons, codeSeqContext |> repDebugEnv constrDebugenv)
+                    makeTypeConstrDebugEntries(typeCons, constrDebugenv, level, lex, mkAddr)
                 val withTypeTypes = List.map(fn (TypeBind {tcon = ref tc, ...}) => tc) withtypes
                 val (withTypeDebugDecs, withTypeDebugEnv) =
-                    makeTypeConstrDebugEntries(withTypeTypes, codeSeqContext |> repDebugEnv dataTypeDebugEnv)
+                    makeTypeConstrDebugEntries(withTypeTypes, dataTypeDebugEnv, level, lex, mkAddr)
             in
                 val typeDebugDecs = dataTypeDebugDecs @ withTypeDebugDecs
                 val typeDebugEnv = withTypeDebugEnv
@@ -1227,48 +1174,23 @@ struct
         end
 
     |   codeSequence (OpenDec {variables=ref vars, structures = ref structs, typeconstrs = ref types, ...} :: pTail,
-                      leading, codeSeqContext, processBody) =
+                      leading, codeSeqContext as { level, lex, mkAddr, ...}, processBody) =
         let
                 (* All we need to do here is make debugging entries. *)
             val (firstDec, firstEnv) = makeDebugEntries(vars, codeSeqContext)
-            val (secondDec, secondEnv) = makeTypeConstrDebugEntries(types, codeSeqContext |> repDebugEnv firstEnv)
-
-            (* TODO: This is duplicated in STRUCTURES_.ML *)
-            fun makeStructDebugEntries (strs: structVals list, {debugEnv, level, lex, mkAddr, ...}: cgContext) =
-            if getParameter debugTag (debugParams lex)
-            then
-                let
-                    fun loadStruct (str, (decs, (ctEnv, rtEnv))) =
-                        let
-                            val loadStruct = codeStruct (str, level)
-                            val newEnv =
-                            (* Create a new entry in the environment. *)
-                                  mkTuple [ loadStruct (* Structure. *), rtEnv level ]
-                            val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                            val ctEntry =
-                                case str of
-                                    NoStruct => raise InternalError "loadStruct: NoStruct"
-                                |   Struct { name, signat, locations, ...} =>
-                                        EnvStructure(name, signat, locations)
-                        in
-                            (decs @ dec, (ctEntry :: ctEnv, load))
-                        end
-                in
-                    List.foldl loadStruct ([], debugEnv) strs
-                end
-            else ([], debugEnv)
-
-            val (thirdDec, thirdEnv) = makeStructDebugEntries(structs, codeSeqContext |> repDebugEnv secondEnv)
+            val (secondDec, secondEnv) = makeTypeConstrDebugEntries(types, firstEnv, level, lex, mkAddr)
+            val (thirdDec, thirdEnv) = makeStructDebugEntries(structs, secondEnv, level, lex, mkAddr)
         in
             codeSequence (pTail, leading @ firstDec @ secondDec @ thirdDec, codeSeqContext |> repDebugEnv thirdEnv, processBody)
         end
 
-    |   codeSequence (TypeDeclaration (typebinds, _) :: pTail, leading, codeSeqContext, processBody) =
+    |   codeSequence (TypeDeclaration (typebinds, _) :: pTail, leading,
+                      codeSeqContext as { debugEnv, level, lex, mkAddr, ...}, processBody) =
         let
             (* Just create debug entries for the type constructors. *)
             val typeCons = List.map(fn (TypeBind {tcon = ref tc, ...}) => tc) typebinds
             val (typeDebugDecs, typeDebugEnv) =
-                makeTypeConstrDebugEntries(typeCons, codeSeqContext)
+                makeTypeConstrDebugEntries(typeCons, debugEnv, level, lex, mkAddr)
         in
             codeSequence (pTail, leading @ typeDebugDecs, codeSeqContext |> repDebugEnv typeDebugEnv, processBody)
         end

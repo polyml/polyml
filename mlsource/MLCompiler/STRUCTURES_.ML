@@ -68,7 +68,6 @@ structure DEBUG :
 sig
     val inlineFunctorsTag: bool Universal.tag
     val errorDepthTag : int Universal.tag
-    val debugTag: bool Universal.tag
     val getParameter :
            'a Universal.tag -> Universal.universal list -> 'a 
 end;
@@ -321,7 +320,11 @@ struct
             valRef:    functors ref,    (* The functor variable declared. *)
             resIds:    { source: typeId, dest: typeId } list ref,
             line:      location,
-            matchToResult: structureMatch ref
+            matchToResult: structureMatch ref,
+            (* If we are debugging we need these at code-gen time. *)
+            debugArgVals: values list ref,
+            debugArgStructs: structVals list ref,
+            debugArgTypeConstrs: typeConstrSet list ref
         } 
 
     and sigBind =
@@ -355,7 +358,10 @@ struct
           valRef    = ref undefinedFunctor,
           resIds    = ref nil,
           line      = line,
-          matchToResult = ref []
+          matchToResult = ref [],
+          debugArgVals = ref [],
+          debugArgStructs = ref [],
+          debugArgTypeConstrs = ref []
         }
     end
 
@@ -2115,7 +2121,8 @@ struct
                 fun pass2FunctorBind
                     ({name,
                      arg = {name = argName, sigStruct = argSig, valRef = argVal},
-                     body, valRef, resIds, line, matchToResult, ...}: functorBind) =
+                     body, valRef, resIds, line, matchToResult,
+                     debugArgVals, debugArgStructs, debugArgTypeConstrs, ...}: functorBind) =
                 let
                     (* When we apply a functor we share type IDs with the argument if they
                        have an ID less than sigMinTypes for the result signature and treat
@@ -2185,6 +2192,7 @@ struct
                                     Struct { name = argName, signat = argSigWithSelected, access = structAccess resArg,
                                              locations=structLocations resArg }
                             in
+                                debugArgStructs := [structArg];
                                 #enterStruct argEnv (argName, structArg)
                             end
                             else (* Open the dummy argument. Similar to "open" in treestruct. *)
@@ -2192,13 +2200,23 @@ struct
                                 (argSigWithSelected,
                                 {
                                   enterType   =
-                                    fn (s,v) => #enterType argEnv (s, v),
+                                    fn (s,v) => (debugArgTypeConstrs := v :: ! debugArgTypeConstrs; #enterType argEnv (s, v)),
                                   enterStruct =
                                     fn (name, strVal) =>
-                                        #enterStruct argEnv (name, makeSelectedStruct (strVal, resArg, [])),
+                                    let
+                                        val argStruct = makeSelectedStruct (strVal, resArg, [])
+                                    in
+                                        debugArgStructs := argStruct :: ! debugArgStructs;
+                                        #enterStruct argEnv (name, argStruct)
+                                    end,
                                   enterVal    =
                                     fn (name, value) =>
-                                        #enterVal argEnv (name, mkSelectedVar (value, resArg, []))
+                                    let
+                                        val argVal = mkSelectedVar (value, resArg, [])
+                                    in
+                                        debugArgVals := argVal :: ! debugArgVals;
+                                        #enterVal argEnv (name, argVal)
+                                    end
                                 },
                                 "")
                     end
@@ -2427,8 +2445,6 @@ struct
             val () = (* These are independent so can be processed in order. *)
                 List.app leastGenTopDec strs
         end
-
-        val debugging = getParameter debugTag (debugParams lex)
     
     (* Apply a function which returns a pair of codelists to a list of structs.
        This now threads the debugging environment through the functions so
@@ -2635,57 +2651,6 @@ struct
         end
     in
         List.map decId opaqueIds
-    end
-
-    (* Create a debugging entry for a structure.  TODO: This code is duplicated in the
-       OpenDec case in CODEGEN_PARSETREE. *)
-    fun makeStructDebugEntries (strs: structVals list, debugEnv, level, lex, mkAddr) =
-    if getParameter debugTag (debugParams lex)
-    then
-        let
-            fun loadStruct (str, (decs, (ctEnv, rtEnv))) =
-                let
-                    val loadStruct = codeStruct (str, level)
-                    val newEnv = mkTuple [ loadStruct (* Structure. *), rtEnv level ]
-                    val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                    val ctEntry =
-                        case str of
-                            NoStruct => raise InternalError "loadStruct: NoStruct"
-                        |   Struct { name, signat, locations, ...} =>
-                                EnvStructure(name, signat, locations)
-                in
-                    (decs @ dec, (ctEntry :: ctEnv, load))
-                end
-        in
-            List.foldl loadStruct ([], debugEnv) strs
-        end
-    else ([], debugEnv)
-
-    (* Create debug entries for typeIDs.  The idea is that if we stop in the debugger we
-       can access the type ID, particularly for printing values of the type.
-       "envTypeId" creates a free id for each bound id but the print and equality
-       functions are extracted when we are stopped in the debugger. *)
-    fun makeTypeIdDebugEntries(typeIds, debugEnv, level, lex, mkAddr) =
-    if not (getParameter debugTag (debugParams lex))
-    then ([], debugEnv)
-    else
-    let
-        fun foldIds(id :: ids, (ctEnv, rtEnv)) =
-            let
-                (* This code will build a cons cell containing the run-time value
-                   associated with the type Id as the hd and the rest of the run-time
-                   environment as the tl. *)                
-                val loadTypeId = codeId(id, level)
-                val newEnv = mkTuple [ loadTypeId, rtEnv level ]
-                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                val (decs, newEnv) =
-                    foldIds(ids, (DEBUGGER.envTypeId id :: ctEnv, load))
-            in
-                (dec @ decs, newEnv)
-            end
-        |   foldIds([], debugEnv) = ([], debugEnv)
-    in
-        foldIds(typeIds, debugEnv)
     end
 
     (* Code-generate a structure value. *)
@@ -2917,7 +2882,7 @@ struct
         |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv, mkOuterAddr) =
             let
                fun codeFunctorBind ({name, arg = {valRef = ref argVal, ...}, body, valRef, resIds=ref resIds,
-                                      matchToResult=ref matchToResult, ...}: functorBind, debugEnv) =
+                                      matchToResult=ref matchToResult, debugArgVals, debugArgStructs, debugArgTypeConstrs, ...}: functorBind, debugEnv) =
                 let
                     local (* Separate context for each functor binding. *)
                         val address = ref 1
@@ -2932,39 +2897,23 @@ struct
                     val () = #level arg := level
                     val func = !valRef
 
-                    (* The debug environment has to contain at a minimum the type IDs from the arguments. *)
-                    val (fBindDebugDecs, fBindDebugEnv) =
-                        if not debugging then ([], debugEnv)
-                        else
-                        let
-                            val argIds = sigBoundIds (structSignat argVal)
+                    local
+                        (* These are the entries for the functor arguments. *)
+                        val (typeIdDebugDecs, typeIdDebugEnv) =
+                            makeTypeIdDebugEntries(sigBoundIds (structSignat argVal), debugEnv, level, lex, mkAddr)
+                        val (structDebugDecs, structDebugEnv) =
+                            makeStructDebugEntries(! debugArgStructs, typeIdDebugEnv, level, lex, mkAddr)
+                        val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level) (* ???Check??? *)
+                        val (valDebugDecs, valDebugEnv) =
+                            makeValDebugEntries(! debugArgVals, structDebugEnv, level, lex, mkAddr, typeVarMap)
+                        val (typeDebugDecs, typeDebugEnv) =
+                            makeTypeConstrDebugEntries(! debugArgTypeConstrs, valDebugEnv, level, lex, mkAddr)
+                    in
+                        val fBindDebugDecs = typeIdDebugDecs @ structDebugDecs @ valDebugDecs @ typeDebugDecs
+                        val fBindDebugEnv = typeDebugEnv
+                    end
 
-                            fun loadTypeId(id as TypeId { access = Formal addr, ... }, (ctEnv, rtEnv)) =
-                            let
-                                (* This code will build a cons cell containing the run-time value
-                                   associated with the type Id as the hd and the rest of the run-time
-                                   environment as the tl. *)
-                                val loadTypeId = mkInd(addr, mkLoadArgument 0)
-                                val newEnv = mkTuple [ loadTypeId, rtEnv level ]
-                                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                            in
-                                (dec, (envTypeId id :: ctEnv, load))
-                            end
-                            |   loadTypeId _ = raise InternalError "loadTypeId: Not bound"
-
-                            fun foldIds(id::ids, inEnv) =
-                                let
-                                    val (dec, outEnv) = loadTypeId(id, inEnv)
-                                    val (decs, newEnv) = foldIds(ids, outEnv)
-                                in
-                                    (dec @ decs, newEnv)
-                                end
-                            |   foldIds([], debugEnv) = ([], debugEnv)
-                        in
-                            foldIds(argIds, debugEnv)
-                        end
-
-                    (* Process the body and make a procedure out of it. *)
+                    (* Process the body and make a function out of it. *)
                     local
                         val {code = strCode, load = strLoad, ...} =
                             structureCode (body, name ^ "().", fBindDebugEnv, mkAddr, level)
