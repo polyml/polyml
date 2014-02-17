@@ -18,6 +18,9 @@ CFLAGS="@CFLAGS@"
 @NATIVE_WINDOWS_TRUE@SUFFIX="obj"
 @NATIVE_WINDOWS_FALSE@SUFFIX="o"
 
+# Extra options for Mac OS X
+@EXPMACHO_TRUE@EXTRALDFLAGS="-Wl,-no_pie  -Wl,-no_compact_unwind"
+
 TMPSRCFILE=/tmp/polysrc.$$
 TMPOBJFILE=/tmp/polyobj.$$.$SUFFIX
 trap 'rm -f $TMPSRCFILE $TMPOBJFILE' 0
