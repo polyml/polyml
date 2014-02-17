@@ -727,9 +727,11 @@ static Handle load_lib (TaskData *taskData, Handle string)
     
     Poly_string_to_C(DEREFWORD(string), name, sizeof(name)/sizeof(TCHAR));
     info(("<%s>\n", name));
-    
+    // If the name is the null string use the current executable.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    HINSTANCE lib = LoadLibrary(name);
+    HINSTANCE lib;
+    if (*name == 0) lib = hApplicationInstance;
+    else lib = LoadLibrary(name);
     if (lib == NULL) 
     {
         char buf[256];
@@ -742,7 +744,7 @@ static Handle load_lib (TaskData *taskData, Handle string)
     return res;
 
 #else  /* UNIX version */
-    void *lib = dlopen(name,DLOPENFLAGS);
+    void *lib = dlopen(*name == 0 ? NULL : name,DLOPENFLAGS);
     if (!lib)
     {
         char buf[256];
