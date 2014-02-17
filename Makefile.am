@@ -56,6 +56,7 @@ else
 EXTRALDFLAGS += -mwindows -Wl,-u,_WinMain@16
 endif
 endif
+
 poly_LDFLAGS += $(EXTRALDFLAGS)
 polyimport_LDFLAGS += -mwindows
 POLYOBJECTFILE = polyexport.obj
@@ -64,6 +65,10 @@ OBJECTSUFFIX=obj
 else
 POLYOBJECTFILE = polyexport.o
 OBJECTSUFFIX=o
+endif
+
+if EXPMACHO
+poly_LDFLAGS += -Wl,-no_pie  -Wl,-no_compact_unwind
 endif
 
 poly_SOURCES = 

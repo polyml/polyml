@@ -60,6 +60,7 @@ bin_PROGRAMS = polyimport$(EXEEXT) poly$(EXEEXT)
 @NATIVE_WINDOWS_TRUE@am__append_4 = $(EXTRALDFLAGS)
 @NATIVE_WINDOWS_TRUE@am__append_5 = -mwindows
 @NATIVE_WINDOWS_TRUE@am__append_6 = polyresource.o
+@EXPMACHO_TRUE@am__append_7 = -Wl,-no_pie  -Wl,-no_compact_unwind
 subdir = .
 DIST_COMMON = $(am__configure_deps) $(dist_bin_SCRIPTS) \
 	$(noinst_HEADERS) $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
@@ -355,7 +356,7 @@ man_MANS = poly.1 polyimport.1 polyc.1
 # Select the architecture-specific modules
 @ARCHI386_TRUE@POLYIMPORT = $(srcdir)/imports/polymli386.txt
 noinst_HEADERS = polyexports.h
-poly_LDFLAGS = $(am__append_4)
+poly_LDFLAGS = $(am__append_4) $(am__append_7)
 polyimport_LDFLAGS = $(am__append_5)
 POLYRESOURCES = $(am__append_6)
 EXTRALDFLAGS = $(am__append_1) $(am__append_2) $(am__append_3)
