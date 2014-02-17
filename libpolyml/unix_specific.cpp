@@ -390,8 +390,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 4: /* Return a constant. */
         {
-            unsigned i = get_C_long(taskData, DEREFWORDHANDLE(args));
-            if (i < 0 || i >= sizeof(unixConstVec)/sizeof(unixConstVec[0]))
+            unsigned i = get_C_unsigned(taskData, DEREFWORDHANDLE(args));
+            if (i >= sizeof(unixConstVec)/sizeof(unixConstVec[0]))
                 raise_syscall(taskData, "Invalid index", 0);
             return Make_arbitrary_precision(taskData, unixConstVec[i]);
         }
@@ -429,28 +429,28 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 9: /* get real user id */
         {
             uid_t uid = getuid();
-            if (uid < 0) raise_syscall(taskData, "getuid failed", errno);
+            // This is defined always to succeed
             return Make_arbitrary_precision(taskData, uid);
         }
 
     case 10: /* get effective user id */
         {
             uid_t uid = geteuid();
-            if (uid < 0) raise_syscall(taskData, "geteuid failed", errno);
+            // This is defined always to succeed
             return Make_arbitrary_precision(taskData, uid);
         }
 
     case 11: /* get real group id */
         {
             gid_t gid = getgid();
-            if (gid < 0) raise_syscall(taskData, "getgid failed", errno);
+            // This is defined always to succeed
             return Make_arbitrary_precision(taskData, gid);
         }
 
     case 12: /* get effective group id */
         {
             gid_t gid = getegid();
-            if (gid < 0) raise_syscall(taskData, "getegid failed", errno);
+            // This is defined always to succeed
             return Make_arbitrary_precision(taskData, gid);
         }
 
