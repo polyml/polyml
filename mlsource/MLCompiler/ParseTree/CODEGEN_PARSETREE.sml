@@ -967,7 +967,7 @@ struct
             val pr = mkProc (wrapped, 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
         in
             if null polyVars then pr
-            else mkProc(pr, List.length polyVars, newDecName^"(P)", [], 0)
+            else mkProc(pr, List.length polyVars, newDecName^"(P)", getClosure nLevel, 0)
         end
     end (* codeProc *)
 
