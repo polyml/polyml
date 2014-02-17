@@ -1,24 +1,27 @@
 # ===========================================================================
-#  http://www.gnu.org/software/autoconf-archive/ax_check_compiler_flags.html
+#      http://www.gnu.org/software/autoconf-archive/ax_append_flag.html
 # ===========================================================================
 #
 # SYNOPSIS
 #
-#   AX_CHECK_COMPILER_FLAGS(FLAGS, [ACTION-SUCCESS], [ACTION-FAILURE])
+#   AX_APPEND_FLAG(FLAG, [FLAGS-VARIABLE])
 #
 # DESCRIPTION
 #
-#   Check whether the given compiler FLAGS work with the current language's
-#   compiler, or whether they give an error. (Warnings, however, are
-#   ignored.)
+#   FLAG is appended to the FLAGS-VARIABLE shell variable, with a space
+#   added in between.
 #
-#   ACTION-SUCCESS/ACTION-FAILURE are shell commands to execute on
-#   success/failure.
+#   If FLAGS-VARIABLE is not specified, the current language's flags (e.g.
+#   CFLAGS) is used.  FLAGS-VARIABLE is not changed if it already contains
+#   FLAG.  If FLAGS-VARIABLE is unset in the shell, it is set to exactly
+#   FLAG.
+#
+#   NOTE: Implementation based on AX_CFLAGS_GCC_OPTION.
 #
 # LICENSE
 #
-#   Copyright (c) 2009 Steven G. Johnson <stevenj@alum.mit.edu>
-#   Copyright (c) 2009 Matteo Frigo
+#   Copyright (c) 2008 Guido U. Draheim <guidod@gmx.de>
+#   Copyright (c) 2011 Maarten Bosmans <mkbosmans@gmail.com>
 #
 #   This program is free software: you can redistribute it and/or modify it
 #   under the terms of the GNU General Public License as published by the
@@ -46,31 +49,21 @@
 #   modified version of the Autoconf Macro, you may extend this special
 #   exception to the GPL to apply to your modified version as well.
 
-#serial 9
+#serial 2
 
-AC_DEFUN([AX_CHECK_COMPILER_FLAGS],
-[AC_PREREQ(2.59) dnl for _AC_LANG_PREFIX
-AC_MSG_CHECKING([whether _AC_LANG compiler accepts $1])
-dnl Some hackery here since AC_CACHE_VAL can't handle a non-literal varname:
-AS_LITERAL_IF([$1],
-  [AC_CACHE_VAL(AS_TR_SH(ax_cv_[]_AC_LANG_ABBREV[]_flags_[$1]), [
-      ax_save_FLAGS=$[]_AC_LANG_PREFIX[]FLAGS
-      _AC_LANG_PREFIX[]FLAGS="$1"
-      AC_COMPILE_IFELSE([AC_LANG_PROGRAM()],
-        AS_TR_SH(ax_cv_[]_AC_LANG_ABBREV[]_flags_[$1])=yes,
-        AS_TR_SH(ax_cv_[]_AC_LANG_ABBREV[]_flags_[$1])=no)
-      _AC_LANG_PREFIX[]FLAGS=$ax_save_FLAGS])],
-  [ax_save_FLAGS=$[]_AC_LANG_PREFIX[]FLAGS
-   _AC_LANG_PREFIX[]FLAGS="$1"
-   AC_COMPILE_IFELSE([AC_LANG_PROGRAM()],
-     eval AS_TR_SH(ax_cv_[]_AC_LANG_ABBREV[]_flags_[$1])=yes,
-     eval AS_TR_SH(ax_cv_[]_AC_LANG_ABBREV[]_flags_[$1])=no)
-   _AC_LANG_PREFIX[]FLAGS=$ax_save_FLAGS])
-eval ax_check_compiler_flags=$AS_TR_SH(ax_cv_[]_AC_LANG_ABBREV[]_flags_[$1])
-AC_MSG_RESULT($ax_check_compiler_flags)
-if test "x$ax_check_compiler_flags" = xyes; then
-	m4_default([$2], :)
-else
-	m4_default([$3], :)
-fi
-])dnl AX_CHECK_COMPILER_FLAGS
+AC_DEFUN([AX_APPEND_FLAG],
+[AC_PREREQ(2.59)dnl for _AC_LANG_PREFIX
+AS_VAR_PUSHDEF([FLAGS], [m4_default($2,_AC_LANG_PREFIX[FLAGS])])dnl
+AS_VAR_SET_IF(FLAGS,
+  [case " AS_VAR_GET(FLAGS) " in
+    *" $1 "*)
+      AC_RUN_LOG([: FLAGS already contains $1])
+      ;;
+    *)
+      AC_RUN_LOG([: FLAGS="$FLAGS $1"])
+      AS_VAR_SET(FLAGS, ["AS_VAR_GET(FLAGS) $1"])
+      ;;
+   esac],
+  [AS_VAR_SET(FLAGS,["$1"])])
+AS_VAR_POPDEF([FLAGS])dnl
+])dnl AX_APPEND_FLAG

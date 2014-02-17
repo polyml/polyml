@@ -1884,9 +1884,11 @@ AC_SUBST([am__tar])
 AC_SUBST([am__untar])
 ]) # _AM_PROG_TAR
 
+m4_include([m4/asmcfi.m4])
+m4_include([m4/ax_append_flag.m4])
 m4_include([m4/ax_cc_maxopt.m4])
 m4_include([m4/ax_cflags_warn_all.m4])
-m4_include([m4/ax_check_compiler_flags.m4])
+m4_include([m4/ax_check_compile_flag.m4])
 m4_include([m4/ax_compiler_vendor.m4])
 m4_include([m4/ax_configure_args.m4])
 m4_include([m4/ax_enable_builddir.m4])
