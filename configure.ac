@@ -316,6 +316,11 @@ AC_TYPE_PID_T
 AC_TYPE_SIZE_T
 AC_HEADER_TIME
 AC_STRUCT_TM
+
+# Check for the various sub-second fields of the stat structure.
+AC_CHECK_MEMBERS([struct stat.st_atim, struct stat.st_atimespec,
+  struct stat.st_atimensec, struct stat.st_atime_n, struct stat.st_uatime])
+
 # Mac OS X, at any rate, needs signal.h to be included first.
 AC_CHECK_TYPES([ucontext_t], , , [#include "signal.h"
 #include "ucontext.h"])

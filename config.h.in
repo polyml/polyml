@@ -365,6 +365,21 @@
 /* Define to 1 if `sun_len' is a member of `struct sockaddr_un'. */
 #undef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
 
+/* Define to 1 if `st_atim' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIM
+
+/* Define to 1 if `st_atimensec' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIMENSEC
+
+/* Define to 1 if `st_atimespec' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIMESPEC
+
+/* Define to 1 if `st_atime_n' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_ATIME_N
+
+/* Define to 1 if `st_uatime' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_UATIME
+
 /* Define to 1 if `ss' is a member of `struct __darwin_mcontext32'. */
 #undef HAVE_STRUCT___DARWIN_MCONTEXT32_SS
 

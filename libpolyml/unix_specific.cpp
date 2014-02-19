@@ -1383,11 +1383,12 @@ static Handle getStatInfo(TaskData *taskData, struct stat *buf)
     uidHandle = Make_arbitrary_precision(taskData, buf->st_uid);
     gidHandle = Make_arbitrary_precision(taskData, buf->st_gid);
     sizeHandle = Make_arbitrary_precision(taskData, buf->st_size);
-    /* TODO: The only really standard time fields give the seconds part.  There
-       are various extensions which would give us microseconds or nanoseconds. */
-    atimeHandle = Make_arb_from_pair_scaled(taskData, buf->st_atime, 0, 1000000);
-    mtimeHandle = Make_arb_from_pair_scaled(taskData, buf->st_mtime, 0, 1000000);
-    ctimeHandle = Make_arb_from_pair_scaled(taskData, buf->st_ctime, 0, 1000000);
+    atimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,a),
+                                            STAT_USECS(buf,a), 1000000);
+    mtimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,m),
+                                            STAT_USECS(buf,m), 1000000);
+    ctimeHandle = Make_arb_from_pair_scaled(taskData, STAT_SECS(buf,c),
+                                            STAT_USECS(buf,c), 1000000);
     result = ALLOC(11);
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(modeHandle));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(kindHandle));

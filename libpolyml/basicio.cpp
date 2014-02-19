@@ -1355,7 +1355,8 @@ Handle modTime(TaskData *taskData, Handle filename)
         if (proper_stat(string_buffer, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
         /* Convert to microseconds. */
-        return Make_arb_from_pair_scaled(taskData, fbuff.st_mtime, 0, 1000000);
+        return Make_arb_from_pair_scaled(taskData, STAT_SECS(&fbuff,m),
+                                         STAT_USECS(&fbuff,m), 1000000);
     }
 #endif
 }
