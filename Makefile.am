@@ -68,7 +68,7 @@ OBJECTSUFFIX=o
 endif
 
 if EXPMACHO
-poly_LDFLAGS += -Wl,-no_pie  -Wl,-no_compact_unwind
+poly_LDFLAGS += -Wl,-no_pie
 endif
 
 poly_SOURCES = 
