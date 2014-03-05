@@ -92,6 +92,11 @@ public:
 
 ProcessVisitAddresses::ProcessVisitAddresses(bool show)
 {
+    // Need to get the allocation lock here.  Another thread
+    // could allocate new local areas resulting in gMem.nlSpaces
+    // and gMem.lSpaces changing under our feet.
+    PLocker lock(&gMem.allocLock);
+
     MemSpace *ioSpace = gMem.IoSpace();
     io_bottom    = ioSpace->bottom;
     io_top       = ioSpace->top;
