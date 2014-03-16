@@ -1378,8 +1378,9 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                         arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() + arg2.AsUnsigned());
                     }
                     // If this is in the 64-bit non-address area it is a constant with the
-                    // tag added.  Subtract it now.
-                    if (inConsts) arg2 = PolyWord::FromUnsigned(arg2.AsUnsigned()-1);
+                    // tag removed.  Add it back in.  N.B.  In this case we don't have a following
+                    // instruction to add the tag.
+                    if (inConsts) arg2 = PolyWord::FromUnsigned(arg2.AsUnsigned()+1);
                     do_op(taskData, rrr, arg1, arg2, sub_longc);
                     // The next operation will add the tag.  We need to subtract a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
