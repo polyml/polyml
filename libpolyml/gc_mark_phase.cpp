@@ -114,7 +114,7 @@ private:
     bool TestForScan(PolyWord *pt);
     void MarkAndTestForScan(PolyWord *pt);
 
-    void PushToStack(PolyObject *obj, PolyWord *currentPtr = 0)
+    void PushToStack(PolyObject *obj, PolyWord *currentPtr = 0, POLYUNSIGNED originalLength = 0)
     {
         // If we don't have all the threads running we start a new one but
         // only once we have several items on the stack.  Otherwise we
@@ -130,6 +130,13 @@ private:
                     if (locPtr == LARGECACHE_SIZE) locPtr = 0;
                     largeObjectCache[locPtr].base = obj;
                     largeObjectCache[locPtr].current = currentPtr;
+                    // To try to narrow down a bug that results in the ASSERT failing,
+                    // add these extra checks.
+                    POLYUNSIGNED lengthWord = obj->LengthWord();
+                    ASSERT (OBJ_IS_LENGTH(lengthWord));
+                    POLYUNSIGNED length = OBJ_OBJECT_LENGTH(lengthWord);
+                    ASSERT(length == originalLength);
+                    ASSERT(currentPtr > (PolyWord*)obj && currentPtr < ((PolyWord*)obj)+length);
                 }
             }
             else StackOverflow(obj);
@@ -492,7 +499,7 @@ void MTGCProcessMarkPointers::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNE
 
         if (baseAddr != endWord)
             // Put this back on the stack while we process the first word
-            PushToStack(obj, length < largeObjectSize ? 0 : restartAddr);
+            PushToStack(obj, length < largeObjectSize ? 0 : restartAddr, length);
         else if (secondWord != 0)
         {
             // Mark it now because we will process it.
