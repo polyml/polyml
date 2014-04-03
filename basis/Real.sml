@@ -656,18 +656,16 @@ struct
     val op >= : (real * real) -> bool = RunCall.run_call2 POLY_SYS_Real_geq;
 
     fun compare (r1, r2) =
-        if not (isFinite r1 andalso isFinite r2)
-        then raise Unordered
+        if r1 == r2 then General.EQUAL
         else if r1 < r2 then General.LESS
         else if r1 > r2 then General.GREATER
-        else General.EQUAL
+        else raise Unordered
 
     fun compareReal (r1, r2) =
-        if not (isFinite r1 andalso isFinite r2)
-        then UNORDERED
+        if r1 == r2 then EQUAL
         else if r1 < r2 then LESS
         else if r1 > r2 then GREATER
-        else EQUAL
+        else UNORDERED
 
     (* Question: The definition says "bitwise equal, ignoring signs on zeros".
        If we assume that all numbers are normalised, is that the same as "equal"?*)
