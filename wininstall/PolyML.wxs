@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='windows-1252'?>
 <!-- 32/64-bit version -->
 <?if $(var.Platform) = x64 ?>
-  <?define ProductName = "Poly/ML 5.5.1 (64 bit)" ?>
+  <?define ProductName = "Poly/ML 5.5.2 (64 bit)" ?>
   <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
   <?define UpgradeCode = "7A6C52B0-B7C1-4879-8702-131A21F690FE" ?>
 <?else ?>
-  <?define ProductName = "Poly/ML 5.5.1" ?>
+  <?define ProductName = "Poly/ML 5.5.2" ?>
   <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
   <?define UpgradeCode = "D7A17500-0FF5-4FC3-BC36-DD799D57071A" ?>
 <?endif ?>

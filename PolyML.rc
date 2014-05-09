@@ -84,7 +84,7 @@ STYLE DS_MODALFRAME | DS_3DLOOK | WS_POPUP | WS_CAPTION | WS_SYSMENU
 FONT 8, "MS Sans Serif"
 BEGIN
     DEFPUSHBUTTON   "OK",IDOK,7,92,50,14
-    LTEXT           "Poly/ML v 5.5.1 Copyright David C.J. Matthews, Cambridge University Technical Services and contributors 2000-13.\n\nThis is free software and released under the GNU Lesser General Public License.",
+    LTEXT           "Poly/ML v 5.5.2 Copyright David C.J. Matthews, Cambridge University Technical Services and contributors 2000-14.\n\nThis is free software and released under the GNU Lesser General Public License.",
                     IDC_STATIC,24,30,167,47
     ICON            IDI_ICON,IDC_STATIC,7,7,20,20
 END
@@ -125,8 +125,8 @@ IDI_ICON                ICON    DISCARDABLE     "poly.ico"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 5,5,1,0
- PRODUCTVERSION 5,5,1,0
+ FILEVERSION 5,5,2,0
+ PRODUCTVERSION 5,5,2,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -143,15 +143,15 @@ BEGIN
         BEGIN
             VALUE "Comments", "\0"
             VALUE "CompanyName", " \0"
-            VALUE "FileDescription", "PolyML v5.5.1\0"
-            VALUE "FileVersion", "5.5.1\0"
+            VALUE "FileDescription", "PolyML v5.5.2\0"
+            VALUE "FileVersion", "5.5.2\0"
             VALUE "InternalName", "PolyML\0"
-            VALUE "LegalCopyright", "Copyright © CUTS, David Matthews and contributors 2000-2013\0"
+            VALUE "LegalCopyright", "Copyright © CUTS, David Matthews and contributors 2000-2014\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "PolyML.exe\0"
             VALUE "PrivateBuild", "\0"
             VALUE "ProductName", "PolyML\0"
-            VALUE "ProductVersion", "5.5.1\0"
+            VALUE "ProductVersion", "5.5.2\0"
             VALUE "SpecialBuild", "\0"
         END
     END
