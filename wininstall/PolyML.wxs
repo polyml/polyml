@@ -36,9 +36,9 @@
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
       xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"> 
   <Product Name="$(var.ProductName)" Id='*' UpgradeCode='$(var.UpgradeCode)'
-        Language='2057' Codepage='1252' Version='5.5.1' Manufacturer='Poly/ML'> 
+        Language='2057' Codepage='1252' Version='5.5.2' Manufacturer='Poly/ML'> 
 
-    <Package Id='*' Keywords='Installer' Description="Poly/ML 5.5.1 Installer"
+    <Package Id='*' Keywords='Installer' Description="Poly/ML 5.5.2 Installer"
             InstallerVersion='200' Languages='2057' Compressed='yes' SummaryCodepage='1252' />
     <WixVariable Id="WixUILicenseRtf" Value="Licence.rtf" />
     <Media Id='1' Cabinet='Sample.cab' EmbedCab='yes' DiskPrompt="CD-ROM #1" />
@@ -46,7 +46,7 @@
     <MajorUpgrade
       DowngradeErrorMessage="A later version of Poly/ML is already installed. Setup will now exit." />
 
-    <Property Id='DiskPrompt' Value="Poly/ML 5.5.1 Installation [1]" />
+    <Property Id='DiskPrompt' Value="Poly/ML 5.5.2 Installation [1]" />
 
     <Directory Id='TARGETDIR' Name='SourceDir'> 
       <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'> 
