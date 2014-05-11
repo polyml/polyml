@@ -19,7 +19,7 @@ CFLAGS="@CFLAGS@"
 @NATIVE_WINDOWS_FALSE@SUFFIX="o"
 
 # Extra options for Mac OS X
-@EXPMACHO_TRUE@EXTRALDFLAGS="-Wl,-no_pie
+@EXPMACHO_TRUE@EXTRALDFLAGS="-Wl,-no_pie"
 
 TMPSRCFILE=/tmp/polysrc.$$
 TMPOBJFILE=/tmp/polyobj.$$.$SUFFIX
