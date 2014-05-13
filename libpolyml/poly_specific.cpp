@@ -316,8 +316,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             {
             case MA_Interpreted:    version = "Portable-" TextVersion; break;
             case MA_I386:           version = "I386-" TextVersion; break;
-            case MA_PPC:            version = "PPC-" TextVersion; break;
-            case MA_Sparc:          version = "Sparc-" TextVersion; break;
             case MA_X86_64:         version = "X86_64-" TextVersion; break;
             default:                version = "Unknown-" TextVersion; break;
             }
@@ -334,8 +332,6 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             {
             case MA_Interpreted:    arch = "Interpreted"; break;
             case MA_I386:           arch = "I386"; break;
-            case MA_PPC:            arch = "PPC"; break;
-            case MA_Sparc:          arch = "SPARC"; break;
             case MA_X86_64:         arch = "X86_64"; break;
             default:                arch = "Unknown"; break;
             }

@@ -57,8 +57,6 @@ public:
 typedef enum {
     MA_Interpreted = 0,
     MA_I386,
-    MA_PPC,
-    MA_Sparc,
     MA_X86_64
 } Architectures;
 
