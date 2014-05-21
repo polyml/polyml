@@ -66,6 +66,7 @@
 #include "polystring.h"
 #include "save_vec.h"
 #include "memmgr.h"
+#include "poly_specific.h"
 
 #define VERSION_NUMBER  POLY_version_number
 
@@ -118,8 +119,11 @@ public:
     virtual MDTaskData *CreateTaskData(void) { return new IntTaskData(); }
 
     virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
+
+    virtual Handle EnterPolyCode(TaskData *taskData); // Start running ML
+
     // Switch to Poly and return with the io function to call.
-    virtual int SwitchToPoly(TaskData *taskData);
+    int SwitchToPoly(TaskData *taskData);
     virtual void SetForRetry(TaskData *taskData, int ioCall) {} // Nothing to do
     virtual void InitInterfaceVector(void);
     virtual void SetException(TaskData *taskData, poly_exn *exc);
@@ -128,12 +132,13 @@ public:
     // GetPCandSPFromContext is used in time profiling.  We can't get accurate info so return false.
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc)
         { return false; }
-    virtual void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *));
-    virtual void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle));
-    virtual void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle));
-    virtual void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle));
-    virtual void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle));
-    virtual void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle));
+    void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *));
+    void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle));
+    void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle));
+    void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle));
+    void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle));
+    void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle));
+
     virtual Handle CallBackResult(TaskData *taskData);
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
 
@@ -1292,6 +1297,590 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
      } /* for */
      return 0;
 } /* MD_switch_to_poly */
+
+Handle Interpreter::EnterPolyCode(TaskData *taskData)
+/* Called from "main" to enter the code. */
+{
+    Handle hOriginal = taskData->saveVec.mark(); // Set this up for the IO calls.
+    while (1)
+    {
+        taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
+
+        // Run the ML code and return with the function to call.
+        taskData->inML = true;
+        int ioFunction = SwitchToPoly(taskData);
+        taskData->inML = false;
+
+        if ((debugOptions & DEBUG_RTSCALLS))
+            IncrementRTSCallCount(ioFunction);
+
+        try {
+            switch (ioFunction)
+            {
+            case -1:
+                // We've been interrupted.  This usually involves simulating a
+                // stack overflow so we could come here because of a genuine
+                // stack overflow.
+                // Previously this code was executed on every RTS call but there
+                // were problems on Mac OS X at least with contention on schedLock.
+                taskData->pendingInterrupt = false; // Clear this before we handle these
+                // Process any asynchronous events i.e. interrupts or kill
+                processes->ProcessAsynchRequests(taskData);
+                // Release and re-acquire use of the ML memory to allow another thread
+                // to GC.
+                processes->ThreadReleaseMLMemory(taskData);
+                processes->ThreadUseMLMemory(taskData);
+                break;
+
+            case -2: // A callback has returned.
+                return CallBackResult(taskData);
+
+            case POLY_SYS_exit:
+                CallIO1(taskData, &finishc);
+                break;
+
+            case POLY_SYS_alloc_store:
+                CallIO3(taskData, &alloc_store_long_c);
+                break;
+
+            case POLY_SYS_alloc_uninit:
+                CallIO2(taskData, &alloc_uninit_c);
+                break;
+
+            case POLY_SYS_chdir:
+                CallIO1(taskData, &change_dirc);
+                break;
+
+            case POLY_SYS_get_length:
+                CallIO1(taskData, &vec_length_c);
+                break;
+
+            case POLY_SYS_get_flags:
+                CallIO1(taskData, &get_flags_c);
+                break;
+
+            case POLY_SYS_str_compare:
+                CallIO2(taskData, compareStrings);
+                break;
+
+            case POLY_SYS_teststrgtr:
+                CallIO2(taskData, &testStringGreater);
+                break;
+
+            case POLY_SYS_teststrlss:
+                CallIO2(taskData, &testStringLess);
+                break;
+
+            case POLY_SYS_teststrgeq:
+                CallIO2(taskData, &testStringGreaterOrEqual);
+                break;
+
+            case POLY_SYS_teststrleq:
+                CallIO2(taskData, &testStringLessOrEqual);
+                break;
+
+            case POLY_SYS_exception_trace: // Special case.
+                // This is the legacy version. 
+                SetExceptionTrace(taskData, true);
+                break;
+
+            case POLY_SYS_exception_trace_fn: // Special case.
+                // This is the current version. 
+                SetExceptionTrace(taskData, false);
+                break;
+
+    //        case POLY_SYS_lockseg: CallIO1(taskData, &locksegc); break;
+
+            case POLY_SYS_profiler:
+                CallIO1(taskData, &profilerc);
+                break;
+
+            case POLY_SYS_quotrem:
+                CallIO3(taskData, &quot_rem_c);
+                break;
+
+    //        case POLY_SYS_is_short: CallIO1(taskData, &is_shortc); break;
+
+            case POLY_SYS_aplus:
+                CallIO2(taskData, &add_longc);
+                break;
+
+            case POLY_SYS_aminus:
+                CallIO2(taskData, &sub_longc);
+                break;
+
+            case POLY_SYS_amul:
+                CallIO2(taskData, &mult_longc);
+                break;
+
+            case POLY_SYS_adiv:
+                CallIO2(taskData, &div_longc);
+                break;
+
+            case POLY_SYS_amod:
+                CallIO2(taskData, &rem_longc);
+                break;
+
+            case POLY_SYS_aneg:
+                CallIO1(taskData, &neg_longc);
+                break;
+
+            case POLY_SYS_equala:
+                CallIO2(taskData, &equal_longc);
+                break;
+
+            case POLY_SYS_ora:
+                CallIO2(taskData, &or_longc);
+                break;
+
+            case POLY_SYS_anda:
+                CallIO2(taskData, &and_longc);
+                break;
+
+            case POLY_SYS_xora:
+                CallIO2(taskData, &xor_longc);
+                break;
+
+            case POLY_SYS_Real_str:
+                CallIO3(taskData, &Real_strc);
+                break;
+
+            case POLY_SYS_Real_geq:
+                CallIO2(taskData, &Real_geqc);
+                break;
+
+            case POLY_SYS_Real_leq:
+                CallIO2(taskData, &Real_leqc);
+                break;
+
+            case POLY_SYS_Real_gtr:
+                CallIO2(taskData, &Real_gtrc);
+                break;
+
+            case POLY_SYS_Real_lss:
+                CallIO2(taskData, &Real_lssc);
+                break;
+
+            case POLY_SYS_Real_eq:
+                CallIO2(taskData, &Real_eqc);
+                break;
+
+            case POLY_SYS_Real_neq:
+                CallIO2(taskData, &Real_neqc);
+                break;
+
+            case POLY_SYS_Real_Dispatch:
+                CallIO2(taskData, &Real_dispatchc);
+                break;
+
+            case POLY_SYS_Add_real:
+                CallIO2(taskData, &Real_addc);
+                break;
+
+            case POLY_SYS_Sub_real:
+                CallIO2(taskData, &Real_subc);
+                break;
+
+            case POLY_SYS_Mul_real:
+                CallIO2(taskData, &Real_mulc);
+                break;
+
+            case POLY_SYS_Div_real:
+                CallIO2(taskData, &Real_divc);
+                break;
+
+            case POLY_SYS_Abs_real:
+                CallIO1(taskData, &Real_absc);
+                break;
+
+            case POLY_SYS_Neg_real:
+                CallIO1(taskData, &Real_negc);
+                break;
+
+            case POLY_SYS_Repr_real:
+                CallIO1(taskData, &Real_reprc);
+                break;
+
+            case POLY_SYS_conv_real:
+                CallIO1(taskData, &Real_convc);
+                break;
+
+            case POLY_SYS_real_to_int:
+                CallIO1(taskData, &Real_intc);
+                break;
+
+            case POLY_SYS_int_to_real:
+                CallIO1(taskData, &Real_floatc);
+                break;
+
+            case POLY_SYS_sqrt_real:
+                CallIO1(taskData, &Real_sqrtc);
+                break;
+
+            case POLY_SYS_sin_real:
+                CallIO1(taskData, &Real_sinc);
+                break;
+
+            case POLY_SYS_cos_real:
+                CallIO1(taskData, &Real_cosc);
+                break;
+
+            case POLY_SYS_arctan_real:
+                CallIO1(taskData, &Real_arctanc);
+                break;
+
+            case POLY_SYS_exp_real:
+                CallIO1(taskData, &Real_expc);
+                break;
+
+            case POLY_SYS_ln_real:
+                CallIO1(taskData, &Real_lnc);
+                break;
+
+            case POLY_SYS_io_operation:
+                CallIO1(taskData, &io_operation_c);
+                break;
+
+            case POLY_SYS_atomic_reset:
+                CallIO1(taskData, &ProcessAtomicReset);
+                break;
+
+            case POLY_SYS_atomic_incr:
+                CallIO1(taskData, &ProcessAtomicIncrement);
+                break;
+
+            case POLY_SYS_atomic_decr:
+                CallIO1(taskData, &ProcessAtomicDecrement);
+                break;
+
+            case POLY_SYS_thread_self:
+                CallIO0(taskData, &ThreadSelf);
+                break;
+
+            case POLY_SYS_thread_dispatch:
+                CallIO2(taskData, &ThreadDispatch);
+                break;
+
+//            case POLY_SYS_offset_address: CallIO2(taskData, &offset_addressc); break;
+
+            case POLY_SYS_shift_right_word:
+                CallIO2(taskData, &shift_right_word_c);
+                break;
+    
+            case POLY_SYS_word_neq:
+                CallIO2(taskData, &word_neq_c);
+                break;
+    
+            case POLY_SYS_not_bool:
+                CallIO1(taskData, &not_bool_c);
+                break;
+
+            case POLY_SYS_string_length:
+                CallIO1(taskData, &string_length_c);
+                break;
+
+            case POLY_SYS_int_eq:
+                CallIO2(taskData, &equal_longc);
+                break;
+
+            case POLY_SYS_int_neq:
+                CallIO2(taskData, &not_equal_longc);
+                break;
+
+            case POLY_SYS_int_geq:
+                CallIO2(taskData, &ge_longc);
+                break;
+
+            case POLY_SYS_int_leq:
+                CallIO2(taskData, &le_longc);
+                break;
+
+            case POLY_SYS_int_gtr:
+                CallIO2(taskData, &gt_longc);
+                break;
+
+            case POLY_SYS_int_lss:
+                CallIO2(taskData, &ls_longc);
+                break;
+
+            case POLY_SYS_or_word:
+                CallIO2(taskData, &or_word_c);
+                break;
+
+            case POLY_SYS_and_word:
+                CallIO2(taskData, &and_word_c);
+                break;
+
+            case POLY_SYS_xor_word:
+                CallIO2(taskData, &xor_word_c);
+                break;
+
+            case POLY_SYS_shift_left_word:
+                CallIO2(taskData, &shift_left_word_c);
+                break;
+
+            case POLY_SYS_word_eq:
+                CallIO2(taskData, &word_eq_c);
+                break;
+
+            case POLY_SYS_load_byte:
+            case POLY_SYS_load_byte_immut:
+                CallIO2(taskData, &load_byte_long_c);
+                break;
+
+            case POLY_SYS_load_word:
+            case POLY_SYS_load_word_immut:
+                CallIO2(taskData, &load_word_long_c);
+                break;
+
+    //        case POLY_SYS_is_big_endian: CallIO0(taskData, &is_big_endianc); break;
+    //        case POLY_SYS_bytes_per_word: CallIO0(taskData, &bytes_per_wordc); break;
+
+            case POLY_SYS_assign_byte:
+                CallIO3(taskData, &assign_byte_long_c);
+                break;
+
+            case POLY_SYS_assign_word:
+                CallIO3(taskData, &assign_word_long_c);
+                break;
+
+            // ObjSize and ShowSize are now in the poly_specific functions and
+            // probably should be removed from here.
+            case POLY_SYS_objsize:
+                CallIO1(taskData, &ObjSize);
+                break;
+
+            case POLY_SYS_showsize:
+                CallIO1(taskData, &ShowSize);
+                break;
+
+            case POLY_SYS_timing_dispatch:
+                CallIO2(taskData, &timing_dispatch_c);
+                break;
+
+            case POLY_SYS_XWindows:
+                CallIO1(taskData, &XWindows_c);
+                break;
+
+            case POLY_SYS_full_gc:
+                CallIO0(taskData, &full_gc_c);
+                break;
+
+            case POLY_SYS_stack_trace:
+                CallIO0(taskData, & stack_trace_c);
+                break;
+
+            case POLY_SYS_foreign_dispatch:
+                CallIO2(taskData, &foreign_dispatch_c);
+                break;
+
+            case POLY_SYS_callcode_tupled:
+                CallCodeTupled(taskData);
+                break;
+
+            case POLY_SYS_process_env: CallIO2(taskData, &process_env_dispatch_c); break;
+
+    //        case POLY_SYS_set_string_length: CallIO2(taskData, &set_string_length_c); break;
+
+            case POLY_SYS_shrink_stack:
+                CallIO1(taskData, &shrink_stack_c);
+                break;
+
+            case POLY_SYS_code_flags:
+                CallIO2(taskData, &CodeSegmentFlags);
+                break;
+
+            case POLY_SYS_shift_right_arith_word:
+                CallIO2(taskData, &shift_right_arith_word_c);
+                break;
+
+            case POLY_SYS_get_first_long_word:
+            case POLY_SYS_int_to_word:
+                // POLY_SYS_int_to_word has generally been replaced by POLY_SYS_get_first_long_word.
+                // The reason is that POLY_SYS_int_to_word may be applied to either a long or
+                // a short argument whereas POLY_SYS_get_first_long_word must be applied to a
+                // long argument and can be implemented very easily in the code-generator, at
+                // least on a little-endian machine.
+                CallIO1(taskData, &int_to_word_c);
+                break;
+
+            case POLY_SYS_poly_specific:
+                CallIO2(taskData, &poly_dispatch_c);
+                break;
+
+            case POLY_SYS_bytevec_eq:
+                CallIO5(taskData, &testBytesEqual);
+                break;
+
+            case POLY_SYS_set_code_constant:
+                CallIO4(taskData, &set_code_constant);
+                break;
+
+            case POLY_SYS_move_bytes:
+            case POLY_SYS_move_bytes_overlap:
+                CallIO5(taskData, &move_bytes_long_c);
+                break;
+
+            case POLY_SYS_move_words:
+            case POLY_SYS_move_words_overlap:
+                CallIO5(taskData, &move_words_long_c);
+                break;
+
+            case POLY_SYS_mul_word:
+                CallIO2(taskData, &mul_word_c);
+                break;
+
+            case POLY_SYS_plus_word:
+                CallIO2(taskData, &plus_word_c);
+                break;
+
+            case POLY_SYS_minus_word:
+                CallIO2(taskData, &minus_word_c);
+                break;
+
+            case POLY_SYS_div_word:
+                CallIO2(taskData, &div_word_c);
+                break;
+
+            case POLY_SYS_mod_word:
+                CallIO2(taskData, &mod_word_c);
+                break;
+
+            case POLY_SYS_word_geq:
+                CallIO2(taskData, &word_geq_c);
+                break;
+
+            case POLY_SYS_word_leq:
+                CallIO2(taskData, &word_leq_c);
+                break;
+
+            case POLY_SYS_word_gtr:
+                CallIO2(taskData, &word_gtr_c);
+                break;
+
+            case POLY_SYS_word_lss:
+                CallIO2(taskData, &word_lss_c);
+                break;
+
+            case POLY_SYS_io_dispatch:
+                CallIO3(taskData, &IO_dispatch_c);
+                break;
+
+            case POLY_SYS_network:
+                CallIO2(taskData, &Net_dispatch_c);
+                break;
+
+            case POLY_SYS_os_specific:
+                CallIO2(taskData, &OS_spec_dispatch_c);
+                break;
+
+            case POLY_SYS_signal_handler:
+                CallIO2(taskData, &Sig_dispatch_c);
+                break;
+
+            case POLY_SYS_kill_self:
+                CallIO0(taskData, exitThread);
+                break;
+
+            case POLY_SYS_eq_longword:
+                CallIO2(taskData, &eqLongWord);
+                break;
+
+            case POLY_SYS_neq_longword:
+                CallIO2(taskData, &neqLongWord);
+                break;
+
+            case POLY_SYS_geq_longword:
+                CallIO2(taskData, &geqLongWord);
+                break;
+
+            case POLY_SYS_leq_longword:
+                CallIO2(taskData, &leqLongWord);
+                break;
+
+            case POLY_SYS_gt_longword:
+                CallIO2(taskData, &gtLongWord);
+                break;
+
+            case POLY_SYS_lt_longword:
+                CallIO2(taskData, &ltLongWord);
+                break;
+
+            case POLY_SYS_plus_longword:
+                CallIO2(taskData, &plusLongWord);
+                break;
+
+            case POLY_SYS_minus_longword:
+                CallIO2(taskData, &minusLongWord);
+                break;
+
+            case POLY_SYS_mul_longword:
+                CallIO2(taskData, &mulLongWord);
+                break;
+
+            case POLY_SYS_div_longword:
+                CallIO2(taskData, &divLongWord);
+                break;
+
+            case POLY_SYS_mod_longword:
+                CallIO2(taskData, &modLongWord);
+                break;
+
+            case POLY_SYS_andb_longword:
+                CallIO2(taskData, &andbLongWord);
+                break;
+
+            case POLY_SYS_orb_longword:
+                CallIO2(taskData, &orbLongWord);
+                break;
+
+            case POLY_SYS_xorb_longword:
+                CallIO2(taskData, &xorbLongWord);
+                break;
+
+            case POLY_SYS_shift_left_longword:
+                CallIO2(taskData, &shiftLeftLongWord);
+                break;
+
+            case POLY_SYS_shift_right_longword:
+                CallIO2(taskData, &shiftRightLongWord);
+                break;
+
+            case POLY_SYS_shift_right_arith_longword:
+                CallIO2(taskData, &shiftRightArithLongWord);
+                break;
+
+            case POLY_SYS_longword_to_tagged:
+                CallIO1(taskData, &longWordToTagged);
+                break;
+
+            case POLY_SYS_signed_to_longword:
+                CallIO1(taskData, &signedToLongWord);
+                break;
+
+            case POLY_SYS_unsigned_to_longword:
+                CallIO1(taskData, &unsignedToLongWord);
+                break;
+
+            // This is called from assembly code and doesn't actually have an entry in the
+            // io vector.
+            case POLY_SYS_give_ex_trace:
+                CallIO2(taskData, ex_tracec);
+                break;
+
+            case POLY_SYS_give_ex_trace_fn:
+                CallIO1(taskData, exceptionToTraceException);
+                break;
+
+            default:
+                Crash("Unknown io operation %d\n", ioFunction);
+            }
+        }
+        catch (IOException) {
+        }
+
+    }
+}
 
 
 void Interpreter::CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *))

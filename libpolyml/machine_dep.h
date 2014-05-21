@@ -73,6 +73,8 @@ public:
     virtual void InitInterfaceVector(void) = 0;
     virtual void ResetSignals(void) {}
 
+    virtual Handle EnterPolyCode(TaskData *taskData) = 0; // Start running ML
+
     /* ScanConstantsWithinCode - update addresses within a code segment.*/
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process) {}
     void  ScanConstantsWithinCode(PolyObject *addr, ScanAddress *process)
@@ -85,9 +87,6 @@ public:
     // This is machine-dependent but not always required.  It is used in the code-generator.
     virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base) {}
 
-    // Switch to Poly and return with the io function to call.
-    virtual int SwitchToPoly(TaskData *taskData) = 0;
-
     virtual void SetForRetry(TaskData *taskData, int ioCall) = 0;
     virtual void InterruptCode(TaskData *taskData) = 0;
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
@@ -95,13 +94,6 @@ public:
     // the task data object passed in is that of the parent.
     virtual void InitStackFrame(TaskData *parentTaskData, StackSpace *space, Handle proc, Handle arg) = 0;
     virtual void SetException(TaskData *taskData, poly_exn *exc) = 0;
-    // General RTS functions.
-    virtual void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *)) = 0;
-    virtual void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle)) = 0;
-    virtual void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle)) = 0;
-    virtual void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle)) = 0;
-    virtual void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle)) = 0;
-    virtual void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle)) = 0;
     // These next two are sufficiently different that they need to be implemented
     // as special cases.
     virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy) = 0;

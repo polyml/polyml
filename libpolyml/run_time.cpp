@@ -116,32 +116,22 @@
 
 #include "globals.h"
 #include "gc.h"
-#include "xwindows.h"
 #include "mpoly.h"
 #include "arb.h"
 #include "machine_dep.h"
-#include "objsize.h"
-#include "foreign.h"
 #include "diagnostics.h"
 #include "processes.h"
 #include "profiling.h"
-#include "basicio.h"
 #include "run_time.h"
 #include "sys.h"
 #include "process_env.h"
-#include "timing.h"
-#include "network.h"
-#include "os_specific.h"
 #include "sighandler.h"
-#include "reals.h"
 #include "scanaddrs.h"
 #include "check_objects.h"
 #include "polystring.h"
-#include "poly_specific.h"
 #include "save_vec.h"
 #include "rts_module.h"
 #include "memmgr.h"
-#include "statistics.h"
 
 #define SAVE(x) taskData->saveVec.push(x)
 #define SIZEOF(x) (sizeof(x)/sizeof(PolyWord))
@@ -441,7 +431,7 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 /*                                                                            */
 /******************************************************************************/
 /* CALL_IO0(stack_trace_, NOIND) */
-static Handle stack_trace_c(TaskData *taskData)
+Handle stack_trace_c(TaskData *taskData)
 {
     StackObject *stack = taskData->stack->stack();
     give_stack_trace (taskData, stack->p_sp, taskData->stack->top);
@@ -526,7 +516,7 @@ Handle io_operation_c(TaskData *taskData, Handle entry)
 /*                                                                            */
 /******************************************************************************/
 /* CALL_IO1(get_flags_,REF,NOIND) */
-static Handle get_flags_c(TaskData *taskData, Handle addr_handle)
+Handle get_flags_c(TaskData *taskData, Handle addr_handle)
 {
     PolyObject *pt = DEREFWORDHANDLE(addr_handle);
     PolyWord *addr = (PolyWord*)pt;
@@ -579,14 +569,14 @@ Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_han
 /*      BadOpCode_c - called from machine_assembly.s                          */
 /*                                                                            */
 /******************************************************************************/
-Handle BadOpCode_c(TaskData *taskData)
+static Handle BadOpCode_c(TaskData *taskData)
 {
     raise_exception_string(taskData, EXC_Fail, "Bad RunTime OpCode");
     return SAVE(TAGGED(1));
 }
 
 /* CALL_IO3(assign_byte_long_, REF, REF, REF, NOIND) */
-static Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle byte_no, Handle vector)
+Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle byte_no, Handle vector)
 {
     PolyWord value = DEREFHANDLE(value_handle);
     POLYUNSIGNED  offset  = get_C_ulong(taskData, DEREFWORDHANDLE(byte_no));  /* SPF 31/10/93 */
@@ -597,7 +587,7 @@ static Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle
 }
 
 /* CALL_IO3(assign_word_long_, REF, REF, REF, NOIND) */
-static Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle word_no, Handle vector)
+Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle word_no, Handle vector)
 {
     PolyWord value      = DEREFHANDLE(value_handle);
     POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(word_no)); /* SPF 31/10/93 */
@@ -608,7 +598,7 @@ static Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle
 
 /* CALL_IO5(move_bytes_long_, REF, REF, REF, REF, REF, NOIND) */
 /* Move a segment of bytes, typically a string.  */
-static Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
+Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
     POLYUNSIGNED src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
@@ -627,7 +617,7 @@ static Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offs
 /* CALL_IO5(move_words_long_, REF, REF, REF, REF, REF, NOIND) */
 /* Move a segment of words.   Similar to move_bytes_long_ except that
    it is used for PolyWord segments. */
-static Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
+Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
     POLYUNSIGNED src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
@@ -647,7 +637,7 @@ static Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offs
     return taskData->saveVec.push(TAGGED(0));
 }
 
-static Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Handle y,
+Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Handle y,
                              Handle xOffset, Handle x)
 {
     POLYUNSIGNED x_offset = get_C_ulong(taskData, DEREFWORDHANDLE(xOffset));
@@ -663,19 +653,19 @@ static Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Han
     else return taskData->saveVec.push(TAGGED(0));
 }
 
-static Handle vec_length_c(TaskData *taskData, Handle vector)    /* Length of a vector */
+Handle vec_length_c(TaskData *taskData, Handle vector)    /* Length of a vector */
 {
     POLYUNSIGNED length = vector->WordP()->Length();
     return taskData->saveVec.push(TAGGED(length));
 }
 
-static Handle load_byte_long_c(TaskData *taskData, Handle byte_no /* offset in BYTES */, Handle addr)
+Handle load_byte_long_c(TaskData *taskData, Handle byte_no /* offset in BYTES */, Handle addr)
 {
     POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(byte_no));
     return taskData->saveVec.push(TAGGED(DEREFBYTEHANDLE(addr)[offset]));
 }
 
-static Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in WORDS */, Handle addr)
+Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in WORDS */, Handle addr)
 {
     POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(word_no));
     return taskData->saveVec.push(addr->Word().AsObjPtr()->Get(offset));
@@ -685,7 +675,7 @@ static Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in W
 // allocation.  The function can be called by the assembly code
 // when it finds it has run out.  Using it avoids us having a
 // return address into the assembly code.
-static Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
+Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
 {
     unsigned flags = get_C_unsigned(taskData, DEREFWORD(flags_handle));
     POLYUNSIGNED usize = get_C_ulong(taskData, DEREFWORD(size));
@@ -715,7 +705,7 @@ static Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flag
 // significant.  For word objects we can't risk leaving them uninitialised in case
 // we GC before we've finished filling them.  There's no harm in initialising byte
 // objects.
-static Handle alloc_uninit_c(TaskData *taskData, Handle flags_handle, Handle size )
+Handle alloc_uninit_c(TaskData *taskData, Handle flags_handle, Handle size )
 {
     Handle initial = SAVE(TAGGED(0));
     return alloc_store_long_c(taskData, initial, flags_handle, size);
@@ -726,28 +716,28 @@ static Handle alloc_uninit_c(TaskData *taskData, Handle flags_handle, Handle siz
    These functions will almost always be implemented directly in the code
    generator with back-up versions in the machine-dependent assembly code
    section.  They are included here for completeness. */
-static Handle mul_word_c(TaskData *taskData, Handle y, Handle x)
+Handle mul_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(TAGGED(wx*wy));
 }
 
-static Handle plus_word_c(TaskData *taskData, Handle y, Handle x)
+Handle plus_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(TAGGED(wx+wy));
 }
 
-static Handle minus_word_c(TaskData *taskData, Handle y, Handle x)
+Handle minus_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(TAGGED(wx-wy));
 }
 
-static Handle div_word_c(TaskData *taskData, Handle y, Handle x)
+Handle div_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -755,7 +745,7 @@ static Handle div_word_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(wx/wy));
 }
 
-static Handle mod_word_c(TaskData *taskData, Handle y, Handle x)
+Handle mod_word_c(TaskData *taskData, Handle y, Handle x)
 {
     // In most cases it doesn't matter whether we use UNTAGGED or UNTAGGED_UNSIGNED
     // but in mod we will get the wrong answer if we use UNTAGGED here.
@@ -765,49 +755,49 @@ static Handle mod_word_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(wx%wy));
 }
 
-static Handle word_eq_c(TaskData *taskData, Handle y, Handle x)
+Handle word_eq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(wx==wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_neq_c(TaskData *taskData, Handle y, Handle x)
+Handle word_neq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(wx!=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_geq_c(TaskData *taskData, Handle y, Handle x)
+Handle word_geq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(wx>=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_leq_c(TaskData *taskData, Handle y, Handle x)
+Handle word_leq_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(wx<=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_gtr_c(TaskData *taskData, Handle y, Handle x)
+Handle word_gtr_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(wx>wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle word_lss_c(TaskData *taskData, Handle y, Handle x)
+Handle word_lss_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
     return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle and_word_c(TaskData *taskData, Handle y, Handle x)
+Handle and_word_c(TaskData *taskData, Handle y, Handle x)
 {
     /* Normally it isn't necessary to remove the tags and put them
        back on again.  We leave this code as it is just in case some
@@ -817,7 +807,7 @@ static Handle and_word_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(wx & wy));
 }
 
-static Handle or_word_c(TaskData *taskData, Handle y, Handle x)
+Handle or_word_c(TaskData *taskData, Handle y, Handle x)
 {
     /* Normally it isn't necessary to remove the tags and put them
        back on again.  We leave this code as it is just in case some
@@ -827,7 +817,7 @@ static Handle or_word_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(wx | wy));
 }
 
-static Handle xor_word_c(TaskData *taskData, Handle y, Handle x)
+Handle xor_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -835,12 +825,12 @@ static Handle xor_word_c(TaskData *taskData, Handle y, Handle x)
 }
 
 
-static Handle not_bool_c(TaskData *taskData, Handle x)
+Handle not_bool_c(TaskData *taskData, Handle x)
 {
     return taskData->saveVec.push(DEREFWORD(x) == TAGGED(0) ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle shift_left_word_c(TaskData *taskData, Handle y, Handle x)
+Handle shift_left_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -852,7 +842,7 @@ static Handle shift_left_word_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(wx<<wy));
 }
 
-static Handle shift_right_word_c(TaskData *taskData, Handle y, Handle x)
+Handle shift_right_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = UNTAGGED_UNSIGNED(DEREFWORD(x));
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -864,7 +854,7 @@ static Handle shift_right_word_c(TaskData *taskData, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(wx>>wy));
 }
 
-static Handle shift_right_arith_word_c(TaskData *taskData, Handle y, Handle x)
+Handle shift_right_arith_word_c(TaskData *taskData, Handle y, Handle x)
 {
     POLYSIGNED wx = UNTAGGED(DEREFWORD(x)); /* Treat as a signed quantity. */
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -879,77 +869,77 @@ static Handle shift_right_arith_word_c(TaskData *taskData, Handle y, Handle x)
 
 // Large-word operations.  A large word is a 32/64-bit value in a byte segment.
 // These will normally be code-generated and in the assembly code.
-static Handle eqLongWord(TaskData *taskData, Handle y, Handle x)
+Handle eqLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx==wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle neqLongWord(TaskData *taskData, Handle y, Handle x)
+Handle neqLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx!=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle geqLongWord(TaskData *taskData, Handle y, Handle x)
+Handle geqLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx>=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle leqLongWord(TaskData *taskData, Handle y, Handle x)
+Handle leqLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx<=wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle gtLongWord(TaskData *taskData, Handle y, Handle x)
+Handle gtLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx>wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle ltLongWord(TaskData *taskData, Handle y, Handle x)
+Handle ltLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(wx<wy ? TAGGED(1) : TAGGED(0));
 }
 
-static Handle makeLongWord(TaskData *taskData, POLYUNSIGNED w)
+Handle makeLongWord(TaskData *taskData, POLYUNSIGNED w)
 {
     Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
     result->WordP()->Set(0, PolyWord::FromUnsigned(w));
     return result;
 }
 
-static Handle plusLongWord(TaskData *taskData, Handle y, Handle x)
+Handle plusLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return makeLongWord(taskData, wx + wy);
 }
 
-static Handle minusLongWord(TaskData *taskData, Handle y, Handle x)
+Handle minusLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return makeLongWord(taskData, wx - wy);
 }
 
-static Handle mulLongWord(TaskData *taskData, Handle y, Handle x)
+Handle mulLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return makeLongWord(taskData, wx * wy);
 }
 
-static Handle divLongWord(TaskData *taskData, Handle y, Handle x)
+Handle divLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
@@ -957,7 +947,7 @@ static Handle divLongWord(TaskData *taskData, Handle y, Handle x)
     return makeLongWord(taskData, wx / wy);
 }
 
-static Handle modLongWord(TaskData *taskData, Handle y, Handle x)
+Handle modLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
@@ -965,28 +955,28 @@ static Handle modLongWord(TaskData *taskData, Handle y, Handle x)
     return makeLongWord(taskData, wx % wy);
 }
 
-static Handle andbLongWord(TaskData *taskData, Handle y, Handle x)
+Handle andbLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return makeLongWord(taskData, wx & wy);
 }
 
-static Handle orbLongWord(TaskData *taskData, Handle y, Handle x)
+Handle orbLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return makeLongWord(taskData, wx | wy);
 }
 
-static Handle xorbLongWord(TaskData *taskData, Handle y, Handle x)
+Handle xorbLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = y->WordP()->Get(0).AsUnsigned();
     return makeLongWord(taskData, wx ^ wy);
 }
 
-static Handle shiftLeftLongWord(TaskData *taskData, Handle y, Handle x)
+Handle shiftLeftLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     // The amount to shift is always a Word.word value.
@@ -999,7 +989,7 @@ static Handle shiftLeftLongWord(TaskData *taskData, Handle y, Handle x)
     return makeLongWord(taskData, wx << wy);
 }
 
-static Handle shiftRightLongWord(TaskData *taskData, Handle y, Handle x)
+Handle shiftRightLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -1011,7 +1001,7 @@ static Handle shiftRightLongWord(TaskData *taskData, Handle y, Handle x)
     return makeLongWord(taskData, wx >> wy);
 }
 
-static Handle shiftRightArithLongWord(TaskData *taskData, Handle y, Handle x)
+Handle shiftRightArithLongWord(TaskData *taskData, Handle y, Handle x)
 {
     POLYSIGNED wx = x->WordP()->Get(0).AsSigned();
     POLYUNSIGNED wy = UNTAGGED_UNSIGNED(DEREFWORD(y));
@@ -1023,7 +1013,7 @@ static Handle shiftRightArithLongWord(TaskData *taskData, Handle y, Handle x)
 }
 
 // Extract the first word and return it as a tagged value.  This loses the top-bit
-static Handle longWordToTagged(TaskData *taskData, Handle x)
+Handle longWordToTagged(TaskData *taskData, Handle x)
 {
     POLYUNSIGNED wx = x->WordP()->Get(0).AsUnsigned();
     return taskData->saveVec.push(TAGGED(wx));
@@ -1031,7 +1021,7 @@ static Handle longWordToTagged(TaskData *taskData, Handle x)
 
 // Shift the tagged value to remove the tag and put it into the first word.
 // The original sign bit is copied in the shift.
-static Handle signedToLongWord(TaskData *taskData, Handle x)
+Handle signedToLongWord(TaskData *taskData, Handle x)
 {
     POLYSIGNED wx = x->Word().UnTagged();
     return makeLongWord(taskData, (POLYUNSIGNED)wx);
@@ -1039,13 +1029,13 @@ static Handle signedToLongWord(TaskData *taskData, Handle x)
 
 // As with the above except the value is treated as an unsigned
 // value and the top bit is zero.
-static Handle unsignedToLongWord(TaskData *taskData, Handle x)
+Handle unsignedToLongWord(TaskData *taskData, Handle x)
 {
     POLYUNSIGNED wx = x->Word().UnTaggedUnsigned();
     return makeLongWord(taskData, wx);
 }
 
-static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
+Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
 {
     machineDependent->SetCodeConstant(taskData, data, constant, offseth, base);
     return taskData->saveVec.push(TAGGED(0));
@@ -1091,7 +1081,7 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
 
 // This is used after executing each top-level command to minimise the
 // heap size.  It's fairly dubious and there ought to be a better way to do this.
-static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
+Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 /* Shrinks the current stack. */
 {
     unsigned reserved = get_C_unsigned(taskData, DEREFWORDHANDLE(reserved_space));
@@ -1116,588 +1106,10 @@ static Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 
 static unsigned long rtsCallCounts[POLY_SYS_vecsize];
 
-Handle EnterPolyCode(TaskData *taskData)
-/* Called from "main" to enter the code. */
+void IncrementRTSCallCount(unsigned ioFunction)
 {
-    Handle hOriginal = taskData->saveVec.mark(); // Set this up for the IO calls.
-    while (1)
-    {
-        taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
-
-        // Run the ML code and return with the function to call.
-        taskData->inML = true;
-        int ioFunction = machineDependent->SwitchToPoly(taskData);
-        taskData->inML = false;
-
-        if ((debugOptions & DEBUG_RTSCALLS) && ioFunction >= 0 && ioFunction < POLY_SYS_vecsize)
-            rtsCallCounts[ioFunction]++;
-
-        try {
-            switch (ioFunction)
-            {
-            case -1:
-                // We've been interrupted.  This usually involves simulating a
-                // stack overflow so we could come here because of a genuine
-                // stack overflow.
-                // Previously this code was executed on every RTS call but there
-                // were problems on Mac OS X at least with contention on schedLock.
-                taskData->pendingInterrupt = false; // Clear this before we handle these
-                // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(taskData);
-                // Release and re-acquire use of the ML memory to allow another thread
-                // to GC.
-                processes->ThreadReleaseMLMemory(taskData);
-                processes->ThreadUseMLMemory(taskData);
-                break;
-
-            case -2: // A callback has returned.
-                return machineDependent->CallBackResult(taskData);
-
-            case POLY_SYS_exit:
-                machineDependent->CallIO1(taskData, &finishc);
-                break;
-
-            case POLY_SYS_alloc_store:
-                machineDependent->CallIO3(taskData, &alloc_store_long_c);
-                break;
-
-            case POLY_SYS_alloc_uninit:
-                machineDependent->CallIO2(taskData, &alloc_uninit_c);
-                break;
-
-            case POLY_SYS_chdir:
-                machineDependent->CallIO1(taskData, &change_dirc);
-                break;
-
-            case POLY_SYS_get_length:
-                machineDependent->CallIO1(taskData, &vec_length_c);
-                break;
-
-            case POLY_SYS_get_flags:
-                machineDependent->CallIO1(taskData, &get_flags_c);
-                break;
-
-            case POLY_SYS_str_compare:
-                machineDependent->CallIO2(taskData, compareStrings);
-                break;
-
-            case POLY_SYS_teststrgtr:
-                machineDependent->CallIO2(taskData, &testStringGreater);
-                break;
-
-            case POLY_SYS_teststrlss:
-                machineDependent->CallIO2(taskData, &testStringLess);
-                break;
-
-            case POLY_SYS_teststrgeq:
-                machineDependent->CallIO2(taskData, &testStringGreaterOrEqual);
-                break;
-
-            case POLY_SYS_teststrleq:
-                machineDependent->CallIO2(taskData, &testStringLessOrEqual);
-                break;
-
-            case POLY_SYS_exception_trace: // Special case.
-                // This is the legacy version. 
-                machineDependent->SetExceptionTrace(taskData, true);
-                break;
-
-            case POLY_SYS_exception_trace_fn: // Special case.
-                // This is the current version. 
-                machineDependent->SetExceptionTrace(taskData, false);
-                break;
-
-    //        case POLY_SYS_lockseg: machineDependent->CallIO1(taskData, &locksegc); break;
-
-            case POLY_SYS_profiler:
-                machineDependent->CallIO1(taskData, &profilerc);
-                break;
-
-            case POLY_SYS_quotrem:
-                machineDependent->CallIO3(taskData, &quot_rem_c);
-                break;
-
-    //        case POLY_SYS_is_short: machineDependent->CallIO1(taskData, &is_shortc); break;
-
-            case POLY_SYS_aplus:
-                machineDependent->CallIO2(taskData, &add_longc);
-                break;
-
-            case POLY_SYS_aminus:
-                machineDependent->CallIO2(taskData, &sub_longc);
-                break;
-
-            case POLY_SYS_amul:
-                machineDependent->CallIO2(taskData, &mult_longc);
-                break;
-
-            case POLY_SYS_adiv:
-                machineDependent->CallIO2(taskData, &div_longc);
-                break;
-
-            case POLY_SYS_amod:
-                machineDependent->CallIO2(taskData, &rem_longc);
-                break;
-
-            case POLY_SYS_aneg:
-                machineDependent->CallIO1(taskData, &neg_longc);
-                break;
-
-            case POLY_SYS_equala:
-                machineDependent->CallIO2(taskData, &equal_longc);
-                break;
-
-            case POLY_SYS_ora:
-                machineDependent->CallIO2(taskData, &or_longc);
-                break;
-
-            case POLY_SYS_anda:
-                machineDependent->CallIO2(taskData, &and_longc);
-                break;
-
-            case POLY_SYS_xora:
-                machineDependent->CallIO2(taskData, &xor_longc);
-                break;
-
-            case POLY_SYS_Real_str:
-                machineDependent->CallIO3(taskData, &Real_strc);
-                break;
-
-            case POLY_SYS_Real_geq:
-                machineDependent->CallIO2(taskData, &Real_geqc);
-                break;
-
-            case POLY_SYS_Real_leq:
-                machineDependent->CallIO2(taskData, &Real_leqc);
-                break;
-
-            case POLY_SYS_Real_gtr:
-                machineDependent->CallIO2(taskData, &Real_gtrc);
-                break;
-
-            case POLY_SYS_Real_lss:
-                machineDependent->CallIO2(taskData, &Real_lssc);
-                break;
-
-            case POLY_SYS_Real_eq:
-                machineDependent->CallIO2(taskData, &Real_eqc);
-                break;
-
-            case POLY_SYS_Real_neq:
-                machineDependent->CallIO2(taskData, &Real_neqc);
-                break;
-
-            case POLY_SYS_Real_Dispatch:
-                machineDependent->CallIO2(taskData, &Real_dispatchc);
-                break;
-
-            case POLY_SYS_Add_real:
-                machineDependent->CallIO2(taskData, &Real_addc);
-                break;
-
-            case POLY_SYS_Sub_real:
-                machineDependent->CallIO2(taskData, &Real_subc);
-                break;
-
-            case POLY_SYS_Mul_real:
-                machineDependent->CallIO2(taskData, &Real_mulc);
-                break;
-
-            case POLY_SYS_Div_real:
-                machineDependent->CallIO2(taskData, &Real_divc);
-                break;
-
-            case POLY_SYS_Abs_real:
-                machineDependent->CallIO1(taskData, &Real_absc);
-                break;
-
-            case POLY_SYS_Neg_real:
-                machineDependent->CallIO1(taskData, &Real_negc);
-                break;
-
-            case POLY_SYS_Repr_real:
-                machineDependent->CallIO1(taskData, &Real_reprc);
-                break;
-
-            case POLY_SYS_conv_real:
-                machineDependent->CallIO1(taskData, &Real_convc);
-                break;
-
-            case POLY_SYS_real_to_int:
-                machineDependent->CallIO1(taskData, &Real_intc);
-                break;
-
-            case POLY_SYS_int_to_real:
-                machineDependent->CallIO1(taskData, &Real_floatc);
-                break;
-
-            case POLY_SYS_sqrt_real:
-                machineDependent->CallIO1(taskData, &Real_sqrtc);
-                break;
-
-            case POLY_SYS_sin_real:
-                machineDependent->CallIO1(taskData, &Real_sinc);
-                break;
-
-            case POLY_SYS_cos_real:
-                machineDependent->CallIO1(taskData, &Real_cosc);
-                break;
-
-            case POLY_SYS_arctan_real:
-                machineDependent->CallIO1(taskData, &Real_arctanc);
-                break;
-
-            case POLY_SYS_exp_real:
-                machineDependent->CallIO1(taskData, &Real_expc);
-                break;
-
-            case POLY_SYS_ln_real:
-                machineDependent->CallIO1(taskData, &Real_lnc);
-                break;
-
-            case POLY_SYS_io_operation:
-                machineDependent->CallIO1(taskData, &io_operation_c);
-                break;
-
-            case POLY_SYS_atomic_reset:
-                machineDependent->CallIO1(taskData, &AtomicReset);
-                break;
-
-            case POLY_SYS_atomic_incr:
-                machineDependent->CallIO1(taskData, &AtomicIncrement);
-                break;
-
-            case POLY_SYS_atomic_decr:
-                machineDependent->CallIO1(taskData, &AtomicDecrement);
-                break;
-
-            case POLY_SYS_thread_self:
-                machineDependent->CallIO0(taskData, &ThreadSelf);
-                break;
-
-            case POLY_SYS_thread_dispatch:
-                machineDependent->CallIO2(taskData, &ThreadDispatch);
-                break;
-
-//            case POLY_SYS_offset_address: machineDependent->CallIO2(taskData, &offset_addressc); break;
-
-            case POLY_SYS_shift_right_word:
-                machineDependent->CallIO2(taskData, &shift_right_word_c);
-                break;
-    
-            case POLY_SYS_word_neq:
-                machineDependent->CallIO2(taskData, &word_neq_c);
-                break;
-    
-            case POLY_SYS_not_bool:
-                machineDependent->CallIO1(taskData, &not_bool_c);
-                break;
-
-            case POLY_SYS_string_length:
-                machineDependent->CallIO1(taskData, &string_length_c);
-                break;
-
-            case POLY_SYS_int_eq:
-                machineDependent->CallIO2(taskData, &equal_longc);
-                break;
-
-            case POLY_SYS_int_neq:
-                machineDependent->CallIO2(taskData, &not_equal_longc);
-                break;
-
-            case POLY_SYS_int_geq:
-                machineDependent->CallIO2(taskData, &ge_longc);
-                break;
-
-            case POLY_SYS_int_leq:
-                machineDependent->CallIO2(taskData, &le_longc);
-                break;
-
-            case POLY_SYS_int_gtr:
-                machineDependent->CallIO2(taskData, &gt_longc);
-                break;
-
-            case POLY_SYS_int_lss:
-                machineDependent->CallIO2(taskData, &ls_longc);
-                break;
-
-            case POLY_SYS_or_word:
-                machineDependent->CallIO2(taskData, &or_word_c);
-                break;
-
-            case POLY_SYS_and_word:
-                machineDependent->CallIO2(taskData, &and_word_c);
-                break;
-
-            case POLY_SYS_xor_word:
-                machineDependent->CallIO2(taskData, &xor_word_c);
-                break;
-
-            case POLY_SYS_shift_left_word:
-                machineDependent->CallIO2(taskData, &shift_left_word_c);
-                break;
-
-            case POLY_SYS_word_eq:
-                machineDependent->CallIO2(taskData, &word_eq_c);
-                break;
-
-            case POLY_SYS_load_byte:
-            case POLY_SYS_load_byte_immut:
-                machineDependent->CallIO2(taskData, &load_byte_long_c);
-                break;
-
-            case POLY_SYS_load_word:
-            case POLY_SYS_load_word_immut:
-                machineDependent->CallIO2(taskData, &load_word_long_c);
-                break;
-
-    //        case POLY_SYS_is_big_endian: machineDependent->CallIO0(taskData, &is_big_endianc); break;
-    //        case POLY_SYS_bytes_per_word: machineDependent->CallIO0(taskData, &bytes_per_wordc); break;
-
-            case POLY_SYS_assign_byte:
-                machineDependent->CallIO3(taskData, &assign_byte_long_c);
-                break;
-
-            case POLY_SYS_assign_word:
-                machineDependent->CallIO3(taskData, &assign_word_long_c);
-                break;
-
-            // ObjSize and ShowSize are now in the poly_specific functions and
-            // probably should be removed from here.
-            case POLY_SYS_objsize:
-                machineDependent->CallIO1(taskData, &ObjSize);
-                break;
-
-            case POLY_SYS_showsize:
-                machineDependent->CallIO1(taskData, &ShowSize);
-                break;
-
-            case POLY_SYS_timing_dispatch:
-                machineDependent->CallIO2(taskData, &timing_dispatch_c);
-                break;
-
-            case POLY_SYS_XWindows:
-                machineDependent->CallIO1(taskData, &XWindows_c);
-                break;
-
-            case POLY_SYS_full_gc:
-                machineDependent->CallIO0(taskData, &full_gc_c);
-                break;
-
-            case POLY_SYS_stack_trace:
-                machineDependent->CallIO0(taskData, & stack_trace_c);
-                break;
-
-            case POLY_SYS_foreign_dispatch:
-                machineDependent->CallIO2(taskData, &foreign_dispatch_c);
-                break;
-
-            case POLY_SYS_callcode_tupled:
-                machineDependent->CallCodeTupled(taskData);
-                break;
-
-            case POLY_SYS_process_env: machineDependent->CallIO2(taskData, &process_env_dispatch_c); break;
-
-    //        case POLY_SYS_set_string_length: machineDependent->CallIO2(taskData, &set_string_length_c); break;
-
-            case POLY_SYS_shrink_stack:
-                machineDependent->CallIO1(taskData, &shrink_stack_c);
-                break;
-
-            case POLY_SYS_code_flags:
-                machineDependent->CallIO2(taskData, &CodeSegmentFlags);
-                break;
-
-            case POLY_SYS_shift_right_arith_word:
-                machineDependent->CallIO2(taskData, &shift_right_arith_word_c);
-                break;
-
-            case POLY_SYS_get_first_long_word:
-            case POLY_SYS_int_to_word:
-                // POLY_SYS_int_to_word has generally been replaced by POLY_SYS_get_first_long_word.
-                // The reason is that POLY_SYS_int_to_word may be applied to either a long or
-                // a short argument whereas POLY_SYS_get_first_long_word must be applied to a
-                // long argument and can be implemented very easily in the code-generator, at
-                // least on a little-endian machine.
-                machineDependent->CallIO1(taskData, &int_to_word_c);
-                break;
-
-            case POLY_SYS_poly_specific:
-                machineDependent->CallIO2(taskData, &poly_dispatch_c);
-                break;
-
-            case POLY_SYS_bytevec_eq:
-                machineDependent->CallIO5(taskData, &testBytesEqual);
-                break;
-
-            case POLY_SYS_set_code_constant:
-                machineDependent->CallIO4(taskData, &set_code_constant);
-                break;
-
-            case POLY_SYS_move_bytes:
-            case POLY_SYS_move_bytes_overlap:
-                machineDependent->CallIO5(taskData, &move_bytes_long_c);
-                break;
-
-            case POLY_SYS_move_words:
-            case POLY_SYS_move_words_overlap:
-                machineDependent->CallIO5(taskData, &move_words_long_c);
-                break;
-
-            case POLY_SYS_mul_word:
-                machineDependent->CallIO2(taskData, &mul_word_c);
-                break;
-
-            case POLY_SYS_plus_word:
-                machineDependent->CallIO2(taskData, &plus_word_c);
-                break;
-
-            case POLY_SYS_minus_word:
-                machineDependent->CallIO2(taskData, &minus_word_c);
-                break;
-
-            case POLY_SYS_div_word:
-                machineDependent->CallIO2(taskData, &div_word_c);
-                break;
-
-            case POLY_SYS_mod_word:
-                machineDependent->CallIO2(taskData, &mod_word_c);
-                break;
-
-            case POLY_SYS_word_geq:
-                machineDependent->CallIO2(taskData, &word_geq_c);
-                break;
-
-            case POLY_SYS_word_leq:
-                machineDependent->CallIO2(taskData, &word_leq_c);
-                break;
-
-            case POLY_SYS_word_gtr:
-                machineDependent->CallIO2(taskData, &word_gtr_c);
-                break;
-
-            case POLY_SYS_word_lss:
-                machineDependent->CallIO2(taskData, &word_lss_c);
-                break;
-
-            case POLY_SYS_io_dispatch:
-                machineDependent->CallIO3(taskData, &IO_dispatch_c);
-                break;
-
-            case POLY_SYS_network:
-                machineDependent->CallIO2(taskData, &Net_dispatch_c);
-                break;
-
-            case POLY_SYS_os_specific:
-                machineDependent->CallIO2(taskData, &OS_spec_dispatch_c);
-                break;
-
-            case POLY_SYS_signal_handler:
-                machineDependent->CallIO2(taskData, &Sig_dispatch_c);
-                break;
-
-            case POLY_SYS_kill_self:
-                machineDependent->CallIO0(taskData, exitThread);
-                break;
-
-            case POLY_SYS_eq_longword:
-                machineDependent->CallIO2(taskData, &eqLongWord);
-                break;
-
-            case POLY_SYS_neq_longword:
-                machineDependent->CallIO2(taskData, &neqLongWord);
-                break;
-
-            case POLY_SYS_geq_longword:
-                machineDependent->CallIO2(taskData, &geqLongWord);
-                break;
-
-            case POLY_SYS_leq_longword:
-                machineDependent->CallIO2(taskData, &leqLongWord);
-                break;
-
-            case POLY_SYS_gt_longword:
-                machineDependent->CallIO2(taskData, &gtLongWord);
-                break;
-
-            case POLY_SYS_lt_longword:
-                machineDependent->CallIO2(taskData, &ltLongWord);
-                break;
-
-            case POLY_SYS_plus_longword:
-                machineDependent->CallIO2(taskData, &plusLongWord);
-                break;
-
-            case POLY_SYS_minus_longword:
-                machineDependent->CallIO2(taskData, &minusLongWord);
-                break;
-
-            case POLY_SYS_mul_longword:
-                machineDependent->CallIO2(taskData, &mulLongWord);
-                break;
-
-            case POLY_SYS_div_longword:
-                machineDependent->CallIO2(taskData, &divLongWord);
-                break;
-
-            case POLY_SYS_mod_longword:
-                machineDependent->CallIO2(taskData, &modLongWord);
-                break;
-
-            case POLY_SYS_andb_longword:
-                machineDependent->CallIO2(taskData, &andbLongWord);
-                break;
-
-            case POLY_SYS_orb_longword:
-                machineDependent->CallIO2(taskData, &orbLongWord);
-                break;
-
-            case POLY_SYS_xorb_longword:
-                machineDependent->CallIO2(taskData, &xorbLongWord);
-                break;
-
-            case POLY_SYS_shift_left_longword:
-                machineDependent->CallIO2(taskData, &shiftLeftLongWord);
-                break;
-
-            case POLY_SYS_shift_right_longword:
-                machineDependent->CallIO2(taskData, &shiftRightLongWord);
-                break;
-
-            case POLY_SYS_shift_right_arith_longword:
-                machineDependent->CallIO2(taskData, &shiftRightArithLongWord);
-                break;
-
-            case POLY_SYS_longword_to_tagged:
-                machineDependent->CallIO1(taskData, &longWordToTagged);
-                break;
-
-            case POLY_SYS_signed_to_longword:
-                machineDependent->CallIO1(taskData, &signedToLongWord);
-                break;
-
-            case POLY_SYS_unsigned_to_longword:
-                machineDependent->CallIO1(taskData, &unsignedToLongWord);
-                break;
-
-            // This is called from assembly code and doesn't actually have an entry in the
-            // io vector.
-            case POLY_SYS_give_ex_trace:
-                machineDependent->CallIO2(taskData, ex_tracec);
-                break;
-
-            case POLY_SYS_give_ex_trace_fn:
-                machineDependent->CallIO1(taskData, exceptionToTraceException);
-                break;
-
-            default:
-                Crash("Unknown io operation %d\n", ioFunction);
-            }
-        }
-        catch (IOException) {
-        }
-
-    }
+    if ((debugOptions & DEBUG_RTSCALLS) && ioFunction >= 0 && ioFunction < POLY_SYS_vecsize)
+        rtsCallCounts[ioFunction]++;
 }
 
 // This RTS module is defined purely to allow us to print the statistics.

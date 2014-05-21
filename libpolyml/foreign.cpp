@@ -1542,7 +1542,7 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     // now handled on the caller's stack.
     machineDependent->SetCallbackFunction(taskData, h, mlArgs);
 
-    Handle resultHandle = EnterPolyCode(taskData);
+    Handle resultHandle = machineDependent->EnterPolyCode(taskData);
 
     PolyWord resultWord = UNHANDLE(resultHandle);
     taskData->saveVec.reset(mark);

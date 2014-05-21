@@ -95,9 +95,9 @@ public:
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));
 
-Handle AtomicReset(TaskData *taskData, Handle mutexp);
-Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
-Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
+Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp);
+Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp);
+Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp);
 Handle ThreadSelf(TaskData *taskData);
 Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 

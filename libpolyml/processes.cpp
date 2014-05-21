@@ -349,19 +349,19 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 
 // Called from interface vector.  Generally the assembly code will be
 // used instead of this.
-Handle AtomicIncrement(TaskData *taskData, Handle mutexp)
+Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 {
     return machineDependent->AtomicIncrement(taskData, mutexp);
 }
 
 // Called from interface vector.  Generally the assembly code will be
 // used instead of this.
-Handle AtomicDecrement(TaskData *taskData, Handle mutexp)
+Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
 {
     return machineDependent->AtomicDecrement(taskData, mutexp);
 }
 
-Handle AtomicReset(TaskData *taskData, Handle mutexp)
+Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
 {
     machineDependent->AtomicReset(taskData, mutexp);
     return SAVE(TAGGED(0)); // Push the unit result
@@ -1197,7 +1197,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)EnterPolyCode(taskData);
+        (void)machineDependent->EnterPolyCode(taskData);
     }
     catch (KillException) {
         processesModule.ThreadExit(taskData);
