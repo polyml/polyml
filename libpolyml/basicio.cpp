@@ -453,16 +453,6 @@ static int getFileType(int stream)
 }
 #endif
 
-// Retry the call to IO dispatch.  Called if an IO call is interrupted by
-// the user pressing ^C.  This allows the code to have an exception raised in
-// it if the user has typed "f" to the prompt.
-static void retry_rts_call(TaskData *taskData)
-{
-    machineDependent->SetForRetry(taskData, POLY_SYS_io_dispatch);
-    throw IOException(EXC_RETRY);
-}
-
-
 /* Copy a file name to a buffer.  Raises an exception if
    the string will not fit. */
 static void getFileName(TaskData *taskData, Handle name, TCHAR *buff, POLYUNSIGNED buffSize)
@@ -512,14 +502,11 @@ TryAgain:
             return(str_token);
         }
 
-        free_stream_entry(stream_no); /* SPF 12/9/95 */
+        free_stream_entry(stream_no);
         switch (errno)
         {
-        case EINTR:
-            {
-                retry_rts_call(taskData);
-                /*NOTREACHED*/
-            }
+        case EINTR: // Just try the call.  Is it possible to block here indefinitely?
+            goto TryAgain;
         case EMFILE: /* too many open files */
             {
                 if (emfileFlag) /* Previously had an EMFILE error. */
@@ -1132,10 +1119,7 @@ TryAgain:
             switch (errno)
             {
             case EINTR:
-                {
-                    retry_rts_call(taskData);
-                    /*NOTREACHED*/
-                }
+                goto TryAgain; // Just retry the call.
             case EMFILE:
                 {
                     if (emfileFlag) /* Previously had an EMFILE error. */

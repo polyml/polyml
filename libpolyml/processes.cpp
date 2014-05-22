@@ -594,7 +594,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
         // These will be handled "soon" but if we have just switched from deferring
         // interrupts this guarantees that any deferred interrupts will be handled now.
         if (ProcessAsynchRequests(taskData))
-            throw IOException(EXC_EXCEPTION);
+            throw IOException();
         return SAVE(TAGGED(0));
 
     case 12: // Kill a specific thread
@@ -989,7 +989,7 @@ void Processes::BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInt
     // there has been a signal.
     if (posixInterruptable && lastSigCount != receivedSignalCount)
         raise_syscall(taskData, "Call interrupted by signal", EINTR);
-    throw IOException(EXC_EXCEPTION);
+    throw IOException();
     /* NOTREACHED */
 }
 
@@ -1647,7 +1647,7 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
                 ptaskData->threadObject->requestCopy = TAGGED(0);
                 schedLock.Unlock();
                 machineDependent->SetException(taskData, interrupt_exn);
-                throw IOException(EXC_EXCEPTION);
+                throw IOException();
             }
             else schedLock.Unlock();
         }
@@ -1665,7 +1665,7 @@ void Processes::TestAnyEvents(TaskData *taskData)
 {
     TestSynchronousRequests(taskData);
     if (ProcessAsynchRequests(taskData))
-        throw IOException(EXC_EXCEPTION);
+        throw IOException();
 }
 
 // Stop.  Usually called by one of the threads but

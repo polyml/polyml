@@ -33,18 +33,11 @@ class TaskData;
 // Exceptions thrown by C++ code.  Indicates that the caller should not return normally.
 // They can be thrown in one of two different situations:
 // 1.  The IO function needs to raise an ML exception
-// 2.  The IO function needs to retry the call.  There may have been a process switch.
-enum EXCEPTION_REASON {
-    EXC_EXCEPTION,
-    EXC_RETRY
-};
+// 2.  The IO function needs to retry the call.
 
 class IOException {
 public:
-    IOException(enum EXCEPTION_REASON reason):
-      m_reason(reason)
-      { }
-    enum EXCEPTION_REASON m_reason;
+    IOException() { }
 };
 
 // This exception is used in the exporter and sharedata code.  It is

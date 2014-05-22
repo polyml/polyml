@@ -1264,7 +1264,7 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
             // Raise a C++ exception.  If the foreign function that called this callback
             // doesn't handle the exception it will be raised in the calling ML function.
             // But if it is caught we may have a problem ...
-            throw IOException(EXC_EXCEPTION);
+            throw IOException();
 
         default:
             Crash("Unknown return reason code %u", mdTask->memRegisters.returnReason);

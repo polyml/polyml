@@ -166,7 +166,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     if (foundSpace == 0)
     {
         // Failed - the thread is set to raise an exception.
-        throw IOException(EXC_EXCEPTION);
+        throw IOException();
     }
 
     PolyObject *pObj = (PolyObject*)(foundSpace + 1);
@@ -297,7 +297,7 @@ void raise_exception(TaskData *taskData, int id, Handle arg)
        process handle just in case a GC while creating the packet
        moves the process and/or the stack. */
     machineDependent->SetException(taskData, DEREFEXNHANDLE(exn));
-    throw IOException(EXC_EXCEPTION); /* Return to Poly code immediately. */
+    throw IOException(); /* Return to Poly code immediately. */
     /*NOTREACHED*/
 }
 
@@ -475,7 +475,7 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     /* Set the exception data back again. */
     machineDependent->SetException(taskData, (poly_exn *)DEREFHANDLE(exnHandle));
     
-    throw IOException(EXC_EXCEPTION); /* Reraise the exception. */
+    throw IOException(); /* Reraise the exception. */
     /*NOTREACHED*/
 }
 
