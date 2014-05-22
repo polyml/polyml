@@ -152,7 +152,6 @@ extern Handle shiftRightArithLongWord(TaskData *taskData, Handle y, Handle x);
 extern Handle longWordToTagged(TaskData *taskData, Handle x);
 extern Handle signedToLongWord(TaskData *taskData, Handle x);
 extern Handle unsignedToLongWord(TaskData *taskData, Handle x);
-extern Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
 extern Handle get_flags_c(TaskData *taskData, Handle addr_handle);
 extern Handle io_operation_c(TaskData *taskData, Handle entry);
 extern Handle full_gc_c(TaskData *taskData);

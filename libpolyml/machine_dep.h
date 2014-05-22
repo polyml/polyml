@@ -84,9 +84,6 @@ public:
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
     virtual Architectures MachineArchitecture(void) = 0; 
 
-    // This is machine-dependent but not always required.  It is used in the code-generator.
-    virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base) {}
-
     virtual void SetForRetry(TaskData *taskData, int ioCall) = 0;
     virtual void InterruptCode(TaskData *taskData) = 0;
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
@@ -94,10 +91,6 @@ public:
     // the task data object passed in is that of the parent.
     virtual void InitStackFrame(TaskData *parentTaskData, StackSpace *space, Handle proc, Handle arg) = 0;
     virtual void SetException(TaskData *taskData, poly_exn *exc) = 0;
-    // These next two are sufficiently different that they need to be implemented
-    // as special cases.
-    virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy) = 0;
-    virtual void CallCodeTupled(TaskData *taskData) = 0;
     // This is used to get the argument to the callback_result function.
     virtual Handle CallBackResult(TaskData *taskData) = 0;
     // If a foreign function calls back to ML we need to set up the call to the

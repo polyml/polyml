@@ -1035,12 +1035,6 @@ Handle unsignedToLongWord(TaskData *taskData, Handle x)
     return makeLongWord(taskData, wx);
 }
 
-Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
-{
-    machineDependent->SetCodeConstant(taskData, data, constant, offseth, base);
-    return taskData->saveVec.push(TAGGED(0));
-}
-
 void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
 /* Expands the current stack if it has grown. We cannot shrink a stack segment
    when it grows smaller because the frame is checked only at the beginning of

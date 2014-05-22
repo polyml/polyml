@@ -193,7 +193,7 @@ public:
 #else /* HOSTARCHITECTURE_X86_64 */
          { return MA_X86_64; }
 #endif /* HOSTARCHITECTURE_X86_64 */
-    virtual void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
+    static void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
 
     int SwitchToPoly(TaskData *taskData);
     virtual void SetForRetry(TaskData *taskData, int ioCall);
@@ -201,15 +201,9 @@ public:
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
     virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
     virtual void SetException(TaskData *taskData, poly_exn *exc);
-    void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *));
-    void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle));
-    void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle));
-    void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle));
-    void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle));
-    void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle));
     virtual Handle CallBackResult(TaskData *taskData) { return ((X86TaskData*)taskData->mdTaskData)->callBackResult; } 
-    virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy);
-    virtual void CallCodeTupled(TaskData *taskData);
+    void SetExceptionTrace(TaskData *taskData, bool isLegacy);
+    void CallCodeTupled(TaskData *taskData);
     virtual void SetCallbackFunction(TaskData *taskData, Handle func, Handle args);
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
@@ -469,6 +463,108 @@ extern "C" {
     extern int mod_longword(), andb_longword(), orb_longword(), xorb_longword();
     extern int shift_left_longword(), shift_right_longword(), shift_right_arith_longword();
 };
+
+static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
+{
+    X86Dependent::SetCodeConstant(taskData, data, constant, offseth, base);
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+// IO Functions called indirectly from assembly code.
+static void CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
+{
+    // Set the return address now.
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle result = (*ioFun)(taskData);
+    PSP_EAX(taskData) = result->Word();
+    // If this is a normal return we can pop the return address.
+    // If this has raised an exception, set for retry or changed process
+    // we mustn't.  N,B, The return address could have changed because of GC
+    PSP_SP(taskData)++;
+}
+
+static void CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
+{
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle result = (*ioFun)(taskData, saved1);
+    PSP_EAX(taskData) = result->Word();
+    PSP_SP(taskData)++; // Pop the return address.
+}
+
+static void CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
+{
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
+    Handle result = (*ioFun)(taskData, saved2, saved1);
+    PSP_EAX(taskData) = result->Word();
+    PSP_SP(taskData)++;
+}
+
+static void CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
+{
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
+#ifndef HOSTARCHITECTURE_X86_64
+    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[1]);
+#else /* HOSTARCHITECTURE_X86_64 */
+    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
+#endif /* HOSTARCHITECTURE_X86_64 */
+    Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
+    PSP_EAX(taskData) = result->Word();
+#ifndef HOSTARCHITECTURE_X86_64
+    PSP_SP(taskData) += 2; // Pop the return address and a stack arg.
+#else /* HOSTARCHITECTURE_X86_64 */
+    PSP_SP(taskData)++;
+#endif /* HOSTARCHITECTURE_X86_64 */
+}
+
+static void CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
+{
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
+#ifndef HOSTARCHITECTURE_X86_64
+    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[2]);
+    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[1]);
+#else /* HOSTARCHITECTURE_X86_64 */
+    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
+    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
+#endif /* HOSTARCHITECTURE_X86_64 */
+    Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
+    PSP_EAX(taskData) = result->Word();
+#ifndef HOSTARCHITECTURE_X86_64
+    PSP_SP(taskData) += 3; // Pop the return address and two stack args.
+#else /* HOSTARCHITECTURE_X86_64 */
+    PSP_SP(taskData)++;
+#endif /* HOSTARCHITECTURE_X86_64 */
+}
+
+// The only functions with 5 args are move_bytes/word_long
+static void CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
+{
+    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
+    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
+#ifndef HOSTARCHITECTURE_X86_64
+    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[3]);
+    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[2]);
+    Handle saved5 = taskData->saveVec.push(PSP_SP(taskData)[1]);
+#else /* HOSTARCHITECTURE_X86_64 */
+    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
+    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
+    Handle saved5 = taskData->saveVec.push(PSP_R10(taskData));
+#endif /* HOSTARCHITECTURE_X86_64 */
+    Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
+    PSP_EAX(taskData) = result->Word();
+#ifndef HOSTARCHITECTURE_X86_64
+    PSP_SP(taskData) += 4; // Pop the return address and 3 stack args
+#else /* HOSTARCHITECTURE_X86_64 */
+    PSP_SP(taskData)++;
+#endif /* HOSTARCHITECTURE_X86_64 */
+}
 
 Handle X86Dependent::EnterPolyCode(TaskData *taskData)
 /* Called from "main" to enter the code. */
@@ -1050,7 +1146,6 @@ Handle X86Dependent::EnterPolyCode(TaskData *taskData)
         }
         catch (IOException) {
         }
-
     }
 }
 
@@ -1233,168 +1328,6 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, StackSpace *space, H
     PolyWord killJump = killCode->Word();
     // Normal return address and exception handler.
     newStack->Set(topStack, killJump);
-}
-
-// IO Functions called indirectly from assembly code.
-void X86Dependent::CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
-{
-    // Set the return address now.
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    try {
-        Handle result = (*ioFun)(taskData);
-        PSP_EAX(taskData) = result->Word();
-        // If this is a normal return we can pop the return address.
-        // If this has raised an exception, set for retry or changed process
-        // we mustn't.  N,B, The return address could have changed because of GC
-        PSP_SP(taskData)++;
-    }
-    catch (IOException exc) {
-        switch (exc.m_reason)
-        {
-        case EXC_EXCEPTION:
-            return;
-        case EXC_RETRY:
-            return;
-        }
-    }
-}
-
-void X86Dependent::CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
-{
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    try {
-        Handle result = (*ioFun)(taskData, saved1);
-        PSP_EAX(taskData) = result->Word();
-        PSP_SP(taskData)++; // Pop the return address.
-    }
-    catch (IOException exc) {
-        switch (exc.m_reason)
-        {
-        case EXC_EXCEPTION:
-            return;
-        case EXC_RETRY:
-            return;
-        }
-    }
-}
-
-void X86Dependent::CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
-{
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
-    try {
-        Handle result = (*ioFun)(taskData, saved2, saved1);
-        PSP_EAX(taskData) = result->Word();
-        PSP_SP(taskData)++;
-    }
-    catch (IOException exc) {
-        switch (exc.m_reason)
-        {
-        case EXC_EXCEPTION:
-            return;
-        case EXC_RETRY:
-            return;
-        }
-    }
-}
-
-void X86Dependent::CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
-{
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
-#ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[1]);
-#else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
-#endif /* HOSTARCHITECTURE_X86_64 */
-    try {
-        Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
-        PSP_EAX(taskData) = result->Word();
-#ifndef HOSTARCHITECTURE_X86_64
-        PSP_SP(taskData) += 2; // Pop the return address and a stack arg.
-#else /* HOSTARCHITECTURE_X86_64 */
-        PSP_SP(taskData)++;
-#endif /* HOSTARCHITECTURE_X86_64 */
-    }
-    catch (IOException exc) {
-        switch (exc.m_reason)
-        {
-        case EXC_EXCEPTION:
-            return;
-        case EXC_RETRY:
-            return;
-        }
-    }
-}
-
-void X86Dependent::CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
-{
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
-#ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[2]);
-    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[1]);
-#else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
-    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
-#endif /* HOSTARCHITECTURE_X86_64 */
-    try {
-        Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
-        PSP_EAX(taskData) = result->Word();
-#ifndef HOSTARCHITECTURE_X86_64
-        PSP_SP(taskData) += 3; // Pop the return address and two stack args.
-#else /* HOSTARCHITECTURE_X86_64 */
-        PSP_SP(taskData)++;
-#endif /* HOSTARCHITECTURE_X86_64 */
-    }
-    catch (IOException exc) {
-        switch (exc.m_reason)
-        {
-        case EXC_EXCEPTION:
-            return;
-        case EXC_RETRY:
-            return;
-        }
-    }
-}
-
-// The only functions with 5 args are move_bytes/word_long
-void X86Dependent::CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
-{
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
-#ifndef HOSTARCHITECTURE_X86_64
-    Handle saved3 = taskData->saveVec.push(PSP_SP(taskData)[3]);
-    Handle saved4 = taskData->saveVec.push(PSP_SP(taskData)[2]);
-    Handle saved5 = taskData->saveVec.push(PSP_SP(taskData)[1]);
-#else /* HOSTARCHITECTURE_X86_64 */
-    Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
-    Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
-    Handle saved5 = taskData->saveVec.push(PSP_R10(taskData));
-#endif /* HOSTARCHITECTURE_X86_64 */
-    try {
-        Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
-        PSP_EAX(taskData) = result->Word();
-#ifndef HOSTARCHITECTURE_X86_64
-        PSP_SP(taskData) += 4; // Pop the return address and 3 stack args
-#else /* HOSTARCHITECTURE_X86_64 */
-        PSP_SP(taskData)++;
-#endif /* HOSTARCHITECTURE_X86_64 */
-    }
-    catch (IOException exc) {
-        switch (exc.m_reason)
-        {
-        case EXC_EXCEPTION:
-            return;
-        case EXC_RETRY:
-            return;
-        }
-    }
 }
 
 // Build an ML code segment to hold a copy of a piece of code

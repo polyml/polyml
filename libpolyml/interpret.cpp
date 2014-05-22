@@ -132,23 +132,10 @@ public:
     // GetPCandSPFromContext is used in time profiling.  We can't get accurate info so return false.
     virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc)
         { return false; }
-    void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *));
-    void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle));
-    void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle));
-    void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle));
-    void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle));
-    void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle));
 
     virtual Handle CallBackResult(TaskData *taskData);
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
 
-    // These next two have to be handled as special cases.  They need to jump
-    // to CALL_CLOSURE to handle the cases where the functions we are tracing or
-    // calling are actually IO functions and don't have code addresses.  Actually
-    // we could instead make the interpreter handle small tagged integers as
-    // code addresses specially.
-    virtual void SetExceptionTrace(TaskData *taskData, bool isLegacy) { ASSERT(false); }
-    virtual void CallCodeTupled(TaskData *taskData) { ASSERT(false); }
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
     virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
@@ -1298,6 +1285,67 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
      return 0;
 } /* MD_switch_to_poly */
 
+static void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *))
+{
+    Handle result = (*ioFun)(taskData);
+    *(taskData->stack->stack()->p_sp) = result->Word();
+    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+}
+
+static void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle))
+{
+    Handle funarg = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    Handle result = (*ioFun)(taskData, funarg);
+    *(++taskData->stack->stack()->p_sp) = result->Word();
+    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+}
+
+static void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle))
+{
+    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
+    Handle result = (*ioFun)(taskData, funarg1, funarg2);
+    taskData->stack->stack()->p_sp += 2;
+    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
+    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+}
+
+static void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle))
+{
+    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
+    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
+    Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3);
+    taskData->stack->stack()->p_sp += 3;
+    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
+    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+}
+
+static void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
+{
+    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
+    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
+    Handle funarg4 = taskData->saveVec.push(taskData->stack->stack()->p_sp[4]);
+    Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4);
+    taskData->stack->stack()->p_sp += 4;
+    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
+    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+}
+
+static void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
+{
+    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
+    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
+    Handle funarg4 = taskData->saveVec.push(taskData->stack->stack()->p_sp[4]);
+    Handle funarg5 = taskData->saveVec.push(taskData->stack->stack()->p_sp[5]);
+    Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4, funarg5);
+    taskData->stack->stack()->p_sp += 5;
+    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
+    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+}
+
 Handle Interpreter::EnterPolyCode(TaskData *taskData)
 /* Called from "main" to enter the code. */
 {
@@ -1351,10 +1399,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 CallIO1(taskData, &change_dirc);
                 break;
 
-            case POLY_SYS_get_length:
-                CallIO1(taskData, &vec_length_c);
-                break;
-
             case POLY_SYS_get_flags:
                 CallIO1(taskData, &get_flags_c);
                 break;
@@ -1379,18 +1423,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 CallIO2(taskData, &testStringLessOrEqual);
                 break;
 
-            case POLY_SYS_exception_trace: // Special case.
-                // This is the legacy version. 
-                SetExceptionTrace(taskData, true);
-                break;
-
-            case POLY_SYS_exception_trace_fn: // Special case.
-                // This is the current version. 
-                SetExceptionTrace(taskData, false);
-                break;
-
-    //        case POLY_SYS_lockseg: CallIO1(taskData, &locksegc); break;
-
             case POLY_SYS_profiler:
                 CallIO1(taskData, &profilerc);
                 break;
@@ -1398,8 +1430,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
             case POLY_SYS_quotrem:
                 CallIO3(taskData, &quot_rem_c);
                 break;
-
-    //        case POLY_SYS_is_short: CallIO1(taskData, &is_shortc); break;
 
             case POLY_SYS_aplus:
                 CallIO2(taskData, &add_longc);
@@ -1537,10 +1567,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 CallIO1(taskData, &Real_lnc);
                 break;
 
-            case POLY_SYS_io_operation:
-                CallIO1(taskData, &io_operation_c);
-                break;
-
             case POLY_SYS_atomic_reset:
                 CallIO1(taskData, &ProcessAtomicReset);
                 break;
@@ -1561,32 +1587,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 CallIO2(taskData, &ThreadDispatch);
                 break;
 
-//            case POLY_SYS_offset_address: CallIO2(taskData, &offset_addressc); break;
-
-            case POLY_SYS_shift_right_word:
-                CallIO2(taskData, &shift_right_word_c);
-                break;
-    
-            case POLY_SYS_word_neq:
-                CallIO2(taskData, &word_neq_c);
-                break;
-    
-            case POLY_SYS_not_bool:
-                CallIO1(taskData, &not_bool_c);
-                break;
-
-            case POLY_SYS_string_length:
-                CallIO1(taskData, &string_length_c);
-                break;
-
-            case POLY_SYS_int_eq:
-                CallIO2(taskData, &equal_longc);
-                break;
-
-            case POLY_SYS_int_neq:
-                CallIO2(taskData, &not_equal_longc);
-                break;
-
             case POLY_SYS_int_geq:
                 CallIO2(taskData, &ge_longc);
                 break;
@@ -1601,47 +1601,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_int_lss:
                 CallIO2(taskData, &ls_longc);
-                break;
-
-            case POLY_SYS_or_word:
-                CallIO2(taskData, &or_word_c);
-                break;
-
-            case POLY_SYS_and_word:
-                CallIO2(taskData, &and_word_c);
-                break;
-
-            case POLY_SYS_xor_word:
-                CallIO2(taskData, &xor_word_c);
-                break;
-
-            case POLY_SYS_shift_left_word:
-                CallIO2(taskData, &shift_left_word_c);
-                break;
-
-            case POLY_SYS_word_eq:
-                CallIO2(taskData, &word_eq_c);
-                break;
-
-            case POLY_SYS_load_byte:
-            case POLY_SYS_load_byte_immut:
-                CallIO2(taskData, &load_byte_long_c);
-                break;
-
-            case POLY_SYS_load_word:
-            case POLY_SYS_load_word_immut:
-                CallIO2(taskData, &load_word_long_c);
-                break;
-
-    //        case POLY_SYS_is_big_endian: CallIO0(taskData, &is_big_endianc); break;
-    //        case POLY_SYS_bytes_per_word: CallIO0(taskData, &bytes_per_wordc); break;
-
-            case POLY_SYS_assign_byte:
-                CallIO3(taskData, &assign_byte_long_c);
-                break;
-
-            case POLY_SYS_assign_word:
-                CallIO3(taskData, &assign_word_long_c);
                 break;
 
             // ObjSize and ShowSize are now in the poly_specific functions and
@@ -1674,13 +1633,7 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 CallIO2(taskData, &foreign_dispatch_c);
                 break;
 
-            case POLY_SYS_callcode_tupled:
-                CallCodeTupled(taskData);
-                break;
-
             case POLY_SYS_process_env: CallIO2(taskData, &process_env_dispatch_c); break;
-
-    //        case POLY_SYS_set_string_length: CallIO2(taskData, &set_string_length_c); break;
 
             case POLY_SYS_shrink_stack:
                 CallIO1(taskData, &shrink_stack_c);
@@ -1688,10 +1641,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
 
             case POLY_SYS_code_flags:
                 CallIO2(taskData, &CodeSegmentFlags);
-                break;
-
-            case POLY_SYS_shift_right_arith_word:
-                CallIO2(taskData, &shift_right_arith_word_c);
                 break;
 
             case POLY_SYS_get_first_long_word:
@@ -1712,9 +1661,9 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 CallIO5(taskData, &testBytesEqual);
                 break;
 
-            case POLY_SYS_set_code_constant:
-                CallIO4(taskData, &set_code_constant);
-                break;
+//            case POLY_SYS_set_code_constant: // Not used in the interpreter
+//                CallIO4(taskData, &set_code_constant);
+//                break;
 
             case POLY_SYS_move_bytes:
             case POLY_SYS_move_bytes_overlap:
@@ -1724,42 +1673,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
             case POLY_SYS_move_words:
             case POLY_SYS_move_words_overlap:
                 CallIO5(taskData, &move_words_long_c);
-                break;
-
-            case POLY_SYS_mul_word:
-                CallIO2(taskData, &mul_word_c);
-                break;
-
-            case POLY_SYS_plus_word:
-                CallIO2(taskData, &plus_word_c);
-                break;
-
-            case POLY_SYS_minus_word:
-                CallIO2(taskData, &minus_word_c);
-                break;
-
-            case POLY_SYS_div_word:
-                CallIO2(taskData, &div_word_c);
-                break;
-
-            case POLY_SYS_mod_word:
-                CallIO2(taskData, &mod_word_c);
-                break;
-
-            case POLY_SYS_word_geq:
-                CallIO2(taskData, &word_geq_c);
-                break;
-
-            case POLY_SYS_word_leq:
-                CallIO2(taskData, &word_leq_c);
-                break;
-
-            case POLY_SYS_word_gtr:
-                CallIO2(taskData, &word_gtr_c);
-                break;
-
-            case POLY_SYS_word_lss:
-                CallIO2(taskData, &word_lss_c);
                 break;
 
             case POLY_SYS_io_dispatch:
@@ -1879,92 +1792,6 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
         catch (IOException) {
         }
 
-    }
-}
-
-
-void Interpreter::CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *))
-{
-    try {
-        Handle result = (*ioFun)(taskData);
-        *(taskData->stack->stack()->p_sp) = result->Word();
-        taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-    }
-    catch (IOException) {
-    }
-}
-
-void Interpreter::CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle))
-{
-    Handle funarg = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    try {
-        Handle result = (*ioFun)(taskData, funarg);
-        *(++taskData->stack->stack()->p_sp) = result->Word();
-        taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-    }
-    catch (IOException) {
-    }
-}
-
-void Interpreter::CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle))
-{
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    try {
-        Handle result = (*ioFun)(taskData, funarg1, funarg2);
-        taskData->stack->stack()->p_sp += 2;
-        *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-        taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-    }
-    catch (IOException) {
-    }
-}
-
-void Interpreter::CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle))
-{
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
-    try {
-        Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3);
-        taskData->stack->stack()->p_sp += 3;
-        *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-        taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-    }
-    catch (IOException) {
-    }
-}
-
-void Interpreter::CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
-{
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
-    Handle funarg4 = taskData->saveVec.push(taskData->stack->stack()->p_sp[4]);
-    try {
-        Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4);
-        taskData->stack->stack()->p_sp += 4;
-        *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-        taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-    }
-    catch (IOException) {
-    }
-}
-
-void Interpreter::CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
-{
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
-    Handle funarg4 = taskData->saveVec.push(taskData->stack->stack()->p_sp[4]);
-    Handle funarg5 = taskData->saveVec.push(taskData->stack->stack()->p_sp[5]);
-    try {
-        Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4, funarg5);
-        taskData->stack->stack()->p_sp += 5;
-        *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-        taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
-    }
-    catch (IOException) {
     }
 }
 
