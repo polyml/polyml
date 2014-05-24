@@ -1126,7 +1126,7 @@ static void *NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)EnterPolyCode(taskData); // Will normally (always?) call ExitThread.
+        (void)taskData->EnterPolyCode(); // Will normally (always?) call ExitThread.
     }
     catch (KillException) {
         processesModule.ThreadExit(taskData);
@@ -1159,7 +1159,7 @@ static void NewThreadFunction(void *parameter)
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)EnterPolyCode(taskData);
+        (void)taskData->EnterPolyCode();
     }
     catch (KillException) {
         processesModule.ThreadExit(taskData);
@@ -1806,7 +1806,7 @@ void Processes::StartProfiling(void)
         TaskData *taskData = taskArray[i];
         if (taskData)
         {
-            machineDependent->InterruptCode(taskData);
+            taskData->InterruptCode();
         }
     }
     StartProfilingTimer(); // Start the timer in the root thread.

@@ -162,7 +162,9 @@ private:
     LONGLONG lastCPUTime; // Used for profiling
 #endif
 #ifdef HAVE_PTHREAD
+public:
     bool threadExited;
+private:
 #endif
 #ifdef HAVE_WINDOWS_H
     HANDLE threadHandle;
