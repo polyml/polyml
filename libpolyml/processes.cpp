@@ -141,50 +141,6 @@
 #define PFLAG_INTMASK       6   // Mask of the above bits
 
 
-// Other threads may make requests to a thread.
-typedef enum {
-    kRequestNone = 0, // Increasing severity
-    kRequestInterrupt = 1,
-    kRequestKill = 2
-} ThreadRequests;
-
-class ProcessTaskData: public TaskData
-{
-public:
-    ProcessTaskData();
-    ~ProcessTaskData();
-
-    virtual void Lock(void) {}
-    virtual void Unlock(void) {}
-
-    virtual void GarbageCollect(ScanAddress *process);
-
-    // If a thread has to block it will block on this.
-    PCondVar threadLock;
-    // External requests made are stored here until they
-    // can be actioned.
-    ThreadRequests requests;
-    // Pointer to the mutex when blocked. Set to NULL when it doesn't apply.
-    PolyObject *blockMutex;
-    // This is set to false when a thread blocks or enters foreign code,
-    // While it is true the thread can manipulate ML memory so no other
-    // thread can garbage collect.
-    bool inMLHeap;
-
-    // In Linux, at least, we need to run a separate timer in each thread
-    bool runningProfileTimer;
-
-#ifdef HAVE_WINDOWS_H
-    LONGLONG lastCPUTime; // Used for profiling
-#endif
-#ifdef HAVE_PTHREAD
-    bool threadExited;
-#endif
-#ifdef HAVE_WINDOWS_H
-    HANDLE threadHandle;
-#endif
-};
-
 class Processes: public ProcessExternal, public RtsModule
 {
 public:
@@ -212,7 +168,7 @@ public:
     virtual bool ForkFromRTS(TaskData *taskData, Handle proc, Handle arg);
     // Create a new thread.  The "args" argument is only used for threads
     // created in the RTS by the signal handler.
-    Handle ForkThread(ProcessTaskData *taskData, Handle threadFunction,
+    Handle ForkThread(TaskData *taskData, Handle threadFunction,
                     Handle args, PolyWord flags);
     // Process general RTS requests from ML.
     Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
@@ -237,7 +193,7 @@ public:
 
     // Set a thread to be interrupted or killed.  Wakes up the
     // thread if necessary.  MUST be called with taskArrayLock held.
-    void MakeRequest(ProcessTaskData *p, ThreadRequests request);
+    void MakeRequest(TaskData *p, ThreadRequests request);
 
     // Profiling control.
     virtual void StartProfiling(void);
@@ -257,7 +213,7 @@ public:
 
     // Find a task that matches the specified identifier and returns
     // it if it exists.  MUST be called with taskArrayLock held.
-    ProcessTaskData *TaskForIdentifier(Handle taskId);
+    TaskData *TaskForIdentifier(Handle taskId);
 
     // Signal handling support.  The ML signal handler thread blocks until it is
     // woken up by the signal detection thread.
@@ -272,7 +228,7 @@ public:
     bool singleThreaded;
 
     // Each thread has an entry in this array.
-    ProcessTaskData **taskArray;
+    TaskData **taskArray;
     unsigned taskArraySize; // Current size of the array.
 
     /* schedLock: This lock must be held when making scheduling decisions.
@@ -318,7 +274,7 @@ public:
     LONGLONG lastCPUTime; // CPU used by main thread.
 #endif
 
-    ProcessTaskData *sigTask;  // Pointer to current signal task.
+    TaskData *sigTask;  // Pointer to current signal task.
 };
 
 // Global process data.
@@ -351,19 +307,19 @@ static POLYUNSIGNED ThreadAttrs(TaskData *taskData)
 // used instead of this.
 Handle ProcessAtomicIncrement(TaskData *taskData, Handle mutexp)
 {
-    return machineDependent->AtomicIncrement(taskData, mutexp);
+    return taskData->AtomicIncrement(mutexp);
 }
 
 // Called from interface vector.  Generally the assembly code will be
 // used instead of this.
 Handle ProcessAtomicDecrement(TaskData *taskData, Handle mutexp)
 {
-    return machineDependent->AtomicDecrement(taskData, mutexp);
+    return taskData->AtomicDecrement(mutexp);
 }
 
 Handle ProcessAtomicReset(TaskData *taskData, Handle mutexp)
 {
-    machineDependent->AtomicReset(taskData, mutexp);
+    taskData->AtomicReset(mutexp);
     return SAVE(TAGGED(0)); // Push the unit result
 }
 
@@ -384,7 +340,7 @@ Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_int(taskData, DEREFWORDHANDLE(code));
-    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    TaskData *ptaskData = taskData;
     switch (c)
     {
     case 1: /* A mutex was locked i.e. the count was ~1 or less.  We will have set it to
@@ -450,7 +406,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             // Unlock any waiters.
             for (unsigned i = 0; i < taskArraySize; i++)
             {
-                ProcessTaskData *p = taskArray[i];
+                TaskData *p = taskArray[i];
                 // If the thread is blocked on this mutex we can signal the thread.
                 if (p && p->blockMutex == DEREFHANDLE(args))
                     p->threadLock.Signal();
@@ -500,15 +456,15 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             schedLock.Lock();
             // Atomically release the mutex.  This is atomic because we hold schedLock
             // so no other thread can call signal or broadcast.
-            Handle decrResult = machineDependent->AtomicIncrement(taskData, mutexH);
+            Handle decrResult = taskData->AtomicIncrement(mutexH);
             if (UNTAGGED(decrResult->Word()) != 1)
             {
-                machineDependent->AtomicReset(taskData, mutexH);
+                taskData->AtomicReset(mutexH);
                 // The mutex was locked so we have to release any waiters.
                 // Unlock any waiters.
                 for (unsigned i = 0; i < taskArraySize; i++)
                 {
-                    ProcessTaskData *p = taskArray[i];
+                    TaskData *p = taskArray[i];
                     // If the thread is blocked on this mutex we can signal the thread.
                     if (p && p->blockMutex == DEREFHANDLE(mutexH))
                         p->threadLock.Signal();
@@ -544,7 +500,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             // Acquire the schedLock first.  This ensures that this is
             // atomic with respect to waiting.
             schedLock.Lock();
-            ProcessTaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args);
             if (p && p->threadObject == args->WordP())
             {
                 POLYUNSIGNED attrs = ThreadAttrs(p) & PFLAG_INTMASK;
@@ -568,7 +524,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 8: // Test if a thread is active
         {
             schedLock.Lock();
-            ProcessTaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args);
             schedLock.Unlock();
             return SAVE(TAGGED(p != 0));
         }
@@ -576,7 +532,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 9: // Send an interrupt to a specific thread
         {
             schedLock.Lock();
-            ProcessTaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args);
             if (p) MakeRequest(p, kRequestInterrupt);
             schedLock.Unlock();
             if (p == 0)
@@ -600,7 +556,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 12: // Kill a specific thread
         {
             schedLock.Lock();
-            ProcessTaskData *p = TaskForIdentifier(args);
+            TaskData *p = TaskForIdentifier(args);
             if (p) MakeRequest(p, kRequestKill);
             schedLock.Unlock();
             if (p == 0)
@@ -626,20 +582,6 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     }
 }
 
-TaskData::TaskData(): mdTaskData(0), allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
-        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false), foreignStack(TAGGED(0)),
-        inML(false)
-{
-}
-
-TaskData::~TaskData()
-{
-    if (signalStack) free(signalStack);
-    if (stack) gMem.DeleteStackSpace(stack);
-    delete(mdTaskData);
-}
-
-
 // Fill unused allocation space with a dummy object to preserve the invariant
 // that memory is always valid.
 void TaskData::FillUnusedSpace(void)
@@ -648,7 +590,10 @@ void TaskData::FillUnusedSpace(void)
         gMem.FillUnusedSpace(allocLimit, allocPointer-allocLimit); 
 }
 
-ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLHeap(false),
+
+TaskData::TaskData(): allocPointer(0), allocLimit(0), allocSize(MIN_HEAP_SIZE), allocCount(0),
+        stack(0), threadObject(0), signalStack(0), pendingInterrupt(false), foreignStack(TAGGED(0)),
+        inML(false), requests(kRequestNone), blockMutex(0), inMLHeap(false),
         runningProfileTimer(false)
 {
 #ifdef HAVE_WINDOWS_H
@@ -662,8 +607,10 @@ ProcessTaskData::ProcessTaskData(): requests(kRequestNone), blockMutex(0), inMLH
 #endif
 }
 
-ProcessTaskData::~ProcessTaskData()
+TaskData::~TaskData()
 {
+    if (signalStack) free(signalStack);
+    if (stack) gMem.DeleteStackSpace(stack);
 #ifdef HAVE_WINDOWS_H
     if (threadHandle) CloseHandle(threadHandle);
 #endif
@@ -672,14 +619,14 @@ ProcessTaskData::~ProcessTaskData()
 
 // Find a task that matches the specified identifier and returns
 // it if it exists.  MUST be called with taskArrayLock held.
-ProcessTaskData *Processes::TaskForIdentifier(Handle taskId)
+TaskData *Processes::TaskForIdentifier(Handle taskId)
 {
     // The index is in the first word of the thread object.
     unsigned index = (unsigned)(UNTAGGED_UNSIGNED(taskId->WordP()->Get(0)));
     // Check the index is valid and matches the object stored in the table.
     if (index < taskArraySize)
     {
-        ProcessTaskData *p = taskArray[index];
+        TaskData *p = taskArray[index];
         if (p && p->threadObject == taskId->WordP())
             return p;
     }
@@ -693,7 +640,7 @@ void Processes::BroadcastInterrupt(void)
     schedLock.Lock();
     for (unsigned i = 0; i < taskArraySize; i++)
     {
-        ProcessTaskData *p = taskArray[i];
+        TaskData *p = taskArray[i];
         if (p)
         {
             POLYUNSIGNED attrs = ThreadAttrs(p);
@@ -706,13 +653,13 @@ void Processes::BroadcastInterrupt(void)
 
 // Set the asynchronous request variable for the thread.  Must be called
 // with the schedLock held.  Tries to wake the thread up if possible.
-void Processes::MakeRequest(ProcessTaskData *p, ThreadRequests request)
+void Processes::MakeRequest(TaskData *p, ThreadRequests request)
 {
     // We don't override a request to kill by an interrupt request.
     if (p->requests < request)
     {
         p->requests = request;
-        machineDependent->InterruptCode(p);
+        p->InterruptCode();
         p->threadLock.Signal();
         // Set the value in the ML object as well so the ML code can see it
         p->threadObject->requestCopy = TAGGED(request);
@@ -783,7 +730,7 @@ void Processes::ThreadReleaseMLMemory(TaskData *taskData)
 // we are woken up at the end of the GC.
 void Processes::ThreadUseMLMemoryWithSchedLock(TaskData *taskData)
 {
-    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    TaskData *ptaskData = taskData;
     // If there is a request outstanding we have to wait for it to
     // complete.  We notify the root thread and wait for it.
     while (threadRequest != 0)
@@ -802,7 +749,7 @@ void Processes::ThreadUseMLMemoryWithSchedLock(TaskData *taskData)
 // that can proceed.
 void Processes::ThreadReleaseMLMemoryWithSchedLock(TaskData *taskData)
 {
-    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    TaskData *ptaskData = taskData;
     ASSERT(ptaskData->inMLHeap);
     ptaskData->inMLHeap = false;
     // Put a dummy object in any unused space.  This maintains the
@@ -982,7 +929,7 @@ void Processes::ThreadPauseForIO(TaskData *taskData, Waiter *pWait)
 void Processes::BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInterruptable, int ioCall)
 {
     if (pWait == NULL) pWait = Waiter::defaultWaiter;
-    machineDependent->SetForRetry(taskData, ioCall);
+    taskData->SetForRetry(ioCall);
     unsigned lastSigCount = receivedSignalCount;
     ThreadPauseForIO(taskData, pWait);
     // If this is an interruptible Posix function we raise an exception if
@@ -1090,8 +1037,7 @@ TaskData *Processes::GetTaskDataForThread(void)
 TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
                            Handle args, PolyWord flags)
 {
-    ProcessTaskData *taskData = new ProcessTaskData;
-    taskData->mdTaskData = machineDependent->CreateTaskData();
+    TaskData *taskData = machineDependent->CreateTaskData();
 #if defined(HAVE_WINDOWS_H)
     HANDLE thisProcess = GetCurrentProcess();
     DuplicateHandle(thisProcess, GetCurrentThread(), thisProcess, 
@@ -1108,8 +1054,8 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
 
         if (thrdIndex == taskArraySize) // Need to expand the array
         {
-            ProcessTaskData **newArray =
-                (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *)*(taskArraySize+1));
+            TaskData **newArray =
+                (TaskData **)realloc(taskArray, sizeof(TaskData *)*(taskArraySize+1));
             if (newArray)
             {
                 taskArray = newArray;
@@ -1133,7 +1079,7 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
         throw MemoryException();
     }
 
-    machineDependent->InitStackFrame(taskData, taskData->stack, threadFunction, args);
+    taskData->InitStackFrame(taskData->stack, threadFunction, args);
 
     ThreadUseMLMemory(taskData);
 
@@ -1167,7 +1113,7 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
 #ifdef HAVE_PTHREAD
 static void *NewThreadFunction(void *parameter)
 {
-    ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    TaskData *taskData = (TaskData *)parameter;
 #ifdef HAVE_WINDOWS_H
     // Cygwin: Get the Windows thread handle in case it's needed for profiling.
     HANDLE thisProcess = GetCurrentProcess();
@@ -1191,13 +1137,13 @@ static void *NewThreadFunction(void *parameter)
 #elif defined(HAVE_WINDOWS_H)
 static DWORD WINAPI NewThreadFunction(void *parameter)
 {
-    ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    TaskData *taskData = (TaskData *)parameter;
     TlsSetValue(processesModule.tlsId, taskData);
     taskData->saveVec.init(); // Removal initial data
     globalStats.incCount(PSC_THREADS);
     processes->ThreadUseMLMemory(taskData);
     try {
-        (void)machineDependent->EnterPolyCode(taskData);
+        (void)taskData->EnterPolyCode();
     }
     catch (KillException) {
         processesModule.ThreadExit(taskData);
@@ -1207,7 +1153,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
 #else
 static void NewThreadFunction(void *parameter)
 {
-    ProcessTaskData *taskData = (ProcessTaskData *)parameter;
+    TaskData *taskData = (TaskData *)parameter;
     initThreadSignals(taskData);
     taskData->saveVec.init(); // Removal initial data
     globalStats.incCount(PSC_THREADS);
@@ -1236,15 +1182,14 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 {
     if (taskArraySize < 1)
     {
-        taskArray = (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *));
+        taskArray = (TaskData **)realloc(taskArray, sizeof(TaskData *));
         if (taskArray == 0) ::Exit("Unable to create the initial thread - insufficient memory");
         taskArraySize = 1;
     }
 
     try {
         // We can't use ForkThread because we don't have a taskData object before we start
-        ProcessTaskData *taskData = new ProcessTaskData;
-        taskData->mdTaskData = machineDependent->CreateTaskData();
+        TaskData *taskData = machineDependent->CreateTaskData();
         taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
         taskData->threadObject->index = TAGGED(0); // Index 0
         // The initial thread is set to accept broadcast interrupt requests
@@ -1261,8 +1206,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (taskData->stack == 0)
             ::Exit("Unable to create the initial thread - insufficient memory");
 
-        machineDependent->InitStackFrame(taskData, taskData->stack,
-                taskData->saveVec.push(rootFunction), (Handle)0);
+        taskData->InitStackFrame(taskData->stack, taskData->saveVec.push(rootFunction), (Handle)0);
 
         // Create a packet for the Interrupt exception once so that we don't have to
         // allocate when we need to raise it.
@@ -1322,7 +1266,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         bool signalThreadRunning = false;
         for (unsigned i = 0; i < taskArraySize; i++)
         {
-            ProcessTaskData *p = taskArray[i];
+            TaskData *p = taskArray[i];
             if (p)
             {
                 if (p == sigTask) signalThreadRunning = true;
@@ -1332,8 +1276,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
                 {
                     allStopped = false;
                     // It must be running - interrupt it if we are waiting.
-                    if (threadRequest != 0)
-                        machineDependent->InterruptCode(p);
+                    if (threadRequest != 0) p->InterruptCode();
                 }
                 else
                 {
@@ -1380,7 +1323,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             // Set this to kill the threads.
             for (unsigned i = 0; i < taskArraySize; i++)
             {
-                ProcessTaskData *taskData = taskArray[i];
+                TaskData *taskData = taskArray[i];
                 if (taskData && taskData->requests != kRequestKill)
                     MakeRequest(taskData, kRequestKill);
             }
@@ -1408,7 +1351,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         unsigned threadsInML = 0;
         for (unsigned j = 0; j < taskArraySize; j++)
         {
-            ProcessTaskData *taskData = taskArray[j];
+            TaskData *taskData = taskArray[j];
             if (taskData)
             {
                 // This gets the values last time it was in the RTS.
@@ -1437,7 +1380,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 
 // Create a new thread.  Returns the ML thread identifier object if it succeeds.
 // May raise an exception.
-Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
+Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
                            Handle args, PolyWord flags)
 {
     if (singleThreaded)
@@ -1445,8 +1388,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
 
     try {
         // Create a taskData object for the new thread
-        ProcessTaskData *newTaskData = new ProcessTaskData;
-        newTaskData->mdTaskData = machineDependent->CreateTaskData();
+        TaskData *newTaskData = machineDependent->CreateTaskData();
         // We allocate the thread object in the PARENT's space
         Handle threadId = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
         newTaskData->threadObject = (ThreadObject*)DEREFHANDLE(threadId);
@@ -1474,8 +1416,8 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
 
         if (thrdIndex == taskArraySize) // Need to expand the array
         {
-            ProcessTaskData **newArray =
-                (ProcessTaskData **)realloc(taskArray, sizeof(ProcessTaskData *)*(taskArraySize+1));
+            TaskData **newArray =
+                (TaskData **)realloc(taskArray, sizeof(TaskData *)*(taskArraySize+1));
             if (newArray)
             {
                 taskArray = newArray;
@@ -1502,7 +1444,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
 
         // Allocate anything needed for the new stack in the parent's heap.
         // The child still has inMLHeap set so mustn't GC.
-        machineDependent->InitStackFrame(taskData, newTaskData->stack, threadFunction, args);
+        taskData->InitStackFrame(newTaskData->stack, threadFunction, args);
 
         // Now actually fork the thread.
         bool success = false;
@@ -1550,7 +1492,7 @@ Handle Processes::ForkThread(ProcessTaskData *taskData, Handle threadFunction,
 bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
 {
     try {
-        (void)ForkThread((ProcessTaskData*)taskData, proc, arg, TAGGED(PFLAG_SYNCH));
+        (void)ForkThread(taskData, proc, arg, TAGGED(PFLAG_SYNCH));
         return true;
     } catch (IOException)
     {
@@ -1563,7 +1505,7 @@ bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
 bool Processes::ProcessAsynchRequests(TaskData *taskData)
 {
     bool wasInterrupted = false;
-    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    TaskData *ptaskData = taskData;
 
     schedLock.Lock();
 
@@ -1593,7 +1535,7 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
                 ptaskData->threadObject->requestCopy = TAGGED(0); // And in the ML copy
                 schedLock.Unlock();
                 // Don't actually throw the exception here.
-                machineDependent->SetException(taskData, interrupt_exn);
+                taskData->SetException(interrupt_exn);
                 wasInterrupted = true;
             }
             else schedLock.Unlock();
@@ -1627,7 +1569,7 @@ bool Processes::ProcessAsynchRequests(TaskData *taskData)
 // called from IO routines which may block.
 void Processes::TestSynchronousRequests(TaskData *taskData)
 {
-    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    TaskData *ptaskData = taskData;
     schedLock.Lock();
     switch (ptaskData->requests)
     {
@@ -1646,7 +1588,7 @@ void Processes::TestSynchronousRequests(TaskData *taskData)
                 ptaskData->requests = kRequestNone; // Clear this
                 ptaskData->threadObject->requestCopy = TAGGED(0);
                 schedLock.Unlock();
-                machineDependent->SetException(taskData, interrupt_exn);
+                taskData->SetException(interrupt_exn);
                 throw IOException();
             }
             else schedLock.Unlock();
@@ -1806,7 +1748,7 @@ void Processes::ProfileInterrupt(void)
         {
             for (unsigned i = 0; i < taskArraySize; i++)
             {
-                ProcessTaskData *p = taskArray[i];
+                TaskData *p = taskArray[i];
                 if (p && p->threadHandle)
                 {
                     if (testCPUtime(p->threadHandle, p->lastCPUTime))
@@ -1861,7 +1803,7 @@ void Processes::StartProfiling(void)
     // are paused this may not actually be necessary.
     for (unsigned i = 0; i < taskArraySize; i++)
     {
-        ProcessTaskData *taskData = taskArray[i];
+        TaskData *taskData = taskArray[i];
         if (taskData)
         {
             machineDependent->InterruptCode(taskData);
@@ -1886,7 +1828,7 @@ void Processes::StopProfiling(void)
 // arrives.  There should only be a single thread waiting here.
 bool Processes::WaitForSignal(TaskData *taskData, PLock *sigLock)
 {
-    ProcessTaskData *ptaskData = (ProcessTaskData *)taskData;
+    TaskData *ptaskData = taskData;
     // We need to hold the signal lock until we have acquired schedLock.
     schedLock.Lock();
     sigLock->Unlock();
@@ -1928,7 +1870,7 @@ void Processes::SignalArrived(void)
 // data is cleared.
 static void threaddata_destructor(void *p)
 {
-    ProcessTaskData *pt = (ProcessTaskData *)p;
+    TaskData *pt = (TaskData *)p;
     pt->threadExited = true;
 }
 #endif
@@ -2029,7 +1971,7 @@ void Processes::GarbageCollect(ScanAddress *process)
     }
 }
 
-void ProcessTaskData::GarbageCollect(ScanAddress *process)
+void TaskData::GarbageCollect(ScanAddress *process)
 {
     saveVec.gcScan(process);
     if (stack != 0) process->ScanAddressesInStack(stack);

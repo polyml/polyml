@@ -159,33 +159,62 @@ typedef struct _MemRegisters {
     POLYSIGNED  real_temp;          // Space used to convert integers to reals.
 } MemRegisters;
 
-class X86TaskData: public MDTaskData {
+class X86TaskData: public TaskData {
 public:
-    X86TaskData(): allocReg(0), allocWords(0)
-    {
-    memRegisters.inRTS = 1; // We start off in the RTS.
-    }
+    X86TaskData();
     unsigned allocReg; // The register to take the allocated space.
     POLYUNSIGNED allocWords; // The words to allocate.
     Handle callBackResult;
     MemRegisters memRegisters;
-};
 
+    virtual Handle EnterPolyCode(); // Start running ML
+    virtual void SetForRetry(int ioCall);
+    virtual void InterruptCode();
+    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
+    virtual void InitStackFrame(StackSpace *space, Handle proc, Handle arg);
+    virtual void SetException(poly_exn *exc);
+    virtual Handle CallBackResult() { return callBackResult; } 
+    virtual int  GetIOFunctionRegisterMask(int ioCall);
+
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(Handle mutexp);
+    virtual Handle AtomicDecrement(Handle mutexp);
+    // Set a mutex to one.
+    virtual void AtomicReset(Handle mutexp);
+
+    void SetExceptionTrace(bool isLegacy);
+    void CallCodeTupled();
+    virtual void SetCallbackFunction(Handle func, Handle args);
+
+    int SwitchToPoly();
+
+    void HeapOverflowTrap();
+
+    void SetMemRegisters();
+    void SaveMemRegisters();
+
+    void ArbitraryPrecisionTrap();
+    PolyWord *get_reg(int n);
+    PolyWord *getArgument(unsigned int opByte, unsigned int rexPrefix, bool *inConsts=0);
+    void do_compare(PolyWord v1, PolyWord v2);
+    void do_op(int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle));
+    bool emulate_instrs();
+    Handle BuildCodeSegment(const byte *code, unsigned bytes, char functionName);
+    Handle BuildKillSelf();
+    Handle BuildExceptionTrace(bool isLegacy);
+};
 
 class X86Dependent: public MachineDependent {
 public:
     X86Dependent() {}
 
     // Create a task data object.
-    virtual MDTaskData *CreateTaskData(void) { return new X86TaskData(); }
+    virtual TaskData *CreateTaskData(void) { return new X86TaskData(); }
 
     virtual unsigned InitialStackSize(void) { return 128+OVERFLOW_STACK_SIZE; } // Initial size of a stack 
     virtual void InitInterfaceVector(void);
-    virtual void ResetSignals(void);
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process);
-    virtual int  GetIOFunctionRegisterMask(int ioCall);
-
-    virtual Handle EnterPolyCode(TaskData *taskData); // Start running ML
 
     virtual Architectures MachineArchitecture(void)
 #ifndef HOSTARCHITECTURE_X86_64
@@ -193,37 +222,6 @@ public:
 #else /* HOSTARCHITECTURE_X86_64 */
          { return MA_X86_64; }
 #endif /* HOSTARCHITECTURE_X86_64 */
-    static void SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base);
-
-    int SwitchToPoly(TaskData *taskData);
-    virtual void SetForRetry(TaskData *taskData, int ioCall);
-    virtual void InterruptCode(TaskData *taskData);
-    virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
-    virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
-    virtual void SetException(TaskData *taskData, poly_exn *exc);
-    virtual Handle CallBackResult(TaskData *taskData) { return ((X86TaskData*)taskData->mdTaskData)->callBackResult; } 
-    void SetExceptionTrace(TaskData *taskData, bool isLegacy);
-    void CallCodeTupled(TaskData *taskData);
-    virtual void SetCallbackFunction(TaskData *taskData, Handle func, Handle args);
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
-    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
-    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
-    // Set a mutex to one.
-    virtual void AtomicReset(TaskData *taskData, Handle mutexp);
-
-    void SetMemRegisters(TaskData *taskData);
-    void SaveMemRegisters(TaskData *taskData);
-    void HeapOverflowTrap(TaskData *taskData);
-    void ArbitraryPrecisionTrap(TaskData *taskData);
-    PolyWord *get_reg(TaskData *taskData, int n);
-    PolyWord *getArgument(TaskData *taskData, unsigned int opByte, unsigned int rexPrefix, bool *inConsts=0);
-    void do_compare(TaskData *taskData, PolyWord v1, PolyWord v2);
-    void do_op(TaskData *taskData, int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle));
-    bool emulate_instrs(TaskData *taskData);
-    Handle BuildCodeSegment(TaskData *taskData, const byte *code, unsigned bytes, char functionName);
-    Handle BuildKillSelf(TaskData *taskData);
-    Handle BuildExceptionTrace(TaskData *taskData, bool isLegacy);
 };
 
 
@@ -464,9 +462,39 @@ extern "C" {
     extern int shift_left_longword(), shift_right_longword(), shift_right_arith_longword();
 };
 
+X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
+{
+    memRegisters.inRTS = 1; // We start off in the RTS.
+    // Point "raiseException" at the assembly code for "raisex"
+    memRegisters.raiseException = (byte*)raisex;
+    // Entry point to save the state for an IO call.  This is the common entry
+    // point for all the return and IO-call cases.
+    memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
+    memRegisters.heapOverflow = heapOverflow;
+    memRegisters.stackOverflow = stackOverflow;
+    memRegisters.stackOverflowEx = stackOverflowEx;
+    memRegisters.raiseDiv = raiseDiv;
+    memRegisters.arbEmulation = arbEmulation;
+}
+
+// Store a constant in the code segment.  This has to be handled specially because
+// the constant is probably an address.
+// At the moment this assumes we're dealing with a 32-bit constant on a 32-bit machine
+// and a 64-bit constant on a 64-bit machine.
 static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
 {
-    X86Dependent::SetCodeConstant(taskData, data, constant, offseth, base);
+    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORD(offseth)); // Byte offset
+    byte *pointer = DEREFWORD(base).AsCodePtr() + offset;
+    POLYUNSIGNED flags = UNTAGGED(DEREFWORD(data));
+    POLYUNSIGNED c = DEREFWORD(constant).AsUnsigned(); // N.B.  This may well really be an address.
+    if (flags == 1)
+        c -= (POLYUNSIGNED)(pointer + sizeof(PolyWord)); // Relative address.  Relative to AFTER the pointer.
+    // Store the value into the code.  It can be on an arbitrary alignment.
+    for (unsigned i = 0; i < sizeof(PolyWord); i++)
+    {
+        pointer[i] = (byte)(c & 255); 
+        c >>= 8;
+    }
     return taskData->saveVec.push(TAGGED(0));
 }
 
@@ -566,18 +594,18 @@ static void CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Hand
 #endif /* HOSTARCHITECTURE_X86_64 */
 }
 
-Handle X86Dependent::EnterPolyCode(TaskData *taskData)
+Handle X86TaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
-    Handle hOriginal = taskData->saveVec.mark(); // Set this up for the IO calls.
+    Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.
     while (1)
     {
-        taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
+        this->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
 
         // Run the ML code and return with the function to call.
-        taskData->inML = true;
-        int ioFunction = SwitchToPoly(taskData);
-        taskData->inML = false;
+        this->inML = true;
+        int ioFunction = SwitchToPoly();
+        this->inML = false;
 
         if ((debugOptions & DEBUG_RTSCALLS))
             IncrementRTSCallCount(ioFunction);
@@ -591,375 +619,375 @@ Handle X86Dependent::EnterPolyCode(TaskData *taskData)
                 // stack overflow.
                 // Previously this code was executed on every RTS call but there
                 // were problems on Mac OS X at least with contention on schedLock.
-                taskData->pendingInterrupt = false; // Clear this before we handle these
+                this->pendingInterrupt = false; // Clear this before we handle these
                 // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(taskData);
+                processes->ProcessAsynchRequests(this);
                 // Release and re-acquire use of the ML memory to allow another thread
                 // to GC.
-                processes->ThreadReleaseMLMemory(taskData);
-                processes->ThreadUseMLMemory(taskData);
+                processes->ThreadReleaseMLMemory(this);
+                processes->ThreadUseMLMemory(this);
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult(taskData);
+                return CallBackResult();
 
             case POLY_SYS_exit:
-                CallIO1(taskData, &finishc);
+                CallIO1(this, &finishc);
                 break;
 
             case POLY_SYS_alloc_store:
-                CallIO3(taskData, &alloc_store_long_c);
+                CallIO3(this, &alloc_store_long_c);
                 break;
 
             case POLY_SYS_alloc_uninit:
-                CallIO2(taskData, &alloc_uninit_c);
+                CallIO2(this, &alloc_uninit_c);
                 break;
 
             case POLY_SYS_chdir:
-                CallIO1(taskData, &change_dirc);
+                CallIO1(this, &change_dirc);
                 break;
 
             case POLY_SYS_get_length:
-                CallIO1(taskData, &vec_length_c);
+                CallIO1(this, &vec_length_c);
                 break;
 
             case POLY_SYS_get_flags:
-                CallIO1(taskData, &get_flags_c);
+                CallIO1(this, &get_flags_c);
                 break;
 
             case POLY_SYS_str_compare:
-                CallIO2(taskData, compareStrings);
+                CallIO2(this, compareStrings);
                 break;
 
             case POLY_SYS_teststrgtr:
-                CallIO2(taskData, &testStringGreater);
+                CallIO2(this, &testStringGreater);
                 break;
 
             case POLY_SYS_teststrlss:
-                CallIO2(taskData, &testStringLess);
+                CallIO2(this, &testStringLess);
                 break;
 
             case POLY_SYS_teststrgeq:
-                CallIO2(taskData, &testStringGreaterOrEqual);
+                CallIO2(this, &testStringGreaterOrEqual);
                 break;
 
             case POLY_SYS_teststrleq:
-                CallIO2(taskData, &testStringLessOrEqual);
+                CallIO2(this, &testStringLessOrEqual);
                 break;
 
             case POLY_SYS_exception_trace: // Special case.
                 // This is the legacy version. 
-                SetExceptionTrace(taskData, true);
+                SetExceptionTrace(true);
                 break;
 
             case POLY_SYS_exception_trace_fn: // Special case.
                 // This is the current version. 
-                SetExceptionTrace(taskData, false);
+                SetExceptionTrace(false);
                 break;
 
     //        case POLY_SYS_lockseg: CallIO1(taskData, &locksegc); break;
 
             case POLY_SYS_profiler:
-                CallIO1(taskData, &profilerc);
+                CallIO1(this, &profilerc);
                 break;
 
             case POLY_SYS_quotrem:
-                CallIO3(taskData, &quot_rem_c);
+                CallIO3(this, &quot_rem_c);
                 break;
 
-    //        case POLY_SYS_is_short: CallIO1(taskData, &is_shortc); break;
+    //        case POLY_SYS_is_short: CallIO1(this, &is_shortc); break;
 
             case POLY_SYS_aplus:
-                CallIO2(taskData, &add_longc);
+                CallIO2(this, &add_longc);
                 break;
 
             case POLY_SYS_aminus:
-                CallIO2(taskData, &sub_longc);
+                CallIO2(this, &sub_longc);
                 break;
 
             case POLY_SYS_amul:
-                CallIO2(taskData, &mult_longc);
+                CallIO2(this, &mult_longc);
                 break;
 
             case POLY_SYS_adiv:
-                CallIO2(taskData, &div_longc);
+                CallIO2(this, &div_longc);
                 break;
 
             case POLY_SYS_amod:
-                CallIO2(taskData, &rem_longc);
+                CallIO2(this, &rem_longc);
                 break;
 
             case POLY_SYS_aneg:
-                CallIO1(taskData, &neg_longc);
+                CallIO1(this, &neg_longc);
                 break;
 
             case POLY_SYS_equala:
-                CallIO2(taskData, &equal_longc);
+                CallIO2(this, &equal_longc);
                 break;
 
             case POLY_SYS_ora:
-                CallIO2(taskData, &or_longc);
+                CallIO2(this, &or_longc);
                 break;
 
             case POLY_SYS_anda:
-                CallIO2(taskData, &and_longc);
+                CallIO2(this, &and_longc);
                 break;
 
             case POLY_SYS_xora:
-                CallIO2(taskData, &xor_longc);
+                CallIO2(this, &xor_longc);
                 break;
 
             case POLY_SYS_Real_str:
-                CallIO3(taskData, &Real_strc);
+                CallIO3(this, &Real_strc);
                 break;
 
             case POLY_SYS_Real_geq:
-                CallIO2(taskData, &Real_geqc);
+                CallIO2(this, &Real_geqc);
                 break;
 
             case POLY_SYS_Real_leq:
-                CallIO2(taskData, &Real_leqc);
+                CallIO2(this, &Real_leqc);
                 break;
 
             case POLY_SYS_Real_gtr:
-                CallIO2(taskData, &Real_gtrc);
+                CallIO2(this, &Real_gtrc);
                 break;
 
             case POLY_SYS_Real_lss:
-                CallIO2(taskData, &Real_lssc);
+                CallIO2(this, &Real_lssc);
                 break;
 
             case POLY_SYS_Real_eq:
-                CallIO2(taskData, &Real_eqc);
+                CallIO2(this, &Real_eqc);
                 break;
 
             case POLY_SYS_Real_neq:
-                CallIO2(taskData, &Real_neqc);
+                CallIO2(this, &Real_neqc);
                 break;
 
             case POLY_SYS_Real_Dispatch:
-                CallIO2(taskData, &Real_dispatchc);
+                CallIO2(this, &Real_dispatchc);
                 break;
 
             case POLY_SYS_Add_real:
-                CallIO2(taskData, &Real_addc);
+                CallIO2(this, &Real_addc);
                 break;
 
             case POLY_SYS_Sub_real:
-                CallIO2(taskData, &Real_subc);
+                CallIO2(this, &Real_subc);
                 break;
 
             case POLY_SYS_Mul_real:
-                CallIO2(taskData, &Real_mulc);
+                CallIO2(this, &Real_mulc);
                 break;
 
             case POLY_SYS_Div_real:
-                CallIO2(taskData, &Real_divc);
+                CallIO2(this, &Real_divc);
                 break;
 
             case POLY_SYS_Abs_real:
-                CallIO1(taskData, &Real_absc);
+                CallIO1(this, &Real_absc);
                 break;
 
             case POLY_SYS_Neg_real:
-                CallIO1(taskData, &Real_negc);
+                CallIO1(this, &Real_negc);
                 break;
 
             case POLY_SYS_Repr_real:
-                CallIO1(taskData, &Real_reprc);
+                CallIO1(this, &Real_reprc);
                 break;
 
             case POLY_SYS_conv_real:
-                CallIO1(taskData, &Real_convc);
+                CallIO1(this, &Real_convc);
                 break;
 
             case POLY_SYS_real_to_int:
-                CallIO1(taskData, &Real_intc);
+                CallIO1(this, &Real_intc);
                 break;
 
             case POLY_SYS_int_to_real:
-                CallIO1(taskData, &Real_floatc);
+                CallIO1(this, &Real_floatc);
                 break;
 
             case POLY_SYS_sqrt_real:
-                CallIO1(taskData, &Real_sqrtc);
+                CallIO1(this, &Real_sqrtc);
                 break;
 
             case POLY_SYS_sin_real:
-                CallIO1(taskData, &Real_sinc);
+                CallIO1(this, &Real_sinc);
                 break;
 
             case POLY_SYS_cos_real:
-                CallIO1(taskData, &Real_cosc);
+                CallIO1(this, &Real_cosc);
                 break;
 
             case POLY_SYS_arctan_real:
-                CallIO1(taskData, &Real_arctanc);
+                CallIO1(this, &Real_arctanc);
                 break;
 
             case POLY_SYS_exp_real:
-                CallIO1(taskData, &Real_expc);
+                CallIO1(this, &Real_expc);
                 break;
 
             case POLY_SYS_ln_real:
-                CallIO1(taskData, &Real_lnc);
+                CallIO1(this, &Real_lnc);
                 break;
 
             case POLY_SYS_io_operation:
-                CallIO1(taskData, &io_operation_c);
+                CallIO1(this, &io_operation_c);
                 break;
 
             case POLY_SYS_atomic_reset:
-                CallIO1(taskData, &ProcessAtomicReset);
+                CallIO1(this, &ProcessAtomicReset);
                 break;
 
             case POLY_SYS_atomic_incr:
-                CallIO1(taskData, &ProcessAtomicIncrement);
+                CallIO1(this, &ProcessAtomicIncrement);
                 break;
 
             case POLY_SYS_atomic_decr:
-                CallIO1(taskData, &ProcessAtomicDecrement);
+                CallIO1(this, &ProcessAtomicDecrement);
                 break;
 
             case POLY_SYS_thread_self:
-                CallIO0(taskData, &ThreadSelf);
+                CallIO0(this, &ThreadSelf);
                 break;
 
             case POLY_SYS_thread_dispatch:
-                CallIO2(taskData, &ThreadDispatch);
+                CallIO2(this, &ThreadDispatch);
                 break;
 
-//            case POLY_SYS_offset_address: CallIO2(taskData, &offset_addressc); break;
+//            case POLY_SYS_offset_address: CallIO2(this, &offset_addressc); break;
 
             case POLY_SYS_shift_right_word:
-                CallIO2(taskData, &shift_right_word_c);
+                CallIO2(this, &shift_right_word_c);
                 break;
     
             case POLY_SYS_word_neq:
-                CallIO2(taskData, &word_neq_c);
+                CallIO2(this, &word_neq_c);
                 break;
     
             case POLY_SYS_not_bool:
-                CallIO1(taskData, &not_bool_c);
+                CallIO1(this, &not_bool_c);
                 break;
 
             case POLY_SYS_string_length:
-                CallIO1(taskData, &string_length_c);
+                CallIO1(this, &string_length_c);
                 break;
 
             case POLY_SYS_int_eq:
-                CallIO2(taskData, &equal_longc);
+                CallIO2(this, &equal_longc);
                 break;
 
             case POLY_SYS_int_neq:
-                CallIO2(taskData, &not_equal_longc);
+                CallIO2(this, &not_equal_longc);
                 break;
 
             case POLY_SYS_int_geq:
-                CallIO2(taskData, &ge_longc);
+                CallIO2(this, &ge_longc);
                 break;
 
             case POLY_SYS_int_leq:
-                CallIO2(taskData, &le_longc);
+                CallIO2(this, &le_longc);
                 break;
 
             case POLY_SYS_int_gtr:
-                CallIO2(taskData, &gt_longc);
+                CallIO2(this, &gt_longc);
                 break;
 
             case POLY_SYS_int_lss:
-                CallIO2(taskData, &ls_longc);
+                CallIO2(this, &ls_longc);
                 break;
 
             case POLY_SYS_or_word:
-                CallIO2(taskData, &or_word_c);
+                CallIO2(this, &or_word_c);
                 break;
 
             case POLY_SYS_and_word:
-                CallIO2(taskData, &and_word_c);
+                CallIO2(this, &and_word_c);
                 break;
 
             case POLY_SYS_xor_word:
-                CallIO2(taskData, &xor_word_c);
+                CallIO2(this, &xor_word_c);
                 break;
 
             case POLY_SYS_shift_left_word:
-                CallIO2(taskData, &shift_left_word_c);
+                CallIO2(this, &shift_left_word_c);
                 break;
 
             case POLY_SYS_word_eq:
-                CallIO2(taskData, &word_eq_c);
+                CallIO2(this, &word_eq_c);
                 break;
 
             case POLY_SYS_load_byte:
             case POLY_SYS_load_byte_immut:
-                CallIO2(taskData, &load_byte_long_c);
+                CallIO2(this, &load_byte_long_c);
                 break;
 
             case POLY_SYS_load_word:
             case POLY_SYS_load_word_immut:
-                CallIO2(taskData, &load_word_long_c);
+                CallIO2(this, &load_word_long_c);
                 break;
 
-    //        case POLY_SYS_is_big_endian: CallIO0(taskData, &is_big_endianc); break;
-    //        case POLY_SYS_bytes_per_word: CallIO0(taskData, &bytes_per_wordc); break;
+    //        case POLY_SYS_is_big_endian: CallIO0(this, &is_big_endianc); break;
+    //        case POLY_SYS_bytes_per_word: CallIO0(this, &bytes_per_wordc); break;
 
             case POLY_SYS_assign_byte:
-                CallIO3(taskData, &assign_byte_long_c);
+                CallIO3(this, &assign_byte_long_c);
                 break;
 
             case POLY_SYS_assign_word:
-                CallIO3(taskData, &assign_word_long_c);
+                CallIO3(this, &assign_word_long_c);
                 break;
 
             // ObjSize and ShowSize are now in the poly_specific functions and
             // probably should be removed from here.
             case POLY_SYS_objsize:
-                CallIO1(taskData, &ObjSize);
+                CallIO1(this, &ObjSize);
                 break;
 
             case POLY_SYS_showsize:
-                CallIO1(taskData, &ShowSize);
+                CallIO1(this, &ShowSize);
                 break;
 
             case POLY_SYS_timing_dispatch:
-                CallIO2(taskData, &timing_dispatch_c);
+                CallIO2(this, &timing_dispatch_c);
                 break;
 
             case POLY_SYS_XWindows:
-                CallIO1(taskData, &XWindows_c);
+                CallIO1(this, &XWindows_c);
                 break;
 
             case POLY_SYS_full_gc:
-                CallIO0(taskData, &full_gc_c);
+                CallIO0(this, &full_gc_c);
                 break;
 
             case POLY_SYS_stack_trace:
-                CallIO0(taskData, & stack_trace_c);
+                CallIO0(this, & stack_trace_c);
                 break;
 
             case POLY_SYS_foreign_dispatch:
-                CallIO2(taskData, &foreign_dispatch_c);
+                CallIO2(this, &foreign_dispatch_c);
                 break;
 
             case POLY_SYS_callcode_tupled:
-                CallCodeTupled(taskData);
+                CallCodeTupled();
                 break;
 
-            case POLY_SYS_process_env: CallIO2(taskData, &process_env_dispatch_c); break;
+            case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
 
-    //        case POLY_SYS_set_string_length: CallIO2(taskData, &set_string_length_c); break;
+    //        case POLY_SYS_set_string_length: CallIO2(this, &set_string_length_c); break;
 
             case POLY_SYS_shrink_stack:
-                CallIO1(taskData, &shrink_stack_c);
+                CallIO1(this, &shrink_stack_c);
                 break;
 
             case POLY_SYS_code_flags:
-                CallIO2(taskData, &CodeSegmentFlags);
+                CallIO2(this, &CodeSegmentFlags);
                 break;
 
             case POLY_SYS_shift_right_arith_word:
-                CallIO2(taskData, &shift_right_arith_word_c);
+                CallIO2(this, &shift_right_arith_word_c);
                 break;
 
             case POLY_SYS_get_first_long_word:
@@ -969,175 +997,175 @@ Handle X86Dependent::EnterPolyCode(TaskData *taskData)
                 // a short argument whereas POLY_SYS_get_first_long_word must be applied to a
                 // long argument and can be implemented very easily in the code-generator, at
                 // least on a little-endian machine.
-                CallIO1(taskData, &int_to_word_c);
+                CallIO1(this, &int_to_word_c);
                 break;
 
             case POLY_SYS_poly_specific:
-                CallIO2(taskData, &poly_dispatch_c);
+                CallIO2(this, &poly_dispatch_c);
                 break;
 
             case POLY_SYS_bytevec_eq:
-                CallIO5(taskData, &testBytesEqual);
+                CallIO5(this, &testBytesEqual);
                 break;
 
             case POLY_SYS_set_code_constant:
-                CallIO4(taskData, &set_code_constant);
+                CallIO4(this, &set_code_constant);
                 break;
 
             case POLY_SYS_move_bytes:
             case POLY_SYS_move_bytes_overlap:
-                CallIO5(taskData, &move_bytes_long_c);
+                CallIO5(this, &move_bytes_long_c);
                 break;
 
             case POLY_SYS_move_words:
             case POLY_SYS_move_words_overlap:
-                CallIO5(taskData, &move_words_long_c);
+                CallIO5(this, &move_words_long_c);
                 break;
 
             case POLY_SYS_mul_word:
-                CallIO2(taskData, &mul_word_c);
+                CallIO2(this, &mul_word_c);
                 break;
 
             case POLY_SYS_plus_word:
-                CallIO2(taskData, &plus_word_c);
+                CallIO2(this, &plus_word_c);
                 break;
 
             case POLY_SYS_minus_word:
-                CallIO2(taskData, &minus_word_c);
+                CallIO2(this, &minus_word_c);
                 break;
 
             case POLY_SYS_div_word:
-                CallIO2(taskData, &div_word_c);
+                CallIO2(this, &div_word_c);
                 break;
 
             case POLY_SYS_mod_word:
-                CallIO2(taskData, &mod_word_c);
+                CallIO2(this, &mod_word_c);
                 break;
 
             case POLY_SYS_word_geq:
-                CallIO2(taskData, &word_geq_c);
+                CallIO2(this, &word_geq_c);
                 break;
 
             case POLY_SYS_word_leq:
-                CallIO2(taskData, &word_leq_c);
+                CallIO2(this, &word_leq_c);
                 break;
 
             case POLY_SYS_word_gtr:
-                CallIO2(taskData, &word_gtr_c);
+                CallIO2(this, &word_gtr_c);
                 break;
 
             case POLY_SYS_word_lss:
-                CallIO2(taskData, &word_lss_c);
+                CallIO2(this, &word_lss_c);
                 break;
 
             case POLY_SYS_io_dispatch:
-                CallIO3(taskData, &IO_dispatch_c);
+                CallIO3(this, &IO_dispatch_c);
                 break;
 
             case POLY_SYS_network:
-                CallIO2(taskData, &Net_dispatch_c);
+                CallIO2(this, &Net_dispatch_c);
                 break;
 
             case POLY_SYS_os_specific:
-                CallIO2(taskData, &OS_spec_dispatch_c);
+                CallIO2(this, &OS_spec_dispatch_c);
                 break;
 
             case POLY_SYS_signal_handler:
-                CallIO2(taskData, &Sig_dispatch_c);
+                CallIO2(this, &Sig_dispatch_c);
                 break;
 
             case POLY_SYS_kill_self:
-                CallIO0(taskData, exitThread);
+                CallIO0(this, exitThread);
                 break;
 
             case POLY_SYS_eq_longword:
-                CallIO2(taskData, &eqLongWord);
+                CallIO2(this, &eqLongWord);
                 break;
 
             case POLY_SYS_neq_longword:
-                CallIO2(taskData, &neqLongWord);
+                CallIO2(this, &neqLongWord);
                 break;
 
             case POLY_SYS_geq_longword:
-                CallIO2(taskData, &geqLongWord);
+                CallIO2(this, &geqLongWord);
                 break;
 
             case POLY_SYS_leq_longword:
-                CallIO2(taskData, &leqLongWord);
+                CallIO2(this, &leqLongWord);
                 break;
 
             case POLY_SYS_gt_longword:
-                CallIO2(taskData, &gtLongWord);
+                CallIO2(this, &gtLongWord);
                 break;
 
             case POLY_SYS_lt_longword:
-                CallIO2(taskData, &ltLongWord);
+                CallIO2(this, &ltLongWord);
                 break;
 
             case POLY_SYS_plus_longword:
-                CallIO2(taskData, &plusLongWord);
+                CallIO2(this, &plusLongWord);
                 break;
 
             case POLY_SYS_minus_longword:
-                CallIO2(taskData, &minusLongWord);
+                CallIO2(this, &minusLongWord);
                 break;
 
             case POLY_SYS_mul_longword:
-                CallIO2(taskData, &mulLongWord);
+                CallIO2(this, &mulLongWord);
                 break;
 
             case POLY_SYS_div_longword:
-                CallIO2(taskData, &divLongWord);
+                CallIO2(this, &divLongWord);
                 break;
 
             case POLY_SYS_mod_longword:
-                CallIO2(taskData, &modLongWord);
+                CallIO2(this, &modLongWord);
                 break;
 
             case POLY_SYS_andb_longword:
-                CallIO2(taskData, &andbLongWord);
+                CallIO2(this, &andbLongWord);
                 break;
 
             case POLY_SYS_orb_longword:
-                CallIO2(taskData, &orbLongWord);
+                CallIO2(this, &orbLongWord);
                 break;
 
             case POLY_SYS_xorb_longword:
-                CallIO2(taskData, &xorbLongWord);
+                CallIO2(this, &xorbLongWord);
                 break;
 
             case POLY_SYS_shift_left_longword:
-                CallIO2(taskData, &shiftLeftLongWord);
+                CallIO2(this, &shiftLeftLongWord);
                 break;
 
             case POLY_SYS_shift_right_longword:
-                CallIO2(taskData, &shiftRightLongWord);
+                CallIO2(this, &shiftRightLongWord);
                 break;
 
             case POLY_SYS_shift_right_arith_longword:
-                CallIO2(taskData, &shiftRightArithLongWord);
+                CallIO2(this, &shiftRightArithLongWord);
                 break;
 
             case POLY_SYS_longword_to_tagged:
-                CallIO1(taskData, &longWordToTagged);
+                CallIO1(this, &longWordToTagged);
                 break;
 
             case POLY_SYS_signed_to_longword:
-                CallIO1(taskData, &signedToLongWord);
+                CallIO1(this, &signedToLongWord);
                 break;
 
             case POLY_SYS_unsigned_to_longword:
-                CallIO1(taskData, &unsignedToLongWord);
+                CallIO1(this, &unsignedToLongWord);
                 break;
 
             // This is called from assembly code and doesn't actually have an entry in the
             // io vector.
             case POLY_SYS_give_ex_trace:
-                CallIO2(taskData, ex_tracec);
+                CallIO2(this, ex_tracec);
                 break;
 
             case POLY_SYS_give_ex_trace_fn:
-                CallIO1(taskData, exceptionToTraceException);
+                CallIO1(this, exceptionToTraceException);
                 break;
 
             default:
@@ -1154,33 +1182,32 @@ Handle X86Dependent::EnterPolyCode(TaskData *taskData)
 // returns to C with the appropriate values set in memRegisters.requestCode and
 // 
 
-int X86Dependent::SwitchToPoly(TaskData *taskData)
+int X86TaskData::SwitchToPoly()
 // (Re)-enter the Poly code from C.  Returns with the io function to call or
 // -1 if we are responding to an interrupt.
 {
-    X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
-    Handle mark = taskData->saveVec.mark();
+    Handle mark = this->saveVec.mark();
     do
     {
-        taskData->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
-        SetMemRegisters(taskData);
+        this->saveVec.reset(mark); // Remove old data e.g. from arbitrary precision.
+        SetMemRegisters();
 
-        X86AsmSwitchToPoly(&mdTask->memRegisters);
+        X86AsmSwitchToPoly(&this->memRegisters);
 
-        SaveMemRegisters(taskData); // Update globals from the memory registers.
+        SaveMemRegisters(); // Update globals from the memory registers.
 
         // Handle any heap/stack overflows or arbitrary precision traps.
-        switch (mdTask->memRegisters.returnReason)
+        switch (this->memRegisters.returnReason)
         {
 
         case RETURN_IO_CALL:
-            return mdTask->memRegisters.requestCode;
+            return this->memRegisters.requestCode;
 
         case RETURN_HEAP_OVERFLOW:
             // The heap has overflowed.  Pop the return address into the program counter.
             // It may well not be a valid code address anyway.
-            PSP_IC(taskData) = (*(PSP_SP(taskData))++).AsCodePtr();
-            HeapOverflowTrap(taskData); // Computes a value for allocWords only
+            PSP_IC(this) = (*(PSP_SP(this))++).AsCodePtr();
+            this->HeapOverflowTrap(); // Computes a value for allocWords only
             break;
 
         case RETURN_STACK_OVERFLOW:
@@ -1188,8 +1215,8 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
                 // The stack check has failed.  This may either be because we really have
                 // overflowed the stack or because the stack limit value has been adjusted
                 // to result in a call here.
-                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
-                CheckAndGrowStack(taskData, taskData->stack->stack()->p_sp);
+                PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
+                CheckAndGrowStack(this, this->stack->stack()->p_sp);
             }
             catch (IOException) {
                // We may get an exception while handling this if we run out of store
@@ -1202,10 +1229,10 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
                 // the fixed overflow size the code will calculate the limit in %EDI.
                 // We need to extract that and the clear that register since it may
                 // very well be outside the stack and therefore a "bad address".
-                PolyWord *stackP = PSP_EDI(taskData).AsStackAddr();
-                PSP_EDI(taskData) = TAGGED(0);
-                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
-                CheckAndGrowStack(taskData, stackP);
+                PolyWord *stackP = PSP_EDI(this).AsStackAddr();
+                PSP_EDI(this) = TAGGED(0);
+                PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
+                CheckAndGrowStack(this, stackP);
             }
             catch (IOException) {
                // We may get an exception while handling this if we run out of store
@@ -1216,14 +1243,14 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
             try {
                 // Generally arithmetic operations don't raise exceptions.  Overflow
                 // is either ignored, for Word operations, or results in a call to
-                // the abitrary precision emulation code.  This is the exception
+                // the arbitrary precision emulation code.  This is the exception
                 // (no pun intended).
-                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
+                PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
                 // Set all the registers to a safe value here.  We will almost certainly
                 // have shifted a value in one of the registers before testing it for zero.
-                for (POLYUNSIGNED i = 0; i < taskData->stack->stack()->p_nreg; i++)
-                    taskData->stack->stack()->p_reg[i] = TAGGED(0);
-                raise_exception0(taskData, EXC_divide);
+                for (POLYUNSIGNED i = 0; i < this->stack->stack()->p_nreg; i++)
+                    this->stack->stack()->p_reg[i] = TAGGED(0);
+                raise_exception0(this, EXC_divide);
             }
             catch (IOException) {
                 // Handle the C++ exception.
@@ -1232,8 +1259,8 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
 
         case RETURN_ARB_EMULATION:
             try {
-                PSP_IC(taskData) = (*PSP_SP(taskData)++).AsCodePtr();
-                ArbitraryPrecisionTrap(taskData);
+                PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
+                this->ArbitraryPrecisionTrap();
             }
             catch (IOException) {
                 // We may get an exception in the trap handler e.g. if we run out of store.
@@ -1242,40 +1269,41 @@ int X86Dependent::SwitchToPoly(TaskData *taskData)
 
         case RETURN_CALLBACK_RETURN:
             // Remove the extra exception handler we created in SetCallbackFunction
-            ASSERT(taskData->stack->stack()->p_hr == PSP_SP(taskData));
-            PSP_SP(taskData) += 2;
-            taskData->stack->stack()->p_hr = (*(PSP_SP(taskData)++)).AsStackAddr(); // Restore the previous handler.
-            mdTask->callBackResult = taskData->saveVec.push(PSP_EAX(taskData)); // Argument to return is in EAX.
+            ASSERT(this->stack->stack()->p_hr == PSP_SP(this));
+            PSP_SP(this) += 2;
+            this->stack->stack()->p_hr = (*(PSP_SP(this)++)).AsStackAddr(); // Restore the previous handler.
+            this->callBackResult = this->saveVec.push(PSP_EAX(this)); // Argument to return is in EAX.
             // Restore the registers
 #ifdef HOSTARCHITECTURE_X86_64
-            PSP_R10(taskData) = *PSP_SP(taskData)++;
-            PSP_R9(taskData) = *PSP_SP(taskData)++;
-            PSP_R8(taskData) = *PSP_SP(taskData)++;
+            PSP_R10(this) = *PSP_SP(this)++;
+            PSP_R9(this) = *PSP_SP(this)++;
+            PSP_R8(this) = *PSP_SP(this)++;
 #endif
-            PSP_EBX(taskData) = *PSP_SP(taskData)++;
-            PSP_EAX(taskData) = *PSP_SP(taskData)++;
-            PSP_EDX(taskData) = *PSP_SP(taskData)++;
-            taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr(); // Set the return address
+            PSP_EBX(this) = *PSP_SP(this)++;
+            PSP_EAX(this) = *PSP_SP(this)++;
+            PSP_EDX(this) = *PSP_SP(this)++;
+            this->stack->stack()->p_pc = (*PSP_SP(this)).AsCodePtr(); // Set the return address
             return -2;
 
         case RETURN_CALLBACK_EXCEPTION:
             // An ML callback has raised an exception.
-            SetException(taskData, (poly_exn *)PSP_EAX(taskData).AsObjPtr());
+            SetException((poly_exn *)PSP_EAX(this).AsObjPtr());
             // Raise a C++ exception.  If the foreign function that called this callback
             // doesn't handle the exception it will be raised in the calling ML function.
             // But if it is caught we may have a problem ...
             throw IOException();
 
         default:
-            Crash("Unknown return reason code %u", mdTask->memRegisters.returnReason);
+            Crash("Unknown return reason code %u", this->memRegisters.returnReason);
         }
 
     } while (1);
 }
 
-void X86Dependent::InitStackFrame(TaskData *parentTaskData, StackSpace *space, Handle proc, Handle arg)
+void X86TaskData::InitStackFrame(StackSpace *space, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
+    TaskData *parentTaskData = this;
     PolyX86Stack * newStack = (PolyX86Stack*)space->stack();
     POLYUNSIGNED stack_size     = space->spaceSize();
     POLYUNSIGNED topStack = stack_size-2;
@@ -1324,18 +1352,19 @@ void X86Dependent::InitStackFrame(TaskData *parentTaskData, StackSpace *space, H
     newStack->Set(topStack+1, TAGGED(0)); // Acceptable value if we've exited by exception.
     // Set the default handler and return address to point to this code.
 
-    Handle killCode = BuildKillSelf(parentTaskData);
+    X86TaskData *mdParentTask = (X86TaskData*)parentTaskData;
+    Handle killCode = mdParentTask->BuildKillSelf();
     PolyWord killJump = killCode->Word();
     // Normal return address and exception handler.
     newStack->Set(topStack, killJump);
 }
 
 // Build an ML code segment to hold a copy of a piece of code
-Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsigned bytes, char functionName)
+Handle X86TaskData::BuildCodeSegment(const byte *code, unsigned bytes, char functionName)
 {
     POLYUNSIGNED codeWords = (bytes + sizeof(PolyWord)-1) / sizeof(PolyWord);
     POLYUNSIGNED words = codeWords + 6;
-    Handle codeHandle = alloc_and_save(taskData, words, F_BYTE_OBJ|F_MUTABLE_BIT);
+    Handle codeHandle = alloc_and_save(this, words, F_BYTE_OBJ|F_MUTABLE_BIT);
     byte *cp = codeHandle->Word().AsCodePtr();
     memcpy(cp, code, bytes);
     if (bytes % sizeof(PolyWord) != 0) // Fill unused bytes with NOPs
@@ -1347,7 +1376,7 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
     codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // Register set
     codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // No profile counter
     codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(3)); // Number of constants
-    CodeSegmentFlags(taskData, taskData->saveVec.push(TAGGED(F_CODE_OBJ)), codeHandle);
+    CodeSegmentFlags(this, this->saveVec.push(TAGGED(F_CODE_OBJ)), codeHandle);
     return codeHandle;
 }
 
@@ -1355,24 +1384,24 @@ Handle X86Dependent::BuildCodeSegment(TaskData *taskData, const byte *code, unsi
 // If the handler isn't called the dummy handler is simply removed.
 // This is tricky since when we "return" we actually need to run the new
 // function.
-void X86Dependent::SetExceptionTrace(TaskData *taskData, bool isLegacy)
+void X86TaskData::SetExceptionTrace(bool isLegacy)
 {
-    taskData->stack->stack()->p_pc = (*PSP_SP(taskData)).AsCodePtr();
-    Handle fun = taskData->saveVec.push(PSP_EAX(taskData));
-    Handle extrace = BuildExceptionTrace(taskData, isLegacy);
+    this->stack->stack()->p_pc = (*PSP_SP(this)).AsCodePtr();
+    Handle fun = this->saveVec.push(PSP_EAX(this));
+    Handle extrace = BuildExceptionTrace(isLegacy);
     PolyObject *functToCall = fun->WordP();
-    PSP_EDX(taskData) = functToCall; // Closure address
+    PSP_EDX(this) = functToCall; // Closure address
     // Leave the return address where it is on the stack.
-    taskData->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
-    *(--PSP_SP(taskData)) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr);
+    this->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
+    *(--PSP_SP(this)) = PolyWord::FromStackAddr(this->stack->stack()->p_hr);
     // Handler addresses must be word + 2 byte aligned.
     // Is that still true or only for the old exception mechanism?
-    *(--PSP_SP(taskData)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
-    taskData->stack->stack()->p_hr = PSP_SP(taskData);
+    *(--PSP_SP(this)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
+    this->stack->stack()->p_hr = PSP_SP(this);
     byte *codeAddr = X86AsmRestoreHandlerAfterExceptionTraceCode();
-    Handle retCode = BuildCodeSegment(taskData, codeAddr, 8 /* Code is 8 bytes */, 'R');
-    *(--PSP_SP(taskData)) = retCode->WordP(); // Code for normal return.
-    PSP_EAX(taskData) = TAGGED(0); // Set the argument of the function to "unit".
+    Handle retCode = BuildCodeSegment(codeAddr, 8 /* Code is 8 bytes */, 'R');
+    *(--PSP_SP(this)) = retCode->WordP(); // Code for normal return.
+    PSP_EAX(this) = TAGGED(0); // Set the argument of the function to "unit".
 }
 
 // In Solaris-x86 the registers are named EIP and ESP.
@@ -1385,17 +1414,15 @@ void X86Dependent::SetExceptionTrace(TaskData *taskData, bool isLegacy)
 
 
 // Get the PC and SP(stack) from a signal context.  This is needed for profiling.
-bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp, POLYCODEPTR &pc)
+bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, POLYCODEPTR &pc)
 {
-    X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
     // Check carefully for valid pointers.  Because this can be called
     // at any time some of these may be invalid.
-    if (mdTask == 0) return false;
-    if (mdTask->memRegisters.inRTS)
+    if (this->memRegisters.inRTS)
     {
-        if (taskData->stack == 0) return false;
-        sp = taskData->stack->stack()->p_sp;
-        pc = taskData->stack->stack()->p_pc;
+        if (this->stack == 0) return false;
+        sp = this->stack->stack()->p_sp;
+        pc = this->stack->stack()->p_pc;
         return true;
     }
     if (context == 0) return false;
@@ -1461,63 +1488,61 @@ bool X86Dependent::GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *cont
     return false;
 #endif
     // Check the sp value is in the current stack.
-    if (sp >= taskData->stack->bottom && sp < taskData->stack->top)
+    if (sp >= this->stack->bottom && sp < this->stack->top)
         return true;
     else
         return false; // Bad stack pointer
 }
 
-void X86Dependent::InterruptCode(TaskData *taskData)
+void X86TaskData::InterruptCode()
 {
-    X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
     // Set the stack limit pointer to the top of the stack to cause
     // a trap when we next check for stack overflow.
     // SetMemRegisters actually does this anyway if "pendingInterrupt" is set but
     // it's safe to do this repeatedly.
-    if (taskData->stack != 0) 
-        mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->spaceSize()-1);
-    taskData->pendingInterrupt = true;
+    if (this->stack != 0) 
+        this->memRegisters.stackLimit = this->stack->stack()->Offset(this->stack->spaceSize()-1);
+    this->pendingInterrupt = true;
 }
 
 // This is called from SwitchToPoly before we enter the ML code.
-void X86Dependent::SetMemRegisters(TaskData *taskData)
+void X86TaskData::SetMemRegisters()
 {
-    X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
     // Copy the current store limits into variables before we go into the assembly code.
 
     // If we haven't yet set the allocation area or we don't have enough we need
     // to create one (or a new one).
-    if (taskData->allocPointer <= taskData->allocLimit + mdTask->allocWords)
+    if (this->allocPointer <= this->allocLimit + this->allocWords)
     {
-        if (taskData->allocPointer < taskData->allocLimit)
+        if (this->allocPointer < this->allocLimit)
             Crash ("Bad length in heap overflow trap");
 
         // Find some space to allocate in.  Updates taskData->allocPointer and
         // returns a pointer to the newly allocated space (if allocWords != 0)
         PolyWord *space =
-            processes->FindAllocationSpace(taskData, mdTask->allocWords, true);
+            processes->FindAllocationSpace(this, this->allocWords, true);
         if (space == 0)
         {
             // We will now raise an exception instead of returning.
             // Set allocWords to zero so we don't set the allocation register
             // since that could be holding the exception packet.
-            mdTask->allocWords = 0;
+            this->allocWords = 0;
         }
         // Undo the allocation just now.
-        taskData->allocPointer += mdTask->allocWords;
+        this->allocPointer += this->allocWords;
     }
 
-    if (mdTask->allocWords != 0)
+    if (this->allocWords != 0)
     {
         // If we have had a heap trap we actually do the allocation here.
         // We will have already garbage collected and recovered sufficient space.
         // This also happens if we have just trapped because of store profiling.
-        taskData->allocPointer -= mdTask->allocWords; // Now allocate
+        this->allocPointer -= this->allocWords; // Now allocate
         // Set the allocation register to this area.
-        if (mdTask->allocReg < 15)
-            *(get_reg(taskData, mdTask->allocReg)) =
-                PolyWord::FromStackAddr(taskData->allocPointer + 1); /* remember: it's off-by-one */
-        mdTask->allocWords = 0;
+        if (this->allocReg < 15)
+            *(get_reg(this->allocReg)) =
+                PolyWord::FromStackAddr(this->allocPointer + 1); /* remember: it's off-by-one */
+        this->allocWords = 0;
     }
 
     // If we have run out of store, either just above or while allocating in the RTS,
@@ -1526,83 +1551,71 @@ void X86Dependent::SetMemRegisters(TaskData *taskData)
     // before we allocate anything.  The compiled code uses unsigned arithmetic to check for
     // heap overflow but only after subtracting the space required.  We need to make sure
     // that the values are still non-negative after substracting any object size.
-    if (taskData->allocPointer == 0) taskData->allocPointer += MAX_OBJECT_SIZE;
-    if (taskData->allocLimit == 0) taskData->allocLimit += MAX_OBJECT_SIZE;
+    if (this->allocPointer == 0) this->allocPointer += MAX_OBJECT_SIZE;
+    if (this->allocLimit == 0) this->allocLimit += MAX_OBJECT_SIZE;
 
-    mdTask->memRegisters.localMbottom = taskData->allocLimit + 1;
-    mdTask->memRegisters.localMpointer = taskData->allocPointer + 1;
+    this->memRegisters.localMbottom = this->allocLimit + 1;
+    this->memRegisters.localMpointer = this->allocPointer + 1;
     // If we are profiling store allocation we set mem_hl so that a trap
     // will be generated.
     if (profileMode == kProfileStoreAllocation)
-        mdTask->memRegisters.localMbottom = mdTask->memRegisters.localMpointer;
+        this->memRegisters.localMbottom = this->memRegisters.localMpointer;
 
-    mdTask->memRegisters.polyStack = taskData->stack->stack();
+    this->memRegisters.polyStack = this->stack->stack();
     // Whenever the ML code enters a function it checks that the stack pointer is above
     // this value.  The default is to set it to the top of the reserved area
     // but if we've had an interrupt we set it to the end of the stack.
     // InterruptCode may be called either when the thread is in the RTS or in ML code.
-    mdTask->memRegisters.stackTop = taskData->stack->stack()->Offset(taskData->stack->spaceSize() - 1);
-    if (taskData->pendingInterrupt)
-        mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->spaceSize()-1);
-    else mdTask->memRegisters.stackLimit = taskData->stack->stack()->Offset(taskData->stack->stack()->p_space);
-    mdTask->memRegisters.handlerRegister = taskData->stack->stack()->p_hr;
-    mdTask->memRegisters.requestCode = 0; // Clear these because only one will be set.
-    mdTask->memRegisters.returnReason = RETURN_IO_CALL;
+    this->memRegisters.stackTop = this->stack->stack()->Offset(this->stack->spaceSize() - 1);
+    if (this->pendingInterrupt)
+        this->memRegisters.stackLimit = this->stack->stack()->Offset(this->stack->spaceSize()-1);
+    else this->memRegisters.stackLimit = this->stack->stack()->Offset(this->stack->stack()->p_space);
+    this->memRegisters.handlerRegister = this->stack->stack()->p_hr;
+    this->memRegisters.requestCode = 0; // Clear these because only one will be set.
+    this->memRegisters.returnReason = RETURN_IO_CALL;
 
-    // Point "raiseException" at the assembly code for "raisex"
-    mdTask->memRegisters.raiseException = (byte*)raisex;
-    // Entry point to save the state for an IO call.  This is the common entry
-    // point for all the return and IO-call cases.
-    mdTask->memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
-    mdTask->memRegisters.heapOverflow = heapOverflow;
-    mdTask->memRegisters.stackOverflow = stackOverflow;
-    mdTask->memRegisters.stackOverflowEx = stackOverflowEx;
-    mdTask->memRegisters.raiseDiv = raiseDiv;
-    mdTask->memRegisters.arbEmulation = arbEmulation;
-
-    mdTask->memRegisters.threadId = taskData->threadObject;
+    this->memRegisters.threadId = this->threadObject;
  
     // We set the PC to zero to indicate that we should retry the call to the RTS
     // function.  In that case we need to set it back to the code address before we
     // return.  This is also used if we have raised an exception.
-    if (PSP_IC(taskData) == PC_RETRY_SPECIAL)
-        taskData->stack->stack()->p_pc = PSP_EDX(taskData).AsObjPtr()->Get(0).AsCodePtr();
+    if (PSP_IC(this) == PC_RETRY_SPECIAL)
+        this->stack->stack()->p_pc = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
 
     // Set the rounding mode to the value set within the RTS.
-    x86Stack(taskData)->p_fp.cw &= 0x73ff;
+    x86Stack(this)->p_fp.cw &= 0x73ff;
     // Get the rounding mode.
     unsigned short controlWord = X86AsmGetFPControlWord();
-    x86Stack(taskData)->p_fp.cw &= 0xf3ff;
-    x86Stack(taskData)->p_fp.cw |= controlWord & 0xc00;
+    x86Stack(this)->p_fp.cw &= 0xf3ff;
+    x86Stack(this)->p_fp.cw |= controlWord & 0xc00;
 }
 
 // This is called whenever we have returned from ML to C.
-void X86Dependent::SaveMemRegisters(TaskData *taskData)
+void X86TaskData::SaveMemRegisters()
 {
-    X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
     // Check a few items on the stack to see it hasn't been overwritten
-    if (taskData->stack->stack()->p_space != OVERFLOW_STACK_SIZE ||
-          taskData->stack->stack()->p_nreg != CHECKED_REGS ||
-          taskData->stack->stack()->p_reg[CHECKED_REGS] != PolyWord::FromUnsigned(UNCHECKED_REGS))
+    if (this->stack->stack()->p_space != OVERFLOW_STACK_SIZE ||
+          this->stack->stack()->p_nreg != CHECKED_REGS ||
+          this->stack->stack()->p_reg[CHECKED_REGS] != PolyWord::FromUnsigned(UNCHECKED_REGS))
         Crash("Stack overwritten\n");
-    taskData->allocPointer = mdTask->memRegisters.localMpointer - 1;
-    taskData->stack->stack()->p_hr = mdTask->memRegisters.handlerRegister;
-    mdTask->allocWords = 0;
+    this->allocPointer = this->memRegisters.localMpointer - 1;
+    this->stack->stack()->p_hr = this->memRegisters.handlerRegister;
+    this->allocWords = 0;
 }
 
 // Called if we need the ML code to retry an RTS call.
-void X86Dependent::SetForRetry(TaskData *taskData, int ioCall)
+void X86TaskData::SetForRetry(int ioCall)
 {
     /* We now have to set the closure entry for the RTS call to work.
        DCJM 4/1/01. */
-    PSP_EDX(taskData) = (PolyObject*)IoEntry(ioCall);
-    taskData->stack->stack()->p_pc = PC_RETRY_SPECIAL; // This value is treated specially in SetMemRegisters
+    PSP_EDX(this) = (PolyObject*)IoEntry(ioCall);
+    this->stack->stack()->p_pc = PC_RETRY_SPECIAL; // This value is treated specially in SetMemRegisters
 }
 
-PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
+PolyWord *X86TaskData::get_reg(int n)
 /* Returns a pointer to the register given by n. */
 {
-    PolyX86Stack *stack = x86Stack(taskData);
+    PolyX86Stack *stack = x86Stack(this);
     switch (n) 
     {
     case 0: return &stack->p_eax;
@@ -1626,22 +1639,21 @@ PolyWord *X86Dependent::get_reg(TaskData *taskData, int n)
     }
 }
 
-PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
-                                    unsigned int rexPrefix, bool *inConsts)
+PolyWord *X86TaskData::getArgument(unsigned int modRm, unsigned int rexPrefix, bool *inConsts)
 {
     unsigned int md = modRm >> 6;
     unsigned int rm = modRm & 7;
     if (inConsts) *inConsts = false; // Default
     if (md == 3) // Register
-        return get_reg(taskData, rm + (rexPrefix & 0x1)*8);
+        return get_reg(rm + (rexPrefix & 0x1)*8);
     else if (rm == 4)
     {
         // s-i-b present.  Used for esp and r12 as well as indexing.
-        unsigned int sib = PSP_IC(taskData)[0];
+        unsigned int sib = PSP_IC(this)[0];
         unsigned int index = (sib >> 3) & 7;
         unsigned int ss = (sib >> 6) & 3;
         unsigned int base = sib & 7;
-        PSP_INCR_PC(taskData, 1);
+        PSP_INCR_PC(this, 1);
         if (md == 0 && base == 5)
             // This should not occur in either 32 or 64-bit mode.
             Crash("Immediate address in emulated instruction");
@@ -1651,25 +1663,25 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
             if (md == 1)
             {
                 // One byte offset
-                offset = PSP_IC(taskData)[0];
+                offset = PSP_IC(this)[0];
                 if (offset >= 128) offset -= 256;
-                PSP_INCR_PC(taskData, 1);
+                PSP_INCR_PC(this, 1);
             }
             else if (md == 2)
             {
                 // Four byte offset
-                offset = PSP_IC(taskData)[3];
+                offset = PSP_IC(this)[3];
                 if (offset >= 128) offset -= 256;
-                offset = offset*256 + PSP_IC(taskData)[2];
-                offset = offset*256 + PSP_IC(taskData)[1];
-                offset = offset*256 + PSP_IC(taskData)[0];
-                PSP_INCR_PC(taskData, 4);
+                offset = offset*256 + PSP_IC(this)[2];
+                offset = offset*256 + PSP_IC(this)[1];
+                offset = offset*256 + PSP_IC(this)[0];
+                PSP_INCR_PC(this, 4);
             }
             if (ss != 0 || index != 4) Crash("Index register present");
             byte *ea;
             if (rexPrefix & 0x1) base += 8;
-            if (base == 4) /* esp */ ea = (byte*)taskData->stack->stack()->p_sp + offset;
-            else ea = get_reg(taskData, base)->AsCodePtr()+offset;
+            if (base == 4) /* esp */ ea = (byte*)this->stack->stack()->p_sp + offset;
+            else ea = get_reg(base)->AsCodePtr()+offset;
             return (PolyWord*)ea;
         }
     }
@@ -1677,14 +1689,14 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
     {
 #ifdef HOSTARCHITECTURE_X86_64
         // In 64-bit mode this means PC-relative
-        int offset = PSP_IC(taskData)[3];
+        int offset = PSP_IC(this)[3];
         if (offset >= 128) offset -= 256;
-        offset = offset*256 + PSP_IC(taskData)[2];
-        offset = offset*256 + PSP_IC(taskData)[1];
-        offset = offset*256 + PSP_IC(taskData)[0];
-        PSP_INCR_PC(taskData, 4);
+        offset = offset*256 + PSP_IC(this)[2];
+        offset = offset*256 + PSP_IC(this)[1];
+        offset = offset*256 + PSP_IC(this)[0];
+        PSP_INCR_PC(this, 4);
         if (inConsts) *inConsts = true;
-        return (PolyWord*)(taskData->stack->stack()->p_pc + offset);
+        return (PolyWord*)(this->stack->stack()->p_pc + offset);
 #else
         Crash("Immediate address in emulated instruction");
 #endif
@@ -1695,31 +1707,31 @@ PolyWord *X86Dependent::getArgument(TaskData *taskData, unsigned int modRm,
         if (md == 1)
         {
             // One byte offset
-            offset = PSP_IC(taskData)[0];
+            offset = PSP_IC(this)[0];
             if (offset >= 128) offset -= 256;
-            PSP_INCR_PC(taskData, 1);
+            PSP_INCR_PC(this, 1);
         }
         else if (md == 2)
         {
             // Four byte offset
-            offset = PSP_IC(taskData)[3];
+            offset = PSP_IC(this)[3];
             if (offset >= 128) offset -= 256;
-            offset = offset*256 + PSP_IC(taskData)[2];
-            offset = offset*256 + PSP_IC(taskData)[1];
-            offset = offset*256 + PSP_IC(taskData)[0];
-            PSP_INCR_PC(taskData, 4);
+            offset = offset*256 + PSP_IC(this)[2];
+            offset = offset*256 + PSP_IC(this)[1];
+            offset = offset*256 + PSP_IC(this)[0];
+            PSP_INCR_PC(this, 4);
         }
-        PolyWord base = *(get_reg(taskData, rm + (rexPrefix & 0x1)*8));
+        PolyWord base = *(get_reg(rm + (rexPrefix & 0x1)*8));
         byte *ea = base.AsCodePtr() + offset;
         return (PolyWord*)ea;
     }
 }
 
 // Called as a result of a heap overflow trap
-void X86Dependent::HeapOverflowTrap(TaskData *taskData)
+void X86TaskData::HeapOverflowTrap()
 {
-    X86TaskData *mdTask = (X86TaskData*)taskData->mdTaskData;
-    PolyX86Stack *stack = x86Stack(taskData);
+    X86TaskData *mdTask = this;
+    PolyX86Stack *stack = x86Stack(this);
     POLYUNSIGNED wordsNeeded = 0;
     // The next instruction, after any branches round forwarding pointers, will
     // be a store of register containing the adjusted heap pointer.  We need to
@@ -1734,14 +1746,14 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
     // This should be movl REG,0[%ebp].
     ASSERT(stack->p_pc[0] == 0x89);
     mdTask->allocReg = (stack->p_pc[1] >> 3) & 7; // Remember this until we allocate the memory
-    PolyWord *reg = get_reg(taskData, mdTask->allocReg);
+    PolyWord *reg = get_reg(mdTask->allocReg);
     PolyWord reg_val = *reg;
     // The space we need is the difference between this register
     // and the current value of newptr.
     // The +1 here is because memRegisters.localMpointer is A.M.pointer +1.  The reason
     // is that after the allocation we have the register pointing at the address we will
     // actually use.
-    wordsNeeded = (taskData->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
+    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
     *reg = TAGGED(0); // Clear this - it's not a valid address.
     /* length in words, including length word */
 
@@ -1753,9 +1765,9 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
         ASSERT(stack->p_pc[0] == 0x49 || stack->p_pc[0] == 0x4d);
         mdTask->allocReg = (stack->p_pc[2] >> 3) & 7; // Remember this until we allocate the memory
         if (stack->p_pc[0] & 0x4) mdTask->allocReg += 8;
-        PolyWord *reg = get_reg(taskData, mdTask->allocReg);
+        PolyWord *reg = get_reg(this->allocReg);
         PolyWord reg_val = *reg;
-        wordsNeeded = (taskData->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
+        wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
         *reg = TAGGED(0); // Clear this - it's not a valid address.
     }
     else
@@ -1771,11 +1783,11 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
         mdTask->allocReg = 15; // Don't put it in a register
         // The value that ends up in allocSpace->pointer includes the
         // attempted allocation.  Add back the space we tried to allocate
-        taskData->allocPointer += wordsNeeded;
+        this->allocPointer += wordsNeeded;
     }
 #endif /* HOSTARCHITECTURE_X86_64 */
     if (profileMode == kProfileStoreAllocation)
-        add_count(taskData, stack->p_pc, stack->p_sp, wordsNeeded);
+        add_count(this, stack->p_pc, stack->p_sp, wordsNeeded);
 
     mdTask->allocWords = wordsNeeded; // The actual allocation is done in SetMemRegisters.
 }
@@ -1786,20 +1798,20 @@ void X86Dependent::HeapOverflowTrap(TaskData *taskData)
 /*      do_compare - do a "long" comparison, setting the flags register       */
 /*                                                                            */
 /******************************************************************************/
-void X86Dependent::do_compare(TaskData *taskData, PolyWord v1, PolyWord v2)
+void X86TaskData::do_compare(PolyWord v1, PolyWord v2)
 {
     Handle val1, val2;
     /* Must push these to the save vec.  A persistent store trap
        might cause a garbage collection and move the stack. */
-    val1 = taskData->saveVec.push(v1);
-    val2 = taskData->saveVec.push(v2);
-    int r = compareLong(taskData, val2, val1);
+    val1 = this->saveVec.push(v1);
+    val2 = this->saveVec.push(v2);
+    int r = compareLong(this, val2, val1);
     /* Clear the flags. */
-    POLYUNSIGNED flags = PSP_EFLAGS(taskData);
+    POLYUNSIGNED flags = PSP_EFLAGS(this);
     flags &= -256;
     if (r == 0) flags |= EFLAGS_ZF;
     else if (r < 0) flags |= EFLAGS_SF;
-    PSP_EFLAGS(taskData) = flags;
+    PSP_EFLAGS(this) = flags;
 }
 
 /******************************************************************************/
@@ -1807,56 +1819,56 @@ void X86Dependent::do_compare(TaskData *taskData, PolyWord v1, PolyWord v2)
 /*      do_op - do a "long" operation, setting the destination register       */
 /*                                                                            */
 /******************************************************************************/
-void X86Dependent::do_op(TaskData *taskData, int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle))
+void X86TaskData::do_op(int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle))
 {
     Handle val1, val2, result;
     /* Must push these to the save vec.  A persistent store trap
        or a garbage collection might move the stack. */
-    val1 = taskData->saveVec.push(v1);
-    val2 = taskData->saveVec.push(v2);
+    val1 = this->saveVec.push(v1);
+    val2 = this->saveVec.push(v2);
     /* Clobber the destination which may have overflowed. */
-    *(get_reg(taskData, dest)) = TAGGED(0);
-    result = op (taskData, val2, val1);     /* N.B parameters are intentionally reversed */
+    *(get_reg(dest)) = TAGGED(0);
+    result = op (this, val2, val1);     /* N.B parameters are intentionally reversed */
     /* N.B. the stack may have moved so we must recompute get_reg(dest). */
-    *(get_reg(taskData, dest)) = DEREFWORD(result);
+    *(get_reg(dest)) = DEREFWORD(result);
 }
 
 // Emulate a long precision operation.
 // The instruction formats have changed in 5.4 so this supports
 // both 5.3 and earlier and also 5.4 format.
-bool X86Dependent::emulate_instrs(TaskData *taskData)
+bool X86TaskData::emulate_instrs()
 {
     int src1 = -1, src2 = -1, dest = -1;
     bool doneSubtraction = false;
-    POLYUNSIGNED flagsWord = PSP_EFLAGS(taskData);
-    PSP_EFLAGS(taskData) &= ~EFLAGS_OF; // Make sure the overflow flag is clear.
+    POLYUNSIGNED flagsWord = PSP_EFLAGS(this);
+    PSP_EFLAGS(this) &= ~EFLAGS_OF; // Make sure the overflow flag is clear.
     while(1) {
         byte rexPrefix = 0;
 #ifdef HOSTARCHITECTURE_X86_64
         // Get any REX prefix
-        if (PSP_IC(taskData)[0] >= 0x40 && PSP_IC(taskData)[0] <= 0x4f)
+        if (PSP_IC(this)[0] >= 0x40 && PSP_IC(this)[0] <= 0x4f)
         {
-            rexPrefix = PSP_IC(taskData)[0];
-            PSP_INCR_PC(taskData, 1);
+            rexPrefix = PSP_IC(this)[0];
+            PSP_INCR_PC(this, 1);
         }
 #endif /* HOSTARCHITECTURE_X86_64 */
         // Decode the register fields and include any REX bits
-        int bbb = PSP_IC(taskData)[1] & 7;
+        int bbb = PSP_IC(this)[1] & 7;
         if (rexPrefix & 0x1) bbb += 8;
-        int rrr = (PSP_IC(taskData)[1] >> 3) & 7;
+        int rrr = (PSP_IC(this)[1] >> 3) & 7;
         if (rexPrefix & 0x4) rrr += 8;
 
-        switch (PSP_IC(taskData)[0]) {
+        switch (PSP_IC(this)[0]) {
         case 0x03: 
             {
                 /* add. */
-                PSP_INCR_PC(taskData, 1);
-                int modRm = PSP_IC(taskData)[0];
-                PSP_INCR_PC(taskData, 1);
+                PSP_INCR_PC(this, 1);
+                int modRm = PSP_IC(this)[0];
+                PSP_INCR_PC(this, 1);
                 bool inConsts = false;
-                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix, &inConsts));
+                PolyWord arg2 = *(getArgument(modRm, rexPrefix, &inConsts));
                 if (dest == -1) { // New format
-                    PolyWord *destReg = get_reg(taskData, rrr);
+                    PolyWord *destReg = get_reg( rrr);
                     PolyWord arg1 = *destReg;
                     // We could have come here because of testing the tags, which happens
                     // before the operation, or as a result of adding two tagged values in which
@@ -1874,32 +1886,32 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     // If this is in the 64-bit non-address area it is a constant with the
                     // tag removed.  Add it back in.
                     if (inConsts) arg2 = PolyWord::FromUnsigned(arg2.AsUnsigned()+1);
-                    do_op(taskData, rrr, arg1, arg2, add_longc);
+                    do_op(rrr, arg1, arg2, add_longc);
                     // The next operation will subtract the tag.  We need to add in a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
                     if (! inConsts) {
-                        destReg = get_reg(taskData, rrr); // May have moved because of a GC.
+                        destReg = get_reg(rrr); // May have moved because of a GC.
                         *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
                     }
                 }
                 else { // Legacy format
                     if (dest != rrr)
                         Crash("Expected same destination register.");
-                    do_op(taskData, dest, *(get_reg(taskData, src1)), arg2, add_longc);
+                    do_op(dest, *(get_reg(src1)), arg2, add_longc);
                 }
                 return true;
             }
 
         case 0x2b: /* Subtraction. */
             {
-                PSP_INCR_PC(taskData, 1);
-                int modRm = PSP_IC(taskData)[0];
-                PSP_INCR_PC(taskData, 1);
+                PSP_INCR_PC(this, 1);
+                int modRm = PSP_IC(this)[0];
+                PSP_INCR_PC(this, 1);
                 bool inConsts = false;
-                PolyWord arg2 = *(getArgument(taskData, modRm, rexPrefix, &inConsts));
+                PolyWord arg2 = *(getArgument(modRm, rexPrefix, &inConsts));
                 if (dest == -1) { // New format
-                    PolyWord *destReg = get_reg(taskData, rrr);
+                    PolyWord *destReg = get_reg(rrr);
                     PolyWord arg1 = *destReg;
                     // We could have come here because of testing the tags, which happens
                     // before the operation, or as a result of subtracting two tagged values in which
@@ -1911,12 +1923,12 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     // tag removed.  Add it back in.  N.B.  In this case we don't have a following
                     // instruction to add the tag.
                     if (inConsts) arg2 = PolyWord::FromUnsigned(arg2.AsUnsigned()+1);
-                    do_op(taskData, rrr, arg1, arg2, sub_longc);
+                    do_op(rrr, arg1, arg2, sub_longc);
                     // The next operation will add the tag.  We need to subtract a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
                     if (! inConsts) {
-                        destReg = get_reg(taskData, rrr); // May have moved because of a GC.
+                        destReg = get_reg(rrr); // May have moved because of a GC.
                         *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()-1);
                     }
                     return true;
@@ -1924,7 +1936,7 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 else { // Legacy format
                     if (dest != rrr)
                         Crash("Expected same destination register.");
-                    do_op(taskData, dest, *(get_reg(taskData, src1)), arg2, sub_longc);
+                    do_op(dest, *(get_reg(src1)), arg2, sub_longc);
                     doneSubtraction = true;
                     break;
                 }
@@ -1932,50 +1944,50 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
         case 0x3b: /* Compare. */
             {
-                PSP_INCR_PC(taskData, 1);
-                int modRm = PSP_IC(taskData)[0];
-                PSP_INCR_PC(taskData, 1);
-                PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
-                do_compare(taskData, *(get_reg(taskData, rrr)), arg);
+                PSP_INCR_PC(this, 1);
+                int modRm = PSP_IC(this)[0];
+                PSP_INCR_PC(this, 1);
+                PolyWord arg = *(getArgument(modRm, rexPrefix));
+                do_compare(*(get_reg(rrr)), arg);
                 return true;
             }
 
         case 0x8d: /* leal - Used to remove a tag before an add and multiply. */
             // Also used to put the tag on after a subtraction.
-            if ((PSP_IC(taskData)[1] & 7) == 4)
+            if ((PSP_IC(this)[1] & 7) == 4)
             { // R12 (and RSP but that isn't used here) have to be encoded with a SIB byte.
-                ASSERT((PSP_IC(taskData)[2] & 7) == 4); // Should be same register
-                PSP_INCR_PC(taskData, 1);
+                ASSERT((PSP_IC(this)[2] & 7) == 4); // Should be same register
+                PSP_INCR_PC(this, 1);
             }
             if (doneSubtraction)
             {
-                PSP_INCR_PC(taskData, 3);
+                PSP_INCR_PC(this, 3);
                 return true;
             }
             if (src1 == -1) src1 = bbb; else src2 = bbb;
             dest = rrr;
-            ASSERT(PSP_IC(taskData)[2] == 0xff);
-            PSP_INCR_PC(taskData, 3);
+            ASSERT(PSP_IC(this)[2] == 0xff);
+            PSP_INCR_PC(this, 3);
             break;
 
         case 0x89: /* movl: move source into dest. */
-            if ((PSP_IC(taskData)[1] & 0xc0) != 0xc0)
+            if ((PSP_IC(this)[1] & 0xc0) != 0xc0)
                  Crash("Can't move into store.");
             dest = bbb;
             if (src1 == -1) src1 = rrr; else src2 = rrr;
-            PSP_INCR_PC(taskData, 2);
+            PSP_INCR_PC(this, 2);
                 /* Next should be add-immediate. */
             break;
 
         case 0x83: { /* One byte immediate: Add, sub or compare. */
-            PSP_INCR_PC(taskData, 1);
-            int modRm = PSP_IC(taskData)[0];
-            PSP_INCR_PC(taskData, 1);
-            PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
+            PSP_INCR_PC(this, 1);
+            int modRm = PSP_IC(this)[0];
+            PSP_INCR_PC(this, 1);
+            PolyWord arg = *(getArgument(modRm, rexPrefix));
 
-            int cval = PSP_IC(taskData)[0];
+            int cval = PSP_IC(this)[0];
             if (cval >= 128) cval -= 256;
-            PSP_INCR_PC(taskData, 1);
+            PSP_INCR_PC(this, 1);
 
             switch (modRm & (7 << 3)) // This is a code.  Ignore any REX override.
             {
@@ -1992,9 +2004,9 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                         }
                         // Immediate value is shifted, but hasn't had 1 added;
                         // do this now before calling add_longc
-                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), add_longc);
+                        do_op(bbb, arg, PolyWord::FromSigned(cval+1), add_longc);
                     }
-                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
+                    else do_op(dest, *(get_reg(src1)), PolyWord::FromSigned(cval+1), add_longc);
                     break;
                 }
 
@@ -2002,20 +2014,20 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                 {
                     if (dest != bbb) { // New format: Same register for source and destination.
                         // We didn't have a move instruction before this.
-                        PolyWord arg = *(get_reg(taskData, bbb));
+                        PolyWord arg = *(get_reg(bbb));
                         if (arg.IsTagged()) arg = PolyWord::FromUnsigned(arg.AsUnsigned() + cval);
                         // Immediate value is shifted, but hasn't had 1 added;
                         // do this now before calling sub_longc
-                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
+                        do_op(bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
                     }
-                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), sub_longc);
+                    else do_op(dest, *(get_reg(src1)), PolyWord::FromSigned(cval+1), sub_longc);
                     break;
                 }
 
                 case (7 << 3): /* cmp */
                 {
                     /* immediate value is already tagged */
-                    do_compare(taskData, arg, PolyWord::FromSigned(cval));
+                    do_compare(arg, PolyWord::FromSigned(cval));
                     break;
                 }
 
@@ -2025,17 +2037,17 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
             }
 
         case 0x81: { /* 4 byte immediate: Add, sub or compare. */
-            PSP_INCR_PC(taskData, 1);
-            int modRm = PSP_IC(taskData)[0];
-            PSP_INCR_PC(taskData, 1);
-            PolyWord arg = *(getArgument(taskData, modRm, rexPrefix));
+            PSP_INCR_PC(this, 1);
+            int modRm = PSP_IC(this)[0];
+            PSP_INCR_PC(this, 1);
+            PolyWord arg = *(getArgument(modRm, rexPrefix));
 
-            int cval = PSP_IC(taskData)[3];
+            int cval = PSP_IC(this)[3];
             if (cval >= 128) cval -= 256;
-            cval = cval*256 + PSP_IC(taskData)[2];
-            cval = cval*256 + PSP_IC(taskData)[1];
-            cval = cval*256 + PSP_IC(taskData)[0];
-            PSP_INCR_PC(taskData, 4);
+            cval = cval*256 + PSP_IC(this)[2];
+            cval = cval*256 + PSP_IC(this)[1];
+            cval = cval*256 + PSP_IC(this)[0];
+            PSP_INCR_PC(this, 4);
 
             switch (modRm & (7 << 3))
             {
@@ -2045,9 +2057,9 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                         if (arg.IsTagged()) {
                             arg = PolyWord::FromUnsigned(arg.AsUnsigned() - cval);
                         }
-                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), add_longc);
+                        do_op(bbb, arg, PolyWord::FromSigned(cval+1), add_longc);
                     }
-                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), add_longc);
+                    else do_op(dest, *(get_reg(src1)), PolyWord::FromSigned(cval+1), add_longc);
                     break;
                 }
 
@@ -2056,16 +2068,16 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     if (dest != bbb) { // New format: Same register for source and destination.
                         // We didn't have a move instruction before this.
                         if (arg.IsTagged()) arg = PolyWord::FromUnsigned(arg.AsUnsigned() + cval);
-                        do_op(taskData, bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
+                        do_op(bbb, arg, PolyWord::FromSigned(cval+1), sub_longc);
                     }
-                    else do_op(taskData, dest, *(get_reg(taskData, src1)), PolyWord::FromSigned(cval+1), sub_longc);
+                    else do_op(dest, *(get_reg(src1)), PolyWord::FromSigned(cval+1), sub_longc);
                     break;
                 }
 
                 case (7 << 3): /* cmp */
                 {
                     // Immediate value is already tagged or may be an address.
-                    do_compare(taskData, arg, PolyWord::FromSigned(cval));
+                    do_compare(arg, PolyWord::FromSigned(cval));
                     break;
                 }
 
@@ -2076,53 +2088,53 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 
         case 0xeb: // jmp - used in branch forwarding.
             // This is used to skip back to the instruction being emulated.
-            if (PSP_IC(taskData)[1] >= 128)
-                PSP_INCR_PC(taskData, PSP_IC(taskData)[1] - 256 + 2);
-            else PSP_INCR_PC(taskData, PSP_IC(taskData)[1] + 2);
+            if (PSP_IC(this)[1] >= 128)
+                PSP_INCR_PC(this, PSP_IC(this)[1] - 256 + 2);
+            else PSP_INCR_PC(this, PSP_IC(this)[1] + 2);
             break;
 
         case 0x50: /* push eax - used before a multiply. */
 #ifdef HOSTARCHITECTURE_X86_64
             ASSERT((rexPrefix & 1) == 0); // Check it's not r8
 #endif /* HOSTARCHITECTURE_X86_64 */
-            *(--PSP_SP(taskData)) = PSP_EAX(taskData);
-            PSP_INCR_PC(taskData, 1);
+            *(--PSP_SP(this)) = PSP_EAX(this);
+            PSP_INCR_PC(this, 1);
             break;
 
         case 0x52: /* push edx - used before a multiply. */
 #ifdef HOSTARCHITECTURE_X86_64
             ASSERT((rexPrefix & 1) == 0); // Check it's not r10
 #endif /* HOSTARCHITECTURE_X86_64 */
-            *(--PSP_SP(taskData)) = PSP_EDX(taskData);
-            PSP_INCR_PC(taskData, 1);
+            *(--PSP_SP(this)) = PSP_EDX(this);
+            PSP_INCR_PC(this, 1);
             break;
 
         case 0xd1: /* Group1A - must be sar edx before a multiply or sar [esp] before Real.fromInt */
-            if (PSP_IC(taskData)[1] == 0xfa) {
-                PSP_INCR_PC(taskData, 2);
+            if (PSP_IC(this)[1] == 0xfa) {
+                PSP_INCR_PC(this, 2);
                 /* If we haven't moved anything into edx then edx must be
                    one of the arguments. */
                 if (src2 == -1) src2 = 2; /* edx. */
             }
-            else if (PSP_IC(taskData)[1] == 0x3c) {
-                PSP_INCR_PC(taskData, 3);
+            else if (PSP_IC(this)[1] == 0x3c) {
+                PSP_INCR_PC(this, 3);
             }
             else Crash("Unknown instruction after overflow trap");
             break;
 
         case 0xf7: /* Multiply instruction. */
-            if (PSP_IC(taskData)[1] != 0xea)
+            if (PSP_IC(this)[1] != 0xea)
                 Crash("Unknown instruction after overflow trap");
-            do_op(taskData, 0 /* eax */, *(get_reg(taskData, src1)), *(get_reg(taskData, src2)), mult_longc);
+            do_op(0 /* eax */, *(get_reg(src1)), *(get_reg(src2)), mult_longc);
             /* Subtract one because the next instruction will tag it. */
-            PSP_EAX(taskData) = PolyWord::FromUnsigned(PSP_EAX(taskData).AsUnsigned() - 1);
-            PSP_INCR_PC(taskData, 2);
+            PSP_EAX(this) = PolyWord::FromUnsigned(PSP_EAX(this).AsUnsigned() - 1);
+            PSP_INCR_PC(this, 2);
             return true;
 
         case 0xdb: // Floating point ESCAPE 3
         case 0xdf:
             {
-                PolyX86Stack *stack = x86Stack(taskData);
+                PolyX86Stack *stack = x86Stack(this);
 #ifdef HOSTARCHITECTURE_X86_64
                 if (stack->p_pc[1] != 0x2c || stack->p_pc[2] != 0x24)
                     Crash("Unknown instruction after overflow trap");
@@ -2132,7 +2144,7 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
 #endif /* HOSTARCHITECTURE_X86_64 */
                 // The operand is on the stack.
                 union { double dble; byte bytes[sizeof(double)]; } dValue;
-                dValue.dble = get_C_real(taskData, stack->p_sp[0]);
+                dValue.dble = get_C_real(this, stack->p_sp[0]);
                 unsigned top = (stack->p_fp.sw >> 11) & 7;
                 top = (top-1) & 0x7;
                 stack->p_fp.sw = (stack->p_fp.sw & (~0x3800)) | (top << 11);
@@ -2162,7 +2174,7 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
                     }
                     stack->p_fp.registers[0][1] = acc << 3;
                 }
-                PSP_INCR_PC(taskData, 3);
+                PSP_INCR_PC(this, 3);
             }
             return true;
 
@@ -2173,14 +2185,14 @@ bool X86Dependent::emulate_instrs(TaskData *taskData)
     return false;
 }
 
-void X86Dependent::ArbitraryPrecisionTrap(TaskData *taskData)
+void X86TaskData::ArbitraryPrecisionTrap()
 {
     // Arithmetic operation has overflowed or detected long values.
     if (profileMode == kProfileEmulation)
-        add_count(taskData, PSP_IC(taskData), PSP_SP(taskData), 1);
+        add_count(this, PSP_IC(this), PSP_SP(this), 1);
     // Emulate the arbitrary precision instruction.
-    if (! emulate_instrs(taskData))
-        Crash("Arbitrary precision emulation fault at %x\n", PSP_IC(taskData));
+    if (! emulate_instrs())
+        Crash("Arbitrary precision emulation fault at %x\n", PSP_IC(this));
 }
 
 // These macros build small pieces of assembly code for each io call.
@@ -2485,52 +2497,45 @@ void X86Dependent::InitInterfaceVector(void)
 }
 
 // We need the kill-self code in a little function.
-Handle X86Dependent::BuildKillSelf(TaskData *taskData)
+Handle X86TaskData::BuildKillSelf()
 {
     byte *codeAddr;
     MAKE_IO_CALL_SEQUENCE(POLY_SYS_kill_self, codeAddr);
-    return BuildCodeSegment(taskData, codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
+    return BuildCodeSegment(codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
 }
 
 // Similarly for the exception trace code.  This is more complicated.
 // For backwards compatibility we need the address to be on a word + 2 byte
 // boundary.
-Handle X86Dependent::BuildExceptionTrace(TaskData *taskData, bool isLegacy)
+Handle X86TaskData::BuildExceptionTrace(bool isLegacy)
 {
     if (isLegacy)
     {
         byte *codeAddr = X86AsmGiveExceptionTraceCode();
-        return BuildCodeSegment(taskData, codeAddr, 20, 'E');
+        return BuildCodeSegment(codeAddr, 20, 'E');
     }
     else
     {
         byte *codeAddr = X86AsmGiveExceptionTraceFnCode();
-        return BuildCodeSegment(taskData, codeAddr, 9, 'E');
+        return BuildCodeSegment(codeAddr, 9, 'E');
     }
 }
 
-void X86Dependent::SetException(TaskData *taskData, poly_exn *exc)
+void X86TaskData::SetException(poly_exn *exc)
 // Set up the stack of a process to raise an exception.
 {
-    PSP_EDX(taskData) = (PolyObject*)IoEntry(POLY_SYS_raisex);
-    PSP_IC(taskData)     = PC_RETRY_SPECIAL;
-    PSP_EAX(taskData) = exc; /* put exception data into eax */
-}
-
-void X86Dependent::ResetSignals(void)
-{
-    /* restore default signal handling. */
-    /* SIGILL, SIGEMT are not used in PC version */
-    signal(SIGFPE,  SIG_DFL);
+    PSP_EDX(this) = (PolyObject*)IoEntry(POLY_SYS_raisex);
+    PSP_IC(this)     = PC_RETRY_SPECIAL;
+    PSP_EAX(this) = exc; /* put exception data into eax */
 }
 
 // Call a piece of compiled code.
-void X86Dependent::CallCodeTupled(TaskData *taskData)
+void X86TaskData::CallCodeTupled()
 {
     // The eventual return address is on the stack - leave it there.
-    PolyObject *argTuple = PSP_EAX(taskData).AsObjPtr();
-    Handle closure = taskData->saveVec.push(argTuple->Get(0));
-    Handle argvec = taskData->saveVec.push(argTuple->Get(1));
+    PolyObject *argTuple = PSP_EAX(this).AsObjPtr();
+    Handle closure = this->saveVec.push(argTuple->Get(0));
+    Handle argvec = this->saveVec.push(argTuple->Get(1));
 
     if (! IS_INT(DEREFWORD(argvec))) // May be nil if there are no args.
     {
@@ -2541,7 +2546,7 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
         if (argCount > ARGS_IN_REGS)
         {
             try {
-                CheckAndGrowStack(taskData, taskData->stack->stack()->p_sp - (argCount - ARGS_IN_REGS));
+                CheckAndGrowStack(this, this->stack->stack()->p_sp - (argCount - ARGS_IN_REGS));
             }
             catch (IOException)
             {
@@ -2550,65 +2555,65 @@ void X86Dependent::CallCodeTupled(TaskData *taskData)
         }
 
         // First argument is in EAX
-        PSP_EAX(taskData) = argv->Get(0);
+        PSP_EAX(this) = argv->Get(0);
         // Second arg, if there is one, goes into EBX
         if (argCount > 1)
-            PSP_EBX(taskData) = argv->Get(1);
+            PSP_EBX(this) = argv->Get(1);
 #ifdef HOSTARCHITECTURE_X86_64
         if (argCount > 2)
-            PSP_R8(taskData) = argv->Get(2);
+            PSP_R8(this) = argv->Get(2);
         if (argCount > 3)
-            PSP_R9(taskData) = argv->Get(3);
+            PSP_R9(this) = argv->Get(3);
         if (argCount > 4)
-            PSP_R10(taskData) = argv->Get(4);
+            PSP_R10(this) = argv->Get(4);
 #endif /* HOSTARCHITECTURE_X86_64 */
         // Remaining args go on the stack.
-        PolyWord returnAddress = *PSP_SP(taskData)++;
+        PolyWord returnAddress = *PSP_SP(this)++;
         for (POLYUNSIGNED i = ARGS_IN_REGS; i < argCount; i++)
         {
-            *(--PSP_SP(taskData)) = argv->Get(i);
+            *(--PSP_SP(this)) = argv->Get(i);
         }
-        *(--PSP_SP(taskData)) = returnAddress;
+        *(--PSP_SP(this)) = returnAddress;
     }
     // The closure goes into the closure reg.
-    PSP_EDX(taskData) = DEREFWORD(closure);
+    PSP_EDX(this) = DEREFWORD(closure);
     // First word of closure is entry point.
-    PSP_IC(taskData) = (PSP_EDX(taskData)).AsObjPtr()->Get(0).AsCodePtr();
+    PSP_IC(this) = (PSP_EDX(this)).AsObjPtr()->Get(0).AsCodePtr();
 }
 
 // Sets up a callback function on the current stack.  The present state is that
 // the ML code has made a call in to foreign_dispatch.  We need to set the stack
 // up so that we will enter the callback (as with CallCodeTupled) but when we return
 // the result we enter callback_return. 
-void X86Dependent::SetCallbackFunction(TaskData *taskData, Handle func, Handle args)
+void X86TaskData::SetCallbackFunction(Handle func, Handle args)
 {
     byte *codeAddr1, *codeAddr2;
     MAKE_EXTRA_CALL_SEQUENCE(RETURN_CALLBACK_RETURN, codeAddr1);
-    Handle callBackReturn = BuildCodeSegment(taskData, codeAddr1, MAKE_CALL_SEQUENCE_BYTES, 'C');
+    Handle callBackReturn = this->BuildCodeSegment(codeAddr1, MAKE_CALL_SEQUENCE_BYTES, 'C');
     MAKE_EXTRA_CALL_SEQUENCE(RETURN_CALLBACK_EXCEPTION, codeAddr2);
-    Handle callBackException = BuildCodeSegment(taskData, codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
+    Handle callBackException = this->BuildCodeSegment(codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
     // Save the closure pointer and argument registers to the stack.  If we have to
     // retry the current RTS call we need these to have their original values.
-    *(--PSP_SP(taskData)) = PSP_EDX(taskData);
-    *(--PSP_SP(taskData)) = PSP_EAX(taskData);
-    *(--PSP_SP(taskData)) = PSP_EBX(taskData);
+    *(--PSP_SP(this)) = PSP_EDX(this);
+    *(--PSP_SP(this)) = PSP_EAX(this);
+    *(--PSP_SP(this)) = PSP_EBX(this);
 #ifdef HOSTARCHITECTURE_X86_64
-    *(--PSP_SP(taskData)) = PSP_R8(taskData);
-    *(--PSP_SP(taskData)) = PSP_R9(taskData);
-    *(--PSP_SP(taskData)) = PSP_R10(taskData);
+    *(--PSP_SP(this)) = PSP_R8(this);
+    *(--PSP_SP(this)) = PSP_R9(this);
+    *(--PSP_SP(this)) = PSP_R10(this);
 #endif
     // Set up an exception handler so we will enter callBackException if there is an exception.
-    *(--PSP_SP(taskData)) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); // Create a special handler entry
-    *(--PSP_SP(taskData)) = callBackException->Word();
-    *(--PSP_SP(taskData)) = TAGGED(0);
-    taskData->stack->stack()->p_hr = PSP_SP(taskData);
+    *(--PSP_SP(this)) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); // Create a special handler entry
+    *(--PSP_SP(this)) = callBackException->Word();
+    *(--PSP_SP(this)) = TAGGED(0);
+    this->stack->stack()->p_hr = PSP_SP(this);
     // Push the call to callBackReturn onto the stack as the return address.
-    *(--PSP_SP(taskData)) = callBackReturn->Word();
+    *(--PSP_SP(this)) = callBackReturn->Word();
     // Set up the entry point of the callback.
     PolyObject *functToCall = func->WordP();
-    PSP_EDX(taskData) = functToCall; // Closure address
-    PSP_EAX(taskData) = args->Word();
-    taskData->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
+    PSP_EDX(this) = functToCall; // Closure address
+    PSP_EAX(this) = args->Word();
+    this->stack->stack()->p_pc = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
 }
 
 // Decode and process an effective address.  There may
@@ -2888,50 +2893,30 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
 
 extern "C" int registerMaskVector[];
 
-int X86Dependent::GetIOFunctionRegisterMask(int ioCall)
+int X86TaskData::GetIOFunctionRegisterMask(int ioCall)
 {
     return registerMaskVector[ioCall];
 }
 
-// Store a constant in the code segment.  This has to be handled specially because
-// the constant is probably an address.
-// At the moment this assumes we're dealing with a 32-bit constant on a 32-bit machine
-// and a 64-bit constant on a 64-bit machine.
-void X86Dependent::SetCodeConstant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
-{
-    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORD(offseth)); // Byte offset
-    byte *pointer = DEREFWORD(base).AsCodePtr() + offset;
-    POLYUNSIGNED flags = UNTAGGED(DEREFWORD(data));
-    POLYUNSIGNED c = DEREFWORD(constant).AsUnsigned(); // N.B.  This may well really be an address.
-    if (flags == 1)
-        c -= (POLYUNSIGNED)(pointer + sizeof(PolyWord)); // Relative address.  Relative to AFTER the pointer.
-    // Store the value into the code.  It can be on an arbitrary alignment.
-    for (unsigned i = 0; i < sizeof(PolyWord); i++)
-    {
-        pointer[i] = (byte)(c & 255); 
-        c >>= 8;
-    }
-}
-
 // Increment the value contained in the first word of the mutex.
-Handle X86Dependent::AtomicIncrement(TaskData *taskData, Handle mutexp)
+Handle X86TaskData::AtomicIncrement(Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
     POLYUNSIGNED result = X86AsmAtomicIncrement(p);
-    return taskData->saveVec.push(PolyWord::FromUnsigned(result));
+    return this->saveVec.push(PolyWord::FromUnsigned(result));
 }
 
 // Decrement the value contained in the first word of the mutex.
-Handle X86Dependent::AtomicDecrement(TaskData *taskData, Handle mutexp)
+Handle X86TaskData::AtomicDecrement(Handle mutexp)
 {
     PolyObject *p = DEREFHANDLE(mutexp);
     POLYUNSIGNED result = X86AsmAtomicDecrement(p);
-    return taskData->saveVec.push(PolyWord::FromUnsigned(result));
+    return this->saveVec.push(PolyWord::FromUnsigned(result));
 }
 
 // Release a mutex.  Because the atomic increment and decrement
 // use the hardware LOCK prefix we can simply set this to one.
-void X86Dependent::AtomicReset(TaskData *taskData, Handle mutexp)
+void X86TaskData::AtomicReset(Handle mutexp)
 {
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1));
 }

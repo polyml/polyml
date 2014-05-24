@@ -296,7 +296,7 @@ void raise_exception(TaskData *taskData, int id, Handle arg)
     /* N.B.  We must create the packet first BEFORE dereferencing the
        process handle just in case a GC while creating the packet
        moves the process and/or the stack. */
-    machineDependent->SetException(taskData, DEREFEXNHANDLE(exn));
+    taskData->SetException(DEREFEXNHANDLE(exn));
     throw IOException(); /* Return to Poly code immediately. */
     /*NOTREACHED*/
 }
@@ -473,7 +473,7 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     taskData->stack->stack()->p_hr = (PolyWord*)(handler->AsStackAddr());
     
     /* Set the exception data back again. */
-    machineDependent->SetException(taskData, (poly_exn *)DEREFHANDLE(exnHandle));
+    taskData->SetException((poly_exn *)DEREFHANDLE(exnHandle));
     
     throw IOException(); /* Reraise the exception. */
     /*NOTREACHED*/
@@ -1064,7 +1064,7 @@ void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
         // We really should do this only if the thread is handling interrupts
         // asynchronously.  On the other hand what else do we do?
         Handle exn = make_exn(taskData, EXC_interrupt, SAVE(TAGGED(0)));
-        machineDependent->SetException(taskData, DEREFEXNHANDLE(exn));
+        taskData->SetException(DEREFEXNHANDLE(exn));
     }
     else
     {

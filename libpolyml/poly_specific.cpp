@@ -434,7 +434,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
                 {
                     if (pt == (PolyObject*)IoEntry(i))
                     {
-                        int regMask = machineDependent->GetIOFunctionRegisterMask(i);
+                        int regMask = taskData->GetIOFunctionRegisterMask(i);
                         POLYUNSIGNED props = rtsProperties(taskData, i);
                         return taskData->saveVec.push(TAGGED(regMask | props));
                     }

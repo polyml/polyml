@@ -36,6 +36,7 @@
 #include "save_vec.h"
 
 #include "noreturn.h"
+#include "locking.h"
 
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
@@ -47,6 +48,25 @@ class Exporter;
 
 #ifdef HAVE_WINDOWS_H
 typedef void *HANDLE;
+#endif
+
+#ifdef HAVE_SIGNAL_H
+#include <signal.h>
+#endif
+
+#ifdef HAVE_UCONTEXT_H
+#include <ucontext.h>
+#endif
+
+#ifdef HAVE_UCONTEXT_T
+#define SIGNALCONTEXT ucontext_t
+#elif defined(HAVE_STRUCT_SIGCONTEXT)
+#define SIGNALCONTEXT struct sigcontext
+#elif defined(HAVE_WINDOWS_H)
+#include <windows.h>
+#define SIGNALCONTEXT CONTEXT // This is the thread context.
+#else
+#define SIGNALCONTEXT void
 #endif
 
 #define MIN_HEAP_SIZE   4096 // Minimum and initial heap segment size (words)
@@ -66,7 +86,14 @@ public:
                         // is an interrupt pending.
 };
 
-// Per-thread data.
+// Other threads may make requests to a thread.
+typedef enum {
+    kRequestNone = 0, // Increasing severity
+    kRequestInterrupt = 1,
+    kRequestKill = 2
+} ThreadRequests;
+
+// Per-thread data.  This is subclassed for each architecture.
 class TaskData {
 public:
     TaskData();
@@ -74,11 +101,34 @@ public:
 
     void FillUnusedSpace(void);
 
-    virtual void GarbageCollect(ScanAddress *process) = 0;
-    virtual void Lock(void) = 0;
-    virtual void Unlock(void) = 0;
+    virtual void GarbageCollect(ScanAddress *process);
+    virtual void Lock(void) {}
+    virtual void Unlock(void) {}
 
-    MDTaskData  *mdTaskData;    // Machine-specific task data.
+    virtual Handle EnterPolyCode() = 0; // Start running ML
+
+    virtual void SetForRetry(int ioCall) = 0;
+    virtual void InterruptCode() = 0;
+    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
+    // Initialise the stack for a new thread.  Because this is called from the parent thread
+    // the task data object passed in is that of the parent.
+    virtual void InitStackFrame(StackSpace *space, Handle proc, Handle arg) = 0;
+    virtual void SetException(poly_exn *exc) = 0;
+    // This is used to get the argument to the callback_result function.
+    virtual Handle CallBackResult() = 0;
+    // If a foreign function calls back to ML we need to set up the call to the
+    // ML callback function.
+    virtual void SetCallbackFunction(Handle func, Handle args) {}
+    virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
+
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(Handle mutexp) = 0;
+    virtual Handle AtomicDecrement(Handle mutexp) = 0;
+    // Reset a mutex to one.  This needs to be atomic with respect to the
+    // atomic increment and decrement instructions.
+    virtual void AtomicReset(Handle mutexp) = 0;
+
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...
     PolyWord    *allocLimit;    // ... lower limit of allocation
@@ -91,6 +141,34 @@ public:
     bool        pendingInterrupt; // The thread should trap into the RTS soon.
     PolyWord    foreignStack;   // Stack of saved data used in call_sym_and_convert
     bool        inML;          // True when this is in ML, false in the RTS
+
+private:
+    // If a thread has to block it will block on this.
+    PCondVar threadLock;
+    // External requests made are stored here until they
+    // can be actioned.
+    ThreadRequests requests;
+    // Pointer to the mutex when blocked. Set to NULL when it doesn't apply.
+    PolyObject *blockMutex;
+    // This is set to false when a thread blocks or enters foreign code,
+    // While it is true the thread can manipulate ML memory so no other
+    // thread can garbage collect.
+    bool inMLHeap;
+
+    // In Linux, at least, we need to run a separate timer in each thread
+    bool runningProfileTimer;
+
+#ifdef HAVE_WINDOWS_H
+    LONGLONG lastCPUTime; // Used for profiling
+#endif
+#ifdef HAVE_PTHREAD
+    bool threadExited;
+#endif
+#ifdef HAVE_WINDOWS_H
+    HANDLE threadHandle;
+#endif
+
+    friend class Processes;
 };
 
 NORETURNFN(extern Handle exitThread(TaskData *mdTaskData));

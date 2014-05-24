@@ -480,7 +480,7 @@ void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
         {
             PolyWord *sp;
             POLYCODEPTR pc;
-            if (machineDependent->GetPCandSPFromContext(taskData, context, sp, pc))
+            if (taskData->GetPCandSPFromContext(context, sp, pc))
                 add_count(taskData, pc, sp, 1);
             else mainThreadCounts[MTP_USER_CODE]++;
         }

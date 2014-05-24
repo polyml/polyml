@@ -97,10 +97,34 @@ const PolyWord Zero = TAGGED(0);
    UNCHECKED_REGS + \
    EXTRA_STACK)
 
-class IntTaskData: public MDTaskData {
+class IntTaskData: public TaskData {
 public:
     IntTaskData(): interrupt_requested(false) {}
-    
+
+    virtual Handle EnterPolyCode(); // Start running ML
+
+    // Switch to Poly and return with the io function to call.
+    int SwitchToPoly();
+    virtual void SetForRetry(int ioCall) {} // Nothing to do
+    virtual void SetException(poly_exn *exc);
+    virtual void InterruptCode();
+
+    // GetPCandSPFromContext is used in time profiling.  We can't get accurate info so return false.
+    virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc)
+        { return false; }
+
+    virtual void InitStackFrame(StackSpace *space, Handle proc, Handle arg);
+
+    virtual Handle CallBackResult();
+    virtual int  GetIOFunctionRegisterMask(int ioCall) { return 0; }
+
+    // Increment or decrement the first word of the object pointed to by the
+    // mutex argument and return the new value.
+    virtual Handle AtomicIncrement(Handle mutexp);
+    virtual Handle AtomicDecrement(Handle mutexp);
+    // Set a mutex to one.
+    virtual void AtomicReset(Handle mutexp);
+
     bool interrupt_requested;
 };
 
@@ -116,35 +140,12 @@ public:
     Interpreter() {}
 
     // Create a task data object.
-    virtual MDTaskData *CreateTaskData(void) { return new IntTaskData(); }
-
-    virtual void InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg);
-
-    virtual Handle EnterPolyCode(TaskData *taskData); // Start running ML
-
-    // Switch to Poly and return with the io function to call.
-    int SwitchToPoly(TaskData *taskData);
-    virtual void SetForRetry(TaskData *taskData, int ioCall) {} // Nothing to do
+    virtual TaskData *CreateTaskData(void) { return new IntTaskData(); }
     virtual void InitInterfaceVector(void);
-    virtual void SetException(TaskData *taskData, poly_exn *exc);
-    virtual void InterruptCode(TaskData *taskData);
-    virtual int  GetIOFunctionRegisterMask(int ioCall) { return 0; }
-    // GetPCandSPFromContext is used in time profiling.  We can't get accurate info so return false.
-    virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc)
-        { return false; }
-
-    virtual Handle CallBackResult(TaskData *taskData);
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
-
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
-    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp);
-    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp);
-    // Set a mutex to one.
-    virtual void AtomicReset(TaskData *taskData, Handle mutexp);
 };
 
-void Interpreter::InitStackFrame(TaskData *taskData, StackSpace *space, Handle proc, Handle arg)
+void IntTaskData::InitStackFrame(StackSpace *space, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
     StackObject *stack = (StackObject *)space->stack();
@@ -174,23 +175,23 @@ void Interpreter::InitStackFrame(TaskData *taskData, StackSpace *space, Handle p
     *(--stack->p_sp) = closure; /* Closure address */
 }
 
-void Interpreter::InterruptCode(TaskData *taskData)
+void IntTaskData::InterruptCode()
 /* Stop the Poly code at a suitable place. */
 /* We may get an asynchronous interrupt at any time. */
 {
-    IntTaskData *itd = (IntTaskData *)taskData->mdTaskData;
+    IntTaskData *itd = (IntTaskData *)this;
     itd->interrupt_requested = true;
 }
 
 
-void Interpreter::SetException(TaskData *taskData, poly_exn *exc)
+void IntTaskData::SetException(poly_exn *exc)
 /* Set up the stack of a process to raise an exception. */
 {
-    taskData->stack->stack()->p_reg[1] = TAGGED(INSTR_raise_ex);
-    *(--taskData->stack->stack()->p_sp) = (PolyWord)exc; /* push exception data */
+    this->stack->stack()->p_reg[1] = TAGGED(INSTR_raise_ex);
+    *(--this->stack->stack()->p_sp) = (PolyWord)exc; /* push exception data */
 }
 
-int Interpreter::SwitchToPoly(TaskData *taskData)
+int IntTaskData::SwitchToPoly()
 /* (Re)-enter the Poly code from C. */
 {
     register PolyWord *sp; /* Stack pointer. */
@@ -205,24 +206,23 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
 
     RESTART: /* Load or reload the registers and run the code. */
 
-    if (taskData->allocPointer <= taskData->allocLimit + storeWords)
+    if (this->allocPointer <= this->allocLimit + storeWords)
     {
-        if (taskData->allocPointer < taskData->allocLimit)
+        if (this->allocPointer < this->allocLimit)
             Crash ("Bad length in heap overflow trap");
 
-        // Find some space to allocate in.  Updates taskData->allocPointer and
+        // Find some space to allocate in.  Updates this->allocPointer and
         // returns a pointer to the newly allocated space (if allocWords != 0)
         PolyWord *space =
-            processes->FindAllocationSpace(taskData, storeWords, true);
+            processes->FindAllocationSpace(this, storeWords, true);
         if (space != 0) // Undo the allocation just now.  We'll redo it now we have the store.
-            taskData->allocPointer += storeWords;
+            this->allocPointer += storeWords;
     }
     storeWords = 0;
-    sp = taskData->stack->stack()->p_sp; /* Reload these. */
-    pc = taskData->stack->stack()->p_pc;
-    li = (unsigned)UNTAGGED(taskData->stack->stack()->p_reg[1]);
-    sl = (PolyWord*)taskData->stack->stack()+OVERFLOW_STACK_SIZE;
-    IntTaskData *itd = (IntTaskData *)taskData->mdTaskData;
+    sp = this->stack->stack()->p_sp; /* Reload these. */
+    pc = this->stack->stack()->p_pc;
+    li = (unsigned)UNTAGGED(this->stack->stack()->p_reg[1]);
+    sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
 
     if (li != 256) goto RETRY; /* Re-execute instruction if necessary. */
 
@@ -241,20 +241,20 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         // exception and produced any exception trace the stack will have been
         // reset to the last handler.
         if (sp < sl && li != INSTR_raise_ex) {
-            taskData->stack->stack()->p_sp = sp;
-            taskData->stack->stack()->p_pc = pc;
-            taskData->stack->stack()->p_reg[1] = TAGGED(li);
-            Handle marker = taskData->saveVec.mark();
-            CheckAndGrowStack(taskData, sp);
-            taskData->saveVec.reset(marker);
+            this->stack->stack()->p_sp = sp;
+            this->stack->stack()->p_pc = pc;
+            this->stack->stack()->p_reg[1] = TAGGED(li);
+            Handle marker = this->saveVec.mark();
+            CheckAndGrowStack(this, sp);
+            this->saveVec.reset(marker);
             goto RESTART;
         }
 
-        if (itd->interrupt_requested) {
-            itd->interrupt_requested = false;
-            taskData->stack->stack()->p_sp = sp;
-            taskData->stack->stack()->p_pc = pc;
-            taskData->stack->stack()->p_reg[1] = TAGGED(li);
+        if (this->interrupt_requested) {
+            this->interrupt_requested = false;
+            this->stack->stack()->p_sp = sp;
+            this->stack->stack()->p_pc = pc;
+            this->stack->stack()->p_reg[1] = TAGGED(li);
             return -1;
         }
 
@@ -272,31 +272,31 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         case INSTR_jump: pc += *pc + 1; break;
 
         case INSTR_push_handler: /* Save the old handler value. */
-            *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
+            *(--sp) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); /* Push old handler */
             break;
 
         case INSTR_set_handler_new: /* Set up a handler */
             *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
-            taskData->stack->stack()->p_hr = sp;
+            this->stack->stack()->p_hr = sp;
             pc += 1;
             break;
 
         case INSTR_set_handler_old: /* Set up a handler */
             // Legacy version.  The handler pushes an exception id.
             *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
-            taskData->stack->stack()->p_hr = sp-1; /*Point to identifier about to be pushed*/
+            this->stack->stack()->p_hr = sp-1; /*Point to identifier about to be pushed*/
             pc += 1;
             break;
 
         case INSTR_del_handler: /* Delete handler retaining the result. */
             {
                 PolyWord u = *sp++;
-                sp = taskData->stack->stack()->p_hr;
-                PolyWord *endStack = taskData->stack->top;
+                sp = this->stack->stack()->p_hr;
+                PolyWord *endStack = this->stack->top;
                 if (*sp == TAGGED(0)) sp++; // Legacy
                 sp++; // Skip handler entry point
                 // Restore old handler
-                taskData->stack->stack()->p_hr = (*sp).AsStackAddr();
+                this->stack->stack()->p_hr = (*sp).AsStackAddr();
                 *sp = u; // Put back the result
                 pc += *pc + 1; /* Skip the handler */
                 break;
@@ -330,7 +330,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 byte *u = pc + *pc + 1;
                 *(--sp) = /* Address of handler */
                     PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
-                taskData->stack->stack()->p_hr = sp;
+                this->stack->stack()->p_hr = sp;
                 pc += 1;
                 break;
             }
@@ -340,7 +340,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 byte *u = pc + *pc + 1;
                 *(--sp) = /* Address of handler */
                     PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
-                taskData->stack->stack()->p_hr = sp-1;
+                this->stack->stack()->p_hr = sp-1;
                 pc += 1;
                 break;
             }
@@ -349,10 +349,10 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             {
                 PolyWord u = *sp++;
                 PolyWord *t;
-                sp = taskData->stack->stack()->p_hr;
-                PolyWord *endStack = taskData->stack->top;
+                sp = this->stack->stack()->p_hr;
+                PolyWord *endStack = this->stack->top;
                 while((t = (*sp).AsStackAddr()) < sp || t > endStack) sp++;
-                taskData->stack->stack()->p_hr = t;
+                this->stack->stack()->p_hr = t;
                 *sp = u;
                 pc += *pc + 1; /* Skip the handler */
                 pc += arg1 + 2;
@@ -528,7 +528,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         {
                             POLYUNSIGNED u = UNTAGGED_UNSIGNED(*sp++);
                             if (u == 0)
-                                raise_exception0(taskData, EXC_divide);
+                                raise_exception0(this, EXC_divide);
                             *sp = TAGGED(UNTAGGED_UNSIGNED(*sp) / u); break;
                         }
 
@@ -536,7 +536,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                         {
                             POLYUNSIGNED u = UNTAGGED_UNSIGNED(*sp++);
                             if (u == 0)
-                                raise_exception0(taskData, EXC_divide);
+                                raise_exception0(this, EXC_divide);
                             // It's essential to use UNTAGGED_UNSIGNED here.
                             // The old version used UNTAGGED which uses an arithmetic shift
                             // and produces the wrong answer.
@@ -647,10 +647,10 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     case POLY_SYS_exception_trace:
                         u = *sp; /* Function to call. */
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
-                        *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
+                        *(--sp) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); /* Push old handler */
                         *(--sp) = SPECIAL_PC_TRACE_EX; /* Marks exception trace. */
                         *(--sp) = Zero; /* Catch everything. */
-                        taskData->stack->stack()->p_hr = sp; /* Handler is here. */
+                        this->stack->stack()->p_hr = sp; /* Handler is here. */
                         pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
                         *(--sp) = Zero; /* Unit argument to the function. */
                         *(--sp) = u; /* Push the procedure. */
@@ -659,10 +659,10 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     case POLY_SYS_exception_trace_fn:
                         u = *sp; /* Function to call. */
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
-                        *(--sp) = PolyWord::FromStackAddr(taskData->stack->stack()->p_hr); /* Push old handler */
+                        *(--sp) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); /* Push old handler */
                         *(--sp) = SPECIAL_PC_TRACE_EX_FN; /* Marks exception trace. */
                         *(--sp) = Zero; /* Catch everything. */
-                        taskData->stack->stack()->p_hr = sp; /* Handler is here. */
+                        this->stack->stack()->p_hr = sp; /* Handler is here. */
                         pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
                         *(--sp) = Zero; /* Unit argument to the function. */
                         *(--sp) = u; /* Push the procedure. */
@@ -790,9 +790,9 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     FullRTSCall:
                         // For all the calls that aren't built in ...
                         /* Save the state so that the instruction can be retried if necessary. */
-                        taskData->stack->stack()->p_pc = pc; /* Pc value after instruction. */
-                        taskData->stack->stack()->p_reg[1] = TAGGED(li); /* Previous instruction. */
-                        taskData->stack->stack()->p_sp = sp-1; /* Include the closure address. */
+                        this->stack->stack()->p_pc = pc; /* Pc value after instruction. */
+                        this->stack->stack()->p_reg[1] = TAGGED(li); /* Previous instruction. */
+                        this->stack->stack()->p_sp = sp-1; /* Include the closure address. */
                         return (int)uu;
                     }
                 } /* End of system calls. */
@@ -815,13 +815,13 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 pc = (*sp++).AsCodePtr(); /* Return address */
                 sp += returnCount; /* Add on number of args. */
                 if (pc == (SPECIAL_PC_END_THREAD).AsCodePtr())
-                    exitThread(taskData); // This thread is exiting.
+                    exitThread(this); // This thread is exiting.
                 else if (pc == (SPECIAL_PC_TRACE_EX).AsCodePtr())
                 {
                     /* Return from a call to exception_trace when an exception
                        has not been raised. */
                     sp += 1;
-                    taskData->stack->stack()->p_hr = (sp[1]).AsStackAddr();
+                    this->stack->stack()->p_hr = (sp[1]).AsStackAddr();
                     *sp = result;
                     returnCount = 1;
                     goto RETURN;
@@ -842,11 +842,11 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
             {
             RAISE_EXCEPTION:
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
-                taskData->stack->stack()->p_reg[0] = exn; /* Get exception data */
+                this->stack->stack()->p_reg[0] = exn; /* Get exception data */
                 PolyWord exId = exn->ex_id; /* Get exception identifier. */
-                taskData->stack->stack()->p_sp = sp; /* Save this in case of trace. */
-                PolyWord *t = taskData->stack->stack()->p_hr;  /* First handler */
-                PolyWord *endStack = taskData->stack->top;
+                this->stack->stack()->p_sp = sp; /* Save this in case of trace. */
+                PolyWord *t = this->stack->stack()->p_hr;  /* First handler */
+                PolyWord *endStack = this->stack->top;
                 // The legacy version pushes an identifier which is always zero.
                 if (*t == Zero) t++;
                 if (*t == SPECIAL_PC_TRACE_EX)
@@ -854,14 +854,14 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     *sp = PolyWord::FromCodePtr(pc); /* So that this proc. will be included. */
                     t++; /* Next handler. */
                     PolyWord *nextHandler = t;
-                    Handle marker = taskData->saveVec.mark();
+                    Handle marker = this->saveVec.mark();
                     try {
-                        ex_tracec(taskData, taskData->saveVec.push(taskData->stack->stack()->p_reg[0]),
-                                  taskData->saveVec.push(PolyWord::FromStackAddr(nextHandler)));
+                        ex_tracec(this, this->saveVec.push(this->stack->stack()->p_reg[0]),
+                                  this->saveVec.push(PolyWord::FromStackAddr(nextHandler)));
                     }
                     catch (IOException) {
                     }
-                    taskData->saveVec.reset(marker);
+                    this->saveVec.reset(marker);
                     // This will have reraised the exception by calling SetException
                     goto RESTART;
                 }
@@ -871,29 +871,29 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                     *sp = PolyWord::FromCodePtr(pc); /* So that this function will be included. */
                     // exceptionToTraceException expects the new format of exception handling that is
                     // used in the X86 code-generator.  That does not push an exception id.
-                    taskData->stack->stack()->p_hr = t;
-                    Handle marker = taskData->saveVec.mark();
+                    this->stack->stack()->p_hr = t;
+                    Handle marker = this->saveVec.mark();
                     try {
-                        exceptionToTraceException(taskData,
-                            taskData->saveVec.push(taskData->stack->stack()->p_reg[0]));
+                        exceptionToTraceException(this,
+                            this->saveVec.push(this->stack->stack()->p_reg[0]));
                     }
                     catch (IOException) {
                     }
-                    taskData->saveVec.reset(marker);
+                    this->saveVec.reset(marker);
                     // This will have reraised the exception by calling SetException
                     goto RESTART;
                 }
                 else if (*t == SPECIAL_PC_END_THREAD)
-                    exitThread(taskData);  // Default handler for thread.
-                taskData->stack->stack()->p_pc = (*t).AsCodePtr();
+                    exitThread(this);  // Default handler for thread.
+                this->stack->stack()->p_pc = (*t).AsCodePtr();
                 /* Now remove this handler. */
                 sp = t;
                 while ((t = (*sp).AsStackAddr()) < sp || t > endStack)
                     sp++;
-                taskData->stack->stack()->p_hr = t; /* Restore old handler */
+                this->stack->stack()->p_hr = t; /* Restore old handler */
                 sp++; /* Remove that entry. */
-                taskData->stack->stack()->p_sp = sp;
-                taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Get the next instruction. */
+                this->stack->stack()->p_sp = sp;
+                this->stack->stack()->p_reg[1] = TAGGED(256); /* Get the next instruction. */
                 goto RESTART; /* Restart in case pc is persistent (??? Still relevant????). */
             }
 
@@ -903,19 +903,19 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 instrBytes = 2; // Number of bytes of arg of instruction
 
                 GET_STORE: /* Common code for allocation. */
-                taskData->allocPointer -= storeWords;
-                if (taskData->allocPointer < taskData->allocLimit)
+                this->allocPointer -= storeWords;
+                if (this->allocPointer < this->allocLimit)
                 {
-                    taskData->allocPointer += storeWords;
-                    taskData->stack->stack()->p_sp = sp;
-                    taskData->stack->stack()->p_pc = pc;
-                    taskData->stack->stack()->p_reg[1] = TAGGED(li);
+                    this->allocPointer += storeWords;
+                    this->stack->stack()->p_sp = sp;
+                    this->stack->stack()->p_pc = pc;
+                    this->stack->stack()->p_reg[1] = TAGGED(li);
                     goto RESTART;
                 }
                 pc += instrBytes;
                 storeWords--; // Remove the length word from the count
-                *taskData->allocPointer = PolyWord::FromUnsigned(storeWords | _OBJ_MUTABLE_BIT); /* Allocation must be mutable! */
-                PolyWord *t = taskData->allocPointer+1;
+                *this->allocPointer = PolyWord::FromUnsigned(storeWords | _OBJ_MUTABLE_BIT); /* Allocation must be mutable! */
+                PolyWord *t = this->allocPointer+1;
                 for(; storeWords > 0; ) t[--storeWords] = PolyWord::FromUnsigned(0); /* Must initialise store! */
                 *(--sp) = PolyWord::FromStackAddr(t);
                 break;
@@ -932,18 +932,18 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 storeWords = arg1+1; instrBytes = 2;
 
                 TUPLE: /* Common code for tupling. */
-                taskData->allocPointer -= storeWords;
-                if (taskData->allocPointer < taskData->allocLimit) {
-                    taskData->allocPointer += storeWords;
-                    taskData->stack->stack()->p_sp = sp;
-                    taskData->stack->stack()->p_pc = pc;
-                    taskData->stack->stack()->p_reg[1] = TAGGED(li);
+                this->allocPointer -= storeWords;
+                if (this->allocPointer < this->allocLimit) {
+                    this->allocPointer += storeWords;
+                    this->stack->stack()->p_sp = sp;
+                    this->stack->stack()->p_pc = pc;
+                    this->stack->stack()->p_reg[1] = TAGGED(li);
                     goto RESTART;
                 }
                 pc += instrBytes;
                 storeWords--; // Remove the length word from the count
-                *taskData->allocPointer = PolyWord::FromUnsigned(storeWords);
-                PolyWord *t = taskData->allocPointer+1;
+                *this->allocPointer = PolyWord::FromUnsigned(storeWords);
+                PolyWord *t = this->allocPointer+1;
                 for(; storeWords > 0; ) t[--storeWords] = *sp++;
                 *(--sp) = (PolyObject*)t;
                 break;
@@ -1039,7 +1039,7 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 break;
             }
 
-        case INSTR_ldexc: *(--sp) = taskData->stack->stack()->p_reg[0]; break;
+        case INSTR_ldexc: *(--sp) = this->stack->stack()->p_reg[0]; break;
 
         case INSTR_local_b: { PolyWord u = sp[*pc]; *(--sp) = u; pc += 1; break; }
 
@@ -1224,16 +1224,16 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
                 /* This is supposed to be on the stack but that causes problems in gencde
                    so we create a mutable segment on the heap. */
                 storeWords = arg1+1;
-                taskData->allocPointer -= storeWords;
-                if (taskData->allocPointer < taskData->allocLimit) {
-                    taskData->allocPointer += storeWords;
-                    taskData->stack->stack()->p_sp = sp;
-                    taskData->stack->stack()->p_pc = pc;
-                    taskData->stack->stack()->p_reg[1] = TAGGED(li);
+                this->allocPointer -= storeWords;
+                if (this->allocPointer < this->allocLimit) {
+                    this->allocPointer += storeWords;
+                    this->stack->stack()->p_sp = sp;
+                    this->stack->stack()->p_pc = pc;
+                    this->stack->stack()->p_reg[1] = TAGGED(li);
                     goto RESTART;
                 }
                 storeWords--;
-                PolyObject *t = (PolyObject*)(taskData->allocPointer+1);
+                PolyObject *t = (PolyObject*)(this->allocPointer+1);
                 t->SetLengthWord(storeWords, F_MUTABLE_BIT);
                 for(; storeWords > 0; ) t->Set(--storeWords, Zero);
                 *(--sp) = t; /* Push the address of the container. */
@@ -1257,16 +1257,16 @@ int Interpreter::SwitchToPoly(TaskData *taskData)
         case INSTR_tuple_container: /* Create a tuple from a container. */
             {
                 storeWords = arg1+1;
-                taskData->allocPointer -= storeWords;
-                if (taskData->allocPointer < taskData->allocLimit) {
-                    taskData->allocPointer += storeWords;
-                    taskData->stack->stack()->p_sp = sp;
-                    taskData->stack->stack()->p_pc = pc;
-                    taskData->stack->stack()->p_reg[1] = TAGGED(li);
+                this->allocPointer -= storeWords;
+                if (this->allocPointer < this->allocLimit) {
+                    this->allocPointer += storeWords;
+                    this->stack->stack()->p_sp = sp;
+                    this->stack->stack()->p_pc = pc;
+                    this->stack->stack()->p_reg[1] = TAGGED(li);
                     goto RESTART;
                 }
                 storeWords--;
-                PolyObject *t = (PolyObject *)(taskData->allocPointer+1);
+                PolyObject *t = (PolyObject *)(this->allocPointer+1);
                 t->SetLengthWord(storeWords, 0);
                 for(; storeWords > 0; )
                 {
@@ -1346,18 +1346,18 @@ static void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handl
     taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
 }
 
-Handle Interpreter::EnterPolyCode(TaskData *taskData)
+Handle IntTaskData::EnterPolyCode()
 /* Called from "main" to enter the code. */
 {
-    Handle hOriginal = taskData->saveVec.mark(); // Set this up for the IO calls.
+    Handle hOriginal = this->saveVec.mark(); // Set this up for the IO calls.
     while (1)
     {
-        taskData->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
+        this->saveVec.reset(hOriginal); // Remove old RTS arguments and results.
 
         // Run the ML code and return with the function to call.
-        taskData->inML = true;
-        int ioFunction = SwitchToPoly(taskData);
-        taskData->inML = false;
+        this->inML = true;
+        int ioFunction = SwitchToPoly();
+        this->inML = false;
 
         if ((debugOptions & DEBUG_RTSCALLS))
             IncrementRTSCallCount(ioFunction);
@@ -1371,276 +1371,276 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 // stack overflow.
                 // Previously this code was executed on every RTS call but there
                 // were problems on Mac OS X at least with contention on schedLock.
-                taskData->pendingInterrupt = false; // Clear this before we handle these
+                this->pendingInterrupt = false; // Clear this before we handle these
                 // Process any asynchronous events i.e. interrupts or kill
-                processes->ProcessAsynchRequests(taskData);
+                processes->ProcessAsynchRequests(this);
                 // Release and re-acquire use of the ML memory to allow another thread
                 // to GC.
-                processes->ThreadReleaseMLMemory(taskData);
-                processes->ThreadUseMLMemory(taskData);
+                processes->ThreadReleaseMLMemory(this);
+                processes->ThreadUseMLMemory(this);
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult(taskData);
+                return CallBackResult();
 
             case POLY_SYS_exit:
-                CallIO1(taskData, &finishc);
+                CallIO1(this, &finishc);
                 break;
 
             case POLY_SYS_alloc_store:
-                CallIO3(taskData, &alloc_store_long_c);
+                CallIO3(this, &alloc_store_long_c);
                 break;
 
             case POLY_SYS_alloc_uninit:
-                CallIO2(taskData, &alloc_uninit_c);
+                CallIO2(this, &alloc_uninit_c);
                 break;
 
             case POLY_SYS_chdir:
-                CallIO1(taskData, &change_dirc);
+                CallIO1(this, &change_dirc);
                 break;
 
             case POLY_SYS_get_flags:
-                CallIO1(taskData, &get_flags_c);
+                CallIO1(this, &get_flags_c);
                 break;
 
             case POLY_SYS_str_compare:
-                CallIO2(taskData, compareStrings);
+                CallIO2(this, compareStrings);
                 break;
 
             case POLY_SYS_teststrgtr:
-                CallIO2(taskData, &testStringGreater);
+                CallIO2(this, &testStringGreater);
                 break;
 
             case POLY_SYS_teststrlss:
-                CallIO2(taskData, &testStringLess);
+                CallIO2(this, &testStringLess);
                 break;
 
             case POLY_SYS_teststrgeq:
-                CallIO2(taskData, &testStringGreaterOrEqual);
+                CallIO2(this, &testStringGreaterOrEqual);
                 break;
 
             case POLY_SYS_teststrleq:
-                CallIO2(taskData, &testStringLessOrEqual);
+                CallIO2(this, &testStringLessOrEqual);
                 break;
 
             case POLY_SYS_profiler:
-                CallIO1(taskData, &profilerc);
+                CallIO1(this, &profilerc);
                 break;
 
             case POLY_SYS_quotrem:
-                CallIO3(taskData, &quot_rem_c);
+                CallIO3(this, &quot_rem_c);
                 break;
 
             case POLY_SYS_aplus:
-                CallIO2(taskData, &add_longc);
+                CallIO2(this, &add_longc);
                 break;
 
             case POLY_SYS_aminus:
-                CallIO2(taskData, &sub_longc);
+                CallIO2(this, &sub_longc);
                 break;
 
             case POLY_SYS_amul:
-                CallIO2(taskData, &mult_longc);
+                CallIO2(this, &mult_longc);
                 break;
 
             case POLY_SYS_adiv:
-                CallIO2(taskData, &div_longc);
+                CallIO2(this, &div_longc);
                 break;
 
             case POLY_SYS_amod:
-                CallIO2(taskData, &rem_longc);
+                CallIO2(this, &rem_longc);
                 break;
 
             case POLY_SYS_aneg:
-                CallIO1(taskData, &neg_longc);
+                CallIO1(this, &neg_longc);
                 break;
 
             case POLY_SYS_equala:
-                CallIO2(taskData, &equal_longc);
+                CallIO2(this, &equal_longc);
                 break;
 
             case POLY_SYS_ora:
-                CallIO2(taskData, &or_longc);
+                CallIO2(this, &or_longc);
                 break;
 
             case POLY_SYS_anda:
-                CallIO2(taskData, &and_longc);
+                CallIO2(this, &and_longc);
                 break;
 
             case POLY_SYS_xora:
-                CallIO2(taskData, &xor_longc);
+                CallIO2(this, &xor_longc);
                 break;
 
             case POLY_SYS_Real_str:
-                CallIO3(taskData, &Real_strc);
+                CallIO3(this, &Real_strc);
                 break;
 
             case POLY_SYS_Real_geq:
-                CallIO2(taskData, &Real_geqc);
+                CallIO2(this, &Real_geqc);
                 break;
 
             case POLY_SYS_Real_leq:
-                CallIO2(taskData, &Real_leqc);
+                CallIO2(this, &Real_leqc);
                 break;
 
             case POLY_SYS_Real_gtr:
-                CallIO2(taskData, &Real_gtrc);
+                CallIO2(this, &Real_gtrc);
                 break;
 
             case POLY_SYS_Real_lss:
-                CallIO2(taskData, &Real_lssc);
+                CallIO2(this, &Real_lssc);
                 break;
 
             case POLY_SYS_Real_eq:
-                CallIO2(taskData, &Real_eqc);
+                CallIO2(this, &Real_eqc);
                 break;
 
             case POLY_SYS_Real_neq:
-                CallIO2(taskData, &Real_neqc);
+                CallIO2(this, &Real_neqc);
                 break;
 
             case POLY_SYS_Real_Dispatch:
-                CallIO2(taskData, &Real_dispatchc);
+                CallIO2(this, &Real_dispatchc);
                 break;
 
             case POLY_SYS_Add_real:
-                CallIO2(taskData, &Real_addc);
+                CallIO2(this, &Real_addc);
                 break;
 
             case POLY_SYS_Sub_real:
-                CallIO2(taskData, &Real_subc);
+                CallIO2(this, &Real_subc);
                 break;
 
             case POLY_SYS_Mul_real:
-                CallIO2(taskData, &Real_mulc);
+                CallIO2(this, &Real_mulc);
                 break;
 
             case POLY_SYS_Div_real:
-                CallIO2(taskData, &Real_divc);
+                CallIO2(this, &Real_divc);
                 break;
 
             case POLY_SYS_Abs_real:
-                CallIO1(taskData, &Real_absc);
+                CallIO1(this, &Real_absc);
                 break;
 
             case POLY_SYS_Neg_real:
-                CallIO1(taskData, &Real_negc);
+                CallIO1(this, &Real_negc);
                 break;
 
             case POLY_SYS_Repr_real:
-                CallIO1(taskData, &Real_reprc);
+                CallIO1(this, &Real_reprc);
                 break;
 
             case POLY_SYS_conv_real:
-                CallIO1(taskData, &Real_convc);
+                CallIO1(this, &Real_convc);
                 break;
 
             case POLY_SYS_real_to_int:
-                CallIO1(taskData, &Real_intc);
+                CallIO1(this, &Real_intc);
                 break;
 
             case POLY_SYS_int_to_real:
-                CallIO1(taskData, &Real_floatc);
+                CallIO1(this, &Real_floatc);
                 break;
 
             case POLY_SYS_sqrt_real:
-                CallIO1(taskData, &Real_sqrtc);
+                CallIO1(this, &Real_sqrtc);
                 break;
 
             case POLY_SYS_sin_real:
-                CallIO1(taskData, &Real_sinc);
+                CallIO1(this, &Real_sinc);
                 break;
 
             case POLY_SYS_cos_real:
-                CallIO1(taskData, &Real_cosc);
+                CallIO1(this, &Real_cosc);
                 break;
 
             case POLY_SYS_arctan_real:
-                CallIO1(taskData, &Real_arctanc);
+                CallIO1(this, &Real_arctanc);
                 break;
 
             case POLY_SYS_exp_real:
-                CallIO1(taskData, &Real_expc);
+                CallIO1(this, &Real_expc);
                 break;
 
             case POLY_SYS_ln_real:
-                CallIO1(taskData, &Real_lnc);
+                CallIO1(this, &Real_lnc);
                 break;
 
             case POLY_SYS_atomic_reset:
-                CallIO1(taskData, &ProcessAtomicReset);
+                CallIO1(this, &ProcessAtomicReset);
                 break;
 
             case POLY_SYS_atomic_incr:
-                CallIO1(taskData, &ProcessAtomicIncrement);
+                CallIO1(this, &ProcessAtomicIncrement);
                 break;
 
             case POLY_SYS_atomic_decr:
-                CallIO1(taskData, &ProcessAtomicDecrement);
+                CallIO1(this, &ProcessAtomicDecrement);
                 break;
 
             case POLY_SYS_thread_self:
-                CallIO0(taskData, &ThreadSelf);
+                CallIO0(this, &ThreadSelf);
                 break;
 
             case POLY_SYS_thread_dispatch:
-                CallIO2(taskData, &ThreadDispatch);
+                CallIO2(this, &ThreadDispatch);
                 break;
 
             case POLY_SYS_int_geq:
-                CallIO2(taskData, &ge_longc);
+                CallIO2(this, &ge_longc);
                 break;
 
             case POLY_SYS_int_leq:
-                CallIO2(taskData, &le_longc);
+                CallIO2(this, &le_longc);
                 break;
 
             case POLY_SYS_int_gtr:
-                CallIO2(taskData, &gt_longc);
+                CallIO2(this, &gt_longc);
                 break;
 
             case POLY_SYS_int_lss:
-                CallIO2(taskData, &ls_longc);
+                CallIO2(this, &ls_longc);
                 break;
 
             // ObjSize and ShowSize are now in the poly_specific functions and
             // probably should be removed from here.
             case POLY_SYS_objsize:
-                CallIO1(taskData, &ObjSize);
+                CallIO1(this, &ObjSize);
                 break;
 
             case POLY_SYS_showsize:
-                CallIO1(taskData, &ShowSize);
+                CallIO1(this, &ShowSize);
                 break;
 
             case POLY_SYS_timing_dispatch:
-                CallIO2(taskData, &timing_dispatch_c);
+                CallIO2(this, &timing_dispatch_c);
                 break;
 
             case POLY_SYS_XWindows:
-                CallIO1(taskData, &XWindows_c);
+                CallIO1(this, &XWindows_c);
                 break;
 
             case POLY_SYS_full_gc:
-                CallIO0(taskData, &full_gc_c);
+                CallIO0(this, &full_gc_c);
                 break;
 
             case POLY_SYS_stack_trace:
-                CallIO0(taskData, & stack_trace_c);
+                CallIO0(this, & stack_trace_c);
                 break;
 
             case POLY_SYS_foreign_dispatch:
-                CallIO2(taskData, &foreign_dispatch_c);
+                CallIO2(this, &foreign_dispatch_c);
                 break;
 
-            case POLY_SYS_process_env: CallIO2(taskData, &process_env_dispatch_c); break;
+            case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
 
             case POLY_SYS_shrink_stack:
-                CallIO1(taskData, &shrink_stack_c);
+                CallIO1(this, &shrink_stack_c);
                 break;
 
             case POLY_SYS_code_flags:
-                CallIO2(taskData, &CodeSegmentFlags);
+                CallIO2(this, &CodeSegmentFlags);
                 break;
 
             case POLY_SYS_get_first_long_word:
@@ -1650,139 +1650,139 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
                 // a short argument whereas POLY_SYS_get_first_long_word must be applied to a
                 // long argument and can be implemented very easily in the code-generator, at
                 // least on a little-endian machine.
-                CallIO1(taskData, &int_to_word_c);
+                CallIO1(this, &int_to_word_c);
                 break;
 
             case POLY_SYS_poly_specific:
-                CallIO2(taskData, &poly_dispatch_c);
+                CallIO2(this, &poly_dispatch_c);
                 break;
 
             case POLY_SYS_bytevec_eq:
-                CallIO5(taskData, &testBytesEqual);
+                CallIO5(this, &testBytesEqual);
                 break;
 
 //            case POLY_SYS_set_code_constant: // Not used in the interpreter
-//                CallIO4(taskData, &set_code_constant);
+//                CallIO4(this, &set_code_constant);
 //                break;
 
             case POLY_SYS_move_bytes:
             case POLY_SYS_move_bytes_overlap:
-                CallIO5(taskData, &move_bytes_long_c);
+                CallIO5(this, &move_bytes_long_c);
                 break;
 
             case POLY_SYS_move_words:
             case POLY_SYS_move_words_overlap:
-                CallIO5(taskData, &move_words_long_c);
+                CallIO5(this, &move_words_long_c);
                 break;
 
             case POLY_SYS_io_dispatch:
-                CallIO3(taskData, &IO_dispatch_c);
+                CallIO3(this, &IO_dispatch_c);
                 break;
 
             case POLY_SYS_network:
-                CallIO2(taskData, &Net_dispatch_c);
+                CallIO2(this, &Net_dispatch_c);
                 break;
 
             case POLY_SYS_os_specific:
-                CallIO2(taskData, &OS_spec_dispatch_c);
+                CallIO2(this, &OS_spec_dispatch_c);
                 break;
 
             case POLY_SYS_signal_handler:
-                CallIO2(taskData, &Sig_dispatch_c);
+                CallIO2(this, &Sig_dispatch_c);
                 break;
 
             case POLY_SYS_kill_self:
-                CallIO0(taskData, exitThread);
+                CallIO0(this, exitThread);
                 break;
 
             case POLY_SYS_eq_longword:
-                CallIO2(taskData, &eqLongWord);
+                CallIO2(this, &eqLongWord);
                 break;
 
             case POLY_SYS_neq_longword:
-                CallIO2(taskData, &neqLongWord);
+                CallIO2(this, &neqLongWord);
                 break;
 
             case POLY_SYS_geq_longword:
-                CallIO2(taskData, &geqLongWord);
+                CallIO2(this, &geqLongWord);
                 break;
 
             case POLY_SYS_leq_longword:
-                CallIO2(taskData, &leqLongWord);
+                CallIO2(this, &leqLongWord);
                 break;
 
             case POLY_SYS_gt_longword:
-                CallIO2(taskData, &gtLongWord);
+                CallIO2(this, &gtLongWord);
                 break;
 
             case POLY_SYS_lt_longword:
-                CallIO2(taskData, &ltLongWord);
+                CallIO2(this, &ltLongWord);
                 break;
 
             case POLY_SYS_plus_longword:
-                CallIO2(taskData, &plusLongWord);
+                CallIO2(this, &plusLongWord);
                 break;
 
             case POLY_SYS_minus_longword:
-                CallIO2(taskData, &minusLongWord);
+                CallIO2(this, &minusLongWord);
                 break;
 
             case POLY_SYS_mul_longword:
-                CallIO2(taskData, &mulLongWord);
+                CallIO2(this, &mulLongWord);
                 break;
 
             case POLY_SYS_div_longword:
-                CallIO2(taskData, &divLongWord);
+                CallIO2(this, &divLongWord);
                 break;
 
             case POLY_SYS_mod_longword:
-                CallIO2(taskData, &modLongWord);
+                CallIO2(this, &modLongWord);
                 break;
 
             case POLY_SYS_andb_longword:
-                CallIO2(taskData, &andbLongWord);
+                CallIO2(this, &andbLongWord);
                 break;
 
             case POLY_SYS_orb_longword:
-                CallIO2(taskData, &orbLongWord);
+                CallIO2(this, &orbLongWord);
                 break;
 
             case POLY_SYS_xorb_longword:
-                CallIO2(taskData, &xorbLongWord);
+                CallIO2(this, &xorbLongWord);
                 break;
 
             case POLY_SYS_shift_left_longword:
-                CallIO2(taskData, &shiftLeftLongWord);
+                CallIO2(this, &shiftLeftLongWord);
                 break;
 
             case POLY_SYS_shift_right_longword:
-                CallIO2(taskData, &shiftRightLongWord);
+                CallIO2(this, &shiftRightLongWord);
                 break;
 
             case POLY_SYS_shift_right_arith_longword:
-                CallIO2(taskData, &shiftRightArithLongWord);
+                CallIO2(this, &shiftRightArithLongWord);
                 break;
 
             case POLY_SYS_longword_to_tagged:
-                CallIO1(taskData, &longWordToTagged);
+                CallIO1(this, &longWordToTagged);
                 break;
 
             case POLY_SYS_signed_to_longword:
-                CallIO1(taskData, &signedToLongWord);
+                CallIO1(this, &signedToLongWord);
                 break;
 
             case POLY_SYS_unsigned_to_longword:
-                CallIO1(taskData, &unsignedToLongWord);
+                CallIO1(this, &unsignedToLongWord);
                 break;
 
             // This is called from assembly code and doesn't actually have an entry in the
             // io vector.
             case POLY_SYS_give_ex_trace:
-                CallIO2(taskData, ex_tracec);
+                CallIO2(this, ex_tracec);
                 break;
 
             case POLY_SYS_give_ex_trace_fn:
-                CallIO1(taskData, exceptionToTraceException);
+                CallIO1(this, exceptionToTraceException);
                 break;
 
             default:
@@ -1796,9 +1796,9 @@ Handle Interpreter::EnterPolyCode(TaskData *taskData)
 }
 
 // Return the callback result.  The current ML process (thread) terminates.
-Handle Interpreter::CallBackResult(TaskData *taskData)
+Handle IntTaskData::CallBackResult()
 {
-    return taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    return this->saveVec.push(this->stack->stack()->p_sp[1]);
 }
 
 void Interpreter::InitInterfaceVector(void)
@@ -1957,30 +1957,30 @@ void Interpreter::InitInterfaceVector(void)
 // On most platforms this code will be done with a piece of assembly code.
 static PLock mutexLock;
 
-Handle Interpreter::AtomicIncrement(TaskData *taskData, Handle mutexp)
+Handle IntTaskData::AtomicIncrement(Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
     // A thread can only call this once so the values will be short
     PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))+1);
     p->Set(0, newValue);
-    return taskData->saveVec.push(newValue);
+    return this->saveVec.push(newValue);
 }
 
 // Decrement the value contained in the first word of the mutex.
-Handle Interpreter::AtomicDecrement(TaskData *taskData, Handle mutexp)
+Handle IntTaskData::AtomicDecrement(Handle mutexp)
 {
     PLocker l(&mutexLock);
     PolyObject *p = DEREFHANDLE(mutexp);
     PolyWord newValue = TAGGED(UNTAGGED(p->Get(0))-1);
     p->Set(0, newValue);
-    return taskData->saveVec.push(newValue);
+    return this->saveVec.push(newValue);
 }
 
 // Release a mutex.  We need to lock the mutex to ensure we don't
 // reset it in the time between one of atomic operations reading
 // and writing the mutex.
-void Interpreter::AtomicReset(TaskData * /*taskData*/, Handle mutexp)
+void IntTaskData::AtomicReset(Handle mutexp)
 {
     PLocker l(&mutexLock);
     DEREFHANDLE(mutexp)->Set(0, TAGGED(1)); // Set this to released.

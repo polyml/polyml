@@ -40,7 +40,7 @@ typedef enum {
 
 extern ProfileMode profileMode;
 
-#include "machine_dep.h" // For SIGNALCONTEXT
+#include "processes.h" // For SIGNALCONTEXT
 
 extern void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context);
 extern Handle profilerc(TaskData *taskData, Handle mode_handle);

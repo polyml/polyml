@@ -23,35 +23,11 @@
 #ifndef _MACHINE_DEP_H
 #define _MACHINE_DEP_H
 
-#ifdef HAVE_SIGNAL_H
-#include <signal.h>
-#endif
-
-#ifdef HAVE_UCONTEXT_H
-#include <ucontext.h>
-#endif
-
-#ifdef HAVE_UCONTEXT_T
-#define SIGNALCONTEXT ucontext_t
-#elif defined(HAVE_STRUCT_SIGCONTEXT)
-#define SIGNALCONTEXT struct sigcontext
-#elif defined(HAVE_WINDOWS_H)
-#include <windows.h>
-#define SIGNALCONTEXT CONTEXT // This is the thread context.
-#else
-#define SIGNALCONTEXT void
-#endif
-
 class ScanAddress;
 class TaskData;
 class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class StackSpace;
-
-class MDTaskData {
-public:
-    virtual ~MDTaskData() {}
-};
 
 // Machine architecture values.
 typedef enum {
@@ -66,44 +42,19 @@ public:
     virtual ~MachineDependent() {} // Keep the compiler happy
 
     // Create the machine-specific task data object.
-    virtual MDTaskData *CreateTaskData(void) = 0;
+    virtual TaskData *CreateTaskData(void) = 0;
 
     virtual unsigned InitialStackSize(void) { return 128; } // Initial size of a stack 
     // Must be > 40 (i.e. 2*min_stack_check) + base area in each stack frame
     virtual void InitInterfaceVector(void) = 0;
-    virtual void ResetSignals(void) {}
-
-    virtual Handle EnterPolyCode(TaskData *taskData) = 0; // Start running ML
 
     /* ScanConstantsWithinCode - update addresses within a code segment.*/
     virtual void ScanConstantsWithinCode(PolyObject *addr, PolyObject *oldAddr, POLYUNSIGNED length, ScanAddress *process) {}
     void  ScanConstantsWithinCode(PolyObject *addr, ScanAddress *process)
         { ScanConstantsWithinCode(addr, addr, addr->Length(), process); } // Common case
 
-    virtual int  GetIOFunctionRegisterMask(int ioCall) = 0;
     virtual void FlushInstructionCache(void *p, POLYUNSIGNED bytes) {}
     virtual Architectures MachineArchitecture(void) = 0; 
-
-    virtual void SetForRetry(TaskData *taskData, int ioCall) = 0;
-    virtual void InterruptCode(TaskData *taskData) = 0;
-    virtual bool GetPCandSPFromContext(TaskData *taskData, SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
-    // Initialise the stack for a new thread.  Because this is called from the parent thread
-    // the task data object passed in is that of the parent.
-    virtual void InitStackFrame(TaskData *parentTaskData, StackSpace *space, Handle proc, Handle arg) = 0;
-    virtual void SetException(TaskData *taskData, poly_exn *exc) = 0;
-    // This is used to get the argument to the callback_result function.
-    virtual Handle CallBackResult(TaskData *taskData) = 0;
-    // If a foreign function calls back to ML we need to set up the call to the
-    // ML callback function.
-    virtual void SetCallbackFunction(TaskData *taskData, Handle func, Handle args) {}
-
-    // Increment or decrement the first word of the object pointed to by the
-    // mutex argument and return the new value.
-    virtual Handle AtomicIncrement(TaskData *taskData, Handle mutexp) = 0;
-    virtual Handle AtomicDecrement(TaskData *taskData, Handle mutexp) = 0;
-    // Reset a mutex to one.  This needs to be atomic with respect to the
-    // atomic increment and decrement instructions.
-    virtual void AtomicReset(TaskData *taskData, Handle mutexp) = 0;
 };
 
 extern MachineDependent *machineDependent;
