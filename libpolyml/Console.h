@@ -34,7 +34,7 @@ extern unsigned getConsoleInput(char *buff, int nChars);
 extern HANDLE CreateCopyPipe(HANDLE hInput, HANDLE hEvent);
 
 extern HWND hMainWindow; /* Handle to main window - NULL if none. */
-extern bool useConsole; /* non-zero if we should use the console for input. */
+
 extern HINSTANCE hApplicationInstance; /* Application instance */
 
 /* DDE requests. */
@@ -43,5 +43,10 @@ extern void CloseDDEConversation(HCONV hConv);
 extern LRESULT ExecuteDDE(char *command, HCONV hConv);
 
 extern HANDLE hInputEvent; // Handle to console input event
+
+extern HANDLE hOldStdin; // If stdin has been provided
+
+// If the original stdin handle was missing we're using our console.
+#define useConsole (hOldStdin == INVALID_HANDLE_VALUE)
 
 #endif

@@ -438,13 +438,14 @@ void free_stream_entry(unsigned stream_no)
 }
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
+// When testing for available input we need to do it differently depending on
+// the kind of handle we have.
 static int getFileType(int stream)
 {
-    if (stream == 0 && useConsole)
+    if (stream == 0 && hOldStdin == INVALID_HANDLE_VALUE)
         /* If this is stdio and we're using our own console.*/
-        return IO_BIT_CONSOLE;
-    switch (GetFileType((HANDLE)_get_osfhandle(stream))
-                & ~FILE_TYPE_REMOTE)
+        return IO_BIT_GUI_CONSOLE;
+    switch (GetFileType((HANDLE)_get_osfhandle(stream)))
     {
         case FILE_TYPE_PIPE: return IO_BIT_PIPE;
         case FILE_TYPE_CHAR: return IO_BIT_DEV;
@@ -770,17 +771,22 @@ static Handle fileKind(TaskData *taskData, Handle stream)
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
-        if (isPipe(strm))
-            return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
-        else if (isDevice(strm)) /* Character devices other than console. */
-            return Make_arbitrary_precision(taskData, FILEKIND_DEV);
-        else if (isConsole(strm))
-            return Make_arbitrary_precision(taskData, FILEKIND_TTY);
-        else
-            /* Should we try to distinguish a file from a directory?
-               At the moment we don't seem to be able to open a
-               directory, at least in NT 4.0. */
-            return Make_arbitrary_precision(taskData, FILEKIND_FILE);
+        HANDLE hTest;
+        if (strm->device.ioDesc == 0)
+        {
+            // Stdin is special.  The actual handle is to a pipe whether we are using our
+            // own console or we were provided with a stdin.
+            if (hOldStdin == INVALID_HANDLE_VALUE)
+                return Make_arbitrary_precision(taskData, FILEKIND_TTY); // We've made our own console
+            hTest = hOldStdin;
+        }
+        else hTest = (HANDLE)_get_osfhandle(strm->device.ioDesc);
+        switch (GetFileType(hTest))
+        {
+        case FILE_TYPE_PIPE: return Make_arbitrary_precision(taskData, FILEKIND_PIPE);
+        case FILE_TYPE_CHAR: return Make_arbitrary_precision(taskData, FILEKIND_TTY); // Or a device?
+        default: return Make_arbitrary_precision(taskData, FILEKIND_FILE);
+        }
     }
 #else
     {

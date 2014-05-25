@@ -36,7 +36,7 @@
 
 #define IO_BIT_PIPE         128
 #define IO_BIT_DEV          256
-#define IO_BIT_CONSOLE      512
+#define IO_BIT_GUI_CONSOLE  512
 
 #ifdef USEWINSOCK2
 #include <winsock2.h>
@@ -101,9 +101,11 @@ class TaskData;
 #define isSocket(s) ((s)->ioBits & IO_BIT_SOCKET)
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#define isPipe(s)   ((s)->ioBits & IO_BIT_PIPE)
-#define isDevice(s) ((s)->ioBits & IO_BIT_DEV)
-#define isConsole(s)    ((s)->ioBits & IO_BIT_CONSOLE)
+// Needed because testing for available input is different depending on the device.
+// Console here means our Windows GUI.
+#define isPipe(s)       ((s)->ioBits & IO_BIT_PIPE)
+#define isDevice(s)     ((s)->ioBits & IO_BIT_DEV)
+#define isConsole(s)    ((s)->ioBits & IO_BIT_GUI_CONSOLE)
 #endif
 
 extern PIOSTRUCT get_stream(PolyObject *obj);

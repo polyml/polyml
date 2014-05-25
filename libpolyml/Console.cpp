@@ -87,7 +87,6 @@ DCJM 30/5/2000.
 #endif
 
 HWND hMainWindow = NULL; // Main window - exported.
-bool useConsole;         // False if callers should read from stdin.
 HINSTANCE hApplicationInstance;     // Application instance (exported)
 static HANDLE  hReadFromML; // Handles to pipe from ML thread
 static WNDPROC  wpOrigEditProc; // Saved window proc.
@@ -101,6 +100,7 @@ static int  nReadPosn;      // Position of last read (<= nAvailable)
 static CRITICAL_SECTION csIOInterlock;
 HANDLE hInputEvent;  // Signalled when input is available.
 static HWND hDDEWindow;     // Window to handle DDE requests from ML thread.
+HANDLE hOldStdin = INVALID_HANDLE_VALUE;
 
 static char *lpszServiceName;
 
@@ -702,6 +702,16 @@ static DWORD WINAPI MainThrdProc(LPVOID lpParameter)
     return polymain(nArgs, lpArgs, exports);
 }
 
+// Called with various control events if the input stream is a console.
+static BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
+{
+    if (dwCtrlType == CTRL_C_EVENT)
+    {
+        RequestConsoleInterrupt();
+        return TRUE;
+    }
+    return FALSE;
+}
 
 int PolyWinMain(
   HINSTANCE hInstance,
@@ -825,7 +835,6 @@ int PolyWinMain(
         // read from or write to the main window.  That way if we are
         // actually using another window this will never get displayed.
         nInitialShow = nCmdShow;
-        useConsole = true;
     }
     else {
         // We're using the stdin passed in by the caller.  This may well
@@ -833,7 +842,6 @@ int PolyWinMain(
         // to interpose a thread.  This is the only way to be able to have
         // something we can pass to MsgWaitForMultipleObjects, in this case
         // hInputEvent, which will indicate the input is available.
-        HANDLE hOldStdin;
         // Duplicate the handle because we're going to close this.
         if (! DuplicateHandle(GetCurrentProcess(), GetStdHandle(STD_INPUT_HANDLE),
                               GetCurrentProcess(), &hOldStdin, 0, TRUE, // inheritable
@@ -843,12 +851,13 @@ int PolyWinMain(
         HANDLE hNewStdin = CreateCopyPipe(hOldStdin, hInputEvent);
         if (hNewStdin == NULL) return 1;
 
+        SetConsoleCtrlHandler(CtrlHandler, TRUE); // May fail if there's no console.
+
         // Replace the current stdin with the output from the pipe.
         fclose(stdin);
         int newstdin = _open_osfhandle ((INT_PTR)hNewStdin, _O_RDONLY | _O_TEXT);
         if (newstdin != 0) _dup2(newstdin, 0);
         fdopen(0, "rt");
-        useConsole = false;
     }
 
     // Convert the command line into Unix-style arguments.
@@ -1050,7 +1059,7 @@ static DWORD WINAPI copyThread(LPVOID lpParameter)
 }
 
 // This thread is used when the caller has provided a standard input
-// stream and we're using that and not out console.  It copies the
+// stream and we're using that and not our console.  It copies the
 // standard input to a pipe and the ML code uses that as its input.
 // This way we can set hInputEvent whenever input is available.
 void CopyPipe::threadFunction()
@@ -1068,6 +1077,13 @@ void CopyPipe::threadFunction()
 
         if (dwRead == 0) // End-of-stream
         {
+            // If we are reading from the (Windows) console and the user presses ctrl-C we
+            // may get a ERROR_OPERATION_ABORTED error.
+            if (GetLastError() == ERROR_OPERATION_ABORTED)
+            {
+                SetLastError(0); // Reset this.  We may have a normal EOF next.
+                continue;
+            }
             // Normal exit.  Indicate EOF
             SetEvent(hEvent);
             return;
