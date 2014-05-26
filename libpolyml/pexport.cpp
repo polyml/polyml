@@ -830,65 +830,6 @@ bool PImport::DoImport()
                 break;
             }
 
-        case 'Q': /* Stack segment. */
-            {
-                StackObject *s = (StackObject*)p;
-                POLYUNSIGNED n;
-                POLYUNSIGNED length = p->Length();
-                fscanf(f, "%" POLYUFMT, &nWords);
-                ch = getc(f); ASSERT(ch == '|');
-
-                /* Standard fields: size, pc, sp, hr. */
-                fscanf(f, "%" POLYUFMT, &s->p_space);
-                ch = getc(f); ASSERT(ch == ',');
-                if (! ReadValue(p, (PolyWord*)&s->p_pc - (PolyWord*)p))
-                    return false;
-                ch = getc(f); ASSERT(ch == ',');
-                if (! ReadValue(p, (PolyWord*)&s->p_sp - (PolyWord*)p))
-                    return false;
-                ch = getc(f); ASSERT(ch == ',');
-                if (! ReadValue(p, (PolyWord*)&s->p_hr - (PolyWord*)p))
-                    return false;
-
-                /* Checked registers. */
-                fscanf(f, "%" POLYUFMT, &n);
-                s->p_nreg = n;
-                ch = getc(f); ASSERT(ch == '|');
-                for (i = 0; i < n; i++)
-                {
-                    if (! ReadValue(p, &s->p_reg[i] - (PolyWord*)p))
-                        return false;
-                    ch = getc(f);
-                    ASSERT((ch == ',' && i < n-1) ||
-                           (ch == ' ' && i == n-1));
-                }
-                /* Unchecked registers. */
-                fscanf(f, "%" POLYUFMT, &n);
-                s->p_reg[i] = PolyWord::FromUnsigned(n);
-                ch = getc(f); ASSERT(ch == '|');
-                for (i = 0; i < n; i++)
-                {
-                    POLYSIGNED n;
-                    fscanf(f, "%" POLYSFMT, &n);
-                    s->p_reg[s->p_nreg+i+1] = PolyWord::FromSigned(n);
-                    ch = getc(f);
-                }
-                /* Stack values. */
-                fscanf(f, "%" POLYUFMT, &n);
-                ASSERT(n == length - (s->p_sp-(PolyWord*)p));
-                ch = getc(f); ASSERT(ch == '|');
-                for (i = 0; i < n; i++)
-                {
-                    if(! ReadValue(p, length-n+i))
-                        return false;
-                    ch = getc(f);
-                    ASSERT((ch == ',' && i < n-1) ||
-                           (ch == '\n' && i == n-1));
-                }
-
-                break;
-            }
-
         default:
             fprintf(stderr, "Invalid object type\n");
             return false;
