@@ -428,15 +428,18 @@ structure TextIO :> TEXT_IO = struct
                         ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)))
                     end
 
-        (* On startup truncate the buffer in case there was some pending input when
-           we exported.  Also install the onLoad function. *)
+        (* On startup reset stdIn to the original stream.  Among other things this clears
+           any data that may have been in the buffer when we exported.
+           Also install the onLoad function. *)
         fun onStartUp () =
-        (
-           case stdIn of
-               InStream(ref(Direct{bufp, buflimit, ...}),_) => (bufp := 0; buflimit := ~1)
-           |  _ => ();
-           PolyML.onLoad onLoad
-        )
+        let
+            val InStream(r, _) = stdIn
+            val buffsize = sys_get_buffsize stdInDesc
+        in
+            r := Direct{descr=stdInDesc, name="stdIn",
+                        buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
+                        buflimit=ref ~1}
+        end
     in
         (* Set up an onEntry handler so that this is always installed. *)
         val () = PolyML.onEntry onStartUp;
