@@ -435,46 +435,6 @@ Handle stack_trace_c(TaskData *taskData)
     return SAVE(TAGGED(0));
 }
 
-// Legacy exception trace
-Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
-{
-    PolyWord *handler = DEREFWORD(handler_handle).AsStackAddr();
-    
-    fputs("\nException trace for exception - ", stdout);
-    print_string((DEREFEXNHANDLE(exnHandle))->ex_name);
-    // For backwards compatibility check the packet length first
-    if (DEREFHANDLE(exnHandle)->Length() == SIZEOF(poly_exn)) {
-        if (DEREFEXNHANDLE(exnHandle)->ex_location.IsDataPtr()) {
-            PolyObject *location = DEREFEXNHANDLE(exnHandle)->ex_location.AsObjPtr();
-            PolyWord fileName = location->Get(0);
-            POLYSIGNED lineNo = get_C_long(taskData, location->Get(1));
-            if (fileName.IsTagged() || ((PolyStringObject *)fileName.AsObjPtr())->length != 0) {
-                printf(" raised in ");
-                print_string(fileName);
-                if (lineNo != 0) printf(" line %" POLYSFMT, lineNo);
-            }
-            else if (lineNo != 0) printf(" raised at line %" POLYSFMT, lineNo);
-            fputs("\n", stdout);
-        }
-    }
-    putc('\n',stdout);
-    
-    /* Trace down as far as the dummy handler on the stack. */
-    give_stack_trace(taskData, taskData->sp(), handler);
-    fputs("End of trace\n\n",stdout);
-    fflush(stdout);
-
-    /* Set up the next handler so we don't come back here when we raise
-       the exception again. */
-    taskData->set_hr((PolyWord*)(handler->AsStackAddr()));
-    
-    /* Set the exception data back again. */
-    taskData->SetException((poly_exn *)DEREFHANDLE(exnHandle));
-    
-    throw IOException(); /* Reraise the exception. */
-    /*NOTREACHED*/
-}
-
 // Current exception trace.  This creates a special exception packet and
 // raises it so that the ML code can print the trace.
 Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle)

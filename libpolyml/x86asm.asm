@@ -562,8 +562,6 @@ POLY_SYS_exit                EQU 1
 POLY_SYS_chdir               EQU 9
 POLY_SYS_alloc_store         EQU 11
 POLY_SYS_get_flags           EQU 17
-POLY_SYS_exception_trace     EQU 30
-POLY_SYS_give_ex_trace       EQU 31
 POLY_SYS_exception_trace_fn  EQU 32
 POLY_SYS_give_ex_trace_fn    EQU 33
 POLY_SYS_network             EQU 51
@@ -1197,93 +1195,11 @@ CALLMACRO   INLINE_ROUTINE  raisex
 
     MOVL    HandlerRegister[Rebp],Recx    ;# Get next handler into %rcx
 
- ;# Much of the rest of this is legacy code needed for backwards
- ;# compatibility.  From 5.4 the compiler generates handlers that expect to
- ;# restore the old handler themselves and deal with exception discrimination
- ;# so raising an exception just involves jumping to the innermost handler.
- ;# We need to check whether the handler is a new-format or old format.
-
- ;# Is this an old-format handler?  The first word will be either a tagged value
- ;# or the address of a handler as a word-aligned value.  New format handlers
- ;# have a code-address here which will be word + 2 byte aligned.
- ;# The default handler put on by InitStackFrame is word-aligned so we
- ;# also have to check that we really have an exception handler.
-
-    MOVL    [Recx],Rebx
-    TESTL   CONST 1,Rebx
-    jne     rsx1          ;# Old format
-    TESTL   CONST 3,Rebx
-    jne     rsx2          ;# New format
 IFDEF WINDOWS
-    test    byte ptr [Rebx-1],B_mutable
-    jne     rsx1
-rsx2:
     jmp     FULLWORD ptr [Recx]
 ELSE
-    testb   CONST B_mutable,(-1)[Rebx]
-    jne     rsx1
-rsx2:
     jmp     *[Recx]
 ENDIF
-
-
- ;# Loop to find the handler for this exception. Handlers consist of one or more
- ;# pairs of identifier and code address, followed by the address of the next
- ;# handler.
-rsx1:
-IFDEF WINDOWS
-    cmp     FULLWORD ptr [Recx],TAGGED(0)
-ELSE
-    CMPL    CONST TAGGED(0),[Recx]
-ENDIF
-    je      rsx7        ;# default handler if it is TAGGED(0)
-    MOVL    [Recx],Rebx ;# Arg1 - the identifier for this handler
-    CMPL    [Reax],Rebx ;# Compare with exception tag - Have we got the right handler?
-    je      rsx7        ;# Skip if we found a match.
-    ADDL    CONST (2*POLYWORDSIZE),Recx        ;# Look at the next handler.
-    MOVL    [Recx],Rebx
-    CMPL    Recx,Rebx       ;# Is it a pointer to the next handler i.e.
-    jb      rsx1        ;# does it point further up the stack or at itself.
-                        ;# (The last handler on the stack points at itself).
-    CMPL    StackTop[Rebp],Rebx
-    ja      rsx1        ;# If not it must be a new pair, so look at that.
-    MOVL    Rebx,Recx       ;# It is a pointer to a new handler.
-    jmp     rsx1
-
-rsx7:   ;# We have found the right handler - %Recx points to the data
-    ADDL    CONST POLYWORDSIZE,Recx        ;# point it at the code
-    MOVL    [Recx],Redx     ;# Get the handler entry point
-
- ;# There may be some other identifier/entry point pairs in this group.
- ;# We have to remove them and find the pointer to the next handler in the
- ;# chain.  This becomes the new handler pointer.
-rsx6:
-    ADDL    CONST POLYWORDSIZE,Recx
-    MOVL    [Recx],Rebx
-    CMPL    Recx,Rebx   ;# Is it a pointer to the next handler i.e.
-    jb      rsx6        ;# does it point further up the stack or at itself?
-    CMPL    StackTop[Rebp],Rebx
-    ja      rsx6
-
-;# We`re now pointing to the pointer to the next handler.
-    CMPL    CONST TAGGED(0),Redx    ;# See if it was set up by exception_trace
-    je      rsx9
- ;# Ordinary exception
-    MOVL    Recx,Resp       ;# Move stack pointer to handler frame
-    POPL    HandlerRegister[Rebp] ;# Load previous handler
-    MOVL    CONST UNIT,Rebx ;# The values in some regs are illegal.
-    MOVL    CONST UNIT,Recx
-IFDEF WINDOWS
-    jmp     Redx      ;# Now enter the handler
-ELSE
-    jmp     *Redx      ;# Now enter the handler
-ENDIF
-
-rsx9:
- ;# Must give an exception trace - ex_tracec unwinds to the next handler.
-    MOVL    Reax,Rebx
-    MOVL    Recx,Reax
-CALLMACRO   CALL_IO    POLY_SYS_give_ex_trace
 
 CALLMACRO   INLINE_ROUTINE  load_byte
     MOVL    Rebx,Redi
@@ -2560,23 +2476,6 @@ CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceCode
     NOP                         ;# Add an extra byte so we have 8 bytes on both X86 and X86_64
 
 ;# This also returns the address of some template code.  It is called
-;# if the function set up by exception_trace raises an exception.
-;# This is retained for backwards compatibility
-;# N.B.  The length of this code (20 bytes) is built into X86Dependent::BuildExceptionTrace.
-CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceCode
-    CALL    ReturnFromStack                 ;# Not a real call
-
-    NOP                                 ;# Two NOPs - for alignment
-    NOP
-    MOVL    Reax,Rebx                   ;# Exception packet as second arg
-    MOVL    HandlerRegister[Rebp],Reax  ;# Handler register
-    ADDL    CONST POLYWORDSIZE,Reax     ;# Point at the handler to restore
-CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace
-    NOP                                 ;# Pad up to 20 bytes so it has
-    NOP                                 ;# the same length in 32 & 64-bits.
-    NOP
-
-;# This also returns the address of some template code.  It is called
 ;# if the function set up by traceException raises an exception.
 ;# The length of this code (9 bytes) is built into X86Dependent::BuildExceptionTrace.
 CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnCode
@@ -2930,7 +2829,6 @@ CREATE_EXTRA_CALL MACRO index
     CREATE_IO_CALL  POLY_SYS_exit
     CREATE_IO_CALL  POLY_SYS_chdir
     CREATE_IO_CALL  POLY_SYS_get_flags
-    CREATE_IO_CALL  POLY_SYS_exception_trace
     CREATE_IO_CALL  POLY_SYS_exception_trace_fn
     CREATE_IO_CALL  POLY_SYS_profiler
     CREATE_IO_CALL  POLY_SYS_Real_str

@@ -57,7 +57,6 @@ public:
 extern PolyObject *alloc(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 extern Handle alloc_and_save(TaskData *taskData, POLYUNSIGNED words, unsigned flags = 0);
 
-extern Handle ex_tracec(TaskData *taskData, Handle exc_data, Handle handler_handle);
 extern Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle);
 
 /* exceptions and interrupts */

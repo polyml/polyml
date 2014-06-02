@@ -46,8 +46,8 @@
 #define POLY_SYS_teststrlss          27
 #define POLY_SYS_teststrgeq          28
 #define POLY_SYS_teststrleq          29
-#define POLY_SYS_exception_trace     30
-#define POLY_SYS_give_ex_trace       31 /* Called from exception unwind code. */
+//#define POLY_SYS_exception_trace     30
+//#define POLY_SYS_give_ex_trace       31 /* Called from exception unwind code. */
 #define POLY_SYS_exception_trace_fn  32
 #define POLY_SYS_give_ex_trace_fn    33 // Called to produce the exception trace
 #define POLY_SYS_lockseg             47
