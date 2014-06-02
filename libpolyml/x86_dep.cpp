@@ -534,17 +534,17 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
     POLYUNSIGNED i;
     for (i = 0; i < CHECKED_REGS; i++)
     {
-        PolyWord *or = (&old_stack->p_eax)+i;
-        PolyWord *nr = (&new_stack->p_eax)+i;
-        PolyWord R = *or;
+        PolyWord *orr = (&old_stack->p_eax)+i;
+        PolyWord *nrr = (&new_stack->p_eax)+i;
+        PolyWord R = *orr;
 
         /* if the register points into the old stack, make the new copy
            point at the same relative offset within the new stack,
            otherwise make the new copy identical to the old version. */
 
         if (R.IsTagged() || R.AsStackAddr() < old_base || R.AsStackAddr() >= old_top)
-            *nr = R;
-        else *nr = PolyWord::FromStackAddr(R.AsStackAddr() + offset);
+            *nrr = R;
+        else *nrr = PolyWord::FromStackAddr(R.AsStackAddr() + offset);
     }
 
     /* Copy unchecked registers. - The next "register" is the number of
