@@ -321,7 +321,6 @@ int IntTaskData::SwitchToPoly()
             {
                 PolyWord u = *sp++;
                 sp = this->p_hr;
-                PolyWord *endStack = this->stack->top;
                 if (*sp == TAGGED(0)) sp++; // Legacy
                 sp++; // Skip handler entry point
                 // Restore old handler
@@ -872,7 +871,6 @@ int IntTaskData::SwitchToPoly()
             RAISE_EXCEPTION:
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
                 this->p_exception_arg = exn; /* Get exception data */
-                PolyWord exId = exn->ex_id; /* Get exception identifier. */
                 this->p_sp = sp; /* Save this in case of trace. */
                 PolyWord *t = this->p_hr;  /* First handler */
                 PolyWord *endStack = this->stack->top;
@@ -1319,7 +1317,6 @@ void IntTaskData::GCStack(ScanAddress *process)
     if (stack != 0)
     {
         StackSpace *stackSpace = stack;
-        StackObject *stack = stackSpace->stack();
         PolyWord *stackPtr = this->p_sp; // Save this BEFORE we update
         PolyWord *stackEnd = stackSpace->top;
 
@@ -1421,6 +1418,7 @@ static void CallIO3(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
+/*
 static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
     Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
@@ -1430,8 +1428,8 @@ static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4);
     taskData->p_sp += 4;
     *(taskData->p_sp) = DEREFWORD(result);
-    taskData->p_lastInstr = 256; /* Take next instruction. */
-}
+    taskData->p_lastInstr = 256;
+} */
 
 static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {

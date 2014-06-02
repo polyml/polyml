@@ -373,7 +373,6 @@ Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endO
 {
     Handle saved = taskData->saveVec.mark();
     Handle list = SAVE(ListNull);
-    StackObject *stack = taskData->stack->stack();
     PolyWord *endStack = taskData->stack->top - 1;
     if (endOfTrace > endStack) endOfTrace = endStack;
 
@@ -432,7 +431,6 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 /* CALL_IO0(stack_trace_, NOIND) */
 Handle stack_trace_c(TaskData *taskData)
 {
-    StackObject *stack = taskData->stack->stack();
     give_stack_trace (taskData, taskData->sp(), taskData->stack->top);
     return SAVE(TAGGED(0));
 }
@@ -462,7 +460,6 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     putc('\n',stdout);
     
     /* Trace down as far as the dummy handler on the stack. */
-    StackObject *stack = taskData->stack->stack();
     give_stack_trace(taskData, taskData->sp(), handler);
     fputs("End of trace\n\n",stdout);
     fflush(stdout);
@@ -560,17 +557,6 @@ Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_han
         machineDependent->FlushInstructionCache(pt, objLength * sizeof(PolyWord));
     
     return SAVE(TAGGED(0));
-}
-
-/******************************************************************************/
-/*                                                                            */
-/*      BadOpCode_c - called from machine_assembly.s                          */
-/*                                                                            */
-/******************************************************************************/
-static Handle BadOpCode_c(TaskData *taskData)
-{
-    raise_exception_string(taskData, EXC_Fail, "Bad RunTime OpCode");
-    return SAVE(TAGGED(1));
 }
 
 /* CALL_IO3(assign_byte_long_, REF, REF, REF, NOIND) */
@@ -1039,7 +1025,6 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
    a function to ensure that there is enough space for the maximum that can
    be allocated. */
 {
-    StackObject *oldStack = taskData->stack->stack();
     /* Get current size of new stack segment. */
     POLYUNSIGNED old_len = taskData->stack->spaceSize();
 
