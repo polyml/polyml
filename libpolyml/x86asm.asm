@@ -648,11 +648,11 @@ ENDIF
 ;# Stack format from objects.h is:
 ;#  typedef struct
 ;#  {                byte offset of start
-;#    word  p_space ;            0
+;#    word  p_space ;            0 -- Now unused - remove
 ;#    byte *p_pc ;               4
-;#    word *p_sp ;               8
+;#    word *p_sp ;               8 -- Now unused - remove
 ;#    word *p_hr ;              12
-;#    word  p_nreg ;            16 = no of checked registers (always CHECKED_REGS)
+;#    word  p_nreg ;            16  -- Now unused - remove
 ;#    word  p_reg[1] ;          20
 ;#  } StackObject ;
 ;#
@@ -663,10 +663,8 @@ ENDIF
 IFDEF WINDOWS
 
 IFNDEF HOSTARCHITECTURE_X86_64
-SPACE_OFF   EQU     0
 PC_OFF      EQU     4
 SP_OFF      EQU     8
-HR_OFF      EQU     12
 EAX_OFF     EQU     20
 EBX_OFF     EQU     24
 ECX_OFF     EQU     28
@@ -676,10 +674,8 @@ EDI_OFF     EQU     40
 FLAGS_OFF   EQU     48
 FPREGS_OFF  EQU     52
 ELSE
-SPACE_OFF   EQU     0
 PC_OFF      EQU     8
 SP_OFF      EQU     16
-HR_OFF      EQU     24
 EAX_OFF     EQU     40
 EBX_OFF     EQU     48
 ECX_OFF     EQU     56
@@ -699,11 +695,10 @@ ENDIF
 
 ELSE
 
-.set    SPACE_OFF,  0
+;#.set    SPACE_OFF,  0
 IFNDEF HOSTARCHITECTURE_X86_64
 .set    PC_OFF,     4
 .set    SP_OFF,     8
-.set    HR_OFF,     12
 .set    EAX_OFF,    20
 .set    EBX_OFF,    24
 .set    ECX_OFF,    28
@@ -715,7 +710,6 @@ IFNDEF HOSTARCHITECTURE_X86_64
 ELSE
 .set    PC_OFF,     8
 .set    SP_OFF,     16
-.set    HR_OFF,     24
 ;# 32 is the count of the number of checked registers
 .set    EAX_OFF,    40
 .set    EBX_OFF,    48

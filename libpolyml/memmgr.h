@@ -32,6 +32,7 @@
 
 class ScanAddress;
 class GCTaskId;
+class TaskData;
 
 typedef enum {
     ST_IO,          // The io area forms an interface with the RTS
@@ -164,28 +165,7 @@ public:
     friend class MemMgr;
 };
 
-// For historical reasons the saved state is held in the base of the
-// stack.  This defines the layout.  Machine-dependent modules may extend
-// this class.
-class StackBase
-{
-public:
-    POLYUNSIGNED    p_space;    // space available
-    POLYCODEPTR     p_pc;       // Program counter (instruction pointer)
-    PolyWord        *p_sp;      // stack pointer
-    PolyWord        *p_hr;      // handler pointer
-    POLYUNSIGNED    p_nreg;     // number of checked registers
-
-    PolyWord Get(POLYUNSIGNED i) const { return ((PolyWord*)this)[i]; }
-    void Set(POLYUNSIGNED i, PolyWord v) { ((PolyWord*)this)[i] = v; }
-    PolyWord *Offset(POLYUNSIGNED i) const { return ((PolyWord*)this)+i; } // Backwards compatibility
-};
-
-class StackObject: public StackBase
-{
-public:
-    PolyWord        p_reg[1];
-};
+class StackObject; // Abstract - Architecture specific
 
 // Stack spaces.  These are managed by the thread module
 class StackSpace: public MemSpace
@@ -236,7 +216,7 @@ public:
 
     // Adjust the space for a stack.  Returns true if it succeeded.  If it failed
     // it leaves the stack untouched.
-    bool GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize);
+    bool GrowOrShrinkStack(TaskData *taskData, POLYUNSIGNED newSize);
 
     // Delete a stack when a thread has finished.
     bool DeleteStackSpace(StackSpace *space);

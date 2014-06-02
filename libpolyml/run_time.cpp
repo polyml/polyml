@@ -158,8 +158,7 @@ PolyObject *alloc(TaskData *taskData, POLYUNSIGNED data_words, unsigned flags)
     
     if (profileMode == kProfileStoreAllocation)
     {
-        StackObject *stack = taskData->stack->stack();
-        add_count(taskData, stack->p_pc, stack->p_sp, words);
+        add_count(taskData, taskData->pc(), taskData->sp(), words);
     }
 
     PolyWord *foundSpace = processes->FindAllocationSpace(taskData, words, false);
@@ -381,7 +380,7 @@ Handle buildStackList(TaskData *taskData, PolyWord *startOfTrace, PolyWord *endO
     for (PolyWord *sp = endOfTrace; sp >= startOfTrace; sp--)
     {
         PolyWord pc = *sp;
-        if (pc.IsCodePtr() && sp != stack->p_hr)
+        if (pc.IsCodePtr() && sp != taskData->hr())
         {
             // A code pointer can be a return address or an exception
             // handler but if we're producing an exception trace the
@@ -434,7 +433,7 @@ void give_stack_trace(TaskData *taskData, PolyWord *sp, PolyWord *finish)
 Handle stack_trace_c(TaskData *taskData)
 {
     StackObject *stack = taskData->stack->stack();
-    give_stack_trace (taskData, stack->p_sp, taskData->stack->top);
+    give_stack_trace (taskData, taskData->sp(), taskData->stack->top);
     return SAVE(TAGGED(0));
 }
 
@@ -464,13 +463,13 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
     
     /* Trace down as far as the dummy handler on the stack. */
     StackObject *stack = taskData->stack->stack();
-    give_stack_trace(taskData, stack->p_sp, handler);
+    give_stack_trace(taskData, taskData->sp(), handler);
     fputs("End of trace\n\n",stdout);
     fflush(stdout);
 
     /* Set up the next handler so we don't come back here when we raise
        the exception again. */
-    taskData->stack->stack()->p_hr = (PolyWord*)(handler->AsStackAddr());
+    taskData->set_hr((PolyWord*)(handler->AsStackAddr()));
     
     /* Set the exception data back again. */
     taskData->SetException((poly_exn *)DEREFHANDLE(exnHandle));
@@ -483,19 +482,18 @@ Handle ex_tracec(TaskData *taskData, Handle exnHandle, Handle handler_handle)
 // raises it so that the ML code can print the trace.
 Handle exceptionToTraceException(TaskData *taskData, Handle exnHandle)
 {
-    StackObject *stack = taskData->stack->stack();
     // p_hr points at a pair of values.  The first word will be the
     // entry point to the handler i.e. to this code, the second word is
     // the stack address of the handler to restore.
-    PolyWord *handler = stack->p_hr+1;
-    Handle listHandle = buildStackList(taskData, stack->p_sp, handler);
+    PolyWord *handler = taskData->hr()+1;
+    Handle listHandle = buildStackList(taskData, taskData->sp(), handler);
     // Construct a pair of the trace list and the exception packet
     Handle pair = alloc_and_save(taskData, 2);
     pair->WordP()->Set(0, listHandle->Word());
     pair->WordP()->Set(1, exnHandle->Word());
     // Set up the next handler so we don't come back here when we raise
     // the exception again. */
-    taskData->stack->stack()->p_hr = (PolyWord*)(handler->AsStackAddr());
+    taskData->set_hr((PolyWord*)(handler->AsStackAddr()));
     // Raise this as an exception.  The handler will be able to
     // print the trace and reraise the exception.
     raise_exception(taskData, EXC_extrace, pair);
@@ -1035,27 +1033,24 @@ Handle unsignedToLongWord(TaskData *taskData, Handle x)
     return makeLongWord(taskData, wx);
 }
 
-void CheckAndGrowStack(TaskData *taskData, PolyWord *lower_limit)
+void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
 /* Expands the current stack if it has grown. We cannot shrink a stack segment
    when it grows smaller because the frame is checked only at the beginning of
-   a procedure to ensure that there is enough space for the maximum that can
+   a function to ensure that there is enough space for the maximum that can
    be allocated. */
 {
     StackObject *oldStack = taskData->stack->stack();
     /* Get current size of new stack segment. */
     POLYUNSIGNED old_len = taskData->stack->spaceSize();
- 
-    /* The minimum size must include the reserved space for the registers. */
-    POLYUNSIGNED min_size = ((PolyWord*)oldStack) + old_len - lower_limit + oldStack->p_space;
-    
-    if (old_len >= min_size) return; /* Ok with present size. */
+
+    if (old_len >= minSize) return; /* Ok with present size. */
 
     // If it is too small double its size.
 
     POLYUNSIGNED new_len; /* New size */
-    for (new_len = old_len; new_len < min_size; new_len *= 2);
+    for (new_len = old_len; new_len < minSize; new_len *= 2);
 
-    if (! gMem.GrowOrShrinkStack(taskData->stack, new_len))
+    if (! gMem.GrowOrShrinkStack(taskData, new_len))
     {
         /* Cannot expand the stack any further. */
         fprintf(stderr, "Warning - Unable to increase stack - interrupting thread\n");
@@ -1079,21 +1074,17 @@ Handle shrink_stack_c(TaskData *taskData, Handle reserved_space)
 /* Shrinks the current stack. */
 {
     unsigned reserved = get_C_unsigned(taskData, DEREFWORDHANDLE(reserved_space));
-
-    StackObject *oldStack = taskData->stack->stack();
-    /* Get current size of new stack segment. */
-    POLYUNSIGNED old_len = taskData->stack->spaceSize();
  
     /* The minimum size must include the reserved space for the registers. */
-    POLYUNSIGNED min_size = (((PolyWord*)oldStack) + old_len - (PolyWord*)oldStack->p_sp) + oldStack->p_space + reserved;
+    POLYUNSIGNED min_size = taskData->currentStackSpace() + reserved;
 
     POLYUNSIGNED new_len; /* New size */
     for (new_len = machineDependent->InitialStackSize(); new_len < min_size; new_len *= 2);
 
-    if (old_len <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
+    if (taskData->stack->spaceSize() <= new_len) return SAVE(TAGGED(0)); /* OK with present size. */
 
     // Try to change the stack size but ignore any error since the current size will do.
-    gMem.GrowOrShrinkStack(taskData->stack, new_len);
+    gMem.GrowOrShrinkStack(taskData, new_len);
 
     return SAVE(TAGGED(0));
 }

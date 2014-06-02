@@ -72,9 +72,6 @@ public:
     // Typically used to scan or update addresses in the mutable area.
     void ScanAddressesInRegion(PolyWord *region, PolyWord *endOfRegion);
 
-    // Scan addresses in a stack space.
-    void ScanAddressesInStack(StackSpace *stackSpace);
-
 protected:
     // General object processor.
     // If the object is a word object calls ScanAddressesAt for all the addresses.
@@ -89,6 +86,7 @@ protected:
 
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
+public:
     // Process a word found on the stack and return the (updated) value.  Stacks may contain
     // code addresses and addresses within the current stack.  "isCode" is set to true for
     // the program counter which may be a code address but not satisfy IsCodeObject.
@@ -96,7 +94,6 @@ protected:
     // ScanObjectAddress for the base addresses of all other addresses.
     PolyWord ScanStackAddress(PolyWord val, StackSpace *base, bool isCode);
 
-public:
     // Extract a constant from the code.
     static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
     // Store a constant in the code.

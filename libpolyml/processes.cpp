@@ -1079,7 +1079,9 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
         throw MemoryException();
     }
 
-    taskData->InitStackFrame(taskData->stack, threadFunction, args);
+    // TODO:  Check that there isn't a problem if we try to allocate
+    // memory here and result in a GC.
+    taskData->InitStackFrame(taskData, threadFunction, args);
 
     ThreadUseMLMemory(taskData);
 
@@ -1206,7 +1208,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (taskData->stack == 0)
             ::Exit("Unable to create the initial thread - insufficient memory");
 
-        taskData->InitStackFrame(taskData->stack, taskData->saveVec.push(rootFunction), (Handle)0);
+        taskData->InitStackFrame(taskData, taskData->saveVec.push(rootFunction), (Handle)0);
 
         // Create a packet for the Interrupt exception once so that we don't have to
         // allocate when we need to raise it.
@@ -1444,7 +1446,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 
         // Allocate anything needed for the new stack in the parent's heap.
         // The child still has inMLHeap set so mustn't GC.
-        taskData->InitStackFrame(newTaskData->stack, threadFunction, args);
+        newTaskData->InitStackFrame(taskData, threadFunction, args);
 
         // Now actually fork the thread.
         bool success = false;
@@ -1974,7 +1976,7 @@ void Processes::GarbageCollect(ScanAddress *process)
 void TaskData::GarbageCollect(ScanAddress *process)
 {
     saveVec.gcScan(process);
-    if (stack != 0) process->ScanAddressesInStack(stack);
+    if (stack != 0) GCStack(process);
 
     if (threadObject != 0)
     {

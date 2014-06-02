@@ -45,6 +45,7 @@ class PolyWord;
 class ScanAddress;
 class MDTaskData;
 class Exporter;
+class StackObject;
 
 #ifdef HAVE_WINDOWS_H
 typedef void *HANDLE;
@@ -100,19 +101,17 @@ public:
     virtual ~TaskData();
 
     void FillUnusedSpace(void);
-
-    virtual void GarbageCollect(ScanAddress *process);
-    virtual void Lock(void) {}
-    virtual void Unlock(void) {}
+    void GarbageCollect(ScanAddress *process);
+    virtual void GCStack(ScanAddress *process) = 0;
 
     virtual Handle EnterPolyCode() = 0; // Start running ML
 
     virtual void SetForRetry(int ioCall) = 0;
     virtual void InterruptCode() = 0;
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
-    // Initialise the stack for a new thread.  Because this is called from the parent thread
-    // the task data object passed in is that of the parent.
-    virtual void InitStackFrame(StackSpace *space, Handle proc, Handle arg) = 0;
+    // Initialise the stack for a new thread.  The parent task object is passed in because any
+    // allocation that needs to be made must be made in the parent.
+    virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg) = 0;
     virtual void SetException(poly_exn *exc) = 0;
     // This is used to get the argument to the callback_result function.
     virtual Handle CallBackResult() = 0;
@@ -128,6 +127,16 @@ public:
     // Reset a mutex to one.  This needs to be atomic with respect to the
     // atomic increment and decrement instructions.
     virtual void AtomicReset(Handle mutexp) = 0;
+
+    virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length,
+                                StackObject *new_stack, POLYUNSIGNED new_length) = 0;
+
+    // Put these in for the moment.  A few functions in run_time.cpp rely on them.
+    virtual POLYCODEPTR pc(void) const = 0;
+    virtual PolyWord *sp(void) const = 0;
+    virtual PolyWord *hr(void) const = 0;
+    virtual void set_hr(PolyWord *hr) = 0;
+    virtual POLYUNSIGNED currentStackSpace(void) const = 0;
 
     SaveVec     saveVec;
     PolyWord    *allocPointer;  // Allocation pointer - decremented towards...

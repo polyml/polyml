@@ -82,7 +82,7 @@ extern void add_word_to_io_area(unsigned sysop, PolyWord val);
 extern Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_handle);
 
 // Check to see that there is space in the stack.  May GC and may raise a C++ exception.
-extern void CheckAndGrowStack(TaskData *mdTaskData, PolyWord *lower_limit);
+extern void CheckAndGrowStack(TaskData *mdTaskData, POLYUNSIGNED minSize);
 
 extern Handle errorMsg(TaskData *taskData, int err);
 

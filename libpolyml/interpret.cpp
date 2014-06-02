@@ -67,6 +67,7 @@
 #include "save_vec.h"
 #include "memmgr.h"
 #include "poly_specific.h"
+#include "scanaddrs.h"
 
 #define VERSION_NUMBER  POLY_version_number
 
@@ -97,10 +98,23 @@ const PolyWord Zero = TAGGED(0);
    UNCHECKED_REGS + \
    EXTRA_STACK)
 
+class StackObject {
+public:
+//    POLYUNSIGNED    p_space;
+//    POLYCODEPTR     p_pc;
+//    PolyWord        *p_sp;
+//    PolyWord        *p_hr;
+
+//    POLYUNSIGNED    p_nreg;
+//    PolyWord        p_reg[CHECKED_REGS];
+//    POLYUNSIGNED    p_nUnchecked;
+};
+
 class IntTaskData: public TaskData {
 public:
     IntTaskData(): interrupt_requested(false) {}
 
+    virtual void GCStack(ScanAddress *process);
     virtual Handle EnterPolyCode(); // Start running ML
 
     // Switch to Poly and return with the io function to call.
@@ -113,7 +127,7 @@ public:
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc)
         { return false; }
 
-    virtual void InitStackFrame(StackSpace *space, Handle proc, Handle arg);
+    virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
 
     virtual Handle CallBackResult();
     virtual int  GetIOFunctionRegisterMask(int ioCall) { return 0; }
@@ -125,7 +139,22 @@ public:
     // Set a mutex to one.
     virtual void AtomicReset(Handle mutexp);
 
+    virtual POLYCODEPTR pc(void) const { return p_pc; }
+    virtual PolyWord *sp(void) const { return p_sp; }
+    virtual PolyWord *hr(void) const { return p_hr; }
+    virtual void set_hr(PolyWord *hr) { p_hr = hr; }
+    // Return the minimum space occupied by the stack if we are considering shrinking it.
+    virtual POLYUNSIGNED currentStackSpace(void) const { return (this->stack->top - this->p_sp) + OVERFLOW_STACK_SIZE; }
+
+    virtual void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length);
+
     bool interrupt_requested;
+
+    POLYCODEPTR     p_pc;
+    PolyWord        *p_sp;
+    PolyWord        *p_hr;
+    PolyWord        p_exception_arg;
+    unsigned        p_lastInstr;
 };
 
 // Special values for return addresses or in the address of an exception handler.
@@ -145,34 +174,32 @@ public:
     virtual Architectures MachineArchitecture(void) { return MA_Interpreted; }
 };
 
-void IntTaskData::InitStackFrame(StackSpace *space, Handle proc, Handle arg)
+void IntTaskData::InitStackFrame(TaskData *parentTask, Handle proc, Handle arg)
 /* Initialise stack frame. */
 {
+    StackSpace *space = this->stack;
     StackObject *stack = (StackObject *)space->stack();
     PolyObject *closure = DEREFWORDHANDLE(proc);
     POLYUNSIGNED stack_size = space->spaceSize();
-    stack->p_space = OVERFLOW_STACK_SIZE;
-    stack->p_pc = *(byte**)(closure);
-    stack->p_sp  = (PolyWord*)stack + stack_size-3; /* sp */
-    stack->p_nreg = CHECKED_REGS; /* exception arg and last instruction. */
-    stack->p_reg[CHECKED_REGS] = PolyWord::FromUnsigned(UNCHECKED_REGS);
-    stack->p_reg[0] = TAGGED(0); /* Used for exception argument. */
-    stack->p_reg[1] = TAGGED(256); /* No instruction. */
-    stack->p_sp  = (PolyWord*)stack + stack_size;
+    this->p_pc = *(byte**)(closure);
+    this->p_sp  = (PolyWord*)stack + stack_size-3; /* sp */
+    this->p_exception_arg = TAGGED(0); /* Used for exception argument. */
+    this->p_lastInstr = 256; /* No instruction. */
+    this->p_sp  = (PolyWord*)stack + stack_size;
 
     /* Set up exception handler */
     /* No previous handler so point it at itself. */
-    stack->p_sp--;
-    *(stack->p_sp) = PolyWord::FromStackAddr(stack->p_sp);
-    *(--stack->p_sp) = SPECIAL_PC_END_THREAD; /* Default return address. */
-    *(--stack->p_sp) = Zero; /* Default handler. */
-    stack->p_hr = stack->p_sp;
+    this->p_sp--;
+    *(this->p_sp) = PolyWord::FromStackAddr(this->p_sp);
+    *(--this->p_sp) = SPECIAL_PC_END_THREAD; /* Default return address. */
+    *(--this->p_sp) = Zero; /* Default handler. */
+    this->p_hr = this->p_sp;
 
     /* If this function takes an argument store it on the stack. */
-    if (arg != 0) *(--stack->p_sp) = DEREFWORD(arg);
+    if (arg != 0) *(--this->p_sp) = DEREFWORD(arg);
 
-    *(--stack->p_sp) = SPECIAL_PC_END_THREAD; /* Return address. */
-    *(--stack->p_sp) = closure; /* Closure address */
+    *(--this->p_sp) = SPECIAL_PC_END_THREAD; /* Return address. */
+    *(--this->p_sp) = closure; /* Closure address */
 }
 
 void IntTaskData::InterruptCode()
@@ -187,8 +214,8 @@ void IntTaskData::InterruptCode()
 void IntTaskData::SetException(poly_exn *exc)
 /* Set up the stack of a process to raise an exception. */
 {
-    this->stack->stack()->p_reg[1] = TAGGED(INSTR_raise_ex);
-    *(--this->stack->stack()->p_sp) = (PolyWord)exc; /* push exception data */
+    this->p_lastInstr = INSTR_raise_ex;
+    *(--this->p_sp) = (PolyWord)exc; /* push exception data */
 }
 
 int IntTaskData::SwitchToPoly()
@@ -219,9 +246,9 @@ int IntTaskData::SwitchToPoly()
             this->allocPointer += storeWords;
     }
     storeWords = 0;
-    sp = this->stack->stack()->p_sp; /* Reload these. */
-    pc = this->stack->stack()->p_pc;
-    li = (unsigned)UNTAGGED(this->stack->stack()->p_reg[1]);
+    sp = this->p_sp; /* Reload these. */
+    pc = this->p_pc;
+    li = this->p_lastInstr;
     sl = (PolyWord*)this->stack->stack()+OVERFLOW_STACK_SIZE;
 
     if (li != 256) goto RETRY; /* Re-execute instruction if necessary. */
@@ -234,6 +261,7 @@ int IntTaskData::SwitchToPoly()
         RETRY:
 //      sprintf(buff, "PC=%x, i=%x\n", pc, li);
 //      OutputDebugString(buff);
+
         // Check for stack overflow and interrupts. These can be done less
         // frequently than every instruction.
         // Don't do this if we're raising an exception: we may be raising
@@ -241,20 +269,21 @@ int IntTaskData::SwitchToPoly()
         // exception and produced any exception trace the stack will have been
         // reset to the last handler.
         if (sp < sl && li != INSTR_raise_ex) {
-            this->stack->stack()->p_sp = sp;
-            this->stack->stack()->p_pc = pc;
-            this->stack->stack()->p_reg[1] = TAGGED(li);
+            this->p_sp = sp;
+            this->p_pc = pc;
+            this->p_lastInstr = li;
             Handle marker = this->saveVec.mark();
-            CheckAndGrowStack(this, sp);
+            POLYUNSIGNED min_size = this->stack->top - this->p_sp + OVERFLOW_STACK_SIZE;
+            CheckAndGrowStack(this, min_size);
             this->saveVec.reset(marker);
             goto RESTART;
         }
 
         if (this->interrupt_requested) {
             this->interrupt_requested = false;
-            this->stack->stack()->p_sp = sp;
-            this->stack->stack()->p_pc = pc;
-            this->stack->stack()->p_reg[1] = TAGGED(li);
+            this->p_sp = sp;
+            this->p_pc = pc;
+            this->p_lastInstr = li;
             return -1;
         }
 
@@ -272,31 +301,31 @@ int IntTaskData::SwitchToPoly()
         case INSTR_jump: pc += *pc + 1; break;
 
         case INSTR_push_handler: /* Save the old handler value. */
-            *(--sp) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); /* Push old handler */
+            *(--sp) = PolyWord::FromStackAddr(this->p_hr); /* Push old handler */
             break;
 
         case INSTR_set_handler_new: /* Set up a handler */
             *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
-            this->stack->stack()->p_hr = sp;
+            this->p_hr = sp;
             pc += 1;
             break;
 
         case INSTR_set_handler_old: /* Set up a handler */
             // Legacy version.  The handler pushes an exception id.
             *(--sp) = PolyWord::FromCodePtr(pc + *pc + 1); /* Address of handler */
-            this->stack->stack()->p_hr = sp-1; /*Point to identifier about to be pushed*/
+            this->p_hr = sp-1; /*Point to identifier about to be pushed*/
             pc += 1;
             break;
 
         case INSTR_del_handler: /* Delete handler retaining the result. */
             {
                 PolyWord u = *sp++;
-                sp = this->stack->stack()->p_hr;
+                sp = this->p_hr;
                 PolyWord *endStack = this->stack->top;
                 if (*sp == TAGGED(0)) sp++; // Legacy
                 sp++; // Skip handler entry point
                 // Restore old handler
-                this->stack->stack()->p_hr = (*sp).AsStackAddr();
+                this->p_hr = (*sp).AsStackAddr();
                 *sp = u; // Put back the result
                 pc += *pc + 1; /* Skip the handler */
                 break;
@@ -330,7 +359,7 @@ int IntTaskData::SwitchToPoly()
                 byte *u = pc + *pc + 1;
                 *(--sp) = /* Address of handler */
                     PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
-                this->stack->stack()->p_hr = sp;
+                this->p_hr = sp;
                 pc += 1;
                 break;
             }
@@ -340,7 +369,7 @@ int IntTaskData::SwitchToPoly()
                 byte *u = pc + *pc + 1;
                 *(--sp) = /* Address of handler */
                     PolyWord::FromCodePtr(u + u[0] + u[1]*256 + 2);
-                this->stack->stack()->p_hr = sp-1;
+                this->p_hr = sp-1;
                 pc += 1;
                 break;
             }
@@ -349,10 +378,10 @@ int IntTaskData::SwitchToPoly()
             {
                 PolyWord u = *sp++;
                 PolyWord *t;
-                sp = this->stack->stack()->p_hr;
+                sp = this->p_hr;
                 PolyWord *endStack = this->stack->top;
                 while((t = (*sp).AsStackAddr()) < sp || t > endStack) sp++;
-                this->stack->stack()->p_hr = t;
+                this->p_hr = t;
                 *sp = u;
                 pc += *pc + 1; /* Skip the handler */
                 pc += arg1 + 2;
@@ -647,10 +676,10 @@ int IntTaskData::SwitchToPoly()
                     case POLY_SYS_exception_trace:
                         u = *sp; /* Function to call. */
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
-                        *(--sp) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); /* Push old handler */
+                        *(--sp) = PolyWord::FromStackAddr(this->p_hr); /* Push old handler */
                         *(--sp) = SPECIAL_PC_TRACE_EX; /* Marks exception trace. */
                         *(--sp) = Zero; /* Catch everything. */
-                        this->stack->stack()->p_hr = sp; /* Handler is here. */
+                        this->p_hr = sp; /* Handler is here. */
                         pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
                         *(--sp) = Zero; /* Unit argument to the function. */
                         *(--sp) = u; /* Push the procedure. */
@@ -659,10 +688,10 @@ int IntTaskData::SwitchToPoly()
                     case POLY_SYS_exception_trace_fn:
                         u = *sp; /* Function to call. */
                         *(--sp) = PolyWord::FromCodePtr(pc); /* Push a return address. */
-                        *(--sp) = PolyWord::FromStackAddr(this->stack->stack()->p_hr); /* Push old handler */
+                        *(--sp) = PolyWord::FromStackAddr(this->p_hr); /* Push old handler */
                         *(--sp) = SPECIAL_PC_TRACE_EX_FN; /* Marks exception trace. */
                         *(--sp) = Zero; /* Catch everything. */
-                        this->stack->stack()->p_hr = sp; /* Handler is here. */
+                        this->p_hr = sp; /* Handler is here. */
                         pc = (SPECIAL_PC_TRACE_EX).AsCodePtr(); /* Special return address. */
                         *(--sp) = Zero; /* Unit argument to the function. */
                         *(--sp) = u; /* Push the procedure. */
@@ -790,9 +819,9 @@ int IntTaskData::SwitchToPoly()
                     FullRTSCall:
                         // For all the calls that aren't built in ...
                         /* Save the state so that the instruction can be retried if necessary. */
-                        this->stack->stack()->p_pc = pc; /* Pc value after instruction. */
-                        this->stack->stack()->p_reg[1] = TAGGED(li); /* Previous instruction. */
-                        this->stack->stack()->p_sp = sp-1; /* Include the closure address. */
+                        this->p_pc = pc; /* Pc value after instruction. */
+                        this->p_lastInstr = li; /* Previous instruction. */
+                        this->p_sp = sp-1; /* Include the closure address. */
                         return (int)uu;
                     }
                 } /* End of system calls. */
@@ -821,7 +850,7 @@ int IntTaskData::SwitchToPoly()
                     /* Return from a call to exception_trace when an exception
                        has not been raised. */
                     sp += 1;
-                    this->stack->stack()->p_hr = (sp[1]).AsStackAddr();
+                    this->p_hr = (sp[1]).AsStackAddr();
                     *sp = result;
                     returnCount = 1;
                     goto RETURN;
@@ -842,10 +871,10 @@ int IntTaskData::SwitchToPoly()
             {
             RAISE_EXCEPTION:
                 PolyException *exn = (PolyException*)((*sp).AsObjPtr());
-                this->stack->stack()->p_reg[0] = exn; /* Get exception data */
+                this->p_exception_arg = exn; /* Get exception data */
                 PolyWord exId = exn->ex_id; /* Get exception identifier. */
-                this->stack->stack()->p_sp = sp; /* Save this in case of trace. */
-                PolyWord *t = this->stack->stack()->p_hr;  /* First handler */
+                this->p_sp = sp; /* Save this in case of trace. */
+                PolyWord *t = this->p_hr;  /* First handler */
                 PolyWord *endStack = this->stack->top;
                 // The legacy version pushes an identifier which is always zero.
                 if (*t == Zero) t++;
@@ -856,7 +885,7 @@ int IntTaskData::SwitchToPoly()
                     PolyWord *nextHandler = t;
                     Handle marker = this->saveVec.mark();
                     try {
-                        ex_tracec(this, this->saveVec.push(this->stack->stack()->p_reg[0]),
+                        ex_tracec(this, this->saveVec.push(this->p_exception_arg),
                                   this->saveVec.push(PolyWord::FromStackAddr(nextHandler)));
                     }
                     catch (IOException) {
@@ -871,11 +900,11 @@ int IntTaskData::SwitchToPoly()
                     *sp = PolyWord::FromCodePtr(pc); /* So that this function will be included. */
                     // exceptionToTraceException expects the new format of exception handling that is
                     // used in the X86 code-generator.  That does not push an exception id.
-                    this->stack->stack()->p_hr = t;
+                    this->p_hr = t;
                     Handle marker = this->saveVec.mark();
                     try {
                         exceptionToTraceException(this,
-                            this->saveVec.push(this->stack->stack()->p_reg[0]));
+                            this->saveVec.push(this->p_exception_arg));
                     }
                     catch (IOException) {
                     }
@@ -885,15 +914,15 @@ int IntTaskData::SwitchToPoly()
                 }
                 else if (*t == SPECIAL_PC_END_THREAD)
                     exitThread(this);  // Default handler for thread.
-                this->stack->stack()->p_pc = (*t).AsCodePtr();
+                this->p_pc = (*t).AsCodePtr();
                 /* Now remove this handler. */
                 sp = t;
                 while ((t = (*sp).AsStackAddr()) < sp || t > endStack)
                     sp++;
-                this->stack->stack()->p_hr = t; /* Restore old handler */
+                this->p_hr = t; /* Restore old handler */
                 sp++; /* Remove that entry. */
-                this->stack->stack()->p_sp = sp;
-                this->stack->stack()->p_reg[1] = TAGGED(256); /* Get the next instruction. */
+                this->p_sp = sp;
+                this->p_lastInstr = 256; /* Get the next instruction. */
                 goto RESTART; /* Restart in case pc is persistent (??? Still relevant????). */
             }
 
@@ -907,9 +936,9 @@ int IntTaskData::SwitchToPoly()
                 if (this->allocPointer < this->allocLimit)
                 {
                     this->allocPointer += storeWords;
-                    this->stack->stack()->p_sp = sp;
-                    this->stack->stack()->p_pc = pc;
-                    this->stack->stack()->p_reg[1] = TAGGED(li);
+                    this->p_sp = sp;
+                    this->p_pc = pc;
+                    this->p_lastInstr = li;
                     goto RESTART;
                 }
                 pc += instrBytes;
@@ -935,9 +964,9 @@ int IntTaskData::SwitchToPoly()
                 this->allocPointer -= storeWords;
                 if (this->allocPointer < this->allocLimit) {
                     this->allocPointer += storeWords;
-                    this->stack->stack()->p_sp = sp;
-                    this->stack->stack()->p_pc = pc;
-                    this->stack->stack()->p_reg[1] = TAGGED(li);
+                    this->p_sp = sp;
+                    this->p_pc = pc;
+                    this->p_lastInstr = li;
                     goto RESTART;
                 }
                 pc += instrBytes;
@@ -1039,7 +1068,7 @@ int IntTaskData::SwitchToPoly()
                 break;
             }
 
-        case INSTR_ldexc: *(--sp) = this->stack->stack()->p_reg[0]; break;
+        case INSTR_ldexc: *(--sp) = this->p_exception_arg; break;
 
         case INSTR_local_b: { PolyWord u = sp[*pc]; *(--sp) = u; pc += 1; break; }
 
@@ -1227,9 +1256,9 @@ int IntTaskData::SwitchToPoly()
                 this->allocPointer -= storeWords;
                 if (this->allocPointer < this->allocLimit) {
                     this->allocPointer += storeWords;
-                    this->stack->stack()->p_sp = sp;
-                    this->stack->stack()->p_pc = pc;
-                    this->stack->stack()->p_reg[1] = TAGGED(li);
+                    this->p_sp = sp;
+                    this->p_pc = pc;
+                    this->p_lastInstr = li;
                     goto RESTART;
                 }
                 storeWords--;
@@ -1260,9 +1289,9 @@ int IntTaskData::SwitchToPoly()
                 this->allocPointer -= storeWords;
                 if (this->allocPointer < this->allocLimit) {
                     this->allocPointer += storeWords;
-                    this->stack->stack()->p_sp = sp;
-                    this->stack->stack()->p_pc = pc;
-                    this->stack->stack()->p_reg[1] = TAGGED(li);
+                    this->p_sp = sp;
+                    this->p_pc = pc;
+                    this->p_lastInstr = li;
                     goto RESTART;
                 }
                 storeWords--;
@@ -1285,65 +1314,136 @@ int IntTaskData::SwitchToPoly()
      return 0;
 } /* MD_switch_to_poly */
 
-static void CallIO0(TaskData *taskData, Handle(*ioFun)(TaskData *))
+void IntTaskData::GCStack(ScanAddress *process)
+{
+    if (stack != 0)
+    {
+        StackSpace *stackSpace = stack;
+        StackObject *stack = stackSpace->stack();
+        PolyWord *stackPtr = this->p_sp; // Save this BEFORE we update
+        PolyWord *stackEnd = stackSpace->top;
+
+        // Either this is TAGGED(0) indicating a retry or it's a code pointer.
+        if (this->p_pc != TAGGED(0).AsCodePtr())
+            this->p_pc = process->ScanStackAddress (PolyWord::FromCodePtr(this->p_pc), stackSpace, true).AsCodePtr();
+
+        // Stack pointer and handler pointers
+        this->p_sp =
+            process->ScanStackAddress (PolyWord::FromStackAddr(this->p_sp), stackSpace, false).AsStackAddr();
+        this->p_hr =
+            process->ScanStackAddress (PolyWord::FromStackAddr(this->p_hr), stackSpace, false).AsStackAddr();
+
+        // The exception arg if any
+        this->p_exception_arg = process->ScanStackAddress(this->p_exception_arg, stackSpace, false);
+
+        // Now the values on the stack.
+        for (PolyWord *q = stackPtr; q < stackEnd; q++)
+            *q = process->ScanStackAddress(*q, stackSpace, false);
+     }
+}
+
+// Copy a stack
+void IntTaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
+{
+  /* Moves a stack, updating all references within the stack */
+    PolyWord *old_base  = (PolyWord *)old_stack;
+    PolyWord *new_base  = (PolyWord*)new_stack;
+    PolyWord *old_top   = old_base + old_length;
+
+    /* Calculate the offset of the new stack from the old. If the frame is
+       being extended objects in the new frame will be further up the stack
+       than in the old one. */
+
+    POLYSIGNED offset = new_base - old_base + new_length - old_length;
+    PolyWord *oldSp = this->p_sp;
+    this->p_sp    = oldSp + offset;
+    this->p_hr    = this->p_hr + offset;
+
+    /* Skip the unused part of the stack. */
+
+    POLYUNSIGNED i = oldSp - old_base;
+
+    ASSERT (i <= old_length);
+
+    i = old_length - i;
+
+    PolyWord *old = oldSp;
+    PolyWord *newp= this->p_sp;
+
+    while (i--)
+    {
+//        ASSERT(old >= old_base && old < old_base+old_length);
+//        ASSERT(newp >= new_base && newp < new_base+new_length);
+        PolyWord old_word = *old++;
+        if (old_word.IsTagged() || old_word.AsStackAddr() < old_base || old_word.AsStackAddr() >= old_top)
+            *newp++ = old_word;
+        else
+            *newp++ = PolyWord::FromStackAddr(old_word.AsStackAddr() + offset);
+    }
+    ASSERT(old == ((PolyWord*)old_stack)+old_length);
+    ASSERT(newp == ((PolyWord*)new_stack)+new_length);
+}
+
+
+static void CallIO0(IntTaskData *taskData, Handle(*ioFun)(TaskData *))
 {
     Handle result = (*ioFun)(taskData);
-    *(taskData->stack->stack()->p_sp) = result->Word();
-    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+    *(taskData->p_sp) = result->Word();
+    taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-static void CallIO1(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle))
+static void CallIO1(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle))
 {
-    Handle funarg = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
+    Handle funarg = taskData->saveVec.push(taskData->p_sp[1]);
     Handle result = (*ioFun)(taskData, funarg);
-    *(++taskData->stack->stack()->p_sp) = result->Word();
-    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+    *(++taskData->p_sp) = result->Word();
+    taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-static void CallIO2(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle))
+static void CallIO2(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle))
 {
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
+    Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->p_sp[2]);
     Handle result = (*ioFun)(taskData, funarg1, funarg2);
-    taskData->stack->stack()->p_sp += 2;
-    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+    taskData->p_sp += 2;
+    *(taskData->p_sp) = DEREFWORD(result);
+    taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-static void CallIO3(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle))
+static void CallIO3(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle))
 {
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
+    Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->p_sp[2]);
+    Handle funarg3 = taskData->saveVec.push(taskData->p_sp[3]);
     Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3);
-    taskData->stack->stack()->p_sp += 3;
-    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+    taskData->p_sp += 3;
+    *(taskData->p_sp) = DEREFWORD(result);
+    taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-static void CallIO4(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
+static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
-    Handle funarg4 = taskData->saveVec.push(taskData->stack->stack()->p_sp[4]);
+    Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->p_sp[2]);
+    Handle funarg3 = taskData->saveVec.push(taskData->p_sp[3]);
+    Handle funarg4 = taskData->saveVec.push(taskData->p_sp[4]);
     Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4);
-    taskData->stack->stack()->p_sp += 4;
-    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+    taskData->p_sp += 4;
+    *(taskData->p_sp) = DEREFWORD(result);
+    taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-static void CallIO5(TaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
+static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
-    Handle funarg1 = taskData->saveVec.push(taskData->stack->stack()->p_sp[1]);
-    Handle funarg2 = taskData->saveVec.push(taskData->stack->stack()->p_sp[2]);
-    Handle funarg3 = taskData->saveVec.push(taskData->stack->stack()->p_sp[3]);
-    Handle funarg4 = taskData->saveVec.push(taskData->stack->stack()->p_sp[4]);
-    Handle funarg5 = taskData->saveVec.push(taskData->stack->stack()->p_sp[5]);
+    Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
+    Handle funarg2 = taskData->saveVec.push(taskData->p_sp[2]);
+    Handle funarg3 = taskData->saveVec.push(taskData->p_sp[3]);
+    Handle funarg4 = taskData->saveVec.push(taskData->p_sp[4]);
+    Handle funarg5 = taskData->saveVec.push(taskData->p_sp[5]);
     Handle result = (*ioFun)(taskData, funarg1, funarg2, funarg3, funarg4, funarg5);
-    taskData->stack->stack()->p_sp += 5;
-    *(taskData->stack->stack()->p_sp) = DEREFWORD(result);
-    taskData->stack->stack()->p_reg[1] = TAGGED(256); /* Take next instruction. */
+    taskData->p_sp += 5;
+    *(taskData->p_sp) = DEREFWORD(result);
+    taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
 Handle IntTaskData::EnterPolyCode()
@@ -1798,7 +1898,7 @@ Handle IntTaskData::EnterPolyCode()
 // Return the callback result.  The current ML process (thread) terminates.
 Handle IntTaskData::CallBackResult()
 {
-    return this->saveVec.push(this->stack->stack()->p_sp[1]);
+    return this->saveVec.push(this->p_sp[1]);
 }
 
 void Interpreter::InitInterfaceVector(void)

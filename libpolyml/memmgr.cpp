@@ -43,6 +43,7 @@
 #include "mpoly.h"
 #include "diagnostics.h"
 #include "statistics.h"
+#include "processes.h"
 
 // heap resizing policy option requested on command line
 unsigned heapsizingOption = 0;
@@ -733,87 +734,9 @@ void MemMgr::ProtectImmutable(bool on)
     }
 }
 
-// Copy a stack
-static void CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
+bool MemMgr::GrowOrShrinkStack(TaskData *taskData, POLYUNSIGNED newSize)
 {
-  /* Moves a stack, updating all references within the stack */
-    PolyWord *old_base  = (PolyWord *)old_stack;
-    PolyWord *new_base  = (PolyWord*)new_stack;
-    PolyWord *old_top   = old_base + old_length;
-
-    /* Calculate the offset of the new stack from the old. If the frame is
-       being extended objects in the new frame will be further up the stack
-       than in the old one. */
-
-    POLYSIGNED offset = new_base - old_base + new_length - old_length;
-
-    /* Copy the registers, changing any that point into the stack. */
-
-    new_stack->p_space = old_stack->p_space;
-    new_stack->p_pc    = old_stack->p_pc;
-    new_stack->p_sp    = old_stack->p_sp + offset;
-    new_stack->p_hr    = old_stack->p_hr + offset;
-    new_stack->p_nreg  = old_stack->p_nreg;
-
-    /* p_nreg contains contains the number of CHECKED registers */
-
-    POLYUNSIGNED i;
-    for (i = 0; i < new_stack->p_nreg; i++)
-    {
-        PolyWord R = old_stack->p_reg[i];
-
-        /* if the register points into the old stack, make the new copy
-           point at the same relative offset within the new stack,
-           otherwise make the new copy identical to the old version. */
-
-        if (R.IsTagged() || R.AsStackAddr() < old_base || R.AsStackAddr() >= old_top)
-            new_stack->p_reg[i] = R;
-        else new_stack->p_reg[i] = PolyWord::FromStackAddr(R.AsStackAddr() + offset);
-    }
-
-    /* Copy unchecked registers. - The next "register" is the number of
-       unchecked registers to copy. Unchecked registers are used for 
-       values that might look like addresses, i.e. don't have tag bits, 
-       but are not. */
-
-    POLYUNSIGNED n = old_stack->p_reg[i].AsUnsigned();
-    new_stack->p_reg[i] = old_stack->p_reg[i];
-    i++;
-    ASSERT (n < 100);
-    while (n--)
-    { 
-        new_stack->p_reg[i] = old_stack->p_reg[i];
-        i++;
-    }
-
-    /* Skip the unused part of the stack. */
-
-    i = (PolyWord*)old_stack->p_sp - old_base;
-
-    ASSERT (i <= old_length);
-
-    i = old_length - i;
-
-    PolyWord *old = old_stack->p_sp;
-    PolyWord *newp= new_stack->p_sp;
-
-    while (i--)
-    {
-//        ASSERT(old >= old_base && old < old_base+old_length);
-//        ASSERT(newp >= new_base && newp < new_base+new_length);
-        PolyWord old_word = *old++;
-        if (old_word.IsTagged() || old_word.AsStackAddr() < old_base || old_word.AsStackAddr() >= old_top)
-            *newp++ = old_word;
-        else
-            *newp++ = PolyWord::FromStackAddr(old_word.AsStackAddr() + offset);
-    }
-    ASSERT(old == ((PolyWord*)old_stack)+old_length);
-    ASSERT(newp == ((PolyWord*)new_stack)+new_length);
-}
-
-
-bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
-{
+    StackSpace *space = taskData->stack;
     size_t iSpace = newSize*sizeof(PolyWord);
     PolyWord *newSpace = (PolyWord*)osMemoryManager->Allocate(iSpace, PERMISSION_READ|PERMISSION_WRITE);
     if (newSpace == 0)
@@ -833,7 +756,7 @@ bool MemMgr::GrowOrShrinkStack(StackSpace *space, POLYUNSIGNED newSize)
         delete space;
         return 0;
     }
-    CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
+    taskData->CopyStackFrame(space->stack(), space->spaceSize(), (StackObject*)newSpace, newSize);
     if (debugOptions & DEBUG_MEMMGR)
         Log("MMGR: Size of stack %p changed from %lu to %lu at %p\n", space, space->spaceSize(), newSize, newSpace);
     RemoveTree(space); // Remove it BEFORE freeing the space - another thread may allocate it
