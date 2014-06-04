@@ -202,19 +202,15 @@ typedef struct _MemRegisters {
     // These offsets are built into the code generator and assembly code
     PolyWord    *localMpointer;     // Allocation ptr + 1 word
     PolyWord    *handlerRegister;   // Current exception handler
-    // Originally these next two were checked using a BOUNDS instruction.  That compared
-    // a value against a lower and upper limit.
     PolyWord    *localMbottom;      // Base of memory + 1 word
     PolyWord    *stackLimit;        // Lower limit of stack
-    // We don't actually need to do the check against the upper limit but
-    // we need to pass this to the assembly code so this is a convenient place
-    // to do it.
-    PolyWord    *stackTop;          // Upper limit of stack
+    PolyWord    *unusedNow;         // Previously: Upper limit of stack
     // These offsets are built into the assembly code section
     byte        requestCode;        // IO function to call.
         // The offset (20/40) of requestCode is built into the MAKE_IO_CALL_SEQUENCE macro
     byte        inRTS;              // Flag indicating we're not in ML
     byte        returnReason;       // Reason for returning from ML.
+    byte        fullRestore;        // 0 => clear registers, 1 => reload registers
         // The offset (22/42) of returnReason is built into the MAKE_IO_CALL_SEQUENCE macro
     StackObject *polyStack;         // Current stack base
     PolyWord    *savedSp;           // Saved C stack pointer
@@ -276,6 +272,8 @@ public:
 
     void SetMemRegisters();
     void SaveMemRegisters();
+
+    void ClearAllRegisters(); // This is temporary for testing
 
     void ArbitraryPrecisionTrap();
     PolyWord *get_reg(int n);
@@ -482,6 +480,7 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     memRegisters.stackOverflowEx = stackOverflowEx;
     memRegisters.raiseDiv = raiseDiv;
     memRegisters.arbEmulation = arbEmulation;
+    memRegisters.fullRestore = 0;
 }
 
 void X86TaskData::GCStack(ScanAddress *process)
@@ -602,10 +601,11 @@ static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant
 }
 
 // IO Functions called indirectly from assembly code.
-static void CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
+static void CallIO0(X86TaskData *taskData, Handle (*ioFun)(TaskData *))
 {
     // Set the return address now.
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
+    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData);
     PSP_EAX(taskData) = result->Word();
     // If this is a normal return we can pop the return address.
@@ -614,26 +614,28 @@ static void CallIO0(TaskData *taskData, Handle (*ioFun)(TaskData *))
     PSP_SP(taskData)++;
 }
 
-static void CallIO1(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
+static void CallIO1(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
 {
     PSP_IC(taskData)= (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
+    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved1);
     PSP_EAX(taskData) = result->Word();
     PSP_SP(taskData)++; // Pop the return address.
 }
 
-static void CallIO2(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
+static void CallIO2(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle))
 {
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
     Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
+    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
     PSP_SP(taskData)++;
 }
 
-static void CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
+static void CallIO3(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle))
 {
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
@@ -643,6 +645,7 @@ static void CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Hand
 #else /* HOSTARCHITECTURE_X86_64 */
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
+    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
@@ -652,7 +655,7 @@ static void CallIO3(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Hand
 #endif /* HOSTARCHITECTURE_X86_64 */
 }
 
-static void CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
+static void CallIO4(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
@@ -664,6 +667,7 @@ static void CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Hand
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
     Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
+    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
@@ -674,7 +678,7 @@ static void CallIO4(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Hand
 }
 
 // The only functions with 5 args are move_bytes/word_long
-static void CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
+static void CallIO5(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
@@ -688,6 +692,7 @@ static void CallIO5(TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, Hand
     Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
     Handle saved5 = taskData->saveVec.push(PSP_R10(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
+    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
@@ -1659,10 +1664,8 @@ void X86TaskData::SetMemRegisters()
     // this value.  The default is to set it to the top of the reserved area
     // but if we've had an interrupt we set it to the end of the stack.
     // InterruptCode may be called either when the thread is in the RTS or in ML code.
-    this->memRegisters.stackTop = this->stack->bottom + OVERFLOW_STACK_SIZE;
     if (this->pendingInterrupt) this->memRegisters.stackLimit = this->stack->top - 1;
     else this->memRegisters.stackLimit = this->stack->bottom + OVERFLOW_STACK_SIZE;
-//    this->memRegisters.handlerRegister = PSP_HR(this);
     this->memRegisters.requestCode = 0; // Clear these because only one will be set.
     this->memRegisters.returnReason = RETURN_IO_CALL;
 
@@ -1690,8 +1693,34 @@ void X86TaskData::SaveMemRegisters()
     if (st->p_nUnchecked != UNCHECKED_REGS)
         Crash("Stack overwritten\n");
     this->allocPointer = this->memRegisters.localMpointer - 1;
-//    PSP_HR(this) = this->memRegisters.handlerRegister;
     this->allocWords = 0;
+    // We need to restore all the registers if we are emulating an instruction or
+    // are handling a heap or stack overflow.  For the moment we just consider
+    // all cases apart from an RTS call.
+    this->memRegisters.fullRestore = this->memRegisters.returnReason != 0 ? 1 : 0;
+}
+
+// As a temporary test we clear all the registers here with the exception of
+// eax and edx.  In due course we will only clear them on a GC but this is a
+// check.
+void X86TaskData::ClearAllRegisters()
+{
+    stack->stack()->p_ebx = TAGGED(0);
+    stack->stack()->p_ecx = TAGGED(0);
+    stack->stack()->p_ecx = TAGGED(0);
+    stack->stack()->p_esi = TAGGED(0);
+    stack->stack()->p_edi = TAGGED(0);
+#ifdef HOSTARCHITECTURE_X86_64
+    stack->stack()->p_r8 = TAGGED(0);
+    stack->stack()->p_r9 = TAGGED(0);
+    stack->stack()->p_r10 = TAGGED(0);
+    stack->stack()->p_r11 = TAGGED(0);
+    stack->stack()->p_r12 = TAGGED(0);
+    stack->stack()->p_r13 = TAGGED(0);
+    stack->stack()->p_r14 = TAGGED(0);
+#endif
+    stack->stack()->p_fp.cw = 0x037f ; // Control word - Rounding wil be set on return 
+    stack->stack()->p_fp.tw = 0xffff; // Tag registers - all unused
 }
 
 // Called if we need the ML code to retry an RTS call.

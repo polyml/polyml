@@ -484,10 +484,10 @@ LocalMpointer       EQU     0
 IFNDEF HOSTARCHITECTURE_X86_64
 HandlerRegister     EQU     4
 LocalMbottom        EQU     8
-StackTop            EQU     16  ;# Upper limit of stack
 RequestCode         EQU     20  ;# Byte: Io function to call.
 InRTS               EQU     21  ;# Byte: Set when in the RTS
 ReturnReason        EQU     22  ;# Byte: Reason for returning from ML.
+FullRestore         EQU     23  ;# Byte: Full/partial restore
 PolyStack           EQU     24  ;# Current stack base
 SavedSp             EQU     28  ;# Saved stack pointer
 IOEntryPoint        EQU     48  ;# IO call
@@ -500,10 +500,10 @@ ELSE
 HandlerRegister     EQU     8
 LocalMbottom        EQU     16
 StackLimit          EQU     24  ;# Lower limit of stack
-StackTop            EQU     32  ;# Upper limit of stack
 RequestCode         EQU     40  ;# Byte: Io function to call.
 InRTS               EQU     41  ;# Byte: Set when in the RTS
-ReturnReason        EQU     42  ;# Byte: Reason for returning from ML. 
+ReturnReason        EQU     42  ;# Byte: Reason for returning from ML.
+FullRestore         EQU     43  ;# Byte: Full/partial restore
 PolyStack           EQU     48  ;# Current stack base
 SavedSp             EQU     56  ;# Saved stack pointer
 HeapOverflow        EQU     64  ;# Heap overflow code
@@ -522,9 +522,9 @@ ELSE
 IFNDEF HOSTARCHITECTURE_X86_64
 .set    HandlerRegister,4
 .set    LocalMbottom,8
-.set    StackTop,16
 .set    RequestCode,20
 .set    InRTS,21
+.set    FullRestore,23
 .set    PolyStack,24
 .set    SavedSp,28
 .set    IOEntryPoint,48
@@ -536,9 +536,9 @@ ELSE
 .set    HandlerRegister,8
 .set    LocalMbottom,16
 .set    StackLimit,24
-.set    StackTop,32
 .set    RequestCode,40
 .set    InRTS,41
+.set    FullRestore,43
 .set    PolyStack,48
 .set    SavedSp,56
 .set    HeapOverflow,64
@@ -795,6 +795,40 @@ IFDEF HOSTARCHITECTURE_X86_64
 ENDIF
     MOVL    SP_OFF[Reax],Resp               ;# Set the new stack ptr
     PUSHL   PC_OFF[Reax]                    ;# Push the code address
+IFDEF WINDOWS
+    test    byte ptr [Rebp+FullRestore],1   ;# Should we restore or clear the regs?
+ELSE
+    testb   CONST 1,FullRestore[Rebp]       ;# Should we restore or clear the regs?
+ENDIF
+    jnz     sw2polyfull
+;# We're returning from an RTS call.  We need to clear the registers we're
+;# not restoring so that they are valid if we GC.  We restore EDX and the
+;# argument regs because this may have been CallCode
+    MOVL    EBX_OFF[Reax],Rebx
+    MOVL    CONST ZERO,Recx
+    MOVL    EDX_OFF[Reax],Redx
+    MOVL    CONST ZERO,Resi
+    MOVL    CONST ZERO,Redi
+IFDEF HOSTARCHITECTURE_X86_64
+    MOVL    R8_OFF[Reax],R8
+    MOVL    R9_OFF[Reax],R9
+    MOVL    R10_OFF[Reax],R10
+    MOVL    CONST ZERO,R11
+    MOVL    CONST ZERO,R12
+    MOVL    CONST ZERO,R13
+    MOVL    CONST ZERO,R14
+ENDIF
+    MOVL    EAX_OFF[Reax],Reax
+    cld                                     ;# Clear this just in case
+
+IFDEF WINDOWS
+    mov     byte ptr [InRTS+Rebp],0
+ELSE
+    MOVB    CONST 0,InRTS[Rebp]             ;# inRTS:=0 (stack now kosher)
+ENDIF
+    ret                                     ;# Jump to code address
+
+sw2polyfull:
     PUSHL   FLAGS_OFF[Reax]                 ;# Push the flags
     FRSTOR  FPREGS_OFF[Reax]
     MOVL    EBX_OFF[Reax],Rebx              ;# Load the registers
