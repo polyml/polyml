@@ -842,6 +842,7 @@ Handle pollTest(TaskData *taskData, Handle stream)
    and a time to wait and returns a vector of results. */
 static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 {
+    TryAgain:
     PolyObject  *strmVec = DEREFHANDLE(args)->Get(0).AsObjPtr();
     PolyObject  *bitVec =  DEREFHANDLE(args)->Get(1).AsObjPtr();
     POLYUNSIGNED nDesc = strmVec->Length();
@@ -936,7 +937,8 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* else drop through and block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_io_dispatch);
+                processes->ThreadPause(taskData);
+                goto TryAgain;
                 /*NOTREACHED*/
             case 2: /* Just a simple poll - drop through. */
                 break;
@@ -994,8 +996,8 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* else block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_io_dispatch);
-                /*NOTREACHED*/
+                processes->ThreadPause(taskData);
+                goto TryAgain;
             case 2: /* Just a simple poll - drop through. */
                 break;
             }
@@ -1065,8 +1067,8 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* else block. */
                 }
             case 1: /* Block until one of the descriptors is ready. */
-                processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_io_dispatch);
-                /*NOTREACHED*/
+                processes->ThreadPause(taskData);
+                goto TryAgain;
             case 2: /* Just a simple poll - drop through. */
                 break;
             }

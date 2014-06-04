@@ -807,7 +807,8 @@ TryAgain:
                            suspend this process and try again later. */
                         if (c == 46 /* blocking version. */) {
                             WaitNet waiter(strm->device.sock);
-                            processes->BlockAndRestart(taskData, &waiter, false, POLY_SYS_network);
+                            processes->ThreadPauseForIO(taskData, &waiter);
+                            goto TryAgain;
                         }
                         /* else drop through. */
                     default:
@@ -877,12 +878,8 @@ TryAgain:
                             raise_syscall(taskData, "select failed", err);
                         /* else continue */
                     }
-                    else if (sel == 0)
-                    {
-                        /* Nothing yet */
-                        processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
-                            /* -1 => not for reading. */
-                    }
+                    else if (sel == 0) /* Nothing yet */
+                        processes->ThreadPause(taskData);
                     else /* Definite result. */
                     {
                         int result = 0;
@@ -905,8 +902,7 @@ TryAgain:
                     if ((err == EWOULDBLOCK || err == EINPROGRESS) && c == 48 /*blocking version*/)
                     {
                         strm->ioBits |= IO_BIT_INPROGRESS;
-                        processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
-                            /* -1 => not for reading. */
+                        processes->ThreadPause(taskData);
                     }
                     else if (err != EINTR)
                         raise_syscall(taskData, "connect failed", err);
@@ -978,11 +974,7 @@ TryAgain:
                     return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 51 /* blocking */)
-                {
-                    processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
-                        /* -1 => not for reading */
-                    ASSERT(0); /* Must not have returned. */
-                }
+                    processes->ThreadPause(taskData);
                 else if (err != EINTR)
                     raise_syscall(taskData, "send failed", err);
                 /* else try again */
@@ -1028,10 +1020,7 @@ TryAgain:
                     return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 52 /* blocking */)
-                {
-                    processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
-                    ASSERT(0); /* Must not have returned. */
-                }
+                    processes->ThreadPause(taskData);
                 else if (err != EINTR)
                     raise_syscall(taskData, "sendto failed", err);
                 /* else try again */
@@ -1068,8 +1057,7 @@ TryAgain:
                 {
                     /* Block until something arrives. */
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
-                    processes->BlockAndRestart(taskData, &waiter, false, POLY_SYS_network);
-                    ASSERT(0); /* Must not have returned. */
+                    processes->ThreadPauseForIO(taskData, &waiter);
                 }
                 else if (err != EINTR)
                     raise_syscall(taskData, "recv failed", err);
@@ -1117,8 +1105,7 @@ TryAgain:
                 if (err == EWOULDBLOCK && c == 54 /* blocking */)
                 {
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
-                    processes->BlockAndRestart(taskData, &waiter, false, POLY_SYS_network);
-                    ASSERT(0); /* Must not have returned. */
+                    processes->ThreadPauseForIO(taskData, &waiter);
                 }
                 else if (err != EINTR)
                     raise_syscall(taskData, "recvfrom failed", err);
@@ -1460,6 +1447,7 @@ static Handle getSelectResult(TaskData *taskData, Handle args, int offset, fd_se
    minus one.  */
 static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 {
+    TryAgain:
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
     fd_set readers, writers, excepts;
@@ -1535,8 +1523,8 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
 #endif
         }
         case 1: /* Block until one of the descriptors is ready. */
-            processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_network);
-            /*NOTREACHED*/
+            processes->ThreadPause(taskData);
+            goto TryAgain;
         case 2: /* Just a simple poll - drop through. */
             break;
         }

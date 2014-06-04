@@ -237,7 +237,6 @@ public:
 
     virtual void GCStack(ScanAddress *process);
     virtual Handle EnterPolyCode(); // Start running ML
-    virtual void SetForRetry(int ioCall);
     virtual void InterruptCode();
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
@@ -1721,15 +1720,6 @@ void X86TaskData::ClearAllRegisters()
 #endif
     stack->stack()->p_fp.cw = 0x037f ; // Control word - Rounding wil be set on return 
     stack->stack()->p_fp.tw = 0xffff; // Tag registers - all unused
-}
-
-// Called if we need the ML code to retry an RTS call.
-void X86TaskData::SetForRetry(int ioCall)
-{
-    /* We now have to set the closure entry for the RTS call to work.
-       DCJM 4/1/01. */
-    PSP_EDX(this) = (PolyObject*)IoEntry(ioCall);
-    PSP_IC(this) = PC_RETRY_SPECIAL; // This value is treated specially in SetMemRegisters
 }
 
 PolyWord *X86TaskData::get_reg(int n)

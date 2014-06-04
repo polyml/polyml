@@ -382,6 +382,8 @@ static void restoreSignals(void)
 
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
+    unsigned lastSigCount = receivedSignalCount; // Have we received a signal?
+    TryAgain:
     int c = get_C_long(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
@@ -581,7 +583,10 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             /* This never returns.  When a signal is handled it will
                be interrupted. */
-            processes->BlockAndRestart(taskData, NULL, true /* Interruptable. */, POLY_SYS_os_specific);
+            processes->ThreadPause(taskData);
+            if (lastSigCount != receivedSignalCount)
+                raise_syscall(taskData, "Call interrupted by signal", EINTR);
+            goto TryAgain;
         }
 
     case 22: /* Sleep until given time or until a signal.  Note: this is called
@@ -604,7 +609,12 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
                by a signal. */
             if ((unsigned long)tv.tv_sec < secs ||
                 ((unsigned long)tv.tv_sec == secs && (unsigned long)tv.tv_usec < usecs))
-                processes->BlockAndRestart(taskData, NULL, true /* Interruptable. */, POLY_SYS_os_specific);
+            {
+                processes->ThreadPause(taskData);
+                if (lastSigCount != receivedSignalCount)
+                    raise_syscall(taskData, "Call interrupted by signal", EINTR);
+                goto TryAgain;
+            }
             else processes->TestAnyEvents(taskData); // Check for interrupts anyway
 
             return Make_arbitrary_precision(taskData, 0);
@@ -1269,7 +1279,10 @@ TryAgain:
        wasn't a child process waiting we have to block
        and come back here later. */
     if (pres == 0 && !(callFlags & WNOHANG))
-        processes->BlockAndRestart(taskData, NULL, false, POLY_SYS_os_specific);
+    {
+        processes->ThreadPause(taskData);
+        goto TryAgain;
+    }
 
     /* Construct the result tuple. */
     {

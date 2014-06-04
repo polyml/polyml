@@ -119,7 +119,6 @@ public:
 
     // Switch to Poly and return with the io function to call.
     int SwitchToPoly();
-    virtual void SetForRetry(int ioCall) {} // Nothing to do
     virtual void SetException(poly_exn *exc);
     virtual void InterruptCode();
 

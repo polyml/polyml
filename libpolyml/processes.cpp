@@ -155,7 +155,6 @@ public:
     // Called when a thread has completed - doesn't return.
     virtual NORETURNFN(void ThreadExit(TaskData *taskData));
 
-    void BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInterruptable, int ioCall);
     // Called when a thread may block.  Returns some time later when perhaps
     // the input is available.
     virtual void ThreadPauseForIO(TaskData *taskData, Waiter *pWait);
@@ -916,28 +915,6 @@ void Processes::ThreadPauseForIO(TaskData *taskData, Waiter *pWait)
     globalStats.decCount(PSC_THREADS_WAIT_IO);
     ThreadUseMLMemory(taskData);
     TestAnyEvents(taskData); // Check if we've been interrupted.
-}
-
-// This is largely a legacy of the old single-thread version.  In that version there
-// was only a single C thread managing multiple ML threads (processes) so if an ML
-// thread blocked it was necessary to switch the thread and then for the C function
-// call to raise an exception to get back to ML.  
-// TODO: There's actually a race here if we have posixInterruptible set.  We
-// repeatedly come back here and if a signal happens while we're in
-// ThreadPauseForIO we will raise the exception.  If the signal happens at
-// another point we won't.
-void Processes::BlockAndRestart(TaskData *taskData, Waiter *pWait, bool posixInterruptable, int ioCall)
-{
-    if (pWait == NULL) pWait = Waiter::defaultWaiter;
-    taskData->SetForRetry(ioCall);
-    unsigned lastSigCount = receivedSignalCount;
-    ThreadPauseForIO(taskData, pWait);
-    // If this is an interruptible Posix function we raise an exception if
-    // there has been a signal.
-    if (posixInterruptable && lastSigCount != receivedSignalCount)
-        raise_syscall(taskData, "Call interrupted by signal", EINTR);
-    throw IOException();
-    /* NOTREACHED */
 }
 
 // Default waiter: simply wait for the time.  In the case of Windows it

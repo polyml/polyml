@@ -106,7 +106,6 @@ public:
 
     virtual Handle EnterPolyCode() = 0; // Start running ML
 
-    virtual void SetForRetry(int ioCall) = 0;
     virtual void InterruptCode() = 0;
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp,  POLYCODEPTR &pc) = 0;
     // Initialise the stack for a new thread.  The parent task object is passed in because any
@@ -295,9 +294,7 @@ public:
     virtual void BroadcastInterrupt(void) = 0;
 
     virtual void BeginRootThread(PolyObject *rootFunction) = 0;
-    // Called when a thread may block.  Never returns.  May cause a retry.
-    virtual NORETURNFN(void BlockAndRestart(TaskData *taskData, Waiter *pWait,
-                    bool posixInterruptable, int ioCall)) = 0;
+
     // Called when a thread may block.  Returns some time later when perhaps
     // the input is available.
     virtual void ThreadPauseForIO(TaskData *taskData, Waiter *pWait) = 0;
