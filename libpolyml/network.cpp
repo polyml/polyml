@@ -355,30 +355,53 @@ static int GetError()
 #define MAPERROR(x) (x)
 #endif
 
-class WaitNet: public Waiter {
+
+// Wait until "select" returns.  In Windows this is used only for networking.
+class WaitSelect: public Waiter
+{
 public:
-    WaitNet(SOCKET sock, bool isOOB = false) : m_sock(sock), m_isOOB(isOOB) {}
-    void Wait(unsigned maxMillisecs);
+    WaitSelect();
+    virtual void Wait(unsigned maxMillisecs);
+    void SetRead(int fd) {  FD_SET(fd, &readSet); }
+    void SetWrite(int fd) {  FD_SET(fd, &writeSet); }
+    void SetExcept(int fd)  {  FD_SET(fd, &exceptSet); }
+    // Save the result of the select call and any associated error
+    int SelectResult(void) { return selectResult; }
+    int SelectError(void) { return errorResult; }
 private:
-    SOCKET m_sock;
-    bool m_isOOB;
+    fd_set readSet, writeSet, exceptSet;
+    int selectResult;
+    int errorResult;
+};
+
+WaitSelect::WaitSelect()
+{
+    FD_ZERO(&readSet);
+    FD_ZERO(&writeSet);
+    FD_ZERO(&exceptSet);
+    selectResult = 0;
+    errorResult = 0;
+}
+
+void WaitSelect::Wait(unsigned maxMillisecs)
+{
+    struct timeval toWait = { 0, 0 };
+    toWait.tv_sec = maxMillisecs / 1000;
+    toWait.tv_usec = (maxMillisecs % 1000) * 1000;
+    selectResult = select(FD_SETSIZE, &readSet, &writeSet, &exceptSet, &toWait);
+    if (selectResult < 0) errorResult = GETERROR;
+}
+
+class WaitNet: public WaitSelect {
+public:
+    WaitNet(SOCKET sock, bool isOOB = false);
 };
 
 // Use "select" in both Windows and Unix.  In Windows that means we
 // don't watch hWakeupEvent but that's only a hint.
-void WaitNet::Wait(unsigned maxMillisecs)
+WaitNet::WaitNet(SOCKET sock, bool isOOB)
 {
-    fd_set readFds, writeFds, exceptFds;
-    struct timeval toWait = { 0, 0 };
-    // Mac OS X requires the usec field to be less than a million
-    toWait.tv_sec = maxMillisecs / 1000;
-    toWait.tv_usec = (maxMillisecs % 1000) * 1000;
-    FD_ZERO(&readFds);
-    FD_ZERO(&writeFds);
-    FD_ZERO(&exceptFds);
-    FD_SET(m_sock, m_isOOB ? &exceptFds : &readFds);
-    int result = select(FD_SETSIZE, &readFds, &writeFds, &exceptFds, &toWait);
-    ASSERT(result >= 0 || errno == EINTR); // The only "error" should be an interrupt.
+    if (isOOB) SetExcept(sock); else SetRead(sock);
 }
 
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
@@ -848,65 +871,49 @@ TryAgain:
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             struct sockaddr *psock = (struct sockaddr *)&psAddr->chars;
-            int res;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             /* In Windows, and possibly also in Unix, if we have
                received a previous EWOULDBLOCK we have to use "select"
                to tell us whether the connection actually succeeded. */
             while (1)
             {
-                if (strm->ioBits & IO_BIT_INPROGRESS)
+                int res = connect(strm->device.sock, psock, (int)psAddr->length);
+                if (res == 0) return Make_arbitrary_precision(taskData, 0); /* OK */
+                /* It isn't clear that EINTR can ever occur with
+                    connect, but just to be safe, we retry. */
+                int err = GETERROR;
+                if ((err == EWOULDBLOCK || err == EINPROGRESS) && c == 48 /*blocking version*/)
+                    break; // It's in progress and we need to wait for completion
+                else if (err != EINTR)
+                    raise_syscall(taskData, "connect failed", err);
+                /* else try again. */
+            }
+
+            while (1)
+            {
+                SOCKET sock = strm->device.sock;
+                /* In Windows failure is indicated by the bit being set in
+                    the exception set rather than the write set. */
+                WaitSelect waiter;
+                waiter.SetWrite(sock);
+                waiter.SetExcept(sock);
+                processes->ThreadPauseForIO(taskData, &waiter);
+
+                if (waiter.SelectResult() < 0)
                 {
-                    fd_set read_fds, write_fds, except_fds;
-                    struct timeval delay;
-                    int sel;
-                    SOCKET sock = strm->device.sock;
-                    FD_ZERO(&read_fds);
-                    FD_ZERO(&write_fds);
-                    FD_ZERO(&except_fds);
-                    FD_SET(sock, &write_fds);
-                    FD_SET(sock, &except_fds);
-                    delay.tv_sec  = 0; /* Poll. */
-                    delay.tv_usec = 0;
-                    /* In Windows failure is indicated by the bit being set in
-                       the exception set rather than the write set. */
-                    sel = select(FD_SETSIZE,&read_fds,&write_fds,&except_fds,&delay);
-                    if (sel < 0)
-                    {
-                        int err = GETERROR;
-                        if (err != EINTR)
-                            raise_syscall(taskData, "select failed", err);
-                        /* else continue */
-                    }
-                    else if (sel == 0) /* Nothing yet */
-                        processes->ThreadPause(taskData);
-                    else /* Definite result. */
-                    {
-                        int result = 0;
-                        socklen_t len = sizeof(result);
-                        strm->ioBits &= ~IO_BIT_INPROGRESS; /* No longer in progress. */
-                        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&result, &len) != 0
-                            || result != 0)
-                            raise_syscall(taskData, "connect failed", MAPERROR(result));
-                        return Make_arbitrary_precision(taskData, 0); /* Success. */
-                    }
+                    int err = waiter.SelectError();
+                    if (err != EINTR)
+                        raise_syscall(taskData, "select failed", err);
+                    /* else continue */
                 }
-                else
+                else if (waiter.SelectResult() != 0) /* Definite result. */
                 {
-                    int err;
-                    res = connect(strm->device.sock, psock, (int)psAddr->length);
-                    if (res == 0) return Make_arbitrary_precision(taskData, 0); /* OK */
-                    /* It isn't clear that EINTR can ever occur with
-                       connect, but just to be safe, we retry. */
-                    err = GETERROR;
-                    if ((err == EWOULDBLOCK || err == EINPROGRESS) && c == 48 /*blocking version*/)
-                    {
-                        strm->ioBits |= IO_BIT_INPROGRESS;
-                        processes->ThreadPause(taskData);
-                    }
-                    else if (err != EINTR)
-                        raise_syscall(taskData, "connect failed", err);
-                    /* else try again. */
+                    int result = 0;
+                    socklen_t len = sizeof(result);
+                    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&result, &len) != 0
+                        || result != 0)
+                        raise_syscall(taskData, "connect failed", MAPERROR(result));
+                    return Make_arbitrary_precision(taskData, 0); /* Success. */
                 }
             }
         }

@@ -30,7 +30,6 @@
 #define IO_BIT_WRITE        4
 #define IO_BIT_DIR          8 /* Is it a directory entry? */
 #define IO_BIT_SOCKET       16 /* Is it a socket? */
-#define IO_BIT_INPROGRESS   64 /* "connect" in progress on socket. */
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 
