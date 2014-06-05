@@ -638,8 +638,27 @@ POLY_SYS_int_leq             EQU 232
 POLY_SYS_int_gtr             EQU 233
 POLY_SYS_int_lss             EQU 234
 
+
+RETURN_HEAP_OVERFLOW        EQU 1
+RETURN_STACK_OVERFLOW       EQU 2
+RETURN_STACK_OVERFLOWEX     EQU 3
+RETURN_RAISE_DIV            EQU 4
+RETURN_ARB_EMULATION        EQU 5
+RETURN_CALLBACK_RETURN      EQU 6
+RETURN_CALLBACK_EXCEPTION   EQU 7
+
 ELSE
 #include "sys.h"
+
+#define RETURN_HEAP_OVERFLOW        1
+#define RETURN_STACK_OVERFLOW       2
+#define RETURN_STACK_OVERFLOWEX     3
+#define RETURN_RAISE_DIV            4
+#define RETURN_ARB_EMULATION        5
+#define RETURN_CALLBACK_RETURN      6
+#define RETURN_CALLBACK_EXCEPTION   7
+
+
 ENDIF
 
 ;#
@@ -746,14 +765,23 @@ IFDEF WINDOWS
 
 CALL_IO    MACRO   index
         mov     byte ptr [RequestCode+Rebp],index
-        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ENDM
+
+CALL_EXTRA  MACRO   index
+    mov     byte ptr [ReturnReason+Rebp],index
+    jmp     X86AsmSaveStateAndReturn
+    ENDM
 
 ELSE
 
 #define CALL_IO(index) \
         MOVB  $index,RequestCode[Rebp]; \
-        jmp   *IOEntryPoint[Rebp];
+        jmp   X86AsmSaveStateAndReturn;
+
+#define CALL_EXTRA(index) \
+        MOVB  $index,ReturnReason[Rebp]; \
+        jmp   X86AsmSaveStateAndReturn;
 ENDIF
 
 ;# Load the registers from the ML stack and jump to the code.
@@ -2490,36 +2518,57 @@ CALLMACRO INLINE_ROUTINE X86AsmGetFPControlWord
     POPL    Reax
     RET
 
-;# Return the value at the top of the stack.  Used in various routines that
-;# "call" in order to return the address of the next instruction.
-ReturnFromStack:
-    POPL    Reax
-    RET
-
-;# This code returns the address of a piece of template code. The actual code is
-;# copied into a newly allocated piece of memory which is set up to
-;# look like an ML function.
+;# This template code is copied into a newly allocated piece of memory which
+;# is set up to look like an ML function.
 ;# The code itself is called if a function set up with exception_trace
 ;# returns normally.  It removes the handler.
-CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceCode
-    CALL    ReturnFromStack                 ;# Not a real call
-
+CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceTemplate
     ADDL    CONST POLYWORDSIZE,Resp       ;# Remove handler
     POPL    HandlerRegister[Rebp]
     RET
     NOP                         ;# Add an extra byte so we have 8 bytes on both X86 and X86_64
 
-;# This also returns the address of some template code.  It is called
-;# if the function set up by traceException raises an exception.
+;# This is template code and must be position independent.
 ;# The length of this code (9 bytes) is built into X86Dependent::BuildExceptionTrace.
-CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnCode
-    CALL    ReturnFromStack                 ;# Not a real call
-
+CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnTemplate
     NOP                                 ;# Two NOPs - for alignment
     NOP
     ;# The exception packet is the first argument.
-CALLMACRO   CALL_IO     POLY_SYS_give_ex_trace_fn
+IFDEF WINDOWS
+        mov     byte ptr [RequestCode+Rebp],POLY_SYS_give_ex_trace_fn
+        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+ELSE
+        MOVB    CONST POLY_SYS_give_ex_trace_fn,RequestCode[Rebp]
+        jmp     *IOEntryPoint[Rebp]
+ENDIF
 
+;# This is template code for an RTS call to kill the current thread. 
+CALLMACRO INLINE_ROUTINE X86AsmKillSelfTemplate
+IFDEF WINDOWS
+        mov     byte ptr [RequestCode+Rebp],POLY_SYS_kill_self
+        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+ELSE
+        MOVB    CONST POLY_SYS_kill_self,RequestCode[Rebp]
+        jmp     *IOEntryPoint[Rebp]
+ENDIF
+
+CALLMACRO INLINE_ROUTINE X86AsmCallbackReturnTemplate
+IFDEF WINDOWS
+        mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_RETURN
+        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+ELSE
+        MOVB    CONST RETURN_CALLBACK_RETURN,ReturnReason[Rebp]
+        jmp     *IOEntryPoint[Rebp]
+ENDIF
+
+CALLMACRO INLINE_ROUTINE X86AsmCallbackExceptionTemplate
+IFDEF WINDOWS
+        mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_EXCEPTION
+        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+ELSE
+        MOVB    CONST RETURN_CALLBACK_EXCEPTION,ReturnReason[Rebp]
+        jmp     *IOEntryPoint[Rebp]
+ENDIF
 
 ;# This implements atomic addition in the same way as atomic_increment
 CALLMACRO INLINE_ROUTINE X86AsmAtomicIncrement
@@ -2845,17 +2894,13 @@ shift_right_arith_longword1:
 CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR Mask_all)
 
 
-IFDEF WINDOWS
-;# Visual C does not support assembly code on X86-64 so we use this for X86-32 as well.
 CREATE_IO_CALL  MACRO index
     INLINE_ROUTINE    X86AsmCall&index&
-    CALL    ReturnFromStack                 ;# Not a real call
     CALL_IO index
     ENDM
 
 CREATE_EXTRA_CALL MACRO index
     INLINE_ROUTINE  X86AsmCallExtra&index&
-    CALL    ReturnFromStack
     mov     byte ptr [ReturnReason+Rebp],index
     jmp     FULLWORD ptr [IOEntryPoint+Rebp]
     ENDM
@@ -2897,23 +2942,11 @@ CREATE_EXTRA_CALL MACRO index
     CREATE_IO_CALL  POLY_SYS_arctan_real
     CREATE_IO_CALL  POLY_SYS_cos_real
 
-RETURN_HEAP_OVERFLOW        EQU 1
-RETURN_STACK_OVERFLOW       EQU 2
-RETURN_STACK_OVERFLOWEX     EQU 3
-RETURN_RAISE_DIV            EQU 4
-RETURN_ARB_EMULATION        EQU 5
-RETURN_CALLBACK_RETURN      EQU 6
-RETURN_CALLBACK_EXCEPTION   EQU 7
-
     CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
     CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
     CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
     CREATE_EXTRA_CALL RETURN_RAISE_DIV
     CREATE_EXTRA_CALL RETURN_ARB_EMULATION
-    CREATE_EXTRA_CALL RETURN_CALLBACK_RETURN
-    CREATE_EXTRA_CALL RETURN_CALLBACK_EXCEPTION
-
-ENDIF
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified

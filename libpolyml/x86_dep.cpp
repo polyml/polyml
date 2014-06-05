@@ -4,7 +4,7 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-12
+    Further work copyright David C. J. Matthews 2011-14
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -368,60 +368,61 @@ extern "C" {
     void X86AsmSaveStateAndReturn(void);
 
     unsigned X86AsmGetFPControlWord(void);
-    byte *X86AsmRestoreHandlerAfterExceptionTraceCode(void);
-    byte *X86AsmGiveExceptionTraceFnCode(void);
+    extern int X86AsmRestoreHandlerAfterExceptionTraceTemplate(void);
+    extern int X86AsmGiveExceptionTraceFnTemplate(void);
+    extern int X86AsmKillSelfTemplate(void);
+    extern int X86AsmCallbackReturnTemplate(void);
+    extern int X86AsmCallbackExceptionTemplate(void);
+
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
 
-#ifdef _MSC_VER
-    byte *X86AsmCallPOLY_SYS_exit(void);
-    byte *X86AsmCallPOLY_SYS_chdir(void);
-    byte *X86AsmCallPOLY_SYS_get_flags(void);
-    byte *X86AsmCallPOLY_SYS_exception_trace(void);
-    byte *X86AsmCallPOLY_SYS_exception_trace_fn(void);
-    byte *X86AsmCallPOLY_SYS_profiler(void);
-    byte *X86AsmCallPOLY_SYS_Real_str(void);
-    byte *X86AsmCallPOLY_SYS_Real_Dispatch(void);
-    byte *X86AsmCallPOLY_SYS_Repr_real(void);
-    byte *X86AsmCallPOLY_SYS_conv_real(void);
-    byte *X86AsmCallPOLY_SYS_real_to_int(void);
-    byte *X86AsmCallPOLY_SYS_sqrt_real(void);
-    byte *X86AsmCallPOLY_SYS_sin_real(void);
-    byte *X86AsmCallPOLY_SYS_cos_real(void);
-    byte *X86AsmCallPOLY_SYS_arctan_real(void);
-    byte *X86AsmCallPOLY_SYS_exp_real(void);
-    byte *X86AsmCallPOLY_SYS_ln_real(void);
-    byte *X86AsmCallPOLY_SYS_io_operation(void);
-    byte *X86AsmCallPOLY_SYS_thread_dispatch(void);
-    byte *X86AsmCallPOLY_SYS_kill_self(void);
-    byte *X86AsmCallPOLY_SYS_objsize(void);
-    byte *X86AsmCallPOLY_SYS_showsize(void);
-    byte *X86AsmCallPOLY_SYS_timing_dispatch(void);
-    byte *X86AsmCallPOLY_SYS_XWindows(void);
-    byte *X86AsmCallPOLY_SYS_full_gc(void);
-    byte *X86AsmCallPOLY_SYS_stack_trace(void);
-    byte *X86AsmCallPOLY_SYS_foreign_dispatch(void);
-    byte *X86AsmCallPOLY_SYS_callcode_tupled(void);
-    byte *X86AsmCallPOLY_SYS_process_env(void);
-    byte *X86AsmCallPOLY_SYS_shrink_stack(void);
-    byte *X86AsmCallPOLY_SYS_code_flags(void);
-    byte *X86AsmCallPOLY_SYS_set_code_constant(void);
-    byte *X86AsmCallPOLY_SYS_poly_specific(void);
-    byte *X86AsmCallPOLY_SYS_io_dispatch(void);
-    byte *X86AsmCallPOLY_SYS_network(void);
-    byte *X86AsmCallPOLY_SYS_os_specific(void);
-    byte *X86AsmCallPOLY_SYS_signal_handler(void);
-    byte *X86AsmCallPOLY_SYS_kill_self(void);
+    extern int X86AsmCallPOLY_SYS_exit(void);
+    extern int X86AsmCallPOLY_SYS_chdir(void);
+    extern int X86AsmCallPOLY_SYS_get_flags(void);
+    extern int X86AsmCallPOLY_SYS_exception_trace(void);
+    extern int X86AsmCallPOLY_SYS_exception_trace_fn(void);
+    extern int X86AsmCallPOLY_SYS_profiler(void);
+    extern int X86AsmCallPOLY_SYS_Real_str(void);
+    extern int X86AsmCallPOLY_SYS_Real_Dispatch(void);
+    extern int X86AsmCallPOLY_SYS_Repr_real(void);
+    extern int X86AsmCallPOLY_SYS_conv_real(void);
+    extern int X86AsmCallPOLY_SYS_real_to_int(void);
+    extern int X86AsmCallPOLY_SYS_sqrt_real(void);
+    extern int X86AsmCallPOLY_SYS_sin_real(void);
+    extern int X86AsmCallPOLY_SYS_cos_real(void);
+    extern int X86AsmCallPOLY_SYS_arctan_real(void);
+    extern int X86AsmCallPOLY_SYS_exp_real(void);
+    extern int X86AsmCallPOLY_SYS_ln_real(void);
+    extern int X86AsmCallPOLY_SYS_io_operation(void);
+    extern int X86AsmCallPOLY_SYS_thread_dispatch(void);
+    extern int X86AsmCallPOLY_SYS_kill_self(void);
+    extern int X86AsmCallPOLY_SYS_objsize(void);
+    extern int X86AsmCallPOLY_SYS_showsize(void);
+    extern int X86AsmCallPOLY_SYS_timing_dispatch(void);
+    extern int X86AsmCallPOLY_SYS_XWindows(void);
+    extern int X86AsmCallPOLY_SYS_full_gc(void);
+    extern int X86AsmCallPOLY_SYS_stack_trace(void);
+    extern int X86AsmCallPOLY_SYS_foreign_dispatch(void);
+    extern int X86AsmCallPOLY_SYS_callcode_tupled(void);
+    extern int X86AsmCallPOLY_SYS_process_env(void);
+    extern int X86AsmCallPOLY_SYS_shrink_stack(void);
+    extern int X86AsmCallPOLY_SYS_code_flags(void);
+    extern int X86AsmCallPOLY_SYS_set_code_constant(void);
+    extern int X86AsmCallPOLY_SYS_poly_specific(void);
+    extern int X86AsmCallPOLY_SYS_io_dispatch(void);
+    extern int X86AsmCallPOLY_SYS_network(void);
+    extern int X86AsmCallPOLY_SYS_os_specific(void);
+    extern int X86AsmCallPOLY_SYS_signal_handler(void);
+    extern int X86AsmCallPOLY_SYS_kill_self(void);
 
-    byte *X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
-    byte *X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
-    byte *X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
-    byte *X86AsmCallExtraRETURN_RAISE_DIV(void);
-    byte *X86AsmCallExtraRETURN_ARB_EMULATION(void);
-    byte *X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
-    byte *X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
-
-#endif
+    extern int X86AsmCallExtraRETURN_HEAP_OVERFLOW(void);
+    extern int X86AsmCallExtraRETURN_STACK_OVERFLOW(void);
+    extern int X86AsmCallExtraRETURN_STACK_OVERFLOWEX(void);
+    extern int X86AsmCallExtraRETURN_RAISE_DIV(void);
+    extern int X86AsmCallExtraRETURN_ARB_EMULATION(void);
+    extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
+    extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
 
     // These are declared in the assembly code.  They provide hand coded versions
     // of simple functions.  Some cases, such as adding words, are actually handled by
@@ -1495,7 +1496,7 @@ void X86TaskData::SetExceptionTrace()
     // Is that still true or only for the old exception mechanism?
     *(--PSP_SP(this)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
     PSP_HR(this) = PSP_SP(this);
-    byte *codeAddr = X86AsmRestoreHandlerAfterExceptionTraceCode();
+    byte *codeAddr = (byte*)&X86AsmRestoreHandlerAfterExceptionTraceTemplate;
     Handle retCode = BuildCodeSegment(codeAddr, 8 /* Code is 8 bytes */, 'R');
     *(--PSP_SP(this)) = retCode->WordP(); // Code for normal return.
     PSP_EAX(this) = TAGGED(0); // Set the argument of the function to "unit".
@@ -2315,64 +2316,6 @@ void X86TaskData::ArbitraryPrecisionTrap()
 // It's 7 bytes on both x86 and X86_64.
 #define MAKE_CALL_SEQUENCE_BYTES     7
 
-#ifdef _MSC_VER
-// Windows.  VC does not support inline assembly on X86-64 so we put these in the assembly code.
-#define MAKE_IO_CALL_SEQUENCE(ioNum, result) result = X86AsmCall##ioNum##()
-#define MAKE_EXTRA_CALL_SEQUENCE(exNum, result) result = X86AsmCallExtra##exNum##()
-
-#else
-
-#ifndef HOSTARCHITECTURE_X86_64
-
-#define MAKE_IO_CALL_SEQUENCE(ioNum, result) \
-{ \
-    __asm__ __volatile__ ( "call 1f; " \
-          "movb  %1,20(%%ebp); " \
-          "jmp  *48(%%ebp); " \
-           "1: popl %0" \
-           :"=r"(result) \
-           :"i"(ioNum) \
-           ); \
-}
-
-#define MAKE_EXTRA_CALL_SEQUENCE(exNum, result) \
-{ \
-    __asm__ __volatile__ ( "call 1f; " \
-          "movb  %1,22(%%ebp); " \
-          "jmp  *48(%%ebp); " \
-           "1: popl %0" \
-           :"=r"(result) \
-           :"i"(exNum) \
-           ); \
-}
-
-#else /* HOSTARCHITECTURE_X86_64 */
-
-#define MAKE_IO_CALL_SEQUENCE(ioNum, result) \
-{ \
-    __asm__ __volatile__ ( "call 1f; " \
-          "movb  %1,40(%%rbp); " \
-          "jmp  *96(%%rbp); " \
-           "1: popq %0" \
-           :"=r"(result) \
-           :"i"(ioNum) \
-           ); \
-}
-
-#define MAKE_EXTRA_CALL_SEQUENCE(exNum, result) \
-{ \
-    __asm__ __volatile__ ( "call 1f; " \
-          "movb  %1,42(%%rbp); " \
-          "jmp  *96(%%rbp); " \
-           "1: popq %0" \
-           :"=r"(result) \
-           :"i"(exNum) \
-           ); \
-}
-#endif /* HOSTARCHITECTURE_X86_64 */
-
-#endif
-
 static void add_function_to_io_area(int x, int (*y)())
 {
     add_word_to_io_area(x, PolyWord::FromUnsigned((POLYUNSIGNED)y));
@@ -2385,35 +2328,20 @@ static void add_function_to_io_area(int x, int (*y)())
 /******************************************************************************/
 void X86Dependent::InitInterfaceVector(void)
 {
-    unsigned char *codeAddr;
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_exit, codeAddr);
-    add_word_to_io_area(POLY_SYS_exit, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_exit, &X86AsmCallPOLY_SYS_exit);
     add_function_to_io_area(POLY_SYS_alloc_store, &alloc_store);
     add_function_to_io_area(POLY_SYS_alloc_uninit, &alloc_uninit);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_chdir, codeAddr);
-    add_word_to_io_area(POLY_SYS_chdir, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_chdir, &X86AsmCallPOLY_SYS_chdir);
     add_function_to_io_area(POLY_SYS_get_length, &get_length_a);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_get_flags, codeAddr);
-    add_word_to_io_area(POLY_SYS_get_flags, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_get_flags, &X86AsmCallPOLY_SYS_get_flags);
     add_function_to_io_area(POLY_SYS_str_compare, str_compare);
     add_function_to_io_area(POLY_SYS_teststrgtr, &teststrgtr);
     add_function_to_io_area(POLY_SYS_teststrlss, &teststrlss);
     add_function_to_io_area(POLY_SYS_teststrgeq, &teststrgeq);
     add_function_to_io_area(POLY_SYS_teststrleq, &teststrleq);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_exception_trace_fn, codeAddr);
-    add_word_to_io_area(POLY_SYS_exception_trace_fn, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_exception_trace_fn,  &X86AsmCallPOLY_SYS_exception_trace_fn);
     add_function_to_io_area(POLY_SYS_lockseg, &locksega);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_profiler, codeAddr);
-    add_word_to_io_area(POLY_SYS_profiler, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_profiler,  &X86AsmCallPOLY_SYS_profiler);
     add_function_to_io_area(POLY_SYS_quotrem, &quotrem_long);
     add_function_to_io_area(POLY_SYS_is_short, &is_shorta);
     add_function_to_io_area(POLY_SYS_aplus, &add_long);
@@ -2426,61 +2354,37 @@ void X86Dependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_ora, &or_long);
     add_function_to_io_area(POLY_SYS_anda, &and_long);
     add_function_to_io_area(POLY_SYS_xora, &xor_long);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_str, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_str, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_Real_str, &X86AsmCallPOLY_SYS_Real_str);
     add_function_to_io_area(POLY_SYS_Real_geq, real_geq);
     add_function_to_io_area(POLY_SYS_Real_leq, real_leq);
     add_function_to_io_area(POLY_SYS_Real_gtr, real_gtr);
     add_function_to_io_area(POLY_SYS_Real_lss, real_lss);
     add_function_to_io_area(POLY_SYS_Real_eq,  real_eq);
     add_function_to_io_area(POLY_SYS_Real_neq, real_neq);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Real_Dispatch, codeAddr);
-    add_word_to_io_area(POLY_SYS_Real_Dispatch, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_Real_Dispatch,  &X86AsmCallPOLY_SYS_Real_Dispatch);
     add_function_to_io_area(POLY_SYS_Add_real, real_add);
     add_function_to_io_area(POLY_SYS_Sub_real, real_sub);
     add_function_to_io_area(POLY_SYS_Mul_real, real_mul);
     add_function_to_io_area(POLY_SYS_Div_real, real_div);
     add_function_to_io_area(POLY_SYS_Abs_real, real_abs);
     add_function_to_io_area(POLY_SYS_Neg_real, real_neg);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_Repr_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_Repr_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_conv_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_conv_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_real_to_int, codeAddr);
-    add_word_to_io_area(POLY_SYS_real_to_int, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_Repr_real, &X86AsmCallPOLY_SYS_Repr_real);
+    add_function_to_io_area(POLY_SYS_conv_real, &X86AsmCallPOLY_SYS_conv_real);
+    add_function_to_io_area(POLY_SYS_real_to_int, &X86AsmCallPOLY_SYS_real_to_int);
     add_function_to_io_area(POLY_SYS_int_to_real, real_from_int);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_sqrt_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_sqrt_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_sin_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_sin_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_cos_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_cos_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_arctan_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_arctan_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_exp_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_exp_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_ln_real, codeAddr);
-    add_word_to_io_area(POLY_SYS_ln_real, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_io_operation, codeAddr);
-    add_word_to_io_area(POLY_SYS_io_operation, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_sqrt_real, &X86AsmCallPOLY_SYS_sqrt_real);
+    add_function_to_io_area(POLY_SYS_sin_real, &X86AsmCallPOLY_SYS_sin_real);
+    add_function_to_io_area(POLY_SYS_cos_real, &X86AsmCallPOLY_SYS_cos_real);
+    add_function_to_io_area(POLY_SYS_arctan_real, &X86AsmCallPOLY_SYS_arctan_real);
+    add_function_to_io_area(POLY_SYS_exp_real, &X86AsmCallPOLY_SYS_exp_real);
+    add_function_to_io_area(POLY_SYS_ln_real, &X86AsmCallPOLY_SYS_ln_real);
+    add_function_to_io_area(POLY_SYS_io_operation, &X86AsmCallPOLY_SYS_io_operation);
     add_function_to_io_area(POLY_SYS_atomic_reset, &atomic_reset);
     add_function_to_io_area(POLY_SYS_atomic_incr, &atomic_increment);
     add_function_to_io_area(POLY_SYS_atomic_decr, &atomic_decrement);
     add_function_to_io_area(POLY_SYS_thread_self, &thread_self);
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_thread_dispatch, codeAddr);
-    add_word_to_io_area(POLY_SYS_thread_dispatch, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_kill_self, codeAddr);
-    add_word_to_io_area(POLY_SYS_kill_self, PolyWord::FromCodePtr(codeAddr));
-    
+    add_function_to_io_area(POLY_SYS_thread_dispatch, &X86AsmCallPOLY_SYS_thread_dispatch);
+    add_function_to_io_area(POLY_SYS_kill_self, &X86AsmCallPOLY_SYS_kill_self);
     add_function_to_io_area(POLY_SYS_offset_address, &offset_address);
     add_function_to_io_area(POLY_SYS_shift_right_word, &shift_right_word);
     add_function_to_io_area(POLY_SYS_word_neq, &word_neq);
@@ -2501,49 +2405,27 @@ void X86Dependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_load_word, &load_word);
     add_function_to_io_area(POLY_SYS_load_byte_immut, &load_byte);
     add_function_to_io_area(POLY_SYS_load_word_immut, &load_word);
-    
     add_function_to_io_area(POLY_SYS_is_big_endian, &is_big_endian);
     add_function_to_io_area(POLY_SYS_bytes_per_word, &bytes_per_word);
-    
     add_function_to_io_area(POLY_SYS_assign_byte, &assign_byte);
     add_function_to_io_area(POLY_SYS_assign_word, &assign_word);
-    
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_objsize, codeAddr);
-    add_word_to_io_area(POLY_SYS_objsize, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_showsize, codeAddr);
-    add_word_to_io_area(POLY_SYS_showsize, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_timing_dispatch, codeAddr);
-    add_word_to_io_area(POLY_SYS_timing_dispatch, PolyWord::FromCodePtr(codeAddr));
-    
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_XWindows, codeAddr);
-    add_word_to_io_area(POLY_SYS_XWindows, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_full_gc, codeAddr);
-    add_word_to_io_area(POLY_SYS_full_gc, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_stack_trace, codeAddr);
-    add_word_to_io_area(POLY_SYS_stack_trace, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_foreign_dispatch, codeAddr);
-    add_word_to_io_area(POLY_SYS_foreign_dispatch, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_callcode_tupled, codeAddr);
-    add_word_to_io_area(POLY_SYS_callcode_tupled, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_process_env, codeAddr);
-    add_word_to_io_area(POLY_SYS_process_env, PolyWord::FromCodePtr(codeAddr));
-
-    add_function_to_io_area(POLY_SYS_set_string_length, &set_string_length_a); /* DCJM 28/2/01 */
-    add_function_to_io_area(POLY_SYS_get_first_long_word, &get_first_long_word_a); /* DCJM 28/2/01 */
-    
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_shrink_stack, codeAddr);
-    add_word_to_io_area(POLY_SYS_shrink_stack, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_code_flags, codeAddr);
-    add_word_to_io_area(POLY_SYS_code_flags, PolyWord::FromCodePtr(codeAddr));
-    
-    add_function_to_io_area(POLY_SYS_shift_right_arith_word, &shift_right_arith_word); /* DCJM 10/10/99 */
-    add_function_to_io_area(POLY_SYS_int_to_word,      &int_to_word);        /* DCJM 10/10/99 */
-
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_set_code_constant, codeAddr); /* DCJM 2/1/01 */
-    add_word_to_io_area(POLY_SYS_set_code_constant, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_poly_specific, codeAddr); /* DCJM 19/6/06 */
-    add_word_to_io_area(POLY_SYS_poly_specific, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_objsize, &X86AsmCallPOLY_SYS_objsize);
+    add_function_to_io_area(POLY_SYS_showsize, &X86AsmCallPOLY_SYS_showsize);
+    add_function_to_io_area(POLY_SYS_timing_dispatch, &X86AsmCallPOLY_SYS_timing_dispatch);
+    add_function_to_io_area(POLY_SYS_XWindows, &X86AsmCallPOLY_SYS_XWindows);
+    add_function_to_io_area(POLY_SYS_full_gc, &X86AsmCallPOLY_SYS_full_gc);
+    add_function_to_io_area(POLY_SYS_stack_trace, &X86AsmCallPOLY_SYS_stack_trace);
+    add_function_to_io_area(POLY_SYS_foreign_dispatch, &X86AsmCallPOLY_SYS_foreign_dispatch);
+    add_function_to_io_area(POLY_SYS_callcode_tupled, &X86AsmCallPOLY_SYS_callcode_tupled);
+    add_function_to_io_area(POLY_SYS_process_env, &X86AsmCallPOLY_SYS_process_env);
+    add_function_to_io_area(POLY_SYS_set_string_length, &set_string_length_a);
+    add_function_to_io_area(POLY_SYS_get_first_long_word, &get_first_long_word_a);
+    add_function_to_io_area(POLY_SYS_shrink_stack, &X86AsmCallPOLY_SYS_shrink_stack);
+    add_function_to_io_area(POLY_SYS_code_flags, &X86AsmCallPOLY_SYS_code_flags);
+    add_function_to_io_area(POLY_SYS_shift_right_arith_word, &shift_right_arith_word);
+    add_function_to_io_area(POLY_SYS_int_to_word,      &int_to_word);
+    add_function_to_io_area(POLY_SYS_set_code_constant, &X86AsmCallPOLY_SYS_set_code_constant);
+    add_function_to_io_area(POLY_SYS_poly_specific, &X86AsmCallPOLY_SYS_poly_specific);
     add_function_to_io_area(POLY_SYS_bytevec_eq,        &bytevec_eq);
     add_function_to_io_area(POLY_SYS_move_bytes,        &move_bytes); 
     add_function_to_io_area(POLY_SYS_move_bytes_overlap,&move_bytes); 
@@ -2563,15 +2445,10 @@ void X86Dependent::InitInterfaceVector(void)
     // but is only used for exceptions raised within the RTS.
     add_function_to_io_area(POLY_SYS_raisex,           &raisex);
     
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_io_dispatch, codeAddr);
-    add_word_to_io_area(POLY_SYS_io_dispatch, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_network, codeAddr);
-    add_word_to_io_area(POLY_SYS_network, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_os_specific, codeAddr);
-    add_word_to_io_area(POLY_SYS_os_specific, PolyWord::FromCodePtr(codeAddr));
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_signal_handler, codeAddr);
-    add_word_to_io_area(POLY_SYS_signal_handler, PolyWord::FromCodePtr(codeAddr));
-
+    add_function_to_io_area(POLY_SYS_io_dispatch, &X86AsmCallPOLY_SYS_io_dispatch);
+    add_function_to_io_area(POLY_SYS_network, &X86AsmCallPOLY_SYS_network);
+    add_function_to_io_area(POLY_SYS_os_specific, &X86AsmCallPOLY_SYS_os_specific);
+    add_function_to_io_area(POLY_SYS_signal_handler, &X86AsmCallPOLY_SYS_signal_handler);
     add_function_to_io_area(POLY_SYS_eq_longword, &eq_longword);
     add_function_to_io_area(POLY_SYS_neq_longword, &neq_longword);
     add_function_to_io_area(POLY_SYS_geq_longword, &geq_longword);
@@ -2589,25 +2466,23 @@ void X86Dependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_shift_left_longword, &shift_left_longword);
     add_function_to_io_area(POLY_SYS_shift_right_longword, &shift_right_longword);
     add_function_to_io_area(POLY_SYS_shift_right_arith_longword, &shift_right_arith_longword);
-
     add_function_to_io_area(POLY_SYS_longword_to_tagged, &longword_to_tagged);
     add_function_to_io_area(POLY_SYS_signed_to_longword, &signed_to_longword);
     add_function_to_io_area(POLY_SYS_unsigned_to_longword, &unsigned_to_longword);
 
     // Entries for special cases.  These are generally, but not always, called from
     // compiled code.
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_HEAP_OVERFLOW, heapOverflow);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_STACK_OVERFLOW, stackOverflow);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_STACK_OVERFLOWEX, stackOverflowEx);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_RAISE_DIV, raiseDiv);
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_ARB_EMULATION, arbEmulation);
+    heapOverflow = (byte*)&X86AsmCallExtraRETURN_HEAP_OVERFLOW;
+    stackOverflow = (byte*)&X86AsmCallExtraRETURN_STACK_OVERFLOW;
+    stackOverflowEx = (byte*)X86AsmCallExtraRETURN_STACK_OVERFLOWEX;
+    raiseDiv = (byte*)X86AsmCallExtraRETURN_RAISE_DIV;
+    arbEmulation = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
 }
 
 // We need the kill-self code in a little function.
 Handle X86TaskData::BuildKillSelf()
 {
-    byte *codeAddr;
-    MAKE_IO_CALL_SEQUENCE(POLY_SYS_kill_self, codeAddr);
+    byte *codeAddr = (byte*)&X86AsmKillSelfTemplate;
     return BuildCodeSegment(codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
 }
 
@@ -2616,7 +2491,7 @@ Handle X86TaskData::BuildKillSelf()
 // boundary.
 Handle X86TaskData::BuildExceptionTrace()
 {
-    byte *codeAddr = X86AsmGiveExceptionTraceFnCode();
+    byte *codeAddr = (byte*)&X86AsmGiveExceptionTraceFnTemplate;
     return BuildCodeSegment(codeAddr, 9, 'E');
 }
 
@@ -2688,10 +2563,9 @@ void X86TaskData::CallCodeTupled()
 // the result we enter callback_return. 
 void X86TaskData::SetCallbackFunction(Handle func, Handle args)
 {
-    byte *codeAddr1, *codeAddr2;
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_CALLBACK_RETURN, codeAddr1);
+    byte *codeAddr1 = (byte*)&X86AsmCallbackReturnTemplate;
+    byte *codeAddr2 = (byte*)&X86AsmCallbackExceptionTemplate;
     Handle callBackReturn = this->BuildCodeSegment(codeAddr1, MAKE_CALL_SEQUENCE_BYTES, 'C');
-    MAKE_EXTRA_CALL_SEQUENCE(RETURN_CALLBACK_EXCEPTION, codeAddr2);
     Handle callBackException = this->BuildCodeSegment(codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
     // Save the closure pointer and argument registers to the stack.  If we have to
     // retry the current RTS call we need these to have their original values.
