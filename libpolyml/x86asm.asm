@@ -772,7 +772,7 @@ ENDM
 
 CALL_EXTRA  MACRO   index
     mov     byte ptr [ReturnReason+Rebp],index
-    jmp     X86AsmSaveStateAndReturn
+    jmp     X86AsmSaveFullState
     ENDM
 
 ELSE
@@ -783,7 +783,7 @@ ELSE
 
 #define CALL_EXTRA(index) \
         MOVB  $index,ReturnReason[Rebp]; \
-        jmp   X86AsmSaveStateAndReturn;
+        jmp   X86AsmSaveFullState;
 ENDIF
 
 ;# Load the registers from the ML stack and jump to the code.
@@ -885,16 +885,17 @@ ELSE
 ENDIF
     ret                                     ;# Jump to code address
 
+
 ;# Code to save the state and switch to C
 IFDEF WINDOWS
-    PUBLIC  X86AsmSaveStateAndReturn
-X86AsmSaveStateAndReturn  PROC
+    PUBLIC  X86AsmSaveFullState
+X86AsmSaveFullState  PROC
 ELSE
-GLOBAL EXTNAME(X86AsmSaveStateAndReturn)
-EXTNAME(X86AsmSaveStateAndReturn):
+GLOBAL EXTNAME(X86AsmSaveFullState)
+EXTNAME(X86AsmSaveFullState):
 ENDIF
 
-;# CALLMACRO INLINE_ROUTINE X86AsmSaveStateAndReturn
+;# CALLMACRO INLINE_ROUTINE X86AsmSaveFullState
     PUSHFL                      ;# Save flags
     PUSHL   Reax                ;# Save eax
     MOVL    PolyStack[Rebp],Reax
@@ -919,6 +920,54 @@ ENDIF
     MOVL    Rebx,EAX_OFF[Reax]
     POPL    Rebx
     MOVL    Rebx,FLAGS_OFF[Reax]
+    MOVL    Resp,SP_OFF[Reax]
+IFDEF WINDOWS
+    mov     byte ptr [InRTS+Rebp],1
+ELSE
+    MOVB    CONST 1,InRTS[Rebp]             ;# inRTS:=0 (stack now kosher)
+ENDIF
+    MOVL    SavedSp[Rebp],Resp
+IFNDEF HOSTARCHITECTURE_X86_64
+    POPAL
+ELSE
+    POPL    Resi
+    POPL    Redi
+    POPL    R15                            ;# Restore callee-save registers
+    POPL    R14
+    POPL    R13
+    POPL    R12
+    POPL    Rebx
+    POPL    Rebp
+ENDIF
+    ret
+
+IFDEF WINDOWS
+X86AsmSaveFullState  ENDP
+ENDIF
+
+
+;# As X86AsmSaveFullState but only save what is necessary for an RTS call.
+IFDEF WINDOWS
+    PUBLIC  X86AsmSaveStateAndReturn
+X86AsmSaveStateAndReturn  PROC
+ELSE
+GLOBAL EXTNAME(X86AsmSaveStateAndReturn)
+EXTNAME(X86AsmSaveStateAndReturn):
+ENDIF
+
+;# CALLMACRO INLINE_ROUTINE X86AsmSaveStateAndReturn
+    PUSHL   Reax                ;# Save eax
+    MOVL    PolyStack[Rebp],Reax
+    MOVL    Rebx,EBX_OFF[Reax]
+    MOVL    Redx,EDX_OFF[Reax]
+IFDEF HOSTARCHITECTURE_X86_64
+    MOVL    R8,R8_OFF[Reax]
+    MOVL    R9,R9_OFF[Reax]
+    MOVL    R10,R10_OFF[Reax]
+    MOVL    R15,LocalMpointer[Rebp]  ;# Save the heap pointer
+ENDIF
+    POPL    Rebx                ;# Get old eax value
+    MOVL    Rebx,EAX_OFF[Reax]
     MOVL    Resp,SP_OFF[Reax]
 IFDEF WINDOWS
     mov     byte ptr [InRTS+Rebp],1
@@ -2511,14 +2560,6 @@ real_float_1:
 CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 ;# Additional assembly code routines
-
-;# Get the floating point control word.  Used to ensure any changes to the rounding
-;# mode within the RTS are passed back to compiler ML code.
-CALLMACRO INLINE_ROUTINE X86AsmGetFPControlWord
-    PUSHL   CONST 0
-    FNSTCW  [Resp]
-    POPL    Reax
-    RET
 
 ;# This template code is copied into a newly allocated piece of memory which
 ;# is set up to look like an ML function.

@@ -272,8 +272,6 @@ public:
     void SetMemRegisters();
     void SaveMemRegisters();
 
-    void ClearAllRegisters(); // This is temporary for testing
-
     void ArbitraryPrecisionTrap();
     PolyWord *get_reg(int n);
     PolyWord *getArgument(unsigned int opByte, unsigned int rexPrefix, bool *inConsts=0);
@@ -367,7 +365,6 @@ extern "C" {
     void X86AsmSwitchToPoly(MemRegisters *);
     void X86AsmSaveStateAndReturn(void);
 
-    unsigned X86AsmGetFPControlWord(void);
     extern int X86AsmRestoreHandlerAfterExceptionTraceTemplate(void);
     extern int X86AsmGiveExceptionTraceFnTemplate(void);
     extern int X86AsmKillSelfTemplate(void);
@@ -496,11 +493,41 @@ void X86TaskData::GCStack(ScanAddress *process)
         if (stack->p_pc != TAGGED(0).AsCodePtr())
             stack->p_pc = process->ScanStackAddress (PolyWord::FromCodePtr(stack->p_pc), stackSpace, true).AsCodePtr();
 
-        // The checked registers.
-        for (POLYUNSIGNED i = 0; i < CHECKED_REGS; i++)
+        stack->p_eax = process->ScanStackAddress(stack->p_eax, stackSpace, false);
+        stack->p_edx = process->ScanStackAddress(stack->p_edx, stackSpace, false);
+
+        // Process the registers if they have been saved otherwise clear them
+        if (this->memRegisters.fullRestore)
         {
-            PolyWord *pr = (&stack->p_eax) + i;
-            *pr = process->ScanStackAddress(*pr, stackSpace, false);
+            stack->p_ebx = process->ScanStackAddress(stack->p_ebx, stackSpace, false);
+            stack->p_ecx = process->ScanStackAddress(stack->p_ecx, stackSpace, false);
+            stack->p_esi = process->ScanStackAddress(stack->p_esi, stackSpace, false);
+            stack->p_edi = process->ScanStackAddress(stack->p_edi, stackSpace, false);
+#ifdef HOSTARCHITECTURE_X86_64
+            stack->p_r8 = process->ScanStackAddress(stack->p_r8, stackSpace, false);
+            stack->p_r9 = process->ScanStackAddress(stack->p_r9, stackSpace, false);
+            stack->p_r10 = process->ScanStackAddress(stack->p_r10, stackSpace, false);
+            stack->p_r11 = process->ScanStackAddress(stack->p_r11, stackSpace, false);
+            stack->p_r12 = process->ScanStackAddress(stack->p_r12, stackSpace, false);
+            stack->p_r13 = process->ScanStackAddress(stack->p_r13, stackSpace, false);
+            stack->p_r14 = process->ScanStackAddress(stack->p_r14, stackSpace, false);
+#endif
+        }
+        else
+        {
+            stack->p_ebx = TAGGED(0);
+            stack->p_ecx = TAGGED(0);
+            stack->p_esi = TAGGED(0);
+            stack->p_edi = TAGGED(0);
+#ifdef HOSTARCHITECTURE_X86_64
+            stack->p_r8 = TAGGED(0);
+            stack->p_r9 = TAGGED(0);
+            stack->p_r10 = TAGGED(0);
+            stack->p_r11 = TAGGED(0);
+            stack->p_r12 = TAGGED(0);
+            stack->p_r13 = TAGGED(0);
+            stack->p_r14 = TAGGED(0);
+#endif
         }
 
         // Now the values on the stack.
@@ -605,7 +632,6 @@ static void CallIO0(X86TaskData *taskData, Handle (*ioFun)(TaskData *))
 {
     // Set the return address now.
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
-    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData);
     PSP_EAX(taskData) = result->Word();
     // If this is a normal return we can pop the return address.
@@ -618,7 +644,6 @@ static void CallIO1(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle))
 {
     PSP_IC(taskData)= (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
-    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved1);
     PSP_EAX(taskData) = result->Word();
     PSP_SP(taskData)++; // Pop the return address.
@@ -629,7 +654,6 @@ static void CallIO2(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, H
     PSP_IC(taskData) = (*PSP_SP(taskData)).AsCodePtr();
     Handle saved1 = taskData->saveVec.push(PSP_EAX(taskData));
     Handle saved2 = taskData->saveVec.push(PSP_EBX(taskData));
-    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
     PSP_SP(taskData)++;
@@ -645,7 +669,6 @@ static void CallIO3(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, H
 #else /* HOSTARCHITECTURE_X86_64 */
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
-    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved3, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
@@ -667,7 +690,6 @@ static void CallIO4(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, H
     Handle saved3 = taskData->saveVec.push(PSP_R8(taskData));
     Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
-    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved4, saved3, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
@@ -692,7 +714,6 @@ static void CallIO5(X86TaskData *taskData, Handle (*ioFun)(TaskData *, Handle, H
     Handle saved4 = taskData->saveVec.push(PSP_R9(taskData));
     Handle saved5 = taskData->saveVec.push(PSP_R10(taskData));
 #endif /* HOSTARCHITECTURE_X86_64 */
-    taskData->ClearAllRegisters();
     Handle result = (*ioFun)(taskData, saved5, saved4, saved3, saved2, saved1);
     PSP_EAX(taskData) = result->Word();
 #ifndef HOSTARCHITECTURE_X86_64
@@ -1676,13 +1697,6 @@ void X86TaskData::SetMemRegisters()
     // return.  This is also used if we have raised an exception.
     if (PSP_IC(this) == PC_RETRY_SPECIAL)
         PSP_IC(this) = PSP_EDX(this).AsObjPtr()->Get(0).AsCodePtr();
-
-    // Set the rounding mode to the value set within the RTS.
-    x86Stack(this)->p_fp.cw &= 0x73ff;
-    // Get the rounding mode.
-    unsigned short controlWord = X86AsmGetFPControlWord();
-    x86Stack(this)->p_fp.cw &= 0xf3ff;
-    x86Stack(this)->p_fp.cw |= controlWord & 0xc00;
 }
 
 // This is called whenever we have returned from ML to C.
@@ -1698,29 +1712,6 @@ void X86TaskData::SaveMemRegisters()
     // are handling a heap or stack overflow.  For the moment we just consider
     // all cases apart from an RTS call.
     this->memRegisters.fullRestore = this->memRegisters.returnReason != 0 ? 1 : 0;
-}
-
-// As a temporary test we clear all the registers here with the exception of
-// eax and edx.  In due course we will only clear them on a GC but this is a
-// check.
-void X86TaskData::ClearAllRegisters()
-{
-    stack->stack()->p_ebx = TAGGED(0);
-    stack->stack()->p_ecx = TAGGED(0);
-    stack->stack()->p_ecx = TAGGED(0);
-    stack->stack()->p_esi = TAGGED(0);
-    stack->stack()->p_edi = TAGGED(0);
-#ifdef HOSTARCHITECTURE_X86_64
-    stack->stack()->p_r8 = TAGGED(0);
-    stack->stack()->p_r9 = TAGGED(0);
-    stack->stack()->p_r10 = TAGGED(0);
-    stack->stack()->p_r11 = TAGGED(0);
-    stack->stack()->p_r12 = TAGGED(0);
-    stack->stack()->p_r13 = TAGGED(0);
-    stack->stack()->p_r14 = TAGGED(0);
-#endif
-    stack->stack()->p_fp.cw = 0x037f ; // Control word - Rounding wil be set on return 
-    stack->stack()->p_fp.tw = 0xffff; // Tag registers - all unused
 }
 
 PolyWord *X86TaskData::get_reg(int n)
