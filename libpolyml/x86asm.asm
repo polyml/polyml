@@ -524,6 +524,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    LocalMbottom,8
 .set    RequestCode,20
 .set    InRTS,21
+.set    ReturnReason,22
 .set    FullRestore,23
 .set    PolyStack,24
 .set    SavedSp,28
@@ -538,6 +539,7 @@ ELSE
 .set    StackLimit,24
 .set    RequestCode,40
 .set    InRTS,41
+.set    ReturnReason,42
 .set    FullRestore,43
 .set    PolyStack,48
 .set    SavedSp,56
@@ -2893,6 +2895,7 @@ shift_right_arith_longword1:
     CALLMACRO   CALL_IO POLY_SYS_shift_right_arith_longword
 CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR Mask_all)
 
+IFDEF WINDOWS
 
 CREATE_IO_CALL  MACRO index
     INLINE_ROUTINE    X86AsmCall&index&
@@ -2901,52 +2904,63 @@ CREATE_IO_CALL  MACRO index
 
 CREATE_EXTRA_CALL MACRO index
     INLINE_ROUTINE  X86AsmCallExtra&index&
-    mov     byte ptr [ReturnReason+Rebp],index
-    jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+    CALL_EXTRA index
     ENDM
 
-    CREATE_IO_CALL  POLY_SYS_exit
-    CREATE_IO_CALL  POLY_SYS_chdir
-    CREATE_IO_CALL  POLY_SYS_get_flags
-    CREATE_IO_CALL  POLY_SYS_exception_trace_fn
-    CREATE_IO_CALL  POLY_SYS_profiler
-    CREATE_IO_CALL  POLY_SYS_Real_str
-    CREATE_IO_CALL  POLY_SYS_Real_Dispatch
-    CREATE_IO_CALL  POLY_SYS_Repr_real
-    CREATE_IO_CALL  POLY_SYS_conv_real
-    CREATE_IO_CALL  POLY_SYS_real_to_int
-    CREATE_IO_CALL  POLY_SYS_sqrt_real
-    CREATE_IO_CALL  POLY_SYS_sin_real
-    CREATE_IO_CALL  POLY_SYS_signal_handler
-    CREATE_IO_CALL  POLY_SYS_os_specific
-    CREATE_IO_CALL  POLY_SYS_network
-    CREATE_IO_CALL  POLY_SYS_io_dispatch
-    CREATE_IO_CALL  POLY_SYS_poly_specific
-    CREATE_IO_CALL  POLY_SYS_set_code_constant
-    CREATE_IO_CALL  POLY_SYS_code_flags
-    CREATE_IO_CALL  POLY_SYS_shrink_stack
-    CREATE_IO_CALL  POLY_SYS_process_env
-    CREATE_IO_CALL  POLY_SYS_callcode_tupled
-    CREATE_IO_CALL  POLY_SYS_foreign_dispatch
-    CREATE_IO_CALL  POLY_SYS_stack_trace
-    CREATE_IO_CALL  POLY_SYS_full_gc
-    CREATE_IO_CALL  POLY_SYS_XWindows
-    CREATE_IO_CALL  POLY_SYS_timing_dispatch
-    CREATE_IO_CALL  POLY_SYS_showsize
-    CREATE_IO_CALL  POLY_SYS_objsize
-    CREATE_IO_CALL  POLY_SYS_kill_self
-    CREATE_IO_CALL  POLY_SYS_thread_dispatch
-    CREATE_IO_CALL  POLY_SYS_io_operation
-    CREATE_IO_CALL  POLY_SYS_ln_real
-    CREATE_IO_CALL  POLY_SYS_exp_real
-    CREATE_IO_CALL  POLY_SYS_arctan_real
-    CREATE_IO_CALL  POLY_SYS_cos_real
+ELSE
 
-    CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
-    CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
-    CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
-    CREATE_EXTRA_CALL RETURN_RAISE_DIV
-    CREATE_EXTRA_CALL RETURN_ARB_EMULATION
+#define CREATE_IO_CALL(index) \
+    INLINE_ROUTINE(X86AsmCall##index##) \
+    CALL_IO(index)
+
+#define CREATE_EXTRA_CALL(index) \
+    INLINE_ROUTINE(X86AsmCallExtra##index##) \
+    CALL_EXTRA(index)
+
+ENDIF
+
+CALLMACRO CREATE_IO_CALL  POLY_SYS_exit
+CALLMACRO CREATE_IO_CALL  POLY_SYS_chdir
+CALLMACRO CREATE_IO_CALL  POLY_SYS_get_flags
+CALLMACRO CREATE_IO_CALL  POLY_SYS_exception_trace_fn
+CALLMACRO CREATE_IO_CALL  POLY_SYS_profiler
+CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_str
+CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_Dispatch
+CALLMACRO CREATE_IO_CALL  POLY_SYS_Repr_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_conv_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_real_to_int
+CALLMACRO CREATE_IO_CALL  POLY_SYS_sqrt_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_sin_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_signal_handler
+CALLMACRO CREATE_IO_CALL  POLY_SYS_os_specific
+CALLMACRO CREATE_IO_CALL  POLY_SYS_network
+CALLMACRO CREATE_IO_CALL  POLY_SYS_io_dispatch
+CALLMACRO CREATE_IO_CALL  POLY_SYS_poly_specific
+CALLMACRO CREATE_IO_CALL  POLY_SYS_set_code_constant
+CALLMACRO CREATE_IO_CALL  POLY_SYS_code_flags
+CALLMACRO CREATE_IO_CALL  POLY_SYS_shrink_stack
+CALLMACRO CREATE_IO_CALL  POLY_SYS_process_env
+CALLMACRO CREATE_IO_CALL  POLY_SYS_callcode_tupled
+CALLMACRO CREATE_IO_CALL  POLY_SYS_foreign_dispatch
+CALLMACRO CREATE_IO_CALL  POLY_SYS_stack_trace
+CALLMACRO CREATE_IO_CALL  POLY_SYS_full_gc
+CALLMACRO CREATE_IO_CALL  POLY_SYS_XWindows
+CALLMACRO CREATE_IO_CALL  POLY_SYS_timing_dispatch
+CALLMACRO CREATE_IO_CALL  POLY_SYS_showsize
+CALLMACRO CREATE_IO_CALL  POLY_SYS_objsize
+CALLMACRO CREATE_IO_CALL  POLY_SYS_kill_self
+CALLMACRO CREATE_IO_CALL  POLY_SYS_thread_dispatch
+CALLMACRO CREATE_IO_CALL  POLY_SYS_io_operation
+CALLMACRO CREATE_IO_CALL  POLY_SYS_ln_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_exp_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_arctan_real
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cos_real
+
+CALLMACRO CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
+CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
+CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
+CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
+CALLMACRO CREATE_EXTRA_CALL RETURN_ARB_EMULATION
 
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
