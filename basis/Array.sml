@@ -129,7 +129,7 @@ struct
      
     fun array(len, a) =
         let
-            val () = if len >= maxLen then raise General.Size else ()
+            val () = if len < 0 orelse len >= maxLen then raise General.Size else ()
             val vec = System_alloc(len+1, 0wx40, RunCall.unsafeCast a)
         in
             System_setw(vec, 0, RunCall.unsafeCast len);
