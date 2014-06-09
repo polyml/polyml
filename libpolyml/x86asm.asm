@@ -767,23 +767,23 @@ IFDEF WINDOWS
 
 CALL_IO    MACRO   index
         mov     byte ptr [RequestCode+Rebp],index
-        jmp     X86AsmSaveStateAndReturn
+        jmp     SaveStateAndReturnLocal
 ENDM
 
 CALL_EXTRA  MACRO   index
     mov     byte ptr [ReturnReason+Rebp],index
-    jmp     X86AsmSaveFullState
+    jmp     SaveFullState
     ENDM
 
 ELSE
 
 #define CALL_IO(index) \
         MOVB  $index,RequestCode[Rebp]; \
-        jmp   X86AsmSaveStateAndReturn;
+        jmp   SaveStateAndReturnLocal;
 
 #define CALL_EXTRA(index) \
         MOVB  $index,ReturnReason[Rebp]; \
-        jmp   X86AsmSaveFullState;
+        jmp   SaveFullState;
 ENDIF
 
 ;# Load the registers from the ML stack and jump to the code.
@@ -887,15 +887,8 @@ ENDIF
 
 
 ;# Code to save the state and switch to C
-IFDEF WINDOWS
-    PUBLIC  X86AsmSaveFullState
-X86AsmSaveFullState  PROC
-ELSE
-GLOBAL EXTNAME(X86AsmSaveFullState)
-EXTNAME(X86AsmSaveFullState):
-ENDIF
-
-;# CALLMACRO INLINE_ROUTINE X86AsmSaveFullState
+;# This saves the full register state.
+SaveFullState:
     PUSHFL                      ;# Save flags
     PUSHL   Reax                ;# Save eax
     MOVL    PolyStack[Rebp],Reax
@@ -941,21 +934,10 @@ ELSE
 ENDIF
     ret
 
-IFDEF WINDOWS
-X86AsmSaveFullState  ENDP
-ENDIF
-
-
 ;# As X86AsmSaveFullState but only save what is necessary for an RTS call.
-IFDEF WINDOWS
-    PUBLIC  X86AsmSaveStateAndReturn
-X86AsmSaveStateAndReturn  PROC
-ELSE
-GLOBAL EXTNAME(X86AsmSaveStateAndReturn)
-EXTNAME(X86AsmSaveStateAndReturn):
-ENDIF
+CALLMACRO INLINE_ROUTINE X86AsmSaveStateAndReturn
+SaveStateAndReturnLocal: ;# This is necessary so that the jmps use a PC-relative address
 
-;# CALLMACRO INLINE_ROUTINE X86AsmSaveStateAndReturn
     PUSHL   Reax                ;# Save eax
     MOVL    PolyStack[Rebp],Reax
     MOVL    Rebx,EBX_OFF[Reax]
@@ -988,10 +970,6 @@ ELSE
     POPL    Rebp
 ENDIF
     ret
-
-IFDEF WINDOWS
-X86AsmSaveStateAndReturn  ENDP
-ENDIF
 
 ;#
 ;# A number of functions implemented in Assembly for efficiency reasons
