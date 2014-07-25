@@ -1430,10 +1430,10 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     StackSpace *space = this->stack;
     StackObject * newStack = space->stack();
     POLYUNSIGNED stack_size     = space->spaceSize();
-    POLYUNSIGNED topStack = stack_size-2;
+    POLYUNSIGNED topStack = stack_size-3;
     newStack->p_pc    = PC_RETRY_SPECIAL;
     newStack->p_sp    = (PolyWord*)newStack+topStack; 
-    this->memRegisters.handlerRegister    = (PolyWord*)newStack+topStack;
+    this->memRegisters.handlerRegister    = (PolyWord*)newStack+topStack+1;
 
     /* If this function takes an argument store it in the argument register. */
     if (arg == 0) newStack->p_eax = TAGGED(0);
@@ -1468,13 +1468,18 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
        kill_self whether the process ends with a normal return or by raising an
        exception.  A bit of this was added to fix a bug when stacks were objects
        on the heap and could be scanned by the GC. */
-    ((PolyWord*)newStack)[topStack+1] = TAGGED(0); // Probably no longer needed
+    ((PolyWord*)newStack)[topStack+2] = TAGGED(0); // Probably no longer needed
     // Set the default handler and return address to point to this code.
 
     X86TaskData *mdParentTask = (X86TaskData*)parentTaskData;
     Handle killCode = mdParentTask->BuildKillSelf();
     PolyWord killJump = killCode->Word();
-    // Normal return address and exception handler.
+    // Exception handler.
+    ((PolyWord*)newStack)[topStack+1] = killJump;
+    // Normal return address.  We need a separate entry on the stack from
+    // the exception handler because it is possible that the code we are entering
+    // may replace this entry with an argument.  The code-generator optimises tail-recursive
+    // calls to functions with more args than the called function.
     ((PolyWord*)newStack)[topStack] = killJump;
 }
 
