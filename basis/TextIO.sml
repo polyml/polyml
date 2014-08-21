@@ -436,9 +436,16 @@ structure TextIO :> TEXT_IO = struct
             val InStream(r, _) = stdIn
             val buffsize = sys_get_buffsize stdInDesc
         in
-            r := Direct{descr=stdInDesc, name="stdIn",
+          case stdIn of
+               InStream(ref(Direct{bufp, buflimit, ...}),_) => (bufp := 0; buflimit := ~1)
+               (* For some reason the IDE code, at least, breaks if we always set this to a
+                  new direct stream.  It seems to be something to do with making a new
+                  buffer array. *)
+           |  _ => r := Direct{descr=stdInDesc, name="stdIn",
                         buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
-                        buflimit=ref ~1}
+                        buflimit=ref ~1};
+             (* Install the onLoad function each time we start up. *)
+            PolyML.onLoad onLoad
         end
     in
         (* Set up an onEntry handler so that this is always installed. *)
