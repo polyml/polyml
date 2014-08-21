@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012, 2013 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2104 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1315,7 +1315,11 @@ struct
     datatype typeParsetree =
         ParseTypeConstruction of
             { name: string, args: typeParsetree list,
-              location: location, nameLoc: location, argLoc: location }
+              location: location, nameLoc: location, argLoc: location,
+              (* foundConstructor is set to the constructor when it has been
+                 looked up.  This allows us to get the location where it was
+                 declared if we export the parse-tree. *)
+              foundConstructor: typeConstrs ref }
     |   ParseTypeProduct of
             { fields: typeParsetree list, location: location }
     |   ParseTypeFunction of
@@ -1326,11 +1330,12 @@ struct
     |   ParseTypeId of { types: typeVarForm, location: location }
     |   ParseTypeBad (* Place holder for errors. *)
 
-    fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, ...}) =
+    fun typeFromTypeParse(
+            ParseTypeConstruction{ args, name, location, foundConstructor = ref constr, ...}) =
         let
             val argTypes = List.map typeFromTypeParse args
         in
-            TypeConstruction {name = name, constr = undefConstr,
+            TypeConstruction {name = name, constr = constr,
                               args = argTypes, locations = [DeclaredAt location]}
         end
 
@@ -1353,7 +1358,8 @@ struct
     
     fun makeParseTypeConstruction((constrName, nameLoc), (args, argLoc), location) =
         ParseTypeConstruction{
-            name = constrName, nameLoc = nameLoc, args = args, argLoc = argLoc, location = location }
+            name = constrName, nameLoc = nameLoc, args = args, argLoc = argLoc,
+            location = location, foundConstructor = ref undefConstr }
 
     fun makeParseTypeProduct(recList, location) =
         ParseTypeProduct{ fields = recList, location = location }
@@ -1386,7 +1392,10 @@ struct
         case p of
             ParseTypeConstruction{ location, nameLoc, args, argLoc, ...} =>
             let
-                (* If the constructor has been bound return the declaration location. *)
+                (* If the constructor has been bound return the declaration location.
+                   We have to attach the declaration location in the right place if
+                   this is a polytype e.g. if we have "int list" here we will have
+                   the location for "list" which is the second item not the first. *)
                 val (name, decLoc) =
                     case typeof of
                         TypeConstruction { constr, name, ...} =>
@@ -1397,7 +1406,7 @@ struct
                 val navNameAndArgs =
                 (* Separate cases for nullary, unary and higher type constructions. *)
                     case args of
-                        [] => [] (* Singleton e.g. int *)
+                        [] => decLoc (* Singleton e.g. int *)
                     |   [oneArg] =>
                         let (* Single arg e.g. int list. *)
                             (* Navigate between the type constructor and the argument.
@@ -1406,7 +1415,7 @@ struct
                                 typeExportTree({parent=SOME asParent, previous=NONE, next=SOME getName}, oneArg)
                             and getName () =
                                 getStringAsTree({parent=SOME asParent, previous=SOME getArg, next=NONE},
-                                            name, nameLoc, [])
+                                            name, nameLoc, decLoc)
                         in
                             [PTfirstChild getArg]
                         end
@@ -1418,12 +1427,12 @@ struct
                                         exportNavigationProps{parent=SOME asParent, previous=NONE, next=SOME getName})
                             and getName () =
                                 getStringAsTree({parent=SOME asParent, previous=SOME getArgs, next=NONE},
-                                            name, nameLoc, [])
+                                            name, nameLoc, decLoc)
                         in
                             [PTfirstChild getArgs]
                         end
             in
-                (location, navNameAndArgs @ decLoc @ commonProps)
+                (location, navNameAndArgs @ commonProps)
             end
 
         |   ParseTypeProduct{ location, fields, ...} =>
@@ -1463,7 +1472,7 @@ struct
        (NOT type variables) *)
     fun assignTypes (tp : typeParsetree,  lookupType : string * location -> typeConstrSet, lex : lexan) =
     let
-        fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, ...}) =
+        fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, foundConstructor, ...}) =
             let
                 (* Assign constructor, then the parameters. *)
                 val TypeConstrSet(constructor, _) = lookupType (name, location)
@@ -1481,7 +1490,7 @@ struct
                             String.concat["Type constructor (", tcName constructor,
                                 ") requires ", Int.toString arity, " type(s) not ",
                                 Int.toString num])
-                        else ()
+                        else foundConstructor := constructor
                     end
                     else ()
                 val argTypes = List.map typeFromTypeParse args
