@@ -362,9 +362,9 @@ class WaitSelect: public Waiter
 public:
     WaitSelect();
     virtual void Wait(unsigned maxMillisecs);
-    void SetRead(int fd) {  FD_SET(fd, &readSet); }
-    void SetWrite(int fd) {  FD_SET(fd, &writeSet); }
-    void SetExcept(int fd)  {  FD_SET(fd, &exceptSet); }
+    void SetRead(SOCKET fd) {  FD_SET(fd, &readSet); }
+    void SetWrite(SOCKET fd) {  FD_SET(fd, &writeSet); }
+    void SetExcept(SOCKET fd)  {  FD_SET(fd, &exceptSet); }
     // Save the result of the select call and any associated error
     int SelectResult(void) { return selectResult; }
     int SelectError(void) { return errorResult; }
