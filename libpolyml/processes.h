@@ -85,6 +85,7 @@ public:
     PolyWord    requestCopy; // A tagged integer copy of the "requests" field.
                         // This is provided so that ML can easily test if there
                         // is an interrupt pending.
+    PolyWord    mlStackSize; // A tagged integer with the maximum ML stack size in bytes
 };
 
 // Other threads may make requests to a thread.

@@ -1,7 +1,7 @@
 (*
     Title:      Thread package for ML.
     Author:     David C. J. Matthews
-    Copyright (c) 2007
+    Copyright (c) 2007-2014
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -37,6 +37,8 @@ sig
             EnableBroadcastInterrupt of bool
             (* How to handle interrupts.  The default is to handle interrupts synchronously.  *)
         |   InterruptState of interruptState
+            (* Maximum size of the ML stack in words. NONE means unlimited *)
+        |   MaximumMLStack of int option
         
         and interruptState =
             InterruptDefer (* Defer any interrupts. *)
@@ -200,6 +202,7 @@ struct
         datatype threadAttribute =
             EnableBroadcastInterrupt of bool
         |   InterruptState of interruptState
+        |   MaximumMLStack of int option
         
         and interruptState =
             InterruptDefer
@@ -226,6 +229,8 @@ struct
                     checkRepeat(r, acc (* No bit *), set, 0w1)
               | convert(InterruptState s :: r, acc, set) =
                     checkRepeat(r, Word.orb(setIstateBits s, acc), set, 0w6)
+              | convert(MaximumMLStack _ :: r, acc, set) =
+                    convert(r, acc, set)
         in
             convert(at, 0w0, 0w0)
         end
@@ -258,12 +263,20 @@ struct
         
         exception Interrupt = RunCall.Interrupt
 
-        (* The thread id is opaque outside this structure but is actually a three
+        (* The thread id is opaque outside this structure but is actually a six
            word mutable object.
            Word 0: Index into thread table (used inside the RTS only)
            Word 1: Flags: initialised by the RTS and set by this code
-           Word 2: Thread local store: read and set by this code. *)
-        type thread = Word.word ref (* Actually this is a four word mutable object. *)
+           Word 2: Thread local store: read and set by this code.
+           Word 3: IntRequest: Set by the RTS if there is an interrupt pending
+           Word 4: Maximum ML stack size.  Unlimited is stored here as zero
+           *)
+        val threadIdFlags       = 0w1
+        and threadIdThreadLocal = 0w2
+        and threadIdIntRequest  = 0w3
+        and threadIdStackSize   = 0w4
+
+        type thread = Word.word ref (* Actually this is a multi-word mutable object. *)
         (* Equality is pointer equality. *)
         val equal : thread*thread->bool = RunCall.run_call2 POLY_SYS_word_eq
         (* Return our own thread object. *)
@@ -272,7 +285,7 @@ struct
         fun getLocal (t: 'a Universal.tag) : 'a option =
         let
             val root: Universal.universal ref list =
-                RunCall.run_call2 POLY_SYS_load_word(self(), 2)
+                RunCall.run_call2 POLY_SYS_load_word(self(), threadIdThreadLocal)
 
             fun doFind [] = NONE
               | doFind ((ref v)::r) =
@@ -287,12 +300,13 @@ struct
         let
             (* See if we already have this in the list. *)
             val root: Universal.universal ref list =
-                RunCall.run_call2 POLY_SYS_load_word(self(), 2)
+                RunCall.run_call2 POLY_SYS_load_word(self(), threadIdThreadLocal)
 
             fun doFind [] =
                     (* Not in the list - Add it. *)
                     RunCall.run_call3 POLY_SYS_assign_word
-                        (self(), 2, ref (Universal.tagInject t newVal) :: root)
+                        (self(), threadIdThreadLocal,
+                         ref (Universal.tagInject t newVal) :: root)
               | doFind (v::r) =
                     if Universal.tagIs t (!v)
                         (* If it's in the list update it. *)
@@ -309,24 +323,48 @@ struct
             fun testInterrupt() =
                 (* If there is a pending request the word in the thread object
                    will be non-zero. *)
-                if RunCall.run_call2 POLY_SYS_load_word(self(), 3) <> 0
+                if RunCall.run_call2 POLY_SYS_load_word(self(), threadIdIntRequest) <> 0
                 then doCall(11, ())
                 else ()
         end
 
         local
-            fun getAttrWord () : Word.word =
-                RunCall.run_call2 POLY_SYS_load_word(self(), 1)
+            fun getAttrWord (me: thread) : Word.word =
+                RunCall.run_call2 POLY_SYS_load_word(me, threadIdFlags)
+
+            (* Just for the moment we check the length of the thread ID to be
+               sure we have the appropriate fields present. *)
+            val System_length: thread -> word = RunCall.run_call1 POLY_SYS_get_length
+
+            fun getStackSizeAsInt (me: thread) : int =
+                if System_length me <= threadIdStackSize
+                then 0
+                else RunCall.run_call2 POLY_SYS_load_word(me, threadIdStackSize)
+
+            and getStackSize me : int option =
+                case getStackSizeAsInt me of
+                    0 => NONE
+                |   s => SOME s
+
+            fun newStackSize ([], default) = default
+            |   newStackSize (MaximumMLStack NONE :: _, _) = 0
+            |   newStackSize (MaximumMLStack (SOME n) :: _, _) =
+                    if n <= 0 then raise Thread "The stack size must be greater than zero" else n
+            |   newStackSize (_ :: l, default) = newStackSize (l, default)
         in
             (* Set attributes.  Only changes the values that are specified.  The
                others remain the same. *)
             fun setAttributes (attrs: threadAttribute list) : unit =
             let
-                val oldValues: Word.word = getAttrWord ()
+                val me = self()
+                val oldValues: Word.word = getAttrWord me
                 val (newValue, mask) = attrsToWord attrs
+                val stack = newStackSize(attrs, getStackSizeAsInt me)
             in
-                RunCall.run_call3 POLY_SYS_assign_word (self(), 1,
+                RunCall.run_call3 POLY_SYS_assign_word (self(), threadIdFlags,
                     Word.orb(newValue, Word.andb(Word.notb mask, oldValues)));
+                if stack = getStackSizeAsInt me
+                then () else RunCall.run_call2 POLY_SYS_thread_dispatch (15, stack);
                 (* If we are now handling interrupts asynchronously check whether
                    we have a pending interrupt now.  This will only be effective
                    if we were previously handling them synchronously or blocking
@@ -336,35 +374,40 @@ struct
                 else ()
             end
                 
-            fun getAttributes() : threadAttribute list = wordToAttrs(getAttrWord())
+            fun getAttributes() : threadAttribute list =
+            let
+                val me = self()
+            in
+                MaximumMLStack (getStackSize me) :: wordToAttrs(getAttrWord me)
+            end
 
             (* These are used in the ConditionVar structure.  They affect only the
                interrupt handling bits. *)
-            fun getInterruptState(): interruptState = getIstateBits(getAttrWord())
+            fun getInterruptState(): interruptState = getIstateBits(getAttrWord(self()))
             and setInterruptState(s: interruptState): unit =
-                RunCall.run_call3 POLY_SYS_assign_word (self(), 1,
-                    Word.orb(setIstateBits s, Word.andb(Word.notb 0w6, getAttrWord ())))
-                
+                RunCall.run_call3 POLY_SYS_assign_word (self(), threadIdFlags,
+                    Word.orb(setIstateBits s, Word.andb(Word.notb 0w6, getAttrWord(self()))))
+
+            local
+                (* The default for a new thread is to ignore broadcasts and handle explicit
+                   interrupts synchronously. *)
+                val (defaultAttrs, _) =
+                    attrsToWord[EnableBroadcastInterrupt false, InterruptState InterruptSynch]
+                val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
+            in
+                fun fork(f:unit->unit, attrs: threadAttribute list): thread =
+                let
+                    (* Any attributes specified explicitly override the defaults. *)
+                    val (attrWord, mask) = attrsToWord attrs
+                    val attrValue = Word.orb(attrWord, Word.andb(Word.notb mask, defaultAttrs))
+                    val stack = newStackSize(attrs, 0 (* Default is unlimited *))
+                in
+                    doCall(7, (f, attrValue, stack))
+                end
+            end
         end
 
         val exit: unit -> unit = RunCall.run_call0 POLY_SYS_kill_self
-
-        local
-            (* The default for a new thread is to ignore broadcasts and handle explicit
-               interrupts synchronously. *)
-            val (defaultAttrs, _) =
-                attrsToWord[EnableBroadcastInterrupt false, InterruptState InterruptSynch]
-            val doCall = RunCall.run_call2 POLY_SYS_thread_dispatch
-        in
-            fun fork(f:unit->unit, attrs: threadAttribute list): thread =
-            let
-                (* Any attributes specified explicitly override the defaults. *)
-                val (attrWord, mask) = attrsToWord attrs
-                val attrValue = Word.orb(attrWord, Word.andb(Word.notb mask, defaultAttrs))
-            in
-                doCall(7, (f, attrValue))
-            end
-        end
         
         local
             val doCall: int*thread->bool = RunCall.run_call2 POLY_SYS_thread_dispatch

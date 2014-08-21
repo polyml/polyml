@@ -2,7 +2,7 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013 David C.J. Matthews
+    Copyright (c) 2007,2008,2013,2014 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -168,7 +168,7 @@ public:
     // Create a new thread.  The "args" argument is only used for threads
     // created in the RTS by the signal handler.
     Handle ForkThread(TaskData *taskData, Handle threadFunction,
-                    Handle args, PolyWord flags);
+                    Handle args, PolyWord flags, PolyWord stacksize);
     // Process general RTS requests from ML.
     Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code);
 
@@ -518,7 +518,9 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
     case 7: // Fork a new thread.  The arguments are the function to run and the attributes.
             return ForkThread(ptaskData, SAVE(args->WordP()->Get(0)),
-                        (Handle)0, args->WordP()->Get(1));
+                        (Handle)0, args->WordP()->Get(1),
+                        // For backwards compatibility we check the length here
+                        args->WordP()->Length() <= 2 ? TAGGED(0) : args->WordP()->Get(2));
 
     case 8: // Test if a thread is active
         {
@@ -570,6 +572,20 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
     case 14: // Return the number of physical processors.
         // Returns 0 if there is any problem.
         return Make_arbitrary_precision(taskData, NumberOfPhysicalProcessors());
+
+    case 15: // Set the maximum stack size.
+        {
+            PolyWord newSize = args->Word();
+            taskData->threadObject->mlStackSize = newSize;
+            if (newSize != TAGGED(0))
+            {
+                POLYUNSIGNED current = taskData->currentStackSpace(); // Current size in words
+                POLYUNSIGNED newWords = get_C_ulong(taskData, newSize);
+                if (current > newWords)
+                    raise_exception0(taskData, EXC_interrupt);
+            }
+            return SAVE(TAGGED(0));
+        }
 
     default:
         {
@@ -1068,11 +1084,12 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
         taskData->threadObject = (ThreadObject*)threadId->WordP();
     else
     {
-        taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
+        taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject)/sizeof(PolyWord), F_MUTABLE_BIT);
         taskData->threadObject->index = TAGGED(thrdIndex); // Set to the index
         taskData->threadObject->flags = flags != TAGGED(0) ? TAGGED(PFLAG_SYNCH): flags;
         taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+        taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
     }
 
 #ifdef HAVE_PTHREAD
@@ -1169,13 +1186,14 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
     try {
         // We can't use ForkThread because we don't have a taskData object before we start
         TaskData *taskData = machineDependent->CreateTaskData();
-        taskData->threadObject = (ThreadObject*)alloc(taskData, 4, F_MUTABLE_BIT);
+        taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject) / sizeof(PolyWord), F_MUTABLE_BIT);
         taskData->threadObject->index = TAGGED(0); // Index 0
         // The initial thread is set to accept broadcast interrupt requests
         // and handle them synchronously.  This is for backwards compatibility.
         taskData->threadObject->flags = TAGGED(PFLAG_BROADCAST|PFLAG_ASYNCH); // Flags
         taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+        taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
 #if defined(HAVE_WINDOWS_H)
         taskData->threadHandle = mainThreadHandle;
 #endif
@@ -1360,7 +1378,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
 // Create a new thread.  Returns the ML thread identifier object if it succeeds.
 // May raise an exception.
 Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
-                           Handle args, PolyWord flags)
+                           Handle args, PolyWord flags, PolyWord stacksize)
 {
     if (singleThreaded)
         raise_exception_string(taskData, EXC_thread, "Threads not available");
@@ -1369,12 +1387,13 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         // Create a taskData object for the new thread
         TaskData *newTaskData = machineDependent->CreateTaskData();
         // We allocate the thread object in the PARENT's space
-        Handle threadId = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
+        Handle threadId = alloc_and_save(taskData, sizeof(ThreadObject) / sizeof(PolyWord), F_MUTABLE_BIT);
         newTaskData->threadObject = (ThreadObject*)DEREFHANDLE(threadId);
         newTaskData->threadObject->index = TAGGED(0);
         newTaskData->threadObject->flags = flags; // Flags
         newTaskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         newTaskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
+        newTaskData->threadObject->mlStackSize = stacksize;
 
         unsigned thrdIndex;
         schedLock.Lock();
@@ -1471,7 +1490,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
 {
     try {
-        (void)ForkThread(taskData, proc, arg, TAGGED(PFLAG_SYNCH));
+        (void)ForkThread(taskData, proc, arg, TAGGED(PFLAG_SYNCH), TAGGED(0));
         return true;
     } catch (IOException)
     {

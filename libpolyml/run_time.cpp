@@ -991,11 +991,12 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
     if (old_len >= minSize) return; /* Ok with present size. */
 
     // If it is too small double its size.
-
     POLYUNSIGNED new_len; /* New size */
     for (new_len = old_len; new_len < minSize; new_len *= 2);
+    POLYUNSIGNED limitSize = get_C_ulong(taskData, taskData->threadObject->mlStackSize);
 
-    if (! gMem.GrowOrShrinkStack(taskData, new_len))
+    // Do not grow the stack if its size is already too big.
+    if (limitSize != 0 && old_len >= limitSize || ! gMem.GrowOrShrinkStack(taskData, new_len))
     {
         /* Cannot expand the stack any further. */
         fprintf(stderr, "Warning - Unable to increase stack - interrupting thread\n");
