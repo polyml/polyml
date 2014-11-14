@@ -2167,6 +2167,7 @@ Calling conventions:
     |   FPStatusToEAX
     |   FPLoadIntAndPop
     |   FPFree of reg
+    |   PreAddDetag of reg
 
     type operations = operation list
 
@@ -2388,7 +2389,7 @@ Calling conventions:
         |   FPStatusToEAX => (stream "FPStatus "; printReg eax)
         |   FPLoadIntAndPop => (stream "FPLoadIntAndPop (%ESP)")
         |   FPFree reg => (stream "FPFree "; printReg reg)
-
+        |   PreAddDetag reg => (stream "Detag "; printReg reg)
         ;
  
         stream "\n"
@@ -3384,6 +3385,17 @@ Calling conventions:
                 else genOpPlus2(FPESC 0w3, 0, esp, 0w0, code);
                 (* Pop the stack.  This value is not a valid tagged value. *)
                 cgOp(ResetStack 1 :: remainder) (* Pop the stack. *)
+            )
+
+        |   cgOp (PreAddDetag reg :: remainder) =
+            (
+                (* Subtract the tag before an ADD instruction.  This is
+                   needed because when testing for overflow in an arbitrary
+                   precision operation we have to have removed the tag from one
+                   of the arguments.  Use LEAL here because if there is a trap
+                   the emulation code needs to treat it specially. *)
+                genLeal(reg, reg, ~1, code);
+                cgOp remainder
             )
     in
         cgOp ops

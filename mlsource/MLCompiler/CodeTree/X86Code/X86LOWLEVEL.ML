@@ -956,12 +956,15 @@ struct
         local
             (* Various instructions also affect the tag and that has to be reinstated after
                the operation. *)
-            fun tagAdjust(ADD, reg) = [ArithRConst{opc=SUB, source=1, output=reg}]
-            |   tagAdjust(SUB, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
-            |   tagAdjust(OR, _) = [] (* Doesn't affect the tag. *)
-            |   tagAdjust(AND, _) = [] (* Doesn't affect the tag. *)
-            |   tagAdjust(XOR, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
-            |   tagAdjust(CMP, _) = raise InternalError "tagAdjust"
+            fun postTagAdjust(ADD, reg) = [] (* Dealt with before the operation. *)
+            |   postTagAdjust(SUB, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
+            |   postTagAdjust(OR, _) = [] (* Doesn't affect the tag. *)
+            |   postTagAdjust(AND, _) = [] (* Doesn't affect the tag. *)
+            |   postTagAdjust(XOR, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
+            |   postTagAdjust(CMP, _) = raise InternalError "postTagAdjust"
+            
+            fun preTagAdjust(ADD, reg) = [PreAddDetag reg]
+            |   preTagAdjust _ = []
 
             (* TODO: If we have the same argument on both sides (e.g. a+a) this seems to
                force them into different registers.  That also involves a double tag test. *)
@@ -1029,8 +1032,9 @@ struct
                     val argReg = oneOf readable
                 in
                     ActionDone{ outReg=SOME result,
-                                operation=tagAdjust(opcode, result) @
-                                    tagTest([ArithRR{opc=opcode, source=argReg, output=result}],
+                                operation=postTagAdjust(opcode, result) @
+                                    tagTest(ArithRR{opc=opcode, source=argReg, output=result} ::
+                                                 preTagAdjust(opcode, result),
                                             InRegister result, InRegister argReg)}
                 end
 
@@ -1060,9 +1064,10 @@ struct
 
             |   wordSelectedLeft ((opcode, tagTest), result) [_, ActBaseOffset(base, offset)] =
                     ActionDone{ outReg=SOME result,
-                            operation=tagAdjust(opcode, result) @
-                                      tagTest([ArithRMem{opc=opcode, base=base, offset=offset, output=result}],
-                                               InRegister result, BaseOffsetSource{base=base, offset=offset})}
+                            operation=postTagAdjust(opcode, result) @
+                                      tagTest(ArithRMem{opc=opcode, base=base, offset=offset, output=result} ::
+                                                   preTagAdjust(opcode, result),
+                                              InRegister result, BaseOffsetSource{base=base, offset=offset})}
 
             |   wordSelectedLeft _ _  = raise InternalError "addWordArg"
 

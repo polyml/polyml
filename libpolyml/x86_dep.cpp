@@ -1974,8 +1974,9 @@ bool X86TaskData::emulate_instrs()
                 PSP_INCR_PC(this, 1);
                 bool inConsts = false;
                 PolyWord arg2 = *(getArgument(modRm, rexPrefix, &inConsts));
-                if (dest == -1) { // New format
-                    PolyWord *destReg = get_reg( rrr);
+                if (dest == -1 || dest == src1) { // New format.
+                    ASSERT(dest == -1 || dest == rrr); // Destination regs should be the same
+                    PolyWord *destReg = get_reg(rrr);
                     PolyWord arg1 = *destReg;
                     // We could have come here because of testing the tags, which happens
                     // before the operation, or as a result of adding two tagged values in which
@@ -1989,6 +1990,9 @@ bool X86TaskData::emulate_instrs()
                             arg1 = arg2 = PolyWord::FromUnsigned(arg);
                         }
                         else arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned() - arg2.AsUnsigned());
+                        // If we have previously subtracted the tag we have to add it back.
+                        if (dest != -1)
+                            arg1 = PolyWord::FromUnsigned(arg1.AsUnsigned()+1);
                     }
                     // If this is in the 64-bit non-address area it is a constant with the
                     // tag removed.  Add it back in.
@@ -1997,7 +2001,7 @@ bool X86TaskData::emulate_instrs()
                     // The next operation will subtract the tag.  We need to add in a dummy tag..
                     // This may cause problems with CheckRegion which assumes that every register
                     // contains a valid value.
-                    if (! inConsts) {
+                    if (! inConsts && dest == -1) {
                         destReg = get_reg(rrr); // May have moved because of a GC.
                         *destReg = PolyWord::FromUnsigned(destReg->AsUnsigned()+1);
                     }
