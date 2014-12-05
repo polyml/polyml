@@ -931,7 +931,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                         &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
                     GetSystemTimeAsFileTime(&ftNow);
                     /* If the timeout time is earlier than the current time
-                    we must return, otherwise we block. */
+                       we must return, otherwise we block. */
                     if (CompareFileTime(&ftTime, &ftNow) <= 0)
                         break; /* Return the empty set. */
                     /* else drop through and block. */
@@ -979,15 +979,17 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                 {
                     struct timeval tv;
                     /* We have a value in microseconds.  We need to split
-                    it into seconds and microseconds. */
+                       it into seconds and microseconds. */
+                    Handle hSave = taskData->saveVec.mark();
                     Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
                     Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
                     unsigned long secs =
                         get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
                     unsigned long usecs =
                         get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
-                        /* If the timeout time is earlier than the current time
-                    we must return, otherwise we block. */
+                    /* If the timeout time is earlier than the current time
+                       we must return, otherwise we block. */
+                    taskData->saveVec.reset(hSave);
                     if (gettimeofday(&tv, NULL) != 0)
                         raise_syscall(taskData, "gettimeofday failed", errno);
                     if ((unsigned long)tv.tv_sec > secs ||
@@ -1050,15 +1052,18 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                 {
                     struct timeval tv;
                     /* We have a value in microseconds.  We need to split
-                    it into seconds and microseconds. */
+                       it into seconds and microseconds. */
+                    // We need to reset the savevec because we can come here repeatedly
+                    Handle hSave = taskData->saveVec.mark();
                     Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(2));
                     Handle hMillion = Make_arbitrary_precision(taskData, 1000000);
                     unsigned long secs =
                         get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
                     unsigned long usecs =
                         get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
-                        /* If the timeout time is earlier than the current time
-                    we must return, otherwise we block. */
+                    taskData->saveVec.reset(hSave);
+                    /* If the timeout time is earlier than the current time
+                       we must return, otherwise we block. */
                     if (gettimeofday(&tv, NULL) != 0)
                         raise_syscall(taskData, "gettimeofday failed", errno);
                     if ((unsigned long)tv.tv_sec > secs ||
