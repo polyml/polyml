@@ -1642,7 +1642,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             PIOSTRUCT str = get_stream(strm->WordP());
             if (str == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (isAvailable(taskData, str))
-                Make_arbitrary_precision(taskData, 0);
+                return Make_arbitrary_precision(taskData, 0);
             WaitStream waiter(str);
             processes->ThreadPauseForIO(taskData, &waiter);
         }
