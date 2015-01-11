@@ -241,62 +241,8 @@ struct
         if isFinite x then x
         else if isNan x then raise General.Div else raise General.Overflow
 
-    local
-        (* The RTS real-to-int function returns only short-precision ints so
-           we need to split the value if it's long.  We split it at the largest
-           value that can be represented as a short integer and also precisely
-           by a real number. *)
-        val maxShortLen = Int.min(Word.wordSize, precision)
-        val maxShortInt = Word.toInt(Word.<<(0w1, Word.fromInt (maxShortLen-1))-0w1)
-        val floatShort: int -> real = RunCall.run_call1 POLY_SYS_int_to_real
-        val maxShortIntAsReal = floatShort maxShortInt
-        val floorShort: real -> int  = RunCall.run_call1 POLY_SYS_real_to_int
-    in
-        val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real
-          
-        val fromLargeInt = fromInt
-        
-        val realFloor = callReal 19
-        and realCeil  = callReal 20
-        and realTrunc = callReal 21
-        and realRound = callReal 22
-
-        fun floor x =
-        (* Returns the largest integer <= x. *)
-            let
-                fun floor' (x: real) : int =
-                    if abs x <= maxShortIntAsReal
-                    then floorShort x
-                    else 
-                    let
-                      (* Return the largest multiple of maxShortInt <= x *)
-                      val d: int = maxShortInt * floor' (x / maxShortIntAsReal);
-                    in
-                      (* Add in the largest integer <= the remainder. *)
-                      d + floorShort (x - fromInt d)
-                    end;
-            in
-                if isNan x then raise General.Domain
-                else if not (isFinite x) then raise General.Overflow
-                else floor' x
-            end
-
-        fun ceil x = floor(realCeil x)
-        (* Returns the smallest integer >= x. *)
-
-        fun trunc x = floor(realTrunc x)
-        (* Truncate towards zero. *)
-
-        fun round x = floor(realRound x)
-        (* Return the nearest integer, returning an even value if equidistant. *)
-        
-        fun toInt IEEEReal.TO_NEGINF r = floor r
-         |  toInt IEEEReal.TO_POSINF r = ceil r
-         |  toInt IEEEReal.TO_ZERO r = trunc r
-         |  toInt IEEEReal.TO_NEAREST r = round r
-
-        val toLargeInt = toInt
-    end;
+    val fromInt: int  -> real = RunCall.run_call1 POLY_SYS_int_to_real
+    val fromLargeInt = fromInt
 
     val radixAsReal (* Not exported *) = fromInt radix
     val epsilon (* Not exported *) = Math.pow(radixAsReal, fromInt (Int.-(1, precision)))
@@ -326,6 +272,51 @@ struct
             then man
             else fromManAndExp(man, exp)
     end
+
+    local
+        (* The RTS function converts to at most a 64-bit value (even on 
+           32-bits).  That will convert all the bits of the mantissa
+           but if the exponent is large we may have to multiply by
+           some power of two. *)
+        val realToInt: real -> int  = RunCall.run_call1 POLY_SYS_real_to_int
+    in
+        
+        val realFloor = callReal 19
+        and realCeil  = callReal 20
+        and realTrunc = callReal 21
+        and realRound = callReal 22
+
+        fun toArbitrary x = 
+            if isNan x then raise General.Domain
+            else if not (isFinite x) then raise General.Overflow
+            else
+            let
+                val { man, exp } = toManExp x
+            in
+                if exp <= precision
+                then realToInt x
+                else IntInf.<< (realToInt(fromManExp{man=man, exp=precision}), Word.fromInt(exp - precision))
+            end
+
+        fun floor x = toArbitrary(realFloor x)
+        (* Returns the largest integer <= x. *)
+
+        fun ceil x = toArbitrary(realCeil x)
+        (* Returns the smallest integer >= x. *)
+
+        fun trunc x = toArbitrary(realTrunc x)
+        (* Truncate towards zero. *)
+
+        fun round x = toArbitrary(realRound x)
+        (* Return the nearest integer, returning an even value if equidistant. *)
+        
+        fun toInt IEEEReal.TO_NEGINF r = floor r
+         |  toInt IEEEReal.TO_POSINF r = ceil r
+         |  toInt IEEEReal.TO_ZERO r = trunc r
+         |  toInt IEEEReal.TO_NEAREST r = round r
+
+        val toLargeInt = toInt
+    end;
 
     local
         val realConv: string->real = RunCall.run_call1 POLY_SYS_conv_real

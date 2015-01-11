@@ -74,6 +74,10 @@
 #include <stdlib.h>
 #endif
 
+#ifdef HAVE_STDINT_H
+#include <stdint.h>
+#endif
+
 #include "globals.h"
 #include "run_time.h"
 #include "reals.h"
@@ -237,17 +241,15 @@ Handle Real_floatc(TaskData *mdTaskData, Handle x) /* SHORT int to real */
 }
 
 /* CALL_IO1(Real_int, REF, NOIND) */
-Handle Real_intc(TaskData *mdTaskData, Handle x) /* real to SHORT int */
+// This previously always converted to a SHORT integer.  Using
+// int64_t here means we will capture all the significant bits of
+// the mantissa.  The calling code checks for infinities and NaNs
+// and reduces the exponent if it is too big to fit.
+Handle Real_intc(TaskData *mdTaskData, Handle x)
 {
     double dx = real_arg(x);
-    double di = floor(dx); /* Get the largest integer <= dx */
-    POLYSIGNED i  = (POLYSIGNED) di ; /* Convert (truncate) this to integer */
-    /* Bug fix thanks to Mike Crawley at Brunel. */
-    if (di > (double)MAXTAGGED || di < -(double)MAXTAGGED -1)
-    {
-       raise_exception0(mdTaskData, EXC_size);
-    }
-    return mdTaskData->saveVec.push(TAGGED(i));
+    int64_t i = (int64_t)dx;
+    return Make_arbitrary_precision(mdTaskData, i);
 }
 
 /* CALL_IO1(Real_sqrt, REF, NOIND) */
