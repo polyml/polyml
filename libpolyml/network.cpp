@@ -407,7 +407,9 @@ WaitNet::WaitNet(SOCKET sock, bool isOOB)
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_int(taskData, DEREFWORDHANDLE(code));
-TryAgain:
+TryAgain: // Used for various retries.
+          // N.B.  If we call ThreadPause etc we may GC.  We MUST reload any handles so for
+          // safety we always come back here.
     switch (c)
     {
     case 0:
@@ -889,8 +891,12 @@ TryAgain:
                 /* else try again. */
             }
 
+
             while (1)
             {
+                // ThreadPause may GC.  We need to reload the socket for security.
+                strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
+                if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
                 SOCKET sock = strm->device.sock;
                 /* In Windows failure is indicated by the bit being set in
                     the exception set rather than the write set. */
@@ -981,7 +987,11 @@ TryAgain:
                     return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 51 /* blocking */)
+                {
                     processes->ThreadPause(taskData);
+                    // It is NOT safe to just loop here.  We may have GCed.
+                    goto TryAgain;
+                }
                 else if (err != EINTR)
                     raise_syscall(taskData, "send failed", err);
                 /* else try again */
@@ -1027,7 +1037,11 @@ TryAgain:
                     return Make_arbitrary_precision(taskData, sent);
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 52 /* blocking */)
+                {
                     processes->ThreadPause(taskData);
+                    // It is NOT safe to just loop here.  We may have GCed.
+                    goto TryAgain;
+                }
                 else if (err != EINTR)
                     raise_syscall(taskData, "sendto failed", err);
                 /* else try again */
@@ -1065,6 +1079,8 @@ TryAgain:
                     /* Block until something arrives. */
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
+                    // It is NOT safe to just loop here.  We may have GCed.
+                    goto TryAgain;
                 }
                 else if (err != EINTR)
                     raise_syscall(taskData, "recv failed", err);
@@ -1113,6 +1129,8 @@ TryAgain:
                 {
                     WaitNet waiter(strm->device.sock, outOfBand != 0);
                     processes->ThreadPauseForIO(taskData, &waiter);
+                    // It is NOT safe to just loop here.  We may have GCed.
+                    goto TryAgain;
                 }
                 else if (err != EINTR)
                     raise_syscall(taskData, "recvfrom failed", err);
