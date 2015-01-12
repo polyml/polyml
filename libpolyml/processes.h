@@ -176,7 +176,9 @@ public:
 private:
 #endif
 #ifdef HAVE_WINDOWS_H
+public: // Because, on Cygwin, it's used in NewThreadFunction
     HANDLE threadHandle;
+private:
 #endif
 
     friend class Processes;
