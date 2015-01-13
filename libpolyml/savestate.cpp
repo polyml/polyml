@@ -60,6 +60,10 @@
 #include <unistd.h>
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define ASSERT(x)   assert(x)
@@ -215,7 +219,7 @@ static bool AddHierarchyEntry(const char *fileName, time_t timeStamp)
 }
 
 // Test whether we're overwriting a parent of ourself.
-#ifdef HAVE_WINDOWS_H
+#ifdef _WIN32
 static bool sameFile(const char *x, const char *y)
 {
     // Get the lengths and return if either does not exist.
@@ -229,7 +233,11 @@ static bool sameFile(const char *x, const char *y)
     GetFullPathName(x, dwxLen+1, xName, &filePart);
     AutoFree<char*> yName = (char*)malloc(dwyLen+1);
     GetFullPathName(y, dwyLen+1, yName, &filePart);
+#ifdef _MSC_VER
     return strcmpi(xName, yName) == 0;
+#else
+    return strcasecmp(xName, yName) == 0;
+#endif
 }
 #else
 static bool sameFile(const char *x, const char *y)
