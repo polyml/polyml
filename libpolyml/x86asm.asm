@@ -942,6 +942,9 @@ SaveStateAndReturnLocal: ;# This is necessary so that the jmps use a PC-relative
     MOVL    PolyStack[Rebp],Reax
     MOVL    Rebx,EBX_OFF[Reax]
     MOVL    Redx,EDX_OFF[Reax]
+    FSTCW   FPREGS_OFF[Reax]
+    FNINIT                     ;# Reset the FP state.
+    FLDCW   FPREGS_OFF[Reax]   ;# But reload the rounding mode
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    R8,R8_OFF[Reax]
     MOVL    R9,R9_OFF[Reax]
