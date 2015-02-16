@@ -158,7 +158,9 @@ void *OSMem::Allocate(size_t &space, unsigned permissions)
     // Get the page size and round up to that multiple.
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
-    DWORD pageSize = sysInfo.dwPageSize;
+    // Get the page size.  Put it in a size_t variable otherwise the rounding
+    // up of "space" may go wrong on 64-bits.
+    size_t pageSize = sysInfo.dwPageSize;
     space = (space + pageSize-1) & ~(pageSize-1);
     return VirtualAlloc(0, space, MEM_RESERVE|MEM_COMMIT, ConvertPermissions(permissions));
 }
