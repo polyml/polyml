@@ -1377,9 +1377,9 @@ ENDIF
 ;# Drop through into alloc_store
 
 IFNDEF HOSTARCHITECTURE_X86_64
-CALLMACRO   RegMask alloc_uninit,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Redi)
+CALLMACRO   RegMask alloc_uninit,Mask_all ;# All, because we may call RTS
 ELSE
-CALLMACRO   RegMask alloc_uninit,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Redi OR M_R8)
+CALLMACRO   RegMask alloc_uninit,Mask_all ;# All, because we may call RTS
 ENDIF
 
 ;# alloc(size, flags, initial).  Allocates a segment of a given size and
@@ -1498,7 +1498,7 @@ IFNDEF HOSTARCHITECTURE_X86_64
 ELSE
     ret
 ENDIF
-CALLMACRO   RegMask alloc_store,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR M_Redi)
+CALLMACRO   RegMask alloc_store,Mask_all ;# All, because we may use RTS call
 
 ;# This is used if we have reached the store limit and need to garbage-collect.
 alloc_in_rts:
