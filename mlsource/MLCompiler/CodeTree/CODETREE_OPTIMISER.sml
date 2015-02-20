@@ -1344,9 +1344,126 @@ struct
     (* TODO: convert "(if a then b else c) (args)" into if a then b(args) else c(args).  This would
        allow for possible inlining and also passing information about call patterns. *)
 
+    (* Once all the inlining is done we look for functions that can be compiled immediately.
+       These are either functions with no free variables or functions where every use is a
+       call, as opposed to being passed or returned as a closure.  Functions that have free
+       variables but are called can be lambda-lifted where the free variables are turned into
+       extra parameters.  The advantage compared with using a static-link or a closure on
+       the stack is that they can be fully tail-recursive.  With a static-link or stack
+       closure the free variables have to remain on the stack until the function returns. *)
+    fun lambdaLiftAndConstantFunction(code, debugSwitches, numLocals) =
+    let
+        val needReprocess = ref false
+        (* At the moment this just code-generates immediately any lambdas without
+           free-variables.  The idea is to that we will get a constant which can
+           then be inserted directly in references to the function.  In general
+           this takes a list of mutually recursive functions which can be code-
+           generated immediately if all the free variables are other functions
+           in the list.  The simplifier has separated mutually recursive
+           bindings into strongly connected components so we can consider
+           the list as a single entity. *)
+        fun processLambdas lambdaList =
+        let
+            (* First process the bodies of the functions. *)
+            val needed = ! needReprocess
+            val _ = needReprocess := false;
+            val transLambdas =
+                map (fn {lambda={body, isInline, name, closure, argTypes, resultType, localCount, recUse}, use, addr} =>
+                        {lambda={body=mapChecks body, isInline=isInline, name=name, closure=closure,
+                                  argTypes=argTypes, resultType=resultType, localCount=localCount, recUse=recUse},
+                         use=use, addr=addr}) lambdaList
+            val theseTransformed = ! needReprocess
+            val _ = if needed then needReprocess := true else ()
+
+            fun hasFreeVariables{lambda={closure, ...}, ...} =
+            let
+                fun notInLambdas(LoadLocal lAddr) =
+                    (* A local is allowed if it only refers to another lambda. *)
+                        not (List.exists (fn {addr, ...} => addr = lAddr) lambdaList)
+                |   notInLambdas _ = true (* Anything else is not allowed. *)
+            in
+                List.exists notInLambdas closure
+            end
+        in
+            if theseTransformed orelse List.exists (fn {lambda={isInline=Inline, ...}, ...} => true | _ => false) lambdaList
+               orelse List.exists hasFreeVariables lambdaList
+            (* If we have transformed any of the bodies we need to reprocess so defer any
+               code-generation.  Don't CG it if it is inline, or perhaps if it is inline and exported. 
+               Don't CG it if it has free variables.  We still need to examine
+               the bodies of the functions. *)
+            then (transLambdas, [])
+            else
+            let
+                (* Construct code to declare the functions and extract the values. *)
+                val tupleFields = map (fn {addr, ...} => Extract(LoadLocal addr)) transLambdas
+                val decsAndTuple = Newenv([RecDecs transLambdas], mkTuple tupleFields)
+                val maxLocals = List.foldl(fn ({addr, ...}, n) => Int.max(addr, n)) 0 transLambdas
+                val (code, props) = BACKEND.codeGenerate(decsAndTuple, maxLocals + 1, debugSwitches)
+                val resultConstnt = Constnt(code(), props)
+                fun getResults([], _) = []
+                |   getResults({addr, use, ...} :: tail, n) =
+                        Declar {value=mkInd(n, resultConstnt), addr=addr, use=use} :: getResults(tail, n+1)
+                val () = needReprocess := true
+            in
+                ([], getResults(transLambdas, 0))
+            end
+        end
+
+        and runChecks (Lambda (lambda as { isInline=NonInline, closure=[], ... })) =
+            (
+                (* Bare lambda. *)
+                case processLambdas[{lambda=lambda, use = [], addr = 0}] of
+                    ([{lambda=unCGed, ...}], []) => SOME(Lambda unCGed)
+                |   ([], [Declar{value, ...}]) => SOME value
+                |   _ => raise InternalError "processLambdas"
+            )
+        
+        |   runChecks (Newenv(bindings, exp)) =
+            let 
+                (* We have a block of bindings.  Are any of them functions that are only ever called? *)
+                fun checkBindings(Declar{value=Lambda lambda, addr, use}, tail) =
+                    (
+                        (* Process this lambda and extract the result. *)
+                        case processLambdas[{lambda=lambda, use = use, addr = addr}] of
+                            ([{lambda=unCGed, use, addr}], []) =>
+                                Declar{value=Lambda unCGed, use=use, addr=addr} :: tail
+                        |   ([], cgedDec) => cgedDec @ tail
+                        |   _ => raise InternalError "checkBindings"
+                    )
+
+                |   checkBindings(Declar{value, addr, use}, tail) =
+                        Declar{value=mapChecks value, addr=addr, use=use} :: tail
+
+                |   checkBindings(RecDecs l, tail) =
+                    let
+                        val (notConsts, asConsts) = processLambdas l
+                    in
+                        asConsts @
+                            (if null notConsts then [] else [RecDecs notConsts]) @
+                                tail
+                    end
+
+                |   checkBindings(NullBinding exp, tail) = NullBinding(mapChecks exp) :: tail
+
+                |   checkBindings(Container{addr, use, size, setter}, tail) =
+                        Container{addr=addr, use=use, size=size, setter=mapChecks setter} :: tail
+
+            in
+                SOME(Newenv((List.foldr checkBindings [] bindings), mapChecks exp))
+            end
+
+        |   runChecks _ = NONE
+
+        and mapChecks c = mapCodetree runChecks c
+
+    in
+        (mapCodetree runChecks code, numLocals, !needReprocess)
+    end
+
+    (* Main optimiser and simplifier loop. *)
     fun codetreeOptimiser(code, debugSwitches, numLocals) =
     let
-        fun topLevel _ = raise InternalError "top level reached"
+        fun topLevel _ = raise InternalError "top level reached in optimiser"
 
         fun processTree (code, nLocals, optAgain, count) =
         let
@@ -1385,13 +1502,19 @@ struct
                 }
                 (* Optimise the code, rewriting it as necessary. *)
                 val optCode = mapCodetree (optimise(optContext, [UseExport])) preOptCode
+                
+                val (llCode, llCount, llAgain) =
+                    if ! reprocess (* Re-optimise *)
+                    then (optCode, ! addressAllocator, ! reprocess)
+                    else (* We didn't detect any inlineable functions.  Check for lambda-lifting. *)
+                        lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator)
 
                 (* Print the code after the optimiser. *)
                 val () = if printCodeTree then compilerOut(PRETTY.PrettyString "Output of optimiser") else ()
-                val () = if printCodeTree then compilerOut (BASECODETREE.pretty optCode) else ()
+                val () = if printCodeTree then compilerOut (BASECODETREE.pretty llCode) else ()
             in
                 (* Rerun the simplifier at least. *)
-                processTree(optCode, ! addressAllocator, ! reprocess, count+1)
+                processTree(llCode, llCount, llAgain, count+1)
             end
             else (simpCode, simpCount) (* We're done *)
         end

@@ -916,7 +916,9 @@ struct
         val addrTab = Array.array(numLocals, NONE)
         
         fun lookupAddr (LoadLocal addr) = valOf(Array.sub(addrTab, addr))
-        |   lookupAddr _ = raise InternalError "top level reached"
+        |   lookupAddr (env as LoadArgument _) = (EnvGenLoad env, EnvSpecNone)
+        |   lookupAddr (env as LoadRecursive) = (EnvGenLoad env, EnvSpecNone)
+        |   lookupAddr (LoadClosure _) = raise InternalError "top level reached in simplifier"
 
         and enterAddr (addr, tab) = Array.update (addrTab, addr, SOME tab)
 
