@@ -252,22 +252,34 @@ struct
         
         (* May be the end of an integer, part of a real number,
            or w for word or x for hex. *)
+        (* Since "0" is a valid integer what follows it is only treated
+           as part of the integer if it is well-formed.  If it is not
+           we return the "0" as an integer constant and leave the rest
+           to be returned.  In particular that means that 0wxz is
+           the INTEGER constant "0" followed by the identifier "wxz". *)
         if !ch = #"w" andalso !id = "0"
-        then (* word constant. *)
+        then (* word constant; if it's well formed. *)
         (
-            sy := WordConst;
             nextCh state;
             if !ch = #"x"
             then
             (
                 nextCh state;
                 if isHexadecimal (!ch)
-                then id := readChars state isHexadecimal "0wx"
-                else lexError(state, "malformed word constant: " ^ !id ^ str(!ch))
+                then
+                (
+                    sy := WordConst;
+                    id := readChars state isHexadecimal "0wx"
+                )
+                else (extraChars := [#"x", !ch]; ch := #"w")
             )
             else if isNumeric (!ch)
-            then id := readChars state isNumeric "0w"
-            else lexError(state, "malformed word constant: " ^ !id ^ str(!ch))
+            then
+            (
+                sy := WordConst;
+                id := readChars state isNumeric "0w"
+            )
+            else (extraChars := [!ch]; ch := #"w")
         )
         else if !ch = #"x" andalso !id = "0"
         then (* Hexadecimal integer constant. *)
@@ -275,7 +287,7 @@ struct
             nextCh state;
             if isHexadecimal (!ch)
             then id := readChars state isHexadecimal "0x"
-            else lexError(state, "malformed integer constant: " ^ !id ^ str(!ch))
+            else (extraChars := [!ch]; ch := #"x")
         )
         else if !ch = #"." orelse
                 !ch = #"E" orelse !ch = #"e" (* "e" is allowed in ML97 *)
