@@ -956,7 +956,7 @@ struct
         local
             (* Various instructions also affect the tag and that has to be reinstated after
                the operation. *)
-            fun postTagAdjust(ADD, reg) = [] (* Dealt with before the operation. *)
+            fun postTagAdjust(ADD, _) = [] (* Dealt with before the operation. *)
             |   postTagAdjust(SUB, reg) = [ArithRConst{opc=ADD, source=1, output=reg}]
             |   postTagAdjust(OR, _) = [] (* Doesn't affect the tag. *)
             |   postTagAdjust(AND, _) = [] (* Doesn't affect the tag. *)
