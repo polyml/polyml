@@ -31,11 +31,20 @@ local
             structure CODETREE_FUNCTIONS = CodetreeFunctions
         )
 
+     structure CodetreeLamdbaLift =
+        CODETREE_LAMBDA_LIFT (
+            structure   BASECODETREE        = BaseCodeTree
+            and         CODETREE_FUNCTIONS  = CodetreeFunctions
+            and         BACKEND             = CodetreeBackend
+            and         PRETTY              = Pretty
+            and         DEBUG               = Debug
+        )
+
     structure CodetreeCodegenConstantFns =
         CODETREE_CODEGEN_CONSTANT_FUNCTIONS (
             structure   BASECODETREE        = BaseCodeTree
             and         CODETREE_FUNCTIONS  = CodetreeFunctions
-            and         BACKEND             = CodetreeBackend
+            and         BACKEND             = CodetreeLamdbaLift
             and         PRETTY              = Pretty
             and         DEBUG               = Debug
         )

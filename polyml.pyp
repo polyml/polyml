@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=195
+NFiles=196
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -198,3 +198,4 @@ File191=mlsource\MLCompiler\CodeTree\X86Code\X86LOWLEVEL.ML
 File192=mlsource\MLCompiler\CodeTree\X86Code\X86OPTIMISE.ML
 File193=mlsource\MLCompiler\CodeTree\X86Code\X86OUTPUTCODE.ML
 File194=basis\Statistics.ML
+File195=mlsource\MLCompiler\CodeTree\CODETREE_LAMBDA_LIFT.sml
