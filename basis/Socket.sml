@@ -101,7 +101,7 @@ sig
 
      
      val select:
-            { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeOut: Time.time option } ->
+            { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeout: Time.time option } ->
             { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list }
      
      val ioDesc : ('af, 'sock_type) sock -> OS.IO.iodesc
@@ -608,7 +608,7 @@ struct
         and sys_select_wait (rds, wrs, exs, t) = doIo(66, (rds, wrs, exs, t))
     end
     
-    fun select { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeOut: Time.time option } :
+    fun select { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list, timeout: Time.time option } :
             { rds: sock_desc list, wrs : sock_desc list, exs : sock_desc list } =
     let
         fun sockDescToDesc(SOCKDESC sock) = sock
@@ -619,7 +619,7 @@ struct
         open Time
         val (rdResult, wrResult, exResult) =
             (* Do the approriate select. *)
-            case timeOut of
+            case timeout of
                 NONE => sys_select_block(rdVec, wrVec, exVec)
             |   SOME t => if t <= Time.zeroTime
                           then sys_select_poll(rdVec, wrVec, exVec)
