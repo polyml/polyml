@@ -441,10 +441,14 @@ local
             else (* Plain text form. *)
             (
                 printString(concat
-                   ( (if hard then ["Error-"] else ["Warning-"]) @
+                   ( (if file = "" then ["poly: "] else [file, ":"]) @
+                     (if startLine = 0 then [] else [Int.toString startLine]) @
+                     (if startPosition = 0 then [": "] else [".", Int.toString startPosition, "-", Int.toString endPosition, ": "]) @
+                     (if hard then ["error: "] else ["warning: "]) ));
+(*                   ( (if hard then ["Error-"] else ["Warning-"]) @
                      (if file = "" then [] else [" in '", file, "',"]) @
                      (if startLine = 0 then [] else [" line ", Int.toString startLine]) @
-                     (if startLine = 0 andalso file = "" then [] else [".\n"])));
+                     (if startLine = 0 andalso file = "" then [] else [".\n"]))); *)
                 PolyML.prettyPrint(printString, !lineLength) fullMessage
             )
         end
