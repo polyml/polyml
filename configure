@@ -19188,7 +19188,7 @@ else
 	FFI_LIBS=$pkg_cv_FFI_LIBS
         { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 $as_echo "yes" >&6; }
-
+	LIBS="$FFI_LIBS $LIBS" CFLAGS="$FFI_CFLAGS $CFLAGS"
 fi
 else
 # Use internal libffi

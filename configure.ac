@@ -232,7 +232,8 @@ AC_ARG_WITH([system-libffi],
 
 # Libffi uses pkg-config.
 if test "x$with_system_libffi" = "xyes"; then
-    PKG_CHECK_MODULES([FFI], [libffi], [],
+    PKG_CHECK_MODULES([FFI], [libffi],
+        [LIBS="$FFI_LIBS $LIBS" CFLAGS="$FFI_CFLAGS $CFLAGS"],
         [AC_CHECK_LIB([ffi], [ffi_prep_closure_loc],
              [
                  [LIBS="-lffi $LIBS"]

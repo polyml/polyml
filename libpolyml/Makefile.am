@@ -1,7 +1,7 @@
 AUTOMAKE_OPTIONS=foreign
 
-AM_CPPFLAGS = $(FFI_CFLAGS) $(OSFLAG) -Wall
-AM_CFLAGS = $(FFI_CFLAGS) $(OSFLAG) -Wall -fno-strict-aliasing
+AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) -Wall
+AM_CFLAGS = $(CFLAGS) $(OSFLAG) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 
@@ -10,8 +10,6 @@ libpolyml_la_LDFLAGS = -version-info 6:0:0
 
 if INTERNAL_LIBFFI
 libpolyml_la_LIBADD = ../libffi/libffi_convenience.la
-else
-libpolyml_la_LIBADD = $(FFI_LIBS)
 endif
 
 if NO_UNDEFINED
