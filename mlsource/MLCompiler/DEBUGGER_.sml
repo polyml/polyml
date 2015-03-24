@@ -1,12 +1,11 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2014
+    Copyright  (c)   David Matthews 2000, 2014, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -87,7 +86,6 @@ struct
     
     val dummyValue = mkGvar("", TYPETREE.unitType, CodeZero, [])
 
-
     fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
     (
         case (match (staticEntry, dynamicEntry), staticEntry) of
@@ -106,58 +104,60 @@ struct
     
     |   searchEnvs _ _ = raise Misc.InternalError "searchEnvs: Static and dynamic lists have different lengths"
 
+    fun searchType envs typeid =
+    let
+        fun match (EnvTypeid{original, freeId }, valu) =
+            if sameTypeId(original, typeid)
+            then 
+                case freeId of
+                    TypeId{description, idKind as Free _, typeFn, ...} =>
+                        (* This can occur for datatypes inside functions. *)
+                        SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn })
+                |   _ => raise Misc.InternalError "searchType: TypeFunction"
+            else NONE
+        |   match _ = NONE
+    in
+        case (searchEnvs match envs, typeid) of
+            (SOME t, _) => t
+        |   (NONE, typeid as TypeId{description, typeFn=(_, EmptyType), ...}) =>
+                (* The type ID is missing.  Make a new temporary ID. *)
+                makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+
+        |   (NONE, TypeId{description, typeFn, ...}) => makeTypeFunction(description, typeFn)
+    end
+
+    fun runTimeType debugEnviron ty =
+    let
+        fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
+        |   copyId id = SOME(searchType debugEnviron id)
+    in
+            copyType (ty, fn x => x,
+                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
+    end
+
     fun makeSpace debugEnviron =
     let
         (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
-        local
-            fun searchType envs typeid =
-            let
-                fun match (EnvTypeid{original, freeId }, valu) =
-                    if sameTypeId(original, typeid)
-                    then 
-                        case freeId of
-                            TypeId{description, idKind as Free _, typeFn, ...} =>
-                                (* This can occur for datatypes inside functions. *)
-                                SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn })
-                        |   _ => raise Misc.InternalError "searchType: TypeFunction"
-                    else NONE
-                |   match _ = NONE
-            in
-                case (searchEnvs match envs, typeid) of
-                    (SOME t, _) => t
-                |   (NONE, typeid as TypeId{description, typeFn=(_, EmptyType), ...}) =>
-                        (* The type ID is missing.  Make a new temporary ID. *)
-                        makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+        fun copyTheTypeConstructor (TypeConstrSet(tcons, (*tcConstructors*) _)) =
+        let
+            val typeID = searchType debugEnviron (tcIdentifier tcons)
+            val newTypeCons =
+                makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
 
-                |   (NONE, TypeId{description, typeFn, ...}) => makeTypeFunction(description, typeFn)
-            end
-
-            fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
-            |   copyId id = SOME(searchType debugEnviron id)
+            val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in
-            fun runTimeType ty =
-                copyType (ty, fn x => x,
-                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
-
-            fun copyTheTypeConstructor (TypeConstrSet(tcons, (*tcConstructors*) _)) =
-            let
-                val typeID = searchType debugEnviron (tcIdentifier tcons)
-                val newTypeCons =
-                    makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
-
-                val newValConstrs = (*map copyAConstructor tcConstructors*) []
-            in
-                TypeConstrSet(newTypeCons, newValConstrs)
-            end
-
-            (* When creating a structure we have to add a type map that will look up the bound Ids. *)
-            fun replaceSignature (Signatures{ name, tab, typeIdMap, minTypes, maxTypes, declaredAt, ... }) =
-            let
-                fun getFreeId n = searchType debugEnviron (makeBoundId(Global CodeZero, n, false, false, basisDescription ""))
-            in
-                makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, getFreeId), [])
-            end
+            TypeConstrSet(newTypeCons, newValConstrs)
         end
+
+        (* When creating a structure we have to add a type map that will look up the bound Ids. *)
+        fun replaceSignature (Signatures{ name, tab, typeIdMap, minTypes, maxTypes, declaredAt, ... }) =
+        let
+            fun getFreeId n = searchType debugEnviron (makeBoundId(Global CodeZero, n, false, false, basisDescription ""))
+        in
+            makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, getFreeId), [])
+        end
+
+        val runTimeType = runTimeType debugEnviron
 
         (* Lookup and "all" functions for the environment.  We can't easily use a general
            function for the lookup because we have dynamic entries for values and structures
@@ -339,12 +339,14 @@ struct
            fun declaration remove the trailing '-' *)
         val processedName = removeSuffix "-" (removeSuffix "()" name1)
 
+        val debugEnviron = (staticEnv, valueList)
+
         val (code, value) =
             case reason of
                 DebugEnter (argValue, argType) =>
-                    (debugEnterFun, mkGvar("", argType, mkConst argValue, [DeclaredAt location]))
+                    (debugEnterFun, mkGvar("", runTimeType debugEnviron argType, mkConst argValue, [DeclaredAt location]))
             |   DebugLeave (fnResult, resType) =>
-                    (debugLeaveFun, mkGvar("", resType, mkConst fnResult, [DeclaredAt location]))
+                    (debugLeaveFun, mkGvar("", runTimeType debugEnviron resType, mkConst fnResult, [DeclaredAt location]))
             |   DebugException exn =>
                 let
                     val exnVal = ADDRESS.toMachineWord exn
@@ -356,7 +358,7 @@ struct
             |   DebugStep =>
                     (debugLineChange, dummyValue)
     in
-        debugger(code, value, #startLine location, #file location, processedName, makeSpace(staticEnv, valueList))
+        debugger(code, value, #startLine location, #file location, processedName, makeSpace debugEnviron)
     end
 
     (* Functions to make the debug entries.   These are needed both in CODEGEN_PARSETREE for
