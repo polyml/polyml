@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Word8Array, Word8Vector and Byte Structures
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: Complete. *)
 
 local
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
@@ -33,18 +30,18 @@ local
        approach I've adopted. *)
     open LibrarySupport
 
-    datatype vector = datatype LibrarySupport.Word8Array.vector
+    type vector = LibrarySupport.Word8Array.vector
     datatype array = datatype LibrarySupport.Word8Array.array
 
     val System_lock: string -> unit   = RunCall.run_call1 POLY_SYS_lockseg;
-    val System_loads: string*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
+    val System_loads: vector*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_loadb: address*word->Word8.word = RunCall.run_call2 POLY_SYS_load_byte;
     val System_setb: address * word * Word8.word -> unit   = RunCall.run_call3 POLY_SYS_assign_byte;
     val System_move_bytes:
         address*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
     val System_move_str:
-        string*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
-    val System_isShort   : string -> bool = RunCall.run_call1 POLY_SYS_is_short
+        vector*word*address*word*word->unit = RunCall.run_call5 POLY_SYS_move_bytes
+    val System_isShort   : vector -> bool = RunCall.run_call1 POLY_SYS_is_short
     val emptyVec: vector = (* This is represented by a null string not a null vector. *)
         RunCall.run_call1 POLY_SYS_io_operation POLY_SYS_emptystring;
 
@@ -73,11 +70,11 @@ in
 
         val length = vecLength
     
-        fun op sub (v as Vector s, i: int): elem =
+        fun op sub (v, i: int): elem =
             if i < 0 orelse i >= length v then raise General.Subscript
-            else if System_isShort s
-            then RunCall.unsafeCast s 
-            else System_loads (s, intAsWord i + wordSize)
+            else if System_isShort v
+            then RunCall.unsafeCast v
+            else System_loads (v, intAsWord i + wordSize)
      
         (* Because Word8Vector.vector is implemented as a string and Word8.word
            as a byte all these functions have the same implementation in
@@ -104,7 +101,7 @@ in
                 struct
                     type vector = vector and elem = elem
                     val length = RunCall.run_call1 RuntimeCalls.POLY_SYS_string_length
-                    fun unsafeSub (Vector s, i) =
+                    fun unsafeSub (s, i) =
                         if System_isShort s then RunCall.unsafeCast s else System_loads(s, i + wordSize);
                     fun unsafeSet _ = raise Fail "Should not be called"
                 end);
@@ -220,7 +217,7 @@ in
             in
                 System_move_bytes(vec, 0w0, RunCall.unsafeCast new_vec, wordSize, len);
                 System_lock new_vec;
-                Vector new_vec
+                w8vectorFromString new_vec
             end
     
         (* Copy an array into another.  It's possible for the arrays to be the
@@ -236,18 +233,18 @@ in
             end
     
         (* Copy a vector into an array. *)
-        fun copyVec {src as Vector s, dst=Array (dlen, d), di: int} =
+        fun copyVec {src, dst=Array (dlen, d), di: int} =
             let
                 val len = intAsWord(vecLength src)
                 val diW = unsignedShortOrRaiseSubscript di
             in
                 if diW + len > dlen
                 then raise General.Subscript
-                else if System_isShort s (* i.e. length s = 1 *)
+                else if System_isShort src (* i.e. length s = 1 *)
                 then (* Single character strings are represented by the character
                         so we just need to insert the character into the array. *)
-                    System_setb(d, diW, RunCall.unsafeCast s)
-                else System_move_str(s, wordSize, d, diW, len)
+                    System_setb(d, diW, RunCall.unsafeCast src)
+                else System_move_str(src, wordSize, d, diW, len)
             end
 
         (* Create the other functions. *)
@@ -302,7 +299,7 @@ in
                 struct
                     type vector = vector and elem = Word8.word
                     val vecLength = wVecLength
-                    fun unsafeVecSub(Vector s, i: word) =
+                    fun unsafeVecSub(s, i: word) =
                         if System_isShort s then RunCall.unsafeCast s
                         else System_loads(s, i + wordSize)
                     fun unsafeVecUpdate _ = raise Fail "Should not be called" (* Not applicable *)
@@ -314,9 +311,9 @@ in
            string type we can use substring here. *)
         fun vector slice : vector =
         let
-            val (Vector vector, start, length) = base slice
+            val (vector, start, length) = base slice
         in
-            Vector(RunCall.unsafeCast(unsafeSubstring(RunCall.unsafeCast vector, intAsWord start, intAsWord length)))
+            w8vectorFromString(unsafeSubstring(w8vectorToString vector, intAsWord start, intAsWord length))
         end;
         
         (* It would be more efficient to do these as single operations but it's probably too complicated. *)
@@ -390,7 +387,7 @@ in
                 in
                     System_move_bytes(vec, intAsWord start, RunCall.unsafeCast new_vec, wordSize, len);
                     System_lock new_vec;
-                    Vector new_vec
+                    w8vectorFromString new_vec
                 end
             end
 
@@ -421,7 +418,7 @@ in
         (* Copy a vector slice into an array. *)
         fun copyVec {src: Word8VectorSlice.slice, dst=Array (dlen, d), di: int} =
             let
-                val (Vector source, i, l) = Word8VectorSlice.base src
+                val (source, i, l) = Word8VectorSlice.base src
                 val len = intAsWord l and offset = intAsWord i
                 val diW = unsignedShortOrRaiseSubscript di
             in

@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: IO Support functions
-    Copyright   David C.J. Matthews 2000
+    Copyright   David C.J. Matthews 2000, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -171,11 +170,10 @@ struct
     fun writeBinVec (n: fileDescr, slice: Word8VectorSlice.slice): int =
     let
         val (buf, i, len) = Word8VectorSlice.base slice
-        val LibrarySupport.Word8Array.Vector v = buf
         val iW = LibrarySupport.unsignedShortOrRaiseSubscript i
         val lenW = LibrarySupport.unsignedShortOrRaiseSubscript len
     in
-        sys_write_bin(n, (LibrarySupport.stringAsAddress v, iW+wordSize, lenW))
+        sys_write_bin(n, (LibrarySupport.w8vectorAsAddress buf, iW+wordSize, lenW))
     end
 
 

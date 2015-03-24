@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Byte Structure and signature
     Author:     David Matthews
-    Copyright   David Matthews 1999, 2005
+    Copyright   David Matthews 1999, 2005, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -18,8 +17,6 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
     under the terms of that licence.
 *)
-
-(* G&R 2004 status: Complete. *)
 
 signature BYTE =
 sig
@@ -40,8 +37,8 @@ structure Byte: BYTE =
         fun charToByte (c: char) : Word8.word = RunCall.unsafeCast c
 
         (* Conversion between Word8Vector.vector and string is just a cast. *)
-        fun bytesToString (LibrarySupport.Word8Array.Vector v) : string = v
-        fun stringToBytes (s: string) : Word8Vector.vector = LibrarySupport.Word8Array.Vector s
+        val bytesToString = LibrarySupport.w8vectorToString
+        and stringToBytes = LibrarySupport.w8vectorFromString
 
         fun unpackStringVec slice : string = bytesToString(Word8VectorSlice.vector slice)
         fun unpackString slice : string = bytesToString(Word8ArraySlice.vector slice)

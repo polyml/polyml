@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: Support functions
-    Copyright   David C.J. Matthews 2000
+    Copyright   David C.J. Matthews 2000, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -35,8 +34,10 @@ sig
     structure Word8Array:
         sig
         datatype array = Array of word*address
-        datatype vector = Vector of string
+        eqtype vector
         end
+    val w8vectorToString: Word8Array.vector -> string
+    and w8vectorFromString: string -> Word8Array.vector
     val wordSize: word
     val bigEndian: bool
     val allocString: word -> string (* Create a mutable string. *)
@@ -51,6 +52,7 @@ sig
     val unsignedShortOrRaiseSubscript: int -> word
     val sizeAsWord      : string -> word
     val stringAsAddress : string -> address
+    val w8vectorAsAddress : Word8Array.vector -> address
     val maxAllocation: word
     val reraise: exn -> 'a
 end
@@ -76,17 +78,24 @@ struct
     end
     structure Word8Array =
     struct
-        (* Using the Vector and Array constructors here does not add any overhead since they are compiled
-           as identity functions.  We need to use a datatype, though, in order to hide the representation.
-           This is because we can't use opaque matching because we want to make use of the internal
-           representation in the IO structures. *)
+        (* Using the Array constructor here does not add any overhead since it is compiled
+           as an identity function. *)
         datatype array = Array of word*address
-        and      vector = Vector of string
+
+        (* The representation of Word8Vector.vector is the same as that of string.  We
+           define it as "string" here so that it inherits the same equality function.
+           The representation is assumed by the RTS. *)
+        type vector = string
     end
+
+    (* Identity functions to provide convertions. *)
+    fun w8vectorToString s = s
+    and w8vectorFromString s = s
 
     (* There are circumstances when we want to pass the address of a string where
        we expect an address. *)
     val stringAsAddress : string -> address = RunCall.unsafeCast
+    val w8vectorAsAddress = stringAsAddress o w8vectorToString
 
     open RuntimeCalls; (* for POLY_SYS and EXC numbers *)
     open MachineConstants;

@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: Generic Sockets
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,8 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: Done.  Various changes.  In particular "select" added. *)
 
 signature SOCKET =
 sig
@@ -450,17 +447,17 @@ struct
     in
         fun sendVec' (sock, slice: Word8VectorSlice.slice, {don't_route, oob}) =
         let
-            val (Vector v, i, length) = Word8VectorSlice.base slice
+            val (v, i, length) = Word8VectorSlice.base slice
         in
-            send(sock, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
+            send(sock, LibrarySupport.w8vectorAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
         end
         and sendVec (sock, vbuff) = sendVec'(sock, vbuff, nullOut)
         
         fun sendVecNB' (sock, slice: Word8VectorSlice.slice, {don't_route, oob}) =
         let
-            val (Vector v, i, length) = Word8VectorSlice.base slice
+            val (v, i, length) = Word8VectorSlice.base slice
         in
-            sendNB(sock, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
+            sendNB(sock, LibrarySupport.w8vectorAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
         end
         and sendVecNB (sock, vbuff) = sendVecNB'(sock, vbuff, nullOut)
     
@@ -482,17 +479,17 @@ struct
     
         fun sendVecTo' (sock, addr, slice: Word8VectorSlice.slice, {don't_route, oob}) =
         let
-            val (Vector v, i, length) = Word8VectorSlice.base slice
+            val (v, i, length) = Word8VectorSlice.base slice
         in
-            sendTo(sock, addr, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
+            sendTo(sock, addr, LibrarySupport.w8vectorAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
         end
         and sendVecTo (sock, addr, vbuff) = sendVecTo'(sock, addr, vbuff, nullOut)
 
         fun sendVecToNB' (sock, addr, slice: Word8VectorSlice.slice, {don't_route, oob}) =
         let
-            val (Vector v, i, length) = Word8VectorSlice.base slice
+            val (v, i, length) = Word8VectorSlice.base slice
         in
-            sendToNB(sock, addr, LibrarySupport.stringAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
+            sendToNB(sock, addr, LibrarySupport.w8vectorAsAddress v, i + Word.toInt wordSize, length, don't_route, oob)
         end
         and sendVecToNB (sock, addr, vbuff) = sendVecToNB'(sock, addr, vbuff, nullOut)
 
