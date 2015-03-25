@@ -1,12 +1,11 @@
 (*
-    Title:      Pretty Printer.
+    Title:      Poly/ML Statistics parser.
     Author:     David Matthews
-    Copyright   David Matthews 2013
+    Copyright   David Matthews 2013, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -25,6 +24,8 @@
 *)
 
 local
+    open Asn1
+
     datatype statistic =
         UnknownStat
     |   CounterStat of { identifier: int, name: string, count: int }
@@ -38,135 +39,89 @@ local
     |   Time of Time.time
     |   UnknownComponent
 
+    val emptySlice = Word8VectorSlice.full(Word8Vector.fromList [])
+
     fun convStats(v: Word8Vector.vector) =
     let
-        open Word8VectorSlice
-        fun getNext n =
-            if length n = 0 then NONE
-            else SOME(sub(n, 0), subslice(n, 1, NONE))
-
-        (* Convert the length data *)
-        fun getLength p =
-            case getNext p of
-                SOME (n, t) =>
-                if n < 0wx80 then (Word8.toInt n, t)
-                else
-                let
-                    fun getL(0w0, m, l) = (m, l)
-                    |   getL(n, m, t) =
-                            case getNext t of
-                                SOME (hd, tl) => getL(n-0w1, m * 256 + Word8.toInt hd, tl)
-                            |   NONE => raise Fail "Format error" 
-                in
-                    getL(Word8.andb(n, 0wx7f), 0, t)
-                end
-            |   NONE => raise Fail "Format error"
-
-
-        fun parseInt p =
-            case getNext p of
-                NONE => 0
-            |   SOME(h, tl) =>
-                let
-                    fun parseRest(n, p) =
-                        case getNext p of
-                            NONE => n
-                        |   SOME (hd, tl) => parseRest(n * 256 + Word8.toInt hd, tl)
-                in
-                    parseRest(Word8.toIntX h, tl)
-                end
-
-        and parseString t = Byte.bytesToString(vector t)
-
-        and splitTagLength p =
-            case getNext p of
-                SOME (code, t) =>
-                let
-                    (* TODO: For long-term forwards compatibility we could consider the possibility of
-                       a tag value >= 31 which will be encoded in subsequent bytes before the
-                       length. *)
-                    val (len, tail) = getLength t
-                    val thisData = Word8VectorSlice.subslice(tail, 0, SOME len)
-                    val remainder = Word8VectorSlice.subslice(tail, len, NONE)
-                in
-                    (code, thisData, remainder)
-                end
-            |   NONE => raise Fail "Format error"
-
-        and parseStatistic p =
-            case splitTagLength p of
-                (0wx61, thisData, remainder) =>
+        fun parseStatistic p =
+            case decodeItem p of
+                SOME {tag = Application(0x1, Constructed), data, remainder} =>
                     (
-                        case parseComponents({identifier=0, name="", value=UnknownComponent}, thisData) of
+                        case parseComponents({identifier=0, name="", value=UnknownComponent}, data) of
                             {identifier, name, value=CounterValue v} =>
                                 (CounterStat{identifier=identifier, name=name, count=v}, remainder)
                         |   _ => (UnknownStat, remainder)
                     )
 
-            |   (0wx62, thisData, remainder) =>
+            |   SOME {tag = Application(0x2, Constructed), data, remainder} =>
                     (
-                        case parseComponents({identifier=0, name="", value=UnknownComponent}, thisData) of
+                        case parseComponents({identifier=0, name="", value=UnknownComponent}, data) of
                             {identifier, name, value=ByteCount s} =>
                                 (SizeStat{identifier=identifier, name=name, size=s}, remainder)
                         |   _ => (UnknownStat, remainder)
                     )
 
-            |   (0wx63, thisData, remainder) =>
+            |   SOME {tag = Application(0x3, Constructed), data, remainder} =>
                     (
-                        case parseComponents({identifier=0, name="", value=UnknownComponent}, thisData) of
+                        case parseComponents({identifier=0, name="", value=UnknownComponent}, data) of
                             {identifier, name, value=Time t} =>
                                 (TimeStat{identifier=identifier, name=name, time=t}, remainder)
                         |   _ => (UnknownStat, remainder)
                     )
 
-            |   (0wx6B, thisData, remainder) =>
+            |   SOME {tag = Application(0xb, Constructed), data, remainder} =>
                     (
-                        case parseComponents({identifier=0, name="", value=UnknownComponent}, thisData) of
+                        case parseComponents({identifier=0, name="", value=UnknownComponent}, data) of
                             {identifier, name, value=CounterValue c} =>
                                 (UserStat{identifier=identifier, name=name, count=c}, remainder)
                         |   _ => (UnknownStat, remainder)
                     )
 
-            |  (_, _, remainder) => (UnknownStat, remainder) 
+            |   SOME {remainder, ...} => (UnknownStat, remainder)
+
+            |   NONE => (UnknownStat, emptySlice)
 
 
         and parseComponents(result as {identifier, name, value }, p) =
-            if length p = 0
+            if Word8VectorSlice.length p = 0
             then result
             else
             (
-                case splitTagLength p of
-                    (0wx44, thisData, remainder) =>
-                        parseComponents({identifier=parseInt thisData, name=name, value=value}, remainder)
-                |   (0wx45, thisData, remainder) =>
-                        parseComponents({name=parseString thisData, identifier=identifier, value=value}, remainder)
-                |   (0wx46, thisData, remainder) =>
-                        parseComponents({identifier=identifier, name=name, value=CounterValue(parseInt thisData)}, remainder)
-                |   (0wx47, thisData, remainder) =>
-                        parseComponents({identifier=identifier, name=name, value=ByteCount(parseInt thisData)}, remainder)
-                |   (0wx68, thisData, remainder) =>
+                case decodeItem p of
+                    SOME {tag = Application(0x4, Primitive), data, remainder} =>
+                        parseComponents({identifier=decodeInt data, name=name, value=value}, remainder)
+                |   SOME {tag = Application(0x5, Primitive), data, remainder} =>
+                        parseComponents({name=decodeString data, identifier=identifier, value=value}, remainder)
+                |   SOME {tag = Application(0x6, Primitive), data, remainder} =>
+                        parseComponents({identifier=identifier, name=name, value=CounterValue(decodeInt data)}, remainder)
+                |   SOME {tag = Application(0x7, Primitive), data, remainder} =>
+                        parseComponents({identifier=identifier, name=name, value=ByteCount(decodeInt data)}, remainder)
+                |   SOME {tag = Application(0x8, Constructed), data, remainder} =>
                         let
                             fun parseTime (t, p) =
-                                if length p = 0
+                                if Word8VectorSlice.length p = 0
                                 then t
                                 else
                                 (
-                                    case splitTagLength p of
-                                        (0wx49, thisData, remainder) =>
-                                            parseTime(t + Time.fromSeconds(parseInt thisData), remainder)
-                                    |   (0wx4A, thisData, remainder) =>
-                                            parseTime(t + Time.fromMicroseconds(parseInt thisData), remainder)
-                                    |   (_, _, remainder) => parseTime(t, remainder) (* Unknown *)
+                                    case decodeItem p of
+                                        SOME {tag = Application(0x9, Primitive), data, remainder} =>
+                                            parseTime(t + Time.fromSeconds(decodeInt data), remainder)
+                                    |   SOME {tag = Application(0xa, Primitive), data, remainder} =>
+                                            parseTime(t + Time.fromMicroseconds(decodeInt data), remainder)
+                                    |   SOME {remainder, ...} => parseTime(t, remainder) (* Unknown *)
+                                    |   NONE => t
                                 )
                         in
                             parseComponents({identifier=identifier, name=name,
-                                    value=Time(parseTime(Time.zeroTime, thisData))}, remainder)
+                                    value=Time(parseTime(Time.zeroTime, data))}, remainder)
                         end
-                |  (_, _, remainder) => parseComponents(result, remainder)
+                |   SOME {remainder, ...} => parseComponents(result, remainder)
+
+                |   NONE => result
             )
 
         fun parseStatistics l =
-            if length l = 0
+            if Word8VectorSlice.length l = 0
             then []
             else
             let
@@ -177,8 +132,8 @@ local
             end
 
         val stats =
-            case splitTagLength (full v) of
-                (0wx60, thisData, _) => parseStatistics thisData
+            case decodeItem (Word8VectorSlice.full v) of
+                SOME {tag = Application(0x0, Constructed), data, ...} => parseStatistics data
             |   _ => raise Fail "Statistics not available"
         
         fun extractCounter(n, l) =

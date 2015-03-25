@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: Commands to build the library
-    Copyright   David C.J. Matthews 2000, 2005
+    Copyright   David C.J. Matthews 2000, 2005, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -125,6 +124,7 @@ val () = Bootstrap.use "basis/processes.ML";
 val () = Bootstrap.use "basis/HashArray.ML";
 val () = Bootstrap.use "basis/UniversalArray.ML";
 val () = Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
+val () = Bootstrap.use "basis/ASN1.sml";
 val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
