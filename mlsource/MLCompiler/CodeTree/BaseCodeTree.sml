@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013
+    Modified David C. J. Matthews 2008-2010, 2013, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -278,7 +277,20 @@ struct
                 ])
             end
         
-        |   Constnt(w, _) => PrettyString (stringOfWord w)
+        |   Constnt(w, m) =>
+            if isShort w andalso toShort w = 0w0
+            then
+            (
+                case List.find (Universal.tagIs CodeTags.inlineCodeTag) m of
+                    SOME h =>
+                    (
+                        case Universal.tagProject CodeTags.inlineCodeTag h of
+                            EnvSpecInlineFunction(lambda, _) => pretty(Lambda lambda)
+                        |   _ => PrettyString (stringOfWord w)
+                    )
+                |   NONE => PrettyString (stringOfWord w)
+            )
+            else PrettyString (stringOfWord w)
 
         |   Cond (f, s, t) =>
             PrettyBlock (0, true, [],
