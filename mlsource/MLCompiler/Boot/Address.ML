@@ -1,11 +1,12 @@
 (*
     Copyright (c) 2000
         Cambridge University Technical Services Limited
+ 
+    Further development copyright David C.J. Matthews 2000-2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -389,33 +390,48 @@ struct
     if isShort w
     then "LIT" ^ Word.toString (unsafeCast w)
 
-    else if isIoAddress(toAddress w)
-    then (* RTS call - print the number. *)
+    else
+    let
+        val v = toAddress w
+    in
+        if isIoAddress v
+        then (* RTS call - print the number. *)
+            let
+                val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
+
+                fun matchIo n =
+                    if n = 256 then raise Fail "Unknown RTS entry"
+                    else if wordEq (w, ioOp n)
+                    then Vector.sub(rtsNames, n)
+                    else matchIo (n+1)
+            in
+                matchIo 0
+            end
+
+        else if isCode v
+        then "CODE \"" ^ functionName w ^ "\""
+        
+        else if isBytes v
+        then
         let
-            val ioOp : int -> machineWord = RunCall.run_call1 RuntimeCalls.POLY_SYS_io_operation
-
-            fun matchIo n =
-                if n = 256 then raise Fail "Unknown RTS entry"
-                else if wordEq (w, ioOp n)
-                then Vector.sub(rtsNames, n)
-                else matchIo (n+1)
+            val length = Int.min(Word.toInt(length v) * wordSize, 16)
+            val data = Word8Vector.tabulate(length, fn n => loadByte(v, Word.fromInt n))
         in
-            matchIo 0
+            "BYTE data" ^ String.toString(Byte.bytesToString data)
         end
-
-    else if isCode(toAddress w)
-    then "CODE \"" ^ functionName w ^ "\""
     
-    else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
-    then (* If it's the closure of a function try to print that. *)
-        let
-            val firstWord = loadWord(toAddress w, 0w0)
-        in
-            if not (isShort firstWord) andalso isCode(toAddress firstWord)
-            then "FUN \"" ^ functionName firstWord ^ "\"" (* Get the function name. *)
-            else "LIT <long>"
-        end
-    else "LIT <long>"
+        else if isWords(toAddress w) andalso Word.toInt(length(toAddress w)) >= 1
+        then (* If it's the closure of a function try to print that. *)
+            let
+                val firstWord = loadWord(toAddress w, 0w0)
+            in
+                if not (isShort firstWord) andalso isCode(toAddress firstWord)
+                then "FUN \"" ^ functionName firstWord ^ "\"" (* Get the function name. *)
+                else "LIT <long word data>"
+            end
+            
+        else "LIT <long word data>"
+    end
 
 end;
 
