@@ -42,12 +42,14 @@ sig
 
     val decodeInt: Word8VectorSlice.slice -> int
     and decodeString: Word8VectorSlice.slice -> string
+    and decodeBool: Word8VectorSlice.slice -> bool
 
     (* Encode a tag/value pair. *)
     val encodeItem: tagType * Word8Vector.vector list -> Word8Vector.vector list
     
     val encodeInt: int -> Word8Vector.vector
     and encodeString: string -> Word8Vector.vector
+    and encodeBool: bool -> Word8Vector.vector
 end;
 
 structure Asn1: ASN1 =
@@ -161,6 +163,8 @@ struct
                 end
 
         and decodeString t = Byte.bytesToString(vector t)
+        
+        and decodeBool p = decodeInt p <> 0
 
 
     fun encodeItem (tag, value) =
@@ -209,7 +213,7 @@ struct
             then [Word8.fromInt length]
             else
             let
-                fun encodeLength (0, t) = rev t
+                fun encodeLength (0, t) = t
                 |   encodeLength (v, t) =
                     let
                         val (d, m) = IntInf.divMod(v, 256)
@@ -243,4 +247,6 @@ struct
     end
 
     val encodeString = Byte.stringToBytes
+    
+    fun encodeBool b = encodeInt(if b then 1 else 0)
 end;
