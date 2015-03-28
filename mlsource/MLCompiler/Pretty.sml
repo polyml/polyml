@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews 2008, 2013.
+    Copyright (c) 2009 David C.J. Matthews 2008, 2013, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -75,6 +74,8 @@ struct
         (*and tagPrettyLineBreak = 0w2*)        (* Not used in the compiler. *)
         and tagPrettyString = 0w3
         (*and tagPrettyStringWithWidth = 0w4*)   (* Not used in the compiler. *)
+        
+        val maxPrettyTag = 0w4 (* Exported because it is used in TagTest. *)
 
         fun PrettyBlock(offset: int, consistent: bool, context: context list, items: pretty list): pretty =
             cast(tagPrettyBlock, offset, consistent, context, items)

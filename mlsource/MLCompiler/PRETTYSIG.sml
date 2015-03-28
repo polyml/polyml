@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews
+    Copyright (c) 2009. 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -64,6 +63,12 @@ sig
     and getCompilerOutput : Universal.universal list -> pretty -> unit
     (* getSimplePrinter prints strings through compilerOutput. *)
     and getSimplePrinter: Universal.universal list -> string -> unit
+
+    val tagPrettyBlock: word
+    and tagPrettyBreak: word
+    and tagPrettyString: word
+
+    val maxPrettyTag: word
 
     (* Types that can be shared. *)
     structure Sharing:
