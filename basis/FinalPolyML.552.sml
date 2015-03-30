@@ -1,11 +1,12 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015
+    Copyright   David Matthews 2008-9, 2014
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation.
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1601,11 +1602,6 @@ in
                             tagInject codetreeAfterOptTag (! codetreeAfterOpt)
                         ], numLocals)
                 end
-
-            (* For simplicity these are given types with string rather than
-               Word8Vector.vector in INITIALISE. *)
-            val decodeBinary = decodeBinary o Byte.bytesToString
-            and encodeBinary = Byte.stringToBytes o encodeBinary
         end
 
         (* Original print_depth etc functions. *)
