@@ -119,11 +119,11 @@ sig
             name:               string,
             tab:                univTable,
             typeIdMap:          int -> typeId,
-            firstBoundIndex:     int,
+            firstBoundIndex:    int,
             boundIds:           typeId list,
             declaredAt:         location
         }
-
+ 
     and functors =
         Functor of
         {
@@ -261,10 +261,6 @@ sig
 
     val undefinedStruct:   structVals
     val isUndefinedStruct: structVals -> bool
-(*    val structSignat:      structVals -> signatures
-    val structName:        structVals -> string
-    val structAccess:      structVals -> valAccess
-    val structLocations:   structVals -> locationProp list*)
 
     val makeEmptyGlobal:   string -> structVals
     val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
@@ -274,14 +270,6 @@ sig
     val makeSelectedStruct: structVals * structVals * locationProp list -> structVals
 
     (* Functors *)
-(*    val undefinedFunctor:   functors
-    val isUndefinedFunctor: functors -> bool
-    val functorName:        functors -> string
-    val functorArg:         functors -> structVals
-    val functorResult:      functors -> signatures
-    val functorAccess:      functors -> valAccess
-    val functorDeclaredAt:  functors -> location*)
-
     val makeFunctor: string * structVals * signatures * valAccess * location -> functors
 
     (* Signatures *)

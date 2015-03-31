@@ -177,7 +177,30 @@ struct
             locations: locationProp list
         }
 
-    (* Signatures *)
+    (* Signatures.  The representation of a signature deserves a bit of explanation.
+       A signature is an environment: a set of values, type constructors and sub-structures.
+       Behind the types associated with the type constructors and values
+       are what the semantics calls "type names" but are referred to in the Poly/ML
+       code as type-ids to avoid confusion with the text name of a type constructor.
+       The same signature may be bound to a signature identifier, used as an argument
+       to a functor, the result of a functor or the signature of a structure.  The
+       environment is the same in each case; what is different is the type names.
+       To avoid rebuilding the environment for each case the same environment is
+       used but with different sets of typeIdMap, firstBoundIndex and boundIds.
+       typeIdMap maps the "offset" of any bound id found in the environment to a
+       type-id.  For structures the result will always be a free id and boundIds
+       will be empty.  In other cases it may map to either a free id, perhaps as
+       the result of "where type" constraint, or to a bound id.  Sharing constraints
+       will cause different bound ids in the environment to map to the same resulting
+       bound id.  Normally, firstBoundIndex will be zero and boundIds will be the
+       set of bound ids that can be produced by typeIdMap.  The exception is the
+       result signature of a functor.  In that case typeIdMap may return bound Ids
+       in the set of the boundIds for the argument to the functor, which will have
+       offsets >= 0 and < firstBoundIndex or in the set for the result of the functor
+       with offsets >= firstBoundIndex and < firstBoundIndex+length boundIds.  When
+       the functor is applied the typeIdMap for the structure that is produced
+       maps the first set to the free ids of the actual argument and the maps the
+       second set to new, unique free ids. *)
     and signatures =
         Signatures of
         { 
@@ -534,29 +557,29 @@ struct
     fun makeFormalStruct (name, signat, addr, location) =
       makeStruct (name, signat, makeFormal addr, location);
      
-  (* Values. *)  
-  fun makeOverloaded (name, typeOf, operation) : values =
+    (* Values. *)  
+    fun makeOverloaded (name, typeOf, operation) : values =
     Value{ name = name, typeOf = typeOf, access = Overloaded operation, class = ValBound,
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE};
 
-  val undefinedValue    =
+    val undefinedValue    =
     Value{ name = "<undefined>", typeOf = BadType, access = Global CodeZero, class = ValBound,
            locations = [DeclaredAt inBasis], references = NONE, instanceTypes = NONE };
 
-  fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
+    fun isUndefinedValue(Value{name = "<undefined>", ...}) = true | isUndefinedValue _ = false
 
-  fun valName (Value{name, ...}) = name
-  fun valTypeOf (Value{typeOf, ...}) = typeOf
+    fun valName (Value{name, ...}) = name
+    fun valTypeOf (Value{typeOf, ...}) = typeOf
 
-  fun isConstructor (Value{class=Constructor _, ...}) = true
+    fun isConstructor (Value{class=Constructor _, ...}) = true
     | isConstructor (Value{class=Exception, ...})     = true
     | isConstructor _                                  = false;
 
-  fun isValueConstructor (Value{class=Constructor _, ...}) = true
+    fun isValueConstructor (Value{class=Constructor _, ...}) = true
     | isValueConstructor _                                 = false;
 
 
-  (* Functor value. *)
+    (* Functor value. *)
     fun makeFunctor (name, arg, result, access, location) = 
         Functor 
         {
@@ -566,43 +589,29 @@ struct
             access = access,
             declaredAt = location
         }
- (*   
-    fun functorName (Functor {name,...}) = name
-    and functorArg (Functor {arg,...}) = arg
-    and functorResult (Functor {result,...}) = result
-    and functorAccess (Functor {access,...}) = access
-    and functorDeclaredAt (Functor {declaredAt,...}) = declaredAt
-*)
-    (* Place-holders if a structure or functor look-up fails and to initialise refs. *)
+
+    (* Place-holder if a structure look-up fails and to initialise refs. *)
     local
         val undefSig =
             makeSignature("", makeSignatureTable(), 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
-        (*val argStruct = makeLocalStruct ("", undefSig, [])*)
     in
         val undefinedStruct = makeGlobalStruct("<undefined>", undefSig, CodeZero, [])
         fun isUndefinedStruct(Struct{name, ...}) = name = "<undefined>"
-
-(*        val undefinedFunctor =
-            makeFunctor("<undefined>", argStruct, undefSig, Global CodeZero, inBasis)
-        fun isUndefinedFunctor(Functor{name, ...}) = name = "<undefined>"*)
     end
 
-  val valueVar:      values      tag = tag();
-  val typeConstrVar: typeConstrSet tag = tag();
-  val fixVar:        fixStatus   tag = tag();
-  val structVar:     structVals  tag = tag();
-  val signatureVar:  signatures  tag = tag();
-  val functorVar:    functors    tag = tag();
+    val valueVar:      values      tag = tag();
+    val typeConstrVar: typeConstrSet tag = tag();
+    val fixVar:        fixStatus   tag = tag();
+    val structVar:     structVals  tag = tag();
+    val signatureVar:  signatures  tag = tag();
+    val functorVar:    functors    tag = tag();
 
-  fun makeLook (t:'a tag) table =
-    fn n => univLookup (table, t, n);
-  
-  fun makeEnter (t:'a tag) table =
-    fn (n, v) => univEnter (table, t, n, v);
+    fun makeLook (t:'a tag) table n = univLookup (table, t, n)
+    and makeEnter (t:'a tag) table (n, v) = univEnter (table, t, n, v)
 
-  datatype env = 
+    datatype env = 
     Env of 
-      { 
+    { 
         lookupVal:    string -> values option,
         lookupType:   string -> typeConstrSet option,
         lookupFix:    string -> fixStatus option,
@@ -615,7 +624,7 @@ struct
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
         enterFunct:   string * functors    -> unit
-      };
+    }
 
     (* This creates functions for entering and looking up names. *)
     fun makeEnv tab =
