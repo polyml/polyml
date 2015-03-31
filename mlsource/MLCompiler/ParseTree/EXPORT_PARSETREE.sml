@@ -276,11 +276,14 @@ struct
 
         |   OpenDec{location, decs, ...} =>
             let
-                fun exportStructIdent(navigation, { value=ref (Struct{locations, ...}), location, ...} ) =
+                fun exportStructIdent(navigation, { value, location, ...} ) =
                     let
                         (* Include the declaration properties if it has been set. *)
-                        val siProps =
-                            exportNavigationProps navigation @ mapLocationProps locations
+                        val locProps =
+                            case !value of
+                                SOME(Struct{locations, ...}) => mapLocationProps locations
+                            |   NONE => []
+                        val siProps = exportNavigationProps navigation @ locProps
                     in
                         (location, siProps)
                     end

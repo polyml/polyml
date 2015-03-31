@@ -179,16 +179,11 @@ struct
         val strLookedUp =
             if prefix = ""
             then lookupStruct suffix
-            else
-            let  (* Look up the first part in the structure environment. *)
-                val str as Struct { signat, locations, ...} =
-                    lookupStructure
-                        ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
-            in 
-                if isUndefinedStruct str
-                then SOME undefinedStruct (* Error somewhere else? *)
-                else 
-                let
+            else case lookupStructure
+                        ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage) of
+                NONE => NONE (* Already reported *)
+            |   SOME(str as Struct { signat, locations, ...}) =>
+                let  (* Look up the first part in the structure environment. *)
                     val Signatures { tab, typeIdMap, firstBoundIndex, ... } = signat
                     val Env{lookupStruct, ...} = makeEnv tab
                     (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
@@ -209,7 +204,7 @@ struct
                                 case access of
                                     Formal sel => makeSelected (sel, str)
                                 |   access => access
-                            
+                        
                             val newStruct =
                                 Struct { name = structName, signat = copiedSig,
                                          access = newAccess, locations = baseLoc @ locations}
@@ -218,16 +213,15 @@ struct
                         end
                     |   NONE => NONE
                 end
-            end
     in
         case strLookedUp of
-           SOME s => s
+           SOME s => SOME s
         |  NONE =>
              (* Not declared? *)
                 (errorMessage (kind ^ " (" ^ suffix ^  ") has not been declared" ^
                    (if prefix = "" then "" else " in structure " ^ prefix));
-                undefinedStruct)
-    end;
+                NONE)
+    end
 
     fun mkEnv x = let val Env e = makeEnv x in e end
 
@@ -244,16 +238,11 @@ struct
         val {first = prefix, second = suffix} = splitString name;
         val found =
         if prefix = "" then lookupVal suffix
-        else
-        let (* Look up the first part in the structure environment. *)
-            val baseStruct as Struct { signat, locations, ...} =
-                lookupStructure
-                    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
-        in
-            (* If the structure is not there the value can't be. *)
-            if isUndefinedStruct baseStruct
-            then SOME undefinedValue
-            else
+        (* Look up the first part in the structure environment. *)
+        else case lookupStructure
+                    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage) of
+            NONE => SOME undefinedValue
+        |   SOME (baseStruct as Struct { signat, locations, ...}) =>
             let
                 val Signatures { tab, typeIdMap, ...} = signat
                 (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
@@ -279,7 +268,6 @@ struct
                     end
                 |   NONE => NONE
             end
-        end
     in
         case found of
             SOME v => v
@@ -296,16 +284,11 @@ struct
         val {first = prefix, second = suffix} = splitString name;
         val found =
         if prefix = "" then lookupType suffix
-        else
-        let (* Look up the first part in the structure environment. *)
-            val str as Struct { signat, ...} =
-                lookupStructure
-                    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
-        in
-            (* If the structure is not there the value can't be. *)
-            if isUndefinedStruct str
-            then SOME(TypeConstrSet(undefConstr, []))
-            else
+        else (* Look up the first part in the structure environment. *)
+            case lookupStructure
+                    ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage) of
+            NONE => SOME(TypeConstrSet(undefConstr, []))
+        |   SOME (Struct { signat, ...}) =>
             let
                 val Signatures { tab, typeIdMap, ...} = signat
             in
@@ -313,7 +296,6 @@ struct
                     SOME typeConstr => SOME(fullCopyDatatype(typeConstr, typeIdMap, prefix^"."))
                 |   NONE => NONE
             end
-        end
     in
         case found of
             SOME v => v
@@ -598,9 +580,8 @@ struct
             ])
 
   (* print structure in a block (no external spacing) *)
-    and displayStructures (str as Struct{name, locations, signat, ...}, depth, nameSpace, sigMap): pretty =
+    and displayStructures (Struct{name, locations, signat, ...}, depth, nameSpace, sigMap): pretty =
     if depth <= 0 then PrettyString "..."
-    else if isUndefinedStruct str then PrettyString "<bad>"
     else
         PrettyBlock (0, false, [],
         [

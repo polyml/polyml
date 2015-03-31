@@ -259,9 +259,6 @@ sig
     val vaLocal:    valAccess -> { addr: int ref, level: level ref }
     val vaSelected: valAccess -> { addr: int,     base:  structVals }
 
-    val undefinedStruct:   structVals
-    val isUndefinedStruct: structVals -> bool
-
     val makeEmptyGlobal:   string -> structVals
     val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
     val makeLocalStruct:   string * signatures * locationProp list -> structVals

@@ -590,15 +590,6 @@ struct
             declaredAt = location
         }
 
-    (* Place-holder if a structure look-up fails and to initialise refs. *)
-    local
-        val undefSig =
-            makeSignature("", makeSignatureTable(), 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
-    in
-        val undefinedStruct = makeGlobalStruct("<undefined>", undefSig, CodeZero, [])
-        fun isUndefinedStruct(Struct{name, ...}) = name = "<undefined>"
-    end
-
     val valueVar:      values      tag = tag();
     val typeConstrVar: typeConstrSet tag = tag();
     val fixVar:        fixStatus   tag = tag();

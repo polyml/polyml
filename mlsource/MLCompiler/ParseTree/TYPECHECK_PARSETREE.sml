@@ -868,15 +868,13 @@ struct
                             ("Structure", {lookupStruct = #lookupStruct env}, name,
                                 giveError (v, lex, location))
         
-                    val strs : structVals list = map findStructure ptl;
+                    val strs : structVals list = List.mapPartial findStructure ptl
                         
                     (* Value and substructure entries in a structure will generally have
                        "Formal" access which simply gives the offset of the entry within
                        the parent structure.  We need to convert these into "Select"
                        entries to capture the address of the base structure. *)
                     fun copyEntries (str as Struct{locations, signat = sigTbl, name=strName, ...}) =
-                    if isUndefinedStruct str then ()
-                    else
                     let
                         val openLocs =
                         (* If we have a declaration location for the structure set this as the structure
@@ -1017,8 +1015,8 @@ struct
                     val baseStruct =
                         if namePrefix = ""
                         then NONE
-                        else SOME(lookupStructure("Structure", {lookupStruct = #lookupStruct env},
-                                    namePrefix, giveError (v, lex, oldLoc)))
+                        else lookupStructure("Structure", {lookupStruct = #lookupStruct env},
+                                    namePrefix, giveError (v, lex, oldLoc))
                     val TypeConstrSet(tcons, tcConstructors) = oldTypeCons
                     val newName = newType
                     val locations = [DeclaredAt newLoc]

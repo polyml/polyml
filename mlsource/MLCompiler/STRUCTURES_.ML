@@ -143,9 +143,9 @@ struct
 
         StructureIdent of (* A structure name *)
         {
-            name:   string,         (* The name *)
-            valRef: structVals ref, (* The variable found. *)
-            location: location
+            name:       string,         (* The name *)
+            valRef:     structVals option ref, (* The variable found. *)
+            location:   location
         } 
 
     |   StructDec      of (* struct ... end *)
@@ -213,17 +213,17 @@ struct
         nameLoc:   location,
         haveSig:   bool, (* Whether we moved an explicit signature to the value. *)
         value:     structValue,        (* And its value *)
-        valRef:    structVals ref, (* The structure variable declared. *)
+        valRef:    structVals option ref, (* The structure variable declared. *)
         line:      location
       }
   
     fun mkStructIdent (name, location) =
-      StructureIdent
+        StructureIdent
         {
-          name   = name,
-          valRef = ref undefinedStruct,
-          location = location
-        };
+            name   = name,
+            valRef = ref NONE,
+            location = location
+        }
   
   
     (* For struct...end, make a signature to accept the values. *)
@@ -259,10 +259,10 @@ struct
   
     fun mkFormalArg (name, signat) =
         {
-          name      = name,
-          sigStruct = signat,
-          valRef    = ref undefinedStruct
-        };
+            name      = name,
+            sigStruct = signat,
+            valRef    = ref NONE
+        }
 
     fun mkLocaldec (decs, body, line) =
       Localdec 
@@ -304,7 +304,7 @@ struct
             nameLoc   = nameLoc,
             haveSig   = isSome signat,
             value     = value,
-            valRef    = ref undefinedStruct,
+            valRef    = ref NONE,
             line      = fullLoc
         }
     end;
@@ -313,7 +313,7 @@ struct
       {
         name:      string,
         sigStruct: sigs,
-        valRef:    structVals ref
+        valRef:    structVals option ref
       } (* The structure variable. *) 
 
     (* Top level declarations and program. *)
@@ -683,8 +683,15 @@ struct
         case s of
 
             StructureIdent { valRef = ref var, location, ... } =>
+            let
+                val locs =
+                    case var of
+                        SOME(Struct{locations, ...}) => locations
+                    |   NONE => []
+            in
                 (* Get the location properties for the identifier. *)
-                (location, mapLocationProps (structLocations var) @ commonProps)
+                (location, mapLocationProps locs @ commonProps)
+            end
 
         |   StructDec{ location, alist, ...} =>
                 (location, exportList(structExportTree, SOME asParent) alist @ commonProps)
@@ -1425,11 +1432,12 @@ struct
             let (* Look up the name and save the value. *)
                 val result =
                     lookupStructure ("Structure", {lookupStruct = #lookupStruct env}, 
-                               name, giveError (str, location, lex));
+                               name, giveError (str, location, lex))
+                val () = valRef := result
             in
-                if isUndefinedStruct result
-                then undefinedSignature 
-                else (valRef := result; structSignat result ) 
+                case result of
+                    SOME(Struct{signat, ...}) => signat
+                |   NONE => undefinedSignature
             end
 
         | FunctorAppl {name, arg, valRef, nameLoc, fullLoc, argIds, resIds, matchToArgument,  ... } =>
@@ -1834,7 +1842,7 @@ struct
                 val var = makeLocalStruct (name, resSig, [DeclaredAt line])
             in
                 #enter sEnv (name, var);
-                valRef := var
+                valRef := SOME var
             end
         in 
             List.app pass2StructureBind structList;
@@ -2230,7 +2238,7 @@ struct
                                 "")
                     end
              
-                    val () = argVal := resArg;
+                    val () = argVal := SOME resArg
              
                     (* Now process the body of the functor using the environment of
                            the arguments to the functor and the global environment. *)
@@ -2717,7 +2725,7 @@ struct
             }
         end
 
-    |   StructureIdent {valRef = ref v, ...} => { code = [], load = codeStruct (v, level) }
+    |   StructureIdent {valRef = ref v, ...} => { code = [], load = codeStruct (valOf v, level) }
 
     |   LetDec {decs, body = localStr, ...} =>
         let (* let strdec in strexp end *)
@@ -2775,12 +2783,13 @@ struct
     |   codeStrdecs (strName, (StructureDec { bindings = structList, typeIdsForDebug = ref debugIds, ... }) :: sTail,
                      debugEnv, mkAddr, level, _(*typeVarMap*), leadingDecs, processBody) =
         let
-            fun codeStructureBind ({name, value, valRef=ref structureVal, ...}: structBind, debug) =
+            fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
             let
+                val structureVal = valOf(! valRef)
                 val sName = strName ^ name ^ "."
                 val {code = strCode, load = strLoad, ...} = structureCode (value, sName, debug, mkAddr, level)
-                val addr = mkAddr 1; 
-                val var  = vaLocal (structAccess structureVal);
+                val addr = mkAddr 1
+                val var  = vaLocal (structAccess structureVal)
                 val () = #addr var  := addr; 
                 val () = #level var := level;
                 val (debugDecs, newDebug) = makeStructDebugEntries([structureVal], debugEnv, level, lex, mkAddr)
@@ -2849,7 +2858,7 @@ struct
         let
             fun loadStructureBind ({valRef = ref v, ...}, loads) =
             let
-                val { addr=ref addr, ...}  = vaLocal (structAccess v)
+                val { addr=ref addr, ...}  = vaLocal (structAccess(valOf v))
             in
                 mkLoadLocal addr :: loads
             end
@@ -2895,16 +2904,17 @@ struct
 
         |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv, mkOuterAddr) =
             let
-               fun codeFunctorBind ({name, arg = {valRef = ref argVal, ...}, body, valRef, resIds=ref resIds,
+               fun codeFunctorBind ({name, arg = {valRef=argValRef, ...}, body, valRef, resIds=ref resIds,
                                       matchToResult=ref matchToResult, debugArgVals, debugArgStructs, debugArgTypeConstrs, ...}: functorBind, debugEnv) =
                 let
+                    val argVal = valOf(! argValRef)
                     local (* Separate context for each functor binding. *)
                         val address = ref 1
                     in
                         fun mkAddr n = !address before (address := ! address+n)
                         val level = newLevel baseLevel (* Inside the functor *)
                     end
-                    val arg = vaLocal (structAccess argVal);
+                    val arg = vaLocal (structAccess argVal)
                     (* Create a local binding for the argument.  This allows the new variable to be a local. *)
                     val localAddr = mkAddr 1
                     val () = #addr  arg := localAddr 
@@ -3034,7 +3044,7 @@ struct
                     (* We need to replace type IDs with their Global versions. *)
                     
                     local
-                        val Signatures { name, declaredAt, typeIdMap, tab, ...} = structSignat (!valRef);
+                        val Struct{signat=Signatures { name, declaredAt, typeIdMap, tab, ...}, ...} = valOf(!valRef)
                     in
                         val resultSig =
                             makeSignature(name, tab, 0, declaredAt, composeMaps(typeIdMap, mapTypeIds), [])

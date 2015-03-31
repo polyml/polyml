@@ -5,12 +5,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2009
+    Modified D.C.J. Matthews 2001-2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -733,7 +732,7 @@ struct
                 let (* structure sharing. *)
                     fun getStruct(name, locn) = lookupStructureAsSignature (#lookupStruct tEnv, name, lookupFailure locn)
                 in  (* Now share all these signatures. *)
-                    structureSharing(map getStruct shares, line, near)
+                    structureSharing(List.mapPartial getStruct shares, line, near)
                 end
             end (* applySharingConstraint *)
         end (* Sharing *)
