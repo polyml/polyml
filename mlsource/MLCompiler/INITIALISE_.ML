@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Updated David C.J. Matthews 2008-9, 2012, 2013
+    Updated David C.J. Matthews 2008-9, 2012, 2013, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -36,9 +35,6 @@ structure EXPORTTREE: EXPORTTREESIG
 structure DATATYPEREP: DATATYPEREPSIG
 structure TYPEIDCODE: TYPEIDCODESIG
 
-(*****************************************************************************)
-(*                  MAKE                                                     *)
-(*****************************************************************************)
 structure MAKE :
 sig
     type gEnv
@@ -1311,6 +1307,7 @@ struct
                            resultType=GeneralType, name=name, closure=closure, numLocals=nLocals}
             and simpleCall(func, args) =
                 mkCall(func, List.map (fn c => (c, GeneralType)) args, GeneralType)
+
         in
             val CodeTree = CodeTree
 
@@ -1347,7 +1344,11 @@ struct
                 ("mkHandle", toMachineWord (mkHandle: codetree * codetree -> codetree), CodeTree ** CodeTree ->> CodeTree),
                 ("mkNullDec", toMachineWord (mkNullDec: codetree -> codeBinding), CodeTree ->> CodeBinding),
                 ("Ldexc", toMachineWord (Ldexc: codetree), CodeTree),
-                ("rtsFunction", toMachineWord (rtsFunction: int->codetree), Int ->> CodeTree)
+                ("rtsFunction", toMachineWord (rtsFunction: int->codetree), Int ->> CodeTree),
+                (* To save having to export the WordVector.vector we use string here.  They have
+                   the same representation and the bootstrap library just wraps the args and results. *)
+                ("encodeBinary", toMachineWord CODETREE.encodeBinary, CodeTree ->> String),
+                ("decodeBinary", toMachineWord CODETREE.decodeBinary, String ->> CodeTree)
                 ]
         end
 
@@ -1400,6 +1401,7 @@ struct
                 case functorAccess funct of
                     Global code => code
                 |   _ => raise Fail "Not a global functor"
+
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>
