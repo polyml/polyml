@@ -182,11 +182,11 @@ struct
     val noLocation =
         { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }
     val undefinedSignature =
-       makeSignature("UNDEFINED SIGNATURE", makeSignatureTable(),
-                0, 0, noLocation, fn _ => raise Subscript, []);
+       makeSignature("<undefined>", makeSignatureTable(),
+                0, noLocation, fn _ => raise Subscript, []);
 
     (* We use a name that isn't otherwise valid for a signature. *)
-    fun isUndefinedSignature s = sigName s = "UNDEFINED SIGNATURE"
+    fun isUndefinedSignature(Signatures{name, ...}) = name = "<undefined>"
 
     fun displayList ([], _, _) _ = []
     
@@ -631,9 +631,8 @@ struct
             end (* shareTypes *);
 
             (* Find all the structures and type constructors in one structure. *)
-            fun structsAndTypes((structVal, path, oldMap), start) =
+            fun structsAndTypes((Struct{signat=Signatures { tab, typeIdMap, ... }, ...}, path, oldMap), start) =
             let
-                val Signatures { tab, typeIdMap, ... } = structSignat structVal
                 val newMap = composeMaps(typeIdMap, oldMap)
                 fun get(name, dVal, (ts, ss)) =
                     if tagIs structVar dVal
@@ -693,7 +692,7 @@ struct
                     List.app shareStructs matchedStructs (* Recursively share sub-structures. *)
                 end
             in
-                shareStructs(List.map(fn s => (s, structName s ^ ".", typeIdEnv())) structs)
+                shareStructs(List.map(fn (s as Struct{name=sName, ...}) => (s, sName ^ ".", typeIdEnv())) structs)
             end
         in
 
@@ -765,7 +764,7 @@ struct
         let
             (* Look up the signature and copy it to turn bound IDs into variables.
                This is needed because we may have sharing. *)
-            val Signatures { name, tab, typeIdMap, minTypes, boundIds, declaredAt, ...} = lookSig(name, loc);
+            val Signatures { name, tab, typeIdMap, firstBoundIndex, boundIds, declaredAt, ...} = lookSig(name, loc);
             (* Remember the declaration location for possible browsing. *)
             val () = declLoc := SOME declaredAt
             val startNewIds = ! idCount
@@ -795,18 +794,18 @@ struct
             val v = Vector.fromList(makeNewIds(boundIds, fn _ => NONE))
             (* Map bound IDs only. *)
             val mapIds =
-                if minTypes = startNewIds orelse null boundIds
+                if firstBoundIndex = startNewIds orelse null boundIds
                 then typeIdMap (* Optimisation to reduce space: don't add map if it's not needed. *)
                 else
                 let
                     fun mapId n =
-                        if n < minTypes then outerTypeIdEnv n
-                        else Vector.sub (v, n - minTypes)
+                        if n < firstBoundIndex then outerTypeIdEnv n
+                        else Vector.sub (v, n - firstBoundIndex)
                 in
                     composeMaps(typeIdMap, mapId)
                 end
         in
-            makeSignature(name, tab, !idCount, !idCount, declaredAt, mapIds, [])
+            makeSignature(name, tab, !idCount, declaredAt, mapIds, [])
         end
 
         and signatureWhereType(sigExp, typeVars, typeName, realisationType, line, Env globalEnv, structPath) =
@@ -821,8 +820,9 @@ struct
                in the surrounding scope, which will consist of the global environment
                and the signature excluding the entries we're adding here. *)
 
-            val resSig as Signatures { typeIdMap = idMap, ... } = sigValue(sigExp, Env globalEnv, lno, structPath)
-            val sigEnv = makeEnv(sigTab resSig)
+            val resSig as Signatures { typeIdMap = idMap, tab = resTab, ... } =
+                sigValue(sigExp, Env globalEnv, lno, structPath)
+            val sigEnv = makeEnv resTab
 
             fun lookupFailure msg =
                 giveError (str, line, lex) (msg ^ " in signature.")
@@ -998,7 +998,7 @@ struct
                     enterType     =
                       checkAndEnter (#enterType structEnv, #lookupType structEnv, "Type", tcLocations o tsConstr),
                     enterStruct   =
-                      checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", structLocations),
+                      checkAndEnter (#enterStruct structEnv, #lookupStruct structEnv, "Structure", fn Struct{locations, ...} => locations),
                     (* These next three can't occur. *)
                     enterFix      = fn _ => raise InternalError "Entering fixity in signature",
                     enterSig      = fn _ => raise InternalError "Entering signature in signature",
@@ -1172,11 +1172,10 @@ struct
                             #enterType structEnv(name, newType)
                         end
 
-                        and enterStruct(name, str) =
+                        and enterStruct(name, Struct{name=strName, signat, access, locations, ...}) =
                             #enterStruct structEnv
-                                (name, Struct{ name = structName str, signat = structSignat str,
-                                        access = newAccess(structAccess str),
-                                        locations = structLocations str})
+                                (name, Struct{ name = strName, signat = signat,
+                                               access = newAccess access, locations = locations})
 
                         and enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
                             #enterVal structEnv (dName,
@@ -1280,7 +1279,7 @@ struct
                 List.foldl (fn (signat, offset) => processSig (signat, offset, lno))
                     offset sigsList
         in
-            makeSignature("", newTable, ! idCount, ! idCount, lno, typeIdEnv (), [])
+            makeSignature("", newTable, ! idCount, lno, typeIdEnv (), [])
         end
 
         (* Process the contents of the signature. *)
@@ -1400,8 +1399,7 @@ struct
             val finalMap =
                 if allMapped then typeIdMap else composeMaps(typeIdMap, mapFunction)
         in
-            makeSignature(name, tab, initTypeId, initTypeId + List.length distinctIds, declaredAt,
-                finalMap, distinctIds)
+            makeSignature(name, tab, initTypeId, declaredAt, finalMap, distinctIds)
         end
     end (* sigVal *);
 

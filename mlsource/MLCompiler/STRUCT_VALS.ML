@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009, 2012.
+    Modified David C. J. Matthews 2009, 2012, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -170,8 +169,7 @@ struct
 
     (* Structures. *)
     and structVals = 
-        NoStruct
-    |   Struct of
+       Struct of
         {
             name:   string,
             signat: signatures,
@@ -183,12 +181,21 @@ struct
     and signatures =
         Signatures of
         { 
+            name:               string,
+            tab:                univTable,
+            typeIdMap:          int -> typeId,
+            firstBoundIndex:    int,
+            boundIds:           typeId list,
+            declaredAt:         location
+        }
+
+    and functors =
+        Functor of
+        {
             name:       string,
-            tab:        univTable,
-            typeIdMap:  int -> typeId,
-            minTypes:   int,
-            maxTypes:   int,
-            boundIds:   typeId list,
+            arg:        structVals,
+            result:     signatures,
+            access:     valAccess,
             declaredAt: location
         }
 
@@ -329,23 +336,14 @@ struct
        (name spaces). Strictly signatures do not contain fix-status functors
        or signatures but as we use these structures for top-level name-spaces
        we have to have tables for these. *)
-    fun sigName       (Signatures {name,...})       = name;
-    fun sigTab        (Signatures {tab,...})        = tab;
-    fun sigMinTypes   (Signatures {minTypes,...})   = minTypes;
-    fun sigMaxTypes   (Signatures {maxTypes,...})   = maxTypes;
-    fun sigDeclaredAt (Signatures {declaredAt,...}) = declaredAt;
-    fun sigTypeIdMap  (Signatures {typeIdMap, ...}) = typeIdMap;
-    fun sigBoundIds   (Signatures {boundIds, ...})  = boundIds;
-
     val makeSignatureTable = makeUnivTable
 
     (* Make a signature, freezing the table. *)
-    fun makeSignature (name, table, minTypes, maxTypes, location, typeIdMap, boundIds) =
+    fun makeSignature (name, table, fbi, location, typeIdMap, boundIds) =
         Signatures { name = name,
                tab        = univFreeze table,
                typeIdMap  = typeIdMap,
-               minTypes   = minTypes, 
-               maxTypes   = maxTypes,
+               firstBoundIndex   = fbi,
                boundIds   = boundIds,
                declaredAt = location  };
     
@@ -500,42 +498,22 @@ struct
     fun makeLocal () = Local { addr = ref ~1 (* Invalid addr - catch errors *), level = ref baseLevel }
        
     fun makeSelected (addr, base) =
-      Selected { addr = addr, base = base };
+        Selected { addr = addr, base = base };
 
     fun makeStruct (name, signat, access, locations) = 
-      Struct { name = name, signat = signat, access = access, locations = locations };
-    
-    val undefinedStruct = NoStruct;
-    
-    fun isUndefinedStruct NoStruct = true
-    |   isUndefinedStruct _        = false;
-    
-    fun structName NoStruct            = ""
-    |   structName (Struct {name,...}) = name;
-    
-    fun structAccess NoStruct              = raise Match
-    |   structAccess (Struct {access,...}) = access;
-
-    fun structLocations NoStruct              = raise Match
-    |   structLocations (Struct {locations,...}) = locations;
-
-    (* Return the signature. *)
-    fun structSignat NoStruct =
-            makeSignature("", makeSignatureTable(), 0, 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
-    |   structSignat (Struct {signat,...}) = signat;
+        Struct { name = name, signat = signat, access = access, locations = locations }
     
     (* Global structure *)
     fun makeGlobalStruct (name, signat, code, locations) =
         makeStruct (name, signat, makeGlobal code, locations)
- 
+
     (* These are used in INITIALISE so must be mutable. *)
     fun makeEmptyGlobal name =
         makeStruct (name,
             Signatures { name = "",
                    tab        = makeUnivTable(),
                    typeIdMap  = fn _ => raise Subscript,
-                   minTypes   = 0, 
-                   maxTypes   = 0,
+                   firstBoundIndex   = 0, 
                    boundIds   = [],
                    declaredAt = inBasis  },
             makeGlobal CodeZero, [DeclaredAt inBasis]);
@@ -545,17 +523,13 @@ struct
         makeStruct (name, signat, makeLocal (), location);
      
     (* Structure in a local structure or a functor argument. *)
-    fun makeSelectedStruct (selected, base, openLocs) = 
-    (
-      case structAccess selected of 
+    fun makeSelectedStruct (selected as Struct{access, name, signat, locations, ...}, base, openLocs) =
+    case access of 
         Formal sel =>
-           makeStruct(structName selected, structSignat selected, makeSelected (sel, base),
-                      openLocs @ structLocations selected)
+           makeStruct(name, signat, makeSelected (sel, base), openLocs @ locations)
       | Global code => (* Need to add the locations. *)
-           makeStruct(structName selected, structSignat selected, Global code,
-                      openLocs @ structLocations selected)
+           makeStruct(name, signat, Global code, openLocs @ locations)
       | _          => selected
-    );
   
     fun makeFormalStruct (name, signat, addr, location) =
       makeStruct (name, signat, makeFormal addr, location);
@@ -583,48 +557,36 @@ struct
 
 
   (* Functor value. *)
-  abstype functors =
-     NoFunctor 
-   | Functor of
-       {
-          name:   string,
-          arg:    structVals,
-          result: signatures,
-          access: valAccess,
-          declaredAt: location
-       }
-  with
     fun makeFunctor (name, arg, result, access, location) = 
-      Functor 
-    {
-      name = name,
-      arg = arg,
-      result = result,
-      access = access,
-      declaredAt = location
-    };
-    
-    val undefinedFunctor = NoFunctor;
-    
-    fun isUndefinedFunctor NoFunctor = true
-    |   isUndefinedFunctor _         = false;
-    
-    fun functorName NoFunctor            = raise Match
-    |   functorName (Functor {name,...}) = name;
-    
-    fun functorArg NoFunctor           = raise Match
-    |   functorArg (Functor {arg,...}) = arg;
-    
-    fun functorResult NoFunctor              = raise Match
-    |   functorResult (Functor {result,...}) = result;
-    
-    fun functorAccess NoFunctor              = raise Match
-    |   functorAccess (Functor {access,...}) = access;
-    
-    fun functorDeclaredAt NoFunctor                  = raise Match
-    |   functorDeclaredAt (Functor {declaredAt,...}) = declaredAt;
-  end; (* functors abstype *)
-  
+        Functor 
+        {
+            name = name,
+            arg = arg,
+            result = result,
+            access = access,
+            declaredAt = location
+        }
+ (*   
+    fun functorName (Functor {name,...}) = name
+    and functorArg (Functor {arg,...}) = arg
+    and functorResult (Functor {result,...}) = result
+    and functorAccess (Functor {access,...}) = access
+    and functorDeclaredAt (Functor {declaredAt,...}) = declaredAt
+*)
+    (* Place-holders if a structure or functor look-up fails and to initialise refs. *)
+    local
+        val undefSig =
+            makeSignature("", makeSignatureTable(), 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
+        (*val argStruct = makeLocalStruct ("", undefSig, [])*)
+    in
+        val undefinedStruct = makeGlobalStruct("<undefined>", undefSig, CodeZero, [])
+        fun isUndefinedStruct(Struct{name, ...}) = name = "<undefined>"
+
+(*        val undefinedFunctor =
+            makeFunctor("<undefined>", argStruct, undefSig, Global CodeZero, inBasis)
+        fun isUndefinedFunctor(Functor{name, ...}) = name = "<undefined>"*)
+    end
+
   val valueVar:      values      tag = tag();
   val typeConstrVar: typeConstrSet tag = tag();
   val fixVar:        fixStatus   tag = tag();

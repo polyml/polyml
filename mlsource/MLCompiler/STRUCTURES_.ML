@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified D.C.J. Matthews 2001-2010
+    Modified D.C.J. Matthews 2001-2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -100,6 +99,36 @@ struct
   open TYPEIDCODE
   open SIGNATURES
   open DEBUGGER
+  
+    (* Transitional bindings. *)
+    fun sigName       (Signatures {name,...})       = name
+    and sigTab        (Signatures {tab,...})        = tab
+    and sigMinTypes   (Signatures {firstBoundIndex,...})            = firstBoundIndex
+    and sigMaxTypes   (Signatures {firstBoundIndex, boundIds,...})  = firstBoundIndex + List.length boundIds
+    and sigDeclaredAt (Signatures {declaredAt,...}) = declaredAt
+    and sigTypeIdMap  (Signatures {typeIdMap, ...}) = typeIdMap
+    and sigBoundIds   (Signatures {boundIds, ...})  = boundIds
+
+    fun functorName (Functor {name,...}) = name
+    and functorArg (Functor {arg,...}) = arg
+    and functorResult (Functor {result,...}) = result
+    and functorAccess (Functor {access,...}) = access
+    and functorDeclaredAt (Functor {declaredAt,...}) = declaredAt
+
+    fun structName (Struct {name,...}) = name
+    and structAccess (Struct {access,...}) = access
+    and structLocations (Struct {locations,...}) = locations
+    and structSignat (Struct {signat,...}) = signat
+ 
+    local
+        val undefSig =
+            makeSignature("", makeSignatureTable(), 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
+        val argStruct = makeLocalStruct ("", undefSig, [])
+    in
+        val undefinedFunctor =
+            makeFunctor("<undefined>", argStruct, undefSig, Global CodeZero, inBasis)
+        fun isUndefinedFunctor(Functor{name, ...}) = name = "<undefined>"
+    end
 
   (* Union of the various kinds of core language declaration.  Structures are included
      because they can be declared by opening a structure with substructures. *)
@@ -1005,7 +1034,7 @@ struct
     let
         val candidate = (* The structure. *)
         let
-            val Signatures { typeIdMap, minTypes, boundIds, ... } = originalCandidate
+            val Signatures { typeIdMap, firstBoundIndex, boundIds, ... } = originalCandidate
             val _ =
                 case boundIds of
                     [] => ()
@@ -1013,17 +1042,17 @@ struct
         in
             if isUndefinedSignature originalCandidate
             then undefinedSignature
-            else replaceMap(originalCandidate, typeIdMap, minTypes, [], typeIdEnv)
+            else replaceMap(originalCandidate, typeIdMap, firstBoundIndex, [], typeIdEnv)
         end
         
         val target = (* The signature. *)
         let
-            val Signatures { typeIdMap, minTypes, boundIds, ... } = originalTarget
+            val Signatures { typeIdMap, firstBoundIndex, boundIds, ... } = originalTarget
             fun newMap n =
-            if n < minTypes then typeIdEnv n
-            else List.nth(boundIds, n-minTypes)
+            if n < firstBoundIndex then typeIdEnv n
+            else List.nth(boundIds, n-firstBoundIndex)
         in
-            replaceMap(originalTarget, typeIdMap, minTypes, boundIds, newMap)
+            replaceMap(originalTarget, typeIdMap, firstBoundIndex, boundIds, newMap)
         end
 
         local
@@ -1528,7 +1557,7 @@ struct
                         let
                             val Signatures { name, tab, declaredAt, ... } = functorResSig
                         in
-                            makeSignature(name, tab, currentTypeCount(), currentTypeCount(), declaredAt,
+                            makeSignature(name, tab, currentTypeCount(), declaredAt,
                                 composeMaps(sigTypeIdMap functorResSig, getCombinedTypeId), [])
                         end
                 in
@@ -1665,7 +1694,7 @@ struct
             
             val () = matchToResult := #2(univFold(structTable, enterItem, (0, [])))
             val resSig =
-                makeSignature("", finalTable, currentTypeCount(), currentTypeCount(), location, newTypeIdEnv(), [])
+                makeSignature("", finalTable, currentTypeCount(), location, newTypeIdEnv(), [])
           in
             resSig
           end
@@ -1766,7 +1795,7 @@ struct
                             then currentEnv n
                             else Vector.sub (v, n - minExplicitSig)
                     in
-                        makeSignature(sigName explicitSig, sigTab explicitSig, currentTypeCount(), currentTypeCount(),
+                        makeSignature(sigName explicitSig, sigTab explicitSig, currentTypeCount(),
                                         sigDeclaredAt explicitSig, composeMaps(sigTypeIdMap explicitSig, oldMap), [])
                     end
                     else (* Transparent: Use the IDs from the structure. *)
@@ -1776,7 +1805,7 @@ struct
                     in
                         (* The result signature.  This needs to be able to enumerate the type IDs
                            including those we've added. *)
-                        makeSignature(sigName explicitSig, sigTab explicitSig, currentTypeCount(), currentTypeCount(),
+                        makeSignature(sigName explicitSig, sigTab explicitSig, currentTypeCount(),
                                         sigDeclaredAt explicitSig, composeMaps(sigTypeIdMap explicitSig, matchedIds), [])
                     end
             in
@@ -2176,7 +2205,7 @@ struct
                                 if n < startTopLevelIDs then topLevelEnv n
                                 else Vector.sub(argIDVector, n-startTopLevelIDs)
                         in
-                            makeSignature(name, tab, startBodyIDs, startBodyIDs, declaredAt,
+                            makeSignature(name, tab, startBodyIDs, declaredAt,
                                 composeMaps(typeIdMap, mapToSelected), [])
                         end
                     in
@@ -2311,7 +2340,7 @@ struct
                             else Vector.sub(bodyVec, n-startBodyIDs)
                     in
                         val functorSig =
-                            makeSignature(name, tab, startBodyIDs, startBodyIDs+Vector.length bodyVec,
+                            makeSignature(name, tab, startBodyIDs,
                                 declaredAt, composeMaps(typeIdMap, resTypeMap), newBoundIds)
                         val () = matchToResult := makeCopyActions functorSig @ makeMatchTypeIds newBoundIds
                     end
@@ -2355,10 +2384,10 @@ struct
 
                 fun pass2SignatureBind ({name, sigStruct, line, sigRef, ...}) =
                 let (* Each element in the list is a signature binding. *)
-                    val Signatures { tab, typeIdMap, minTypes, maxTypes, boundIds, ...} =
+                    val Signatures { tab, typeIdMap, firstBoundIndex, boundIds, ...} =
                        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line)
                     val namedSig = (* Put in the signature name. *)
-                        makeSignature(name, tab, minTypes, maxTypes, line, typeIdMap, boundIds)
+                        makeSignature(name, tab, firstBoundIndex, line, typeIdMap, boundIds)
                 in
                     sigRef := namedSig; (* Remember for pass4. *)
                     #enter sEnv (name, namedSig)
@@ -3017,7 +3046,7 @@ struct
                         val Signatures { name, declaredAt, typeIdMap, tab, ...} = structSignat (!valRef);
                     in
                         val resultSig =
-                            makeSignature(name, tab, 0, 0, declaredAt, composeMaps(typeIdMap, mapTypeIds), [])
+                            makeSignature(name, tab, 0, declaredAt, composeMaps(typeIdMap, mapTypeIds), [])
                     end
                 in
                     (* Make a global structure. *)
@@ -3072,7 +3101,7 @@ struct
                         val Signatures { name, declaredAt, typeIdMap, tab, ...} = structSignat dec
                     in
                         val resultSig =
-                            makeSignature(name, tab, 0, 0, declaredAt, composeMaps(typeIdMap, mapTypeIds), [])
+                            makeSignature(name, tab, 0, declaredAt, composeMaps(typeIdMap, mapTypeIds), [])
                     end
                     val strName = structName dec
                     val newStruct =
@@ -3150,26 +3179,26 @@ struct
                     val fnArg = functorArg func
                     val fnArgSig = structSignat fnArg
                     val fnArgName = structName fnArg
-                    val Signatures { name, tab, typeIdMap, boundIds, minTypes, maxTypes, declaredAt, ... } = fnArgSig
+                    val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } = fnArgSig
                     fun newMap n =
-                    if n < minTypes
+                    if n < firstBoundIndex
                     then mapPrevTypIds n
-                    else List.nth(boundIds, n-minTypes)
+                    else List.nth(boundIds, n-firstBoundIndex)
                 in
                     val functorArgSig =
-                        makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
+                        makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
                     val copiedArg =
                         Struct{name=fnArgName, signat=functorArgSig,
                                access=structAccess fnArg, locations=structLocations fnArg}
                 end
                 local
-                    val Signatures { name, tab, typeIdMap, boundIds, minTypes, maxTypes, declaredAt, ... } =
+                    val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } =
                             functorResult func
-                    val Signatures { boundIds=argBoundIds, minTypes=argMinTypes, ...} = functorArgSig
+                    val Signatures { boundIds=argBoundIds, firstBoundIndex=argMinTypes, ...} = functorArgSig
                     val fnArgName = structName(functorArg func)
                     fun newMap n =
-                    if n >= minTypes
-                    then List.nth(boundIds, n-minTypes)
+                    if n >= firstBoundIndex
+                    then List.nth(boundIds, n-firstBoundIndex)
                     else if n >= argMinTypes
                     then case List.nth(argBoundIds, n-argMinTypes) of
                         (* Add the argument structure name onto the name of type IDs in the argument. *)
@@ -3184,7 +3213,7 @@ struct
                     else mapPrevTypIds n
                 in
                     val functorSigResult =
-                        makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
+                        makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
                 end
                 val funcTree = 
                     makeFunctor(functorName func, copiedArg, functorSigResult,
@@ -3203,13 +3232,13 @@ struct
             (* We need to convert any references to typeIDs created in strdecs in the same "program". *)
             fun copySignature fnSig =
             let
-                val Signatures { name, tab, typeIdMap, minTypes, maxTypes, boundIds, declaredAt, ... } = fnSig
+                val Signatures { name, tab, typeIdMap, firstBoundIndex, boundIds, declaredAt, ... } = fnSig
                 fun mapIDs n =
-                    if n < minTypes
+                    if n < firstBoundIndex
                     then mapPrevTypIds n
-                    else List.nth(boundIds, n-minTypes)
+                    else List.nth(boundIds, n-firstBoundIndex)
             in   
-                makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, mapIDs), boundIds)
+                makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, mapIDs), boundIds)
             end
             val newSigs = List.map (fn ({sigRef=ref s, name, ...}: sigBind) => (name, copySignature s)) structList
         in

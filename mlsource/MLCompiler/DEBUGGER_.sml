@@ -150,11 +150,11 @@ struct
         end
 
         (* When creating a structure we have to add a type map that will look up the bound Ids. *)
-        fun replaceSignature (Signatures{ name, tab, typeIdMap, minTypes, maxTypes, declaredAt, ... }) =
+        fun replaceSignature (Signatures{ name, tab, typeIdMap, firstBoundIndex, declaredAt, ... }) =
         let
             fun getFreeId n = searchType debugEnviron (makeBoundId(Global CodeZero, n, false, false, basisDescription ""))
         in
-            makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, getFreeId), [])
+            makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, getFreeId), [])
         end
 
         val runTimeType = runTimeType debugEnviron
@@ -435,16 +435,12 @@ struct
     if getParameter debugTag (LEX.debugParams lex)
     then
         let
-            fun loadStruct (str, (decs, (ctEnv, rtEnv))) =
+            fun loadStruct (str as Struct { name, signat, locations, ...}, (decs, (ctEnv, rtEnv))) =
                 let
                     val loadStruct = codeStruct (str, level)
                     val newEnv = mkTuple [ loadStruct (* Structure. *), rtEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                    val ctEntry =
-                        case str of
-                            NoStruct => raise Misc.InternalError "loadStruct: NoStruct"
-                        |   Struct { name, signat, locations, ...} =>
-                                EnvStructure(name, signat, locations)
+                    val ctEntry = EnvStructure(name, signat, locations)
                 in
                     (decs @ dec, (ctEntry :: ctEnv, load))
                 end

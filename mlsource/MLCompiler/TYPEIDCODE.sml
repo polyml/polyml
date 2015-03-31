@@ -79,10 +79,7 @@ struct
     val mutableFlags = F_words orb F_mutable;
 
     (* codeStruct and codeAccess are copied from ValueOps. *)
-    fun codeStruct (str, level) =
-        if isUndefinedStruct str
-        then CodeZero
-        else codeAccess (structAccess str, level)
+    fun codeStruct (Struct{access, ...}, level) = codeAccess (access, level)
 
     and codeAccess (Global code, _) = code
       

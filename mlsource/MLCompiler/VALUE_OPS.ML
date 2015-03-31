@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9, 2013.
+    Modified David C.J. Matthews 2008-9, 2013, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -182,7 +181,7 @@ struct
             then lookupStruct suffix
             else
             let  (* Look up the first part in the structure environment. *)
-                val str =
+                val str as Struct { signat, locations, ...} =
                     lookupStructure
                         ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
             in 
@@ -190,30 +189,30 @@ struct
                 then SOME undefinedStruct (* Error somewhere else? *)
                 else 
                 let
-                    val Signatures { tab, typeIdMap, minTypes, maxTypes, ... } = structSignat str
+                    val Signatures { tab, typeIdMap, firstBoundIndex, ... } = signat
                     val Env{lookupStruct, ...} = makeEnv tab
                     (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
                     val baseLoc =
-                    case List.find (fn DeclaredAt _ => true | _ => false) (structLocations str) of
+                    case List.find (fn DeclaredAt _ => true | _ => false) locations of
                         SOME (DeclaredAt loc) => [StructureAt loc]
                     |   _ => []
                 in
                     case lookupStruct suffix of
-                        SOME structFound =>
+                        SOME (Struct {signat, access, name=structName, locations, ...})  =>
                         let
-                            val Signatures { name, tab, typeIdMap = childMap, declaredAt, ... } = structSignat structFound
+                            val Signatures { name=sigName, tab, typeIdMap = childMap, declaredAt, ... } = signat
                             (* We need to apply the map from the parent structure to the child. *)
                             val copiedSig =
-                                makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(childMap, typeIdMap), [])
+                                makeSignature(sigName, tab, firstBoundIndex, declaredAt, composeMaps(childMap, typeIdMap), [])
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
-                                case structAccess structFound of
+                                case access of
                                     Formal sel => makeSelected (sel, str)
                                 |   access => access
                             
                             val newStruct =
-                                Struct { name = structName structFound, signat = copiedSig,
-                                         access = newAccess, locations = baseLoc @ structLocations structFound}
+                                Struct { name = structName, signat = copiedSig,
+                                         access = newAccess, locations = baseLoc @ locations}
                         in
                             SOME newStruct
                         end
@@ -247,7 +246,7 @@ struct
         if prefix = "" then lookupVal suffix
         else
         let (* Look up the first part in the structure environment. *)
-            val baseStruct =
+            val baseStruct as Struct { signat, locations, ...} =
                 lookupStructure
                     ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
         in
@@ -256,10 +255,10 @@ struct
             then SOME undefinedValue
             else
             let
-                val Signatures { tab, typeIdMap, ...} = structSignat baseStruct
+                val Signatures { tab, typeIdMap, ...} = signat
                 (* If we have a DeclaredAt location for the structure use this as the StructureAt.*)
                 val baseLoc =
-                    case List.find (fn DeclaredAt _ => true | _ => false) (structLocations baseStruct) of
+                    case List.find (fn DeclaredAt _ => true | _ => false) locations of
                         SOME (DeclaredAt loc) => [StructureAt loc]
                     |   _ => []
             in
@@ -299,7 +298,7 @@ struct
         if prefix = "" then lookupType suffix
         else
         let (* Look up the first part in the structure environment. *)
-            val str =
+            val str as Struct { signat, ...} =
                 lookupStructure
                     ("Structure", {lookupStruct=lookupStruct}, prefix, errorMessage);
         in
@@ -308,7 +307,7 @@ struct
             then SOME(TypeConstrSet(undefConstr, []))
             else
             let
-                val Signatures { tab, typeIdMap, ...} = structSignat str
+                val Signatures { tab, typeIdMap, ...} = signat
             in
                 case #lookupType (mkEnv tab) suffix of
                     SOME typeConstr => SOME(fullCopyDatatype(typeConstr, typeIdMap, prefix^"."))
@@ -580,7 +579,7 @@ struct
         end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
-  and displaySignatures (str, depth : int, nameSpace) : pretty =
+  and displaySignatures (str as Signatures{declaredAt, name, ...}, depth : int, nameSpace) : pretty =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock(0, false, [],
@@ -589,10 +588,7 @@ struct
                     [
                         PrettyString "signature",
                         PrettyBreak(1, 0),
-                        PrettyBlock(0, false,
-                            [ContextLocation(sigDeclaredAt str)],
-                            [PrettyString(sigName str)]
-                        ),
+                        PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
                         PrettyBreak(1, 0),
                         PrettyString "="
                     ]
@@ -602,31 +598,24 @@ struct
             ])
 
   (* print structure in a block (no external spacing) *)
-    and displayStructures (str, depth, nameSpace, sigMap): pretty =
+    and displayStructures (str as Struct{name, locations, signat, ...}, depth, nameSpace, sigMap): pretty =
     if depth <= 0 then PrettyString "..."
     else if isUndefinedStruct str then PrettyString "<bad>"
     else
-    let
-        val structureName = structName str;
-    in
         PrettyBlock (0, false, [],
         [
             PrettyBlock(0, false, [],
                 [
                     PrettyString "structure",
                     PrettyBreak(1, 0),
-                    PrettyBlock(0, false,
-                        getLocation(structLocations str),
-                        [PrettyString structureName]
-                    ),
+                    PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                     PrettyBreak(1, 0),
                     PrettyString ":"
                 ]
             ),
             PrettyBreak(1, 2),
-            displayNamedSig(structSignat str, depth - 1, 1, nameSpace, sigMap)
+            displayNamedSig(signat, depth - 1, 1, nameSpace, sigMap)
         ])
-    end
 
     (* Internal function for printing structures and functors.  If a signature has a
        name print the name rather than the contents. *)
@@ -634,7 +623,7 @@ struct
             displaySig (sign, depth, space, nameSpace, sigMap)
     |   displayNamedSig(Signatures{name, ...}, _, _, _, _) = PrettyString name
 
-    fun displayFunctors (funct, depth, nameSpace) =
+    fun displayFunctors (Functor{ name, declaredAt, arg, result, ...}, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock (0, false, [],
@@ -642,23 +631,20 @@ struct
                 [
                     PrettyString "functor",
                     PrettyBreak(1, 0),
-                    PrettyBlock(0, false,
-                        [ContextLocation(functorDeclaredAt funct)],
-                        [PrettyString(functorName funct)]
-                    ),
+                    PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
                     PrettyBreak(1, 0),
                     PrettyString "("
                 ]) ::
             PrettyBreak(0, 2) ::
             let
-                val arg = functorArg funct
-                val argName = structName arg
+                val arg as 
+                     Struct { name = argName, signat as Signatures { tab = argTab, ... }, ...} = arg
             in
                 (if argName <> ""
                 then [ PrettyString(argName ^ " :"), PrettyBreak(1, 2) ]
                 else []) @
                 [
-                    displayNamedSig (structSignat arg, depth - 1, 0, nameSpace, NONE),
+                    displayNamedSig (signat, depth - 1, 0, nameSpace, NONE),
                     PrettyString ") :",
                     PrettyBreak(1, 2),
                     let
@@ -667,8 +653,7 @@ struct
                             if argName = ""
                             then
                             let
-                                val Env { lookupType=lt, lookupStruct=ls, ...} =
-                                    makeEnv(sigTab(structSignat arg))
+                                val Env { lookupType=lt, lookupStruct=ls, ...} = makeEnv argTab
                             in
                                 {
                                     lookupType =
@@ -684,7 +669,7 @@ struct
                                     fn s => if s = argName then SOME(arg, NONE) else #lookupStruct nameSpace s
                             }
                     in
-                        displayNamedSig (functorResult funct, depth - 1, 1, argEnv, NONE)
+                        displayNamedSig (result, depth - 1, 1, argEnv, NONE)
                     end
                 ]
             end
@@ -697,12 +682,10 @@ struct
   (* Code-generation. *)
 
     (* Code-generate the values. *) 
-    fun codeStruct (str, level) =
+    fun codeStruct (Struct{access, ...}, level) =
         (* Global structures have no code value. Instead the
             values are held in the values of the signature. *)
-        if isUndefinedStruct str
-        then CodeZero
-        else codeAccess (structAccess str, level)
+        codeAccess (access, level)
 
     and codeAccess (Global code, _) = code
       

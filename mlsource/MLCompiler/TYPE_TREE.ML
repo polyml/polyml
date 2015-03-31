@@ -9,12 +9,11 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012-2104 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -915,9 +914,9 @@ struct
                         (
                             (* This must be the name of a structure.  Does it contain our type? *)
                             case lookupStruct structName of
-                                SOME(str, map) =>
+                                SOME(Struct { signat, ...}, map) =>
                                     let
-                                        val Signatures { tab, typeIdMap, ...} = structSignat str
+                                        val Signatures { tab, typeIdMap, ...} = signat
                                         val Env { lookupType, lookupStruct, ...} = makeEnv tab
                                         val newMap =
                                             case map of

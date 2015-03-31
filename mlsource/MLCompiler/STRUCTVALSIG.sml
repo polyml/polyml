@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2009.
+    Modified David C. J. Matthews 2009, 2015.
 
     This library is free software you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY without even the implied warranty of
@@ -18,10 +17,6 @@
     License along with this library if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(******************************************************************************)
-(*                  STRUCTVALS export signature                              *)
-(*****************************************************************************)
 
 signature STRUCTVALSIG =
 sig
@@ -110,8 +105,7 @@ sig
 
     (* Structures. *)
     and structVals = 
-        NoStruct
-    |   Struct of
+        Struct of
         {
             name:   string,
             signat: signatures,
@@ -122,12 +116,21 @@ sig
     and signatures =
         Signatures of
         { 
+            name:               string,
+            tab:                univTable,
+            typeIdMap:          int -> typeId,
+            firstBoundIndex:     int,
+            boundIds:           typeId list,
+            declaredAt:         location
+        }
+
+    and functors =
+        Functor of
+        {
             name:       string,
-            tab:        univTable,
-            typeIdMap:  int -> typeId,
-            minTypes:   int,
-            maxTypes:   int,
-            boundIds:   typeId list,
+            arg:        structVals,
+            result:     signatures,
+            access:     valAccess,
             declaredAt: location
         }
 
@@ -258,10 +261,10 @@ sig
 
     val undefinedStruct:   structVals
     val isUndefinedStruct: structVals -> bool
-    val structSignat:      structVals -> signatures
+(*    val structSignat:      structVals -> signatures
     val structName:        structVals -> string
     val structAccess:      structVals -> valAccess
-    val structLocations:   structVals -> locationProp list
+    val structLocations:   structVals -> locationProp list*)
 
     val makeEmptyGlobal:   string -> structVals
     val makeGlobalStruct:  string * signatures * codetree * locationProp list -> structVals
@@ -271,30 +274,19 @@ sig
     val makeSelectedStruct: structVals * structVals * locationProp list -> structVals
 
     (* Functors *)
-
-    type functors
-
-    val undefinedFunctor:   functors
+(*    val undefinedFunctor:   functors
     val isUndefinedFunctor: functors -> bool
     val functorName:        functors -> string
     val functorArg:         functors -> structVals
     val functorResult:      functors -> signatures
     val functorAccess:      functors -> valAccess
-    val functorDeclaredAt:  functors -> location
+    val functorDeclaredAt:  functors -> location*)
 
     val makeFunctor: string * structVals * signatures * valAccess * location -> functors
 
     (* Signatures *)
-    val sigName:       signatures -> string
-    val sigTab:        signatures -> univTable
-    val sigMinTypes:   signatures -> int
-    val sigMaxTypes:   signatures -> int
-    val sigDeclaredAt: signatures -> location
-    val sigTypeIdMap:  signatures -> (int -> typeId)
-    val sigBoundIds:   signatures -> typeId list
-
     val makeSignatureTable: unit -> univTable
-    val makeSignature: string * univTable * int * int * location * (int -> typeId) * typeId list -> signatures
+    val makeSignature: string * univTable * int * location * (int -> typeId) * typeId list -> signatures
 
     (* Values. *)
     val valName: values -> string

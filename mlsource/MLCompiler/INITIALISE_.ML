@@ -378,10 +378,10 @@ struct
 (*                  System functions (in structure RunCall)                  *)
 (*****************************************************************************)
         local
-            val runCall = makeEmptyGlobal "RunCall";
+            val runCall as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "RunCall";
         in
-            val ()        = #enterStruct globalEnv ("RunCall", runCall);
-            val (Env runCallEnv) = makeEnv (sigTab(structSignat runCall));
+            val ()        = #enterStruct globalEnv ("RunCall", runCall)
+            val (Env runCallEnv) = makeEnv tab
         end;
         
         fun enterRunCall (name : string, entry : codetree, typ : types) : unit =
@@ -607,10 +607,10 @@ struct
 (*                  Bootstrapping functions (in structure Bootstrap)         *)
 (*****************************************************************************)
         local
-            val bootstrap = makeEmptyGlobal "Bootstrap";
+            val bootstrap  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "Bootstrap";
         in
-            val ()        = #enterStruct globalEnv ("Bootstrap", bootstrap);
-            val (Env bootstrapEnv) = makeEnv (sigTab(structSignat bootstrap));
+            val ()        = #enterStruct globalEnv ("Bootstrap", bootstrap)
+            val (Env bootstrapEnv) = makeEnv tab
         end;
         
         fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =
@@ -851,10 +851,10 @@ struct
 (*                  PolyML structure                                         *)
 (*****************************************************************************)
         local
-            val polyml = makeEmptyGlobal "PolyML";
+            val polyml  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "PolyML";
         in
-            val ()             = #enterStruct globalEnv ("PolyML", polyml);
-            val (Env polyMLEnv) = makeEnv (sigTab(structSignat polyml));
+            val ()             = #enterStruct globalEnv ("PolyML", polyml)
+            val (Env polyMLEnv) = makeEnv tab
             val enterPolyMLVal  = #enterVal polyMLEnv;
         end;
 
@@ -866,9 +866,9 @@ struct
            structure. *)
             open TYPETREE
             (* Create a new structure for them. *)
-            val nameSpace = makeEmptyGlobal "NameSpace";
-            val _ = #enterStruct polyMLEnv ("NameSpace", nameSpace);
-            val (Env nameSpaceEnv) = makeEnv (sigTab(structSignat nameSpace));
+            val nameSpace  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "NameSpace";
+            val _ = #enterStruct polyMLEnv ("NameSpace", nameSpace)
+            val (Env nameSpaceEnv) = makeEnv tab
     
             (* Types for the basic values.  These are opaque. *)
             fun createType typeName =
@@ -1045,9 +1045,9 @@ struct
         local
             (* This is used as one of the arguments to the compiler function. *)
             open TYPETREE
-            val uniStruct = makeEmptyGlobal "Universal";
-            val _ = #enterStruct bootstrapEnv ("Universal", uniStruct);
-            val (Env uniStructEnv) = makeEnv (sigTab(structSignat uniStruct));
+            val uniStruct  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "Universal";
+            val _ = #enterStruct bootstrapEnv ("Universal", uniStruct)
+            val (Env uniStructEnv) = makeEnv tab
 
             fun enterUniversal (name : string, entry : codetree, typ : types) : unit =
             let
@@ -1279,9 +1279,9 @@ struct
     (* PolyML.CodeTree structure.  This exports the CodeTree structure into the ML space. *)
         local
             open CODETREE
-            val codetreeStr = makeEmptyGlobal "CodeTree"
+            val codetreeStr  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "CodeTree"
             val _ = #enterStruct polyMLEnv ("CodeTree", codetreeStr)
-            val (Env codetreeEnv) = makeEnv (sigTab(structSignat codetreeStr))
+            val (Env codetreeEnv) = makeEnv tab
 
             fun createType typeName =
             let
@@ -1395,12 +1395,12 @@ struct
 
             fun codeForValue (Value{access = Global code, class = ValBound, ...}) = code
             |   codeForValue _ = raise Fail "Not a global value"
+
             and codeForStruct (Struct{access = Global code, ...}) = code
             |   codeForStruct _ = raise Fail "Not a global structure"
-            and codeForFunct funct =
-                case functorAccess funct of
-                    Global code => code
-                |   _ => raise Fail "Not a global functor"
+
+            and codeForFunct (Functor{access = Global code, ...}) = code
+            |   codeForFunct _ = raise Fail "Not a global functor"
 
         in
             (* Add these to the PolyML.NameSpace structure. *)

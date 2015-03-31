@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2013, 2014 David C.J. Matthews
+    Copyright (c) 2013-2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -875,18 +874,17 @@ struct
                        "Formal" access which simply gives the offset of the entry within
                        the parent structure.  We need to convert these into "Select"
                        entries to capture the address of the base structure. *)
-                    fun copyEntries str =
+                    fun copyEntries (str as Struct{locations, signat = sigTbl, name=strName, ...}) =
                     if isUndefinedStruct str then ()
                     else
                     let
                         val openLocs =
                         (* If we have a declaration location for the structure set this as the structure
                            location.  Add in here as the "open location". *)
-                            case List.find (fn DeclaredAt _ => true | _ => false) (structLocations str) of
+                            case List.find (fn DeclaredAt _ => true | _ => false) locations of
                                 SOME (DeclaredAt loc) => [StructureAt loc, OpenedAt location]
                             |   _ => [OpenedAt location]
 
-                        val sigTbl = structSignat str; (* Get the tables. *)
                         (* Open the structure.  Formal entries are turned into Selected entries. *)
                         val _ =
                             COPIER.openSignature 
@@ -931,7 +929,7 @@ struct
                                the values.  The name will be removed in messages if the type
                                constructor is in scope but if it has been redefined we can
                                get an identifiable name. *)
-                            structName str^".");
+                            strName ^ ".");
                     in
                         ()
                     end

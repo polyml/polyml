@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2009 David C.J. Matthews
+    Copyright (c) 2009-2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -83,8 +82,7 @@ struct
             if tagIs structVar dVal
             then
             let
-                val oldStruct = tagProject structVar dVal
-                val Signatures { tab, typeIdMap, ...} = structSignat oldStruct
+                val Struct { signat = Signatures { tab, typeIdMap, ...}, ...} = tagProject structVar dVal
             in
                 buildTypeCache(tab, strName ^ dName ^ "." (* Add structure names. *),
                     composeMaps(typeIdMap, mapTypeId), buildDatatypes, initialCache, rest)
@@ -164,13 +162,13 @@ struct
             if tagIs structVar dVal
             then 
             let
-                val oldStruct = tagProject structVar dVal;
-                val Signatures { name, tab, typeIdMap, minTypes, maxTypes, declaredAt, ...} = structSignat oldStruct;
+                val Struct { signat, name=structName, access, locations, ...} = tagProject structVar dVal
+                val Signatures { name=sigName, tab, typeIdMap, firstBoundIndex, declaredAt, ...} = signat
 
                 val newSig =
                     if singleLevel
                     then (* Just compose the maps. *)
-                        makeSignature(name, tab, minTypes, maxTypes, declaredAt, composeMaps(typeIdMap, mapTypeId), [])
+                        makeSignature(sigName, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, mapTypeId), [])
                     else (* Recursive copy. *)
                     let
                         (* Make a new sub-structure. *)
@@ -187,11 +185,10 @@ struct
                                 composeMaps(typeIdMap, mapTypeId), false, strName ^ dName ^ ".", newMap, typeCache)
                     in
                         (* If we're copying it all set the resulting map to the new map. *)
-                        makeSignature(name, newTab, minTypes, maxTypes, declaredAt, newMap, [])
+                        makeSignature(sigName, newTab, firstBoundIndex, declaredAt, newMap, [])
                     end
                 val newStruct =
-                    Struct { name = structName oldStruct, signat = newSig,
-                             access = structAccess oldStruct, locations = structLocations oldStruct}
+                    Struct { name = structName, signat = newSig, access = access, locations = locations}
             in
                 #enterStruct resEnv (dName, newStruct)
             end (* structures *)
@@ -266,7 +263,8 @@ struct
         valOf(! resType)
     end
 
-    fun replaceMap(source: signatures, mapTypeId: int -> typeId, min, boundIds, newMap): signatures =
+    fun replaceMap(Signatures{tab=sourceTab, name = sourceName, declaredAt, ...},
+                   mapTypeId: int -> typeId, min, boundIds, newMap): signatures =
     let
         (* Make a new signature. *)
         val tab = makeSignatureTable ();
@@ -278,9 +276,9 @@ struct
             enterVal = fn (s, v) => univEnter (tab, valueVar, s, v)
         }
         (* Copy everything into the new signature. *)
-        val () = localCopySig(sigTab source, tsvEnv, mapTypeId, false, "", newMap, [])
+        val () = localCopySig(sourceTab, tsvEnv, mapTypeId, false, "", newMap, [])
     in
-        makeSignature(sigName source, tab, min, min + List.length boundIds, sigDeclaredAt source, newMap, boundIds)
+        makeSignature(sourceName, tab, min, declaredAt, newMap, boundIds)
     end (* replaceMap *)
 
     (* Find the maximum run-time offset used for a value or structure in a signature.
@@ -293,8 +291,8 @@ struct
             Value { access = Formal addr, ...} => Int.max(addr+1, m)
         |   _ => m
         else if tagIs structVar dVal
-        then case structAccess(tagProject structVar dVal) of
-            Formal addr => Int.max(addr+1, m)
+        then case tagProject structVar dVal of
+            Struct{access=Formal addr, ...} => Int.max(addr+1, m)
         |   _ => m
         else if tagIs typeConstrVar dVal
         then

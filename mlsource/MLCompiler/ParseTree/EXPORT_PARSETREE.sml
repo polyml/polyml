@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -277,15 +276,11 @@ struct
 
         |   OpenDec{location, decs, ...} =>
             let
-                fun exportStructIdent(navigation, { value=ref value, location, ...} ) =
+                fun exportStructIdent(navigation, { value=ref (Struct{locations, ...}), location, ...} ) =
                     let
                         (* Include the declaration properties if it has been set. *)
-                        val siProps = exportNavigationProps navigation @
-                            (
-                                if isUndefinedStruct value
-                                then []
-                                else mapLocationProps(structLocations value)
-                            )
+                        val siProps =
+                            exportNavigationProps navigation @ mapLocationProps locations
                     in
                         (location, siProps)
                     end
