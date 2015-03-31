@@ -100,7 +100,7 @@ struct
   open SIGNATURES
   open DEBUGGER
   
-    (* Transitional bindings. *)
+    (* Transitional bindings.  Calls to these should be replaced by pattern matching. *)
     fun sigName       (Signatures {name,...})       = name
     and sigTab        (Signatures {tab,...})        = tab
     and sigMinTypes   (Signatures {firstBoundIndex,...})            = firstBoundIndex
@@ -109,34 +109,18 @@ struct
     and sigTypeIdMap  (Signatures {typeIdMap, ...}) = typeIdMap
     and sigBoundIds   (Signatures {boundIds, ...})  = boundIds
 
-    fun functorName (Functor {name,...}) = name
-    and functorArg (Functor {arg,...}) = arg
-    and functorResult (Functor {result,...}) = result
-    and functorAccess (Functor {access,...}) = access
-    and functorDeclaredAt (Functor {declaredAt,...}) = declaredAt
-
     fun structName (Struct {name,...}) = name
     and structAccess (Struct {access,...}) = access
     and structLocations (Struct {locations,...}) = locations
     and structSignat (Struct {signat,...}) = signat
- 
-    local
-        val undefSig =
-            makeSignature("", makeSignatureTable(), 0, inBasis, fn _ => raise Subscript, []) (* only if an error *)
-        val argStruct = makeLocalStruct ("", undefSig, [])
-    in
-        val undefinedFunctor =
-            makeFunctor("<undefined>", argStruct, undefSig, Global CodeZero, inBasis)
-        fun isUndefinedFunctor(Functor{name, ...}) = name = "<undefined>"
-    end
 
-  (* Union of the various kinds of core language declaration.  Structures are included
-     because they can be declared by opening a structure with substructures. *)
-  datatype coreDeclaration =
-    CoreValue       of values
-  | CoreType        of typeConstrSet
-  | CoreFix         of string*fixStatus (* Include the name because it isn't part of fixStatus. *)
-  | CoreStruct      of structVals
+    (* Union of the various kinds of core language declaration.  Structures are included
+        because they can be declared by opening a structure with substructures. *)
+    datatype coreDeclaration =
+        CoreValue       of values
+    |   CoreType        of typeConstrSet
+    |   CoreFix         of string*fixStatus (* Include the name because it isn't part of fixStatus. *)
+    |   CoreStruct      of structVals
 
     (* Description of the actions to perform when a structure matches a signature. *)
     datatype valueMatching =
@@ -154,7 +138,7 @@ struct
 
     withtype structureMatch = (int * valueMatching) list
 
-  (* "structs" is the abstract syntax for the module language. *)
+    (* "structs" is the abstract syntax for the module language. *)
     datatype structValue =
 
         StructureIdent of (* A structure name *)
@@ -175,7 +159,7 @@ struct
         {
             name:   string,
             arg:    structValue,
-            valRef: functors ref,      (* The functor looked up. *)
+            valRef: functors option ref,      (* The functor looked up. *)
             nameLoc: location,      (* The location of the name itself. *)
             fullLoc: location,      (* The location of the full application. *)
             argIds:  { source: typeId, dest: typeId } list ref, (* The IDs that are required in the arguments. *)
@@ -265,7 +249,7 @@ struct
         {
             name   = name,
             arg    = arg,
-            valRef = ref undefinedFunctor,
+            valRef = ref NONE,
             nameLoc = nameLoc,
             fullLoc = fullLoc,
             argIds  = ref nil,
@@ -346,7 +330,7 @@ struct
             haveSig:   bool, (* Whether we moved an explicit signature to the value. *)
             body:      structValue,
             arg:       formalArgStruct,
-            valRef:    functors ref,    (* The functor variable declared. *)
+            valRef:    functors option ref,    (* The functor variable declared. *)
             resIds:    { source: typeId, dest: typeId } list ref,
             line:      location,
             matchToResult: structureMatch ref,
@@ -384,7 +368,7 @@ struct
           haveSig   = isSome signat,
           body      = body,
           arg       = arg,
-          valRef    = ref undefinedFunctor,
+          valRef    = ref NONE,
           resIds    = ref nil,
           line      = line,
           matchToResult = ref [],
@@ -705,13 +689,17 @@ struct
         |   StructDec{ location, alist, ...} =>
                 (location, exportList(structExportTree, SOME asParent) alist @ commonProps)
 
-        |   FunctorAppl { valRef = ref fnctr, name, nameLoc, fullLoc, arg, ... } =>
+        |   FunctorAppl { valRef, name, nameLoc, fullLoc, arg, ... } =>
             let
+                val decl =
+                    case ! valRef of
+                        SOME(Functor { declaredAt, ...}) => [PTdeclaredAt declaredAt]
+                    |   NONE => []
                 (* Navigate between the functor name and the argument. *)
                 (* The first position is the expression, the second the type *)
                 fun getFunctorName () =
                     getStringAsTree({parent=SOME asParent, previous=NONE, next=SOME getFunctorArg},
-                        name, nameLoc, [PTdeclaredAt(functorDeclaredAt fnctr)])
+                        name, nameLoc, decl)
                 and getFunctorArg () =
                     structValueExportTree({parent=SOME asParent, previous=SOME getFunctorName, next=NONE}, arg)
             in
@@ -1450,120 +1438,112 @@ struct
              applications of the functor yield different types. There may be 
              dependencies between the parameters and result signatures so
              copying may have to take that into account. *)
-            let 
-                (* Look up the functor name.  ML doesn't allow functors to be in structures. *)
-                val functr: functors =
-                    case #lookupFunct env name of
-                        SOME f => f
-                    |   NONE =>
-                        (
-                            giveError (str, nameLoc, lex) ("Functor (" ^ name ^ ") has not been declared");
-                            undefinedFunctor
-                        )
-            in
-                if isUndefinedFunctor functr
-                then undefinedSignature
-                else
-                let
-                    val () = valRef := functr; (* save it till later. *)
-                    (* Apply a functor to an argument.  The result structure contains a mixture of IDs
-                       from the argument structure and generative IDs from the result structure.
-                       There are two parts to this process.
-                       1.  We have to match the actual argument structure to the formal argument to
-                           ensure that IDs are in the right place for the functor.
-                       2.  We have to take the actual argument structure and the functor result structure
-                           and produce a combination of this as a structure. *)
-                    (* IDs:
-                       argIDs: A list of pairs of IDs as Selected/Local/Global values and Formal values.
-                          This contains the IDs that must be passed into the functor.
-                       resIDs: A list of pairs of IDs as Local values and Formal values.  The Local value
-                          is the location where a new generative ID is stored and the Formal offset is the
-                          offset within the run-time vector returned by the signature where the source ID
-                          for the generative ID is to be found. *)
-                    val functorResSig : signatures = functorResult functr;
-                    val argStruct = functorArg functr;
-                    val formalArgSig = structSignat argStruct
+            (
+                case #lookupFunct env name of
+                    NONE =>
+                    (
+                        giveError (str, nameLoc, lex) ("Functor (" ^ name ^ ") has not been declared");
+                        undefinedSignature
+                    )
+                |   SOME functr =>
+                    let
+                        val Functor { arg = Struct{signat=formalArgSig, ...}, result=functorResSig, ...} = functr
+                        val () = valRef := SOME functr (* save it till later. *)
+                        (* Apply a functor to an argument.  The result structure contains a mixture of IDs
+                           from the argument structure and generative IDs from the result structure.
+                           There are two parts to this process.
+                           1.  We have to match the actual argument structure to the formal argument to
+                               ensure that IDs are in the right place for the functor.
+                           2.  We have to take the actual argument structure and the functor result structure
+                               and produce a combination of this as a structure. *)
+                        (* IDs:
+                           argIDs: A list of pairs of IDs as Selected/Local/Global values and Formal values.
+                              This contains the IDs that must be passed into the functor.
+                           resIDs: A list of pairs of IDs as Local values and Formal values.  The Local value
+                              is the location where a new generative ID is stored and the Formal offset is the
+                              offset within the run-time vector returned by the signature where the source ID
+                              for the generative ID is to be found. *)
 
-                    (* This provides information about the arguments. *)
-                    (* Get the actual parameter value. *)
-                    val actualArgSig =
-                        structValue(arg, newTypeId, currentTypeCount, newTypeIdEnv, Env env, lex, fullLoc, structPath);
+                        (* This provides information about the arguments. *)
+                        (* Get the actual parameter value. *)
+                        val actualArgSig =
+                            structValue(arg, newTypeId, currentTypeCount, newTypeIdEnv, Env env, lex, fullLoc, structPath);
 
-                    local
-                        (* Check that the actual arguments match formal arguments,
-                           and instantiate the variables. *)
-                        val (matchResults, matchActions) =
-                            matchSigs (actualArgSig, formalArgSig,
-                                fn n => displayStructValue(str, n), fullLoc, lex, newTypeIdEnv(), typeEnv);
-                        (* Record the code to match to this and include instructions to load the typeIDs. *)
-                        val () = matchToArgument := matchActions @ makeMatchTypeIds(sigBoundIds formalArgSig)
-                    in
-                        val matchResults = matchResults
-                    end
+                        local
+                            (* Check that the actual arguments match formal arguments,
+                               and instantiate the variables. *)
+                            val (matchResults, matchActions) =
+                                matchSigs (actualArgSig, formalArgSig,
+                                    fn n => displayStructValue(str, n), fullLoc, lex, newTypeIdEnv(), typeEnv);
+                            (* Record the code to match to this and include instructions to load the typeIDs. *)
+                            val () = matchToArgument := matchActions @ makeMatchTypeIds(sigBoundIds formalArgSig)
+                        in
+                            val matchResults = matchResults
+                        end
                     
-                    (* Create a list of the type IDs that the argument must supply. *)
-                    local
-                        val maxT = sigMaxTypes formalArgSig and minT = sigMinTypes formalArgSig
-                        val results = List.tabulate(maxT-minT, fn n => matchResults(n+minT))
-                        val args = ListPair.mapEq(fn(s, d) => { source = s, dest = d })(results, sigBoundIds formalArgSig)
-                    in
-                        val () = argIds := args; (* Save for code-generation. *)
-                    end
-
-                    (* Now create the generative typeIDs.  These are IDs that are in the bound ID range of
-                       the result signature.  Any type IDs inherited from the argument will have type ID
-                       values less than sigMinTypes functorResSig. *)
-                    local
-                        fun makeNewTypeId(
-                            oldId as TypeId{idKind=Bound{isDatatype, ...}, description = { name=oldName, ...}, ...}) =
-                        let
-                            val description =
-                                { location = fullLoc, name = oldName, description = "Created from applying functor " ^ name }
-                            val newId = newTypeId(false, isEquality oldId, isDatatype, description)
+                        (* Create a list of the type IDs that the argument must supply. *)
+                        local
+                            val maxT = sigMaxTypes formalArgSig and minT = sigMinTypes formalArgSig
+                            val results = List.tabulate(maxT-minT, fn n => matchResults(n+minT))
+                            val args = ListPair.mapEq(fn(s, d) => { source = s, dest = d })(results, sigBoundIds formalArgSig)
                         in
-                            { source = oldId, dest = newId }
+                            val () = argIds := args; (* Save for code-generation. *)
                         end
-                        |   makeNewTypeId _ = raise InternalError "Not Bound"
-                        (* The resIds list tells the code-generator where to find the source of each
-                           ID in the result structure and where to save the generative ID. *)
-                        val sdList = List.map makeNewTypeId (sigBoundIds functorResSig)
-                        val _ = resIds := sdList (* Save for code-generation. *)
-                    in
-                        (* This vector contains the resulting type IDs.  They all have Local access. *)
-                        val resVector = Vector.fromList(List.map(fn { dest, ...} => dest) sdList)
-                    end
+
+                        (* Now create the generative typeIDs.  These are IDs that are in the bound ID range of
+                           the result signature.  Any type IDs inherited from the argument will have type ID
+                           values less than sigMinTypes functorResSig. *)
+                        local
+                            fun makeNewTypeId(
+                                oldId as TypeId{idKind=Bound{isDatatype, ...}, description = { name=oldName, ...}, ...}) =
+                            let
+                                val description =
+                                    { location = fullLoc, name = oldName, description = "Created from applying functor " ^ name }
+                                val newId = newTypeId(false, isEquality oldId, isDatatype, description)
+                            in
+                                { source = oldId, dest = newId }
+                            end
+                            |   makeNewTypeId _ = raise InternalError "Not Bound"
+                            (* The resIds list tells the code-generator where to find the source of each
+                               ID in the result structure and where to save the generative ID. *)
+                            val sdList = List.map makeNewTypeId (sigBoundIds functorResSig)
+                            val _ = resIds := sdList (* Save for code-generation. *)
+                        in
+                            (* This vector contains the resulting type IDs.  They all have Local access. *)
+                            val resVector = Vector.fromList(List.map(fn { dest, ...} => dest) sdList)
+                        end
                 
-                    (* Construct a result signature.  This will contain all the
-                       IDs created here i.e. IDs in the argument and generative IDs at the start and then
-                       all the values and structures returned from the functor.
-                       When we come to code-generate we need to
-                       1. Use loadOpaqueIds over the resIDs to create the opaque IDs.
-                       2. Basically, do the same as StructDec to match to the result signature.
-                       We don't need to do anything about type IDs from the argument.  Processing
-                       the argument will ensure that type IDs created in the argument are declared
-                       as Locals and if we pass localIDs to matchStructure we will load IDs from
-                       both the argument and generative IDs created by loadOpaqueIds. *)
-                    val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes functorResSig)
-                    val idEnv = newTypeIdEnv()
-                    fun getCombinedTypeId n =
-                        if n < minCopy then idEnv n
-                        else if n >= sigMinTypes functorResSig
-                        then Vector.sub(resVector, n - sigMinTypes functorResSig)
-                        else if n >= sigMinTypes formalArgSig
-                        then matchResults n
-                        else sigTypeIdMap formalArgSig n
+                        (* Construct a result signature.  This will contain all the
+                           IDs created here i.e. IDs in the argument and generative IDs at the start and then
+                           all the values and structures returned from the functor.
+                           When we come to code-generate we need to
+                           1. Use loadOpaqueIds over the resIDs to create the opaque IDs.
+                           2. Basically, do the same as StructDec to match to the result signature.
+                           We don't need to do anything about type IDs from the argument.  Processing
+                           the argument will ensure that type IDs created in the argument are declared
+                           as Locals and if we pass localIDs to matchStructure we will load IDs from
+                           both the argument and generative IDs created by loadOpaqueIds. *)
+                        val minCopy = Int.min(sigMinTypes formalArgSig, sigMinTypes functorResSig)
+                        val idEnv = newTypeIdEnv()
+                        fun getCombinedTypeId n =
+                            if n < minCopy then idEnv n
+                            else if n >= sigMinTypes functorResSig
+                            then Vector.sub(resVector, n - sigMinTypes functorResSig)
+                            else if n >= sigMinTypes formalArgSig
+                            then matchResults n
+                            else sigTypeIdMap formalArgSig n
 
-                    val resSig =
-                        let
-                            val Signatures { name, tab, declaredAt, ... } = functorResSig
-                        in
-                            makeSignature(name, tab, currentTypeCount(), declaredAt,
-                                composeMaps(sigTypeIdMap functorResSig, getCombinedTypeId), [])
-                        end
-                in
-                    resSig
-                end
-            end
+                        val resSig =
+                            let
+                                val Signatures { name, tab, declaredAt, ... } = functorResSig
+                            in
+                                makeSignature(name, tab, currentTypeCount(), declaredAt,
+                                    composeMaps(sigTypeIdMap functorResSig, getCombinedTypeId), [])
+                            end
+                    in
+                        resSig
+                    end
+            )
                            
         | StructDec {alist, location, matchToResult, ...} =>
           let
@@ -2355,7 +2335,7 @@ struct
                     val var = makeFunctor (name, resArg, functorSig, makeLocal (), line);
                 in
                     #enter sEnv (name, var);
-                    valRef := var
+                    valRef := SOME var
                 end
             in
                 (* Each element in the list is a functor binding. *)
@@ -2721,12 +2701,17 @@ struct
             in
                 val loadIds = loadOpaqueIds(resultIds, mkAddr, level)
             end
+            
+            val functorCode =
+                case functs of
+                    SOME(Functor{access=functorAccess, ...}) => codeAccess (functorAccess, level)
+                |   NONE => raise InternalError "FunctorAppl: undefined"
         in
             (* Evaluate the functor. *)
             {
                 code =
                     argCodeSource @
-                    (mkDec(resAddr, mkEval (codeAccess (functorAccess functs, level), [argCode])) ::
+                    (mkDec(resAddr, mkEval (functorCode, [argCode])) ::
                      loadIds),
                 load = mkLoadLocal resAddr
             }
@@ -2924,7 +2909,7 @@ struct
                     val localAddr = mkAddr 1
                     val () = #addr  arg := localAddr 
                     val () = #level arg := level
-                    val func = !valRef
+                    val func = valOf(!valRef)
 
                     local
                         (* These are the entries for the functor arguments. *)
@@ -2970,7 +2955,8 @@ struct
                        with no semicolon between them. They will then be taken as
                        a single declaration and F will be picked up as a local. *)
                     val addr = mkOuterAddr 1
-                    val var = vaLocal (functorAccess func);
+                    val Functor { access, ...} = func
+                    val var = vaLocal access
                     val ()  = #addr  var := addr;
                     val ()  = #level var := baseLevel(* Top level *);
                 in
@@ -2997,8 +2983,13 @@ struct
 
         |   loadTopdecs (FunctorDec (structList, _)) =
             let
-                fun loadFunctorBind ({valRef=ref func, ...}) =
-                    let val {addr = ref addr, ...} = vaLocal (functorAccess func) in mkLoadLocal addr end
+                fun loadFunctorBind ({valRef, ...}) =
+                let
+                    val Functor{access, ...} = valOf(! valRef)
+                    val {addr = ref addr, ...} = vaLocal access
+                in
+                    mkLoadLocal addr
+                end
             in
                 List.rev(List.map loadFunctorBind structList)
             end
@@ -3168,17 +3159,16 @@ struct
             (* Get the functor values. *)
             fun extractFunctorBind ({name, valRef, ...}: functorBind, (addr, funcs)) =
             let
-                val code = mkInd (addr, results);
-                val func = !valRef;
+                val code = mkInd (addr, results)
+                val func = valOf(!valRef)
                 (* We need to convert any references to typeIDs created in strdecs in the
                    same "program". *)
                 (* The result signature shares with the argument so we only copy IDs less than
                    the min for the argument signature. *)
+                val Functor {result=fnResult, name=functorName, declaredAt=functorDeclaredAt,
+                             arg=fnArg as Struct{name = fnArgName, signat=fnArgSig, ...}, ...} = func
                 
                 local
-                    val fnArg = functorArg func
-                    val fnArgSig = structSignat fnArg
-                    val fnArgName = structName fnArg
                     val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } = fnArgSig
                     fun newMap n =
                     if n < firstBoundIndex
@@ -3192,10 +3182,8 @@ struct
                                access=structAccess fnArg, locations=structLocations fnArg}
                 end
                 local
-                    val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } =
-                            functorResult func
+                    val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } = fnResult
                     val Signatures { boundIds=argBoundIds, firstBoundIndex=argMinTypes, ...} = functorArgSig
-                    val fnArgName = structName(functorArg func)
                     fun newMap n =
                     if n >= firstBoundIndex
                     then List.nth(boundIds, n-firstBoundIndex)
@@ -3216,8 +3204,7 @@ struct
                         makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
                 end
                 val funcTree = 
-                    makeFunctor(functorName func, copiedArg, functorSigResult,
-                            makeGlobal code, functorDeclaredAt func);
+                    makeFunctor(functorName, copiedArg, functorSigResult, makeGlobal code, functorDeclaredAt)
             in
                 (addr + 1, (name, funcTree) :: funcs)
             end
