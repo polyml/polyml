@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2013.
+    Modified David C.J. Matthews 2008, 2013, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation;.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,13 +16,6 @@
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-*)
-
-
-(*
-    Title:  Control debugging output.
-    Author:     Dave Matthews, Cambridge University Computer Laboratory
-    Copyright   Cambridge University 1985
 *)
 
 
@@ -86,6 +78,8 @@ struct
         val reportExhaustiveHandlersTag: bool tag    = tag()
         (* Use a narrow context to resolve overloading and flexible records. *)
         val narrowOverloadFlexRecordTag: bool tag    = tag()
+        (* Create print functions for datatypes based on the sconstructors. *)
+        val createPrintFunctionsTag: bool tag        = tag()
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
@@ -121,7 +115,8 @@ struct
             tagInject debugTag false,
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
-            tagInject narrowOverloadFlexRecordTag false
+            tagInject narrowOverloadFlexRecordTag false,
+            tagInject createPrintFunctionsTag true
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

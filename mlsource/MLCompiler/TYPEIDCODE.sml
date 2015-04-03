@@ -76,7 +76,7 @@ struct
 
     val orb = Word8.orb
     infix 7 orb;
-    val mutableFlags = F_words orb F_mutable;
+    val mutableFlags = F_words orb F_mutable
 
     (* codeStruct and codeAccess are copied from ValueOps. *)
     fun codeStruct (Struct{access, ...}, level) = codeAccess (access, level)
@@ -121,6 +121,8 @@ struct
     (* Subtract one from the current depth to produce the depth for sub-elements. *)
     and decDepth depthCode =
         mkEval(rtsFunction POLY_SYS_aminus, [depthCode, mkConst(toMachineWord 1)])
+
+    val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
 
     structure TypeVarMap =
     struct
@@ -185,7 +187,6 @@ struct
                they don't have the right form the optimiser will complain.
                If we're only using type values for equality type variables the default
                print function will be used in polymorphic functions so must print "?". *)
-            val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
             val errorFunction2 = mkProc(CodeZero, 2, "errorCode2", [], 0)
             val codeFn = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
@@ -881,10 +882,8 @@ struct
     (* Create a printer function for a datatype when the datatype is declared.
        We don't have to treat mutually recursive datatypes specially because
        this is called after the type IDs have been created. *)
-    fun printerForDatatype(TypeConstrSet(typeConstr, vConstrs), level, typeVarMap) =
+    fun printerForDatatype(TypeConstrSet(TypeConstrs{name, typeVars=argTypes, ...}, vConstrs), level, typeVarMap) =
     let
-        val name = tcName typeConstr
-        val argTypes = tcTypeVars typeConstr
         val argCode = mkInd(0, arg1)
         and depthCode = mkInd(1, arg1)
         val nLevel = newLevel level
@@ -1196,7 +1195,7 @@ struct
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(
             typeDatalist: {typeConstr: typeConstrSet, eqStatus: bool, boxedCode: codetree, sizeCode: codetree } list,
-            mkAddr, level, typeVarMap) =
+            mkAddr, level, typeVarMap, makePrintFunction) =
     let
         (* Each entry has an equality function and a ref to a print function.
            The print functions for each type needs to indirect through the refs
@@ -1248,13 +1247,23 @@ struct
 
         (* Create the print functions and set the printer code for each typeId. *)
         local
-            fun setPrinter{typeConstr=tc, ...} =
+
+            fun setPrinter{typeConstr as TypeConstrSet(TypeConstrs{identifier, typeVars, ...}, _), ...} =
+            let
+                val printCode =
+                    if makePrintFunction
+                    then printerForDatatype(typeConstr, level, typeVarMap)
+                    else if null typeVars
+                    then codePrintDefault
+                    else mkProc(codePrintDefault, List.length typeVars, "print-printdefault", [], 0)
+            in
                 mkNullDec(
                     mkEval(
                         rtsFunction POLY_SYS_assign_word,
-                        [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
-                                  CodeZero, printerForDatatype(tc, level, typeVarMap)]
+                        [TypeValue.extractPrinter(codeId(identifier, level)),
+                                  CodeZero, printCode]
                         ))
+            end
         in
             val printerCode = List.map setPrinter typeDatalist
         end
@@ -1298,7 +1307,7 @@ struct
     (* Since we don't have a way of writing a "printity" type variable there are cases
        when the printer will have to fall back to this. e.g. if we have a polymorphic
        printing function as a functor argument. *)
-    val noPrinter = mkProc(codePrettyString "?", 1, "noPrinter", [], 0)
+    val noPrinter = codePrintDefault
 
     (* If this is a polymorphic value apply it to the type instance. *)
     fun applyToInstance'([], level, _, code) = code level (* Monomorphic. *)

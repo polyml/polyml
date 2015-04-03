@@ -203,6 +203,7 @@ local
     and reportUnreferencedIds = ref false
     and reportExhaustiveHandlers = ref false
     and narrowOverloadFlexRecord = ref false
+    and createPrintFunctions = ref true
     val lowlevelOptimise = ref true
     
     val debug = ref false
@@ -612,7 +613,8 @@ local
                     tagInject rootTreeTag parentTree,
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
                     tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers),
-                    tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord)
+                    tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord),
+                    tagInject createPrintFunctionsTag (! createPrintFunctions)
                     ])
         in
             compilerResultFun treeAndCode
@@ -1452,6 +1454,7 @@ in
             and parsetree = parsetree and reportUnreferencedIds = reportUnreferencedIds
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
             and narrowOverloadFlexRecord = narrowOverloadFlexRecord
+            and createPrintFunctions = createPrintFunctions
             
             val debug = debug
             val inlineFunctors = inlineFunctors
