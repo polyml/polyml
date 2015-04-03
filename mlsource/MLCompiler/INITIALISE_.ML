@@ -1308,6 +1308,22 @@ struct
             and simpleCall(func, args) =
                 mkCall(func, List.map (fn c => (c, GeneralType)) args, GeneralType)
 
+            fun unsafeMakeFunctor(functorName, argsig, result, code) =
+            let
+                val location = { file = "Imported", startLine=0, startPosition=0, endLine=0, endPosition=0 }
+                val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } = argsig
+                val _ = firstBoundIndex = 0 orelse raise Fail "unsafeMakeFunctor: firstBoundIndex"
+                fun newMap n = List.nth(boundIds, n)
+                val functorArgSig =
+                    makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
+                val argStruct = makeLocalStruct ("", functorArgSig, [])
+
+                (* The code should be a function.  Wrap it up as a constant with the code as "inline". *)
+                val gcode = importFunctor code
+            in
+                makeFunctor(functorName, argStruct, result, Global gcode, location)
+            end
+
         in
             val CodeTree = CodeTree
 
@@ -1348,7 +1364,9 @@ struct
                 (* To save having to export the WordVector.vector we use string here.  They have
                    the same representation and the bootstrap library just wraps the args and results. *)
                 ("encodeBinary", toMachineWord CODETREE.encodeBinary, CodeTree ->> String),
-                ("decodeBinary", toMachineWord CODETREE.decodeBinary, String ->> CodeTree)
+                ("decodeBinary", toMachineWord CODETREE.decodeBinary, String ->> CodeTree),
+                ("unsafeMakeFunctor", toMachineWord unsafeMakeFunctor,
+                    mkProductType[String, signatureVal, signatureVal, CodeTree] ->> functorVal)
                 ]
         end
 
@@ -1401,7 +1419,6 @@ struct
 
             and codeForFunct (Functor{access = Global code, ...}) = code
             |   codeForFunct _ = raise Fail "Not a global functor"
-
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>
