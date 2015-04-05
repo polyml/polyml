@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Font structure</title>
+</head>
+
+<body>
+
+<h1>Fonts and Text </h1>
+
+<p>The Font structure contains functions and structures to manipulate fonts and draw text.</p>
+
+<pre>structure Font :
+  sig
+    type HDC and HFONT
+    type COLORREF = Color.COLORREF
+    type POINT = {x: int, y: int}
+    and  SIZE = {cx: int, cy: int }
+    and  RECT = { top: int, left: int, bottom: int, right: int }
+
+    datatype FontFamily =
+          FF_DECORATIVE
+        | FF_DONTCARE
+        | FF_MODERN
+        | FF_ROMAN
+        | FF_SCRIPT
+        | FF_SWISS
+    and FontPitch = DEFAULT_PITCH | FIXED_PITCH | VARIABLE_PITCH
+    and OutputPrecision =
+          OUT_CHARACTER_PRECIS
+        | OUT_DEFAULT_PRECIS
+        | OUT_DEVICE_PRECIS
+        | OUT_OUTLINE_PRECIS
+        | OUT_RASTER_PRECIS
+        | OUT_SCREEN_OUTLINE_PRECIS
+        | OUT_STRING_PRECIS
+        | OUT_STROKE_PRECIS
+        | OUT_TT_ONLY_PRECIS
+        | OUT_TT_PRECIS
+    and OutputQuality =
+          DEFAULT_QUALITY
+        | DRAFT_QUALITY
+        | OTHER_QUALITY of int
+        | PROOF_QUALITY
+    and CharacterSet =
+          ANSI_CHARSET
+        | CHINESEBIG5_CHARSET
+        | DEFAULT_CHARSET
+        | HANGEUL_CHARSET
+        | OEM_CHARSET
+        | OTHER_CHARSET of int
+        | SHIFTJIS_CHARSET
+        | SYMBOL_CHARSET
+
+    type FontWeight =  int
+    val FW_BLACK : FontWeight
+    val FW_BOLD : FontWeight
+    val FW_DEMIBOLD : FontWeight
+    val FW_DONTCARE : FontWeight
+    val FW_EXTRABOLD : FontWeight
+    val FW_EXTRALIGHT : FontWeight
+    val FW_HEAVY : FontWeight
+    val FW_LIGHT : FontWeight
+    val FW_MEDIUM : FontWeight
+    val FW_NORMAL : FontWeight
+    val FW_REGULAR : FontWeight
+    val FW_SEMIBOLD : FontWeight
+    val FW_THIN : FontWeight
+    val FW_ULTRABOLD : FontWeight
+    val FW_ULTRALIGHT : FontWeight
+
+    type ClippingPrecision
+    val CLIP_CHARACTER_PRECIS : ClippingPrecision
+    val CLIP_DEFAULT_PRECIS : ClippingPrecision
+    val CLIP_EMBEDDED : ClippingPrecision
+    val CLIP_LH_ANGLES : ClippingPrecision
+    val CLIP_MASK : ClippingPrecision
+    val CLIP_STROKE_PRECIS : ClippingPrecision
+    val CLIP_TT_ALWAYS : ClippingPrecision
+
+    type LOGFONT =
+    {
+        height : int,
+        width : int,
+        escapement : int,
+        orientation : int,
+        weight : FontWeight,
+        italic : bool,
+        underline : bool,
+        strikeOut : bool,
+        charSet : CharacterSet,
+        outputPrecision: OutputPrecision,
+        clipPrecision : ClippingPrecision,
+        quality : OutputQuality,
+        pitch: FontPitch,
+        family: FontFamily,
+        faceName : string
+    }
+
+    datatype DrawTextMode =
+          DT_BOTTOM
+        | DT_CALCRECT
+        | DT_CENTER
+        | DT_EXPANDTABS
+        | DT_EXTERNALLEADING
+        | DT_INTERNAL
+        | DT_LEFT
+        | DT_NOCLIP
+        | DT_NOPREFIX
+        | DT_RIGHT
+        | DT_SINGLELINE
+        | DT_TABSTOP of int
+        | DT_TOP
+        | DT_VCENTER
+        | DT_WORDBREAK
+    and TextAlign =
+          TA_BASELINE
+        | TA_BOTTOM
+        | TA_CENTER
+        | TA_LEFT
+        | TA_NOUPDATECP
+        | TA_RIGHT
+        | TA_TOP
+        | TA_UPDATECP
+    and TextMetricPitch =
+          TMPF_DEVICE
+        | TMPF_FIXED_PITCH
+        | TMPF_TRUETYPE
+        | TMPF_VECTOR
+    and ExtendedTextMode =
+          ETO_CLIPPED
+        | ETO_GLYPH_INDEX
+        | ETO_IGNORELANGUAGE
+        | ETO_OPAQUE
+        | ETO_RTLREADING
+
+    type TEXTMETRIC =
+            { height: int, ascent: int, descent: int, internalLeading: int, externalLeading: int,
+              aveCharWidth: int, maxCharWidth: int, weight: int, overhang: int,
+              digitizedAspectX: int, digitizedAspectY: int, firstChar: char, lastChar: char,
+              defaultChar: char, breakChar: char, italic: bool, underlined: bool, struckOut: bool,
+              pitch: TextMetricPitch list, family: FontFamily, charSet : CharacterSet }
+
+    val AddFontResource : string -&gt; int
+    val <a
+name="CreateFont">CreateFont</a> : LOGFONT -&gt; HFONT
+    val CreateFontIndirect : LOGFONT -&gt; HFONT
+    val CreateScalableFontResource : int * string * string * string -&gt; unit
+    val DrawText : HDC * string * RECT * DrawTextMode list -&gt; int
+    val <a
+name="ExtTextOut">ExtTextOut</a> : HDC * POINT * ExtendedTextMode list *
+       RECT option * string * int list -&gt; unit
+    val GetAspectRatioFilterEx : HDC -&gt; SIZE
+    val GetCharABCWidths : HDC * char * char -&gt; (int * int * int) list
+    val GetCharABCWidthsFloat : HDC * char * char -&gt; (real * real * real) list
+    val GetCharWidth32 : HDC * char * char -&gt; int list
+    val GetTabbedTextExtent : HDC * string * int list -&gt; SIZE
+    val GetCharWidthFloat : HDC * int * int -&gt; real list
+    val GetTextAlign : HDC -&gt; TextAlign list
+    val GetTextCharacterExtra : HDC -&gt; int
+    val GetTextColor : HDC -&gt; COLORREF
+    val GetTextExtentExPoint : HDC * string * int option -&gt;
+       {fit: int option, size: SIZE, extents: int list}
+    val GetTextExtentPoint32 : HDC * string -&gt; SIZE
+    val GetTextFace : HDC -&gt; string
+    val <a
+name="GetTextMetrics">GetTextMetrics</a> : HDC -&gt; TEXTMETRIC
+    val RemoveFontResource : string -&gt; unit
+    val SetMapperFlags : HDC * bool -&gt; bool
+    val SetTextAlign : HDC * TextAlign list -&gt; TextAlign list
+    val SetTextCharacterExtra : HDC * int -&gt; int
+    val <a
+name="SetTextColor">SetTextColor</a> : HDC * COLORREF -&gt; COLORREF
+    val SetTextJustification : HDC * int * int -&gt; unit
+    val <a
+name="TabbedTextOut">TabbedTextOut</a>: HDC * POINT * string * int list * int -&gt; SIZE
+    val TextOut : HDC * POINT * String.string -&gt; unit
+  end</pre>
+</body>
+</html>

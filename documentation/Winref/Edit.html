@@ -1,0 +1,52 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Edit structure</title>
+</head>
+
+<body>
+
+<h1>Edit </h1>
+
+<p>The Edit structure contains styles and notifications for Edit windows.&nbsp; Edit
+windows provide simple ways of entering and editing text.&nbsp; Single line edit controls
+are frequently used in dialogue boxes to allow strings to be entered.&nbsp; Multiple line
+edit windows can be used as simple text editors.&nbsp; Specialised edit window messages
+begin with <a href="Message.html#Edit">EM_</a>.&nbsp;&nbsp; The values from the
+Notification substructure are sent as the <em>code</em> parameter in a <a
+href="Message.html#WM_NOTIFY">WM_NOTIFY</a> message.&nbsp;</p>
+
+<pre>structure Edit:
+sig
+    structure Style:
+    sig
+        include BIT_FLAGS where type flags = Window.Style.flags
+        val WS_OVERLAPPED: flags and WS_POPUP: flags and WS_CHILD: flags and WS_MINIMIZE: flags
+        and WS_VISIBLE: flags and WS_DISABLED:flags and WS_CLIPSIBLINGS:flags
+        and WS_CLIPCHILDREN:flags and WS_MAXIMIZE:flags and WS_CAPTION:flags
+        and WS_BORDER:flags and WS_DLGFRAME:flags and WS_VSCROLL:flags and WS_HSCROLL:flags
+        and WS_SYSMENU:flags and WS_THICKFRAME:flags and WS_GROUP:flags and WS_TABSTOP:flags
+        and WS_MINIMIZEBOX:flags and WS_MAXIMIZEBOX:flags and WS_TILED:flags and WS_ICONIC:flags
+        and WS_SIZEBOX:flags and WS_OVERLAPPEDWINDOW:flags and WS_TILEDWINDOW:flags
+        and WS_POPUPWINDOW:flags and WS_CHILDWINDOW:flags
+        and ES_LEFT: flags and ES_CENTER:flags and ES_RIGHT:flags and ES_MULTILINE:flags
+        and ES_UPPERCASE: flags and ES_LOWERCASE: flags and ES_PASSWORD: flags
+        and ES_AUTOVSCROLL: flags and ES_AUTOHSCROLL: flags and ES_NOHIDESEL: flags
+        and ES_OEMCONVERT: flags and ES_READONLY: flags and ES_WANTRETURN: flags and ES_NUMBER: flags
+    end
+
+    structure Notifications:
+    sig
+        val EN_SETFOCUS: int
+        val EN_KILLFOCUS: int
+        val EN_CHANGE: int
+        val EN_UPDATE: int
+        val EN_ERRSPACE: int
+        val EN_MAXTEXT: int
+        val EN_HSCROLL: int
+        val EN_VSCROLL: int
+    end
+end</pre>
+</body>
+</html>

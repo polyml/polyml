@@ -1,0 +1,6888 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+
+<head>
+<title>Poly/ML for Motif</title>
+</head>
+
+<body bgcolor="#FFFFFF">
+
+<h1 align="center">Poly/ML for Motif</h1>
+
+<h1 align="center">Quick Reference Manual</h1>
+
+<h2 align="center">Mike Crawley</h2>
+
+<h2 align="center">Chris Read</h2>
+
+<p>&nbsp;</p>
+
+<p>Copyright (c) 2000 Cambridge University Technical Services Limited<br>
+Copyright (c) 1992 Abstract Hardware Limited.<br>
+Copyright (c) 1992 Open Software Foundation, Inc.<br>
+Copyright (c) 1989 Digital Equipment Corporation.<br>
+Copyright (c) 1988 Massachusetts Institute of Technology.<br>
+All Rights Reserved.</p>
+
+<p>Permission to use, copy, modify, and distribute these signatures and their
+documentation for any purpose and without fee is hereby granted, provided that the above
+copyright notices appear in all copies and that both the copyright notices and this
+permission notice appear in supporting documentation, and that the names of Digital, MIT,
+OSF, AHL and CUTS not be used in advertising or publicity pertaining to distribution of
+the signatures and their documentation without specific, written prior permission.
+Digital, MIT, OSF, AHL and CUTS disclaim all warranties with regard to these signatures
+and their documentation, including all implied warranties of merchantability and fitness,
+in no event shall Digital, MIT, OSF, AHL or CUTS be liable for any special, indirect or
+consequential damages or any damages whatsoever resulting from loss of use, data or
+profits, whether in an action of contract, negligence or other tortious action, arising
+out of or in connection with the use or performance of these signatures and their
+documentation.</p>
+
+<p>Motif is a Trademark of OSF.<br>
+X Window System is a Trademark of MIT.</p>
+
+<p>&nbsp;</p>
+
+<h2>Contents</h2>
+<div align="center"><center>
+
+<table border="0">
+  <tr>
+    <td valign="top"><strong><a href="#Getting started with Motif">1 Getting started with
+    Motif</a></strong><br>
+    <a href="#What is Motif">1.1 What is Motif</a><br>
+    <a href="#What are Widgets">1.2 What are Widgets</a><br>
+    <a href="#Creating an application">1.3 Creating an application</a><br>
+    <a href="#Managing and Realizing Widgets">1.4 Managing and Realizing Widgets</a><br>
+    <a href="#What are Arg lists and Resources">1.5 What are Arg lists and Resources</a><br>
+    <a href="#Changing and examining Widget state">1.6 Changing and examining Widget state </a><br>
+    <a href="#What are Callbacks">1.7 What are Callbacks</a><p><strong><a href="#Widget Classes">2 Widget Classes</a></strong><br>
+    <a href="#ArrowButton">2.1 ArrowButton</a><br>
+    <a href="#BulletinBoard">2.2 BulletinBoard</a><br>
+    <a href="#CascadeButton">2.3 CascadeButton</a><br>
+    <a href="#Command">2.4 Command</a><br>
+    <a href="#ErrorDialog">2.5 ErrorDialog</a><br>
+    <a href="#FileSelectionDialog">2.6 FileSelectionDialog</a><br>
+    <a href="#InformationDialog">2.7 InformationDialog</a><br>
+    <a href="#List">2.8 List</a><br>
+    <a href="#MainWindow">2.9 MainWindow</a><br>
+    <a href="#MessageDialog">2.10 MessageDialog</a><br>
+    <a href="#OptionMen">2.11 OptionMenu</a><br>
+    <a href="#PanedWindow">2.12 PanedWindow</a><br>
+    <a href="#PromptDialog">2.13 PromptDialog</a><br>
+    <a href="#QuestionDialog">2.14 QuestionDialog</a><br>
+    <a href="#Scale">2.15 Scale</a></td>
+    <td valign="top" width="33%"><a href="#ScrollBar">2.16 ScrollBar</a><br>
+    <a href="#ScrolledList">2.17 ScrolledList</a><br>
+    <a href="#ScrolledText">2.18 ScrolledText</a><br>
+    <a href="#ScrolledWindow">2.19 ScrolledWindow</a><br>
+    <a href="#SelectionDialog">2.20 SelectionDialog</a><br>
+    <a href="#Text">2.21 Text</a><br>
+    <a href="#ToggleButton">2.22 ToggleButton</a><br>
+    <a href="#WarningDialog">2.23 WarningDialog</a><br>
+    <a href="#WorkingDialog">2.24 WorkingDialog</a><p><a href="#Resource Tables"><strong>3
+    Resource Tables</strong></a><br>
+    <a href="#ApplicationShell">3.1 ApplicationShell</a><br>
+    <a href="#Composite">3.2 Composite</a><br>
+    <a href="#3.3 Core">3.3 Core</a><br>
+    <a href="#3.4 Object">3.4 Object</a><br>
+    <a href="#3.5 RectOb">3.5 RectObj</a><br>
+    <a href="#3.6 Shell">3.6 Shell</a><br>
+    <a href="#3.7 TopLevelShell">3.7 TopLevelShell</a><br>
+    <a href="#3.8 TransientShell">3.8 TransientShell</a><br>
+    <a href="#3.9 VendorShell">3.9 VendorShell</a><br>
+    <a href="#3.10 WMShell">3.10 WMShell</a><br>
+    <a href="#3.11 XmArrowButton">3.11 XmArrowButton</a><br>
+    <a href="#3.12 XmBulletinBoard">3.12 XmBulletinBoard</a><br>
+    <a href="#3.13 XmCascadeButton">3.13 XmCascadeButton</a><br>
+    <a href="#3.14 XmCommand">3.14 XmCommand</a></td>
+    <td valign="top" width="33%"><a href="#3.15 XmDrawingArea">3.15 XmDrawingArea</a><br>
+    <a href="#3.16 XmDrawnButton">3.16 XmDrawnButton</a><br>
+    <a href="#3.17 XmFileSelectionBox">3.17 XmFlleSelectionBox</a><br>
+    <a href="#3.18 XmForm">3.18 XmForm</a><br>
+    <a href="#3.19 XmFrame">3.19 XmFrame</a><br>
+    <a href="#3.20 XmGadget">3.20 XmGadget</a><br>
+    <a href="#3.21 XmLabel">3.21 XmLabel</a><br>
+    <a href="#3.22 XmList">3.22 XmList</a><br>
+    <a href="#3.23 XmMainWindow">3.23 XmMainWindow</a><br>
+    <a href="#3.24 XmManager">3.24 XmManager</a><br>
+    <a href="#3.25 XmMenuShell">3.25 XmMenuShell</a><br>
+    <a href="#3.26 XmMessageBox">3.26 XmMessageBox</a><br>
+    <a href="#3.27 XmPanedWindow">3.27 XmPanedWindow</a><br>
+    <a href="#3.28 XmPrimitive">3.28 XmPrimitive</a><br>
+    <a href="#3.29 XmPushButton">3.29 XmPushButton</a><br>
+    <a href="#3.30 XmRowColumn">3.30 XmRowColumn</a><br>
+    <a href="#3.31 XmScale">3.31 XmScale</a><br>
+    <a href="#3.32 XmScrollBar">3.32 XmScrollBar</a><br>
+    <a href="#3.33 XmScrolledWindow">3.33 XmScrolledWindow</a><br>
+    <a href="#3.34 XmSelectionBox">3.34 XmSelectionBox</a><br>
+    <a href="#3.35 XmSeparator">3.35 XmSeparator</a><br>
+    <a href="#3.36 XmText">3.36 XmText</a><br>
+    <a href="#3.37 XmTextField">3.37 XmTextField</a><br>
+    <a href="#3.38 XmToggleButton">3.38 XmToggleButton</a></td>
+  </tr>
+</table>
+</center></div>
+
+<p>&nbsp;</p>
+
+<p>&nbsp;</p>
+
+<h2>Chapter 1</h2>
+
+<h2><a name="Getting started with Motif">Getting started with Motif</a></h2>
+
+<h3>1.1 <a name="What is Motif">What is Motif</a></h3>
+
+<p>Motif is a user environment built on top of the X Window System and is designed to make
+interaction with your computer easier and more productive. Applications written for Motif
+are intended to follow a particular style of appearance and behaviour, so that you do not
+have to learn new techniques for working with each separate application program.</p>
+
+<p>This document is intended to give enough information so that you can start programming
+Motif applications in Poly/ML without having to read all the standard OSF (Open Software
+Foundation) material. However, you will need more detailed information at later stages in
+your work and you should have the following three books at hand.</p>
+
+<table border="0" width="761">
+  <tr>
+    <td width="216">OSF/Motif Style Guide&nbsp;&nbsp; </td>
+    <td width="537">This will guide the programmer to design and implement applications so
+    that they are consistent with the OSF/Motif user interface.</td>
+  </tr>
+  <tr>
+    <td width="216">OSF/Motif Programmer's Reference&nbsp;&nbsp; </td>
+    <td width="537">This describes in detail each Motif function and its associated resources.</td>
+  </tr>
+  <tr>
+    <td width="216">PolyML for X Reference&nbsp;&nbsp; </td>
+    <td width="537">This describes how to use each individual function provided in the Poly/ML
+    implementation of Xlib - the low level interface to the X Window System.</td>
+  </tr>
+</table>
+
+<p>In addition to the reference material in these books, we recommend that you read a
+Motif programming manual from the following list.</p>
+
+<table border="0">
+  <tr>
+    <td><strong>Motif Programming Manual&nbsp;&nbsp; </strong></td>
+    <td>Volume 6 of the well known O'Reilly set of manuals for X. Written by Dan Heller.</td>
+  </tr>
+  <tr>
+    <td><strong>Programming OSF/Motif&nbsp;&nbsp; </strong></td>
+    <td>Prentice-Hall publish this book by Douglas Young.</td>
+  </tr>
+  <tr>
+    <td><strong>Visual Design with OSF/Motif&nbsp;&nbsp; </strong></td>
+    <td>Addison-Wesley publish this book by Shiz Kobara.</td>
+  </tr>
+</table>
+
+<h3>1.2 <a name="What are Widgets">What are Widgets</a></h3>
+
+<p>The Motif widget set is constructed on top of the Xt intrinsics, which are in turn
+constructed on top of the X Window System. A widget is an object providing a user
+interface abstraction, for example, a scroll bar. The Motif widget set aims to provide a
+set of useful abstractions that a programmer can join together to construct the
+application, often without having to invent any new additional behaviour or abstractions.
+The main advantages of the widget set are that all applications built with the same widget
+set provide the same set of abstractions, and the time to implement the application is
+drastically reduced, leaving the programmer more time to improve the program that is
+behind the user interface.</p>
+
+<p>Each widget is a combination of an X Window, a well defined behaviour, and some state
+information. Each widget is a member of exactly one widget class which provides the
+functions and data for all members of that class. Widget classes may be inherited by
+subclassing.</p>
+
+<p>A great deal of the visual appearance and some of the behaviour of each individual
+widget or an entire widget class can be customised by the user. This is typically done by
+using files of settings for the fields within the widget classes that affect colours,
+fonts, sizes, and so on. These fields are collectively known as resources, and this
+document contains tables of the permitted resources for each widget class.</p>
+
+<h3>1.3 <a name="Creating an application">Creating an application</a></h3>
+
+<p>An application must create a set of widgets to present to the user. First of all the
+application must create the application shell widget. Most applications only have one
+shell widget - this is the window which the window manager places and resizes on the
+screen. All the other widgets created by the application are typically children of this
+shell widget.</p>
+
+<p>The structure XWindows contains all the definitions for the Xlib level of the
+interface. The structure Motif contains all the definitions for the Motif interface.</p>
+
+<p><tt>open XWindows ;<br>
+open Motif ;<br>
+...</tt></p>
+
+<p><tt>val XtAppInitialise: string -&gt; string -&gt; string -&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+string list -&gt; Arg list -&gt; Widget<br>
+...</tt></p>
+
+<p>The first parameter to <tt>XtAppInitialise</tt> is the name of the <tt>Display</tt> to
+open in the manner of the Xlib function <tt>X0penDisplay</tt> - this function is
+documented along with all the other Xlib functions in the Poly/ML for X Reference Manual.
+The second parameter is the name of this application, and the third parameter is the name
+of this class of application. Both these names are significant in loading the resource
+database and finding the resource values for all the widgets used inside this application.
+Finding resource values is discussed in more detail in a later section. The string list
+parameter is a list of fallback resource values and the <tt>Arg list</tt> parameter is a
+list of preset resource values. The preset resource values are always used in preference
+to resource values found in the database or in the fallback list. The fallback list
+provides values to use when values are not found in either the preset list or in the
+resource database. The resource values that each class of widget can accept are described
+in the sections about each individual widget class later in this document. The widget
+returned is an <tt>ApplicationShell</tt> widget on that display.</p>
+
+<p>The following is the start of a small example program.</p>
+
+<p><tt>val shell =<br>
+&nbsp;&nbsp;&nbsp; XtAppInitialise &quot;&quot; &quot;xed&quot; &quot;Editor&quot; []
+[XmNwidth 400, XmNheight 400] ;</tt></p>
+
+<p>The display is opened and the first shell widget is created with preset width and
+height values.</p>
+
+<p>Now that a shell widget has been created the other widgets in the application can be
+created. The functions to create different types of Motif widgets have differing names but
+they all have the same type.</p>
+
+<p><tt>val XmCreate&lt;...&gt;: Widget -&gt; string -&gt; Arg list -&gt; Widget</tt></p>
+
+<p>The parameters specify the parent widget, the name of this widget, and any preset
+resource values. If no resource values are preset then they default to values in the
+user's resource files, or values in the fallback list, or to compiled-in defaults.</p>
+
+<p>The next part of our example is as follows.</p>
+
+<p><tt>val main = XmCreateMainWindow shell &quot;main&quot; [] ;</tt></p>
+
+<p><tt>val bar = XmCreateMenuBar main &quot;bar&quot; [] ;</tt></p>
+
+<p><tt>val fileMenu = XmCreateCascadeButton bar &quot;file&quot; [XmNlabelString
+&quot;File&quot;] ;<br>
+val editMenu = XmCreateCascadeButton bar &quot;edit&quot; [XmNlabelString
+&quot;Edit&quot;] ;<br>
+val viewMenu = XmCreateCascadeButton bar &quot;view&quot; [XmNlabelString
+&quot;View&quot;] ;<br>
+val helpMenu = XmCreateCascadeButton bar &quot;help&quot; [XmNlabelString
+&quot;Help&quot;] ;</tt></p>
+
+<p><tt>val command = XmCreateText main &quot;command&quot; [XmNeditMode
+XmSINGLE_LINE_EDIT] ;</tt></p>
+
+<p><tt>val hscroll = XmCreateScrollBar main &quot;hscroll&quot; [XmNorientation
+XmHORIZONTAL] ;<br>
+val vscroll = XmCreateScrollBar main &quot;vscroll&quot; [XmNorientation XmVERTICAL] ;</tt></p>
+
+<p><tt>val work = XmCreateDrawingArea main &quot;work&quot; [] ;</tt></p>
+
+<p>The code above creates a hierarchy of widgets. Each class of widget that can have child
+widgets is a subclass of Composite and provides a behaviour that manages those children.
+For example, in the code above, a MenuBar widget has four children which are all
+CascadeButtons. The MenuBar lays out the buttons horizontally and provides a behaviour for
+the buttons according to the movement of the mouse and the pressing of the mouse buttons.
+The MainWindow widget has the MenuBar, scroll bars and a drawing area as children, and
+provides a standard layout for these widgets.</p>
+
+<h3>1.4 <a name="Managing and Realizing Widgets">Managing and Realizing Widgets</a></h3>
+
+<p>When a widget is managed it is added to the geometry-managed displayable subset of its
+parent's children. If a widget is not managed then it cannot be displayed and does not
+have its size and position changed by its parent. Managing and unmanaging can therefore be
+used to make different parts of an application appear and disappear, without the expense
+of creating and destroying widgets.</p>
+
+<p>Realizing a widget is the process of creating and mapping an X window for the widget,
+and then recursively realizing the managed subset of the widget's children. Changing the
+managed subset will only have visible effects if the parent is already realized, or when
+the parent widget becomes realized later.</p>
+
+<p><tt>val XtManageChild: Widget -&gt; unit<br>
+val XtUnmanageChild: Widget -&gt; unit</tt></p>
+
+<p><tt>val XtManageChildren: Widget list -&gt; unit<br>
+val XtUnmanageChildren: Widget list -&gt; unit</tt></p>
+
+<p><tt>val XtRealizeWidget: Widget -&gt; unit<br>
+val XtUnrealizeWidget: Widget -&gt; unit</tt></p>
+
+<p><tt>XtManageChild</tt> and <tt>XtUnmanageChild</tt> will manage and unmanage one widget
+at a time. <tt>XtManageChildren</tt> and <tt>XtUnmanageChildren</tt> can be given lists of
+widgets with a common parent and can be quicker than working on one widget at a time.</p>
+
+<p><tt>XtRealizeWidget</tt> is given the root of a widget tree and recursively creates and
+maps all the X windows required by the managed children in the tree.</p>
+
+<p><tt>XtUnrealizeWidget</tt> is given the root of a widget tree and recursively destroys
+all the X windows created by the managed children in the tree.</p>
+
+<p>Our example continues with managing and realizing the widgets we have just created.</p>
+
+<p><tt>XtManageChildren [fileMenu, editMenu, viewMenu, helpMenu] ;<br>
+XtManageChildren [bar, command, hscroll, vscroll, work] ;</tt></p>
+
+<p><tt>XmMainWindowSetAreas main bar command hscroll vscroll work ;</tt></p>
+
+<p><tt>XtManageChild main ;<br>
+XtRealizeWidget shell ;</tt></p>
+
+<p>At this point the application becomes visible on the display and will look very similar
+to the application below.</p>
+
+<p align="center"><img src="Appl-1-4.gif" alt="Appl-1-4.gif (2353 bytes)" WIDTH="384" HEIGHT="194"></p>
+
+<h3>1.5 <a name="What are Arg lists and Resources">What are Arg lists and Resources</a></h3>
+
+<p>A resource is a named field inside a widget that can be set with a value by the user in
+one of several ways. These resources are used to change the behaviour or the appearance of
+the widget. The names of all these resources are printed in tables in this manual for
+every widget class that is available in Motif. For example</p>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmCascadeButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcascadePixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNcascadingCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmappingDelay</td>
+    <td>XmCMappingDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsubMenuId</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<p>The purpose of each resource is fully documented in the OSF/Motif Programmer's
+Reference.</p>
+
+<h4>1.5.1 Initialising with Arg lists</h4>
+
+<p>There are several ways to set the initial value of a resource. When a widget is created
+the user passes in an Arg list which contains preset resource values. These values are
+copied into the widget in preference to all other values. The Arg datatype is designed to
+provide an easy way of passing in values of many different types as a single Arg list. The
+constructors have names such as</p>
+
+<p><tt>val XmNshadowThickness: int -&gt; Arg<br>
+val XmNsliderSize: int -&gt; Arg</tt></p>
+
+<p>and can be used as destructors as well. Arg is actually implemented as an infinite
+datatype - it is the type exn - which means that signatures for functors that use only a
+few of the Arg destructors need not know the names of all the other destructors - which
+would be the case with a standard datatype. Instead they need only include the lines they
+need, as in the following example.</p>
+
+<p><tt>signature MOTIF_SIG = sig<br>
+&nbsp;&nbsp; type Widget</tt></p>
+
+<p><tt>&nbsp;&nbsp; type Arg sharing type Arg = exn</tt></p>
+
+<p><tt>&nbsp;&nbsp; val XmCreateCascadeButton: Widget -&gt; string -&gt; Arg list -&gt;
+Widget</tt></p>
+
+<p><tt>&nbsp;&nbsp; exception XmNshadowThickness of int<br>
+&nbsp;&nbsp; exception XmNsliderSize of int<br>
+end ;</tt></p>
+
+<p>When compiling code that uses the signature above the compiler knows that the Arg list
+needed by XmCreateCascadeButton is the same type as exn list, and this will allow you to
+construct and destruct these lists using the exception constructors. If you pass in an exn
+that is not recognised by the Motif interface then it is rejected and an exception is
+raised.</p>
+
+<h4>1.5.2 Loading the resource database</h4>
+
+<p>If a resource value is not specified in the Arg list at creation time then the widget
+searches the resource database for that field.</p>
+
+<p>A complicated process of merging together separate resource files into a single
+resource database is performed when the function <tt>XtAppInitialise</tt> is called. This
+process is fully documented in user manuals for X Windows, especially in Chapter 11 of Vol
+1 of the O'Reilly series of X Manuals. Here we only give a simple example of how the
+resource files are located - which is enough for most users.</p>
+
+<p>First the process attempts to load a class-specific resource file using the application
+class name and a search path which is stored in an environment variable. The third
+parameter to <tt>XtAppInitialise</tt> is the name of this class of application, and the
+search path is typically stored in the <tt>XFILESEARCHPATH</tt> environment variable as
+follows.</p>
+
+<p><tt>setenv XFILESEARCHPATH $HOME/%T/%N%S</tt></p>
+
+<p>The loading process replaces the <tt>%T</tt> component of the path with app-defaults
+and the <tt>%N</tt> component with the class name. The suffix component <tt>%S</tt> is not
+normally used here. In simpler terms, if the user has a directory called <tt>app-defaults</tt>
+in his home directory, and in that directory there is a file with the same name as the
+class name of the application, for example <tt>Editor</tt>, then that file is loaded into
+the resource database. Note that class names start with a capital letter by convention.</p>
+
+<p>Then the process attempts to load another class-specific resource file using the
+application class name and a search path which is stored in the <tt>XAPPLRESDIR</tt>
+environment variable, which typically has a value like</p>
+
+<p><tt>/usr/motif/lib/app-defaults</tt></p>
+
+<p>If, in this directory, there is a file with the same name as the class name of the
+application then that file is merged into the resource database we have constructed so
+far.</p>
+
+<p>The process then looks for a property which holds the default resources on the root
+window of the user's display. These defaults are often put in place by the xrdb program.
+These are merged into the database if they are found, otherwise the process looks for a
+file called <tt>$HOME/.Xdefaults</tt> and merges that into the database instead. Often the
+root property set by <tt>xrdb</tt> is a copy of the <tt>.Xdefaults</tt> file at the time
+the X server was started. If the user changes the <tt>.Xdefaults</tt> file then he should
+use</p>
+
+<p><tt>xrdb .Xdefaults</tt></p>
+
+<p>to copy the new version into the server.</p>
+
+<p>Note the order of the merging process. The preset Arg list parameter overrides the
+values in the <tt>.Xdefaults</tt> file, which override the values in the <tt>XAPPLRESDIR</tt>
+directory, which override the values in the <tt>XFILESEARCHPATH</tt> directory, which
+override the values in the fallback resource list parameter.</p>
+
+<p>Typically the user creates a file for each application class in his app-defaults
+directory. This keeps the resource settings for each application separate from one
+another, and keeps the <tt>.Xdefaults</tt> file small.</p>
+
+<h4>1.5.3 Finding resources in the database</h4>
+
+<p>The second and third parameters to XtAppInitialise are the name of this application
+instance, and name of this class of application. These names are used to construct the
+full names of the resource fields in the widgets.</p>
+
+<p>For example, if the application name is <tt>xed</tt> and there is an <tt>XmMainWindow</tt>
+widget with the name <tt>main</tt>, then the resource fields <tt>XmNforeground</tt> and <tt>XmNshowSeparator</tt>
+have the full names</p>
+
+<p><tt>xed.main.foreground<br>
+xed.main.showSeparator</tt></p>
+
+<p>The levels in the widget hierarchy are represented by the names of the widgets from
+oldest parent down to youngest child with dots as separators. Therefore it is not a good
+idea to place dots inside the ML strings to be used for widget names.</p>
+
+<p>The resource constructors/destructors have the prefix <tt>XmN</tt> in order to make
+them distinct from other ML identifiers. This prefix is not needed in the resource
+database and explains why the resource field <tt>XmNforeground</tt> of the widget main is
+printed as main.foreground in the example above.</p>
+
+<p>If any entries in the database match these names then those values will be copied into
+the widget. Here are some example lines from a resource database</p>
+
+<table border="0">
+  <tr>
+    <td><tt>xed*foreground:&nbsp;&nbsp; </tt></td>
+    <td><tt>black</tt></td>
+  </tr>
+  <tr>
+    <td><tt>xed.main.showSeparator:&nbsp;&nbsp; </tt></td>
+    <td><tt>True</tt></td>
+  </tr>
+  <tr>
+    <td><tt>Editor.main.background:&nbsp;&nbsp; </tt></td>
+    <td><tt>wheat</tt></td>
+  </tr>
+  <tr>
+    <td><tt>*XmMainWindow.commandWindowLocation:&nbsp;&nbsp; </tt></td>
+    <td><tt>COMMAND_ABOVE_WORKSPACE</tt></td>
+  </tr>
+  <tr>
+    <td><tt>xed*ShowArrows:&nbsp;&nbsp; </tt></td>
+    <td><tt>False</tt></td>
+  </tr>
+</table>
+
+<p>The full name<tt> xed.main.foreground</tt> matches the database line <tt>xed*foreground</tt>
+because the <tt>*</tt> character is a wildcard character that matches any number of levels
+in the widget hierarchy. The value from the database is automatically converted to the
+correct type for the resource field. In this case, the value <tt>black</tt> is converted
+to a <tt>Pixel</tt> by the built-in converter that allocates named colours and returns
+their pixel values. If a conversion fails then a message is output to the user and the
+resource field defaults to a compiled-in default.</p>
+
+<p>The full name <tt>xed.main.showSeparator</tt> matches the database line <tt>xed.main.showSeparator</tt>
+exactly and the string <tt>True</tt> is converted to the corresponding ML boolean value <tt>true</tt>.</p>
+
+<p>If resources cannot be matched by name, then the search tries to match by class
+instead. There are three classes to be aware of: firstly the application class, secondly
+the widget class, and thirdly the resource class. Resource classes are listed in the
+resource tables for each widget class. Each class name is prefixed by <tt>XmC</tt> to make
+them distinct from other ML identifiers. This prefix is not needed in the resource
+database.</p>
+
+<p>In our example the application class is <tt>Editor</tt>, which means that the database
+line <tt>Editor.main.background</tt> will set the <tt>XmNbackground</tt> field of the main
+widget to <tt>wheat</tt>. If we had other applications with different names, but they were
+members of the same <tt>Editor</tt> application class, then they too would have their <tt>main.background</tt>
+resources set to <tt>wheat</tt>. In this way it is possible to change the user preferences
+for a whole class of applications with one line in the resource database.</p>
+
+<p>In our example the widget class for main is XmMainWindow, which means that the database
+line <tt>*XmMainWindow.commandWindowLocation</tt> will set the <tt>XmNcommandWindowLocation</tt>
+field of the main widget to <tt>XmCOMMAND_ABOVE_WORKSPACE</tt>. In fact, because of the <tt>*</tt>
+wildcard it will set this field in every <tt>XmMainWindow</tt> in every application we
+run. In this way it is possible to change the user preferences for a whole class of
+widgets with one line in the resource database.</p>
+
+<p>Note that the resource database string <tt>COMMAND_ABOVE_WORKSPACE</tt> has a
+corresponding ML value called <tt>XmCOMMAND_ABOVE_WORKSPACE</tt> which is one of the
+constant constructors of the <tt>XmCommandWindowLocatio</tt>n datatype.</p>
+
+<table border="0">
+  <tr>
+    <td><tt>datatype XmCommandWindowLocation&nbsp;&nbsp; </tt></td>
+    <td><tt>= XmCOMMAND_ABOVE_WORKSPACE</tt></td>
+  </tr>
+  <tr>
+    <td></td>
+    <td><tt>| XmCOMMAND_BELOW_WORKSPACE</tt></td>
+  </tr>
+</table>
+
+<p>To specify one value from a range of predefined constants, remove the <tt>Xm</tt> from
+the ML constant and use the remaining letters and underscores in the resource database.</p>
+
+<p>The last line of our example is <tt>xed*ShowArrow</tt>s. This will set all resource
+fields in the <tt>xed</tt> application that have a class of <tt>XmCShowArrows</tt>. The
+resource field <tt>XmNshowArrow</tt>s in the scroll bars that we manage inside the main
+window have this resource class. In this way it is possible to change the user preferences
+for a whole class of resources with one line in the resource database.</p>
+
+<p>If the resource value could not be found in the resource database then it looks through
+the fallback resources specified with the <tt>XtAppInitialise</tt> function. If the
+resource value has still not been found then it is set to a compiled-in default.</p>
+
+<h3>1.6 <a name="Changing and examining Widget state">Changing and examining Widget state</a></h3>
+
+<p>The current value of widget resources make up the widget's state. To get the current
+value of a resource, or a list of resources, use the following functions.</p>
+
+<p><tt>val XtGetValue: Widget -&gt; string -&gt; Arg<br>
+val XtGetValues: Widget -&gt; string list -&gt; Arg list</tt></p>
+
+<p>The string to pass in is the resource name corresponding to the <tt>Arg</tt> required.
+For example, the <tt>Arg</tt> constructor <tt>XmNforeground</tt> has the corresponding
+string <tt>&quot;foreground&quot;</tt>. The code for this example would look like</p>
+
+<p><tt>val (XmNforeground pixel) = XtGetValue widget &quot;foreground&quot; ;</tt></p>
+
+<p>Because the <tt>Arg</tt> type is an infinite datatype - it is the type <tt>exn</tt> -
+you must use the exception names as destructors to get the values out. In the above
+example the identifier pixel will be bound to the int returned inside the <tt>XmNforeground</tt>
+exception packet. This allows the system to be flexible and allow any type to be packaged
+up and stored as a widget resource.</p>
+
+<p>To set a widget's resource value use one of the following functions.</p>
+
+<p><tt>val XtSetValue: Widget -&gt; Arg -&gt; unit<br>
+val XtSetValues: Widget -&gt; Arg list -&gt; unit</tt></p>
+
+<p>Construct the <tt>Arg</tt> values by applying the <tt>Arg</tt> exception constructors
+to the basic ML values. The widget will decide if it wants to accept the new value, or
+reject it, and may decide to move, resize or redraw itself - the user does not have to do
+this. For example, setting the current value and slider size on a XmScale widget is done
+by</p>
+
+<p><tt>XtSetValues scale [XmNvalue 42,XmNsliderSize 100] ;</tt></p>
+
+<h3>1.7 <a name="What are Callbacks">What are Callbacks</a></h3>
+
+<p>Callbacks are used to apply ML functions when the user performs some user interface
+abstraction, such as clicking on a scrollbar, or selecting from a menu. This is a much
+higher level of abstraction than programming at the X Event level using Xlib. Each widget
+typically provides several callbacks that the programmer can attach ML functions to. These
+functions get called when specific user actions are performed - the resource tables later
+in this manual indicate which callbacks are valid for each widget, and the OSF/Motif
+Programmer's Reference can tell you more details about the actions that trigger the
+callbacks. Each callback within a widget has one of the following names from the
+XtCallback datatype.</p>
+
+<p>datatype XtCallback = XmNactivateCallback | XmNapplyCallback</p>
+
+<p>| XmNarmCallback | XmNbrowseSelectionCallback</p>
+
+<p>| XmNcancelCallback | XmNcascadingCallback</p>
+
+<p>| XmNcommandChangedCallback | XmNcommandEnteredCallback</p>
+
+<p>| XmNdecrementCallback | XmNdefaultActionCallback</p>
+
+<p>| XmNdestroyCallback | XmNdisarmCallback</p>
+
+<p>| XmNdragCallback | XmNentryCallback</p>
+
+<p>| XmNexposeCallback | XmNextendedSelectionCallback</p>
+
+<p>| XmNfocusCallback | XmNgainPrimaryCallback</p>
+
+<p>| XmNhelpCallback | XmNincrementCallback</p>
+
+<p>| XmNinputCallback | XmNlosePrimaryCallback</p>
+
+<p>| XmNlosingFocusCallback | XmNmapCallback</p>
+
+<p>| XmNmessageCallback | XmNmodifyVerifyCallback</p>
+
+<p>| XmNmotionVerifyCallback | XmNmultipleSelectionCallback</p>
+
+<p>| XmNnoMatchCallback | XmNokCallback</p>
+
+<p>| XmNpageDecrementCallback | XmNpageIncrementCallback</p>
+
+<p>| XmNpopdownCallback | XmNpopupCallback</p>
+
+<p>| XmNresizeCallback | XmNsimpleCallback</p>
+
+<p>| XmNsingleSelectionCallback | XmNtoBottomCallback</p>
+
+<p>| XmNtoTopCallback | XmNunmapCallback</p>
+
+<p>| XmNvalueChangedCallback</p>
+
+<p>The function XtSetCallbacks is used to attach a list of (XtCallback,function) pairs to
+a Widget. It has the following interesting type</p>
+
+<p>val XtSetCallbacks: Widget -&gt;</p>
+
+<p>(XtCallback * (Widget * 'a XEvent * 'b -&gt; 'b)) list -&gt;</p>
+
+<p>'b -&gt;</p>
+
+<p>int -&gt; 'a -&gt; unit</p>
+
+<p>The first parameter is the widget to set the callbacks on. The second parameter is a
+list of (XtCallback,function) pairs which will replace the current set of callbacks for
+this widget. This works in the following way - if the user performs an action which causes
+the widget to trigger its XmNvalueChangedCallback, and if there is a corresponding pair
+(XmNvalueChangedCallback,f) in the list then the function f will be applied. Each function
+in the list has the same type</p>
+
+<p>Widget * 'a XEvent * 'b -&gt; 'b</p>
+
+<p>When the widget calls the function, it passes itself as the first element of the tuple
+followed by the 'a XEvent that triggered the callback, and lastly the 'b user defined
+state for the widget. The function must return a new 'b value to use as the user defined
+widget state.</p>
+
+<p>The next parameter to XtSetCallbacks is the 'b to use as the initial state for this
+widget. Only one callback is ever applied at any one time - the 'b state is passed from
+one callback to another in a series of state transformations. If a callback function
+wishes to look at or change part of the widget resource state it can call XtGetValues and
+XtSetValues.</p>
+
+<p>XtSetCallbacks then returns a function of type</p>
+
+<p>int -&gt; 'a -&gt; unit</p>
+
+<p>which can be used for sending 'a messages to the widget. If the pair
+(XmNmessageCallback, f) is included in the callback list then f will receive 'a XEvent
+messages which it can destruct with the Message XEvent destructor. This is a way of
+sending strongly typed message information between collections of widgets. The int
+parameter is the delay in milliseconds before sending the message - this is often useful
+for sending wakeup messages, or for performing auto-repeats.</p>
+
+<p>&nbsp;</p>
+
+<p>&nbsp;</p>
+
+<h2>Chapter 2</h2>
+
+<h2><a name="Widget Classes">Widget Classes</a></h2>
+
+<p>This chapter describes the major widget classes available in Motif and gives a picture
+showing their appearance. A diagram next to each picture shows the widget class hierarchy
+for this class. Tables are included showing the resource names that are applicable to each
+class. The ML types of related Motif functions are also shown, along with a short
+description of how the widget is generally used.</p>
+
+<p>Resource names such as XmNforeground begin with an XmN prefix when used as Arg
+destructors or constructors. When compiling resource files the prefix is not needed.</p>
+
+<p>Resource class names such as XmCPosition begin with an XmC prefix when used as the
+names of ML strings. When compiling resource files the prefix is not needed.</p>
+
+<p>Constant constructors in datatypes such as XmARROW_DOWN have an Xm prefix in ML, but
+when used as values in a resource file the prefix is not needed.</p>
+
+<h3>2.1 <a name="ArrowButton">ArrowButton</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">XmPrimitive</td>
+  </tr>
+  <tr>
+    <td align="center">XmArrowButton</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>ArrowButton widgets are button widgets generally used to change the geometry or view of
+part of an application. The widget consists of an arrow indicating the direction of the
+desired change. Shadows are placed around the arrow to give the appearance that the
+ArrowButton has been pressed in when the button is selected. The XmNarrowDirection
+resource is used to choose which way the arrow will point.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmArrowButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name&nbsp;&nbsp; </strong></td>
+    <td><strong>Class&nbsp;&nbsp; </strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback&nbsp;&nbsp; </td>
+    <td>XmCCallback&nbsp;&nbsp; </td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarmCallback&nbsp;&nbsp; </td>
+    <td>XmCCallback&nbsp;&nbsp; </td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarrowDirection&nbsp;&nbsp; </td>
+    <td>XmCArrowDirection&nbsp;&nbsp; </td>
+    <td>XmArrowDirection</td>
+  </tr>
+  <tr>
+    <td>XmNdisarmCallback&nbsp;&nbsp; </td>
+    <td>XmCDisarmCal1back&nbsp;&nbsp; </td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmultiClick&nbsp;&nbsp; </td>
+    <td>XmCMultiClick&nbsp;&nbsp; </td>
+    <td>XmMultiClickType</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmArrowDirection = XmARROW_UP | XmARROW_DOWN | XmARROW_LEFT | XmARROW_RIGHT</p>
+
+<p>datatype XmMultiClickType = XmMULTICLICK_DISCARD | XmMULTICLICK_KEEP</p>
+
+<p>val XmCreateArrowButton: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateArrowButtonGadget: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsArrowButton: Widget -&gt; bool<br>
+val XinIsArrowButtonGadget: Widget -&gt; bool</p>
+
+<h4>2.2 <a name="BulletinBoard">BulletinBoard</a></h4>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>BulletinBoard is a general container widget used as the basis for most dialog widgets.
+It provides simple geometry management for its children, without forcing any positioning
+constraints on them. It can be set to reject geometry requests that result in overlapping
+children by changing the XmNallowOverlap resource to false.</p>
+
+<h4>Resources:</h4>
+
+<table border="1" width="313">
+  <tr>
+    <td colspan="3" align="center" width="329">XmBulletinBoard Resources</td>
+  </tr>
+  <tr>
+    <td width="115"><strong>Name</strong></td>
+    <td width="113"><strong>Class</strong></td>
+    <td width="93"><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td width="115">XmNallowOverlap</td>
+    <td width="113">XmCAllowOverlap</td>
+    <td width="93">bool</td>
+  </tr>
+  <tr>
+    <td width="115">XmNautoUnmanage</td>
+    <td width="113">XmCAutoUnmanage</td>
+    <td width="93">bool</td>
+  </tr>
+  <tr>
+    <td width="115">XmNbuttonFontList</td>
+    <td width="113">XmCButtonFontList</td>
+    <td width="93">XFontStruct list</td>
+  </tr>
+  <tr>
+    <td width="115">XmNcancelButton</td>
+    <td width="113">XmCWidget</td>
+    <td width="93">Widget</td>
+  </tr>
+  <tr>
+    <td width="115">XmNdefaultButton</td>
+    <td width="113">XmCWidget</td>
+    <td width="93">Widget</td>
+  </tr>
+  <tr>
+    <td width="115">XmNdefaultPosition</td>
+    <td width="113">XmCDefaultPosition</td>
+    <td width="93">bool</td>
+  </tr>
+  <tr>
+    <td width="115">XmNdialogStyle</td>
+    <td width="113">XmCDialogStyle</td>
+    <td width="93">XmDialogStyle</td>
+  </tr>
+  <tr>
+    <td width="115">XmNdialogTitle</td>
+    <td width="113">XmCDialogTitle</td>
+    <td width="93">XmString</td>
+  </tr>
+  <tr>
+    <td width="115">XmNfocusCallback</td>
+    <td width="113">XmCCallback</td>
+    <td width="93">(callback)</td>
+  </tr>
+  <tr>
+    <td width="115">XmNlabelFontList</td>
+    <td width="113">XmCLabelFontList</td>
+    <td width="93">XFontStruct list</td>
+  </tr>
+  <tr>
+    <td width="115">XmNmapCallback</td>
+    <td width="113">XmCCallback</td>
+    <td width="93">(callback)</td>
+  </tr>
+  <tr>
+    <td width="115">XmNmarginHeight</td>
+    <td width="113">XmCMarginHeight</td>
+    <td width="93">int</td>
+  </tr>
+  <tr>
+    <td width="115">XmNmarginWidth</td>
+    <td width="113">XmCMarginWidth</td>
+    <td width="93">int</td>
+  </tr>
+  <tr>
+    <td width="115">XmNnoResize</td>
+    <td width="113">XmCNoResize</td>
+    <td width="93">bool</td>
+  </tr>
+  <tr>
+    <td width="115">XmNresizePolicy</td>
+    <td width="113">XmCResizePolicy</td>
+    <td width="93">XmResizePolicy</td>
+  </tr>
+  <tr>
+    <td width="115">XmNshadowType</td>
+    <td width="113">XmCShadowType</td>
+    <td width="93">XmShadowType</td>
+  </tr>
+  <tr>
+    <td width="115">XmNtextFontList</td>
+    <td width="113">XmCTextFontList</td>
+    <td width="93">XFontStruct list</td>
+  </tr>
+  <tr>
+    <td width="115">XmNtextTranslations</td>
+    <td width="113">XmCTranslations</td>
+    <td width="93">XtTranslations</td>
+  </tr>
+  <tr>
+    <td width="115">XmNunmapCallback</td>
+    <td width="113">XmCCallback</td>
+    <td width="93">(callback)</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmDialogStyle = XmDIALOG_MODELESS | XmDIALOG_PRIMARY_APPLICATION_MODAL |
+XmDIALOG_FULL_APPLICATION_MODAL | XmDIALOG_SYSTEM_MODAL</p>
+
+<p>datatype XmResizePolicy = XmRESIZE_NONE | XmRESIZE_ANY | XmRESIZE_GROW</p>
+
+<p>datatype XmShadowType = XmSHADOW_ETCHED_IN | XmSHADOW_ETCHED_OUT | XmSHADOW_IN |
+XmSHADOW_OUT</p>
+
+<p>val XmCreateBulletinBoard: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateBulletinBoardDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateForm: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateFormDialog: Widget-&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsBulletinBoard: Widget-&gt; bool<br>
+val XmIsForm: Widget-&gt; bool</p>
+
+<h3>2.3 <a name="CascadeButton">CascadeButton</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">XmPrimitive</td>
+  </tr>
+  <tr>
+    <td align="center">XmLabel</td>
+  </tr>
+  <tr>
+    <td align="center">XmCascadeButton</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>CascadeButton widgets are used to construct menu systems. It is the only widget that
+can have a Pulldown MenuPane attached to it as a submenu via the XmNsubMenuId resource.</p>
+
+<p>To create a menu system CascadeButtons are placed inside a MenuBar. Each of these
+buttons has a MenuPane attached to it as a submenu. These submenus may also contain
+CascadeButtons which have further submenus, and so on.</p>
+
+<p>CascadeButtons must have RowColumn parents - a MenuPane and a MenuBar are special cases
+of a RowColumn widget.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmCascadeButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcascadePixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNcascadingCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmappingDelay</td>
+    <td>XmCMappingDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsubMenuld</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>val XmCreateCascadeButton: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateCascadeButtonGadget: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateSeparator: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateSeparatorGadget: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateMenuBar: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateOptioMenu: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreatePopupMenu: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreatePulldowrLMenu: Widget-&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmCascadeButtonHighlight: Widget-&gt; bool -&gt; unit</p>
+
+<p>val XmIsCascadeButton: Widget-&gt; bool<br>
+val XmIsCascadeButtonGadget: Widget-&gt; bool</p>
+
+<h3>2.4 <a name="Command">Command</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmSelectionBox</td>
+  </tr>
+  <tr>
+    <td align="center">XmCommandBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>Command widgets are special purpose widgets designed for the entry of textual commands
+with a history mechanism for retaining previous commands. The widget allows new commands
+to be entered, or old commands can be selected from a history list and edited to make new
+commands. Each new command is automatically added to the history. The XmNcommand resource
+is used to get or set the current command string. The XmCommandError can be used to
+display an error message at the bottom of the history list.</p>
+
+<p>One additional WorkArea child may be added to a command widget.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmCommand Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcommand</td>
+    <td>XmCTextString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNcommandChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcommandEnteredCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryItemCount</td>
+    <td>XmCItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryItems</td>
+    <td>XmCItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryMaxItems</td>
+    <td>XmCMaxItems</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryVisibleItemCount</td>
+    <td>XmCVisibleItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpromptString</td>
+    <td>XmCPromptString</td>
+    <td>XmString</td>
+    <td>&nbsp;</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>val XmDIALOG_COMMAND: XmDialogType</p>
+
+<p>val XmDIALOG_COMMAND_TEXT: XmDefaultButtonType<br>
+val XmDIALOG_PROMPT_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_HISTORY list: XmDefaultButtonType</p>
+
+<p>val XmCreateCommand: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmCommandError: Widget -&gt; XmString -&gt; unit<br>
+val XmCommandGetChild: Widget -&gt; XmDefaultButtonType -&gt; Widget</p>
+
+<p>val XmIsCommand: Widget -&gt; bool</p>
+
+<h3>2.5 <a name="ErrorDialog">ErrorDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmMessageBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>An ErrorDialog widget is a specific instance of a MessageBox widget. It has a message
+field, OK, Cancel and Help buttons, and the error icon which resembles a Stop sign. The
+XmNmessageString resource is used to set the message string.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCal1back</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_ERROR: XmDialogType</p>
+
+<p>val XmCreateErrorDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<h3>2.6 <a name="FileSelectionDialog">FileSelectionDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmSelectionBox</td>
+  </tr>
+  <tr>
+    <td align="center">XmFileSelectionBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A FileSelectionDialog allows the user to choose one file from among the files and
+directories in the file system. The dialog has the following components :-</p>
+
+<p>The Filter text field is used for editing the mask which specifies both the base
+directory and the filter applied to display the entries in that directory. Pressing the
+RETURN key after editing this field resets the base directory and reapplies the filter.
+This is equivalent to pressing the Filter button.</p>
+
+<p>The Files list shows the list of filenames that result from applying the filter to the
+files in the base directory. Clicking on a filename in the list copies it to the Selection
+field. Double clicking copies the filename to the Selection field and presses the OK
+button.</p>
+
+<p>The Directories list shows the list of directories found in the base directory.
+Clicking on a directory in the list inserts that directory name into the mask in the
+Filter field. Double clicking inserts the directory into the mask and presses the Filter
+button to reapply the filter to the new base directory.</p>
+
+<p>The Selection text field shows the currently selected filename appended to the current
+base directory. If this is not the filename that you require you may either edit it by
+hand, or use the methods described above to choose another filename.</p>
+
+<p>The OK button does not change any of the fields, it simply causes the <tt>XmNokCallback</tt>
+to be applied. This function typically gets the value of the <tt>XmNtextString</tt>
+resource, and then performs some action with that filename. If the <tt>XmNautoUnmanage</tt>
+resource is set to true then the dialog automatically unmanages itself.</p>
+
+<p>Pressing the Filter button reapplies the filter to the filenames found in the base
+directory, and updates the Files list.</p>
+
+<p>Pressing the Cancel button applies the <tt>XmNcancelCallback</tt> function, and if the <tt>XmNautoUnmanage</tt>
+resource is set to true then the dialog automatically unmanages itself.</p>
+
+<p>Pressing the Help button applies the <tt>XmNhelpCallback</tt> function.</p>
+
+<h4>Resources: </h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmFileSelectionBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdirListItemCount</td>
+    <td>XmCDirListItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNdirListItems</td>
+    <td>XmCDirListItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNdirListLabelString</td>
+    <td>XmCDirListLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirMask</td>
+    <td>XmCDirMask</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirSpec</td>
+    <td>XmCDirSpec</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirectory</td>
+    <td>XmCDirectory</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirectoryValid</td>
+    <td>XmCDirectoryValid</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNfileListltemCount</td>
+    <td>XmCFileListItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNfileListIteme</td>
+    <td>XmCFileListltems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNfileListLabelString</td>
+    <td>XmCFileListLabeiString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNfileTypeMask</td>
+    <td>XmCFileTypeMask</td>
+    <td>XmFileTypeMask</td>
+  </tr>
+  <tr>
+    <td>XmNfilterLabelString</td>
+    <td>XmCFilterLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlistUpdated</td>
+    <td>XmCListUpdated</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNnoMatchString</td>
+    <td>XmCNoMatchString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNpattem</td>
+    <td>XmCpattern</td>
+    <td>XmString</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmFileTypeMask = XmFILE_REGULAR | XmFILE_DIRECTORY | XmFILE_ANY_TYPE</p>
+
+<p>val XmDIALOG_FILE_SELECTION: XmDialogType</p>
+
+<p>val XmDIALOG_APPLY_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_CANCEL_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_DEFAULT_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_DIR_LIST: XmDefaultButtonType<br>
+val XmDIALOG_DIR_LIST_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_FILTER_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_FILTER_TEXT: XmDefaultButtonType<br>
+val XmDIALOG_HELP_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_LIST: XmDefaultButtonType<br>
+val XmDIALOG_LIST_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_OK_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_SELECTION_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_SEPARATOR: XmDefaultButtonType<br>
+val XmDIALOG_TEXT: XmDefaultButtonType</p>
+
+<p>val XmCreateFileSelectionBox: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateFileSelectionDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmFileSelectionBoxGetChild: Widget -&gt; XmDefaultButtonType -&gt; Widget<br>
+val XmFileSelectionDoSearch: Widget -&gt; XmString -&gt; unit</p>
+
+<p>val XmIsFileSelectionBox: Widget -&gt; bool</p>
+
+<h3>2.7 <a name="InformationDialog">InformationDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmMessageBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>An InformationDialog widget is a specific instance of a MessageBox widget. It has a
+message field, OK, Cancel and Help buttons, and the information icon which resembles an
+Information sign. The XmNmessageString resource is used to set the message string.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCaliback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_INFORMATION: XmDialogType</p>
+
+<p>val XmCreateInformationDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<h3>2.8 <a name="List">List</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">XmPrimitive</td>
+  </tr>
+  <tr>
+    <td align="center">XmList</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>List widgets are used to select of one or more entries from a list of text strings. The
+XmNselectionPolicy resource determines one of several different selection modes the list
+may operate in. The XmNitems resource is used to pass in the list of strings to select
+from. The XmNselectedItems resource is used to set or get the currently selected items.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmList Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNautomaticSelection</td>
+    <td>XmCAutomaticSelection</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNbrowseSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultActionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdoubleClickInterval</td>
+    <td>XmCDoubleClickInterval</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNextendedSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNitemCount</td>
+    <td>XmCItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNitems</td>
+    <td>XmCItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNlistMarginHeight</td>
+    <td>XmCListMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNlistMarginWidth</td>
+    <td>XmCListMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNlistSizePolicy</td>
+    <td>XmCListSizePolicy</td>
+    <td>XmVisualPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNlistSpacing</td>
+    <td>XmCListSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmultipleSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarDisplayPolicy</td>
+    <td>XmCScrollBarDisplayPolicy</td>
+    <td>XmScrollBarDisplayPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNselectedItemCount</td>
+    <td>XmCSelectedItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectedItems</td>
+    <td>XmCSelectedItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNselectionPolicy</td>
+    <td>XmCSelectionPolicy</td>
+    <td>XmSelectionPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNsingleSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNstringDirection</td>
+    <td>XmCStringDirection</td>
+    <td>XmStringDirection</td>
+  </tr>
+  <tr>
+    <td>XmNtopItemPosition</td>
+    <td>XmCTopItemPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvisibleItemCount</td>
+    <td>XmCVisibleItemCount</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmScrollBarDisplayPolicy = XmSTATIC | XmAS_NEEDED</p>
+
+<p>datatype XmSelectionPolicy = XmSINGLE_SELECT | XmMULTIPLE_SELECT | XmEXTENDED_SELECT |
+XmBROWSE_SELECT</p>
+
+<p>datatype XmVisualPolicy = XmVARIABLE | XmCONSTANT | XmRESIZE_IF_POSSIBLE</p>
+
+<p>val XmCreateList: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateScrolledList: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsList: Widget -&gt; bool<br>
+val XmIsScrolledWindow: Widget -&gt; bool</p>
+
+<h3>2.9 <a name="MainWindow">MainWindow</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmScrolledWindow</td>
+  </tr>
+  <tr>
+    <td align="center">XmMainWindow</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>The MainWindow widget can be used to manage the primary view of an application. This
+widget has a number of optional components including a menu bar, a command window, a
+message window, scroll bars, and a work area. The required components are first created
+and managed and are then passed to the function XmMainWindowSetAreas so that they can be
+organised together to create the application's primary view. The XmNcommandWindowLocation
+resource can be used to control the positioning of the command window relative to the
+other windows.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMainWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcommandWindow</td>
+    <td>XmCCommandWindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNcommandWindowLocation</td>
+    <td>XmCCommandWindowLocation</td>
+    <td>XmCommandWindowLocation</td>
+  </tr>
+  <tr>
+    <td>XmNmainWindowMarginHeight</td>
+    <td>XmCMainWindowMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmainWindowMarginWidth</td>
+    <td>XmCMainWindowMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmenuBar</td>
+    <td>XmCMenuBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNmessageWindow</td>
+    <td>XmCMessageWindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNshowSeparator</td>
+    <td>XmCShowSeparator</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h4>Functions:</h4>
+
+<p>datatype XmCommandWindowLocation = XmCOMMAND_ABOVE_WORKSPACE |
+XmCOMMAND_BELOW_WORKSPACE</p>
+
+<p>val XmCreateMainWindow: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmMainWindowSetAreas: Widget -&gt; Widget -&gt; Widget -&gt; Widget -&gt; Widget
+-&gt; Widget -&gt; unit</p>
+
+<p>val XmMainWindowSepl: Widget -&gt; Widget</p>
+
+<p>val XmMainWindowSep2: Widget -&gt; Widget</p>
+
+<p>val XmMainWindowSep3: Widget -&gt; Widget</p>
+
+<p>val XmIsMainWindow: Widget -&gt; bool</p>
+
+<p>&nbsp;</p>
+
+<h3>2.10 <a name="MessageDialog">MessageDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmMessageBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A MessageDialog widget is a specific instance of a MessageBox widget. It has a message
+field, OK, Cancel and Help buttons, but does not have any predefined symbol icon. The
+XmNmessageString resource is used to set the message string.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_MESSAGE: XmDialogType</p>
+
+<p>val XmDIALOG_CANCEL_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_DEFAULT_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_HELP_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_MESSAGE_LABEL: XmDefaultButtonType<br>
+val XmDIALOG OK BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_SEPARATOR: XmDefaultButtonType<br>
+val XmDIALOG_SYMBOL_LABEL: XmDefaultButtonType</p>
+
+<p>val XmCreateMessageBox: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateMessageDialog: Widget-&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsMessageBox: Widget-&gt; bool</p>
+
+<p>val XmMessageBoxGetChild: Widget -&gt; XmDefaultButtonType -&gt; Widget</p>
+
+<h3>2.11 <a name="OptionMen">OptionMen</a>u</h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmRowcolumn</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>An OptionMenu is a specific instance of a RowColumn widget containing a label and a
+cascade button. Pressing the cascade button pulls down a menu pane so that one of the menu
+pane items can be selected. The menu pane is then removed and the selected item is
+displayed inside the cascade button. The XmNlabelString resource is used to set the label,
+and the XmNsubMenuId resource is used to set the menu pane.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmRowColumn Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNadjustLast</td>
+    <td>XmCAdjustLast</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNadjustMargin</td>
+    <td>XmCAdjustMargin</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonAcceleratorText</td>
+    <td>XmCButtonAcceleratorText</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonAccelerators</td>
+    <td>XmCButtonAccelerators</td>
+    <td>string list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonCount</td>
+    <td>XmCButtonCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonMnemonicCharSets</td>
+    <td>XmCButtonMnemonicCharSets</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonMnemonics</td>
+    <td>XmCButtonMnemonics</td>
+    <td>KeySym list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonSet</td>
+    <td>XmCButtonSet</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonType</td>
+    <td>XmCButtonType</td>
+    <td>XmButtonType list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttons</td>
+    <td>XmCButtons</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNentryAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNentryBorder</td>
+    <td>XmCEntryBorder</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNentryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNisAligned</td>
+    <td>XmCIsAligned</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNisHomogeneous</td>
+    <td>XmCIsHomogeneous</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNlabelString</td>
+    <td>XmCLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmapCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmenuAccelerator</td>
+    <td>XmCAccelerators</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNmenuCursor</td>
+    <td>XmCCursor</td>
+    <td>Cursor</td>
+  </tr>
+  <tr>
+    <td>XmNmenuHelpWidget</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNmenuHistory</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNmenuPost</td>
+    <td>XmCMenuPost</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNmnemonic</td>
+    <td>XmCMnemonic</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmnemonicCharSet</td>
+    <td>XmCMnemonicCharSet</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNnumColumns</td>
+    <td>XmCNumColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNoptionLabel</td>
+    <td>XmCOptionLabel</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNoptionMnemonic</td>
+    <td>XmCOptionMnemonic</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNpacking</td>
+    <td>XmCPacking</td>
+    <td>XmPacking</td>
+  </tr>
+  <tr>
+    <td>XmNpopupEnabled</td>
+    <td>XmCPopupEnabled</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNpostFromButton</td>
+    <td>XmCPostFromButton</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNradioAlwaysOne</td>
+    <td>XmCRadioAlwaysOne</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNradioBehavior</td>
+    <td>XmCRadioBehavior</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeHeight</td>
+    <td>XmCResizeHeight</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeWidth</td>
+    <td>XmCResizeWidth</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNrowColumnType</td>
+    <td>XmCRowColumnType</td>
+    <td>XmRowColumnType</td>
+  </tr>
+  <tr>
+    <td>XmNsimpleCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsubMenuld</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNunmapCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>val XmCreateOptionMenu: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateSimpleOptionMenu: Widget-&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmOptionButtonGadget: Widget -&gt; Widget<br>
+val XmOptionLabelGadget: Widget -&gt; Widget</p>
+
+<h3>2.12 <a name="PanedWindow">PanedWindow</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmPanedWindow</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A PanedWindow is a composite widget that arranges its children vertically. The width of
+a paned window is equal to the widest child. The height of each pane can be adjusted by
+dragging the sash in the separators between the panes.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmPanedWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNallowResize</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpaneMaximum</td>
+    <td>XmCPaneMaximum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpaneMinimum</td>
+    <td>XmCPaneMinimum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNrefigureMode</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNsashHeight</td>
+    <td>XmCSashHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsashIndent</td>
+    <td>XmCSashIndent</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsashShadowThickness</td>
+    <td>XmCShadowThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsashWidth</td>
+    <td>XmCSashWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNseparatorOn</td>
+    <td>XmCSeparatorOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNskipAdjust</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>val XmCreatePanedWindow: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsPanedWindow: Widget -&gt; bool</p>
+
+<h3>2.13 <a name="PromptDialog">PromptDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinboard</td>
+  </tr>
+  <tr>
+    <td align="center">XmSelectionBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A PromptDialog widget is a specific instance of a MessageBox widget. It has an editable
+text field, OK, Cancel and Help buttons, and a prompt label. The XmNtextString resource is
+used to set the editable text string, and the XmNselectionLabelString resource is used to
+set the prompt.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCal1back</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_PROMPT: XmDialogType</p>
+
+<p>val XmCreatePromptDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<h3>2.14 <a name="QuestionDialog">QuestionDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmMessageBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A QuestionDialog widget is a specific instance of a MessageBox widget. It has a message
+field, OK, Cancel and Help buttons, and the question icon which resembles a question mark.
+The XmNmessageString resource is used to set the message string.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCailback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_QUESTION: XmDialogType</p>
+
+<p>val XmCreateQuestionDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<h3>2.15 <a name="Scale">Scale</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmScale</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A Scale widget is used to display and select a value from within a range of values. The
+XmNminimum and XmNmaximum resources set the range of the values, and the XmNvalue resource
+can be used to set and get the current value. The XmNtitleString resource is used to set
+the title label.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScale Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdecimalPoints</td>
+    <td>XmCDecimalPoints</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNdragCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightOnEnter</td>
+    <td>XmCHighlightOnEnter</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightThickness</td>
+    <td>XmCHighlightThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaximum</td>
+    <td>XmCMaximum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminimum</td>
+    <td>XmCMinimum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNprocessingDirection</td>
+    <td>XmCProcessingDirection</td>
+    <td>XmProcessingDirection</td>
+  </tr>
+  <tr>
+    <td>XmNscaleHeight</td>
+    <td>XmCScaleHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscaleMultiple</td>
+    <td>XmCScaleMultiple</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscaleWidth</td>
+    <td>XmCScaleWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNshowValue</td>
+    <td>XmCShowValue</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNtitleString</td>
+    <td>XmCTitleString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNvalue</td>
+    <td>XmCValue</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmOrientation = XmVERTICAL | XmHORIZONTAL</p>
+
+<p>datatype XmProcessingDirection = XmMAX_ON_TOP | XmMAX_ON_BOTTOM | XmMAX_ON_LEFT |
+XmMAX_ON_RIGHT</p>
+
+<p>val XmCreateScale: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsScale: Widget -&gt; bool</p>
+
+<h3>2.16 <a name="ScrollBar">ScrollBar</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">XmPrimitive</td>
+  </tr>
+  <tr>
+    <td align="center">XmScrollBar</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A ScrollBar widget is used to indicate how much of a data set is currently being
+displayed in some other widget. The scrollbar can be adjusted by the user so that any part
+of the data set is displayed. The XmNminimum and XmNmaximum resources set the range of the
+data set, and the XmNvalue resource can be used to set and get the current position. The
+XmNsliderSize resource should be set to indicate how much of the set is currently visible.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScrollBar Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdecrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdragCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNincrement</td>
+    <td>XmCIncrement</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNincrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNinitialDelay</td>
+    <td>XmCInitialDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaximum</td>
+    <td>XmCMaximum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminimum</td>
+    <td>XmCMinimum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNpageDecrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpageIncrement</td>
+    <td>XmCPageIncrement</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpageIncrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNprocessingDirection</td>
+    <td>XmCProcessingDirection</td>
+    <td>XmProcessingDirection</td>
+  </tr>
+  <tr>
+    <td>XmNrepeatDelay</td>
+    <td>XmCRepeatDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNshowArrows</td>
+    <td>XmCShowArrows</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNsliderSize</td>
+    <td>XmCSliderSize</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtoBottomCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNtoTopCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNtroughColor</td>
+    <td>XmCtroughColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalue</td>
+    <td>XmCValue</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmOrientation = XmVERTICAL | XmHORIZONTAL</p>
+
+<p>datatype XmProcessingDirection = XmMAX_ON_TOP | XmMAX_ON_BOTTOM | XmMAX_ON_LEFT |
+XmMAX_ON_RIGHT</p>
+
+<p>val XmCreateScrollBar: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XinIsScrollBar: Widget -&gt; bool</p>
+
+<h3>2.17 <a name="ScrolledList">ScrolledList</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmScrolledWindow</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A ScrolledList widget is a composite widget consisting of a list widget contained
+within a scrolled window. list widgets are used to select of one or more entries from a
+list of text strings. The XmNselectionPolicy resource determines one of several selection
+different modes the list may operate in. The XmNitems resource is used to pass in the list
+of strings to select from. The XmNselectedItems resource is used to set or get the
+currently selected items.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScrolledWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNclipWindow</td>
+    <td>XmCClipWindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNhorizontalScrollBar</td>
+    <td>XmCHorizontalScrollBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarDisplayPolicy</td>
+    <td>XmCScrollBarDisplayPolicy</td>
+    <td>XmScrollBarDisplayPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarPlacement</td>
+    <td>XmCScrollBarPlacement</td>
+    <td>XmScrollBarPlacement</td>
+  </tr>
+  <tr>
+    <td>XmNscrolledWindowMarginHeight</td>
+    <td>XmCScrolledWindowMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrolledWindowMarginWidth</td>
+    <td>XmCScrolledWindowMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNserollingPolicy</td>
+    <td>XmCScrollingPolicy</td>
+    <td>XmScrollingPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNverticalScrollBar</td>
+    <td>XmCVerticalScrollBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNvisualPolicy</td>
+    <td>XmCVisualPolicy</td>
+    <td>XmVisualPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNworkWindow</td>
+    <td>XmCWorkWindow</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmScrollBarDisplayPolicy = XmSTATIC | XmAS_NEEDED</p>
+
+<p>datatype XmSelectionPolicy = XmSINGLE_SELECT | XmMULTIPLE_SELECT | XmEXTENDED_SELECT |
+XmBROWSE_SELECT</p>
+
+<p>datatype XmVisualPolicy = XmVARIABLE | XmCONSTANT | XmRESIZE_IF_POSSIBLE</p>
+
+<p>val XmCreateList: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateScrolledList: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsList: Widget -&gt; bool<br>
+val XmIsScrolledWindow: Widget -&gt; bool</p>
+
+<h3>2.18 <a name="ScrolledText">ScrolledText</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmScrolledWindow</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A ScrolledText widget is a composite widget consisting of a text widget contained
+within a scrolled window.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmText Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNautoShowCursorPosition</td>
+    <td>XmCAutoShowCursorPosition</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNblinkRate</td>
+    <td>XmCBlinkRate</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcolumns</td>
+    <td>XmCColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPosition</td>
+    <td>XmCCursorPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPositionVisible</td>
+    <td>XmCCursorPositionVisible</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNeditMode</td>
+    <td>XmCEditMode</td>
+    <td>XmEditMode</td>
+  </tr>
+  <tr>
+    <td>XmNeditable</td>
+    <td>XmCEditable</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNfocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNgainPrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosePrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosingFocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxLength</td>
+    <td>XmCMaxLength</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmodifyVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmotionVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpendingDelete</td>
+    <td>XmCPendingDelete</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeHeight</td>
+    <td>XmCResizeHeight</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeWidth</td>
+    <td>XmCResizeWidth</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNrows</td>
+    <td>XmCRows</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrollHorizontal</td>
+    <td>XmCScroll</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollLeftSide</td>
+    <td>XmCScrollSide</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollTopSide</td>
+    <td>XmCScrollSide</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollVertical</td>
+    <td>XmCScroll</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNselectThreshold</td>
+    <td>XmCSelectThreshold</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArray</td>
+    <td>XmCSelectionArray</td>
+    <td>XmTextScanType list</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArrayCount</td>
+    <td>XmCSelectionArrayCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopCharacter</td>
+    <td>XmCTextPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNverifyBell</td>
+    <td>XmCVerifyBell</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNwordWrap</td>
+    <td>XmCWordWrap</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmScrollBarDisplayPolicy = XmSTATIC | XmAS_NEEDED</p>
+
+<p>datatype XmScrollingPolicy = XmAUTOMATIC | XmAPPLICATION_DEFINED</p>
+
+<p>datatype XmTextScanType = XmSELECT_POSITION | XmSELECT_WHITESPACE | XmSELECT_WORD |
+XmSELECT_LINE | XmSELECT_ALL | XmSELECT_PARAGRAPH</p>
+
+<p>val XmCreateText: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateScrolledText: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmTextGetString: Widget -&gt; string<br>
+val XmTextSetString: Widget -&gt; string -&gt; unit<br>
+val XmTextSetInsertionPosition: Widget -&gt; int -&gt; unit</p>
+
+<p>val XmIsText: Widget -&gt; bool<br>
+val XmIsScrolledWindow: Widget -&gt; bool</p>
+
+<h3>2.19 <a name="ScrolledWindow">ScrolledWindow</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmScrolledWindow</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A ScrolledWindow is a widget that can manage two scroll bars and a work area. If the
+XmNscrollingPolicy resource is set to XmAUTOMATIC then all the scrolling behaviour is
+provided by the ScrolledWindow widget and the user just has to make the work area big
+enough to display all of the data. Other modes of operation exist for cases where this is
+inappropriate, such as displaying the text from a very long file.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScrolledWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNclipWindow</td>
+    <td>XmCClipWindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNhorizontalScrollBar</td>
+    <td>XmCHorizontalScroliBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarDisplayPolicy</td>
+    <td>XmCScrollBarDisplayPolicy</td>
+    <td>XmScrollBarDisplayPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarPlacement</td>
+    <td>XmCScrollBarPlacement</td>
+    <td>XmScrollBarPlacement</td>
+  </tr>
+  <tr>
+    <td>XmNserolledWindowMarginHeight</td>
+    <td>XmCScrolledWindowMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrolledWindowMarginWidth</td>
+    <td>XmCScrolledWindowMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrollingPolicy</td>
+    <td>XmCScrollingPolicy</td>
+    <td>XmScrollingPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNverticalScrollBar</td>
+    <td>XmCVerticalScrollBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNvisualPolicy</td>
+    <td>XmCVisualPolicy</td>
+    <td>XmVisualPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNworkWindow</td>
+    <td>XmCWorkWindow</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmScrollBarDisplayPolicy = XmSTATIC | XmAS_NEEDED</p>
+
+<p>datatype XmScrollBarPlacement = XmBOTTOM_RIGHT | XmTOP_RIGHT | XmBOTTOM_LEFT |
+XmTOP_LEFT</p>
+
+<p>datatype XmScrollingPolicy = XmAUTOMATIC | XmAPPLICATION_DEFINED</p>
+
+<p>datatype XmVisualPolicy = XmVARIABLE | XmCONSTANT | XmRESIZE_IF_POSSIBLE</p>
+
+<p>val XmCreateScrolledWindow: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmScrolledWindowSetAreas: Widget -&gt; Widget -&gt; Widget -&gt; Widget -&gt; unit</p>
+
+<p>val XmIsScrolledWindow: Widget -&gt; bool</p>
+
+<h3>2.20 <a name="SelectionDialog">SelectionDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmSelectionBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A SelectionDialog includes a scrolled list, an editable text field, labels and four
+buttons which are labelled OK, Cancel, Apply and Help by default. Use the XmNlistItems
+resource to set the contents of the scrolled list, and the XmNtextString resource to set
+and get the value of the editable text field.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmSelectionBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNapplyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNapplyLabelString</td>
+    <td>XmCApplyLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlistItemCount</td>
+    <td>XmCItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNlistItems</td>
+    <td>XmCItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNlistLabelString</td>
+    <td>XmCListLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlistVisibleltemCount</td>
+    <td>XmCVisibleItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmustMatch</td>
+    <td>XmCMustMatch</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNnoMatchCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNselectionLabelString</td>
+    <td>XmCSelectionLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNtextAccelerators</td>
+    <td>XmCAccelerators</td>
+    <td>XtAccelerators</td>
+  </tr>
+  <tr>
+    <td>XmNtextColumns</td>
+    <td>XmCColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtextString</td>
+    <td>XmCTextString</td>
+    <td>XmString</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_SELECTION: XmDialogType</p>
+
+<p>val XmDIALOG_APPLY_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_CANCEL_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_DEFAULT_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_HELP_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_LIST: XmDefaultButtonType<br>
+val XmDIALOG_LIST_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_OK_BUTTON: XmDefaultButtonType<br>
+val XmDIALOG_SELECTION_LABEL: XmDefaultButtonType<br>
+val XmDIALOG_SEPARATOR: XmDefaultButtonType<br>
+val XmDIALOG_TEXT: XmDefaultButtonType</p>
+
+<p>val XmCreateSelectionBox: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateSelectionDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmSelectionBoxGetChild: Widget -&gt; XmDefaultButtonType -&gt; Widget</p>
+
+<p>val XmIsSelectionBox: Widget -&gt; bool</p>
+
+<h3>2.21 <a name="Text">Text</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">XmPrimitive</td>
+  </tr>
+  <tr>
+    <td align="center">XmText</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>The text widget provides both single and multi-line text editors with cut/copy/paste
+facilities. Use the XmNeditMode resource to choose single or multi-line editing. Use the
+function XmTextSetString to copy a string into the widget, and the function
+XmTextGetString to get it back again. Line breaks within multi-line strings are
+represented by &quot;\n&quot; characters.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmText Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNautoShowCursorPosition</td>
+    <td>XmCAutoShowCursorPosition</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNblinkRate</td>
+    <td>XmCBlinkRate</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcolumns</td>
+    <td>XmCColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPosition</td>
+    <td>XmCCursorPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPositionVisible</td>
+    <td>XmCCursorPositionVisible</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNeditMode</td>
+    <td>XmCEditMode</td>
+    <td>XmEditMode</td>
+  </tr>
+  <tr>
+    <td>XmNeditable</td>
+    <td>XmCEditable</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNfocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNgainPrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosePrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosingFocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxLength</td>
+    <td>XmCMaxLength</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmodifyVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmotionVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpendingDelete</td>
+    <td>XmCPendingDelete</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeHeight</td>
+    <td>XmCResizeHeight</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeWidth</td>
+    <td>XmCResizeWidth</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNrows</td>
+    <td>XmCRows</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrollHorizontal</td>
+    <td>XmCScroll</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollLeftSide</td>
+    <td>XmCScrollSide</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollTopSide</td>
+    <td>XmCScrollSide</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollVertical</td>
+    <td>XmCScroll</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNselectThreshold</td>
+    <td>XmCSelectThreshold</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArray</td>
+    <td>XmCSelectionArray</td>
+    <td>XmTextScanType list</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArrayCount</td>
+    <td>XmCSelectionArrayCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopCharacter</td>
+    <td>XmCTextPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNverifyBell</td>
+    <td>XmCVerifyBell</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNwordWrap</td>
+    <td>XmCWordWrap</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmTextScanType = XmSELECT_POSITION | XmSELECT_WHITESPACE | XmSELECT_WORD |
+XmSELECT_LINE | XmSELECT_ALL | XmSELECT_PARAGRAPH</p>
+
+<p>val XmCreateText: Widget-&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateScrolledText: Widget-&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmTextGetString: Widget -&gt; string<br>
+val XmTextSetString: Widget -&gt; string unit<br>
+val XmTextSetInsertionPosition: Widget int -&gt; unit</p>
+
+<p>val XmIsText: Widget -&gt; bool<br>
+val XmIsScrolledWindow: Widget -&gt; bool</p>
+
+<h3>2.22 <a name="ToggleButton">ToggleButton</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">XmPrimitive</td>
+  </tr>
+  <tr>
+    <td align="center">XmLabel</td>
+  </tr>
+  <tr>
+    <td align="center">XmToggleButton</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A ToggleButton is used to display and set boolean or one-of-many states. When used for
+boolean states the ToggleButton uses a filled or empty square indicator to show the set or
+unset state. When used for one-of-many states the ToggleButton uses a filled or empty
+diamond to show the set and unset states. Pressing a boolean ToggleButton toggles the
+state from set to unset. Pressing one button in a RowColumn widget that has its
+XmNradioBehavior resource set to true, will set that button and unset all the others. In
+this case all the ToggleButtons automatically set their XmNindicatorType resource to
+XmONE_OF_MANY.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmToggleButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNarmCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdisarmCallback</td>
+    <td>XmCDisarmCal1back</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfillOnSelect</td>
+    <td>XmCFillOnSelect</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNindicatorOn</td>
+    <td>XmCIndicatorOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNindicatorSize</td>
+    <td>XmCIndicatorSize</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNindicatorType</td>
+    <td>XmCIndicatorType</td>
+    <td>XmIndicatorType</td>
+  </tr>
+  <tr>
+    <td>XmNselectColor</td>
+    <td>XmCSelectColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectInsensitivePixmap</td>
+    <td>XmCSelectInsensitivePixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNselectPixmap</td>
+    <td>XmCSelectPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNset</td>
+    <td>XmCset</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNvisibleWhenOff</td>
+    <td>XmCVisibleWhenOff</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmIndicatorType = XmN_OF_MANY | XmONE_OF_MANY</p>
+
+<p>val XmCreateToggleButton: Widget -&gt; string -&gt; Arg list -&gt; Widget<br>
+val XmCreateToggleButtonGadget: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>val XmIsToggleButton: Widget -&gt; bool<br>
+val XmIsToggleButtonGadget: Widget -&gt; bool</p>
+
+<h3>2.23 <a name="WarningDialog">WarningDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmMessageBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A WarningDialog widget is a specific instance of a MessageBox widget. It has a message
+field, OK, Cancel and Help buttons, and the warning icon which resembles an exclamation
+mark. The XmNmessageString resource is used to set the message string.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_WARNING: XmDialogType</p>
+
+<p>val XmCreateWarningDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<h3>2.24 <a name="WorkingDialog">WorkingDialog</a></h3>
+
+<table border="0">
+  <tr>
+    <td align="center">Core</td>
+  </tr>
+  <tr>
+    <td align="center">Composite</td>
+  </tr>
+  <tr>
+    <td align="center">Constraint</td>
+  </tr>
+  <tr>
+    <td align="center">XmManager</td>
+  </tr>
+  <tr>
+    <td align="center">XmBulletinBoard</td>
+  </tr>
+  <tr>
+    <td align="center">XmMessageBox</td>
+  </tr>
+</table>
+
+<h4>Description:</h4>
+
+<p>A WorkingDialog widget is a specific instance of a MessageBox widget. It has a message
+field, OK, Cancel and Help buttons, and the working icon which resembles an hourglass. The
+XmNmessageString resource is used to set the message string.</p>
+
+<h4>Resources:</h4>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCaliback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<h4>Functions:</h4>
+
+<p>datatype XmAlignment = XmALIGNMENT_BEGINNING | XmALIGNMENT_CENTER | XmALIGNMENT_END</p>
+
+<p>val XmDIALOG_WORKING: XmDialogType</p>
+
+<p>val XmCreateWorkingDialog: Widget -&gt; string -&gt; Arg list -&gt; Widget</p>
+
+<p>&nbsp;</p>
+
+<h1><a name="Chapter 3">Chapter 3</a></h1>
+
+<h2><a name="Resource Tables">Resource Tables</a></h2>
+
+<p>The following type conversions are implicit in the Poly/ML implementation of the Motif
+library. Wherever it refers to the C type in publications about the Motif library the
+corresponding ML type is substituted.</p>
+
+<p>Note that often the Motif documentation often incorrectly specifies the type Window
+instead of Widget when describing resource lists.</p>
+
+<p>Note also that in the current implementation the type XmString is identical to string.</p>
+
+<table border="1">
+  <tr>
+    <td>short&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>enum&nbsp;&nbsp; </td>
+    <td>datatype</td>
+  </tr>
+  <tr>
+    <td>int with predefined values&nbsp;&nbsp; </td>
+    <td>datatype</td>
+  </tr>
+  <tr>
+    <td>unsigned char with predefined values&nbsp;&nbsp; </td>
+    <td>datatype</td>
+  </tr>
+  <tr>
+    <td>Atom&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>Cardinal&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>Dimension&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>KeySym&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>Pixel&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>Pixmap&nbsp;&nbsp; </td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>Position&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>String *&nbsp;&nbsp; </td>
+    <td>string list</td>
+  </tr>
+  <tr>
+    <td>Window&nbsp;&nbsp; </td>
+    <td>Drawable (or Widget)</td>
+  </tr>
+  <tr>
+    <td>XmString&nbsp;&nbsp; </td>
+    <td>XmString = string</td>
+  </tr>
+  <tr>
+    <td>XmStringCharSetTable&nbsp;&nbsp; </td>
+    <td>string list</td>
+  </tr>
+  <tr>
+    <td>XmStringTable&nbsp;&nbsp; </td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmTextPosition&nbsp;&nbsp; </td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3>3.1 <a name="ApplicationShell">ApplicationShell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">ApplicationShell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNargc</td>
+    <td>XmCArgc</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNargv</td>
+    <td>XmCArgv</td>
+    <td>string list</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3>3.2 <a name="Composite">Composite</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">Composite Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNchildren</td>
+    <td>XmCChildren</td>
+    <td>Widget list</td>
+  </tr>
+  <tr>
+    <td>XmNnumChildren</td>
+    <td>XmCNumChildren</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.3 Core">3.3 Core</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">Core Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNaccelerators</td>
+    <td>XmCAccelerators</td>
+    <td>XtAccelerators</td>
+  </tr>
+  <tr>
+    <td>XmNancestorSensitive</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNbackground</td>
+    <td>XmCBackground</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbackgroundPixmap</td>
+    <td>XmCBackgroundPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNborderColor</td>
+    <td>XmCBorderColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNborderPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNborderWidth</td>
+    <td>XmCBorderWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcolormap</td>
+    <td>XmCColormap</td>
+    <td>Colormap</td>
+  </tr>
+  <tr>
+    <td>XmNdepth</td>
+    <td>XmCDepth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNdestroyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNheight</td>
+    <td>XmCHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNinitialResourcesPersistent</td>
+    <td>XmCInitialResourcesPersistent</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmappedWhenManaged</td>
+    <td>XmCMappedWhenManaged</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNsensitive</td>
+    <td>XmCSensitive</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNtranslations</td>
+    <td>XmCTranslations</td>
+    <td>XtTranslations</td>
+  </tr>
+  <tr>
+    <td>XmNwidth</td>
+    <td>XmCWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNx</td>
+    <td>XmCX</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNy</td>
+    <td>XmCY</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.4 Object">3.4 Object</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">Object Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdestroyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.5 RectOb">3.5 RectOb</a>j</h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">RectObj Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNancestorSensitive</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNborderWidth</td>
+    <td>XmCBorderWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNheight</td>
+    <td>XmCHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsensitive</td>
+    <td>XmCSensitive</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNwidth</td>
+    <td>XmCWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNx</td>
+    <td>XmCX</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNy</td>
+    <td>XmCY</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.6 Shell">3.6 Shell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">Shell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNallowShellResize</td>
+    <td>XmCAllowShellResize</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNgeometry</td>
+    <td>XmCGeometry</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNoverrideRedirect</td>
+    <td>XmCOverrideRedireet</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNpopdownCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpopupCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNsaveUnder</td>
+    <td>XmCSaveUnder</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNvisual</td>
+    <td>XmCVisual</td>
+    <td>Visual</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.7 TopLevelShell">3.7 TopLevelShell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">TopLevelShell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNiconName</td>
+    <td>XmCIconName</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNiconNameEncoding</td>
+    <td>XmCIconNameEncoding</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNiconic</td>
+    <td>XmCIconic</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.8 TransientShell">3.8 TransientShell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">TransientShell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNtransientFor</td>
+    <td>XmCTransientFor</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.9 VendorShell">3.9 VendorShell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">VendorShell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdefaultFontList</td>
+    <td>XmCDefaultFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNdeleteResponse</td>
+    <td>XmCDeleteResponse</td>
+    <td>XmDeleteResponse</td>
+  </tr>
+  <tr>
+    <td>XmNkeyboardFocusPolicy</td>
+    <td>XmCKeyboardFocusPolicy</td>
+    <td>XmKeyboardFocusPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNmwmDecorations</td>
+    <td>XmCMwmDecorations</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmwmFunctions</td>
+    <td>XmCMwmFunctions</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmwmInputMode</td>
+    <td>XmCMwmInputMode</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmwmMenu</td>
+    <td>XmCMwmMenu</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNshellUnitType</td>
+    <td>XmCShellUnitType</td>
+    <td>XmUnitType</td>
+  </tr>
+  <tr>
+    <td>XmNuseAsyncGeometry</td>
+    <td>XmCUseAsyncGeometry</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.10 WMShell">3.10 WMShell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">WMShell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNbaseHeight</td>
+    <td>XmCBaseHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbaseWidth</td>
+    <td>XmCBaseWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNheightInc</td>
+    <td>XmCHeightInc</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNiconMask</td>
+    <td>XmCIconMask</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNiconPixmap</td>
+    <td>XmCIconPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNiconWindow</td>
+    <td>XmCIconWindow</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNiconX</td>
+    <td>XmCIconX</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNiconY</td>
+    <td>XmCIconY</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNinitialState</td>
+    <td>XmCInitialState</td>
+    <td>XWMStateHint</td>
+  </tr>
+  <tr>
+    <td>XmNinput</td>
+    <td>XmCInput</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmaxAspectX</td>
+    <td>XmCMaxAspectX</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxAspectY</td>
+    <td>XmCMaxAspectY</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxHeight</td>
+    <td>XmCMaxHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxWidth</td>
+    <td>XmCMaxWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminAspectX</td>
+    <td>XmCMinAspectX</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminAspectY</td>
+    <td>XmCMinAspectY</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminHeight</td>
+    <td>XmCMinHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminWidth</td>
+    <td>XmCMinWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtitle</td>
+    <td>XmCTitle</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNtitleEncoding</td>
+    <td>XmCTitleEncoding</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtransient</td>
+    <td>XmCTransient</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNwaitForWm</td>
+    <td>XmCWaitForWm</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNwidthInc</td>
+    <td>XmCWidthInc</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNwinGravity</td>
+    <td>XmCWinGravity</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNwindowGroup</td>
+    <td>XmCWindowGroup</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNwmTimeout</td>
+    <td>XmCWmTimeout</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.11 XmArrowButton">3.11 XmArrowButton</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmArrowButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarmCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarrowDirection</td>
+    <td>XmCArrowDirection</td>
+    <td>XmArrowDirection</td>
+  </tr>
+  <tr>
+    <td>XmNdisarmCal1back</td>
+    <td>XmCDisarmCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmultiClick</td>
+    <td>XmCMultiClick</td>
+    <td>XmMultiClickType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.12 XmBulletinBoard">3.12 XmBulletinBoard</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmBulletinBoard Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNallowOverlap</td>
+    <td>XmCAllowOverlap</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNautoUnmanage</td>
+    <td>XmCAutoUnmanage</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonFontList</td>
+    <td>XmCButtonFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNcancelButton</td>
+    <td>XmCWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButton</td>
+    <td>XmCWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultPosition</td>
+    <td>XmCDefaultPosition</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNdialogStyle</td>
+    <td>XmCDialogStyle</td>
+    <td>XmDialogStyle</td>
+  </tr>
+  <tr>
+    <td>XmNdialogTitle</td>
+    <td>XmCDialogTitle</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNfocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlabelFontList</td>
+    <td>XmCLabelFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNmapCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNnoResize</td>
+    <td>XmCNoResize</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizePolicy</td>
+    <td>XmCResizePolicy</td>
+    <td>XmResizePolicy</td>
+  </tr>
+  <tr>
+    <td>XmNshadowType</td>
+    <td>XmCShadowType</td>
+    <td>XmShadowType</td>
+  </tr>
+  <tr>
+    <td>XmNtextFontList</td>
+    <td>XmCTextFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNtextTranslations</td>
+    <td>XmCTranslations</td>
+    <td>XtTranslations</td>
+  </tr>
+  <tr>
+    <td>XmNunmapCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.13 XmCascadeButton">3.13 XmCascadeButton</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmCascadeButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(Callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcascadePixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNcascadingCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmappingDelay</td>
+    <td>XmCMappingDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsubMenuId</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.14 XmCommand">3.14 XmCommand</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmCommand Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcommand</td>
+    <td>XmCTextString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNcommandChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcommandEnteredCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryItemCount</td>
+    <td>XmCItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryItems</td>
+    <td>XmCItems</td>
+    <td>XmString list</td>
+    <td>&nbsp;</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryMaxItems</td>
+    <td>XmCMaxItems</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhistoryVisibleItemCount</td>
+    <td>XmCVisibleItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpromptString</td>
+    <td>XmCPromptString</td>
+    <td>XmString</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.15 XmDrawingArea">3.15 XmDrawingArea</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmDrawingArea Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNexposeCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNinputCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNresizeCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNresizePolicy</td>
+    <td>XmCResizePolicy</td>
+    <td>XmResizePolicy</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.16 XmDrawnButton">3.16 XmDrawnButton</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmDrawnButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarmCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdisarmCallback</td>
+    <td>XmCDisarmCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNexposeCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmultiClick</td>
+    <td>XmCMultiClick</td>
+    <td>XmMultiClickType</td>
+  </tr>
+  <tr>
+    <td>XmNpushButtonEnabled</td>
+    <td>XmCPushButtonEnabled</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNshadowType</td>
+    <td>XmCShadowType</td>
+    <td>XmShadowType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.17 XmFileSelectionBox">3.17 XmFileSelectionBox</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmFileSelectionBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdirListItemCount</td>
+    <td>XmCDirListItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNdirListItems</td>
+    <td>XmCDirListItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNdirListLabelString</td>
+    <td>XmCDirListLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirMask</td>
+    <td>XmCDirMask</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirSpec</td>
+    <td>XmCDirSpec</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirectory</td>
+    <td>XmCDirectory</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdirectoryValid</td>
+    <td>XmCDirectoryValid</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNfileListItemCount</td>
+    <td>XmCFileListItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNfileListItems</td>
+    <td>XmCFileListItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNfileListLabelString</td>
+    <td>XmCFileListLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNfileTypeMask</td>
+    <td>XmCFileTypeMask</td>
+    <td>XmFileTypeMask</td>
+  </tr>
+  <tr>
+    <td>XmNfilterLabelString</td>
+    <td>XmCFilterLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlistUpdated</td>
+    <td>XmCListUpdated</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNnoMatchString</td>
+    <td>XmCNoMatchString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNpattern</td>
+    <td>XmCPattern</td>
+    <td>XmString</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.18 XmForm">3.18 XmForm</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmForm Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNbottomAttachment</td>
+    <td>XmCAttachment</td>
+    <td>XmAttachment</td>
+  </tr>
+  <tr>
+    <td>XmNbottomOffset</td>
+    <td>XmCOffset</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbottomPosition</td>
+    <td>XmCPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbottomWidget</td>
+    <td>XmCWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNfractionBase</td>
+    <td>XmCFraction</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhorizontalSpacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNleftAttachment</td>
+    <td>XmCAttachment</td>
+    <td>XmAttachment</td>
+  </tr>
+  <tr>
+    <td>XmNleftOffset</td>
+    <td>XmCOffset</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNleftPosition</td>
+    <td>XmCPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNleftWidget</td>
+    <td>XmCWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNresizable</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNrightAttachment</td>
+    <td>XmCAttachment</td>
+    <td>XmAttachment</td>
+  </tr>
+  <tr>
+    <td>XmNrightOffset</td>
+    <td>XmCOffset</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNrightPosition</td>
+    <td>XmCPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNrightWidget</td>
+    <td>XmCWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNrubberPositioning</td>
+    <td>XmCRubberPositioning</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNtopAttachment</td>
+    <td>XmCAttachment</td>
+    <td>XmAttachment</td>
+  </tr>
+  <tr>
+    <td>XmNtop0ffset</td>
+    <td>XmCOffset</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopPosition</td>
+    <td>XmCPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopWidget</td>
+    <td>XmCWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNverticalSpacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.19 XmFrame">3.19 XmFrame</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmFrame Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNshadowType</td>
+    <td>XmCShadowType</td>
+    <td>XmShadowType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.20 XmGadget">3.20 XmGadget</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmGadget Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNhelpCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightOnEnter</td>
+    <td>XmCHighlightOnEnter</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightThickness</td>
+    <td>XmCHighlightThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNnavigationType</td>
+    <td>XmCNavigationType</td>
+    <td>XmNavigationType</td>
+  </tr>
+  <tr>
+    <td>XmNshadowThickness</td>
+    <td>XmCShadowThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtraversalOn</td>
+    <td>XmCTraversalOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNunitType</td>
+    <td>XmCUnitType</td>
+    <td>XmUnitType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.21 XmLabel">3.21 XmLabel</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmLabel Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNaccelerator</td>
+    <td>XmCAccelerator</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNacceleratorText</td>
+    <td>XmCAcceleratorText</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNalignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNlabelInsensitivePixmap</td>
+    <td>XmCLabelInsensitivePixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNlabelPixmap</td>
+    <td>XmCLabelPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNlabelString</td>
+    <td>XmCLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlabelType</td>
+    <td>XmCLabelType</td>
+    <td>XmLabelType</td>
+  </tr>
+  <tr>
+    <td>XmNmarginBottom</td>
+    <td>XmCMarginBottom</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginLeft</td>
+    <td>XmCMarginLeft</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginRight</td>
+    <td>XmCMarginRight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginTop</td>
+    <td>XmCMarginTop</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmnemonic</td>
+    <td>XmCMnemonic</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmnemonicCharSet</td>
+    <td>XmCMnemonicCharSet</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNrecomputeSize</td>
+    <td>XmCRecomputeSize</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNstringDirection</td>
+    <td>XmCStringDirection</td>
+    <td>XmStringDirection</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.22 XmList">3.22 XmList</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmList Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNautomaticSelection</td>
+    <td>XmCAutomaticSelection</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNbrowseSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultActionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdoubleClickInterval</td>
+    <td>XmCDoubleClickInterval</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNextendedSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNitemCount</td>
+    <td>XmCItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNitems</td>
+    <td>XmCItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNlistMarginHeight</td>
+    <td>XmCListMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNlistMarginWidth</td>
+    <td>XmCListMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNlistSizePolicy</td>
+    <td>XmCListSizePolicy</td>
+    <td>XmVisualPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNlistSpacing</td>
+    <td>XmCListSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmultipleSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarDisplayPolicy</td>
+    <td>XmCScrollBarDisplayPolicy</td>
+    <td>XmScrollBarDisplayPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNselectedItemCount</td>
+    <td>XmCSelectedItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectedItems</td>
+    <td>XmCSelectedItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNselectionPolicy</td>
+    <td>XmCSelectionPolicy</td>
+    <td>XmSelectionPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNsingleSelectionCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNstringDirection</td>
+    <td>XmCStringDirection</td>
+    <td>XmStringDirection</td>
+  </tr>
+  <tr>
+    <td>XmNtopItemPosition</td>
+    <td>XmCTopItemPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvisibleItemCount</td>
+    <td>XmCVisibleItemCount</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.23 XmMainWindow">3.23 XmMainWindow</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMainWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNcommandWindow</td>
+    <td>XmCCommandWindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNcommandWindowLocation</td>
+    <td>XmCCommandWindowLocation</td>
+    <td>XmCommandWindowLocation</td>
+  </tr>
+  <tr>
+    <td>XmNmainWindowMarginHeight</td>
+    <td>XmCMainWindowMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmainWindowMarginWidth</td>
+    <td>XmCMainWindowMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmenuBar</td>
+    <td>XmCMenuBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNmessageWindow</td>
+    <td>XmCMessageWindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNshowSeparator</td>
+    <td>XmCShowSeparator</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.24 XmManager">3.24 XmManager</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmManager Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNbottomShadowColor</td>
+    <td>XmCBottomShadowColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbottomShadowPixmap</td>
+    <td>XmCBottomShadowPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNforeground</td>
+    <td>XmCForeground</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhelpCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightColor</td>
+    <td>XmCHighlightColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightPixmap</td>
+    <td>XmCHighlightPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNnavigationType</td>
+    <td>XmCNavigationType</td>
+    <td>XmNavigationType</td>
+  </tr>
+  <tr>
+    <td>XmNshadowThickness</td>
+    <td>XmCShadowThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNstringDirection</td>
+    <td>XmCStringDirection</td>
+    <td>XmStringDirection</td>
+  </tr>
+  <tr>
+    <td>XmNtopShadowColor</td>
+    <td>XmCTopShadowColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopShadowPixmap</td>
+    <td>XmCTopShadowPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNtraversalOn</td>
+    <td>XmCTraversalOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNunitType</td>
+    <td>XmCUnitType</td>
+    <td>XmUnitType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.25 XmMenuShell">3.25 XmMenuShell</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMenuShell Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdefaultFontList</td>
+    <td>XmCDefaultFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.26 XmMessageBox">3.26 XmMessageBox</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmMessageBox Resources</td>
+  </tr>
+  <tr>
+    <td>Name</td>
+    <td>Class</td>
+    <td>Type</td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonType</td>
+    <td>XmCDefaultButtonType</td>
+    <td>XmDefaultButtonType</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmessageAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNmessageString</td>
+    <td>XmCMessageString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNsymbolPixmap</td>
+    <td>XmCPixmap</td>
+    <td>Drawable</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.27 XmPanedWindow">3.27 XmPanedWindow</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmPanedWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNallowResize</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpaneMaximum</td>
+    <td>XmCPaneMaximum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpaneMinimum</td>
+    <td>XmCPaneMinimum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNrefigureMode</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNsashHeight</td>
+    <td>XmCSashHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsashIndent</td>
+    <td>XmCSashIndent</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsashShadowThickness</td>
+    <td>XmCShadowThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsashWidth</td>
+    <td>XmCSashWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNseparatorOn</td>
+    <td>XmCSeparatorOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNskipAdjust</td>
+    <td>XmCBoolean</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.28 XmPrimitive">3.28 XmPrimitive</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmPrimitive Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNbottomShadowColor</td>
+    <td>XmCBottomShadowColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbottomShadowPixmap</td>
+    <td>XmCBottomShadowPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNforeground</td>
+    <td>XmCForeground</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhelpCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightColor</td>
+    <td>XmCHighlightColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightOnEnter</td>
+    <td>XmCHighlightOnEnter</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightPixmap</td>
+    <td>XmCHighlightPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightThickness</td>
+    <td>XmCHighlightThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNnavigationType</td>
+    <td>XmCNavigationType</td>
+    <td>XmNavigationType</td>
+  </tr>
+  <tr>
+    <td>XmNshadowThickness</td>
+    <td>XmCShadowThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopShadowColor</td>
+    <td>XmCTopShadowColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopShadowPixmap</td>
+    <td>XmCTopShadowPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNtraversalOn</td>
+    <td>XmCTraversalOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNunitType</td>
+    <td>XmCUnitType</td>
+    <td>XmUnitType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.29 XmPushButton">3.29 XmPushButton</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmPushButton Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarmCal1back</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNarmColor</td>
+    <td>XmCArmColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNarmPixmap</td>
+    <td>XmCArmPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNdefaultButtonShadowThickness</td>
+    <td>XmCDefaultButtonShadowThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNdisarmCallback</td>
+    <td>XmCDisarmCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfillOnArm</td>
+    <td>XmCFillOnArm</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmultiClick</td>
+    <td>XmCMultiClick</td>
+    <td>XmMultiClickType</td>
+  </tr>
+  <tr>
+    <td>XmNshowAsDefault</td>
+    <td>XmCShowAsDefault</td>
+    <td>int</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.30 XmRowColumn">3.30 XmRowColumn</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmRowColumn Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNadjustLast</td>
+    <td>XmCAdjustLast</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNadjustMargin</td>
+    <td>XmCAdjustMargin</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonAcceleratorText</td>
+    <td>XmCButtonAcceleratorText</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonAccelerators</td>
+    <td>XmCButtonAccelerators</td>
+    <td>string list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonCount</td>
+    <td>XmCButtonCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonMnemonicCharSets</td>
+    <td>XmCButtonMnemonicCharSets</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonMnemonics</td>
+    <td>XmCButtonMnemonics</td>
+    <td>KeySym list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonSet</td>
+    <td>XmCButtonSet</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNbuttonType</td>
+    <td>XmCButtonType</td>
+    <td>XmButtonType list</td>
+  </tr>
+  <tr>
+    <td>XmNbuttons</td>
+    <td>XmCButtons</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNentryAlignment</td>
+    <td>XmCAlignment</td>
+    <td>XmAlignment</td>
+  </tr>
+  <tr>
+    <td>XmNentryBorder</td>
+    <td>XmCEntryBorder</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNentryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNisAligned</td>
+    <td>XmClsAligned</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNisHomogeneous</td>
+    <td>XmCIsHomogeneous</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNlabelString</td>
+    <td>XmCLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNmapCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmenuAccelerator</td>
+    <td>XmCAccelerators</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNmenuCursor</td>
+    <td>XmCCursor</td>
+    <td>Cursor</td>
+  </tr>
+  <tr>
+    <td>XmNmenuHelpWidget</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNmenuHistory</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNmenuPost</td>
+    <td>XmCMenuPost</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNmnemonic</td>
+    <td>XmCMnemonic</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmnemonicCharSet</td>
+    <td>XmCMnemonicCharSet</td>
+    <td>string</td>
+  </tr>
+  <tr>
+    <td>XmNnumColumns</td>
+    <td>XmCNumColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNoptionLabel</td>
+    <td>XmCOptionLabel</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNoptionMnemonic</td>
+    <td>XmCOptionMnemonic</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNpacking</td>
+    <td>XmCPacking</td>
+    <td>XmPacking</td>
+  </tr>
+  <tr>
+    <td>XmNpopupEnabled</td>
+    <td>XmCPopupEnabled</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNpostFromButton</td>
+    <td>XmCPostFromButton</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNradioAlwaysOne</td>
+    <td>XmCRadioAlwaysOne</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNradioBehavior</td>
+    <td>XmCRadioBehavior</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeHeight</td>
+    <td>XmCResizeHeight</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeWidth</td>
+    <td>XmCResizeWidth</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNrowColumnType</td>
+    <td>XmCRowColumnType</td>
+    <td>XmRowColumnType</td>
+  </tr>
+  <tr>
+    <td>XmNsimpleCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNsubMenuId</td>
+    <td>XmCMenuWidget</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNunmapCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<p>Note that XmNwhichButton is obsoleted by XmNmenuPost.</p>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.31 XmScale">3.31 XmScale</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScale Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdecimalPoints</td>
+    <td>XmCDecimalPoints</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNdragCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightOnEnter</td>
+    <td>XmCHighlightOnEnter</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNhighlightThickness</td>
+    <td>XmCHighlightThickness</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaximum</td>
+    <td>XmCMaximum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminimum</td>
+    <td>XmCMinimum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNprocessingDirection</td>
+    <td>XmCProcessingDirection</td>
+    <td>XmProcessingDirection</td>
+  </tr>
+  <tr>
+    <td>XmNscaleHeight</td>
+    <td>XmCScaleHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscaleMultiple</td>
+    <td>XmCScaleMultiple</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscaleWidth</td>
+    <td>XmCScaleWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNshowValue</td>
+    <td>XmCShowValue</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNtitleString</td>
+    <td>XmCTitleString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNvalue</td>
+    <td>XmCValue</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.32 XmScrollBar">3.32 XmScrollBar</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScrollBar Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNdecrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdragCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNincrement</td>
+    <td>XmCIncrement</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNincrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNinitialDelay</td>
+    <td>XmCInitialDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaximum</td>
+    <td>XmCMaximum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminimum</td>
+    <td>XmCMinimum</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNpageDecrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpageIncrement</td>
+    <td>XmCPageIncrement</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNpageIncrementCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNprocessingDirection</td>
+    <td>XmCProcessingDirection</td>
+    <td>XmProcessingDirection</td>
+  </tr>
+  <tr>
+    <td>XmNrepeatDelay</td>
+    <td>XmCRepeatDelay</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNshowArrows</td>
+    <td>XmCShowArrows</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNsliderSize</td>
+    <td>XrnCSliderSize</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtoBottomCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNtoTopCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNtroughColor</td>
+    <td>XmCTroughColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalue</td>
+    <td>XmCValue</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.33 XmScrolledWindow">3.33 XmScrolledWindow</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmScrolledWindow Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNclipWindow</td>
+    <td>XmCclipwindow</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNhorizontalScrollBar</td>
+    <td>XmCHorizontalScrollBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarDisplayPolicy</td>
+    <td>XmCScrollBarDisplayPolicy</td>
+    <td>XmScrollBarDisplayPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNscrollBarPlacement</td>
+    <td>XmCScrollBarPlacement</td>
+    <td>XmScrollBarPlacement</td>
+  </tr>
+  <tr>
+    <td>XmNscrolledWindowMarginHeight</td>
+    <td>XmCScrolledWindowMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrolledWindowMarginWidth</td>
+    <td>XmCScrolledWindowMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrollingPolicy</td>
+    <td>XmCScrollingPolicy</td>
+    <td>XmScrollingPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNverticalScrollBar</td>
+    <td>XmCVerticalScrollBar</td>
+    <td>Widget</td>
+  </tr>
+  <tr>
+    <td>XmNvisualPolicy</td>
+    <td>XmCVisualPolicy</td>
+    <td>XmVisualPolicy</td>
+  </tr>
+  <tr>
+    <td>XmNworkWindow</td>
+    <td>XmCWorkWindow</td>
+    <td>Widget</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.34 XmSelectionBox">3.34 XmSelectionBox</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmSelectionBox Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNapplyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNapplyLabelString</td>
+    <td>XmCApplyLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNcancelCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNcancelLabelString</td>
+    <td>XmCCancelLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNdialogType</td>
+    <td>XmCDialogType</td>
+    <td>XmDialogType</td>
+  </tr>
+  <tr>
+    <td>XmNhelpLabelString</td>
+    <td>XmCHelpLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlistItemCount</td>
+    <td>XmCItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNlistItems</td>
+    <td>XmCItems</td>
+    <td>XmString list</td>
+  </tr>
+  <tr>
+    <td>XmNlistLabelString</td>
+    <td>XmCListLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNlistVisibleItemCount</td>
+    <td>XmCVisibleItemCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNminimizeButtons</td>
+    <td>XmCMinimizeButtons</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNmustMatch</td>
+    <td>XmCMustMatch</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNnoMatchCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNokLabelString</td>
+    <td>XmCOkLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNselectionLabelString</td>
+    <td>XmCSelectionLabelString</td>
+    <td>XmString</td>
+  </tr>
+  <tr>
+    <td>XmNtextAccelerators</td>
+    <td>XmCAccelerators</td>
+    <td>XtAccelerators</td>
+  </tr>
+  <tr>
+    <td>XmNtextColumns</td>
+    <td>XmCColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtextString</td>
+    <td>XmCTextString</td>
+    <td>XmString</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.35 XmSeparator">3.35 XmSeparator</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmSeparator Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNmargin</td>
+    <td>XmCMargin</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNorientation</td>
+    <td>XmCOrientation</td>
+    <td>XmOrientation</td>
+  </tr>
+  <tr>
+    <td>XmNseparatorType</td>
+    <td>XmCSeparatorType</td>
+    <td>XmShadowType</td>
+  </tr>
+</table>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.36 XmText">3.36 XmText</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmText Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCal1back</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNautoShowCursorPosition</td>
+    <td>XmCAutoShowCursorPosition</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNblinkRate</td>
+    <td>XmCBlinkRate</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcolumns</td>
+    <td>XmCColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPosition</td>
+    <td>XmCCursorPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPositionVisible</td>
+    <td>XmCCursorPositionVisible</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNeditMode</td>
+    <td>XmCEditMode</td>
+    <td>XmEditMode</td>
+  </tr>
+  <tr>
+    <td>XmNeditable</td>
+    <td>XmCEditable</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNfocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNgainPrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosePrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosingFocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxLength</td>
+    <td>XmCMaxLength</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmodifyVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmotionVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpendingDelete</td>
+    <td>XmCPendingDelete</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeHeight</td>
+    <td>XmCResizeHeight</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeWidth</td>
+    <td>XmCResizeWidth</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNrows</td>
+    <td>XmCRows</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNscrollHorizontal</td>
+    <td>XmCScroll</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollLeftSide</td>
+    <td>XmCScrollSide</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollTopSide</td>
+    <td>XmCScrollSide</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNscrollVertical</td>
+    <td>XmCScroll</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNselectThreshold</td>
+    <td>XmCSelectThreshold</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArray</td>
+    <td>XmCSelectionArray</td>
+    <td>XmTextScanType list</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArrayCount</td>
+    <td>XmCSelectionArrayCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNtopCharacter</td>
+    <td>XmCTextPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNverifyBell</td>
+    <td>XmCVerifyBell</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNwordWrap</td>
+    <td>XmCWordWrap</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<p>Note that XmNvalue is already declared of type int in the resource tables for XmScale
+and XmScrollBar, and it cannot therefore appear in the table for XmText as a string. To
+access this value you have to use the functions XmTextSetString and XmTextGetString
+instead.</p>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.37 XmTextField">3.37 XmTextField</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmTextField Resources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNactivateCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNblinkRate</td>
+    <td>XmCBlinkRate</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcolumns</td>
+    <td>XmCColumns</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPosition</td>
+    <td>XmCCursorPosition</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNcursorPositionVisible</td>
+    <td>XmCCursorPositionVisible</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNeditable</td>
+    <td>XmCEditable</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNfontList</td>
+    <td>XmCFontList</td>
+    <td>XFontStruct list</td>
+  </tr>
+  <tr>
+    <td>XmNgainPrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosePrimaryCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNlosingFocusCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmarginHeight</td>
+    <td>XmCMarginHeight</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmarginWidth</td>
+    <td>XmCMarginWidth</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmaxLength</td>
+    <td>XmCMaxLength</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNmodifyVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNmotionVerifyCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNpendingDelete</td>
+    <td>XmCPendingDelete</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNresizeWidth</td>
+    <td>XmCResizeWidth</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNselectThreshold</td>
+    <td>XmCSelectThreshold</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArray</td>
+    <td>XmCSelectionArray</td>
+    <td>XmTextScanType list</td>
+  </tr>
+  <tr>
+    <td>XmNselectionArrayCount</td>
+    <td>XmCSelectionArrayCount</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNverifyBell</td>
+    <td>XmCVerifyBell</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+<p>Note that XmNvalue is already declared of type int in the resource tables for XmScale
+and XmScrollBar, and it cannot therefore appear in the table for XmTextField as a string.
+To access this value you have to use the functions XmTextSetString and XmTextGetString
+instead.</p>
+
+<p>&nbsp;</p>
+
+<h3><a name="3.38 XmToggleButton">3.38 XmToggleButton</a></h3>
+
+<table border="1">
+  <tr>
+    <td colspan="3" align="center">XmToggleButtonResources</td>
+  </tr>
+  <tr>
+    <td><strong>Name</strong></td>
+    <td><strong>Class</strong></td>
+    <td><strong>Type</strong></td>
+  </tr>
+  <tr>
+    <td>XmNarmCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNdisarmCallback</td>
+    <td>XmCDisarmCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNfillOnSelect</td>
+    <td>XmCFillOnSelect</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNindicatorOn</td>
+    <td>XmCIndicatorOn</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNindicatorSize</td>
+    <td>XmCIndicatorSize</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNindicatorType</td>
+    <td>XmCIndicatorType</td>
+    <td>XmIndicatorType</td>
+  </tr>
+  <tr>
+    <td>XmNselectColor</td>
+    <td>XmCSelectColor</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNselectInsensitivePixmap</td>
+    <td>XmCSelectInsensitivePixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNselectPixmap</td>
+    <td>XmCSelectPixmap</td>
+    <td>Drawable</td>
+  </tr>
+  <tr>
+    <td>XmNset</td>
+    <td>XmCSet</td>
+    <td>bool</td>
+  </tr>
+  <tr>
+    <td>XmNspacing</td>
+    <td>XmCSpacing</td>
+    <td>int</td>
+  </tr>
+  <tr>
+    <td>XmNvalueChangedCallback</td>
+    <td>XmCCallback</td>
+    <td>(callback)</td>
+  </tr>
+  <tr>
+    <td>XmNvisibleWhen0fr</td>
+    <td>XmCVisibleWhenOff</td>
+    <td>bool</td>
+  </tr>
+</table>
+
+</body>
+</html>

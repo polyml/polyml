@@ -1,0 +1,226 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+
+<head>
+<title>Standard Basis Library for Poly/ML</title>
+</head>
+
+<body bgcolor="#FFFFFF">
+
+<h2><font face="Arial"><strong>Standard Basis Library for Poly/ML</strong></font></h2>
+
+<p><font face="Arial">The documentation for the Standard Basis Library is available 
+  as a book, The Standard ML Basis Library, by Emden Gansner and John Reppy.&nbsp; 
+  This is a short overview with specific reference to the implementation in Poly/ML.</font></p>
+
+<p><tt>General : GENERAL</tt><br>
+Mainly standard exceptions.&nbsp; All of the values in the <tt>General</tt> structure are
+available unqualified at the top level.</p>
+
+<p><tt>Option : OPTION</tt><br>
+The option type, defined as <tt>datatype 'a option = NONE | SOME of 'a</tt>, together with
+associated functions.&nbsp; Some of these are available unqualified at the top level.</p>
+
+<p><tt>SML90 : SML90</tt><br>
+Various functions which were previously in the basis for ML90.</p>
+
+<p><tt>Bool : BOOL</tt><br>
+Functions on type bool.</p>
+
+<p><tt>Int : INTEGER<br>
+LargeInt : INTEGER<br>
+Position : INTEGER<br>
+IntInf : INT_INF</tt><br>
+<tt>Int</tt>, <tt>LargeInt</tt> and <tt>Position</tt> are the same structure and provide
+operations on type <tt>int</tt>.&nbsp; In Poly/ML that is an arbitrary precision integer.
+&nbsp; Poly/ML does not support any fixed precision integers.&nbsp; <tt>IntInf</tt>
+provides additional functions, such as logical operations on integers.</p>
+
+<p><tt>Real : REAL<br>
+LargeReal : REAL</tt> <br>
+<tt>Real</tt> and <tt>LargeReal</tt> are the same structure in Poly/ML.&nbsp; They provide
+functions on type <tt>real</tt>.</p>
+
+<p><tt>Math : MATH</tt><br>
+The mathematical functions on type <tt>rea</tt>l.</p>
+
+<p><tt>IEEEReal : IEEE_REAL</tt><br>
+Functions to manipulate IEEE real numbers, such as controlling rounding and handling
+not-a-number.</p>
+
+<p><tt>Word : WORD<br>
+Word8 : WORD<br>
+LargeWord : WORD<br>
+SysWord : WORD<br>
+Word32 : WORD<br>
+Word64 : WORD</tt><br>
+  Operations on machine words treated as unsigned quantities.&nbsp; Functions 
+  which would overflow simply wrap round.&nbsp; Poly/ML implements <tt>Word.word</tt> 
+  as 31 bit quantity on 32-bit platforms and a 63 bit quantity on 64-bit platforms.&nbsp; 
+  In version 5.5 and earlier <tt>LargeWord</tt> and <tt>SysWord</tt> were implemented 
+  using a double precision version. From version 5.5.1 they are implemented as 
+  32 and 64-bit versions as <tt>Word32</tt> and <font face="Courier New, Courier, mono">Word64</font> 
+  respectively. <tt>Word64</tt> is only available on 64-bit architectures. SysWord 
+  is used in the <tt>Windows</tt> and <tt>Posix</tt> structures.&nbsp; <tt>Word8.word</tt> 
+  is an unsigned byte.</p>
+
+<p><tt>Char : CHAR</tt><br>
+Operations on values of type <tt>char</tt>.</p>
+
+<p><tt>String : STRING</tt><br>
+Operations on values of type <tt>string</tt>.</p>
+
+<p><tt>StringCvt : STRING_CVT</tt><br>
+Additional string functions used primarily when converting between strings and string
+representations.</p>
+
+<p><tt>Substring : SUBSTRING</tt> <br>
+Operations on substrings.&nbsp; These are segments of strings defined by a base string, an
+offset and a length and are designed to allow substrings to be manipulated without the
+storage overhead of creating the substrings themselves.</p>
+
+<p><tt>List : LIST<br>
+ListPair : LIST_PAIR</tt><br>
+Functions on lists and lists of pairs.</p>
+
+<p><tt>Vector : VECTOR<br>
+Array : ARRAY</tt><br>
+Polymorphic vector and array.</p>
+
+<p><tt>Word8Vector : MONO_VECTOR<br>
+CharVector : MONO_VECTOR<br>
+BoolVector : MONO_VECTOR<br>
+IntVector : MONO_VECTOR<br>
+RealVector : MONO_VECTOR <br>
+Word8Array : MONO_ARRAY<br>
+CharArray : MONO_ARRAY<br>
+WideCharArray : MONO_ARRAY<br>
+BoolArray : MONO_ARRAY<br>
+IntArray : MONO_ARRAY<br>
+RealArray : MONO_ARRAY</tt> <br>
+Monomorphic vectors and arrays.&nbsp; Generally these are designed to be storage-efficient
+at the expense of time.&nbsp; <tt>CharVector.vector</tt> is the same as string so provides
+vector operations on strings.&nbsp; <tt>Word8Vector.vector</tt> is used in various places
+throughout the library as a binary analogue of string.&nbsp; <tt>BoolVector</tt> and <tt>BoolArray</tt>
+use single bits for each value.</p>
+
+<p><tt>Array2 : ARRAY2<br>
+Word8Array2 : MONO_ARRAY2<br>
+CharArray2 : MONO_ARRAY2 <br>
+BoolArray2 : MONO_ARRAY2<br>
+IntArray2 : MONO_ARRAY2<br>
+RealArray2 : MONO_ARRAY2</tt><br>
+Two dimensional arrays.</p>
+
+<p><tt>Byte : BYTE</tt> <br>
+Provides functions to convert between characters and <tt>Word8.word</tt> values and
+between strings and <tt>Word8Vector.vector</tt> values.&nbsp; In Poly/ML these can
+generally be implemented as a cast.</p>
+
+<p><tt>CommandLine : COMMAND_LINE</tt> <br>
+Access to the command line and arguments.&nbsp; In Poly/ML this is the user arguments
+following the '--' argument.</p>
+
+<p><tt>Time : TIME</tt><br>
+Functions on times.&nbsp; Poly/ML implements this as microseconds since 1st January 1970
+in Unix and nanoseconds since 1st January 1601 (FILETIME) in Windows.</p>
+
+<p><tt>Date : DATE</tt><br>
+Functions on dates including conversions to and from <tt>Time.time</tt>.</p>
+
+<p><tt>Timer : TIMER</tt><br>
+Functions to return CPU time and garbage collection time.</p>
+
+<p><br>
+<tt>Pack8Big : PACK_WORD<br>
+Pack8Little : PACK_WORD <br>
+Pack16Big : PACK_WORD<br>
+Pack16Little : PACK_WORD <br>
+Pack32Big : PACK_WORD<br>
+Pack32Little : PACK_WORD<br>
+PackRealBig : PACK_REAL<br>
+PackRealLittle : PACK_REAL</tt><br>
+Operations to pack and unpack integers and reals into byte vectors.</p>
+
+<p><tt>IO : IO</tt><br>
+The <tt>IO</tt> structure contains types and exceptions used within the other IO
+structures.</p>
+
+<p><tt>TextIO : sig ... end</tt><br>
+The <tt>TextIO</tt> structure is the top level of the IO stack for textual input and
+output. &nbsp; This is level likely to be used most often.&nbsp; Input and output are
+side-effecting and, if necessary, characters such as newlines are translated between the
+ML and operating system codes.<br>
+<tt>TextIO.StreamIO: TEXT_STREAM_IO</tt><br>
+This substructure access to a lower level of textual input and output.&nbsp; Output is not
+significantly different from that of <tt>TextIO</tt> but input is applicative rather than
+imperative.&nbsp; In essence this means that input functions return both a value,
+character or string, and a new stream.&nbsp; Reading from the new stream continues the
+input, reading from the original stream returns the previous value.&nbsp; This is intended
+to simplify backtracking in parsing and works particularly well with the <tt>scan</tt>
+functions in the library.</p>
+
+<p><tt>BinIO : BIN_IO</tt><br>
+<tt>BinIO</tt> is similar to <tt>TextIO</tt> but for binary input and output.&nbsp; While <tt>TextIO</tt>
+works on types <tt>char</tt> and <tt>string</tt>, <tt>BinIO</tt> works on bytes (<tt>Word8.word</tt>)
+and byte vectors (<tt>Word8Vector.vector</tt>).&nbsp; Unlike TextIO binary I/O does not
+perform any translation of characters.<br>
+<tt>BinIO.StreamIO: STREAM_IO</tt><br>
+Similar to <tt>TextIO.StreamIO</tt>.</p>
+
+<p><tt>BinPrimIO : PRIM_IO<br>
+TextPrimIO : PRIM_IO<br>
+</tt>The primitive I/O functions are the lowest level of the stack.&nbsp; They provide
+access to the underlying readers and writers.</p>
+
+<p><tt>ImperativeIO ( ... ) : IMPERATIVE_IO <br>
+StreamIO ( ... ) : STREAM_IO<br>
+PrimIO ( ... ) : PRIM_IO</tt><br>
+These functors can be used to build new stacks to provide input and output on data
+structures other than characters and bytes.</p>
+
+<p><tt>OS : OS</tt><br>
+The <tt>OS</tt> structure contains a large number of functions for accessing operating
+system facilities.&nbsp; Most of them are grouped into substructures.&nbsp; <tt>OS.FileSys</tt>
+contains functions for examining directories and files.&nbsp; <tt>OS.Path</tt> operates on
+file path names. &nbsp; <tt>OS.Process</tt> provides functions to terminate the current ML
+program with various results, examine the environment and to run sub-processes.&nbsp; <tt>OS.IO</tt>
+provides the ability to poll a set of file descriptors.</p>
+
+<p><tt>Socket : SOCKET</tt> <br>
+Operations on sockets, providing access to network facilities from ML.&nbsp; <tt>Socket</tt>
+does not actually contain functions to create sockets.&nbsp; Instead these are found in
+the <tt>INetSock</tt>, <tt>UnixSock</tt> and <tt>GenericSock</tt> structures.</p>
+
+<p><tt>INetSock : INET_SOCK</tt><br>
+Creates internet domain sockets and provides functions on internet addresses.</p>
+
+<p><tt>UnixSock : UNIX_SOCK</tt><br>
+Creates Unix domain (local) sockets.&nbsp; This structure is not provided in the Windows
+implementation.</p>
+
+<p><tt>GenericSock : GENERIC_SOCK</tt><br>
+Can be used to create sockets in any domain supported by the system.</p>
+
+<p><tt>NetHostDB : NET_HOST_DB<br>
+NetProtDB : NET_PROT_DB<br>
+NetServDB : NET_SERV_DB</tt><br>
+  Look up names in various tables.&nbsp; <tt>NetHostDB</tt> looks up an internet 
+  address using DNS. <tt>NetProtDB</tt> looks up a protocol in (on Unix) /etc/protocols.&nbsp; 
+  <tt>NetServDB</tt> looks up a service in (on Unix) /etc/services.</p>
+
+<p><tt>Unix : UNIX</tt><br>
+Provides access to Unix-specific functions, such as forking a process.&nbsp; This
+structure is not provided in the Windows implementation.</p>
+
+<p><tt>Posix : POSIX</tt><br>
+Provides access to a wide range of Unix system calls. This structure is not provided in
+the Windows implementation.</p>
+
+<p><tt>Windows : WINDOWS</tt><br>
+  Windows-specific functions.&nbsp; This structure is not provided in the Unix 
+  implementations.</p>
+
+</body>
+</html>

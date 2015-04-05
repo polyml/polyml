@@ -1,0 +1,123 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Bitmap structure</title>
+</head>
+
+<body>
+
+<h1>Bitmap</h1>
+
+<p>The Bitmap structure contains functions and structures to create and operate on
+bitmaps.&nbsp; Bitmaps are rectangular pictures in which the colour values for each pixel
+are given individually.&nbsp; They are often used as the basis for icons.&nbsp; There are
+two forms of bitmap: device-dependent bitmaps represented by the bitmap handle, HBITMAP,
+and device-independent bitmaps.</p>
+
+<pre>structure Bitmap:
+  sig
+    type HBITMAP and HDC
+    type COLORREF = Color.COLORREF
+    type RECT = { top: int, left: int, bottom: int, right: int }
+    type SIZE = { cx: int, cy: int }
+    datatype BitmapCompression = BI_BITFIELDS | BI_RGB | BI_RLE4 | BI_RLE8
+    datatype FloodFillMode = FLOODFILLBORDER | FLOODFILLSURFACE
+
+    type BITMAP =
+	{ width: int, height: int, widthBytes: int, planes: int, bitsPerPixel: int,
+	  bits: Word8Vector.vector option }
+
+    type StretchMode
+    val BLACKONWHITE : StretchMode
+    val COLORONCOLOR : StretchMode
+    val HALFTONE : StretchMode
+    val MAXSTRETCHBLTMODE : StretchMode
+    val WHITEONBLACK : StretchMode
+
+    type RasterOpCode
+    val BLACKNESS : RasterOpCode
+    val DSTINVERT : RasterOpCode
+    val MERGECOPY : RasterOpCode
+    val MERGEPAINT : RasterOpCode
+    val NOTSRCCOPY : RasterOpCode
+    val NOTSRCERASE : RasterOpCode
+    val PATCOPY : RasterOpCode
+    val PATINVERT : RasterOpCode
+    val PATPAINT : RasterOpCode
+    val SRCAND : RasterOpCode
+    val SRCCOPY : RasterOpCode
+    val SRCERASE : RasterOpCode
+    val SRCINVERT : RasterOpCode
+    val SRCPAINT : RasterOpCode
+    val WHITENESS : RasterOpCode
+
+    val BitBlt : HDC * int * int * int * int * HDC * int * int * RasterOpCode -&gt; unit
+    val CreateBitmap :
+       {bits: Word8Vector.vector option, width: int, height: int,
+         planes: int, bitsPerPixel: int} -&gt; HBITMAP
+    val CreateBitmapIndirect : BITMAP -&gt; HBITMAP
+    val CreateCompatibleBitmap : HDC * int * int -&gt; HBITMAP
+    val ExtFloodFill : HDC * int * int * COLORREF * FloodFillMode -&gt; unit
+    val GetBitmapBits : HBITMAP * int -&gt; Word8Vector.vector
+    val GetBitmapDimensionEx : HBITMAP -&gt; SIZE
+    val GetPixel : HDC * int * int -&gt; COLORREF
+    val GetStretchBltMode : HDC -&gt; StretchMode
+
+    type QuaternaryRop
+    val MAKEROP4 : {back: RasterOpCode, fore: RasterOpCode} -&gt; QuaternaryRop
+    val MaskBlt :
+       HDC * int * int * int * int * HDC * int * int *
+       HBITMAP * int * int * QuaternaryRop -&gt; unit
+
+    val PlgBlt : HDC * RECT * HDC * RECT * HBITMAP * int * int -&gt; unit
+    val SetBitmapBits : HBITMAP * Word8Vector.vector -&gt; unit
+    val SetBitmapDimensionEx : HBITMAP * int * int * SIZE -&gt; SIZE
+    val SetPixel : HDC * int * int * COLORREF -&gt; COLORREF
+    val SetStretchBltMode : HDC * StretchMode -&gt; unit
+    val StretchBlt :
+       HDC * int * int * int * int * HDC * int * int * int * int * RasterOpCode -&gt; unit
+
+    type BITMAPINFOHEADER =
+	{
+		width: int, height: int, planes: int, bitsPerPixel: int,
+		compression: BitmapCompression, sizeImage: int, xPelsPerM: int, 
+		yPelsPerM: int, clrUsed: int, clrImportant: int
+	}
+    val <a
+href="#getBitmapInfoHdr">getBitmapInfoHdr</a>: Word8Vector.vector -&gt; BITMAPINFOHEADER
+    val <a
+href="#GetDIBits">GetDIBits</a>: HDC * HBITMAP * int * int * BITMAPINFOHEADER option -&gt; Word8Vector.vector
+    val <a
+href="#SetDIBits">SetDIBits</a>: HDC * HBITMAP * int * int * Word8Vector.vector -&gt; unit
+  end</pre>
+
+<h4>Device-independent bitmaps.</h4>
+
+<p>A device-independent bitmap contains information which allows it to be written to a
+file and read in on a different machine with different numbers of bits per pixel.&nbsp; It
+can also be passed on the clipboard using the <a href="Clipboard.html#CH_DIB">CH_DIB</a>
+clipboard format. A device-independent bitmap is simply a vector of bytes and is
+represented in ML by the Word8Vector.vector type.</p>
+
+<p><tt><a name="getBitmapInfoHdr">getBitmapInfoHdr</a>(vec: Word8Vector.vector):
+BITMAPINFOHEADER</tt><br>
+<strong>ML Extension:</strong> Extracts the header from a vector containing a
+device-independent bitmap.&nbsp; It is often necessary to extract the header from a
+device-independent bitmap in order to find the size of the bitmap needed as the argument
+to SetDIBits.</p>
+
+<p><tt><a name="GetDIBits">GetDIBits</a>(hdc, hb, startScan, scanLines, binfo:
+BITMAPINFOHEADER option): Word8Vector.vector</tt><br>
+Extracts a bitmap as a device-independent bitmap.&nbsp; This function operates in two
+modes according to whether the binfo argument is NONE or SOME.&nbsp; If NONE is passed it
+returns only the header.&nbsp; This can be extracted with getBitmapInfoHdr and if
+necessary a modified copy of it can be made.&nbsp; For example, the bitsPerPixel can be
+changed from the default for the device.&nbsp; It can then be passed with SOME again to
+GetDIBits to extract the full device-independent bitmap.</p>
+
+<p><tt><a name="SetDIBits">SetDIBits</a>(hdc, hb, startScan, scanLines, vec:
+Word8Vector.vector): unit</tt><br>
+Sets a bitmap to the device-independent bitmap in the argument vector.</p>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: ListBox structure</title>
+</head>
+
+<body>
+
+<h1>ListBox </h1>
+
+<p>The ListBox structure contains styles and flags used in messages to list boxes.</p>
+
+<pre>structure Listbox:
+sig
+	structure Style:
+	sig
+		include BIT_FLAGS where type flags = Window.Style.flags
+	    val WS_OVERLAPPED: flags and WS_POPUP: flags and WS_CHILD: flags and WS_MINIMIZE: flags
+		and WS_VISIBLE: flags and WS_DISABLED:flags and WS_CLIPSIBLINGS:flags
+		and WS_CLIPCHILDREN:flags and WS_MAXIMIZE:flags and WS_CAPTION:flags
+		and WS_BORDER:flags and WS_DLGFRAME:flags and WS_VSCROLL:flags and WS_HSCROLL:flags
+		and WS_SYSMENU:flags and WS_THICKFRAME:flags and WS_GROUP:flags and WS_TABSTOP:flags
+		and WS_MINIMIZEBOX:flags and WS_MAXIMIZEBOX:flags and WS_TILED:flags and WS_ICONIC:flags
+		and WS_SIZEBOX:flags and WS_OVERLAPPEDWINDOW:flags and WS_TILEDWINDOW:flags
+		and WS_POPUPWINDOW: flags and WS_CHILDWINDOW: flags
+		and LBS_NOTIFY: flags and LBS_SORT: flags and LBS_NOREDRAW: flags and LBS_MULTIPLESEL: flags
+	    and LBS_OWNERDRAWFIXED: flags and LBS_OWNERDRAWVARIABLE: flags and LBS_HASSTRINGS: flags
+	    and LBS_USETABSTOPS: flags and LBS_NOINTEGRALHEIGHT: flags and LBS_MULTICOLUMN: flags
+	    and LBS_WANTKEYBOARDINPUT: flags and LBS_EXTENDEDSEL: flags and LBS_DISABLENOSCROLL: flags
+	    and LBS_NODATA: flags and LBS_NOSEL: flags and LBS_STANDARD: flags
+	end
+
+	structure Notifications:
+	sig
+		val LBN_SELCHANGE: int
+		val LBN_DBLCLK: int
+		val LBN_SELCANCEL: int
+		val LBN_SETFOCUS: int
+		val LBN_KILLFOCUS: int
+	end
+
+	datatype LBDirAttr =
+		DDL_READWRITE | DDL_READONLY | DDL_HIDDEN | DDL_SYSTEM | DDL_DIRECTORY |
+		DDL_ARCHIVE | DDL_POSTMSGS | DDL_DRIVES | DDL_EXCLUSIVE
+end</pre>
+</body>
+</html>

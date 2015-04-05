@@ -1,0 +1,71 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: MessageBox structure</title>
+</head>
+
+<body>
+
+<h1>MessageBox </h1>
+
+<p>The MessageBox structure contains functions and structures to create and operate on
+message boxes.</p>
+
+<pre>structure MessageBox :
+sig
+    type HWND
+
+    val IDABORT : int
+    val IDCANCEL : int
+    val IDCLOSE : int
+    val IDHELP : int
+    val IDIGNORE : int
+    val IDNO : int
+    val IDOK : int
+    val IDRETRY : int
+    val IDYES : int
+
+    structure MessageBoxStyle :
+      sig
+        include BIT_FLAGS
+        val MB_ABORTRETRYIGNORE : flags
+        val MB_APPLMODAL : flags
+        val MB_DEFAULT_DESKTOP_ONLY : flags
+        val MB_DEFBUTTON1 : flags
+        val MB_DEFBUTTON2 : flags
+        val MB_DEFBUTTON3 : flags
+        val MB_DEFBUTTON4 : flags
+        val MB_HELP : flags
+        val MB_ICONASTERISK : flags
+        val MB_ICONERROR : flags
+        val MB_ICONEXCLAMATION : flags
+        val MB_ICONHAND : flags
+        val MB_ICONINFORMATION : flags
+        val MB_ICONQUESTION : flags
+        val MB_ICONSTOP : flags
+        val MB_ICONWARNING : flags
+        val MB_NOFOCUS : flags
+        val MB_OK : flags
+        val MB_OKCANCEL : flags
+        val MB_RETRYCANCEL : flags
+        val MB_RIGHT : flags
+        val MB_RTLREADING : flags
+        val MB_SERVICE_NOTIFICATION : flags
+        val MB_SERVICE_NOTIFICATION_NT3X : flags
+        val MB_SETFOREGROUND : flags
+        val MB_SYSTEMMODAL : flags
+        val MB_TASKMODAL : flags
+        val MB_TOPMOST : flags
+        val MB_USERICON : flags
+        val MB_YESNO : flags
+        val MB_YESNOCANCEL : flags
+      end
+
+    val <a
+name="MessageBox">MessageBox</a> : HWND option * string * string * MessageBoxStyle.flags -&gt; int
+    val MessageBeep: MessageBoxStyle.flags -&gt; unit
+
+end</pre>
+</body>
+</html>

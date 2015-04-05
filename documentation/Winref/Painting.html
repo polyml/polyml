@@ -1,0 +1,59 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Painting structure</title>
+</head>
+
+<body>
+
+<h1>Painting and Drawing</h1>
+
+<p>The Painting structure contains functions to control painting and drawing to a window
+or device context.</p>
+
+<pre>structure Painting :
+  sig
+  	type HWND and HDC and COLORREF and HRGN
+
+    type RECT = { top: int, left: int, bottom: int, right: int }
+
+    type BinaryRasterOperation
+    val R2_BLACK : BinaryRasterOperation
+    val R2_COPYPEN : BinaryRasterOperation
+    val R2_MASKNOTPEN : BinaryRasterOperation
+    val R2_MASKPEN : BinaryRasterOperation
+    val R2_MASKPENNOT : BinaryRasterOperation
+    val R2_MERGENOTPEN : BinaryRasterOperation
+    val R2_MERGEPEN : BinaryRasterOperation
+    val R2_MERGEPENNOT : BinaryRasterOperation
+    val R2_NOP : BinaryRasterOperation
+    val R2_NOT : BinaryRasterOperation
+    val R2_NOTCOPYPEN : BinaryRasterOperation
+    val R2_NOTMASKPEN : BinaryRasterOperation
+    val R2_NOTMERGEPEN : BinaryRasterOperation
+    val R2_NOTXORPEN : BinaryRasterOperation
+    val R2_WHITE : BinaryRasterOperation
+    val R2_XORPEN : BinaryRasterOperation
+
+	type PAINTSTRUCT =
+		{ hdc: HDC, erase: bool, paint: RECT, private: Word8Vector.vector }
+
+    val <a
+name="BeginPaint">BeginPaint</a> : HWND -&gt; HDC * PAINTSTRUCT
+    val <a name="EndPaint">EndPaint</a> : HWND * PAINTSTRUCT -&gt; unit
+    val GdiFlush : unit -&gt; unit
+    val GdiGetBatchLimit : unit -&gt; int
+    val GdiSetBatchLimit : int -&gt; int
+    val GetBkColor : HDC -&gt; COLORREF
+    val GetROP2 : HDC -&gt; BinaryRasterOperation
+    val GetUpdateRect : HWND * bool -&gt; RECT option
+    val GetUpdateRgn : HWND * HRGN * bool -&gt; Region.ResultRegion
+    val GetWindowDC : HWND -&gt; HDC
+    val InvalidateRgn : HWND * HRGN * bool -&gt; unit
+    val SetBkColor : HDC * COLORREF -&gt; COLORREF
+    val SetROP2 : HDC * BinaryRasterOperation -&gt; BinaryRasterOperation
+    val WindowFromDC : HDC -&gt; HWND
+  end</pre>
+</body>
+</html>

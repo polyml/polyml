@@ -1,0 +1,1071 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+<head>
+<title>Poly/ML Release Notes</title>
+</head>
+<body bgcolor="#FFFFFF">
+<script language="JavaScript" type="text/javascript"><!--
+Allowhover = 
+  (((navigator.appName == "Netscape") && 
+  (parseInt(navigator.appVersion) >= 3 )) || 
+  ((navigator.appName == "Microsoft Internet Explorer") && 
+  (parseInt(navigator.appVersion) >= 4 ))); 
+
+function Imagepreload(img) 
+{
+  var a=new Image(); a.src=img; return a; 
+}
+if(Allowhover) {
+	Homen=Imagepreload('../images/HomeButton.gif');
+	Homeh=Imagepreload('../images/HomeButton1.gif'); 
+	Aboutn=Imagepreload('../images/AboutButton.gif');
+	Abouth=Imagepreload('../images/AboutButton1.gif'); 
+	Supportn=Imagepreload('../images/SupportButton.gif');
+	Supporth=Imagepreload('../images/SupportButton1.gif'); 
+	Getn=Imagepreload('../images/GetButton.gif');
+	Geth=Imagepreload('../images/GetButton1.gif'); 
+	Docn=Imagepreload('../images/DocButton.gif');
+	Doch=Imagepreload('../images/DocButton1.gif'); 
+}
+// --></script>
+<table border="0">
+  <tr> 
+    <td valign="top"><table border="0" cellspacing="0" cellpadding="0">
+        <tr> 
+          <td><a href="../index.html" onmouseover="if(Allowhover) document['Home'].src=Homeh.src; return true" onmouseout="if(Allowhover) document['Home'].src=Homen.src; return true"><img name="Home" src="../images/HomeButton.gif" alt="Poly/ML Home" border="0" WIDTH="113" HEIGHT="43"></a></td>
+        </tr>
+        <tr> 
+          <td><a href="../FAQ.html" onmouseover="if(Allowhover) document['About'].src=Abouth.src; return true" onmouseout="if(Allowhover) document['About'].src=Aboutn.src; return true"><img name="About" src="../images/AboutButton.gif" alt="About Poly/ML" border="0" WIDTH="113" HEIGHT="43"></a></td>
+        </tr>
+        <tr> 
+          <td><a href="../support.html" onmouseover="if(Allowhover) document['Support'].src=Supporth.src; return true" onmouseout="if(Allowhover) document['Support'].src=Supportn.src; return true"><img name="Support" src="../images/SupportButton.gif" alt="Support for Poly/ML" border="0" WIDTH="113" HEIGHT="43"></a></td>
+        </tr>
+        <tr> 
+          <td><a href="../Doc.html" onmouseover="if(Allowhover) document['Doc'].src=Doch.src; return true" onmouseout="if(Allowhover) document['Doc'].src=Docn.src; return true"><img name="Doc" src="../images/DocButton.gif" alt="Documentation" border="0" WIDTH="113" HEIGHT="43"></a></td>
+        </tr>
+        <tr> 
+          <td><a href="../download.html" onmouseover="if(Allowhover) document['Get'].src=Geth.src; return true" onmouseout="if(Allowhover) document['Get'].src=Getn.src; return true"><img name="Get" src="../images/GetButton.gif" alt="Get Poly/ML" border="0" WIDTH="113" HEIGHT="43"></a></td>
+        </tr>
+      </table></td>
+    <td valign="top">
+		<h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_5_1">Poly/ML 
+        Version 5.5.1</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released September 
+        2013</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Major New Features 
+        and Changes</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">The intermediate code optimiser 
+          has been largely rewritten. The optimiser now detects various additional 
+          cases where a closures or tuples can be stored on the stack rather than 
+          requiring heap storage</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">The match compiler that 
+          processes a sequence of patterns in a case or fun-binding has been reworked. 
+          This now handles complex matches that used to result in a code blow-up</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">A&quot;polyc&quot; script 
+          has been added to aid compiling and linking ML code to produce a stand-alone 
+          binary. This is intended as an analogue of cc and gcc. The easiest way 
+          to build a binary is now to put the ML code into a file (foo.ML) with 
+          a function &quot;main&quot; that is the entry point to the code. Then 
+          run <br>
+          <font face="Courier New, Courier, mono">polyc -o foo foo.ML</font><br>
+          The script takes care of any libraries that may be required. It does 
+          require that the poly binary and libraries have been installed to the 
+          location that was specified in the configure script.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Set the default in the configure 
+          script not to build a shared library. This can be overidden with --enable-shared. 
+          The advantage of this is that binaries created from Poly/ML, including 
+          poly itself, do not require libpolyml at run-time.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Additions and changes to 
+          the command-line options when starting the ML top-level 
+          <ul>
+            <li>The --eval option can be followed by a string which is compiled 
+              and executed before the top-level is entered</li>
+            <li><font face="Arial, Helvetica, sans-serif">The --script option 
+              can be used to allow ML code to be run as a script (a &quot;shell 
+              script&quot;) in Unix. It reads the file name given as the last 
+              option, skipping the first line if it begins #!. Implies -q option. 
+              Note: because of the way scripts pass their options if used this 
+              must be the only option. To use ML as a script put the ML code into 
+              a file, put<br>
+              <font face="Courier New, Courier, mono">#! /usr/local/bin/poly --script</font><br>
+              as the first line, modifying the path depending on where poly is 
+              installed, and set the file to have execute permission.</font></li>
+            <li><font face="Arial, Helvetica, sans-serif">The -q option now sets 
+              the print depth to zero as well as suppressing the start-up message</font></li>
+            <li>The input prompt (&gt; or #) is only produced if the input is 
+              a terminal. The -i option should be used to cause the prompt to 
+              be produced if, for example, the input is from a pipe.</li>
+          </ul>
+          </font></li>
+      </ul>
+	  <p><font face="Arial, Helvetica, sans-serif"><strong>Minor Additions and 
+        Changes </strong></font></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">The -H option now sets the 
+          initial heap size rather than being a synonym for --minheap</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Add large file support</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">When printing the fields 
+          a record print them in alphabetical order rather than the system order 
+          used in the compiler</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Convert the representation 
+          of the statistics to use ASN1 encoding. This is byte-order and word-length 
+          independent and allows 32-bit Poly/ML to read the statistics of 64-bit 
+          Poly/ML on the same machine and vice-versa.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Add a substructure Exception 
+          to the PolyML structure to hold all the functions related to exceptions.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">The default for --gc-threads 
+          is now the number of independent physical processors. Hyperthreaded 
+          cores are counted as single cores rather than dual cores.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improve the GC and allocation 
+          code for very large arrays</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improve handling of OS.Process.system 
+          in Cygwin</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improved versions of Word32 
+          and Word64. These are used for SystemWord and LargeWord.</font></li>
+      </ul>
+	        <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Bug Fixes</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Fix Word32.fromLargeInt 
+          which could return values outside the range of Word32</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix segfault in PolyML.stackTrace</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix errors in conversion 
+          of string to real values</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix segfault when a thread 
+          created in foreign code called an ML callback</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix profiler which could 
+          often report UNKNOWN function</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix bug with overlapped 
+          areas in ArraySlice.copy</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix InternalError exception 
+          with ML code where a fixed record type could not be found</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix bug with equality on 
+          BoolVector.vector </font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Raise the correct exception 
+          (Size) for negative lengths in canInput and inputN</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix Real.fromInt with an 
+          argument that was an arbitrary precision number in the long form</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix error in the timing 
+          information printed with PolyML.timing true in Windows.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix occasional problem with 
+          input/output as a result of the stream token being represented by an 
+          immutable value but then being checked for equality</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix bug in X86-64 code-generator 
+          with literal constants that do not fit in 32-bits. It could result in 
+          an &quot;InternalError: gen32s: invalid word&quot; exception. Includes 
+          regression test.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix LargWord.fromInt which 
+          was wrong for large negative values</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix bug in power-of-two 
+          function in code-generator. This caused an infinite loop with Word.* 
+          when multiplying by a constant with the highest bit set and not a power 
+          of two.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix bug in structure matching 
+          code</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Use ELF_Rela relocation 
+          structures for all relocations in X86-64. Some systems e.g. Solaris 
+          require this.</font></li>
+      </ul>
+
+		<h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_5">Poly/ML 
+        Version 5.5</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released September 
+        2012</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Major New Features</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Storage management rewrite. 
+          The storage management system has been almost completely rewritten. 
+          The garbage collector is parallelised and a new mechanism has been introduced 
+          to adjust the size of the heap. When space is very short an extra pass 
+          may be triggered that merges immutable cells with the same contents. 
+          Thanks to Tobias Nipkow and the Technical University of Munich for support 
+          for this work.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">PolyML.shareCommonData has 
+          been parallelised and now uses a dynamic stack to avoid a possible segfault 
+          if the C stack overflows with deep data structures.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">There is now support for 
+          64-bit on Windows using either mingw or Visual Studio.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Added a PolyML.Statistics 
+          structure to extract information about the current ML program or that 
+          running in another process.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> The standard &quot;text&quot; 
+          and &quot;data&quot; areas are now used for exported object files. In 
+          particular this removes the need for --segprot when linking the object 
+          files on Mac OS X with previous versions.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> libffi is now used for 
+          foreign function interface (CInterface). Among other things this allows 
+          the full range of types to be use on X86/64. A version of libffi is 
+          included in the source but those packaging Poly/ML may prefer to use 
+          the --with-system-libffi option to the configure script to use the version 
+          installed on the machine.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Withdrawn support for native-code 
+          on PPC and Sparc. The configure script will now fall back to the interpreted 
+          version on these platforms.</font></li>
+      </ul>
+	  <p><font face="Arial, Helvetica, sans-serif"><strong>Minor Additions and 
+        Changes </strong></font></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Added G, M, K suffix to 
+          RTS arguments for --maxheap and --minheap.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Some changes to where &quot;op&quot; 
+          is allowed to conform more closely to the Definition.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">--debug and --logfile options. 
+          These allow fine control of debugging information within the run-time 
+          system.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Added --error-exit option 
+          to terminate the top-level loop if any command raises an exception.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Added PolyML.IntInf with 
+          gcd and lcm functions to use GMP's gcd function if available.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Added PolyML.Compiler.allocationProfiling 
+          to work with PolyML.profiling 4. This causes each full GC to print a 
+          profile indicating where the currently live data has been allocated.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Removed NetDB structure 
+          from the library since this was in an early draft of the basis library 
+          but not in the final book.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Added PolyML.Codetree structure 
+          within PolyML. This allows ML code to build intermediate code data structures 
+          and generate machine code from them.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added &quot;--use FILENAME&quot; 
+          command line argument to run a command from a file before starting the 
+          main Read-Eval-Print loop.</font></li>
+      </ul>
+	        <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Bug Fixes</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Fixes related to Word32 
+          on X86-64 and Word.~&gt;&gt;.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Vol allocation locking 
+          issue</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Floating point box issue</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix some functions in the 
+          Windows structure to match the Basis Library definition</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix a possible crash if 
+          a GC happened while another thread was in foreign code.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix error in printer function 
+          for a datatype where the effect of PolyML.print_depth depended on the 
+          posiition of a constructor in the datatype.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix bug with flexible record 
+          handling.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix Real.fmt and Real.toString 
+          to conform to the Basis Library definition.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix Real.abs with nan argument.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix IEEEReal.toString for 
+          nan argument.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix code-generator bug 
+          which resulted in incorrect result for Real.nextAfter.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Fix bug the produced Subscript 
+          exceptions in stream IO.<br>
+          </font></li>
+      </ul>
+
+	<h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_4">Poly/ML 
+        Version 5.4</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released September 
+        2010</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Major New Features</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif"> Major rewrite of the X86 
+          code-generator and combining the 32 and 64-bit versions into a single 
+          module. It now supports the floating point instructions.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Changes to the way functions 
+          with polymorphic equality are handled to eliminate the &quot;structural 
+          equality&quot; code.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Uses the GMP library if 
+          that is available when Poly/ML is built otherwise falls back to the 
+          old Poly/ML code.</font></li>
+      </ul>
+	  <p><font face="Arial, Helvetica, sans-serif"><strong>Minor Additions and 
+        Changes </strong></font></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Added a SingleAssignment 
+          structure</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Support for the Itanium 
+          processor using the interpreted version.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Various bug fixes.</font></li>
+      </ul>
+      <h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_3">Poly/ML 
+        Version 5.3</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released November 
+        2009</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Major New Features</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Addition of IDE interface 
+          support.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Changes to pretty-printing 
+          and equality. These are now inherited across module boundaries. Addition 
+          of PolyML.addPrettyPrinter to install a new-style pretty printer.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Reworked implementation 
+          of signatures reducing the memory requirements when a named signature 
+          is used in multiple places.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improvements to printing 
+          of types and error messages.</font></li>
+      </ul>
+      <p><font face="Arial, Helvetica, sans-serif"><strong>Minor Additions and 
+        Changes </strong></font></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Support for out-of-tree 
+          builds</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added finalisation for foreign-function 
+          interface (CInterface)</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Removed remaining support 
+          for ML90</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added PolyML.sourceLocation 
+          pseudo-function that returns the current source location, PolyML.raiseWithLocation 
+          that raises an exception with an explicit location and PolyML.exceptionLocation 
+          that returns the location where an exception was raised.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added PolyML.Compiler.reportUnreferencedIds 
+          switch to enable reporting of unreferenced identifiers.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added breakEx and clearEx 
+          to debugger functions. These enter the debugger when the code raises 
+          a given exception.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improvement to resonsiveness 
+          to pipes especially in Windows.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added X86-64 version of 
+          Word32 structure. 64-bit machines do not require 32-bit values to be 
+          &quot;boxed&quot;. </font></li>
+      </ul>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Bug Fixes</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Now builds on Mac OS X 10.6 
+          (Snow Leopard)</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix multi-threading on Sparc 
+          but now only supports v9 processors.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix timing-related crash 
+          when Poly/ML exits</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix string argument to OS.SysErr 
+          exception </font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix to OS.FileSys.mkDir 
+          in Windows</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix to pow(~1, n) where 
+          n is even</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Various fixes to conform 
+          more closely to the standard.</font></li>
+      </ul>
+      <h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_2_1">Poly/ML 
+        Version 5.2.1</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released October 
+        2008</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Bug Fixes</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Various fixes to the run-time 
+          system.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix in Thread.ConditionVar.waitUntil. 
+          This could deadlock if the time calculation resulted in a garbage collection.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix to Substring.isPrefix 
+          and Substring.isSuffix with single character arguments.</font></li>
+      </ul>
+	  
+	  <font face="Arial, Helvetica, sans-serif"><strong>Minor Additions 
+          and Changes </strong></font> 
+          <ul>
+        <li><font face="Arial, Helvetica, sans-serif">X-Windows/Motif is now not 
+          included by default. The --with-x option is required for configure</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Functional I/O has been 
+          changed to be more efficient.</font></li>
+      </ul>
+        
+      <h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_2">Poly/ML 
+        Version 5.2</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released June 2008</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Major New Features</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Changes to PolyML.compiler. 
+          Addition of &quot;namespaces&quot; to allow top-level declarations to 
+          be grouped</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improvements to real numbers 
+          on X86 (32 and 64-bit)</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Improvements to the source-level 
+          debugger</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Addition of weak references 
+          in the Weak structure.</font></li>
+      </ul>
+      <p><font face="Arial, Helvetica, sans-serif"><strong>Minor Additions and 
+        Changes </strong></font></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Fixed a hot-spot in the 
+          compiler.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Changes to handling of signals 
+          in the Signal structure</font></li>
+      </ul>
+      <h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_1">Poly/ML 
+        Version 5.1</a></strong></font></h2>
+      <p><font size="-1" face="Arial, Helvetica, sans-serif">Released November 2007</font></p>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Major New Features</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">True multi-threading</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Saving state</font></li>
+      </ul>
+      <p><font face="Arial, Helvetica, sans-serif"><strong>Minor Additions and 
+        Changes </strong></font></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Support for building Windows 
+          version on msys.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Support for building interpreted 
+          version for ARM processor.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Changes to some message 
+          values in the Windows interface structure. The type of Windows callback 
+          functions has changed.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Addition of Int32 structure 
+          and TEXT_IO signature to the basis library.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Support for building Sparc 
+          version on Linux.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">SIGALRM is no longer used 
+          by the run-time system.</font></li>
+      </ul>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Bug Fixes</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Now builds on Mac OS X 10.5 
+          (Leopard)</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix for Sparc Solaris 10 
+          which would crash because Poly/ML used the g7 register</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Added signature constraints 
+          after structure values (strexp: sigexp)</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Word8Array.vector produced 
+          wrong value when applied to an empty array.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix to type of Real.fromDecimal 
+          and changes to handling of overflow in conversion of strings to reals.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix to Word32.~ and addition 
+          of overload for it.</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fix to start-up code on 
+          PowerPC which could cause a crash under some C compilers.</font></li>
+      </ul>
+      <h2><font face="Arial, Helvetica, sans-serif"><strong><a name="Version5_0">Poly/ML Version 5</a></strong></font></h2>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>New Features</strong></font></strong></p>
+      <ul>
+        <li><font face="Arial, Helvetica, sans-serif">Support for stand-alone 
+          binaries</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Support for additional 
+          platforms: AMD64, Intel Macs, Cygwin</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> No artificial limits on 
+          size of heaps or saved image</font></li>
+        <li><font face="Arial, Helvetica, sans-serif"> Uses standard GNU tools 
+          for building</font></li>
+        <li><font face="Arial, Helvetica, sans-serif">Fixed address mmap and trap-handling 
+          removed </font></li>
+      </ul>
+      <p><strong><font face="Arial, Helvetica, sans-serif"><strong>Version 5</strong></font></strong></p>
+      <p><font face="Arial, Helvetica, sans-serif">Thanks to some financial support 
+        from the Verisoft project organised through the Technical University of 
+        Munich I have spent several months updating the Poly/ML run-time system. 
+        There are many internal changes detailed below but there is one major 
+        change that is likely to affect all users. The persistent storage system 
+        that has been a feature of Poly/ML almost since the beginning has finally 
+        reached its sell-by date and has been removed. In its place there is the 
+        facility to export ML functions as object files and link them to produce 
+        stand-alone executables.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">Although the ML code has not 
+        been significantly changed, with the exception of a new code-generator 
+        for the 64-bit AMD/Intel processor, the run-time system has been modified 
+        substantially. The aim has been to try to produce a version that will 
+        work across a wider range of systems than before and will be much simpler 
+        to maintain. The C code has been converted to C++ and standard GNU tools: 
+        autoconf, automake and libtool are used to build the system. Memory mapping 
+        to fixed addresses, which caused problems with various Linux distributions, 
+        has been removed and the use of traps to handle arbitrary precision overflow 
+        and heap limits has been replaced by calls into the run-time system. The 
+        artificial limits on the size of the heap and of the saved database have 
+        been removed and the only limit on the size of the working heap is likely 
+        to be swap space.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">To build and install Poly/ML 
+        download and unpack the source. You can then build poly with the commands</font></p>
+      <p><font face="Courier New, Courier, mono"> <strong>./configure<br>
+        make<br>
+        make install</strong></font></p>
+      <p><font face="Arial, Helvetica, sans-serif">./configure by default places 
+        installed files within /usr/local and in particular the libraries are 
+        placed in /usr/local/lib. Some Unix distributions (e.g. Fedora Core) do 
+        not include /usr/local/lib in the library search path and on those distributions 
+        it may be better to override this by specifying<br>
+        <font face="Courier New, Courier, mono"><strong>./configure --prefix=/usr</strong></font></font></p>
+      <p><font face="Arial, Helvetica, sans-serif">You build an application by 
+        constructing your application as an ML function and calling <font face="Courier New, Courier, mono">PolyML.export</font>. 
+        <font face="Courier New, Courier, mono">PolyML.export</font> takes as 
+        its argument a file name for the resulting object file and a function 
+        to export. It will automatically add the normal extension for an object 
+        file (.o or .obj as appropriate) unless it already included and write 
+        out the function and any data reachable from it as a normal operating 
+        system object file. This can then be linked with the poly libraries to 
+        build an application.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif"><strong>Example of building 
+        an application</strong></font></p>
+      <p><font face="Courier New, Courier, mono">$ <strong>poly</strong><br>
+        Poly/ML 5.0 Release<br>
+        &gt; <strong>fun f () = print &quot;Hello World\n&quot;;</strong><br>
+        val f = fn : unit -&gt; unit<br>
+        &gt; <strong>PolyML.export(&quot;hello&quot;, f);</strong><br>
+        val it = () : unit<br>
+        &gt; <strong>^D</strong><br>
+        $ <strong>cc -o hello hello.o -lpolymain -lpolyml</strong><br>
+        $ <strong>./hello</strong><br>
+        Hello World</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">If you have installed the libraries 
+        in a directory that is not in the search path you may need to add this. 
+        For example<br>
+        <font face="Courier New, Courier, mono">cc -o hello hello.o -L/usr/local/lib 
+        -lpolymain -lpolyml</font><br>
+        It is possible to use the ld command rather than cc here but you may need 
+        to include some of the default C and C++ libraries on the command line. 
+        On some platforms it may be necessary to add -lstdc++ and on Mac OS X 
+        you may need to add <font face="Courier New, Courier, mono">-segprot POLY 
+        rwx rwx</font> to prevent a Bus Error when you run your application.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">It is often the case that applications 
+        built using Poly/ML will want to use the normal Poly/ML top-level but 
+        with additional ML functions or structures built in. In the old version 
+        this was achieved by compiling the new declarations and then committing 
+        the database. The new version does this slightly differently. First compile 
+        in the new declarations as before and then export the Poly/ML top level 
+        by exporting <font face="Courier New, Courier, mono">PolyML.rootFunction</font>.</font></p>
+      <p><font face="Courier New, Courier, mono">$ <strong>poly</strong></font><font face="Arial, Helvetica, sans-serif"><br>
+        <font face="Courier New, Courier, mono">Poly/ML 5.0 Release<br>
+        &gt; <strong>val myValue = &quot;This is a new value&quot;;</strong><br>
+        val myValue = &quot;This is a new value&quot; : string<br>
+        &gt; <strong>PolyML.export(&quot;mypoly&quot;, PolyML.rootFunction);</strong><br>
+        val it = () : unit<br>
+        &gt; <strong>^D</strong><br>
+        $ <strong>cc -o mypoly mypoly.o -lpolymain -lpolyml</strong><br>
+        $ <strong>./mypoly</strong><br>
+        Poly/ML 5.0 Beta1<br>
+        &gt; <strong>myValue;</strong><br>
+        val it = &quot;This is a new value&quot; : string<br>
+        &gt; </font></font></p>
+      <p><font face="Courier New, Courier, mono">PolyML.export</font><font face="Arial, Helvetica, sans-serif"> 
+        writes its output to an object file in the native format on the machine 
+        on which it is running. Currently Poly/ML supports three different formats: 
+        ELF, used on Linux, FreeBSD and Solaris; PCOFF, used on Windows and Cygwin 
+        and Mach-O, used on Mac OS X. If it is necessary to distribute software 
+        in object format it would be inconvenient to have to produce versions 
+        for each combination of architecture (e.g. X86-32, X86-64, PPC and Sparc) 
+        and each possible object format. To avoid this there is a <font face="Courier New, Courier, mono">PolyML.exportPortable</font> 
+        function which takes similar arguments to <font face="Courier New, Courier, mono">PolyML.export</font> 
+        but writes its output to a text file in a portable format. There is a 
+        <font face="Courier New, Courier, mono">polyimport</font> command which 
+        loads a file stored in this format and runs it.</font></p>
+      <p><font face="Courier New, Courier, mono">$ <strong>poly</strong><br>
+        Poly/ML 5.0 </font><font face="Arial, Helvetica, sans-serif"><font face="Courier New, Courier, mono">Release</font></font><font face="Courier New, Courier, mono"><br>
+        &gt; <strong>fun f () = print &quot;Hello World\n&quot;;</strong><br>
+        val f = fn : unit -&gt; unit<br>
+        &gt; <strong>PolyML.exportPortable(&quot;hello&quot;, f);</strong><br>
+        val it = () : unit<br>
+        &gt; <strong>^D</strong><br>
+        $ <strong>polyimport hello.txt</strong><br>
+        Hello World</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">While this is convenient for 
+        porting the portable format is not designed for efficiency. The Poly/ML 
+        build process uses the portable format within the distribution but the 
+        build script then exports the code in the native format. N.B. The portable 
+        format only avoids the need to produce different object code formats. 
+        It is not portable across different architectures (e.g. i386 to PPC) since 
+        the portable file still contains native machine instructions encoded as 
+        strings.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">The previous version of Poly/ML 
+        had a command line option to compress a database by sharing immutable 
+        data. This has been replaced in the new version by the <font face="Courier New, Courier, mono">PolyML.shareCommonData</font> 
+        function. This takes as its argument any data structure and it processes 
+        this structure replacing any multiple occurrences of the same immutable 
+        data by a pointer to a single occurrence. In effect, wherever in the data 
+        structure there are two substructures which would be equal using the ML 
+        definition of equality there will be a pointer to a single data structure.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">The intended use of this is 
+        primarily to reduce the size of a data structure before it is exported. 
+        It can be used in the above example but in this case the function being 
+        exported is so simple that it is unlikely to be worthwhile.</font></p>
+      <p> <font face="Courier New, Courier, mono">$ <strong>poly</strong><br>
+        Poly/ML 5.0 </font><font face="Arial, Helvetica, sans-serif"><font face="Courier New, Courier, mono">Release</font></font><font face="Courier New, Courier, mono"><br>
+        &gt; <strong>fun f () = print &quot;Hello World\n&quot;;</strong><br>
+        val f = fn : unit -&gt; unit<br>
+        &gt; <strong>PolyML.shareCommonData f;</strong><br>
+        val it = () : unit<br>
+        &gt; <strong>PolyML.export(&quot;hello&quot;, f);</strong><br>
+        val it = () : unit<br>
+        &gt; <strong>^D</strong></font></p>
+      <p><font face="Arial, Helvetica, sans-serif">The new version uses the standard 
+        GNU tools: autoconf, automake and libtool. There is no need to install 
+        these tools in order to install and run Poly/ML unless you need to make 
+        modifications to the setup which are not handled within the configure 
+        and make files. Using these tools should make porting to other versions 
+        of Unix easier and should make it fairly simple to build binary or source 
+        distributions to include in Unix distributions.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">The command line arguments 
+        to Poly/ML have been simplified. There are a few command line arguments 
+        that are taken by the Poly/ML run time system and the remainder are passed 
+        to the application via the standard basis library CommandLine structure. 
+        The run-time system recognises the following arguments:</font><font face="Arial, Helvetica, sans-serif"> 
+        </font></p>
+      <table width="0%" border="0" cellspacing="0" cellpadding="0">
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">-H</font></td>
+          <td width="404"><font face="Arial, Helvetica, sans-serif">&lt;Initial 
+            heap size (MB)&gt;</font></td>
+        </tr>
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">--immutable</font></td>
+          <td><font face="Arial, Helvetica, sans-serif">&lt;Initial size of immutable 
+            buffer (MB)&gt;</font></td>
+        </tr>
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">--mutable</font></td>
+          <td><font face="Arial, Helvetica, sans-serif">&lt;Initial size of mutable 
+            buffer(MB)&gt;</font></td>
+        </tr>
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">--debug</font></td>
+          <td><font face="Arial, Helvetica, sans-serif">&lt;Debug options&gt;</font></td>
+        </tr>
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">--timeslice</font></td>
+          <td><font face="Arial, Helvetica, sans-serif">&lt;Time slice (ms)&gt;</font></td>
+        </tr>
+      </table>
+      <p><font face="Arial, Helvetica, sans-serif">The poly application itself 
+        recognises a few arguments: </font></p>
+      <table width="0%" border="0" cellspacing="0" cellpadding="0">
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">-v</font></td>
+          <td width="404"><font face="Arial, Helvetica, sans-serif">Print the 
+            version of Poly/ML and exit</font></td>
+        </tr>
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">--help</font></td>
+          <td><font face="Arial, Helvetica, sans-serif">Print the list of arguments 
+            and exit</font></td>
+        </tr>
+        <tr> 
+          <td width="100"><font face="Arial, Helvetica, sans-serif">-q</font></td>
+          <td><font face="Arial, Helvetica, sans-serif">Suppress the start-up 
+            message</font></td>
+        </tr>
+      </table>
+      <p><font face="Arial, Helvetica, sans-serif">If you are building your own 
+        application that recognises --help as a command line argument you should 
+        call <font face="Courier New, Courier, mono">PolyML.rtsArgumentHelp()</font> 
+        to retrieve the information about the run-time system arguments and include 
+        this in any help text you produce.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif">The heap size arguments set 
+        the initial heap size but the heap may grow beyond this if your application 
+        needs more space. If no argument is set the default size is half the physical 
+        memory available on your machine.</font></p>
+      <h2><font face="Arial"><strong>Release notes: Version 4.1.4 Release</strong></font></h2>
+      <h3><strong><font face="Arial"><strong>New features and Changes</strong></font></strong></h3>
+      <p><font face="Arial">Converted PolyML.dsw and PolyML.dsp to binary. This 
+        simplifies building from source on Windows.</font></p>
+      <p><font face="Arial">The exception PolyML.Commit now has type string-&gt;exn.</font></p>
+      <p><font face="Arial">PolyML.commit now raises PolyML.Commit if the database 
+        is read-only. </font></p>
+      <p><font face="Arial">Timing functions no longer fail occasionally with 
+        getrusage: EINTR on Solaris (actually a work-around for a bug/documentation 
+        error in Solaris).</font></p>
+      <h2><font face="Arial"><strong>Release notes: Version 4.1.3 Release</strong></font></h2>
+      <h3><font face="Arial"><strong>New features and Changes</strong></font></h3>
+      <p><font face="Arial"><strong>Printing control switches<br>
+        </strong>New switches have been added to the Poly/ML.Compiler structure 
+        to control the printing of declarations. In both cases the default setting 
+        is true. Setting PolyML.Compiler.printInAlphabeticalOrder causes declarations 
+        to be printed in the order in which they were made rather than in alphabetical 
+        order. Setting PolyML.Compiler.printTypesWithStructureName to false causes 
+        types to be printed without the structure from which they came.</font></p>
+      <p><font face="Arial"><strong>Large database support</strong><br>
+        The support for large databases has been improved and it is now possible 
+        to create a database which will occupy all of the virtual memory reserved 
+        for it. The actual limits vary between operating systems and platforms 
+        but are typically around 400Mbytes.</font></p>
+      <p><font face="Arial">To aid this the -S option when running the disc garbage-collector 
+        (-d option), introduced in 4.1.1, has been extended with -Smin and -Smax. 
+        The options can be written using either -s or -S and with or without a 
+        space. Setting a size is now &quot;sticky&quot; so if no -s/-S option 
+        is given the previous limits are retained rather than being reset to the 
+        default. The -Smax option sets the limits to the maximum space available. 
+        This space now depends only on the size reserved for any parent databases 
+        and not, as before, on the history of the database.</font></p>
+      <p><font face="Arial">The -Smin option compacts the database into a size 
+        whose upper limit is set to the size actually in use before compaction. 
+        To make best use of it it is probably best to run it twice, once to compact 
+        the database and again to set the upper limits to the now reduced size. 
+        It is useful when a database has been created which will not be modified 
+        further but where child databases may be created. Compacting a database 
+        to the minimum size allows any child databases to occupy as much space 
+        as possible.</font></p>
+      <p><font face="Arial"> The disc garbage collection has been changed so that 
+        it is now possible to use all the address space. Previously it was always 
+        necessary to reserve a certain portion of the space to allow the database 
+        to be collected.<br>
+        </font></p>
+      <h3><font face="Arial"><strong>Bugs fixed</strong></font></h3>
+      <p><strong><font face="Arial">Mac OS X 10.2<br>
+        </font></strong><font face="Arial, Helvetica, sans-serif">Mac OS X 10.2 
+        introduced a undocumented change to the kernel interface when delivering 
+        signals. This meant that the original binaries will not run on 10.2. This 
+        has now been fixed.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif"><strong>Crash on delivering 
+        console interrupt on PowerPC</strong><br>
+        There was a bug in the Poly/ML process (lightweight thread) code on the 
+        PowerPC which caused a crash when a process terminated. This could happen 
+        when a user-installed signal handler was called, for example the console 
+        interrupt handler in Isabelle.</font></p>
+      <p><font face="Arial, Helvetica, sans-serif"><strong>Crash in equality code</strong><br>
+        An error in the compilation of the equality function meant that certain 
+        expressions involving equality could cause a crash. This has been fixed.</font></p>
+      <p><font face="Arial">&nbsp;</font></p>
+      <h2><font face="Arial"><strong>Release notes: Version 4.1.2 Release</strong></font></h2>
+      <h3><font face="Arial"><strong>New features and Changes</strong></font></h3>
+      <p><font face="Arial"><strong>Flexible records (Pattern rows with record 
+        wildcards)<br>
+        </strong>The Standard requires that a flexible record must be constrained 
+        to a fixed set of labels by the program context.&nbsp; It does not specify 
+        what that context should be. &nbsp; Previous versions of Poly/ML, along 
+        with most other compilers, have required the context to be the point at 
+        which the declaration containing the flexible record was generalised, 
+        often requiring a type constraint.&nbsp; For example:<br>
+        <tt>let fun f {a, ...} = a in f{a=1,b=2} end</tt>;<br>
+        was rejected.&nbsp; Poly/ML now allows the record to be constrained anywhere 
+        within the same topdec. </font></p>
+      <p><font face="Arial">&nbsp;</font></p>
+      <h3><font face="Arial"><strong>Bugs fixed</strong></font></h3>
+      <p><font face="Arial"><strong>&quot;moveToVec - invalid constant address&quot;<br>
+        </strong>The compiler failed with an exception and this message when trying 
+        to take apart a tuple which was known at compile time to be an exception.&nbsp; 
+        For example: let val (x,y) = raise Fail &quot;&quot; in x end; .</font></p>
+      <p><font face="Arial"><strong>Infinite loop with unterminated input</strong><br>
+        If an input stream contained an error (e.g. a syntax or type error) and 
+        ended without a newline Poly would go into an infinite loop.</font></p>
+      <p><font face="Arial"><strong>Linux/i386 - Crashes with large heaps</strong><br>
+        There were a number of crashes when the heap grew to several hundred megabytes 
+        as a result of it overwriting other data.&nbsp; The virtual address range 
+        used has now been changed. &nbsp; The maximum size of the heap on this 
+        architecture has also been increased to 1.1 Gigabytes for the immutable 
+        heap and 256 Megabytes for the mutable.</font></p>
+      <p><font face="Arial"><strong>Linux - Compiling</strong><br>
+        The sources would not compile on some versions of Linux due to the use 
+        of &lt;sys/time.h&gt; instead of &lt;time.h&gt;.</font></p>
+      <p><font face="Arial"><strong>Syntax of specifications and signature</strong><br>
+        There were a number of cases where Poly/ML would not accept the full syntax 
+        of Standard ML 97.&nbsp; Empty specifications were not accepted, signature 
+        declarations were not accepted after type declarations within the same 
+        topdec and multiple type abbreviations connected by &quot;and&quot; were 
+        not accepted.</font></p>
+      <p><font face="Arial"><strong>Windows bitViewer example</strong><br>
+        The bitViewer example contained a reference to the Base structure which 
+        has been removed, preventing it from compiling.</font></p>
+      <p><font face="Arial"><strong>Interrupt exception while running the compiler</strong><br>
+        Raising an Interrupt exception from the console at certain points within 
+        the compiler could result in confusing traceback information being printed.</font></p>
+      <p><font face="Arial">&nbsp;</font></p>
+      <h2><font face="Arial"><strong>Release notes: Version 4.1.1Release</strong></font></h2>
+      <p><font face="Arial"><strong>Update on 5th November 2001(driver source 
+        only).&nbsp; Bug fix: Overflowing Poly stack could cause crash. </strong><br>
+        A deeply or infinitely recursing function could result in a segmentation 
+        fault.&nbsp; It will now raise an Interrupt exception.</font></p>
+      <p><font face="Arial"><strong>Update on 28th October 2001 (driver source 
+        only).&nbsp; Bug fix: Large heaps in Linux caused random errors. </strong><br>
+        If the heap grew very large in Linux it could overwrite local variables, 
+        causing random failures.</font></p>
+      <h3><font face="Arial"><strong>New features and Changes</strong></font></h3>
+      <p><font face="Arial"><strong>Windows&#153; interface<br>
+        </strong>This release includes structures to allow Windows graphical programs 
+        to be written in Poly/ML.&nbsp; See the <a href="Windows.html">Windows 
+        Programming in Poly/ML</a> and&nbsp; <a href="Winref/Reference.html">Windows 
+        Interface Reference</a> for more information.</font></p>
+      <p><font face="Arial"><strong>Extensions to the Symbolic Debugger.</strong><br>
+        The symbolic debugger introduced in version 4.1 has been extended.&nbsp; 
+        There are additional functions to step over a function and to step out.&nbsp; 
+        The debugger attempts to print the source line when it stops at a breakpoint.&nbsp; 
+        For this to work the source must have been compiled using a full path 
+        name or the debugger must be run in the same directory that the source 
+        was compiled in.&nbsp; The debugger now displays values from opened structures 
+        and in abstype declarations.</font></p>
+      <p><font face="Arial"><strong>Printing top-level exceptions.</strong><br>
+        When an exception is raised at the top-level the compiler now prints the 
+        parameters in the exception packet if the exception is declared at the 
+        top-level or in any top-level structure.&nbsp; Previously it would only 
+        print the parameters if the exception was declared unqualified at the 
+        top-level. <br>
+        This is particularly useful for exceptions raised by the Standard Basis 
+        Library such as IO.Io and OS.SysErr.&nbsp; Previously if, for example, 
+        TextIO.openIn failed to open a file the only information available was 
+        that the Io exception had been raised.&nbsp; Now the parameters will be 
+        printed giving much more useful information.</font></p>
+      <p><font face="Arial"><strong>Large databases.<br>
+        </strong>Previous versions of Poly/ML had limits on the size of the database 
+        of around 63Mbytes.&nbsp; This remains the default limit but larger databases 
+        are now possible, up to around 400Mbytes.&nbsp; To increase the limit 
+        it is necessary to run the disc garbage collector and specify the -S option.<br>
+        e.g. poly -d -S 250 ML_dbase<br>
+        This will compact the database and set the maximum size to 250Mbytes.&nbsp; 
+        Attempts to set the size to a value which is too large will fail with 
+        the message &quot;Not enough address spaces&quot;.&nbsp; The limit on 
+        the size depends on the current maximum database size (the larger the 
+        current size the smaller the new size may be) and is reduced if the database 
+        is a child database.<br>
+        There are actually two limits on the size of a database: the mutable data 
+        size (space for refs and arrays) and the immutable data size (everything 
+        else) and a database cannot be expanded if either of these limits is reached.&nbsp; 
+        The space available is divided between these two in the ratio 1:8.&nbsp; 
+        There is currently no way of changing this.</font></p>
+      <p><font face="Arial"><strong>CInterface structure</strong><br>
+        Added unsigned integer conversions.&nbsp; Added functions to convert between 
+        Word8Vector.vector and C arrays.&nbsp; toCchar and fromCchar now convert 
+        between the ML char type and C char rather using the ML string type.</font></p>
+      <h3><font face="Arial"><strong>Bugs fixed</strong></font></h3>
+      <p><font face="Arial"><strong>Changes to representation of datatypes.<br>
+        </strong>There was a potential bug in the way datatypes were implemented.&nbsp; 
+        Previously the representation of a datatype was implemented using static 
+        information about the number of constructors and their types.&nbsp; Various 
+        optimisations are possible if, for example, it is known that the only 
+        non-nullary constructor takes a tuple as an argument. &nbsp; These optimisations 
+        are not always possible if a datatype can be passed as an argument to 
+        a functor.&nbsp; Simon Finn pointed out that datatype replication could 
+        result in a datatype being passed into a functor in circumstances that 
+        was not possible in ML90. &nbsp; Rather than remove the optimisation the 
+        handling of datatypes has been changed so that constructors are passed 
+        as arguments to a functor.&nbsp; In practice these are optimised away 
+        if functors are expanded inline (the default setting).&nbsp; Because it 
+        is now possible to use the optimised representation in all cases the code 
+        is likely to be faster than before.</font></p>
+      <p><font face="Arial"><strong>Correctly converts negative hexadecimal numbers<br>
+        </strong>Previously values such as ~0x1 were always converted as zero.</font></p>
+      <p><font face="Arial"><strong>Correctly prints singleton records</strong><br>
+        Singleton records (e.g. {a=1}) were previously printed as {...}.</font></p>
+      <p><font face="Arial"><strong>Some functions with side-effects were not 
+        evaluated if their results were not used</strong><br>
+        For example, fun f s = (print s; true); fun p s = not (f s); val _ = p 
+        &quot;OK\n&quot;; did not work correctly in 4.1.&nbsp; This has been fixed.</font></p>
+      <p><font face="Arial"><strong>Changes to allow compilation on Solaris 6.<br>
+        </strong>There was a problem compiling the sources in older versions of 
+        Solaris.</font></p>
+      <p>&nbsp;</p>
+      <h2><a name="4.1"></a><font face="Arial"><strong>Release notes: Version 
+        4.1 Experimental</strong></font></h2>
+      <h3><font face="Arial"><strong>Bugs fixed</strong></font></h3>
+      <p><font face="Arial"><strong>Exception matching in val bindings.<br>
+        </strong>Previous releases contained a bug in the processing of val bindings 
+        when the pattern was an exception constructor.</font></p>
+      <p><font face="Arial"><strong>Closing Standard Output.</strong><br>
+        Closing standard output caused an infinite loop in previous versions.</font></p>
+      <h3><strong><font face="Arial" color="#000000">Changes since </font><font face="Arial">Version 
+        4.0 Release</font></strong></h3>
+      <p><font face="Arial"><strong>Source Level Debugger.<br>
+        </strong>This release includes a source level debugger which allows the 
+        use to set and clear breakpoints and view local variables.&nbsp; Code 
+        compiled for use with the debugger can be freely mixed with other code.&nbsp; 
+        See <a href="Debugging.html">here</a> for a full description.&nbsp; A 
+        PolyML.Debug structure has been added and a PolyML.Compiler.debug flag.</font></p>
+      <p><font face="Arial"><strong>Free type variables.</strong><br>
+        The language definition says that no free type variables may enter the 
+        basis but leaves it to the implementer whether to refuse elaboration or 
+        instead replace the type variables by monotypes.&nbsp; Version 4.0 refused 
+        to elaborate expressions such as<br>
+        fun f () = raise Fail &quot;error&quot;; f();<br>
+        Version 4.1 allows it to elaborate but produces a warning message.&nbsp; 
+        The result is bound to a unique monotype distinct from any other type 
+        in the basis.</font></p>
+      <p><font face="Arial"><strong>Substantial changes to the optimiser.<br>
+        </strong>The optimiser has been substantially changed so that many more 
+        cases can be compiled in-line.&nbsp; Small tail-recursive functions, such 
+        as List.foldl, are now compiled as while-loops within the calling functions.&nbsp;&nbsp; 
+        Small recursive functions which are not tail-recursive, such as List.map, 
+        are compiled as specialised functions so that the function being mapped 
+        is inserted into the specialised function. &nbsp; When mapping a small 
+        function over a list this can produce big improvements by avoiding the 
+        need for a function call for each element of the list.&nbsp; Applying 
+        these optimisations and a few others within the compiler itself has produced 
+        a substantial speed up.</font></p>
+      <p><font face="Arial"><strong>Formatting of pretty-printed output.</strong><br>
+        The format used when printing top-level expressions, particularly structures 
+        and functors, has been improved to give a more consistent appearance.</font></p>
+      <p><font face="Arial"><strong>Tuples as results</strong>.<br>
+        Previous versions of the compiler allocated memory to contain tuples returned 
+        from functions or even from an if-expression.&nbsp; This version now allocates 
+        store on the stack to receive the results, reducing the load on the garbage 
+        collector.</font></p>
+      <p><font face="Arial"><strong>Improvement to TextIO.</strong><br>
+        The TextIO structure is defined as imperative operations on top of the 
+        functional IO layer.&nbsp; Implementing it in this way, though, turned 
+        out to be inefficient if the functional layer was not used.&nbsp; TextIO 
+        has now been rewritten so that if TextIO.getInstream is never called on 
+        a stream it can be handled entirely within the imperative layer.</font></p>
+      <p><font face="Arial"><strong>Specialised equality functions.</strong><br>
+        Previous releases contained specialised code for equality for a few built-in 
+        types such as int and string but defaulted to the general structure equality 
+        in more general cases. &nbsp; The compiler now generates functions for 
+        equality in most cases.&nbsp; Because of the changes to the optimiser 
+        these will usually be compiled in-line even when operating on recursive 
+        types such as lists.&nbsp; This is most successful when the compiler has 
+        specific type information so the addition of a cast may well speed up 
+        a function. &nbsp;&nbsp; </font></p>
+      <p><font face="Arial"><strong>X-Windows/Motif - new functions.</strong><br>
+        The following functions have been added to the Motif structure:</font><br>
+        val XtGetApplicationResources: Widget -&gt; (string * string * XmRType) 
+        list -&gt; Arg list <br>
+        val XtAddEventHandler: &gt; Widget -&gt; XWindows.EventMask list -&gt; 
+        bool -&gt; (Widget * 'a XWindows.XEvent -&gt; unit) -&gt; unit<br>
+        val XmMenuPosition: Widget -&gt; 'a XWindows.XEvent -&gt; unit</p>
+      <p><font face="Arial"><strong>Assignment to references in the database.<br>
+        </strong>Older versions of the compiler always made calls to the run-time 
+        system to handle assignment.&nbsp; In version 4.0 this was changed so 
+        that the assignment operation was compile in-line, speeding up imperative 
+        functions when the reference being updated was local.&nbsp; If the reference 
+        was in the database assignment involved a trap and the assignment was 
+        emulated by the run-time system.&nbsp; This has now been changed so that 
+        there is only a trap the first time a reference is updated.&nbsp; More 
+        specifically, references in the database are packed into pages and if 
+        any of the references in a page are updated the whole page is marked &quot;dirty&quot; 
+        and no further traps will occur for that page. <br>
+        The format of a database has changed slightly as a result so version 4.1 
+        databases may only be used with a run-time system built for this version.</font></p>
+      <p><font face="Arial"><strong>Low-level code-generation.</strong><br>
+        Various changes have been made to the low-level code-generators, particularly 
+        in the handling of constants and calls to functions which are known at 
+        compile-time.&nbsp; The code-generators now generate code for more functions 
+        such as Word.* which previously required calls to the run-time system.&nbsp;&nbsp; 
+        Functions now contain information about the registers they modify to reduce 
+        the need to save registers across calls.</font></p>
+      <p><font face="Arial"><strong>Mac OS/X</strong><br>
+        Real number rounding control (IEEEReal.getRoundingMode and IEEEReal.setRoundingMode) 
+        has now been added to the Mac OS/X version&nbsp; of Poly/ML 4.1.&nbsp; 
+        This version has been tested with the release version of Mac OS/X.&nbsp; 
+        The foreign function interface (CInterface structure), time profiling 
+        (PolyML.profiling 1) and polling (OS.IO.poll) do not work in Mac OS/X.</font></p>
+      <p><a name="4.1Update"></a><font face="Arial"><strong>Update on 25th April 
+        2001.&nbsp; Slow &quot;commit&quot; and database compaction in Linux and 
+        Solaris</strong><br>
+        There was a problem with writing to the database which appeared in some 
+        versions of Unix. &nbsp; This was particularly noticeable on machines 
+        with slow discs or where the database was accessed over a network.&nbsp; 
+        A revised version of the driver sources has now been installed to correct 
+        this problem.</font></p>
+      <p><font face="Arial"><strong>Update on 3rd May 2001.&nbsp; Bug fix: Corrupted 
+        parent database file name. </strong><br>
+        When running the disc garbage collector on a child database in Mac OS 
+        X the parent file name became corrupted.</font></p>
+      <p><font face="Arial"><strong>Update on 3rd May 2001.&nbsp; Fix to allow 
+        compilation on Mac OS X with X-Windows/Motif</strong>.</font></p>
+      <h2><a name="4.0"></a><font face="Arial"><strong>Release notes: Version 
+        4.0 Release</strong></font></h2>
+      <h3><font face="Arial"><strong>Bugs fixed since Version 4.0 beta1</strong></font></h3>
+      <p><font face="Arial" color="#000000"><strong>Negative integers printed 
+        strangely.</strong><br>
+        Bug in Version 4.0 beta1: Negative numbers printed as large positive numbers.</font></p>
+      <p><font face="Arial" color="#000000"><strong>Files were created with execute 
+        permission.</strong><br>
+        The default creation mask for files was 777 (read, write and execute permission). 
+        &nbsp; This has been changed to 666 (read and write permission).</font></p>
+      <p><font face="Arial" color="#000000"><strong>i386 code-generator bug.</strong><br>
+        A bug was found in the i386 code-generator which among other things caused 
+        Poly/ML to crash when given an integer in hexadecimal (e.g. 0x1).</font></p>
+      <p><font face="Arial" color="#000000"><strong>Linux:&nbsp; Typing control-C 
+        would sometimes cause a crash.</strong><br>
+        Poly/ML would sometimes crash if control-C was pressed.&nbsp;&nbsp; This 
+        was highly timing-dependent and occurred only if the SIGINT arrived at 
+        the same time as another signal such as a SIGSEGV used to indicate a garbage-collection 
+        or arbitrary-precision emulation trap.</font></p>
+      <p>&nbsp;</p>
+      <h3><strong><font face="Arial" color="#000000">Changes since </font><font face="Arial">Version 
+        4.0 beta1</font></strong></h3>
+      <p><font face="Arial"><strong>The default for print depth is now 100.<br>
+        </strong>The default value for PolyML.print_depth is now 100 instead of 
+        1.</font></p>
+      <p><font face="Arial"><strong>Power architecture version now fully supported.</strong> 
+        <br>
+        The Power architecture is now supported under MacOS-X beta and LinuxPPC. 
+        </font></p>
+      <p><font face="Arial"><strong>Removed various exceptions from the PolyML 
+        structure.</strong><br>
+        The Interrupt, Div, Bind, Match, Size, Overflow, Underflow and Subscript 
+        exceptions have been removed from the PolyML structure.&nbsp; These are 
+        either free in the basis or are in the SML90 structure. </font></p>
+      <p><strong><font face="Arial">X-Windows/Motif now compiles with LessTif 
+        and OpenMotif.</font></strong></p>
+      <p><font face="Arial"><strong>Sparc/Solaris: Removed check that the whole 
+        of the address space was available.</strong><br>
+        The Sparc/Solaris version attempts to reserve a very large region of memory 
+        to prevent any other library from allocating within the area that Poly/ML 
+        might use for its heap. &nbsp; This caused problems if there was a limit 
+        on the amount of virtual memory that a program could reserve and has been 
+        removed.</font></p>
+      <p><font face="Arial"><strong>Links as &quot;discgarb&quot; and &quot;changeParent&quot; 
+        now work for path names.</strong><br>
+        For backwards compatibility it is possible to create a link to the poly 
+        executable called &quot;discgarb&quot; and invoke the program through 
+        that rather than specify the -d option to poly.&nbsp; This previously 
+        worked only if the program was invoked as &quot;discgarb&quot; not as, 
+        for example, &quot;/usr/bin/discgarb&quot;.&nbsp; This has now been changed 
+        so that only the last component of the name is examined.</font></p>
+      <p>&nbsp;</p>
+      <h2><a name="4.0beta1"></a><font face="Arial"><strong>Release notes: Version 
+        4.0 beta1</strong></font></h2>
+      <h3><font face="Arial"><strong>Bugs fixed since Beta 4.0</strong></font></h3>
+      <p><font face="Arial" color="#000000"><strong>&quot;InternalError: equality 
+        - Overloadset found raised while compiling</strong>&quot;<br>
+        This message was produced when compiling certain combinations of overloaded 
+        functions and equality.</font></p>
+      <p><font face="Arial" color="#000000"><strong>Failed to compile properly 
+        on RedHat 6.2 and other recent versions of Linux</strong><br>
+        The SRPM version of the 4.0 beta release would compile on RedHat 6.2, 
+        provided a few changes were made to the sources but the resulting binary 
+        crashed.</font></p>
+      <p><font face="Arial" color="#000000"><strong>StringCvt.padLeft and padRight 
+        crashed when applied to single character strings</strong><br>
+        These functions caused a page fault when applied to strings containing 
+        a single character.</font></p>
+      <h3><strong><font face="Arial" color="#000000">Changes since Beta 4.0</font></strong></h3>
+      <p><font face="Arial"><strong>Introduced the POLYPATH environment variable 
+        to allow databases to be found using a path.</strong><br>
+        When searching for a database, whether given on the command line or to 
+        find the parent of a child database, poly searches using the path given 
+        in the POLYPATH environment variable. &nbsp; On most platforms it defaults 
+        to &quot;.:/usr/lib/poly:./usr/local/lib/poly&quot; meaning that when 
+        searching for a database called &quot;dbase&quot; it will first look in 
+        the current directory and if that fails look for /usr/lib/poly/dbase and 
+        finally /usr/local/lib/poly/dbase before giving up.&nbsp; Setting the 
+        POLYPATH to an explicit path allows the user to specify where databases 
+        are to be found.</font></p>
+      <p><font face="Arial">As a result of this change poly now defaults to searching 
+        for a database called ML_dbase in the path if no database is given on 
+        the command line. &nbsp; The restriction that a child database can only 
+        be created if the parent path name is fully specified has been removed.</font></p>
+      <p><font face="Arial"><strong>Removed discgarb and changeParent.</strong><br>
+        The discgarb and changeParent programs have been removed and the functionality 
+        incorporated into the poly program.&nbsp; New options have been added 
+        to poly.&nbsp; The '-d' option compacts a database in the manner of discgarb.&nbsp; 
+        An additional option '-c' can be used to run the </font><font size="3" face="Arial">common-expression 
+        elimination phase.&nbsp; The '-p' option changes the parent of a database 
+        as with changeParent. &nbsp; The old behaviour can be retained by creating 
+        links to the poly binary called discgarb and changeParent and invoking 
+        the binary through these names.</font></p>
+      <p><font face="Arial"><strong>Changed TextIO.stdOut to use line buffering.</strong><br>
+        In Beta 4.0 this was unbuffered.</font></p>
+      <p><font face="Arial"><strong>Added interruptConsoleProcesses to the Process 
+        structure.</strong><br>
+        Process.interruptConsoleProcesses() causes all console process to be sent 
+        the SML90.Interrupt exception.&nbsp;&nbsp; Usually there will only be 
+        one console process, the top-level loop which runs the compiler and executes 
+        the code.</font></p>
+      <p>&nbsp;</p>
+      <h2><a name="4.0beta"></a><font face="Arial"><strong>Version 4.0 beta</strong></font></h2>
+      <p><font face="Arial">Features and changes in this release.</font></p>
+      <h3><font face="Arial">Supports ML97</font></h3>
+      <p><font face="Arial">The revised definition of Standard ML (ML97) introduced 
+        a &nbsp; number of changes.&nbsp; Poly/ML now implements this version 
+        of the language. &nbsp; Some of the old (ML90) features are available 
+        by setting </font><tt>PolyML.Compiler.ml90</tt><font face="Arial"> to 
+        </font><tt>true</tt><font face="Arial">.&nbsp; The major changes include 
+        value polymorphism, which removes the need for imperative type variables 
+        and changes to the way structure sharing is handled.&nbsp; Type abbreviations 
+        in signatures and datatype replication are also included.</font></p>
+      <h3><font face="Arial">Supports the Standard Basis Library</font></h3>
+      <p><font face="Arial">The <a href="StandBasis.html">Standard Basis Library</a> 
+        is a suite of modules which provides a standard set of functions for many 
+        purposes as well as access to many operating system facilities.&nbsp; 
+        </font></p>
+      <h3><font face="Arial">Other changes</font></h3>
+      <p><font face="Arial">Linux: supports larger database size.<br>
+        Values are printed in alphabetical order.<br>
+        Various code-generator changes and fixes.<br>
+        Windows: the console is replaced by a Windows-style console.<br>
+        <a href="Signal.html">Signal structure allows signals to be handled or 
+        blocked</a>.</font></p>
+      <p>&nbsp;</p>
+      </td>
+  </tr>
+</table>
+</body>
+</html>

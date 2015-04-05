@@ -1,0 +1,32 @@
+BODY {
+	font-family: arial, sans-serif;
+	font-size: 11pt;
+	line-height: 1.4em;
+	color: #000000;
+	background-color: #FFFFFF;
+}
+
+CODE {
+  font-size: 11pt;
+  font-family: Courier New, Courier, mono;
+}
+
+.packet {
+  margin: 4px;
+	margin-left: 1em;
+  padding: 2px;
+  padding-left: 1em;
+  padding-right: 1em;
+  white-space: pre;
+  font-family: Courier New, Courier, mono;
+	font-size: 11pt;
+  border: 1px dotted;
+}
+
+.packet-name {
+	/* font-weight: bold; */
+  color: #770000;
+}
+.function {
+	font-family: "Courier New", Courier, mono;
+}

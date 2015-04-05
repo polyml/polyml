@@ -1,0 +1,461 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>An Overview of the Poly Programming Language</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+</head>
+
+<body>
+<p>This document was presented at the First Workshop on Persistent Objects, Appin, 
+  Scotland in August 1985 and published as a Cambridge University Technical Report 
+  (TR99) in November 1986.</p>
+<h1 align="center">An Overview of the Poly Programming Language</h1>
+<h1 align="center">David C.J. Matthews</h1>
+
+Poly is a general purpose programming language based on the idea of treating
+types as first-class values. It can support polymorphic operations by passing
+types as parameters to procedures, and abstract types and parameterised types
+by returning types as results.
+
+Although Poly is not intended specifically as a database programming language
+it was convenient to implement it in a persistent storage system.
+This allows the user to retain data structures from one session to the 
+next and can support large programming systems such as 
+the Poly compiler and a Standard ML system.
+
+<h2>1. Poly and its Type System</h2>
+<p>Poly[Mat85] is based on the idea of types as first class values first used 
+  in the language Russell.[Dem79] In the terms used by Cardelli and MacQueen[Car85] 
+  it uses the <em>abstract witness</em> model of a type. Treating a type this 
+  way means that polymorphism, parameterised types and modules are all handled 
+  by the general concept of function application. </p>
+<h3>1.1 Types as Values</h3>
+<p>A type in Poly is a set of values, normally functions. For example the type 
+  <em>integer</em> has operations +, - etc. Other types may have these operations, 
+  the type <em>real</em> also has + and - but will not have a <em>mod</em> (remainder) 
+  operation. The operations need not be functions, <em>integer</em> also has <em>zero</em>, 
+  <em>first</em> and <em>last</em> which are <em>simple values</em>, and other types 
+  may contain types. All values in Poly have a <em>signature</em>, called a <em>
+  specification</em> in earlier reports, which is only used at compile-time. It is 
+  the analogue of a type in languages like Pascal and corresponds in many ways 
+  to the idea of a type in Ponder\cite{Ponder}. There are three classes of value 
+  in Poly, the <em>simple value</em> which corresponds to what are normally thought 
+  of as values in, say Pascal, numbers, strings, vectors etc.; the <em>procedure</em> 
+  or function which operates on values and the <em>type</em> which is a set of values. 
+  Each kind of value has a signature. To show why this view of types is useful 
+  we will consider some properties of other languages, and how they are handled 
+  in Poly.</p>
+<h3>1.2 Polymorphism</h3>
+<p>A polymorphic function is one that can be applied to values of many different 
+  types. The phrase is sometimes used where <em>overloading</em> would be more appropriate, 
+  for example the + operator in Pascal. In Pascal, or languages like it, there 
+  are operators which can be applied to values of more than one data type and 
+  their meanings are different according to the type of their arguments. They 
+  can be thought of as a set of overloaded operators in the same way as operators 
+  in Ada can be overloaded. Truly polymorphic functions are somewhat different. 
+  They are functions which are applicable to values of a wide variety of data 
+  types, including types which may not exist at the time the function is written. 
+  The fundamental difference is that a new polymorphic function can be written 
+  in terms of other polymorphic functions, while a function written in terms of 
+  overloaded functions must be defined for each data type even if the program 
+  is the same for each. For example </p>
+<p> <font face="Arial, Helvetica, sans-serif"><strong>function</strong></font> 
+  <em>min</em>(<em>i</em>,<em>j</em>: <em>integer</em>):<em>integer<br>
+  </em><font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br> 
+  <font face="Arial, Helvetica, sans-serif"><strong>if</strong></font> <em>i</em> 
+  &lt; <em>j</em> <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font> 
+  <em>min</em> := <em>i</em> <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font> 
+  <em>min</em> := <em>j</em><font face="Arial, Helvetica, sans-serif"><strong><br>
+  end</strong></font>;<font face="Arial, Helvetica, sans-serif"><strong><br>
+  function</strong></font> <em>min</em>(<em>i</em>,<em>j</em>: <em>real</em>):<em>real</em><font face="Arial, Helvetica, sans-serif"><strong><br>
+  begin<br>
+  </strong></font><font face="Arial, Helvetica, sans-serif"><strong>if</strong></font> 
+  <em>i</em> &lt; <em>j</em> <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font> 
+  <em>min</em> := <em>i</em> <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font> 
+  <em>min</em> := <em>j</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;</p>
+<p>The ML [Mil84] programming language provides polymorphic operations on an all-or-nothing 
+  basis. This allows one to write an identity function which simply returns its 
+  argument, and this function is applicable to values of any type. One can also 
+  write functions which operate on lists of any type or on functions of any type. 
+  This generally works very well but has problems when one wants to write an operation 
+  which operates differently on different data types. For example it is still 
+  necessary to overload = since comparing two integers is different to comparing 
+  two lists of real numbers. The <em>min</em> function cannot be written as a 
+  single function in ML. What is required is a way of writing operations which 
+  are <em> type-dependent</em>.</p>
+<p>A type in Poly is characterised by the operations it has. Both <em>real</em> 
+  and <em>integer</em> have &lt; operations though they will be implemented in 
+  different ways. Many other types may have &lt; operations since Poly allows 
+  the user to make new types. Poly allows a function to be written which selects 
+  certain operations from a type and values of any type with those operations 
+  can be used as a parameter. For example there is a <em>single</em> &lt; function 
+  which works on types which have a &lt; operation and simply applies the operations 
+  to the arguments. The effect is as though &lt; were being overloaded. However, 
+  we can write a function in terms of this, such as the <em>min</em> function. 
+  This will also work on values of any type which has a &lt; operation. For example, 
+  <em>min</em> is a function which will work on values of any type with the &lt; 
+  operation. Such a type has signature</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> (<em>t</em>) 
+  &lt; : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>;<em>t</em>)<em>boolean</em> 
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font></p>
+<p>This type has an operation, &lt;, which takes two values and returns a <em>boolean</em>. 
+  We will first write a version of <em>min</em> which takes three parameters; 
+  a type and two values of this type and returns a value of the type. It has signature:</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>: 
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> (<em>t</em>) 
+  &lt; : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>;<em>t</em>)<em>boolean</em> 
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>; <em>t</em>; 
+  <em>t</em>)<em>t</em> </p>
+<p>We can write the whole function.</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>min</em> 
+  ==<br> <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>: 
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> (<em>t</em>) 
+  &lt; : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>; 
+  <em>t</em>)boolean <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>; 
+  <em>x</em>, <em>y</em>: <em>t</em>)<em>t<br>
+  </em><font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><font face="Arial, Helvetica, sans-serif"><strong><br>
+  if</strong></font> <em>x</em> &lt; <em>y</em> <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font> 
+  <em>x</em> <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font> 
+  <em>y</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;</p>
+<p>It can be applied to integer values </p>
+<p><em>min</em>(<em>integer</em>, 1, 2)</p>
+<p>or string values </p>
+<p><em>min</em>(<em>string</em>, "abc", "abd"</p>
+<p> or values of any type with a &lt; operation. The first parameter is a type 
+  which must have a &lt; operation which compares two values of the type, and 
+  the second and third parameters must be values of the type. When we call </p>
+<p><em>min</em>(<em>integer</em>, 1, 2)</p>
+<p>the actual parameters are matched to the formal parameters from left to right. 
+  First the types are matched by checking that the type given has the appropriate 
+  operation, and then the values are matched. They are not of course the same 
+  type as <em>t</em>, since they have type <em>integer</em>, but we invoke a matching 
+  rule which says that if we have matched an actual type parameter to a formal 
+  type then we can match values of corresponding types. In addition the type of 
+  the result becomes matched so that the result has type <em>integer</em>. This 
+  can be thought of as a systematic renaming of <em>t</em> with <em>integer</em>. 
+</p>
+<h3>1.3 Implied Parameters</h3>
+<p>Having to pass the types explicitly is often a nuisance so there is a sugared 
+  form which gives a way of omitting the types and having the compiler insert 
+  them automatically using the types of the parameters. The only difference to 
+  the definition of the function is that the types are written in square brackets 
+  before the other parameters. The definition of <em>min</em> would then be: </p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>min</em> 
+  ==<font face="Arial, Helvetica, sans-serif"><strong><br>
+  proc</strong></font>$[$<em>t</em>: <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> 
+  (<em>t</em>) &lt; : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>; 
+  <em>t</em>)boolean <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>$]$ 
+  (<em>x</em>, <em>y</em>: <em>t</em>)<em>t</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>if</strong></font> <em>x</em> 
+  &lt; <em>y</em> <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font> 
+  <em>x</em> <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font> 
+  <em>y</em><font face="Arial, Helvetica, sans-serif"><strong><br>
+  end</strong></font>;</p>
+<p>It can be used by just giving the values. </p>
+<p><em>min</em>(1, 2);<br> <em><br>
+  min</em>("abc", "abd"); </p>
+<p>This sugaring also allows us to define operators such as + and &lt; which simply 
+  apply the operation with the same name from the types of their arguments giving 
+  the effect of overloading. </p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> + ==<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>infix</strong></font> 
+  6 $[$<em>t</em>: <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> 
+  (<em>t</em>) + : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>t</em>; 
+  <em>t</em>)<em>t</em> <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>$]$ 
+  (<em>x</em>, <em>y</em>: <em>t</em>)<em>t</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br>
+  <em>t</em>$+ (<em>x</em>, <em>y</em>)<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;</p>
+<h2>2. Parameterised Types</h2>
+<p>So far we have seen how having types as parameters to a procedure allows us 
+  to write polymorphic operations. Types can also be returned from procedures 
+  and this provides a way of defining types which are parameterised by either 
+  types or values. As an example, suppose we wanted to construct an associative 
+  memory in which to store values of arbitrary type together with a number which 
+  would identify each. This could be defined as follows</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>associative</em> 
+  ==<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>element</em>: 
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>)<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> (<em>assoc</em>)<br>
+  <em>enter</em>: <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>assoc</em>; 
+  <em>integer</em>; <em>element</em>)<em>assoc</em>;<br>
+  <em>lookup</em>: <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>assoc</em>; 
+  <em>integer</em>)<em>element</em>;<br>
+  <em>empty</em>: <em>assoc</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> (<em>assoc</em>)<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>extends</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>struct</strong></font>(<em>next</em>: 
+  <em>assoc</em>; <em>index</em>: <em>integer</em>; <em>value</em>: <em>element</em>);<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>empty</em> 
+  == <em>assoc</em>$<em>nil</em>;<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>enter</em> 
+  ==<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>table</em>: 
+  <em>assoc</em>; <em>num</em>: <em>integer</em>; <em>val</em>: <em>element</em>)<em>assoc</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br>
+  <em>assoc</em>$<em>constr</em>(<em>table</em>, <em>num</em>, <em>val</em>)<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>letrec</strong></font> <em>lookup</em> 
+  ==<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>table</em>: 
+  <em>assoc</em>; <em>num</em>: <em>integer</em>)<em>element</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>if</strong></font> <em>table</em> 
+  = <em>assoc</em>$<em>nil</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>raise</strong></font> 
+  <em>not_found</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>if</strong></font> 
+  <em>table</em>.<em>index</em> = <em>num</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font> <em>table</em>.<em>value</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font> <em>lookup</em>(<em>table</em>.<em>next</em>, 
+  <em>num</em>)<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>en</strong></font>}<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;</p>
+<p>This is a very simple minded definition but it illustrates the point. We start 
+  by giving the header of the procedure which includes the signature of the argument, 
+  in this case that <em>element</em> is a type but that any type will do, and 
+  the signature of the result. The result is a type with three objects, a value 
+  which denotes the empty table and procedures to enter and look up items from 
+  the table. It is implemented in terms of a <font face="Arial, Helvetica, sans-serif"><strong>struct</strong></font> 
+  (a record with a <em>nil</em> value and equality) which makes up a list of index/value 
+  pairs. <em>enter</em> just returns a new list with the new pair &quot;cons-ed&quot; 
+  onto the front (We could have written simply <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> 
+  <em>enter</em> == <em>assoc</em>$<em>constr</em>; since the arguments are in 
+  the same order). A better implementation would check to see if there was already 
+  an entry with that index and return a list with the old entry replaced by the 
+  new one. <em>lookup</em> searches the list for an entry with the required index 
+  and either returns the value or raises an exception. </p>
+<p>There is no particular reason why we should use integers as the indexing value, 
+  it would be perfectly possible to use any type which had an equality operation. 
+  The procedure header would then be </p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>element</em>: 
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;<br>
+  <em>index_type</em>: <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> 
+  (<em>i</em>) = : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>i</em>;<em>i</em>)<em>boolean</em> 
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>)...</p>
+<p> with <em>integer</em> replaced everywhere in the body by <em>index_type</em>. 
+  A more efficient implementation for index types with an ordering would be to 
+  use binary trees rather than lists. We would then have to add a > or &lt; to 
+  <em>index_type</em>, or at least replace the = by one of these. Now, since types 
+  are values we could incorporate an if-statement into the procedure and use one 
+  or other of the implementations depending on the value of a further parameter. 
+  We might want to do this because one implementation may be more efficient for, 
+  say, small tables and the other for larger ones. For the example we will assume 
+  a parameter <em>use_binary_tree</em>. The procedure will now look something 
+  like this.</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>element</em>: 
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;<br>
+  <em>index_type</em>: <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> 
+  (<em>i</em>) = , &lt; : <font face="Arial, Helvetica, sans-serif"><strong>proc</strong></font>(<em>i</em>;<em>i</em>)<em>boolean</em> 
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font>;<br>
+  <em>use_binary_tree</em>: <em>boolean</em>)...<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>begin</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>if</strong></font> <em>use_binary_tree</em><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>then</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> .... 
+  {Binary tree implementation}<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>else</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>type</strong></font> .... 
+  {List implementation}<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font><br>
+  <font face="Arial, Helvetica, sans-serif"><strong>end</strong></font></p>
+<p>This could now be called as</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>a_table</em> 
+  == <em>associative</em>(<em>string</em>, <em>integer</em>, <em>true</em>);<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>another_table</em> 
+  == <em>associative</em>(<em>string</em>, <em>integer</em>, <em>size</em> > 30); 
+</p>
+<p>In the second case the expression may not be able to be evaluated when the 
+  call to the procedure is compiled, <em>but this does not matter</em>. We do 
+  not know at compile-time which of the two implementations of the type will be 
+  used, but we know that either of them have all the operations required so they 
+  will do equally well. There is however a problem with this idea of types which 
+  this example shows quite nicely. Since the expression may not be evaluated at 
+  compile-time how do we know when two values have the same type? The type system 
+  must ensure that we apply the <em>lookup</em> procedure which understands the 
+  representation of the particular associative memory. It would be catastrophic 
+  to try to look up a value assuming that the value represented a tree when it 
+  was in fact a list. We need the type system to assure us at compile-time that 
+  the expressions </p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>y</em> 
+  == X$<em>enter</em>(X$<em>empty</em>, 1, "hello");<br>
+  X$<em>lookup</em>(<em>y</em>); </p>
+<p>where X stands for a type or type-returning expression, will not give faults 
+  at run-time because of a mistake in interpreting the representations. There 
+  are several possible approaches to the problem of which Poly and Russell illustrate 
+  two. In Russell values can have types such as </p>
+<p><em>associative</em>(<em>string</em>, <em>integer</em>, <em>size</em> > 30)</p>
+<p>provided nothing in the expression involves a global variable (Variable in 
+  this context means something whose value can be changed by assignment.) This 
+  essentially means that all functions have to be &quot;variable-free&quot;, not 
+  just those which directly return types. Given this restriction it is possible 
+  to say that if two expressions are syntatically the same in a given context 
+  then they return the same value. If however, <em>size</em> were a variable, 
+  or <em>associative</em> looked at the value of a global variable, then we could 
+  not say with certainty that two values with type</p>
+<p><em>associative</em>(<em>string</em>, <em>integer</em>, <em>size</em> > 30)</p>
+<p>had the same type. Taking a purely synatactic view means that expressions like</p>
+<p><em>associative</em>(<em>string</em>, <em>integer</em>, 2 > 1)</p>
+<p>and </p>
+<p><em>associative</em>(<em>string</em>, <em>integer</em>, <em>true</em>)</p>
+<p>are not the same type. In Poly types are only regarded as the same if they 
+  are the same <em>named</em> type. So while values with types which are expressions 
+  can sometimes be produced there is very little that can be done with them. To 
+  be useful a type-returning expression has to be bound to an identifier.</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>a_table</em> 
+  == <em>associative</em>(<em>string</em>, <em>integer</em>, <em>true</em>);<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>a_val</em> 
+  == <em>a_table</em>$<em>enter</em>(<em>a_table</em>$<em>empty</em>, 1, "hello");<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>another_table</em> 
+  == <em>associative</em>(<em>string</em>, <em>integer</em>, <em>true</em>);<br>
+  <font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>another_val</em> 
+  == <em>another_table</em>$<em>enter</em>(<em>another_table</em>$<em>empty</em>, 
+  1, "hello"); </p>
+<p><em>a_val</em> and <em>another_val</em> have distinct types <em>a_table</em> 
+  and <em>another_table</em>. </p>
+<p>A side-effect of this is that &quot;types&quot; such as</p>
+<p><em>list</em>(<em>integer</em>)</p>
+<p>cannot be used directly. We have to write</p>
+<p><font face="Arial, Helvetica, sans-serif"><strong>let</strong></font> <em>int_list</em> 
+  == <em>list</em>(<em>integer</em>); </p>
+<p>and then use <em>int_list</em> as the type. However this is not such a problem 
+  as might at first appear. Since we can write functions which take implied parameters 
+  we can write an <em>append</em> function which will work on values of any type 
+  with the appropriate <em>hd</em>, <em>tl</em> etc., irrespective of their actual 
+  implementations. </p>
+<h2>3. Modules</h2>
+<p>A module is conventionally thought of as a collection of types and functions 
+  which can be separately compiled. It has an interface which is the types of 
+  these functions so that other modules can make use of it without having to know 
+  the precise implementation.</p>
+<p>Types in Poly can be thought of in the same way. A type is a collection of 
+  operations and its signature gives their &quot;types&quot; (We usually think of a type 
+  as being something like <em>integer</em> which has values, but a type in Poly 
+  can be any collection of objects. So a collection of floating point functions 
+  <em>sin</em>, <em>cos</em> etc. could be combined as a type even though there 
+  is no such thing as a value of this type.). A module which makes use of other 
+  modules, <em>imports</em> them in conventional terms, can be represented as 
+  a procedure which is applied to types and returns a type. One of the big advantages 
+  of this view of modules is that binding modules together is done using statements 
+  written in Poly and type-checked using the normal Poly type-checker. There is 
+  no need, as with MESA and C-MESA[Mit79] for a separate module binding language. 
+</p>
+<p>The module system for ML[Har85] is essentially a system built on top of the 
+  kernel language. <em>Structures</em> and <em>functors</em> correspond to values 
+  and functions in the kernel but the ML type system makes it impossible to unify 
+  these concepts. </p>
+<h2>4. Persistence in Poly</h2>
+<p>Poly is an interactive system in which the user types expressions and declarations 
+  and these are compiled and executed immediately. When objects are declared they 
+  are added to the objects the system knows about and they can be used in subsequent 
+  expressions. Such systems are quite common and usually work on a core image 
+  which can be saved from one session to the next. This is fine provided that 
+  the core image does not grow too big. However as the core image gets larger 
+  the costs of reading it in and writing it out get more serious. Also the cost 
+  of garbage-collection rises. There is a further question about the security 
+  of the data if the machine crashes while writing out a large image. </p>
+<p>For these reasons Poly is implemented in a persistent store [Atk81a][Atk81b] 
+  which can be thought of as a core image where objects are only read in when 
+  they are actually required. The cost of loading objects from the image, or database, 
+  depends on the amount of the store which is used by a program rather than the 
+  total size of the image. A simple transaction mechanism ensures that the database 
+  remains in a consistent state in the event of a machine crash or if the program 
+  is killed halfway through writing out. Some experiments have been done on using 
+  multiple databases so that large programs such as the compiler can be shared 
+  between several users. </p>
+<p>Using this persistent store the Poly compiler has been boot-strapped so that 
+  it is just another procedure. A Standard ML compiler has also been written which 
+  uses the same back-end as the Poly compiler.</p>
+<p> In a typical interactive programming system there is a single name space for 
+  all identifiers, but as the number of declarations have grown it has become 
+  necessary to divide up the name space into separate <em>environments</em>. An 
+  environment is very similar to a directory in a filing system or to a block 
+  in a programming language. When an environment is selected all new identifiers 
+  are entered into it and looked up in it. There is the equivalent of the scope 
+  rules in a programming language so that an identifier is looked up in a series 
+  of nested environments until it is found. It could be thought of as a Poly type 
+  since it is a collection of objects, but it cannot be quite the same because 
+  declarations can be added or removed dynamically to an environment while a Poly 
+  type must be &quot;frozen&quot;. </p>
+<h2>5. Conclusions</h2>
+<p>Poly was designed as a general purpose language and has been used successfully 
+  for some medium scale projects (there is about 20000 lines of code in the Poly 
+  and ML compilers). After some years of programming in it the type system has 
+  proved to work very well. Treating types as first-class values seems to result 
+  in a generally simpler language than languages where types are treated as purely 
+  compile-time objects. Experience with Standard ML suggests that pattern-matching 
+  and exceptions with parameters (exceptions in Poly cannot carry parameters) 
+  are something that should be added. Some kind of type inference based on unification 
+  could be used to reduce the amount of type information which must be given explicitly, 
+  though it cannot remove it completely. The presence of a persistent store tends 
+  to break down the distinction between compile-time and run-time, since the compiler 
+  is just another function to be applied. Compile-time does have some meaning 
+  in this system however. Compiling an expression means checking the interfaces 
+  between functions and their arguments so that the result can be guaranteed not 
+  to produce a type-checking error later on. If we compile a procedure then we 
+  want to produce a type for the procedure as a whole and remove the type information 
+  within it. Not only does this improve the efficiency of the procedure but it 
+  also gives us a degree of certainty that the procedure will not fail. It is 
+  a little way along the road to proving the correctness of the procedure. There 
+  is a cost in this static type checking in Poly in that some procedures which 
+  are in fact type-correct will fail to pass a static type-checker, but the advantages 
+  of static type-checking more than outweigh the disadvantages.</p>
+<h2> References</h2>
+<table width="100%" border="0">
+  <tr> 
+    <td valign="top">[Atk81a]</td>
+    <td>Atkinson M.P., Chisholm K.J. and Cockshott W.P. &quot;PS-Algol: An Algol with 
+      a Persistent Heap.&quot; Technical Report CSR-94-81, Computer Science Dept., 
+      University of Edinburgh.</td>
+  </tr>
+  <tr> 
+    <td valign="top">[Atk81b]</td>
+    <td>Atkinson, M.P., Bailey P., Cockshott W.P., Chisholm K.J. and Morrison 
+      R. &quot;Progress with Persistent Programming.&quot; Technical Report PPR-8-81, 
+      Computer Science Dept., University of Edinburgh. </td>
+  </tr>
+  <tr> 
+    <td valign="top">[Car85]</td>
+    <td>Cardelli L. and MacQueen D. &quot;Persistence and Type Abstraction.&quot; Proc. 
+      of the Persistence and Data Types Workshop, August 1985.</td>
+  </tr>
+  <tr> 
+    <td valign="top">[Dem79]</td>
+    <td>Demers A. and Donahue J. &quot;Revised Report on Russell.&quot; TR 79-389 Dept. 
+      of Computer Science, Cornell University.</td>
+  </tr>
+  <tr> 
+    <td valign="top">[Fai85]</td>
+    <td>Fairbairn J. &quot;A New Type-Checker for a Functional Language.&quot; Proc. of 
+      the Persistence and Data Types Workshop, August 1985.</td>
+  </tr>
+  <tr> 
+    <td valign="top">[Har85]</td>
+    <td>Harper R. &quot;Modules and Persistence in Standard ML.&quot; Proc. of the Persistence 
+      and Data Types Workshop, August 1985. </td>
+  </tr>
+  <tr> 
+    <td valign="top">[Mat85]</td>
+    <td>Matthews D.C.J. &quot;Poly Manual&quot; SIGPLAN Notices. Vol.20 No.9 Sept. 1985. 
+    </td>
+  </tr>
+  <tr> 
+    <td valign="top">[Mil84]</td>
+    <td>Milner R. &quot;A Proposal for Standard ML&quot; in &quot;Proceedings of the 1984 
+      ACM Symposium on Lisp and Functional Programming&quot;, Austin, Texas 1984. 
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">[Mit79]</td>
+    <td>Mitchell James G. et al. &quot;MESA Language Manual.&quot; XEROX PARC, 
+      1979 </td>
+  </tr>
+</table></body>
+</html>

@@ -1,0 +1,596 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Programming in Poly/ML</title>
+</head>
+
+<body>
+
+<h1 align="center">Windows Programming in Poly/ML</h1>
+
+<h2 align="center">David C.J. Matthews</h2>
+
+<h5 align="center">David C.J. Matthews 2001. Updated 2009.</h5>
+
+<p>This is a brief introduction to programming with the Windows&#153; interface in
+Poly/ML.&nbsp; It is arranged as a tutorial around the <a href="mlEdit.html">mlEdit</a>
+example, a small example text editor.&nbsp; It is not intended as a full description of
+writing programs for Windows and is no substitute for a more general guide.&nbsp; If you
+are planning to develop an application using this interface it is probably worth
+purchasing a book or CD_ROM reference for Windows such as the Microsoft Developer Network
+library.</p>
+
+<p>This introduction assumes some familiarity with programming in ML and perhaps some
+experience of other windowing systems, such as X-Windows.&nbsp; It does not assume any
+experience of programming with Windows and, for experienced Windows programmers, it will
+cover familiar ground.&nbsp; It does, though, point out some of the differences between
+the ML interface and that of other languages.&nbsp; The interface functions in ML are very
+similar to the underlying C functions.&nbsp; The main differences are in the types of the
+arguments and a few other changes necessary for ML.&nbsp;&nbsp; For more information see
+the <a href="Winref/Reference.html">Windows Interface Reference.</a></p>
+
+<h3>Acknowledgements</h3>
+
+<p>The original version of the Windows interface was written at AHL by Panos
+Aguieris.&nbsp; It uses the Poly/ML <a href="CInterface.html">CInterface structure</a>
+written by Nick Chapman to provide nearly all the interface.&nbsp; It was extensively
+modified and expanded by David Matthews.</p>
+
+<h3>Index</h3>
+
+<p><a href="#Windows">1. Windows, Messages and Window Procedures</a><br>
+<a href="#Child">2. Creating the child window</a><br>
+<a href="#Parent">3. Creating the parent window</a><br>
+<a href="#Menus">4. Menus</a><br>
+<a href="#Sending">5. Sending Messages</a><br>
+<a href="#Dialogues">6. Dialogues</a><br>
+<a href="#Common">7. Common Dialogues</a><br>
+<a href="#Printing">8. Printing and Painting</a></p>
+
+<h3><a name="Windows">1. Windows, Messages and Window Procedures</a></h3>
+
+<p>When thinking about a window we tend to think of a top-level application or a document
+window.&nbsp; From the point of view of programming, though, this is just one variety.
+&nbsp; In fact each label, menu and text box is a window but because they form part of a
+bigger application they tend to be overlooked.&nbsp; These are <em>child windows</em>.
+&nbsp; Nearly every window has to deal with two main areas of concern.&nbsp; There has to
+be a way of displaying the contents of the window and there has to be a way of handling
+user input, whether by the mouse or from the keyboard.</p>
+
+<p>Most communication with windows is by sending <em>messages</em>.&nbsp; A message may be
+sent as a result of user input, such as moving the mouse or typing a character at the
+keyboard.&nbsp; It may also be sent by the application to change the appearance of the
+window or to get information from it.&nbsp; There are over two hundred different message
+types defined by Windows and it is possible to define your own for use within an
+application.&nbsp; Many of these are only relevant in special circumstances and only a few
+are used regularly.&nbsp; It's worth noting in passing that messages can be sent from one
+process to a window in another process and that <em>hidden windows</em>, windows which
+don't appear on the screen but are only ever used to receive messages, are one of the
+standard ways of communicating between processes in Windows.</p>
+
+<p>The appearance of a window is largely governed by how it responds to different kinds of
+messages.&nbsp; Every window has a <em>window procedure</em> which processes messages sent
+to the window.&nbsp; When you create a window you give the <em>class</em> of the window
+you want to create and the new window uses the window procedure for that class.&nbsp; You
+can either use a standard class, such as <a href="Winref/Class.html#Edit">Edit</a>, or you
+can create your own class using your own window procedure using <a href="Winref/Class.html#RegisterClassEx">RegisterClassEx</a>.&nbsp; You will nearly always
+need to create at least one class for your top-level window.&nbsp; </p>
+
+<p>To see how this works in practice let's look at an extract from the mlEdit example.
+&nbsp; </p>
+
+<pre>fun wndProc(hw: HWND, msg: Message, state as SOME{edit, fileName, ...}) =
+    case msg of
+    |   WM_CLOSE =&gt;
+        (if checkForSave(hw, edit, fileName) then DefWindowProc(hw, msg) else LRESINT 0, state)
+    .....
+    |   _ =&gt; (DefWindowProc(hw, msg), state)
+    .....
+and fun checkForSave ....</pre>
+<p>This extract from the window procedure, wndProc, processes the <a href="Winref/Message.html#WM_CLOSE">WM_CLOSE</a> 
+  message. &nbsp; This message has no parameters and is generated by the system 
+  when the user clicks in the close box of the window (the box at the top left 
+  of the window with a cross in it). &nbsp; Every message is sent to the window 
+  procedure.&nbsp; When writing a window procedure we are often only interested 
+  in handling a few of the possibilities so Windows performs a default action 
+  if we don't want to handle the message.&nbsp; Even if we do handle it we can 
+  pass it on for default processing when we have dealt with it.&nbsp; The default 
+  action for WM_CLOSE is to destroy the window by a call to <a href="Winref/Window.html#DestroyWindow">DestroyWindow</a>.&nbsp; 
+  In our application we want to ask the user whether to save the window if the 
+  text being edited has been modified.&nbsp; This process also gives the user 
+  the opportunity for second thoughts and they may cancel the closure.&nbsp; This 
+  is handled by our function checkForSave which returns true if it is safe to 
+  close the window. &nbsp; Window procedures in ML return a pair as their result.&nbsp; 
+  The first field of the pair is the Windows result value.&nbsp; For many messages 
+  a result of LRESINT 0 is suitable.&nbsp; In this example we return SOME(LRESINT 
+  0) if we don't want the window to be destroyed.&nbsp; </p>
+
+<p>The full type of a window procedure in ML is<br>
+  &nbsp;&nbsp;&nbsp; <tt>HWND * Message * 'a -&gt; LRESULT * 'a</tt><br>
+The third argument is the <em>state</em> of the window and an updated version of the state
+is returned as part of the result.&nbsp; This allows the window procedure to process a
+message and update the state as part of the process.&nbsp; It is an ML extension which is
+not part of the underlying message system.&nbsp; In our extract we return the previous
+state unchanged.</p>
+
+<p>The mlEdit example works by constructing a parent window using a custom class and our
+own window procedure and then making a child window within it using the system Edit class.
+&nbsp; The Edit window deals with all the keyboard input so saving us the need to write
+this ourselves.&nbsp; Our window procedure has to process messages to do with menu
+selection and other messages sent to top-level windows.&nbsp; </p>
+
+<pre>    WM_SETFOCUS _ =&gt;
+        (
+         SetFocus(SOME edit);
+         (DefWindowProc(hw, msg), state)
+        )
+    
+|    WM_SIZE{height, width, ...} =&gt;
+        (
+         MoveWindow{hWnd=edit, x=0, y=0, height=height, width=width, repaint=true};
+         (DefWindowProc(hw, msg), state)
+        )
+</pre>
+<p>The <a href="Winref/Message.html#WM_SETFOCUS">WM_SETFOCUS</a> message is sent when the
+user clicks on a window and is intended to set the keyboard focus to that window (i.e.
+selects the window to receive keyboard input).&nbsp; The edit child window occupies the
+centre of our window so the WM_FOCUS message will be sent directly to it if the user
+clicks within that area.&nbsp; Since we are not interested in receiving characters in our
+top-level window we set the focus to the edit window if the user clicks on the border.
+&nbsp; While it isn't essential to process this message at all for the mlEdit application
+to work correctly, by doing so we improve its usability.</p>
+
+<p>The <a href="Winref/Message.html#WM_SIZE">WM_SIZE</a> message is sent if the window is
+resized.&nbsp; Among the parameters to the window are the height and width of the <em>client
+area</em>, the area excluding the border and the menu bar.&nbsp; This is the area we want
+to use for our edit window so we use <a href="Winref/Window.html#MoveWindow">MoveWindow</a>
+to set its size.&nbsp; Calling MoveWindow causes the edit window to receive a WM_SIZE
+message.&nbsp; The window procedure for the edit window uses this to adjust the format of
+the text within the window to suit the new size.&nbsp; We do not need to be concerned
+about how this happens in our application.&nbsp; WM_SIZE is also sent when a window is
+created.&nbsp; This is convenient and means we do not need to set the size of the edit
+window when we create it.</p>
+
+<h3><a name="Child">2. Creating the child window</a></h3>
+
+<p>So far we have not described how the edit window is created.&nbsp; We need it to be a
+child window of the top-level window and the easiest way to do that is to create it when
+the <a href="Winref/Message.html#WM_CREATE">WM_CREATE</a> message is received.&nbsp; This
+message is sent as part of the process of creation of the top-level window.</p>
+
+<pre>fun wndProc(hw: HWND, msg: Message, NONE) =
+    (
+    case msg of
+        WM_CREATE _ =&gt; (* Create an edit window and return it as the state. *)
+        let
+            val edit =
+             CreateWindow{class = Class.Edit, name = &quot;&quot;,
+                style = Edit.Style.flags[Edit.Style.WS_CHILD, Edit.Style.WS_VISIBLE, Edit.Style.WS_VSCROLL,
+                            Edit.Style.ES_LEFT, Edit.Style.ES_MULTILINE, Edit.Style.ES_AUTOVSCROLL],
+                            x  = 0, y = 0, height = 0, width = 0, relation = ChildWindow{parent=hw, id=99},
+                            instance = Globals.ApplicationInstance(), init = ()}</pre>
+<pre>            (* We also set the font for the edit window here.  This has been omitted. *)
+         in
+            (LRESINT 0, SOME{edit=edit, devMode=NONE, devNames = NONE, fileName=&quot;&quot;})
+        end
+
+    | _ =&gt; (DefWindowProc(hw, msg), NONE)
+    )</pre>
+
+<p>This extract of the window procedure shows the creation of the edit window as part of
+processing WM_CREATE.&nbsp; We use <a href="Winref/Window.html#CreateWindow">CreateWindow</a>
+which makes a window of a specified class and returns a handle to it.&nbsp; Once we have
+processed the message we set the state to SOME of a record containing a handle to the edit
+window.&nbsp; (Instead of doing this we could use <a href="Winref/Dialog.html#GetDlgItem">GetDlgItem</a>
+to find it each time we needed it, but this is easier).&nbsp; At this stage we just pass
+zeros for the size of the window since we will use the WM_SIZE message to set its size.
+&nbsp; The id value for the child window (we use 99) is irrelevant in this example since
+we never use it.&nbsp; The style does not include horizontal scrolling so the edit window
+uses word-wrapping. </p>
+
+<h3><a name="Parent">3. Creating the parent window</a></h3>
+
+<p>It's now time to see how we create the main window itself.&nbsp; Since we want to use
+our own window procedure we need to register a class even though we will only create a
+single window of this class.</p>
+
+<pre>val polyIcon = ...
+val menu = ...
+val className = &quot;mlEditWindowClass&quot;
+val app = Globals.ApplicationInstance()
+(* Register a class for the top-level window.  Use the Poly icon from the application. *)
+val myWindowClass = RegisterClassEx{style = Class.Style.flags[], wndProc = wndProc, hInstance = app,
+    hIcon = SOME polyIcon, hCursor = NONE, hbrBackGround = NONE, menuName = NONE,
+    className = className, hIconSm = NONE};
+
+
+val w = CreateWindow{class = myWindowClass, name = &quot;mlEdit&quot;, style = Window.Style.WS_OVERLAPPEDWINDOW,
+    x  = CW_USEDEFAULT, y = CW_USEDEFAULT, height = CW_USEDEFAULT, width = CW_USEDEFAULT,
+    relation = PopupWindow menu, instance = app, init = NONE};
+in
+ShowWindow(w, SW_SHOW);
+SetForegroundWindow w;
+
+RunApplication();
+UnregisterClass(className, app)
+end;</pre>
+
+<p>In the mlEdit example we use the icon from the Poly/ML application.&nbsp; It isn't
+necessary to provide an icon: Windows will provide a default one if NONE is given for
+hIcon.&nbsp; We use the WS_OVERLAPPEDWINDOW style for the window which is the standard for
+a top-level window and gives a standard border with a system menu and minimise, maximise
+and close boxes.&nbsp; CW_USEDEFAULT is used for the size and position of the window.
+&nbsp; The user can always move or resize it once it has been created.&nbsp;&nbsp; We
+create the window with the PopupWindow value and pass the menu to be used.&nbsp; Once the
+window has been created we call ShowWindow to make it visible and SetForegroundWindow to
+make it appear above other windows.</p>
+
+<p>Some messages are sent to the window procedure as a result of calling the functions
+such as CreateWindow.&nbsp; Generally, though, messages are queued and have to be
+explicitly dequeued and passed to the window procedure.&nbsp; In C this is done by a
+message loop with GetMessage and DispatchMessage.&nbsp; In ML we use the <a href="Winref/Message.html#RunApplication">RunApplication</a> function which deals with all
+this.&nbsp; RunApplication returns when a <a href="Winref/Message.html#WM_QUIT">WM_QUIT</a>
+message is received.&nbsp; To ensure that this happens we have to put this message into
+the queue.&nbsp; The easiest way to do this is to call PostQuitMessage when the window is
+about to go away.&nbsp; We have already seen how DestroyWindow is called as a result of
+processing the WM_CLOSE message.&nbsp; DestroyWindow sends <a href="Winref/Message.html#WM_DESTROY">WM_DESTROY</a> and <a href="Winref/Message.html#WM_NCDESTROY">WM_NCDESTROY</a> messages to the window procedure
+to allow it to clean up properly.&nbsp; WM_NCDESTROY will be the last message to be sent
+to this window procedure so we call PostQuitMessage while handling it.</p>
+
+<pre>|    WM_NCDESTROY =&gt;
+        (
+         PostQuitMessage 0;
+         (DefWindowProc(hw, msg), state)
+        )</pre>
+<p>We need to call <a href="Winref/Class.html#UnregisterClass">UnregisterClass</a> when
+RunApplication returns.&nbsp; Classes are automatically unregistered when the application
+terminates but in this context the application is the whole Poly/ML session so if we want
+to run mlEdit again within the same session we need to unregister the class. &nbsp;
+Otherwise the next time we call RegisterClassEx with the same name it will fail because
+the class is already registered.</p>
+
+<h3><a name="Menus">4. Menus</a></h3>
+
+<p>We have already seen that a menu can be set up by passing its handle as part of the
+PopupWindow value to CreateWindow.&nbsp; Let's see how the menu itself is created and how
+it is processed.</p>
+
+<p>There are a number of ways a menu can be created but perhaps the simplest is to build
+it up using calls to <a href="Winref/Menu.html#CreateMenu">CreateMenu</a> and <a href="Winref/Menu.html#AppendMenu">AppendMenu</a>.&nbsp; The structure we want for our
+menu is a bar containing File, Edit and Help menus each with several menu items.&nbsp; In
+general a menu consists of multiple items, each of which may either be a command item or
+may pull up a sub-menu.</p>
+
+<pre>val menuOpen = 1
+and menuQuit = 2
+and menuSave = 3
+...</pre>
+
+<pre>val fileMenu =
+    let
+        val fileMenu = CreateMenu();
+    in
+        AppendMenu(fileMenu, [], MenuId menuOpen, MFT_STRING &quot;&amp;Open&quot;);
+        AppendMenu(fileMenu, [], MenuId menuSave, MFT_STRING &quot;&amp;Save&quot;);
+        AppendMenu(fileMenu, [], MenuId menuSaveAs, MFT_STRING &quot;Save &amp;As...&quot;);
+        AppendMenu(fileMenu, [], MenuId 0, MFT_SEPARATOR);
+        AppendMenu(fileMenu, [], MenuId menuPageSetup, MFT_STRING &quot;Page Set&amp;up...&quot;);
+        AppendMenu(fileMenu, [], MenuId menuPrint, MFT_STRING &quot;P&amp;rint...&quot;);
+        AppendMenu(fileMenu, [], MenuId 0, MFT_SEPARATOR);
+        AppendMenu(fileMenu, [], MenuId menuQuit, MFT_STRING &quot;&amp;Quit&quot;);
+        fileMenu
+    end;</pre>
+
+<p>We create the file menu by calling CreateMenu and then AppendMenu for each item. &nbsp;
+Every item, apart from separators, has a different item ID.&nbsp; The values are arbitrary
+but we need to use different values for each because these are the values which will be
+passed to our window procedure when a particular menu item is selected. &nbsp; Separators,
+which appear as horizontal lines when the menu is pulled down, are used to improve the
+layout.&nbsp; The ampersands (&amp;s) precede the character which will be underlined in
+the menu.&nbsp; These provide keyboard shortcuts for menu items.&nbsp; Typically the first
+character is used but sometimes we have to use another character in order to give all the
+items in a menu different characters.</p>
+
+<pre>val menu = CreateMenu();
+val _ = AppendMenu(menu, [], MenuHandle fileMenu, MFT_STRING &quot;&amp;File&quot;);
+val _ = AppendMenu(menu, [], MenuHandle editMenu, MFT_STRING &quot;&amp;Edit&quot;)
+val _ = AppendMenu(menu, [], MenuHandle helpMenu, MFT_STRING &quot;&amp;Help&quot;)</pre>
+
+<p>We can create the edit and help menus in exactly the same way.&nbsp; When they have
+been created we can build the full menu.&nbsp; The argument to AppendMenu is MenuHandle
+rather than MenuId since these are sub-menus.</p>
+
+<p>As with all other input selecting a menu item causes the system to send a message to
+the window.&nbsp; It sends a <a href="Winref/Message.html#WM_COMMAND">WM_COMMAND</a>
+message with information about the particular menu item.&nbsp; The wId value in the
+messagecontains the identifier which was used when the menu was created.&nbsp; </p>
+
+<pre>|    WM_COMMAND{notifyCode = 0, wId, control} =&gt;
+
+        if wId = menuQuit
+        then
+        (
+        if checkForSave(hw, edit, fileName) then DestroyWindow hw else();
+        (LRESINT 0, state)
+        )
+        else ...</pre>
+
+<p>The simplest item to process is when Quit is selected.&nbsp; We process it in almost
+the same way as we process WM_CLOSE, except in this case we have to explicitly call
+DestroyWindow since the default action for this message is to do nothing.&nbsp; Note that
+since we process WM_NCDESTROY by calling PostQuitMessage the message loop in
+RunApplication will exit when the window destruction is complete.</p>
+
+<h3><a name="Sending">5. Sending Messages</a></h3>
+
+<p>So far we have seen how we process messages but not how our application can send them.
+&nbsp; An application sends messages using either <a href="Winref/Message.html#SendMessage">SendMessage</a> or <a href="Winref/Message.html#PostMessage">PostMessage</a>. &nbsp; The main difference between
+them is that SendMessage does not return until the window procedure has processed the
+message and so it is able to return a result to the caller.&nbsp; It functions essentially
+as a, possibly remote, procedure call.</p>
+
+<p>We can use SendMessage to process some of the menu items.</p>
+
+<pre>        else if wId = menuCut
+        then (SendMessage(edit, WM_CUT); (LRESINT 0, state))
+        else if wId = menuCopy
+        then (SendMessage(edit, WM_COPY); (LRESINT 0, state))
+        else if wId = menuPaste
+        then (SendMessage(edit, WM_PASTE); (LRESINT 0, state))</pre>
+
+<p>The Cut, Copy and Paste items from the edit menu are handled by sending messages to the
+edit window.&nbsp; The edit window processes these by copying data to and from the
+clipboard.&nbsp; In this example we are not interested in the result that SendMessage
+returns but we use it rather than PostMessage to ensure that the command is fully
+processed before, for example, we accept any characters as input.</p>
+
+<p>Another case where we can use SendMessage is to see whether the text has been modified
+and so whether we need to save it before quitting.</p>
+
+<pre>fun checkForSave(hw, edit, fileName) =
+    case SendMessage(edit, EM_GETMODIFY) of
+            LRESINT 0 =&gt; true (* Unmodified - continue. *)
+        |    _ =&gt; ... (* Save it. *)</pre>
+
+<p>We send the edit window an EM_GETMODIFY message.&nbsp; If the reply is LRESINT 0 (i.e.
+false) it has not been modified and we don't need to do anything.&nbsp; Otherwise we need
+to save the document, or at least ask whether we should save it.</p>
+
+<h3><a name="Dialogues">6. Dialogues</a></h3>
+
+<p>A dialogue box is a special kind of window which is used to present information to the
+user or to request information.&nbsp; They contain one or more <em>controls</em> and a
+button usually labelled OK and often a Cancel button.&nbsp; The simplest form of dialogue
+is the <em>message box</em>.&nbsp; This presents a piece of text and has one or more
+buttons. &nbsp; </p>
+
+<pre>let
+    val res =
+        MessageBox(SOME hw, &quot;Save document?&quot;, &quot;Confirm&quot;,
+                   MessageBoxStyle.MB_YESNOCANCEL)
+in
+    if res = IDYES
+    then .... (* Save document. *)  ...
+    else if res = IDNO
+    then true (* Continue anyway. *)
+    else false (* Cancel - don't exit or open. *)
+end</pre>
+
+<p>We use a message box in mlEdit to ask whether we should save the document if it has
+been modifed.&nbsp; The MB_YESNOCANCEL value for the style means that the message box will
+have three buttons: Yes, No and Cancel.&nbsp; The message box is an example of a <em>modal</em>
+dialogue.&nbsp; Modal dialogues are those which need a response before the application can
+continue.&nbsp; The application is disabled until the dialogue has been dismissed by
+clicking one of the buttons.&nbsp; In contrast a modeless dialogue acts just like another
+window and the user can interact with either the application window or the dialogue box.
+&nbsp; <a href="Winref/MessageBox.html#MessageBox">MessageBox</a> returns with an
+identifier which indicates the button which was pressed. &nbsp; If Yes, we need to save
+the document; if no, we don't.&nbsp; If Cancel was pressed we need to cancel the operation
+which caused this dialogue to be presented.&nbsp; For instance, if the user accidentally
+clicked on the Close box of the window and then pressed Cancel we do not pass the WM_CLOSE
+message to the default window procedure.&nbsp; It is good interface design practice to
+provide some way for the user to cancel an action.</p>
+
+<p>A more sophisticated dialogue is used when the user selects &quot;About mlEdit...&quot;
+from the Help menu.&nbsp; MessageBox is not sufficient for this dialogue since we want to
+include an icon in the dialogue box so we use one of the general dialogue functions.
+&nbsp; The layout of a dialogue can be given either in a <em>resource file</em> or as a <em>template</em>.
+&nbsp; Resource files are often a convenient way of holding dialogues as well as menus and
+other strings.&nbsp; They lend themselves particularly to producing <em>localized</em>
+versions of programs, i.e. programs with the user interaction tailored for a particular
+language and/or culture, since all the text that needs to be localized can be stored in
+the resource file.&nbsp; A resource file is either an executable file (.EXE) or a dynamic
+library (.DLL).&nbsp; To use a resource file you will need a suitable resource compiler
+which will normally form part of a development environment such as Microsoft Visual C or
+Borland C++.&nbsp; You can then load the resource file and get a handle to it using <a href="Winref/Resource.html#LoadLibrary">LoadLibrary</a>.&nbsp; It is possible to make use
+of resources in the Poly/ML program using the instance handle returned by <a href="Winref/Globals.html#ApplicationInstance">ApplicationInstance</a>.&nbsp; We actually
+do this in mlEdit to get a handle to the icon.</p>
+
+<pre>(* Borrow the Poly icon from the application program. It happens to be icon id 102. *)
+val polyIcon = Icon.LoadIcon(app, Resource.MAKEINTRESOURCE 102);</pre>
+
+<p>For this example, though, we use a template for the dialogue.</p>
+
+<pre>val pictureId = 1000 (* Could use any number here. *)
+open Static.Style
+val template =
+    {x = 0, y = 0, cx = 210, cy = 94, font = SOME (8, &quot;MS Sans Serif&quot;), menu = NONE,
+     class = NONE, title = &quot;About mlEdit&quot;, extendedStyle = 0,
+     style = flags[WS_POPUP, WS_CAPTION],
+
+     items =
+      [{x = 73, y = 62, cx = 50, cy = 14, id = 1,
+        class = DLG_BUTTON (flags[WS_CHILD, WS_VISIBLE, WS_TABSTOP]),
+        title = DLG_TITLESTRING &quot;OK&quot;, creationData = NONE, extendedStyle = 0},
+
+       {x = 7, y = 7, cx = 32, cy = 32, id = pictureId,
+        class = DLG_STATIC (flags[WS_CHILD, WS_VISIBLE, SS_ICON]),
+        title = DLG_TITLESTRING &quot;&quot;, creationData = NONE, extendedStyle = 0},
+
+       {x = 15, y = 39, cx = 180, cy = 21, id = 65535,
+        class = DLG_STATIC (flags[WS_CHILD, WS_VISIBLE, WS_GROUP]),
+        title = DLG_TITLESTRING
+               &quot;mlEdit - An exmple of Windows programming in Poly/ML\
+               \\nCopyright David C.J. Matthews 2001&quot;,
+        creationData = NONE,  extendedStyle = 0}] }</pre>
+
+<p>The dialogue contains three items: a button with the title &quot;OK&quot;, 
+  a static picture with style SS_ICON, and a piece of static text.&nbsp; Along 
+  with the layout of the dialogue we also need a dialogue procedure.&nbsp; A dialogue 
+  procedure is almost the same as a window procedure.&nbsp; It processes messages 
+  sent to the dialogue in the same way as a window procedure does.&nbsp;The only 
+  difference is that a dialogue procedure does not call DefWindowProc.</p>
+
+<pre>fun dlgProc(dial, WM_INITDIALOG _, ()) =
+    (
+        (* Send a message to the picture control to set it to this icon. *)
+        SendMessage(GetDlgItem(dial, pictureId), STM_SETICON{icon=polyIcon});
+        (LRESINT 1, ())
+    )
+
+|    dlgProc(dial, WM_COMMAND{notifyCode = 0, wId=1 (* OK button *), ...}, ()) =
+        (* When the OK button is pressed we end the dialogue. *)
+        (EndDialog(dial, 1); (LRESINT 1, ()) )
+
+|    dlgProc _ = (LRESINT 0, ())</pre>
+
+<p>We only process two messages here: WM_INITDIALOG and WM_COMMAND.&nbsp; WM_INITDIALOG is
+sent when the dialogue is created.&nbsp; We use GetDlgItem to get a handle to the static
+picture control and then send it a STM_SETICON message to set the picture.&nbsp; We only
+need to do this when the dialogue is initialised.&nbsp; The static control will take care
+of displaying the picture whenever the dialogue box is visible.&nbsp; WM_COMMAND messages
+are sent by buttons as well as by menus and in this example we process the message by
+calling EndDialog to close the dialogue box.&nbsp; The value of wId in this case is the
+identifier of the OK button.</p>
+
+<p>To construct and display the dialogue box we call DialogBoxIndirect with the template
+and the dialogue procedure.&nbsp;&nbsp; The parent of the dialogue is our main window
+(hw).&nbsp; This window will automatically be disabled until the dialogue box has been
+closed.</p>
+
+<pre>DialogBoxIndirect(app, template, hw, dlgProc, ());</pre>
+
+<h3><a name="Common">7. Common Dialogues</a></h3>
+
+<p>For many purposes a standard dialogue box can be used and Windows provides a number of
+these.&nbsp; For instance, most applications include a way for the user to open a file and
+it would be tedious to have to program this from scratch for each new application. &nbsp;
+It is far easier to use a standard dialogue.&nbsp; More to the point, by using a standard
+dialogue the interface to the user is similar to that of other applications, reducing the
+learning load.</p>
+
+<p>The mlEdit example uses a number of these.&nbsp; <a href="Winref/CommonDialog.html#GetOpenFileName">GetOpenFileName</a> and <a href="Winref/CommonDialog.html#GetSaveFileName">GetSaveFileName</a> are used to select the
+file to open and for the Save As menu item.&nbsp; <a href="Winref/CommonDialog.html#FindText">FindText</a> is used for the Find menu item.
+&nbsp; <a href="Winref/CommonDialog.html#PageSetupDlg">PageSetupDlg</a> and <a href="Winref/CommonDialog.html#PrintDlg">PrintDlg</a> are used for the Page Setup and
+Print items.&nbsp; They generally work in the same way, creating a modal dialogue
+requesting the information and returning when the OK or Cancel button is pressed. &nbsp;
+The ML functions take a configuration structure and return an option type.&nbsp; If the
+user cancels the operation they return NONE, if the user presses OK they return a new
+configuration structure with the requested information filled in. FindText works
+differently.&nbsp; It creates a modeless dialogue and instead sends <a href="Winref/Message.html#FINDMSGSTRING">FINDMSGSTRING</a> messages to the parent window.</p>
+
+<h3><a name="Printing">8. Printing and Painting</a></h3>
+
+<p>One area we have not touched on is actually how we draw to the screen.&nbsp; By using
+the Edit window to draw the text our application does not actually need to concern itself
+with exactly what happens when an area of the screen is uncovered and how characters in
+the text are converted into dots on the screen.&nbsp; This is all dealt with by the Edit
+window class.</p>
+
+<p>When it comes to printing the file these issues become apparent.&nbsp; Printing to a
+printer and drawing to the screen are handled in exactly the same way in Windows.&nbsp; In
+both cases we need to draw the document into a <em>device context</em>.&nbsp; A device
+context is an abstraction used for printers, the screen and also for <em>bitmaps</em> and <em>metafiles</em>
+in memory.&nbsp; Although there is an obvious difference in the printed page and an image
+on the screen in terms of the physical output as far as preparing the image is concerned
+they are both rectangular areas of dots (<em>pixels</em>).&nbsp; They may differ in size,
+in the range of colours possible and in the number of pixels per inch (<em>resolution</em>).
+&nbsp; Since we don't need to be concerned with drawing to the screen in this application
+we will focus on printing the file but we could easily arrange the code so that it could
+be used for both.</p>
+
+<p>We get a device context for the printer by giving the PrintDlgFlags.PD_RETURNDC option
+to the print dialogue.&nbsp; It would also be possible to get a device context using
+CreateDC.&nbsp;&nbsp; Once we have the device context we can find the size of the page.</p>
+
+<pre>val _ = SetMapMode(hdc, MM_TEXT)
+val pageWidth = GetDeviceCaps(hdc, HORZRES)
+and pageHeight = GetDeviceCaps(hdc, VERTRES)</pre>
+
+<p>We now need to find a font to use.&nbsp; We want a 10 point Courier font which we
+obtain using <a href="Winref/Font.html#CreateFont">CreateFont</a>.&nbsp; This is a fixed
+width font which simplifies calculating the page width.</p>
+
+<pre>val charHeight = ~10 * GetDeviceCaps(hdc, LOGPIXELSY) div 72;
+val hFont = CreateFont{height=charHeight, width=0, escapement=0, orientation=0,
+       weight=FW_DONTCARE, italic=false, underline=false, strikeOut=false,
+       charSet=ANSI_CHARSET, outputPrecision=OUT_DEFAULT_PRECIS,
+       clipPrecision=CLIP_DEFAULT_PRECIS, quality=DEFAULT_QUALITY,
+       pitch=FIXED_PITCH, family=FF_MODERN, faceName=&quot;Courier&quot;}</pre>
+
+<p>The character height calculation looks odd, giving us a negative value, but is a
+pecularity of CreateFont.&nbsp; All the other arguments are fairly obvious.&nbsp; </p>
+
+<pre>val oldFont = SelectObject(hdc, hFont);
+
+val textMetric = GetTextMetrics hdc;</pre>
+
+<p>We now select this as the font to use.&nbsp; <a href="Winref/DeviceContext.html#SelectObject">SelectObject</a> can be used for various
+other sorts of object, such as pens, brushes and bitmaps.&nbsp; Whenever you select in a
+particularly kind of object the previous object of that kind is returned as the result.
+&nbsp; It's generally good practice to select it back before you finish with a device
+context.&nbsp; Having selected this font we then call <a href="Winref/Font.html#GetTextMetrics">GetTextMetrics</a> to find the width of the font.
+&nbsp; From this and the page width we can compute the number of characters on a line.
+&nbsp;&nbsp; The height of the page divided by the height of a character gives us the
+number of characters on a page.&nbsp; We are now ready to print a page.</p>
+
+<p>We get the text from the edit window using <a href="Winref/Window.html#GetWindowText">GetWindowText</a>.
+&nbsp; The print dialogue gives the user the option of printing the currently selected
+area of the window rather than the whole file or a range of pages.&nbsp; To find the
+selection we send the edit window an EM_GETSEL message.</p>
+
+<p>We prepare the page by setting the colours and filling the page with white.&nbsp; These
+are likely to be the defaults anyway but there's no harm in making sure.</p>
+
+<pre>val white = RGB{red=255, blue=255, green=255}
+val black = RGB{red=0, blue=0, green = 0}
+val pageRect = {top=0, left=0, bottom=pageHeight, right=pageWidth}
+
+SetBkColor(hdc, white);
+SetTextColor(hdc, black);
+ExtTextOut(hdc, {x=0, y=0}, [ETO_OPAQUE], SOME pageRect, &quot;&quot;, []);</pre>
+
+<p><a href="Winref/Font.html#ExtTextOut">ExtTextOut</a> is one of the ways of drawing text
+but it is also a convenient way of filling an area with a colour.&nbsp; The ETO_OPAQUE
+option causes the rectangle to be filled with the background colour.</p>
+
+<p>Actually drawing each line is done using the <a href="Winref/Font.html#TabbedTextOut">TabbedTextOut</a>
+function.&nbsp; We extract a line from the document and draw it .</p>
+
+<pre>TabbedTextOut(hdc, {x=0, y= lineNo * #height textMetric},  thisLine, [], 0);</pre>
+
+<p>Each line is drawn beneath the previous one until the page is full or we have drawn all
+the text.</p>
+
+<p>All this is the same whether we are printing a file or drawing to the screen. &nbsp;
+When printing, though there are a few extra function calls we need.&nbsp; Before each page
+we call <a href="Winref/Printing.html#StartPage">StartPage</a> and after the page we call <a href="Winref/Printing.html#EndPage">EndPage</a>.&nbsp; We also need to bracket the whole
+document with calls to <a href="Winref/Printing.html#StartDoc">StartDoc</a> and <a href="Winref/Printing.html#EndDoc">EndDoc</a>.&nbsp; When the document is complete we also
+need to restore the original font, delete the Courier font we created and delete the
+device context.</p>
+
+<pre>val jobID = StartDoc(hdc, {docName=fileName, output=NONE, dType=NONE});
+...
+EndDoc hdc;
+SelectObject(hdc, oldFont);
+DeleteObject hFont;
+DeleteDC hdc;</pre>
+
+<p>We could use this code to draw to the screen if we were not using the edit 
+  window. &nbsp; In that case we would process the WM_PAINT message and bracket 
+  the calls with <a href="Winref/Painting.html#BeginPaint">BeginPaint</a> and 
+  <a href="Winref/Painting.html#EndPaint">EndPaint</a>.</p>
+
+</body>
+</html>

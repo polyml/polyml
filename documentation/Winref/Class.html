@@ -1,0 +1,77 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Class structure</title>
+</head>
+
+<body>
+
+<h1>Class</h1>
+
+<p>The Class structure contains functions to register custom classes as well as the
+definitions for the standard Windows classes.</p>
+
+<p>&nbsp;</p>
+
+<pre>structure Class:
+sig
+    type HWND and Message and HINSTANCE and HBRUSH and HICON and HCURSOR and HGDIOBJ
+
+    datatype LRESULT = LRESINT of int | LRESHANDLE of HGDIOBJ
+
+    datatype 'a ATOM =
+        Registered of {proc: HWND * Message * 'a -&gt; LRESULT option * 'a, className: string}
+      | SystemClass of string
+
+    val Button : unit ATOM
+    val ComboBox : unit ATOM
+    val ComboLBox : unit ATOM
+    val DDEMLEvent : unit ATOM
+    val <a
+name="Edit">Edit</a> : unit ATOM
+    val ListBox : unit ATOM
+    val MDIClient : unit ATOM
+    val ScrollBar : unit ATOM
+    val Static : unit ATOM
+
+    structure Style :
+      sig
+	include BIT_FLAGS
+
+        val CS_BYTEALIGNCLIENT : flags
+        val CS_BYTEALIGNWINDOW : flags
+        val CS_CLASSDC : flags
+        val CS_DBLCLKS : flags
+        val CS_GLOBALCLASS : flags
+        val CS_HREDRAW : flags
+        val CS_KEYCVTWINDOW : flags
+        val CS_NOCLOSE : flags
+        val CS_NOKEYCVT : flags
+        val CS_OWNDC : flags
+        val CS_PARENTDC : flags
+        val CS_SAVEBITS : flags
+        val CS_VREDRAW : flags
+      end
+
+    type 'a WNDCLASSEX =
+        {style: Style.flags, 
+         wndProc: HWND * Message * 'a -&gt; LRESULT option * 'a,
+         hInstance: HINSTANCE,
+         hIcon: HICON option,
+         hCursor: HCURSOR option,
+         hbrBackGround: HBRUSH option,
+         menuName: Resource.RESID option,
+         className: string,
+         hIconSm: HICON option}
+
+    val <a
+name="RegisterClassEx">RegisterClassEx</a> : 'a WNDCLASSEX -&gt; 'a ATOM
+
+    val <a
+name="UnregisterClass">UnregisterClass</a> : string * HINSTANCE -&gt; unit
+    val GetClassName : HWND -&gt; string
+    val GetClassInfoEx: HINSTANCE * string -&gt; 'a WNDCLASSEX
+  end</pre>
+</body>
+</html>

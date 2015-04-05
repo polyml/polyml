@@ -1,0 +1,27 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Mouse structure</title>
+</head>
+
+<body>
+
+<h1>Mouse </h1>
+
+<p>The Mouse structure contains functions to control mouse input to a window.</p>
+
+<pre>structure Mouse :
+  sig
+    type HWND
+    type POINT = { x: int, y: int }
+    val DragDetect : HWND * POINT -&gt; bool
+    val GetCapture : unit -&gt; HWND option
+    val GetDoubleClickTime : unit -&gt; Time.time
+    val ReleaseCapture : unit -&gt; unit
+    val SetCapture : HWND -&gt; HWND option
+    val SetDoubleClickTime : Time.time -&gt; unit
+    val SwapMouseButton : bool -&gt; bool
+  end</pre>
+</body>
+</html>

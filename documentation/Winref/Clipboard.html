@@ -1,0 +1,85 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Clipboard structure</title>
+</head>
+
+<body>
+
+<h1>Clipboard</h1>
+
+<p>The clipboard is used as a way of copying data within an application or between
+applications.</p>
+
+<pre>structure Clipboard :
+  sig
+    datatype <a href="#ClipboardFormat">ClipboardFormat</a> =
+        CF_NONE | CF_TEXT | CF_BITMAP | CF_METAFILEPICT | CF_SYLK | CF_DIF | CF_TIFF |
+        CF_OEMTEXT | CF_DIB | CF_PALETTE | CF_PENDATA | CF_RIFF | CF_WAVE | CF_UNICODETEXT |
+        CF_ENHMETAFILE | CF_OWNERDISPLAY | CF_DSPTEXT | CF_DSPBITMAP | CF_DSPMETAFILEPICT |
+        CF_DSPENHMETAFILE | CF_PRIVATE of int | CF_GDIOBJ of int | CF_REGISTERED of int |
+        CF_HDROP | CF_LOCALE
+
+    type HBITMAP and HPALETTE and HWND and HDROP
+
+    datatype <a
+href="#CLIPHANDLE">CLIPHANDLE</a> =
+        CH_NONE |
+        CH_TEXT of string |
+        CH_BITMAP of HBITMAP |
+        CH_METAFILEPICT of Metafile.METAFILEPICT |
+        CH_SYLK of Word8Vector.vector |
+        CH_DIF of Word8Vector.vector |
+        CH_TIFF of Word8Vector.vector |
+        CH_OEMTEXT of string |
+        <a
+name="CH_DIB">CH_DIB</a> of Word8Vector.vector |
+        CH_PALETTE of HPALETTE |
+        CH_PENDATA of Word8Vector.vector |
+        CH_RIFF of Word8Vector.vector |
+        CH_WAVE of Word8Vector.vector |
+        CH_UNICODETEXT of Word8Vector.vector |
+        CH_ENHMETAFILE of Metafile.HENHMETAFILE |
+        CH_OWNERDISPLAY of Word8Vector.vector |
+        CH_DSPTEXT of Word8Vector.vector |
+        CH_DSPBITMAP of Word8Vector.vector |
+        CH_DSPMETAFILEPICT of Word8Vector.vector |
+        CH_DSPENHMETAFILE of Word8Vector.vector |
+        CH_PRIVATE of int * Word8Vector.vector |
+        CH_GDIOBJ of int * Word8Vector.vector |
+        CH_REGISTERED of int * Word8Vector.vector |
+        CH_HDROP of HDROP |
+        CH_LOCALE of Word8Vector.vector
+
+    val ChangeClipboardChain : HWND * HWND -&gt; bool
+    val CloseClipboard : unit -&gt; unit
+    val CountClipboardFormats : unit -&gt; int
+    val EmptyClipboard : unit -&gt; unit
+    val EnumClipboardFormats : ClipboardFormat -&gt; ClipboardFormat
+    val GetClipboardData : ClipboardFormat -&gt; CLIPHANDLE
+    val GetClipboardFormatName : ClipboardFormat -&gt; string
+    val GetClipboardOwner : unit -&gt; HWND
+    val GetClipboardViewer : unit -&gt; HWND
+    val GetOpenClipboardWindow : unit -&gt; HWND
+    val GetPriorityClipboardFormat : ClipboardFormat list -&gt; ClipboardFormat option
+    val IsClipboardFormatAvailable : ClipboardFormat -&gt; bool
+    val OpenClipboard : HWND option -&gt; unit
+    val RegisterClipboardFormat : string -&gt; ClipboardFormat
+    val SetClipboardData : CLIPHANDLE -&gt; unit
+    val SetClipboardViewer : HWND -&gt; HWND
+  end</pre>
+
+<p><tt>datatype <a name="ClipboardFormat">ClipboardFormat</a></tt><br>
+represents the various kinds of information which can be stored on the clipboard.&nbsp; As
+well as the formats defined in Windows the ML interface defines four extra formats.
+&nbsp; CF_NONE is used when no format is specified.&nbsp; CF_PRIVATE, CF_GDIOBJ and
+CF_REGISTERED are used for clipboard formats in the private range, GDI object range and
+registered format range.&nbsp; </p>
+
+<p><tt>datatype <a name="CLIPHANDLE">CLIPHANDLE</a></tt><br>
+is used when extracting information from the clipboard or setting the clipboard contents.</p>
+
+<p>&nbsp;</p>
+</body>
+</html>

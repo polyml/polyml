@@ -1,0 +1,131 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Dialog structure</title>
+</head>
+
+<body>
+
+<h1>Dialog</h1>
+
+<p>The Dialog structure contains functions and structures to create and operate on
+dialogue boxes.</p>
+
+<pre>structure Dialog:
+sig
+    type HWND and HINSTANCE 
+    datatype
+      DLGCLASSES =
+          DLG_CLASS of string * Window.Style.flags
+        | DLG_BUTTON of Button.Style.flags
+        | DLG_COMBOBOX of Combobox.Style.flags
+        | DLG_EDIT of Edit.Style.flags
+        | DLG_LISTBOX of Listbox.Style.flags
+        | DLG_SCROLLBAR of Scrollbar.Style.flags
+        | DLG_STATIC of Static.Style.flags
+
+    datatype DLGTITLE = DLG_TITLERESOURCE of int | DLG_TITLESTRING of string
+ 
+    structure Style:
+    sig
+        include BIT_FLAGS
+        val WS_OVERLAPPED: flags and WS_POPUP: flags and WS_CHILD: flags and WS_MINIMIZE: flags
+        and WS_VISIBLE: flags and WS_DISABLED:flags and WS_CLIPSIBLINGS:flags
+        and WS_CLIPCHILDREN:flags and WS_MAXIMIZE:flags and WS_CAPTION:flags
+        and WS_BORDER:flags and WS_DLGFRAME:flags and WS_VSCROLL:flags and WS_HSCROLL:flags
+        and WS_SYSMENU:flags and WS_THICKFRAME:flags and WS_GROUP:flags and WS_TABSTOP:flags
+        and WS_MINIMIZEBOX:flags and WS_MAXIMIZEBOX:flags and WS_TILED:flags and WS_ICONIC:flags
+        and WS_SIZEBOX:flags and WS_OVERLAPPEDWINDOW:flags and WS_TILEDWINDOW:flags
+        and WS_POPUPWINDOW:flags and WS_CHILDWINDOW:flags
+        and DS_3DLOOK: flags and DS_ABSALIGN: flags and DS_CENTER: flags and DS_CENTERMOUSE: flags
+        and DS_CONTEXTHELP: flags and DS_CONTROL: flags and DS_FIXEDSYS: flags
+        and DS_LOCALEDIT: flags and DS_MODALFRAME: flags and DS_NOFAILCREATE: flags
+        and DS_NOIDLEMSG: flags and DS_SETFONT: flags and DS_SETFOREGROUND: flags
+        and DS_SYSMODAL: flags
+    end
+
+    type DLGITEMTEMPLATE =
+        { extendedStyle: int,
+          x: int,
+          y: int,
+          cx : int,
+          cy: int,
+          id: int,
+          class: DLGCLASSES,
+          title: DLGTITLE,
+          creationData: Word8Vector.vector option
+        }
+    
+    type DLGTEMPLATE =
+        { style: Style.flags,
+          extendedStyle: int,
+          x : int,
+          y: int,
+          cx: int,
+          cy: int,
+          menu: Resource.RESID option,
+          class: Resource.RESID option,
+          title: string,
+          font: (int * string) option,
+          items: DLGITEMTEMPLATE list
+        }
+
+    
+    val <a
+href="#DialogBox">DialogBox</a> :
+        HINSTANCE * Resource.RESID * HWND *
+        (HWND * Message.Message * 'a -&gt; Message.LRESULT * 'a) * 'a -&gt; int
+    val <a
+href="#DialogBoxIndirect">DialogBoxIndirect</a>: HINSTANCE * DLGTEMPLATE * HWND *
+        (HWND * Message.Message * 'a -&gt; Message.LRESULT * 'a) * 'a -&gt; int
+    val <a
+href="#CreateDialog">CreateDialog</a> : HINSTANCE * Resource.RESID * HWND *
+        (HWND * Message.Message * 'a -&gt; Message.LRESULT * 'a) * 'a -&gt; HWND
+    val <a
+href="#CreateDialogIndirect">CreateDialogIndirect</a>: HINSTANCE * DLGTEMPLATE * HWND *
+        (HWND * Message.Message * 'a -&gt; Message.LRESULT * 'a) * 'a -&gt; HWND
+
+    val GetDialogBaseUnits : unit -&gt; {horizontal: int, vertical: int}
+    
+    val GetDlgCtrlID: HWND -&gt; int
+    and <a
+name="GetDlgItem">GetDlgItem</a>: HWND * int -&gt; HWND
+    and GetDlgItemText: HWND * int -&gt; string
+    and IsDialogMessage: HWND * Message.MSG -&gt; bool
+    and EndDialog: HWND * int -&gt; unit
+
+    val <a
+href="#compileTemplate">compileTemplate</a> : DLGTEMPLATE -&gt; Word8Vector.vector
+    val <a
+href="#decompileTemplate">decompileTemplate</a> : Word8Vector.vector -&gt; DLGTEMPLATE</pre>
+
+<p><tt><a name="DialogBox">DialogBox</a>(hInst, resId, parent, dlgProc, dlgInit)<br>
+<a name="DialogBoxIndirect">DialogBoxIndirect</a>(hInst, template, parent, dlgProc,
+dlgInit)<br>
+<a name="CreateDialog">CreateDialog</a>(hInst, resId, parent, dlgProc, dlgInit)<br>
+<a name="CreateDialogIndirect">CreateDialogIndirect</a>(hInst, template, parent, dlgProc,
+dlgInit)</tt><br>
+These four functions all create dialogues.&nbsp; They all take a dialogue procedure and an
+initial state for the dialogue.&nbsp; A dialogue procedure has the form<br>
+dlgProc(dlg, msg, state) and returns a pair consisting of the result of processing the
+message (LRESINT 0 if the message is not processed) and a new state.&nbsp; Each time the
+dialogue procedure is called it is passed the state returned by the previous call.<br>
+DialogBox and DialogBoxIndirect create modal dialogues and do not return until the
+dialogue procedure calls EndDialog, typically as a result of the user pressing an OK or
+Cancel button.&nbsp; CreateDialog and CreateDialogIndirect create modeless dialogues.
+&nbsp; The ML implementation automatically ensures that IsDialogMessage is called for
+modeless dialogues if <a href="Message.html#RunApplication">RunApplication</a> is used.</p>
+
+<p><tt><a name="compileTemplate">compileTemplate</a>(template)</tt><br>
+<strong>ML Extension:</strong>&nbsp; Compiles an ML dialogue template into the format used
+by C.&nbsp; This can be stored to resource file for later use.</p>
+
+<p><tt><a name="decompileTemplate">decompileTemplate</a>(vector)</tt><br>
+<strong>ML Extension:</strong> Takes a C format dialogue template structure in memory and
+returns an ML template.&nbsp; It can be used where a dialogue template has been loaded
+from a resource file using <a href="Resource.html#LoadResource">LoadResource</a>.</p>
+
+<p>&nbsp;</p>
+</body>
+</html>

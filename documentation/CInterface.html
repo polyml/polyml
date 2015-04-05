@@ -1,0 +1,751 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Poly/ML Interface to the C Programming Language</title>
+</head>
+
+<body>
+
+<h1>Poly/ML Interface to the C Programming Language</h1>
+
+<h2>Nick Chapman&nbsp;&nbsp;&nbsp; June 6, 1994</h2>
+
+<ol>
+  <li><a href="CInterface.html#1 Introduction">Introduction</a></li>
+  <li><a href="CInterface.html#2 Dynamic Libraries">Dynamic Libraries</a></li>
+  <li><a href="CInterface.html#3 Creating a Dynamic Library">Creating a Dynamic Library</a></li>
+  <li><a href="CInterface.html#4 Calling Simple C-functions">Calling Simple C-functions</a></li>
+  <li><a href="CInterface.html#5 Calln functions">A family of <tt>call</tt><i>n</i> functions</a></li>
+  <li><a href="CInterface.html#6 Predefined Conversions">Predefined <tt>Conversion</tt>s</a></li>
+  <li><a href="CInterface.html#7 Volatile Types">Volatile Types: <tt>vol</tt>, <tt>sym</tt>
+    and <tt>dylib</tt>.</a></li>
+  <li><a href="CInterface.html#8 Calling C-functions with return-parameters">Calling
+    C-functions with <em>return-parameters</em></a></li>
+  <li><a href="CInterface.html#9 A family of callnretr functions">A family of <tt>call</tt><i>n</i><tt>ret</tt><i>r</i>
+    functions</a></li>
+  <li><a href="CInterface.html#10 C structures">C structures</a></li>
+  <li><a href="CInterface.html#11 A family of structn Conversionals">A family of <tt>struct</tt><i>n</i>
+    Conversionals</a></li>
+  <li><a href="CInterface.html#12 Lower Level Calling Mechanism: call_sym">Lower Level Calling
+    Mechanism: <tt>call_sym</tt></a></li>
+  <li><a href="CInterface.html#13 Creating New Conversions">Creating New <tt>Conversion</tt>s</a></li>
+  <li><a href="CInterface.html#14 Enumerated Types">Enumerated Types</a></li>
+  <li><a href="CInterface.html#15 C Programming Primitives">C Programming Primitives</a></li>
+  <li><a href="CInterface.html#16 Example: Quicksort">Example: Quicksort</a></li>
+  <li><a href="CInterface.html#17 Volatile Implementation">Volatile Implementation</a></li>
+</ol>
+
+<h2><a name="1 Introduction">1 Introduction</a></h2>
+
+<p>It is now possible for Poly/ML to call functions which have been written in the C
+programming language. These functions are accessed from a dynamic library, and so don't
+have to be statically linked into the Poly/ML runtime system. The C interface is contained
+in the structure <b><tt>CInterface</tt></b>, which is built into every ML database. The
+facilities available allow dynamic libraries to be loaded and for symbols to be extracted
+from these libraries. symbols which represent C-functions can be executed.</p>
+
+<p>The arguments to a C-function need to be in a format which the C-function can
+understand. Similarly, the return value from a C-function will be in a standard C format.
+All such C-values are represented in ML using the abstract type <b><tt>vol</tt></b>.
+Values of this type are volatile because they do not persist from one ML session to the
+next. There are facilities to convert between ML-values and <b><tt>vol</tt></b>s, together
+with a collection of 'C-programming' primitives to manipulate vols.</p>
+
+<h2><a name="2 Dynamic Libraries">2 <b>Dynamic Libraries</b></a></h2>
+
+<p><b><tt>exception Foreign of string<br>
+val load_lib : string -&gt; dylib<br>
+val load_sym : dylib -&gt; string -&gt; sym<br>
+val get_sym : string -&gt; string -&gt; sym</tt></b></p>
+
+<p>The function <b><tt>load_lib</tt> </b>takes an ML string containing the pathname of a
+dynamic library. This should preferably be a full pathname. If it is a relative pathname
+it will be interpreted with respect to the directory in which the ML session was started
+from. The return value is a <b><tt>dylib</tt></b> representing the dynamic library. If the
+dynamic library cannot be found, the exception <b><tt>Foreign</tt></b> is raised with a
+string describing the problem.</p>
+
+<p><i>If the file named by the filename exists but is not in the correct format for a
+dynamic library, the underlying C-function</i> <b><tt>dlopen</tt></b> <i>prints an error
+message and then kills the ML session. So far, I have been unable to catch this error.</i></p>
+
+<p>Once a library has been opened, a symbol may be extracted from the library with the
+function <b><tt>load_sym</tt></b>. This takes a <b><tt>dylib</tt></b> representing the
+dynamic library and an ML string naming the symbol. The return value is a <b><tt>sym</tt></b>
+representing the symbol. If the symbol is not contained in the dynamic library, the
+exception <b><tt>Foreign</tt></b> is raised with a string describing the problem.</p>
+
+<p>Often the return value of the function <b><tt>load_lib</tt></b> is passed directly to
+the function <b><tt>load_sym</tt></b> . This combination is captured by the function <b><tt>get_sym</tt></b>,
+which takes two strings naming the dynamic library and the symbol, and returns the <b><tt>sym</tt>
+</b>representing the symbol, or raises the exception <b><tt>Foreign</tt></b>.</p>
+
+<p><b><tt>fun get_sym lib sym = load_sym (load_lib lib) sym;</tt></b></p>
+
+<p>Values of type <b><tt>dylib</tt> </b>and <b><tt>sym</tt> </b>share the volatile nature
+of <b><tt>vol</tt> </b>; they do not persist from one ML session to the next. This is
+explained in more detail in <a href="CInterface.html#7 Volatile Types">Section 7</a>.</p>
+
+<h2><a name="3 Creating a Dynamic Library">3 Creating a Dynamic Library</a></h2>
+
+<p>Suppose we have written a C-function called <b><tt>difference</tt></b>, which computes
+the difference of two integers. The function is contained in a file named <b><tt>sample. c</tt></b>.</p>
+
+<p><tt><strong>int difference (int x, int y) {<br>
+&nbsp;&nbsp;&nbsp; return x &gt; y ? x - y : y - x;<br>
+}</strong></tt></p>
+
+<p>To create a dynamic library containing this function we carry out the following steps
+at the shell prompt:</p>
+
+<p><tt><b>Pinky$ gcc -c sample.c -o sample.o<br>
+Pinky$ ld -o sample.so sample.o</b></tt></p>
+
+<p>These steps create a dynamic library named <b><tt>sample.so</tt></b>. Often many
+symbols will be retrieved from the same dynamic library, and so it is useful to partially
+apply the function <b><tt>get_sym</tt></b> to the name of the common library. Most of the
+examples in this document use symbols retrieved from the library <b><tt>samples.so</tt></b>.</p>
+
+<p><tt><strong>val get = get_sym &quot;sample.so&quot;;</strong></tt></p>
+
+<h2><a name="4 Calling Simple C-functions">4 Calling Simple C-functions</a></h2>
+
+<p>To call the C-function <b><tt>difference</tt></b> we use the function <b><tt>call2</tt></b>
+from the structure <b>CInterface. </b>This function allows us to call C-functions that
+take two arguments:</p>
+
+<p><tt><b>val call2 : sym</b> -&gt; <b>'a Conversion * 'b Conversion</b> -&gt; <b>'c
+Conversion<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+-&gt; 'a</b> <b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * 'b</b>
+-&gt; <b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 'c</b></tt></p>
+
+<p>The first parameter of <b><tt>call2</tt></b> is the <b><tt>sym</tt></b> representing
+the symbol that we wish to call. This is usually obtained from a call to <b><tt>get_sym</tt></b>.
+The second parameter is a pair of <b><tt>Conversions</tt></b> describing the two arguments
+to the C-function; the third parameter is a <b><tt>Conversion</tt></b> describing the
+return value of the C-function. The fourth parameter is a pair containing the actual
+arguments to be passed to the C-function. Notice how the type of each argument matches the
+type variable contained in the corresponding <b><tt>Conversion</tt></b> parameter.</p>
+
+<p>The purpose of a <b><tt>Conversion</tt></b> is twofold. Firstly, it specifies the
+C-type required by the C-function. This needs to be known at the lowest level so that the
+correct argument passing and return conventions can be used when calling the C-function.
+Secondly, the <b><tt>Conversion</tt></b> performs the conversion between a C-value (in
+this case a C integer) and an ML-value. The conversion necessary to call the example
+C-function <b><tt>difference</tt></b> is <b><tt>INT</tt></b> which has type <b><tt>int
+Conversion</tt> </b>.We can now define an ML function as a wrapper around the underlying
+C-function.</p>
+
+<p><tt><strong>val diff = call2 (get &quot;difference&quot;) (INT,INT) INT;</strong></tt></p>
+
+<p>Because the Conversion <b><tt>INT</tt></b> has type <b><tt>int Conversion</tt></b>, the
+type of <b><tt>diff</tt></b> is constrained to being<b><tt> int-&gt;int-&gt;int</tt></b> -
+which is just what we require. We can now apply the ML function, for example: <b><tt>(diff
+(13,50))</tt></b>, which evaluates to <b><tt>37</tt></b>.</p>
+
+<h2><a name="5 Calln functions">5 A family</a> of <tt>call</tt><i>n</i> functions</h2>
+
+<p>There is a family of <tt><b>call</b></tt><i>n</i> functions from <b><tt>call0</tt></b>
+to <b><tt>call9</tt></b>.</p>
+
+<p><tt><strong>val calln :<br>
+&nbsp;&nbsp; sym -&gt; 'a<small><small>1</small></small> Conversion *&nbsp; ... * 'a<small><small>n</small></small>
+Conversion<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; 'b Conversion<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; 'a<small><small>1</small></small> * ... * 'a<small><small>n</small></small>
+-&gt; 'b </strong></tt></p>
+
+<p>We need a collection of functions because we cannot give a legal ML type to a function
+which takes a list of <b><tt>Conversion</tt></b>s without forcing them all to have the
+same type parameter. C-functions with more than nine parameters can still be called, but
+the lower level calling mechanism must be used, see <a
+href="CInterface.html#12 Lower Level Calling Mechanism: call_sym">Section 12</a>.</p>
+
+<h2><a name="6 Predefined Conversions">6 Predefined</a> <tt>Conversion</tt>s</h2>
+
+<p>In the structure <b><tt>CInterface</tt></b>, there are various predefined <b><tt>Conversion</tt></b>s.
+The name of each <b><tt>Conversion</tt></b> indicates the C-type required/returned,
+whereas the ML type of the <b><tt>Conversion</tt></b> constrains the resulting type when
+the <b><tt>Conversion</tt> </b>is used as an argument to a <b><tt>call</tt></b>n function.</p>
+
+<p><tt><strong>val CHAR: char Conversion<br>
+val DOUBLE : real Conversion<br>
+val FLOAT : real Conversion<br>
+val INT : int Conversion<br>
+val LONG : int Conversion<br>
+val SHORT : int Conversion<br>
+val STRING :string Conversion<br>
+val VOID : unit Conversion<br>
+val BOOL : bool Conversion<br>
+val POINTER :vol Conversion</strong></tt></p>
+
+<p>The <b><tt>Conversions CHAR, DOUBLE, FLOAT, INT, LONG</tt> </b>and <b><tt>SHORT</tt> </b>are
+primitive in the sense that they convert between small fixed-size C types.</p>
+
+<p>The <b><tt>Conversion STRING</tt></b> converts between an ML string and a C pointer;
+the pointer points at a null terminated array of characters. This <b><tt>Conversion</tt></b>
+is built out of the <b><tt>CHAR Conversion</tt></b> and the C programming primitives, see <a
+href="CInterface.html#15 C Programming Primitives">Section 15</a>.</p>
+
+<p>The <b><tt>Conversion VOID</tt></b> is really a one way <b><tt>Conversion</tt></b>
+intended for the result of C-functions that return <b><tt>void</tt></b>. Attempts to use
+this <b><tt>Conversion</tt></b> the other way around raise the exception <b><tt>Foreig</tt>n</b>
+with an appropriate message.</p>
+
+<p>The <b><tt>Conversion BOOL</tt></b> is build on top of the <b><tt>Conversion INT</tt></b>.
+It converts between an ML <b><tt>bool</tt></b> and a C integer.</p>
+
+<p>The <b><tt>Conversion POINTER</tt></b> is basically the identity <b><tt>Conversion</tt></b>.
+No conversion is performed and the underlying <b><tt>vol</tt></b> becomes accessible.</p>
+
+<h2><a name="7 Volatile Types">7 Volatile Types</a>: <tt>vol</tt>, <tt>sym</tt> and <tt>dylib</tt>.</h2>
+
+<p>There is a problem with the definition of the ML-function <b><tt>diff</tt></b> given
+above. The call to <b><tt>get_sym</tt></b> (within the partial application <b><tt>get</tt></b>)
+returns a value of type <b><tt>sym</tt></b> which like values of type <b><tt>vol</tt></b>
+does not persist from one ML session to the next. If after the definition of <b><tt>diff</tt></b>
+we were to commit the database and leave the ML session, we would find that on restarting
+the ML session, the function <b><tt>diff</tt></b> no longer operates as expected, but
+instead causes the exception <b><tt>Foreign</tt></b> to be raised:</p>
+
+<p><tt><strong>&gt; commit();<br>
+&gt; diff (13,50);<br>
+val it = 3<br>
+&gt; quit();<br>
+Pinky$ ml<br>
+&gt; diff (13,50);<br>
+Exception- Foreign &quot;Invalid volatile&quot; raised</strong></tt></p>
+
+<p>One solution is to redefine the ML function <b><tt>diff</tt></b> as:</p>
+
+<p><strong><tt>fun diff args =<br>
+cal12 (get &quot;difference&quot;) (INT,INT) INT args;</tt></strong></p>
+
+<p>The new version of <b><tt>diff</tt></b> is very similar to the old version, except that
+the subexpression <b><tt>get &quot;difference&quot;</tt></b> will be executed every time
+the function is applied to the tuple of arguments, instead of just once. This causes the
+library and symbol to be reloaded on every invocation of the function <b><tt>diff</tt></b>
+ensuring that the <b><tt>vol</tt></b> is valid. Efficiency wise this is not as horrific as
+it sounds. The underlying dynamic library manipulation functions appear to cache what has
+already been loaded, and so do little work on a subsequent calls to load the same library
+or symbol.</p>
+
+<h2><a name="8 Calling C-functions with return-parameters">8 Calling C-functions with <em>return-parameters</em></a></h2>
+
+<p>Although C is strictly a <i>call-by-value</i> language, <i>call-by-reference</i> is
+often simulated with the use of parameters of a pointer type. When a function is called
+with a parameter that has a pointer type, the called function can then modify the value
+pointed at by the pointer. For example, the C-function below <b><tt>diff_sum</tt></b>
+computes both the difference and the sum of two integers. The function has four
+parameters-two input parameters and two return-parameters.</p>
+
+<p><tt><strong>void diff_sum (int x, int y, int *diff, int *sum) {<br>
+&nbsp; *diff = x &gt; y ? x - y : y - x;<br>
+&nbsp; *sum = x+y;<br>
+}</strong></tt></p>
+
+<p>With C, this function would be invoked with something like:</p>
+
+<p><tt><strong>{<br>
+&nbsp; int diff,sum;<br>
+&nbsp; diff_sum(x,y,&amp;diff,&amp;sum);<br>
+}</strong></tt></p>
+
+<p>To call the C-function <b><tt>diff_sum</tt></b> from ML we use the function <b><tt>call4ret2</tt></b>.
+This allows us to call C-functions that have four parameters, the last two being
+return-parameters.</p>
+
+<p><tt><strong>val call4ret2 : sym<br>
+&nbsp; -&gt; 'a Conversion * 'b Conversion -&gt; 'c Conversion * 'd Conversion<br>
+&nbsp; -&gt; 'a&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * 'b
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; 'c
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; * 'd</strong></tt></p>
+
+<p>Now we can write an ML wrapper function:</p>
+
+<p><strong><tt>fun diff_sum x y =<br>
+&nbsp;&nbsp; call4ret2 (get &quot;diff_sum&quot;) (INT,INT) (INT,INT) (x,y);</tt></strong></p>
+
+<p>Evaluating <b><tt>(diff _sum 13 50)</tt></b> results in <b><tt>(37,63)</tt></b>.</p>
+
+<h2><a name="9 A family of callnretr functions">9 A family of <tt>call</tt><i>n</i><tt>ret</tt><i>r</i>
+functions</a></h2>
+
+<p>There is a limited family of <b><tt>call</tt><i>n</i><tt>ret</tt><i>r</i> </b>functions
+defined to call C~functions that have<i> n - r input-parameters</i> followed by<i> r
+return-parameters</i>. This family contains functions for n ranging from 1 to 5, with r as
+either 1 or 2. (Exception: there is no <b><tt>call1ret2</tt></b> because this makes no
+sense.)</p>
+
+<p><tt><b>val call1ret1 : sym -&gt; unit -&gt; 'a Conversion -&gt; unit -&gt; 'a<br>
+val call<em>n</em>ret<em>r</em> :<br>
+&nbsp;&nbsp; sym -&gt; 'a<small>1</small> Conversion * ... * 'a<small>n-r</small>
+Conversion<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; 'a<small>n-r+1</small> Conversion * ... * 'a<small>n</small>
+Conversion<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt; 'a<small>1</small> * ... *'a<small>n-r</small>
+-&gt; 'a<small>n-r+1</small> * ... 'a<small>n</small></b></tt></p>
+
+<p>For other combinations of n and r; requiring a non-final parameter in the parameter
+list to be a return-parameter; or requiring the actual return result together with the use
+of return parameters, the lower level calling mechanism can be used (<a
+href="CInterface.html#12 Lower Level Calling Mechanism: call_sym">Section 12</a>).</p>
+
+<h2><a name="10 C structures">10 C structures</a></h2>
+
+<p>C functions may be called which take/return C structure values. For example, the
+following piece of C defines a <b><tt>typedef</tt></b>ed structure called <b><tt>Point</tt></b>,
+and a function which manipulates these <b><tt>Points</tt></b> called <b><tt>addPoint</tt></b>.</p>
+
+<p><b><tt>typedef struct {int x; int y;} Point;</tt></b></p>
+
+<p><b><tt>Point addPoint (Point p1, Point p2) {<br>
+&nbsp; p1.x += p2.x;<br>
+&nbsp; p1.y += p2.y;<br>
+&nbsp; return p1;<br>
+}</tt></b></p>
+
+<p>To create the necessary <b><tt>Conversion</tt></b> for <b><tt>Points</tt></b> we can
+use the <b><tt>Conversional</tt></b>, <b><tt>STRUCT2</tt></b>. This function takes a pair
+of <b><tt>Conversion</tt></b>s and returns a new <b><tt>Conversion</tt></b> suitable for a
+C structure containing those types. The type of <b><tt>STRUCT2</tt></b> is:</p>
+
+<p><b>v<tt>al STRUCT2 : 'a Conversion * 'b Conversion -&gt; ('a * 'b) Conversion</tt></b></p>
+
+<p>We now define an ML wrapper function for <b><tt>addPoint</tt></b>:</p>
+
+<p><tt><strong>val POINT = STRUCT2 (INT,INT);<br>
+fun addPoint p1 p2 =<br>
+&nbsp;&nbsp; cal12 (get &quot;addPoint&quot;) (POINT,POINT) POINT (p1, p2);</strong></tt></p>
+
+<p>Now, <b><tt>(addPoint (5, 6) (8,9))</tt></b> evaluates to <b><tt>(13, 15)</tt></b>.</p>
+
+<h2><a name="11 A family of structn Conversionals">11 A family of <tt>struct</tt><i>n</i>
+Conversionals</a></h2>
+
+<p>There is a family of <b><tt>struct</tt></b><i>n</i> functions from <b><tt>struct2</tt></b>to
+<b><tt>struct9</tt></b>.</p>
+
+<p><tt><strong>val structn : 'a<small>1</small> Conversion * ... * 'a<small>n</small>
+Conversion<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -&gt;
+('a<small>1</small> *... * 'a<small>n</small>) Conversion</strong></tt></p>
+
+<p>Manipulation of structures with more than nine components can be achieved with the use
+of the lower level calling mechanism, <a
+href="CInterface.html#12 Lower Level Calling Mechanism: call_sym">see Section 12</a>.</p>
+
+<h2><a name="12 Lower Level Calling Mechanism: call_sym">12 Lower Level Calling Mechanism:
+<tt>call_sym</tt></a></h2>
+
+<p>Occasionally it is necessary to access the dynamic calling mechanism at a lower level.
+The collection of functions <b><tt>call</tt></b><i>n</i> and <b><tt>call</tt><i>n</i><tt>ret</tt><i>r</i></b>
+are all defined in terms of the function <b><tt>call_sym</tt></b>, which has the following
+type:</p>
+
+<p><b><tt>val call_sym : sym -&gt; (Ctype * vol) list -&gt; Ctype -&gt; vol</tt></b></p>
+
+<p>The second argument to <b><tt>call_sym</tt></b> is a list of <b><tt>Ctype/vol</tt></b>
+pairs, which allows C-functions of any number of arguments to be called. This function is
+more cumbersome to use than the <b><tt>call</tt><i>n</i></b> and <b><tt>call</tt><i>n</i><tt>ret</tt><i>r</i></b>
+functions because the two stages of; specification of the C-type, and conversion between
+ML-values and C-values <b>(vols) </b>have been separated. The specification of the C-type
+is achieved by using a constructor of the datatype <b><tt>Ctype</tt></b>:</p>
+
+<p><tt><strong>datatype Ctype =<br>
+Cchar | Cdouble | Cfloat | Cint | Clong | Cshort | Cvoid<br>
+| Cpointer of Ctype<br>
+| Cstruct of Ctype list<br>
+| Cfunction of Ctype list * Ctype</strong></tt></p>
+
+<p>The following collection of functions is used to convert from and to values of type <b><tt>vol</tt></b>.</p>
+
+<p><tt><b>val</b> <b>fromCstring : vol -&gt;string<br>
+val</b> <b>fromCchar : vol -&gt;char<br>
+val</b> <b>fromCdouble : vol -&gt;real<br>
+val</b> <b>fromCfloat : vol -&gt;real<br>
+val</b> <b>fromCint :</b> <b>vol -&gt;int<br>
+val</b> <b>fromClong : vol -&gt;int<br>
+val</b> <b>fromCshort : vol -&gt;int<br>
+val</b> <b>toCstring : string -&gt;</b> <b>vol<br>
+val</b> <b>toCchar : char -&gt; vol<br>
+val</b> <b>toCdouble : real -&gt;vol<br>
+val</b> <b>toCfloat :</b> <b>real -&gt;vol<br>
+val</b> <b>toCint : int -&gt;vol<br>
+val</b> <b>toClong :</b> <b>int -&gt;vol<br>
+val</b> <b>toCshort :</b> <b>int -&gt;vol</b></tt></p>
+
+<p>For example, this is how to define <b><tt>diff</tt></b> directly in terms of <b><tt>call_sym</tt></b>.</p>
+
+<p><tt><strong>fun diff x y =<br>
+&nbsp; fromCint (call_sym (get &quot;difference&quot;)<br>
+&nbsp;&nbsp;&nbsp; [(Cint, toCint x),(Cint, toCint y)] Cint)</strong></tt></p>
+
+<p>Manipulation of C structures is achieved with the following two functions:</p>
+
+<p><tt><b>val make_struct</b> : <b>(Ctype * vol) list</b> -&gt; <b>vol <br>
+val break_struct</b> : <b>Ctype list -&gt; vol</b> -&gt; <b>vol list</b></tt></p>
+
+<h2><a name="13 Creating New Conversions">13 Creating New <tt>Conversion</tt>s</a></h2>
+
+<p>Recall a <b><tt>Conversion</tt></b> encapsulates three things: an underlying C-type; a
+function to convert from the C-value (of type <b><tt>vol</tt></b>) to an ML value of a
+given type; a function which converts from the ML value back into the C-value (of type <b>vol).
+</b>Sometimes it is useful to be able to create new <b><tt>Conversions</tt></b>, or to
+retrieve the components from an existing <b><tt>Conversion</tt></b>.</p>
+
+<p><tt><b>val mkConversion</b> : <b>(vol -&gt; 'a) -&gt; ('a -&gt; vol) -&gt; Ctype</b>
+-&gt; <b>'a Conversion <br>
+val breakConversion</b> : <b>'a Conversion -&gt; (vol -&gt; 'a) * ('a</b> -&gt; <b>vol) *
+Ctype</b></tt></p>
+
+<p>The function <b><tt>mkConversion</tt></b> creates a new <b><tt>Conversion</tt></b> from
+its three components. The function <b><tt>breakConversion</tt></b> takes an existing <b><tt>Conversion</tt></b>
+and returns a triple containing the components. For example, the standard conversion <b><tt>INT</tt></b>
+might be defined as:</p>
+
+<p><strong><tt>val INT = mkConversion fromCint toCint Cint</tt></strong></p>
+
+<p>A good reason for creating a new <b><tt>Conversion</tt></b> is to give a different ML
+type to values of type <b><tt>vol</tt></b> which are to be used in a particular way. For
+example, we may be interfacing to a collection of C-functions that take/return pointers
+which are being used to implement a particular abstract type, for example a tree node. By
+creating a new conversion we can use the ML type system to avoid mixing values of this new
+type with other normal <b><tt>vol</tt></b>s.</p>
+
+<p><strong><tt>abstype node = Node of vol<br>
+with val NODE = mkConversion Node (fn (Node n) =&gt; n) (Cpointer Cvoid)<br>
+end</tt></strong></p>
+
+<p><strong><tt>fun lookupNode s = call1 (get &quot;lookupNode&quot;) STRING NODE s<br>
+fun printNode n = call1 (get &quot;printNode&quot;) NODE VOID n</tt></strong></p>
+
+<p>The types of these two functions are:</p>
+
+<p><tt><b>val lookupNode</b> : <b>string -&gt; node<br>
+val printNode</b> : <b>node -&gt; unit</b></tt></p>
+
+<h2><a name="14 Enumerated Types">14 Enumerated Types</a></h2>
+
+<p>Another reason for creating a new <b>Conversion</b> is for when we want to call a
+C-function that takes/returns values of an enumerated type. For example, suppose <b>colour</b>
+is declared as:</p>
+
+<p><tt><strong>typedef enum {<br>
+&nbsp; white,<br>
+&nbsp; red = 5,<br>
+&nbsp; green,<br>
+&nbsp; blue,<br>
+&nbsp; /* leave room for extra colours in the future */<br>
+&nbsp; black = 100<br>
+} colour;</strong></tt></p>
+
+<p>This example shows that C enumerations are just sugar for integers, so much so, we can
+even specify which constructors correspond to which integer values. When an enumeration is
+declared that specifies integer values for just some constructors, (as in <b><tt>colour</tt></b>
+above): if the first constructor is unspecified, it is assigned 0; successive unspecified
+constructors are assigned successive integer values, e.g. <b><tt>green</tt></b> is 6.</p>
+
+<p>We would like to convert C-enumerations like <b><tt>colour</tt></b> into an equivalent
+ML datatype, together with functions to convert between values of the datatype and ML
+integers. This can be achieved automatically by using the script <b><tt>proc-enums</tt></b>,
+contained in the scripts subdirectory of the source tree.</p>
+
+<p><tt><strong>Usage: proc-enums &lt;struct-name&gt; {&lt;filename&gt;}+</strong></tt></p>
+
+<p>The first parameter to <b><tt>proc-enums</tt></b> is the name of the generated ML
+structure. The remaining parameters specify C-files in which to search for C <b><tt>typedef</tt></b>ed
+enumeration declarations. No formatting conventions are assumed, i.e. arbitrary white
+space and comments are allowed within the declaration. Other declarations and definitions
+are ignored. The generated file is named <b><tt>&lt;struct-name&gt;.ML</tt></b>.</p>
+
+<p>For the colour example, we would type <b><tt>'proc-enums colour colour.h'</tt></b> at
+the shell prompt. This would generate a file <b><tt>colour.ML</tt></b> containing the
+following ML definitions.</p>
+
+<p><strong><tt>structure colour = struct</tt></strong></p>
+
+<p><strong><tt>datatype colour<br>
+= white<br>
+| red<br>
+| green<br>
+| blue<br>
+| black</tt></strong></p>
+
+<p><strong><tt>exception Int2colour</tt></strong></p>
+
+<p><strong><tt>fun int2colour i = case i of <br>
+&nbsp; 0 =&gt; white<br>
+| 5 =&gt; red<br>
+| 6 =&gt; green<br>
+| 7 =&gt; blue<br>
+| 100 =&gt; black<br>
+| _ =&gt; raise Int2colour</tt></strong></p>
+
+<p><strong><tt>fun colour2int i = case i of <br>
+&nbsp; white =&gt; 0<br>
+| red =&gt; 5<br>
+| green =<br>
+| blue =&gt; 7<br>
+| black =&gt; 100</tt></strong></p>
+
+<p><strong><tt>end (* struct *)</tt></strong></p>
+
+<p>Once these definitions have been generated we can create a new <b>Conversion:</b></p>
+
+<p><strong><tt>val COLOUR =<br>
+&nbsp; mkConversion (int2colour o fromCint) (toCint o colour2int) Cint;</tt></strong></p>
+
+<p>Now, suppose we have a C-function <b><tt>nameOfColour</tt></b>,</p>
+
+<p><tt><strong>#include &quot;colour.h&quot;<br>
+char* nameOfColour (colour c) {<br>
+&nbsp; switch (c) {<br>
+&nbsp;&nbsp;&nbsp; case white: return&quot;white&quot;;<br>
+&nbsp;&nbsp;&nbsp; case red:&nbsp;&nbsp; return&quot;red&quot;;<br>
+&nbsp;&nbsp;&nbsp; case green: return&quot;green&quot;;<br>
+&nbsp;&nbsp;&nbsp; case blue:&nbsp; return&quot;blue&quot;;<br>
+&nbsp;&nbsp;&nbsp; case black: return&quot;black&quot;;<br>
+&nbsp;&nbsp;&nbsp; default:&nbsp;&nbsp;&nbsp; return&quot;Error: No such colour&quot;;<br>
+&nbsp; }<br>
+}</strong></tt></p>
+
+<p>we can write a ML wrapper for this function as:</p>
+
+<p><tt><strong>fun nameOfColour c =<br>
+&nbsp;&nbsp; call1 (get &quot;nameOfColour&quot;) COLOUR STRING c;</strong></tt></p>
+
+<p>Now we can execute, <b><tt>(nameOfColour blue)</tt></b>, which evaluates to the ML
+string <b><tt>&quot;blue&quot;</tt></b>.</p>
+
+<h2><a name="15 C Programming Primitives">15 C Programming Primitives</a></h2>
+
+<p>Occasionally, we need to manipulate C-values in greater detail. The following example
+shows how an ML wrapper can be written for the C-function <b><tt>diff _sum</tt></b>,
+without using a <b><tt>call</tt><i>n</i><tt>ret</tt><i>r</i> </b>function.</p>
+
+<p><tt><strong>fun diff_sum x y =<br>
+&nbsp;&nbsp;&nbsp; let val diff = alloc 1 Cint<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; val sum = alloc 1 Cint<br>
+&nbsp;&nbsp;&nbsp; in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; cal14 (get &quot;diff_sum&quot;)
+(INT,INT,POINTER,POINTER) VOID<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (x, y, address diff,
+address sum);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (fromCint diff, fromCint sum)<br>
+&nbsp;&nbsp;&nbsp; end</strong></tt></p>
+
+<p>This example uses two of a collection of six ML functions allowing basic C-programming.</p>
+
+<p><tt><strong>val sizeof&nbsp; : Ctype -&gt; int<br>
+val alloc&nbsp;&nbsp; : int -&gt; Ctype -&gt; vol<br>
+val address : vol -&gt; vol<br>
+val deref&nbsp;&nbsp; : vol -&gt; vol<br>
+val assign&nbsp; : Ctype -&gt; vol -&gt; vol -&gt; unit<br>
+val offset&nbsp; : int -&gt; Ctype -&gt; vol -&gt; vol</strong></tt></p>
+
+<p><i>These functions are intrinsically unsafe-incorrect usage can cause the ML session to
+die.</i></p>
+
+<p>The application <b><tt>(sizeof</tt></b><i> t</i><b><tt>)</tt></b> returns the size (in
+bytes) of the <b><tt>Ctype</tt></b><i> t</i>.</p>
+
+<p>The application <b><tt>(alloc</tt> </b><i>n t</i><b><tt>)</tt></b> returns a <b><tt>vol</tt>
+</b>encapsulating some freshly allocated memory of size <b><tt>(</tt></b><i>n</i>*<b><tt>sizeof</tt></b>
+t<b><tt>)</tt></b> bytes. Unlike allocation facilities in C which return a pointer to the
+newly allocated space,the result of <b><tt>alloc</tt></b> encapsulates the space directly.</p>
+
+<p><i>The underlying implementation of</i><b><tt> alloc</tt></b><i> does in fact use</i> <b>malloc
+</b><i>to gain some newly allocated space, and does in fact consist of a pointer to this
+space. However, all the above ML functions work at an extra level of indirection to the
+corresponding C-operation. This extra indirection is removed before the C-value is passed
+to a real C-function.</i></p>
+
+<p>The application <b><tt>(address</tt></b> <i>v</i><b><tt>)</tt></b> returns a new <b><tt>vol</tt>
+</b>containing the address of <i>v</i>. This function corresponds to the C operator <b><tt>&amp;</tt></b>.</p>
+
+<p>The application <b><tt>(deref</tt></b> <i>v</i><b><tt>)</tt></b> returns a <b><tt>vol</tt></b>
+which is the result of dereferencing the address contained in <i>v</i>. This function
+corresponds to the C operator <b><tt>*</tt></b>. If <i>v</i> is not a valid address, the
+ML session will die with a segmentation error.</p>
+
+<p>The application <b><tt>(assign</tt></b><i> t v w</i><b><tt>)</tt></b> copies <b><tt>(sizeof</tt></b>
+<i>t</i><b><tt>)</tt></b> bytes of data from <i>w</i> into <i>v</i>. This function
+corresponds to the C operator <b><tt>=</tt></b>, or the standard C function <b><b><tt>memcpy</tt></b></b>.</p>
+
+<p>The application <b><tt>(offset</tt></b><i> i t v</i><b><tt>)</tt></b> returns a new <b><tt>vol</tt>
+</b>that is offset <b><tt>(</tt>i</b>*<b><tt>sizeof</tt></b><i> t</i><b><tt>) </tt></b>bytes
+in memory from <i>v</i>. The closest corresponding operator in C is structure
+dereferencing <tt>(.)</tt>. Pointer arithmetic can be achieved by combining the function <b><tt>offset</tt></b>
+with the functions <b><tt>address</tt></b> and <b>d<tt>eref</tt></b>.</p>
+
+<p>The functions <b><tt>address</tt></b> and <b><tt>deref</tt></b> create the same
+aliasing as the corresponding C operators. For example, the following sequence of C
+statements causes the final value of <b><tt>i</tt> </b>to be 123:</p>
+
+<p><tt><strong>{<br>
+&nbsp; int i = 0;<br>
+&nbsp; int *p = &amp;i;<br>
+&nbsp; *p = 123;<br>
+}</strong></tt></p>
+
+<p>Likewise, the following sequence of ML statements:</p>
+
+<p><tt><strong>&gt; val i = toCint 0;<br>
+&gt; val p = address i;<br>
+&gt; assign Cint (deref p) (toCint 123);<br>
+&gt; fromCint i;<br>
+val it = 123</strong></tt></p>
+
+<h2><a name="16 Example: Quicksort">16 Example: Quicksort</a></h2>
+
+<p>The following example shows how the C-programming primitives are intended to be used.
+The example involves interfacing to the standard C-function <b>qsort</b>. On many Unix
+systems this function can be retrieved from a dynamic library in <b><tt>/usr/lib</tt></b>.</p>
+
+<p><strong><tt>val getC = get_sym &quot;/usr/lib/libc.so.1.7&quot;;</tt></strong></p>
+
+<p>The function <b><tt>qsort</tt></b> takes four parameters.</p>
+
+<p><strong><tt>void qsort (void *base, int nel, int width, int (*compar)());</tt></strong></p>
+
+<p>The first parameter, <b><tt>base</tt></b>, is a pointer to an array of elements to be
+sorted; the second parameter, <b><tt>nel</tt></b>, is the number of elements in the array;
+the third parameter, <b><tt>width</tt></b>, is the size (in bytes) of each element; the
+fourth parameter, <b><tt>compar</tt></b> is a comparison function which must return an
+integer less than, equal to, or greater than zero. See the <b><tt>qsort</tt></b> manual
+page for more details.</p>
+
+<p>In our example we wish to sort pairs of strings. The first string is the key to be
+sorted, while the second string is arbitrary data. In C we would represent this pair as a
+structure, and would write the comparison function <b><tt>compare</tt></b> using <b><tt>strcmp</tt></b>.</p>
+
+<p><strong><tt>typedef struct {<br>
+&nbsp; char *key;<br>
+&nbsp; char *data;<br>
+} pair;</tt></strong></p>
+
+<p><strong><tt>int compare (pair x, pair y) {<br>
+&nbsp;&nbsp; return strcmp(x.key, y.key);<br>
+}</tt></strong></p>
+
+<p>We want to define an ML wrapper <b><tt>qsort</tt></b> which takes a list of string
+pairs and returns the sorted list. Other than the C-programming primitives, the only
+additional function needed is <b><tt>volOfSym</tt></b>. This is needed to supply the
+fourth argument to <b><tt>qsort</tt></b>, a pointer to a comparison function. The
+application <b><tt>(volOfSym</tt></b> <i>s</i><b><tt>)</tt></b> returns the <b><tt>vol</tt></b>
+encapsulated in the symbol <i>s</i>.</p>
+
+<p><strong><tt>val volOfSym : sym -&gt; vol</tt></strong></p>
+
+<p>We can now defined <b><tt>qsort</tt></b>, together with two auxiliary function <b><tt>fill</tt></b>
+and <b><tt>read</tt></b>.</p>
+
+<p><strong><tt>val (fromPair,toPair,pairType) = breakConversion (STRUCT2 (STRING,STRING));</tt></strong></p>
+
+<p><strong><tt>fun fill p [] = ()<br>
+&nbsp; | fill p ((key,data)::xs) =<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (assign pairType p (toPair (key,data)); <br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; fill (offset 1 pairType p) xs)</tt></strong></p>
+
+<p><strong><tt>fun read p 0 = []<br>
+&nbsp; | read p n = fromPair p :: read (offset 1 pairType p) (n-1)</tt></strong></p>
+
+<p><strong><tt>fun qsort xs =<br>
+&nbsp;&nbsp; let<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; val len = length xs<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; val table = alloc len pairType<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; val compare = volOfSym (get &quot;compare&quot;)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; val sort = ca114 (getc &quot;qsort&quot;)
+(POINTER,INT,INT,POINTER) VOID<br>
+&nbsp;&nbsp; in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; fill table xs;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; sort (address table, len, sizeof pairType, compare);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; read table len<br>
+&nbsp;&nbsp; end</tt></strong></p>
+
+<p>The function <b><tt>fill</tt></b> takes a pointer into some allocated space (which must
+be big enough), and a string pair list. It fills the array with structures created from
+the list. The function <b><tt>offset</tt></b> is used to move along the allocated area.</p>
+
+<p>The function <b><tt>read</tt></b> is the inverse of <b><tt>fill</tt></b>. It takes an
+array of structures and an integer <i>n</i> and reconstructs a list of <i>n</i> string
+pairs.</p>
+
+<p>The ML function <b><tt>qsort</tt></b> operates by first allocating enough space for the
+array of structures, then using <b><tt>fill</tt></b> to fill this array from the argument
+list <b><tt>xs</tt></b>. A call to the C-function <b><tt>qsort</tt></b> is made to sort
+this array. Notice how the first argument to <b><tt>sort</tt></b> is <b><tt>(address
+table)</tt></b> which generates the required array pointer for the C-function <b><tt>qsort</tt></b>.
+Finally, a list is reconstructed from the sorted array using <b><tt>read</tt></b>.</p>
+
+<p>Now we can evaluate the following:</p>
+
+<p><tt><strong>&gt; qsort [(&quot;one&quot;,&quot;fred&quot;), (&quot;two&quot;,
+&quot;dave&quot;), (&quot;three&quot;, &quot;bob&quot;), (&quot;four&quot;,
+&quot;mary&quot;)];<br>
+val it =<br>
+&nbsp; [( &quot;four&quot;, &quot;mary&quot;), (&quot;one&quot;, &quot;fred&quot;),
+(&quot;three&quot;, &quot;bob&quot;), (&quot;two&quot;, &quot;dave&quot;)]</strong></tt></p>
+
+<h2><a name="17 Volatile Implementation">17 Volatile Implementation</a></h2>
+
+<p>The C-data contained in a volatile is managed in a separate space from normal ML data
+which is stored in the heap. There are two reasons for this. Data contained in the ML heap
+is liable to change its address during garbage collection, and C-functions cannot cope
+with this. The second reason is safety. We do not want foreign C-functions to obtain a
+pointer into the ML heap. Because the C-function is running in the same Unix process, it
+is always possible for it to corrupt the ML heap; however the most usual cause of
+corruption is caused by <i>off-by-one</i> errors. If the C-data is stored in the ML heap
+this would cause a neighbouring heap cell to be corrupted.</p>
+
+<p>Every ML value of type <b><tt>vol</tt></b> has two components: (1) An ML heap cell; (2)
+A slot in the <b><tt>vols</tt></b> array, a runtime system variable declared and managed
+in the file <b>Driver/foreign.c </b>. The ML heap cell indexes a slot in the <b><tt>vols</tt></b>
+array. This slot contains three items: (1) A back pointer, pointing at the corresponding
+ML heap cell. (2) A C-pointer, pointing to the actual C-data; (3) A boolean, indicating
+whether this volatile <i>owns</i> the space pointed to by the C-pointer.</p>
+
+<p>The combination of <b><tt>vols</tt></b> array index and the back pointer found there
+enables the validity of a volatile to be checked as it is dereferenced. If the volatile is
+invalid then the exception <b><tt>Foreign</tt></b> is raised.</p>
+
+<p>The collection of functions that convert ML values into <b><tt>vols</tt></b> (e.g. <b><tt>toCint</tt></b>
+and <b><tt>toCfloat</tt></b>), together with the functions <b><tt>alloc</tt></b> and <b><tt>address</tt></b>
+create new volatiles; that is, volatiles that <i>own</i> the space pointed to by the
+C-pointer in their <b>vols </b>array slot. This space is obtained from a call to <tt><b>malloc</b></tt>.
+There is always exactly one owner of any piece of <b><tt>malloc</tt></b>ed space. The <b><tt>deref</tt></b>
+and <b><tt>offset</tt></b> functions create <b><tt>vol</tt></b>s that point to previously
+allocated space and so are not regarded as the owner.</p>
+
+<p>Volatiles are garbage collected in such a way that <b><tt>malloc</tt></b>ed space is
+freed when there are no remaining references to the ML cell which owns that space.
+However, by itself this scheme is too vicious. For example:</p>
+
+<p><strong><tt>val a = address (toCint 999);</tt></strong></p>
+
+<p>When a garbage collection occurs, although the space owned by <b>a</b> (containing the
+pointer) will be preserved, the space allocated to hold the C-integer 999 will be
+reclaimed because there are no references to its owner, the anonymous expression <b><tt>(toCint
+999)</tt></b></p>
+
+<p>If we now evaluate the expression <b><tt>(fromCint (deref a))</tt></b>, it will result
+in whatever garbage happened to be pointed to by the redundant C-pointer contained in the
+volatile <b>a</b>. What is needed is a way to ensure that the volatile <b><tt>a</tt></b>
+holds an ML reference to the anonymous volatile <b><tt>(toCint 999)</tt></b> for the
+duration of its lifetime. In a similar manner, any volatile that does not own its own
+space, i.e. the result of the expression <b><tt>(deref (address (toCint 999)))</tt></b>,
+needs to hold a reference to the owner of the space it points at. This scheme of
+maintaining references is implemented in <b><tt>Volatile.ML</tt></b> in the directory <b><tt>Prelude/Foreign</tt></b>,
+and is completely transparent to the user.</p>
+
+<p>In some unusual situations we might want to allocate some space which persists after
+all ML references to it have disappeared. For example, we might have to allocate space for
+a buffer, and then hand a pointer to this buffer over to a foreign C-function. This can be
+achieved in two ways. We could carefully maintain an ML reference to the <b><tt>vol</tt></b>
+encapsulating the buffer. Alternatively, we could use the dynamic library manipulation
+functions to use the real C-function <b><tt>malloc</tt></b>.</p>
+</body>
+</html>

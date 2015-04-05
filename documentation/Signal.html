@@ -1,0 +1,59 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+
+<head>
+<title>The Signal structure</title>
+</head>
+
+<body bgcolor="#FFFFFF">
+
+<h2><font face="Arial"><strong>Signal structure</strong></font></h2>
+
+<p>Although the <tt>Posix</tt> structure in the Standard Basis Library provides functions
+which send signals to a process there is no standard method of handling signals.&nbsp; The
+<tt>Signal</tt> structure has been added to Poly/ML to allow signals to be blocked or
+handled.</p>
+
+<p><tt>Signal:<br>
+&nbsp;&nbsp;&nbsp; sig<br>
+&nbsp;&nbsp;&nbsp; datatype sig_handle =<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; SIG_DFL | SIG_IGN | SIG_HANDLE of int -&gt;
+unit<br>
+&nbsp;&nbsp;&nbsp; val signal = fn : int * sig_handle -&gt; sig_handle<br>
+&nbsp;&nbsp;&nbsp; end</tt></p>
+
+<p>The <tt>Signal.signal</tt> function takes as its arguments a signal number and an
+action and returns the previous action.&nbsp; The action may be <tt>SIG_DFL</tt>,
+indicating the default action, <tt>SIG_IGN</tt>, indicating that the signal should be
+ignored (blocked) or <tt>SIG_HANDLE</tt>, which allows a handler function to be installed.
+&nbsp;&nbsp; </p>
+
+<p>Signals are represented as integers using the normal Unix signal numbering.&nbsp; In
+the Unix implementations of Poly/ML the type <tt>Posix.Signal.signal</tt> is the same as <tt>int</tt>
+so the constants from <tt>Posix.Signal</tt> can be used as arguments to <tt>Signal.signal</tt>.
+&nbsp; </p>
+
+<p>The default action depends on the signal.&nbsp; For some signals it is to ignore the
+signal, for others the process is killed.&nbsp; See the signal man page in Unix for a list
+of the default actions.&nbsp; The only exception is the console interrupt signal, signal
+number 2.&nbsp; The default action here is to run the conventional Poly/ML console
+interrupt handler which prompts for various actions including getting a stack trace and
+raising an <tt>Interrupt</tt> exception.</p>
+
+<p>A handler function installed using <tt>SIG_HANDLE</tt> is run as a separate process
+(thread) some time after a signal arrives.&nbsp; </p>
+
+<p>Several signals, such as SIGSEGV, SIGFPE and SIGILL, are used internally by Poly/ML.
+&nbsp; It is not possible to install a handler or block these signals.&nbsp; Although the
+SIGALRM (14) signal is used internally it is treated specially and a signal handler for
+SIGALRM may be installed.&nbsp; The handler will be run whenever the timer set up by <tt>Posix.Process.alarm</tt>
+expires as though the signal had been delivered.&nbsp; </p>
+
+<p>Signal actions installed using Signal.signal are persistent.</p>
+
+<p>The Signal structure is provided in the Windows implementation but only the 
+  console interrupt signal (2) has effect.</p>
+
+</body>
+</html>

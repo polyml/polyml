@@ -1,0 +1,452 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+<head>
+
+
+  <title>IDE Communications Protocol</title>
+  <link rel="stylesheet" type="text/css" href="main.css">
+</head>
+
+
+
+<body bgcolor="#ffffff">
+
+
+<h1>IDE Communications Protocol</h1>
+
+
+<p>Poly/ML release 5.3 introduces support for an Integrated Development Environment 
+  to extract extra information about a program. This documents the protocol used 
+  to exchange information with the front-end. It is written on top of functions 
+  that extract the information from the compiler's parse tree. Some applications 
+  may find it more convenient to interact directly with these functions and implement 
+  their own protocol. This document is primarily aimed at writers of IDEs or plug-ins 
+  who are interacting with the normal ML top-level.</p>
+
+  
+<h2>Lexical</h2>
+
+
+<p>The basic format uses a binary XML-like representation in which the escape 
+  character (0x1b) is used as a special marker. It may be followed by other characters 
+  that determine how the remainder of the input is to be treated. Strings are 
+  sent as a sequence of bytes terminated by the escape character. If the escape 
+  character itself appears in the string it is sent as two escape characters, 
+  except within compilation input (see below). Where a value represents a number 
+  it is sent as base ten, possibly preceded by ~ or -.</p>
+
+  
+<h2>Packets and Mark-up</h2>
+
+
+<p>There are two different ways in which escape combinations may occur. Within 
+  the communications protocol data is exchanged between the IDE and the Poly/ML 
+  front-end using packets of data. These begin and end with an escape sequence 
+  and use escape sequences, usually escape followed by comma, to separate the 
+  elements. The opening escape sequence is always escape followed by an upper 
+  case character and the closing sequence is always escape followed by the lower 
+  case version of the opening sequence. For many cases, the format of the packet 
+  is fixed but there is an exception in the case of marked-up text. Marked-up 
+  text can arise in the case of error messages or some other output from the compiler 
+  where extra information can be inserted at arbitrary point within the text of 
+  the message. Such mark-up uses the same format as the protocol packets but the 
+  opening section is delimited by escape followed by semicolon. Having a standard 
+  format provides for upwards compatibility since an IDE can easily skip mark-up 
+  that it does not recognise.</p>
+
+  
+<h2>Output mark-up</h2>
+
+
+<p>Poly/ML can be run in a mode where it produces enhanced output but otherwise 
+  runs a normal top-level. This can be used by the IDE to give the user access 
+  to a normal interactive ML session. The <code>--with-markup</code> option to 
+  Poly/ML runs the normal Poly/ML top-level loop but causes it to add mark-up 
+  to some of its messages. Currently it is used in two cases; in error messages 
+  and in messages showing where an identifier was declared.<br>
+
+  The format of the information showing a location is: 
+</p>
+<div class="packet">ESC 'D' filename ESC ',' startline ESC ',' startlocation ESC 
+  ',' endlocation ESC ';'</div>
+
+  
+  This is followed by the identifier itself and then the closing packet:
+  
+<div class="packet">ESC 'd'</div>
+
+  
+  
+<p>An error message packet consists of </p>
+
+<div class="packet">ESC 'E' kind ESC ',' filename ESC ',' startline ESC ',' startlocation 
+  ESC ',' endlocation ESC ';'</div>
+
+<p>"kind" is either 'E' indicating a hard error or 'W' indicating a 
+  non-fatal warning. This is followed by the text of the message and then the 
+  closing packet:</p>
+
+<div class="packet">ESC 'e'</div>
+
+<p>Mark up in the future will follow the same pattern allowing the IDE to skip 
+  unrecognised mark-up. This mark-up is also used in some of the packets within 
+  the full IDE protocol.</p>
+
+<h2>Full IDE protocol</h2>
+
+<p> When run with the <code>--ideprotocol</code> 
+  option the top-level loop runs the full IDE communication protocol. This can also be started by <code>PolyML.IDEInterface.runIDEProtocol()</code> from within PolyML. 
+  </p>
+  <p>This is 
+  intended primarily for compiling files while they are being edited, either as 
+  the result of an explicit request from the user or automatically. When this 
+  option is given the front-end retains the parse tree and requests can be made 
+  to extract information from the parse tree. 
+  </p>
+
+  <p>When the IDE mode is started, PolyML sends the following message to std-out: 
+<div class="packet">ESC 'H' protocol-version-number ESC 'h'</div>
+  where <code>protocol-version-number</code> is the version number identifying the particular version of the PolyML protocol. Requests to PolyML should wait until this message has been sent by PolyML. The current version of the protocol is <code>1.0.0</code>.
+  </p>
+
+  <p>Requests to PolyML are in terms of byte offsets 
+  within the last source text. If the text has been edited since it was last sent 
+  to ML the IDE must convert positions within the current source text into positions 
+  within the original before sending requests to ML and do the reverse conversion 
+  before displaying the results.</p>
+
+  
+<h3>Requests from IDE to Poly/ML.</h3>
+
+<p>Simple requests about the current parse tree all have the same format. They 
+  contain a request code that describes the kind of information to return and 
+  a pair of positions. Frequently the start and end positions will be the same. 
+  PolyML searches for the smallest node in the parse tree that spans the 
+  positions and returns information about that node. It always retains the actual 
+  span for the node in the result so that the IDE can highlight the actual text 
+  in the display.</p>
+
+<p>Every request contains a request identifier which is returned in the result. 
+  This allows the IDE to run asynchronously. A request identifier is an arbitrary 
+  string generated by the IDE. The request identifier used in a compilation request 
+  has a special status. This identifier is used to mark the version of the parse 
+  tree that results from the compilation and must be included in commands that 
+  query the parse tree. In that way Poly/ML is able to tell whether a request 
+  refers to the current tree or to an older or newer version.</p>
+
+<p>The format of a request packet is:
+</p>
+<div class="packet">ESC CODE request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset ESC code</div>
+
+The start character is an upper case character, the end character the corresponding lower case character.<br>
+
+The CODE is, currently, one of the following
+  
+<table border="0" width="43%">
+  <tbody>
+    <tr> 
+      <td width="11%">O</td>
+      <td width="89%">Return a list of properties for the node</td>
+    </tr>
+    <tr> 
+      <td>T</td>
+      <td>Return type information</td>
+    </tr>
+    <tr> 
+      <td>I</td>
+      <td>Return declaration location</td>
+    </tr>
+    <tr> 
+      <td>M</td>
+      <td>Move relative to a given position</td>
+    </tr>
+    <tr>
+      <td>V</td>
+      <td>Return a list of references to an identifier</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Responses follow a similar structure to the request. The start and end code 
+  for a response is the same as the start and end for the request. All responses 
+  contain the actual start and end points of the current tree. If there is no 
+  parse tree the start and end offsets will be zero. An unrecognised command will 
+  return an empty response for forwards compatibility. Where a command is invalid 
+  or unrecognised the response will be
+  </p>
+<div class="packet">ESC CODE request-id ESC ',' parse-tree-id ESC ',' startoffset ESC ',' endoffset ESC code</div>
+
+<p>In particular, because the IDE may issue requests while a compilation is running 
+  the parse tree id in the request packet may not match the current parse tree 
+  within Poly/ML. In that case the parse tree id in the result packet will contain 
+  the <em>current</em> parse tree and not the parse tree id in the request. The 
+  IDE must keep a list of requests it has sent along with the parse tree id it 
+  used and if it receives a response with a different parse tree id it should 
+  reissue the request adjusting the offsets to account for any changes.</p>
+
+<p><span class="packet-name">O Request:</span>
+
+  </p>
+<div class="packet">ESC 'O' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset ESC 'o'</div>
+
+  
+  <span class="packet-name">O Response:</span>
+  
+  
+<div class="packet">ESC 'O' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset
+  commands ESC 'o'</div>
+
+  
+  The commands are a set of strings separated by ESC ','. At the moment the strings 
+are all single characters and identify the set of valid commands and sub-commands: 
+i.e. T,I,J,S,V,U,C,N and P. For forward compatibility the IDE should accept but 
+ignore other strings. 
+<p> <span class="packet-name">T Request:</span>
+
+</p>
+<div class="packet">ESC 'T' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset ESC 't'</div>
+
+
+<span class="packet-name">T Response:</span>
+
+<div class="packet">ESC 'T' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset 
+  ESC ',' type-string ESC 't'</div>
+
+  
+  Returns the type of the selected node as a string. There is no currently mark 
+  up in the type. If this is not an expression this returns 
+  
+<div class="packet">ESC 'T' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset ESC 't'</div>
+
+  
+<p><span class="packet-name">I Request: </span> 
+</p>
+<div class="packet">ESC CHAR 'I' request-id ESC ',' ESC ',' parse-tree-id ESC ',' startoffset ESC ',' endoffset 
+  ESC ',' request-type ESC 'i'</div>
+
+
+<span class="packet-name">I Response:</span>
+<div class="packet">ESC 'I' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset 
+  ESC ',' filename ESC ',' startline ESC ',' startlocation ESC ',' endlocation ESC 'i'</div>
+
+  Thse requests return information about an identifier. Finds an identifier at 
+  a given location and returns the location where that identifier was defined, 
+  if the request-type is 'I'; where the identifier was added to the current name 
+  space using an "open" declaration, if it is J and the location where 
+  the structure that was opened was declared, if it is S. The first two locations 
+  as usual indicate the position of the use of the identifier. The remaining information 
+  relates to the declaration. Returns 
+<div class="packet">ESC 'I' request-id ESC ',' parse-tree-id ESC ',' startoffset ESC ',' endoffset ESC 'i'</div>
+ 
+  if this is not an identifier or did not come from opening a structure, 
+  where appropriate. The information is similar to a D block in mark-up.
+<table border="0" width="43%">
+
+  <tbody>
+    <tr>
+ 
+    <td>I</td>
+
+    <td>Return declaration location</td>
+
+  </tr>
+
+  <tr>
+ 
+    <td>J</td>
+
+    <td>Return the location where an identifier was opened</td>
+
+  </tr>
+
+  <tr>
+ 
+    <td>S</td>
+
+    <td>Return the location of an identifier's parent structure</td>
+
+  </tr>
+
+  </tbody>
+</table>
+
+<p><span class="packet-name">M request:</span>
+</p>
+<div class="packet">ESC CHAR 'M' ESC ',' parse-tree-id ESC ',' startoffset ESC ',' endoffset ESC ',' action ESC 'm'</div>
+
+The action 
+  string defines the direction of the move. Currently all moves are single character 
+  strings. 
+<table border="0" width="43%">
+
+  <tbody>
+    <tr>
+    <td>"U"</td>
+    <td>Move to the parent node</td>
+  </tr>
+  <tr>
+    <td>"C"</td>
+    <td>Move to the first child node</td>
+  </tr>
+  <tr>
+    <td>"N"</td>
+    <td>Move to the next sibling</td>
+  </tr>
+  <tr>
+    <td>"P"</td>
+    <td>Move to the previous sibling</td>
+  </tr>
+  </tbody>
+</table>
+
+
+<span class="packet-name">M Response:</span>
+<div class="packet">ESC CHAR 'M' parse-tree-id ESC ',' startoffset ESC ',' endoffset ESC 'm'</div>
+
+PolyML selects the parse tree node at the given location and moves relative 
+  to it. If the move is not possible the location remains unchanged. If the move is successful then the new move location is returned in the packet. 
+<p> <span class="packet-name">V Request:</span>
+
+</p>
+<div class="packet">ESC 'V' request-id ESC ',' parse-tree-id ESC ',' start-offset ESC ',' end-offset ESC 'v'</div>
+
+
+<span class="packet-name">V Response:</span>
+
+<div class="packet">ESC 'V' request-id ESC ',' parse-tree-id ESC ',' start-offset 
+  ESC ',' end-offset ESC ',' start-ref1 ESC ',' end-ref1 ESC ',' .... start-refn 
+  ESC ',' end-refn ESC 'v'</div>
+
+  
+  Returns the list of local references to an identifier if the parse tree location 
+refers to a local value identifier. The results are a sequence of start and end 
+offsets. If the specified location is not a local value identifier the result 
+is 
+<div class="packet">ESC 'V' request-id ESC ',' parse-tree-id ESC ',' start-offset 
+  ESC ',' end-offset ESC 'v'</div>
+  
+
+<h3>Compilation.</h3>
+
+<p>In order to compile a piece of text the IDE sends it to ML through the protocol. 
+  Because any previous compilation may have executed code and affected the global 
+  state it is assumed that the IDE will set up some form of context for the file 
+  by previously saving some state. Typically, this would require it to have compiled 
+  all the files that this particular piece of source text will depend on and to 
+  have saved it in a saved state. A compilation request therefore has the following 
+  structure:
+  </p>
+  
+<div class="packet">ESC 'R' request-id ESC ',' sourcename ESC ',' startposition ESC ',' prelude-length 
+  ESC ',' source-length ESC ',' prelude ESC ',' source-text ESC 'r'</div>
+
+  'prelude' is a piece of ML code to compile and execute before the user-supplied 
+  code. Typically this will include a call to PolyML.SaveState.loadState to load 
+  the initial state for the compilation.<br>
+
+  'source-text' is the ML code that is being compiled and executed.<br>
+
+  'sourcename' is the name to be used as the file name when reporting locations.<br>
+
+  'startposition' is the value to be used as the initial offset in the file. The 
+  usual case is that this is zero or a null string which is taken as zero.<br>
+
+  '<code>prelude-length</code>' and 
+  '<code>source-length</code>' are 
+  the number of bytes in the prelude and source text respectively. Since the prelude 
+  and source text may be large it is much more efficient to use these lengths 
+  to read the input. Because these lengths are provided it is not necessary to 
+  search for the escape code within the text and so if the escape character appears 
+  within the text it is not itself escaped.
+<p>Poly/ML responds with a result block. The format of the result block depends 
+  on the result of the compilation and possible execution of the code. The  result block has the form:
+</p>
+<div class="packet">ESC 'R' request-id ESC ',' parse-tree-id 
+  ESC ',' result ESC ',' finaloffset ESC ';' errors_and_messages ESC 'r'</div>
+
+  "<code>result</code>" is a single character indicating success or failure.<br>
+
+  "<code>finaloffset</code>" is the byte position that indicates the extent of 
+  the valid parse tree. If there was an error this may be less than the end of 
+  the input. It may be the start of the input if there was a syntax error and 
+  no parse tree could be created. As usual "<code>request-id</code>" is the ID of 
+  the request. The "<code>parse-tree-id</code>" will normally be the same as the 
+  "<code>request-id</code>" indicating that the compilation has updated the parse 
+  tree, even if type checking failed. However, if there was a failure, such as 
+  during parsing, that meant that no new parse tree could be produced the ID returned 
+  will be the original parse tree ID, or the empty string if there was none. <br>
+  Error packets within the <code>errors_and_messages</code> have the same format as described above for mark-up.
+  </p>
+ 
+<p>The result codes are<br>
+  S - Success. The file compiled successfully and ran without an exception.<br>
+
+  X - Exception. The file compiled successfully but raised an exception when it 
+  ran.<br>
+
+  L - The prelude code failed to compile or raised an exception.<br>
+
+  F - Parse or type checking failure.<br>
+
+  C - Cancelled during compilation.<br>
+
+  The parse tree will be updated to reflect the result of the compilation and 
+  the current parse tree identifier used by Poly/ML will be set to the identifier 
+  supplied in the request. </p>
+
+<p>For a result code of S (compiled successfully) there may be warnings.</p>
+
+<p> For a result code of L (prelude code failed) the result packet contains the exception packet that 
+  was returned and has the form:<br>
+
+  </p>
+<div class="packet">ESC 'R' request-id ESC ',' parse-tree-id ESC ',' 'L' ESC ',' startOffset 
+  ESC ';' error_message ESC 'r'</div>
+
+<p>For a result code of F (parsing or type checking failed) the result packet contains a list of one or more error 
+  packets. The format of the result packet is: 
+</p>
+<div class="packet">ESC 'R' request-id ESC ',' parse-tree-id ESC ',' 'F' ESC ',' endOffset 
+  ESC ';' error_packets ESC 'r'</div>
+
+<p>Where the error packets have the same format as described above for mark-up.</p>
+
+<p>For a result code of C (cancel compiled) the result may or may not contain error packets depending 
+  on whether the compilation had produced error messages before the compilation 
+  was cancelled.</p>
+
+<p>For a result code of X the <code>errors_and_messages</code> result packet contains the exception message first within a <code>X</code> tag, as 
+  a string. The string may also containing output mark-up such as the D-style mark-up showing the location 
+  where the exception was raised. Thus the format of the packet with exception data 
+  is: <br>
+
+</p>
+<div class="packet">ESC 'R' request-id ESC ',' parse-tree-id ESC ',' 'X' ESC ',' startOffset 
+  ESC ';' ESC 'X' exception_message ESC 'x' error_packets ESC 'r'</div>
+
+<h3>Cancellation.</h3>
+
+<p>Compilation is run as a separate thread and may be cancelled using the K-request.<br>
+
+  </p>
+<div class="packet">ESC 'K' request-id ESC 'k'</div>
+<br>
+
+  The request identifier is the identifier used in the R-request that should be 
+  cancelled. Unlike other requests this packet does not have its own identifier 
+  nor does it have a direct response.
+<p>The action on receiving a cancel request depends on the current state of the 
+  compilation. If the compilation has already finished no action is taken. Poly/ML 
+  will have already sent a result packet for the compilation. If the compilation 
+  is in progress Poly/ML will attempt to cancel it by sending an interrupt to 
+  the compilation thread to ask it to terminate. If the thread is actually in 
+  the compiler at the time the interrupt is received the result will be a C result 
+  code but if it is actually executing the result of compilation this code will 
+  receive the Interrupt exception. Assuming it does not trap it the result will 
+  be an X result code. The thread may actually have completed before the interrupt 
+  is processed so any other result is also possible.</p>
+
+<p>&nbsp;</p>
+
+</body>
+</html>

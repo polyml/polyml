@@ -1,0 +1,324 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: CommonDialog structure</title>
+</head>
+
+<body>
+
+<h1>CommonDialog</h1>
+
+<p>The CommonDialog structure contains functions and structures to create common forms of
+dialogue boxes.</p>
+
+<pre>structure CommonDialog :
+  sig
+    type HWND and HDC and COLORREF = Color.COLORREF and HINSTANCE
+    type POINT = { x: int, y: int }
+    type RECT =  { left: int, top: int, right: int, bottom: int }
+
+     (* Error codes *)
+    datatype CDERR =
+             DIALOGFAILURE
+        |    GENERALCODES
+        |    STRUCTSIZE
+        |    INITIALIZATION
+        |    NOTEMPLATE
+        |    NOHINSTANCE
+        |    LOADSTRFAILURE
+        |    FINDRESFAILURE
+        |    LOADRESFAILURE
+        |    LOCKRESFAILURE
+        |    MEMALLOCFAILURE
+        |    MEMLOCKFAILURE
+        |    NOHOOK
+        |    REGISTERMSGFAIL
+
+        |    PRINTERCODES
+        |    SETUPFAILURE
+        |    PARSEFAILURE
+        |    RETDEFFAILURE
+        |    LOADDRVFAILURE
+        |    GETDEVMODEFAIL
+        |    INITFAILURE
+        |    NODEVICES
+        |    NODEFAULTPRN
+        |    DNDMMISMATCH
+        |    CREATEICFAILURE
+        |    PRINTERNOTFOUND
+        |    DEFAULTDIFFERENT
+
+        |    CHOOSEFONTCODES
+        |    NOFONTS
+        |    MAXLESSTHANMIN
+
+        |    FILENAMECODES
+        |    SUBCLASSFAILURE
+        |    INVALIDFILENAME
+        |    BUFFERTOOSMALL
+
+        |    FINDREPLACECODES
+        |    BUFFERLENGTHZERO
+
+        |    CHOOSECOLORCODES
+
+    val CommDlgExtendedError : unit -&gt; CDERR
+
+    (* ChooseColor *)
+
+    structure ChooseColorFlags :
+      sig
+        include BIT_FLAGS
+        val CC_ANYCOLOR : flags
+        val CC_FULLOPEN : flags
+        val CC_PREVENTFULLOPEN : flags
+        val CC_RGBINIT : flags
+        val CC_SHOWHELP : flags
+        val CC_SOLIDCOLOR : flags
+      end
+
+    type CHOOSECOLOR =
+    {
+        owner: HWND option,
+        result: COLORREF,
+        customColors: COLORREF list,
+        flags: ChooseColorFlags.flags
+    }
+
+    val ChooseColor : CHOOSECOLOR -&gt; CHOOSECOLOR option
+
+
+    (* ChooseFont *)
+
+    structure ChooseFontFlags :
+      sig
+        include BIT_FLAGS
+        val CF_ANSIONLY : flags
+        val CF_APPLY : flags
+        val CF_BOTH : flags
+        val CF_EFFECTS : flags
+        val CF_FIXEDPITCHONLY : flags
+        val CF_FORCEFONTEXIST : flags
+        val CF_NOFACESEL : flags
+        val CF_NOOEMFONTS : flags
+        val CF_NOSCRIPTSEL : flags
+        val CF_NOSIMULATIONS : flags
+        val CF_NOSIZESEL : flags
+        val CF_NOSTYLESEL : flags
+        val CF_NOVECTORFONTS : flags
+        val CF_NOVERTFONTS : flags
+        val CF_PRINTERFONTS : flags
+        val CF_SCALABLEONLY : flags
+        val CF_SCREENFONTS : flags
+        val CF_SCRIPTSONLY : flags
+        val CF_SELECTSCRIPT : flags
+        val CF_SHOWHELP : flags
+        val CF_TTONLY : flags
+        val CF_WYSIWYG : flags
+      end
+
+    structure ChooseFontTypes :
+      sig
+        include BIT_FLAGS
+        val BOLD_FONTTYPE : flags
+        val ITALIC_FONTTYPE : flags
+        val PRINTER_FONTTYPE : flags
+        val REGULAR_FONTTYPE : flags
+        val SCREEN_FONTTYPE : flags
+        val SIMULATED_FONTTYPE : flags
+      end
+
+    type CHOOSEFONT =
+    {
+        owner: HWND option,
+        context: HDC option,
+        logFont: Font.LOGFONT option,
+        pointSize: int,
+        flags: ChooseFontFlags.flags,
+        colors: COLORREF,
+        style: string option,
+        fontType: ChooseFontTypes.flags,
+        size: {min: int, max: int} option
+    }
+
+    val ChooseFont : CHOOSEFONT -&gt; CHOOSEFONT option
+
+    (* FindText and ReplaceText *)
+    structure FindReplaceFlags :
+      sig
+        include BIT_FLAGS
+        val FR_DIALOGTERM : flags
+        val FR_DOWN : flags
+        val FR_FINDNEXT : flags
+        val FR_HIDEMATCHCASE : flags
+        val FR_HIDEUPDOWN : flags
+        val FR_HIDEWHOLEWORD : flags
+        val FR_MATCHCASE : flags
+        val FR_NOMATCHCASE : flags
+        val FR_NOUPDOWN : flags
+        val FR_NOWHOLEWORD : flags
+        val FR_REPLACE : flags
+        val FR_REPLACEALL : flags
+        val FR_SHOWHELP : flags
+        val FR_WHOLEWORD : flags
+      end
+
+    datatype
+      TemplateType =
+          TemplateDefault
+        | TemplateHandle of Dialog.DLGTEMPLATE
+        | TemplateResource of HINSTANCE * Resource.RESID
+
+    type FINDREPLACE =
+    {
+        owner : HWND,
+        template: TemplateType,
+        flags: FindReplaceFlags.flags,
+        findWhat: string,
+        replaceWith: string,
+        bufferSize: int
+    }
+
+    val <a
+href="#FindText">FindText</a> : FINDREPLACE -&gt; HWND
+    val <a href="#ReplaceText">ReplaceText</a> : FINDREPLACE -&gt; HWND
+
+    (* GetOpenFileName and GetSaveFileName *)
+
+    structure OpenFileFlags :
+      sig
+        include BIT_FLAGS
+        val OFN_ALLOWMULTISELECT : flags
+        val OFN_CREATEPROMPT : flags
+        val OFN_EXPLORER : flags
+        val OFN_EXTENSIONDIFFERENT : flags
+        val OFN_FILEMUSTEXIST : flags
+        val OFN_HIDEREADONLY : flags
+        val OFN_LONGNAMES : flags
+        val OFN_NOCHANGEDIR : flags
+        val OFN_NODEREFERENCELINKS : flags
+        val OFN_NOLONGNAMES : flags
+        val OFN_NONETWORKBUTTON : flags
+        val OFN_NOREADONLYRETURN : flags
+        val OFN_NOTESTFILECREATE : flags
+        val OFN_NOVALIDATE : flags
+        val OFN_OVERWRITEPROMPT : flags
+        val OFN_PATHMUSTEXIST : flags
+        val OFN_READONLY : flags
+        val OFN_SHAREAWARE : flags
+        val OFN_SHOWHELP : flags
+      end
+
+    type OPENFILENAME =
+    {
+        owner: HWND option,
+        template: TemplateType,
+        filter: (string * string) list,
+        customFilter: (string * string) option,
+        filterIndex: int,
+        file: string,    (* Initial value of file and returned result. *)
+        maxFile: int,    (* Max size of expected file name. *)
+        fileTitle : string,
+        initialDir: string option,
+        title: string option, (* Optional title - default is Save or Open. *)
+        flags: OpenFileFlags.flags,
+        defExt: string option
+    }
+
+    val GetFileTitle : string -&gt; string
+    val <a
+name="GetOpenFileName">GetOpenFileName</a> : OPENFILENAME -&gt; OPENFILENAME option
+    val <a
+name="GetSaveFileName">GetSaveFileName</a> : OPENFILENAME -&gt; OPENFILENAME option
+
+    (* PageSetupDlg *)
+    structure PageSetupFlags :
+      sig
+        include BIT_FLAGS
+        val PSD_DEFAULTMINMARGINS : flags
+        val PSD_DISABLEMARGINS : flags
+        val PSD_DISABLEORIENTATION : flags
+        val PSD_DISABLEPAGEPAINTING : flags
+        val PSD_DISABLEPAPER : flags
+        val PSD_DISABLEPRINTER : flags
+        val PSD_INHUNDREDTHSOFMILLIMETERS : flags
+        val PSD_INTHOUSANDTHSOFINCHES : flags
+        val PSD_MARGINS : flags
+        val PSD_MINMARGINS : flags
+        val PSD_NONETWORKBUTTON : flags
+        val PSD_NOWARNING : flags
+        val PSD_RETURNDEFAULT : flags
+        val PSD_SHOWHELP : flags
+      end
+
+    type PAGESETUPDLG =
+    {
+        owner: HWND option,
+        devMode: DeviceContext.DEVMODE option,
+        devNames: DeviceContext.DEVNAMES option,
+        flags: PageSetupFlags.flags,
+        paperSize: POINT,
+        minMargin: RECT,
+        margin: RECT
+        (* For the moment we ignore the other options. *)
+    }
+
+    val <a
+name="PageSetupDlg">PageSetupDlg</a> : PAGESETUPDLG -&gt; PAGESETUPDLG option
+
+    (* PrintDlg *)
+    structure PrintDlgFlags :
+      sig
+        include BIT_FLAGS
+        val PD_ALLPAGES : flags
+        val PD_COLLATE : flags
+        val PD_DISABLEPRINTTOFILE : flags
+        val PD_HIDEPRINTTOFILE : flags
+        val PD_NONETWORKBUTTON : flags
+        val PD_NOPAGENUMS : flags
+        val PD_NOSELECTION : flags
+        val PD_NOWARNING : flags
+        val PD_PAGENUMS : flags
+        val PD_PRINTSETUP : flags
+        val PD_PRINTTOFILE : flags
+        val PD_RETURNDC : flags
+        val PD_RETURNDEFAULT : flags
+        val PD_RETURNIC : flags
+        val PD_SELECTION : flags
+        val PD_SHOWHELP : flags
+        val PD_USEDEVMODECOPIES : flags
+        val PD_USEDEVMODECOPIESANDCOLLATE : flags
+     end
+
+    type PRINTDLG =
+    {
+        owner: HWND option,
+        devMode: DeviceContext.DEVMODE option,
+        devNames: DeviceContext.DEVNAMES option,
+        context: HDC option,
+        flags: PrintDlgFlags.flags,
+        fromPage: int,
+        toPage: int,
+        minPage: int,
+        maxPage: int,
+        copies: int
+        (* For the moment we ignore the other options. *)
+    }
+
+    val <a
+name="PrintDlg">PrintDlg</a> : PRINTDLG -&gt; PRINTDLG option
+  end</pre>
+
+<p>Generally these functions create modal dialogue boxes.&nbsp; They take a configuration
+structure as an argument and return an option type.&nbsp; NONE is returned if the user
+presses Cancel.&nbsp; If the user presses OK the result is SOME with a modified structure
+containing the user's input.&nbsp; </p>
+
+<p><tt><a name="FindText">FindText</a>(findReplace): HWND<br>
+<a name="ReplaceText">ReplaceText</a>(findReplace): HWND<br>
+</tt>These create modeless dialogues and return a handle to the window for the dialogue.
+&nbsp; They send <a href="Message.html#FINDMSGSTRING">FINDMSGSTRING</a> messages to the
+parent window to indicate various changes of state.</p>
+</body>
+</html>

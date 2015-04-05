@@ -1,0 +1,78 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Brush structure</title>
+</head>
+
+<body>
+
+<h1>Brush</h1>
+
+<p>The Brush structure contains functions and structures to create and operate on brushes.
+&nbsp; Brushes are used to fill areas of the screen with single colours or patterns.</p>
+
+<pre>structure Brush:
+  sig
+    type HBITMAP and HBRUSH and HDC
+
+    datatype
+      HatchStyle =
+          HS_BDIAGONAL
+        | HS_CROSS
+        | HS_DIAGCROSS
+        | HS_FDIAGONAL
+        | HS_HORIZONTAL
+        | HS_VERTICAL
+
+    datatype
+      BrushStyle =
+          BS_HATCHED of HatchStyle
+        | BS_HOLLOW
+        | BS_PATTERN of HBITMAP
+        | BS_SOLID
+
+    type COLORREF = Color.COLORREF
+
+    type LOGBRUSH = BrushStyle * COLORREF
+    type POINT = {x: int, y: int}
+    type RasterOpCode = Bitmap.RasterOpCode
+
+    datatype ColorType =
+		COLOR_SCROLLBAR
+	|	COLOR_BACKGROUND
+	|	COLOR_ACTIVECAPTION
+	|	COLOR_INACTIVECAPTION
+	|	COLOR_MENU
+	|	COLOR_WINDOW
+	|	COLOR_WINDOWFRAME
+	|	COLOR_MENUTEXT
+	|	COLOR_WINDOWTEXT
+	|	COLOR_CAPTIONTEXT
+	|	COLOR_ACTIVEBORDER
+	|	COLOR_INACTIVEBORDER
+	|	COLOR_APPWORKSPACE
+	|	COLOR_HIGHLIGHT
+	|	COLOR_HIGHLIGHTTEXT
+	|	COLOR_BTNFACE
+	|	COLOR_BTNSHADOW
+	|	COLOR_GRAYTEXT
+	|	COLOR_BTNTEXT
+	|	COLOR_INACTIVECAPTIONTEXT
+	|	COLOR_BTNHIGHLIGHT
+	|	COLOR_3DDKSHADOW
+	|	COLOR_3DLIGHT
+	|	COLOR_INFOTEXT
+	|	COLOR_INFOBK
+
+    val CreateBrushIndirect : LOGBRUSH -&gt; HBRUSH
+    val CreateHatchBrush : HatchStyle * COLORREF -&gt; HBRUSH
+    val CreatePatternBrush : HBITMAP -&gt; HBRUSH
+    val CreateSolidBrush : COLORREF -&gt; HBRUSH
+    val GetSysColorBrush : ColorType -&gt; HBRUSH
+    val GetBrushOrgEx : HDC -&gt; POINT
+    val PatBlt : HDC * int * int * int * int * RasterOpCode -&gt; unit
+    val SetBrushOrgEx : HDC * POINT -&gt; POINT
+  end</pre>
+</body>
+</html>

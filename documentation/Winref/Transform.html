@@ -1,0 +1,80 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Transform structure</title>
+</head>
+
+<body>
+
+<h1>Transform </h1>
+
+<p>The Transform structure contains functions to apply various co-ordinate transforms
+within a window or device context.</p>
+
+<pre>structure Transform:
+  sig
+	type HDC
+	type HWND
+	type POINT = { x: int, y: int }
+	type SIZE = { cx: int, cy: int }
+    datatype Fraction = Fraction of {num: int, denom: int}
+	
+    datatype
+      MapMode =
+          MM_ANISOTROPIC
+        | MM_HIENGLISH
+        | MM_HIMETRIC
+        | MM_ISOTROPIC
+        | MM_LOENGLISH
+        | MM_LOMETRIC
+        | MM_TEXT
+        | MM_TWIPS
+    val MM_MAX : MapMode
+    val MM_MAX_FIXEDSCALE : MapMode
+    val MM_MIN : MapMode
+
+	type XForm = { m11: real, m12: real, m21: real, m22: real, dx: real, dy: real }
+
+    type XFormType
+    val MWT_IDENTITY : XFormType
+    val MWT_LEFTMULTIPLY : XFormType
+    val MWT_MAX : XFormType
+    val MWT_MIN : XFormType
+    val MWT_RIGHTMULTIPLY : XFormType
+
+    type GraphicsMode
+    val GM_ADVANCED : GraphicsMode
+    val GM_COMPATIBLE : GraphicsMode
+    val GM_ERROR : GraphicsMode
+
+    val ClientToScreen : HWND * POINT -&gt; POINT
+    val CombineTransform : XForm * XForm -&gt; XForm
+    val DPtoLP : HDC * POINT list -&gt; POINT list
+    val GetCurrentPositionEx : HDC -&gt; POINT
+    val GetGraphicsMode : HDC -&gt; GraphicsMode
+    val GetMapMode : HDC -&gt; MapMode
+    val GetViewportExtEx : HDC -&gt; SIZE
+    val GetViewportOrgEx : HDC -&gt; POINT
+    val GetWindowExtEx : HDC -&gt; SIZE
+    val GetWindowOrgEx : HDC -&gt; POINT
+    val GetWorldTransform : HDC -&gt; XForm
+    val LPtoDP : HDC * POINT list -&gt; POINT list
+    val MapWindowPoints : HWND * HWND * POINT list -&gt; POINT list
+    val ModifyWorldTransform : HDC * XForm * XFormType -&gt; unit
+    val OffsetViewportOrgEx : HDC * int * int -&gt; unit * POINT
+    val OffsetWindowOrgEx : HDC * int * int -&gt; unit * POINT
+    val ScaleViewportExtEx : HWND * Fraction * Fraction -&gt; SIZE
+    val ScaleWindowExtEx : HWND * Fraction * Fraction -&gt; SIZE
+    val ScreenToClient : HWND * POINT -&gt; POINT
+    val SetGraphicsMode : HDC * GraphicsMode -&gt; GraphicsMode
+    val SetMapMode : HDC * MapMode -&gt; MapMode
+    val SetViewportExtEx : HDC * int * int -&gt; unit * SIZE
+    val SetViewportOrgEx : HDC * int * int -&gt; unit * POINT
+    val SetWindowExtEx : HDC * int * int -&gt; unit * SIZE
+    val SetWindowOrgEx : HDC * int * int -&gt; unit * POINT
+    val SetWorldTransform : HDC * XForm -&gt; unit
+
+  end</pre>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Combobox structure</title>
+</head>
+
+<body>
+
+<h1>Combobox</h1>
+
+<p>The Combobox structure contains the styles and options used in messages sent to a
+combobox.&nbsp; A combobox is a combination of a list box together with an edit control.
+&nbsp; Most control of a combobox is by means of messages.&nbsp; Specialised combobox
+messages begin with <a href="Message.html#Combobox">CB_</a>. The values from the
+Notification substructure are sent as the <em>code</em> parameter in a <a
+href="Message.html#WM_NOTIFY">WM_NOTIFY</a> message.&nbsp; </p>
+
+<pre>structure Combobox:
+sig
+    structure Style:
+    sig
+        include BIT_FLAGS where type flags = Window.Style.flags
+        val WS_OVERLAPPED: flags and WS_POPUP: flags and WS_CHILD: flags and WS_MINIMIZE: flags
+        and WS_VISIBLE: flags and WS_DISABLED:flags and WS_CLIPSIBLINGS:flags
+        and WS_CLIPCHILDREN:flags and WS_MAXIMIZE:flags and WS_CAPTION:flags
+        and WS_BORDER:flags and WS_DLGFRAME:flags and WS_VSCROLL:flags and WS_HSCROLL:flags
+        and WS_SYSMENU:flags and WS_THICKFRAME:flags and WS_GROUP:flags and WS_TABSTOP:flags
+        and WS_MINIMIZEBOX:flags and WS_MAXIMIZEBOX:flags and WS_TILED:flags and WS_ICONIC:flags
+        and WS_SIZEBOX:flags and WS_OVERLAPPEDWINDOW:flags and WS_TILEDWINDOW:flags
+        and WS_POPUPWINDOW: flags and WS_CHILDWINDOW: flags
+        and CBS_SIMPLE: flags and CBS_DROPDOWN: flags and CBS_DROPDOWNLIST: flags
+        and CBS_OWNERDRAWFIXED: flags and CBS_OWNERDRAWVARIABLE: flags and CBS_AUTOHSCROLL: flags
+        and CBS_OEMCONVERT: flags and CBS_SORT: flags and CBS_HASSTRINGS: flags
+        and CBS_NOINTEGRALHEIGHT: flags and CBS_DISABLENOSCROLL: flags
+        and CBS_UPPERCASE: flags and CBS_LOWERCASE: flags
+    end
+
+    structure Notifications:
+    sig
+        val CBN_SELCHANGE: int
+        val CBN_DBLCLK: int
+        val CBN_SETFOCUS: int
+        val CBN_KILLFOCUS: int
+        val CBN_EDITCHANGE: int
+        val CBN_EDITUPDATE: int
+        val CBN_DROPDOWN: int
+        val CBN_CLOSEUP: int
+        val CBN_SELENDOK: int
+        val CBN_SELENDCANCEL: int
+    end
+
+    datatype CBDirAttr =
+        DDL_READWRITE | DDL_READONLY | DDL_HIDDEN | DDL_SYSTEM | DDL_DIRECTORY |
+        DDL_ARCHIVE | DDL_POSTMSGS | DDL_DRIVES | DDL_EXCLUSIVE
+end</pre>
+</body>
+</html>

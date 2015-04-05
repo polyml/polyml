@@ -1,0 +1,64 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Metafile structure</title>
+</head>
+
+<body>
+
+<h1>Metafile </h1>
+
+<p>The Metafile structure contains functions and structures to create and operate on
+metafiles. A metafile is essentially a recording of drawing operations which can be stored
+in a file, passed through the clipboard and replayed as needed.&nbsp; There are two types
+of metafile: the old form represented by the HMETAFILE type and the new, enhanced
+metafile, represented by the HENHMETAFILE type.</p>
+
+<pre>structure Metafile :
+  sig
+    type HENHMETAFILE
+    type HMETAFILE
+    type HDC
+    type RECT = { top: int, left: int, bottom: int, right: int }
+    type SIZE = { cx: int, cy: int }
+    datatype MapMode = datatype Transform.MapMode
+    type METAFILEPICT = {mm: MapMode, size: SIZE, hMF: HMETAFILE}
+
+    type ENHMETAHEADER =
+        {
+            bounds: RECT, frame: RECT, fileSize: int, records: int,
+            handles: int, palEntries: int, resolutionPixels: SIZE,
+            resolutionMM: SIZE, openGL: bool
+        }
+
+    val CloseEnhMetaFile : HDC -&gt; HENHMETAFILE
+    val CloseMetaFile : HDC -&gt; HMETAFILE
+    val CopyEnhMetaFile : HENHMETAFILE * string -&gt; HENHMETAFILE
+    val CopyMetaFile : HMETAFILE * string -&gt; HMETAFILE
+    val CreateEnhMetaFile :
+       HDC * string option * RECT *
+       {pictureName: string, applicationName: string} option -&gt; HDC
+    val CreateMetaFile : string option -&gt; HDC
+    val DeleteEnhMetaFile : HENHMETAFILE -&gt; unit
+    val DeleteMetaFile : HMETAFILE -&gt; unit
+    val GdiComment : HDC * Word8Vector.vector -&gt; unit
+    val GetEnhMetaFile : string -&gt; HENHMETAFILE
+    val GetEnhMetaFileBits : HENHMETAFILE -&gt; Word8Vector.vector
+    val GetEnhMetaFileDescription :
+       HENHMETAFILE -&gt; {pictureName: string, applicationName: string} option
+    val GetEnhMetaFileHeader : HENHMETAFILE -&gt; ENHMETAHEADER
+    val GetMetaFile : string -&gt; HMETAFILE
+    val GetMetaFileBitsEx : HMETAFILE -&gt; Word8Vector.vector
+    val GetWinMetaFileBits :
+       HENHMETAFILE * Transform.MapMode * HDC -&gt; Word8Vector.vector
+    val PlayEnhMetaFile : HDC * HENHMETAFILE * RECT -&gt; unit
+    val PlayMetaFile : HDC * HMETAFILE -&gt; unit
+    val SetEnhMetaFileBits : Word8Vector.vector -&gt; HENHMETAFILE
+    val SetMetaFileBits : Word8Vector.vector -&gt; HMETAFILE
+    val SetWinMetaFileBits :
+       Word8Vector.vector * HDC * {size: SIZE, mapMode: MapMode} option -&gt; HENHMETAFILE
+
+  end</pre>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>Pretty Printing</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+  <link rel="stylesheet" type="text/css" href="main.css">
+</head>
+
+<body>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">Pretty Printing</font></STRONG></H2>
+<P>The way pretty printing is handled in Poly/ML changed in version 5.3. This 
+  describes the functions and datatypes that were added in that version. The old 
+  mechanism, using <code>PolyML.install_pp</code>, is deprecated and may be removed 
+  in a future release.</P>
+<P>The basic model, described in the paper by D.C. Oppen ACM ToPLAS Vol. 2 No. 
+  4 Oct 1980, is unchanged but instead of a set of imperative functions pretty 
+  printing is structured around the <code>PolyML.pretty</code> datatype and the 
+  pretty printing algorithm is now functional rather than imperative.</P>
+<pre><code><strong>datatype</strong> pretty =
+     PrettyBlock of int * bool * context list * pretty list
+   | PrettyBreak of int * int
+   | PrettyString of string
+
+<strong>and</strong> context =
+    ContextLocation of location
+  | ContextParentStructure of string * context list
+  | ContextProperty of string * string
+
+<strong>withtype</strong> location =
+   { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }</code></pre>
+<P><code>PrettyString s</code> contains a string to be printed. <code>PrettyBlock(indent, 
+  consistent, context, items)</code> defines a block of <code>items</code> which 
+  may be strings, breaks or blocks. The items will be retained on a single line 
+  if possible. The <code>indent</code> parameter is an indentation that will be 
+  added to the current indentation if the block has to be broken. Note that this 
+  does not apply to the first item in the block which will always be printed with 
+  the current indentation. The <code>consistent</code> parameter indicates whether 
+  the block is to be broken consistently (true) or not (false). If it is true 
+  then if the block will not all fit on a line and must be broken then it will 
+  be broken at all the breaks in the block whether this is necessary or not. If 
+  it is false it will only be broken where necessary. Neither of these parameters 
+  are used if the block will fit on a line. <code>PrettyBreak(blanks, breakOffset)</code> 
+  indicates a break between items. If the line is not broken at this point then 
+  <code>blanks</code> is the number of space characters that will be inserted. 
+  If the line is broken at that point then instead the following item is indented 
+  by an extra <code>breakOffset</code> spaces.</P>
+<P>The context and location types are primarily used by the IDE when providing 
+  error messages. For most purposes the <code>context</code> argument to <code>PrettyBlock</code> 
+  can be the empty list. <code>ContextProperty</code> can be used by a user-supplied 
+  pretty printer to provide extra information which may be useful if the result 
+  of pretty printing is to be processed by a user function. It is not produced 
+  by Poly/ML pretty printers and the default printers ignore this item.<code> 
+  ContextParentStructure</code> was used to deal with types inside structures 
+  in an early draft and will probably be removed.</P>
+<P>A pretty printer can be associated with a datatype using <code>PolyML.addPrettyPrinter</code>.
+  
+<pre><code><strong>val</strong> addPrettyPrinter: (int -&gt; 'a -&gt; 'b -&gt; pretty)-&gt; unit</code></pre>
+<p>This function has a polymorphic type but is specially handled by the compiler. 
+  <code>addPrettyPrinter pp</code> installs a pretty printer <code>pp</code> where 
+  <code>pp</code> has arguments <code>depth printArgTypes value</code>. The first 
+  argument, <code>depth</code>, is the print depth. This is a value that indicates 
+  how much of the data structure should be displayed. If this value is zero or 
+  negative the pretty printer should always print a simple string such as <code>PrettyString 
+  &quot;...&quot;</code>. The third argument, <code>value</code>, is a value of 
+  the datatype. When installing a pretty printer there must be sufficient type 
+  constraint so that the compiler is able to determine the type unambiguiously. 
+  The second argument, <code>printArgTypes</code>, is only used for polytypes 
+  i.e. datatypes defined as <code>'a t</code> or <code>('a, 'b', 'c ...) t</code>. 
+  It is not used for monotypes. If the type takes a single argument then <code>printArgTypes</code> 
+  has type <code>'a * int -&gt; pretty</code> and is the function that will generate 
+  the pretty data structure for the argument type. The <code>int</code> argument 
+  is the adjusted print depth and should normally be one less than the value of 
+  <code>depth</code>. If the type takes multiple arguments then <code>printArgTypes</code> 
+  is a tuple with each field being a function of type <code>'a * int -&gt; pretty</code> 
+  that is used for the corresponding argument of the datatype.</p> </P>
+<p>As well as PolyML.addPrettyPrinter there some other functions in the PolyML 
+  structure that may be useful. </p>
+<pre><code><strong>val</strong> prettyRepresentation : 'a * int -&gt; pretty</code></pre>
+<p>This function returns the <code>pretty</code> structure that can be used to 
+  print a value of the given type up to the specified depth. It is similar to 
+  <code>PolyML.print</code> in being infinitely overloaded. It can be useful when 
+  writing a pretty printer for a datatype that includes types that already have 
+  pretty printers installed or where they will be installed later since it uses 
+  any pretty printers for the types when it is actually called.</p>
+<pre><code><strong>val</strong> prettyPrint: (string -&gt; unit) * int -&gt; pretty -&gt; unit</code></pre>
+<p>This function takes an output function and a line length and outputs a pretty 
+  structure, interpretting the layout information.</p>
+<p><br>
+</p>
+</body>
+</html>

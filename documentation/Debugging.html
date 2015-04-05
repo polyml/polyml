@@ -1,0 +1,305 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+
+<head>
+<title>Source Level Debugging in Poly/ML</title>
+</head>
+
+<body bgcolor="#FFFFFF">
+
+<h2>Source Level Debugging in Poly/ML</h2>
+
+<p>Poly/ML includes a source-level debugger. &nbsp; You can use it to set breakpoints 
+  in the program and print the values of local variables.&nbsp; To turn on debugging 
+  for a particular piece of code set the compiler variable <tt>PolyML.Compiler.debug</tt> 
+  to true.&nbsp; You can freely mix functions compiled with debugging on with 
+  functions compiled with debugging off, you simply can't set a breakpoint in 
+  a non-debuggable function or print its internal state. &nbsp; The debugging 
+  control functions are all in the <tt>PolyML.Debug</tt> structure<tt>. </tt>It 
+  is often convenient to open this structure before debugging a program.</p>
+
+<h3><big>An Example Session.</big></h3>
+
+<p>To see how debugging works we'll follow through an example session.&nbsp; We have a
+small function that is supposed to add together a list of pairs of integers but it has an
+error in it which causes it not to terminate.&nbsp; We turn on debugging and compile in
+the program.</p>
+
+<p><tt>&gt; <strong>PolyML.Compiler.debug := true;</strong><br>
+val it = () : unit<br>
+&gt; <strong>fun addList a l =<br>
+&nbsp;&nbsp;&nbsp; let<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; fun f (b,c) = a+b+c<br>
+&nbsp;&nbsp;&nbsp; in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; case l of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [] =&gt; a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | (x::y) =&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+let<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+val v = f x<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+val l' = y<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+addList v l<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+end<br>
+&nbsp;&nbsp;&nbsp; end;</strong><br>
+<br>
+val addList = fn : int -&gt; (int * int) list -&gt; int<br>
+&gt; <strong>open PolyML.Debug;</strong></tt></p>
+
+<p>We set a breakpoint in the function<tt> f</tt> using the <tt>breakIn</tt> function and
+apply the function to some arguments.</p>
+
+<p><tt>&gt; <strong>breakIn &quot;f&quot;;</strong><br>
+val it = () : unit<br>
+&gt; <strong>addList 0 [(1,2), (3, 4)];</strong></tt></p>
+
+<p>The function prints the line number and stops at the breakpoint.</p>
+
+<p><tt>line:3 function:addList()f<br>
+debug&gt; </tt></p>
+
+<p>The name <tt>addList()f</tt> is the full name of the function and we could have used
+this in place of <tt>f</tt> when setting the breakpoint.&nbsp; The <tt>&quot;debug&gt;&quot;</tt>
+prompt is almost identical to the normal Poly/ML <tt>&quot;&gt;&quot;</tt> prompt. &nbsp;
+The only difference is that variables which are in scope at the breakpoint are available
+as though they were declared globally.&nbsp; So we can print the values of <tt>a</tt>, <tt>b</tt>,
+<tt>c</tt> and <tt>l</tt>.</p>
+
+<p><tt>debug&gt; <strong>a;</strong><br>
+val it = 0 : int<br>
+debug&gt; <strong>b;</strong><br>
+val it = 1 : int<br>
+debug&gt; <strong>c;</strong><br>
+val it = 2 : int<br>
+debug&gt; <strong>l;</strong><br>
+val it = [(1, 2), (3, 4)] : (int * int) list<br>
+debug&gt; </tt></p>
+
+<p>In addition anything in the original top level is also available, provided it is not
+masked by a local declaration, so we can continue the program by calling the <tt>continue</tt>
+function which we opened from <tt>PolyML.Debug</tt>.</p>
+
+<p><tt>debug&gt; <strong>continue();</strong><br>
+val it = () : unit<br>
+line:3 function:addList()f<br>
+debug&gt;</tt></p>
+
+<p>This continues and we find ourselves back in <tt>f</tt> at the breakpoint again. &nbsp;
+We expect that and check the value of <tt>a</tt>.</p>
+
+<p><tt>debug&gt; <strong>a;</strong><br>
+val it = 3 : int<br>
+debug&gt;</tt></p>
+
+<p>However when we check <tt>b</tt> something seems to be wrong and printing <tt>l</tt>
+confirms it.</p>
+
+<p><tt>debug&gt; <strong>b;</strong><br>
+val it = 1 : int<br>
+debug&gt; <strong>l;</strong><br>
+val it = [(1, 2), (3, 4)] : (int * int) list<br>
+debug&gt;</tt></p>
+
+<p>We don't seem to be making any progress.&nbsp; We go up the stack to the recursive call
+of <tt>addList</tt> in order to check that the value of <tt>l'</tt> is correct.&nbsp; We
+have to go up twice because <tt>l'</tt> is not local to <tt>f</tt> nor is it available at
+the point where <tt>f</tt> was called.&nbsp; It is only available at the point where <tt>addList</tt>
+was called recursively.</p>
+
+<p><tt>debug&gt; <strong>up();</strong><br>
+line:9 function:addList<br>
+val it = () : unit<br>
+debug&gt; <strong>up();</strong><br>
+line:12 function:addList<br>
+val it = () : unit<br>
+debug&gt;<strong> l';</strong><br>
+val it = [(3, 4)] : (int * int) list<br>
+debug&gt; </tt></p>
+
+<p>This looks fine so the problem was not that <tt>l</tt>' had the wrong value.&nbsp; We
+print the values of everything using the <tt>dump</tt> function to see if that helps.</p>
+
+<p><tt>debug&gt; <strong>dump();</strong><br>
+Function addList()f: c = 2 b = 1 l = [(1, 2), (3, 4)] a = 3 <br>
+Function addList: x = (1, 2) y = [(3, 4)] f = fn l = [(1, 2), (3, 4)] a = 3 <br>
+Function addList: l' = [(3, 4)] v = 3 x = (1, 2) y = [(3, 4)] f = fn<br>
+l = [(1, 2), (3, 4)] a = 0 <br>
+<br>
+val it = () : unit</tt></p>
+
+<p>At this stage it is clear that we are passing the original value of <tt>l</tt> rather
+than what we intended,<tt> l'</tt>.&nbsp; We abort the function by typing control-C and f.</p>
+
+<p><tt>debug&gt; <strong>^C</strong><br>
+=&gt;<strong>f</strong><br>
+Compilation interrupted<br>
+Pass exception to function being debugged (y/n)?<strong>y</strong><br>
+Exception- Interrupt raised<br>
+&gt; </tt></p>
+
+<p>This returns us to the top level.&nbsp; We now fix the error and clear the breakpoint. </p>
+
+<p><tt>&gt; <strong>fun addList a l =<br>
+&nbsp;&nbsp;&nbsp; let<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; fun f (b,c) = a+b+c<br>
+&nbsp;&nbsp;&nbsp; in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; case l of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [] =&gt; a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | (x::y) =&gt;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+let<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+val v = f x<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+val l' = y<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+addList v l'<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+end<br>
+&nbsp;&nbsp;&nbsp; end;</strong><br>
+val addList = fn : int -&gt; (int * int) list -&gt; int<br>
+&gt; <strong>clearIn &quot;f&quot;;</strong><br>
+val it = () : unit</tt></p>
+
+<p>As a final check we turn on tracing to check that the values are as we expect and run
+the program with the same input as before.</p>
+
+<p><tt>&gt; <strong>trace true;</strong><br>
+val it = () : unit<br>
+&gt; <strong>addList 0 [(1,2), (3,4)];</strong><br>
+addList entered l = [(1, 2), (3, 4)] a = 0 <br>
+&nbsp; addList()f entered c = 2 b = 1 l = [(1, 2), (3, 4)] a = 0 <br>
+&nbsp; addList()f returned 3<br>
+&nbsp; addList entered l = [(3, 4)] a = 3 <br>
+&nbsp;&nbsp; addList()f entered c = 4 b = 3 l = [(3, 4)] a = 3 <br>
+&nbsp;&nbsp; addList()f returned 10<br>
+&nbsp;&nbsp; addList entered l = [] a = 10 <br>
+&nbsp;&nbsp; addList returned 10<br>
+&nbsp; addList returned 10<br>
+addList returned 10<br>
+val it = 10 : int<br>
+&gt; </tt></p>
+
+<p>This seems to have worked fine so we can now turn off <tt>PolyML.Compiler.debug</tt>
+and compile the function without debugging.</p>
+
+<p>&nbsp;</p>
+
+<h3><big>Reference</big></h3>
+
+<h3>Tracing program execution</h3>
+
+<p><tt>&nbsp;&nbsp;&nbsp; val trace = fn : bool -&gt; unit<br>
+  </tt>The <tt>trace</tt> function turns on and off function tracing.&nbsp; Function 
+  tracing prints the arguments and results of every debuggable function.</p>
+
+<h3>Breakpoints</h3>
+
+<p><tt>&nbsp;&nbsp;&nbsp; val breakAt = fn : string * int -&gt; unit<br>
+  &nbsp;&nbsp;&nbsp; val breakIn = fn : string -&gt; unit<br>
+  &nbsp;&nbsp;&nbsp; val breakEx = fn : exn -&gt; unit<br>
+  &nbsp;&nbsp;&nbsp; val clearAt = fn : string * int -&gt; unit<br>
+  &nbsp;&nbsp;&nbsp; val clearIn = fn : string -&gt; unit<br/>
+  &nbsp;&nbsp;&nbsp; val clearEx = fn : exn -&gt; unit</tt></p>
+
+<p>Breakpoints can be set with the <tt>breakAt</tt>, <tt>breakIn</tt> or <tt>breakEx</tt> 
+  functions and cleared with <tt>clearAt</tt>, clearIn or <tt>clearEx</tt>.&nbsp; 
+  <tt>breakAt</tt> takes a file name and line number and <tt>breakIn</tt> a function 
+  name.&nbsp; The file name and line have to given exactly otherwise the breakpoint 
+  will not work.&nbsp; <tt>breakIn</tt> is more flexible about the function name.&nbsp; 
+  It can be the function name used in the declaration (e.g. <tt>f</tt>) or the 
+  full &quot;path name&quot;.&nbsp; The latter is useful when the program contains 
+  several functions with the same name since setting a breakpoint in <tt>f</tt> 
+  stops in any function called <tt>f</tt>.&nbsp; <tt>breakIn</tt> and <tt>breakAt</tt> 
+  simply record that you want a breakpoint.&nbsp; There is no check when they 
+  are called that the appropriate location actually exists and you can set a breakpoint 
+  for a function and then compile it later. <tt>breakEx</tt> sets a breakpoint 
+  for a particular exception and causes the program to stop at the end of the 
+  function that raises the exception unless it is also handled there. The argument 
+  is the exception to trap. It is possible to trap exceptions that take a parameter. 
+  Just provide it with a dummy parameter to create a value of type <tt>exn</tt> 
+  that can be passed to <tt>breakEx</tt>. The actual parameter value will be ignored 
+  and the debugger will be entered whenever the exception is raised with any parameter 
+  value. </p>
+
+<p>When a breakpoint is reached the program stops with a <tt>debug&gt;</tt> prompt. &nbsp;
+This is a normal Poly/ML top-level and you can type any ML expression.&nbsp; The only
+difference is that local variables in the function being debugged are available as though
+they had been declared at the top-level.&nbsp; You can print them or use them in any way
+that you could with a normal variable.&nbsp; This includes local functions which can be
+applied to local values, constants or globals. You cannot change the value of a variable
+unless it is a reference.&nbsp; At a breakpoint you can continue or single-step the
+program or you can raise an exception.&nbsp; This is usually the most convenient way of
+aborting a program and getting back to the normal top-level unless the program has a
+handler for the exception you raise.</p>
+
+<h3>Single Stepping and Continuing</h3>
+
+<p><tt>val continue = fn : unit -&gt; unit<br>
+val step = fn : unit -&gt; unit<br>
+val stepOver = fn : unit -&gt; unit<br>
+val stepOut = fn : unit -&gt; unit</tt></p>
+
+<p><tt>continue</tt> runs the program to the next breakpoint.<tt>&nbsp; step</tt>,&nbsp; <tt>stepOver</tt>
+and <tt>stepOut</tt> are different ways of single-stepping through a function.
+&nbsp;&nbsp; <tt>step</tt> runs the program up to the next breakable point which is often
+the next source line.&nbsp; If evaluation involves calling a function then it may stop at
+the beginning of the function.&nbsp; By contrast <tt>stepOver</tt> stops at the next line
+within the current function only.&nbsp; <tt>stepOut</tt> goes further and stops only
+within the function which called the current function.&nbsp; If a called function includes
+a breakpoint they always stop there.</p>
+
+<h3>Examining and Traversing the Stack</h3>
+
+<p><tt>val up = fn : unit -&gt; unit<br>
+val down = fn : unit -&gt; unit<br>
+val dump = fn : unit -&gt; unit<br>
+val variables = fn : unit -&gt; unit</tt></p>
+
+<p><tt>up</tt> and <tt>down</tt> move the focus between called and calling functions
+allowing you to view local variables at different levels.&nbsp; This is particularly
+useful for recursive functions.&nbsp; <tt>The variables</tt> function prints all the
+variables in scope at the current point.&nbsp; <tt>dump</tt> gives a complete stack trace.</p>
+
+<h3>Notes</h3>
+
+<p>The current implementation includes most values but not types or structures. &nbsp;
+&nbsp; A recursive function is not available within the function itself.</p>
+
+<p>The compiler adds debugging information which considerably increases the run time of
+the program.&nbsp; It is probably best to turn debugging on only when it is needed.</p>
+
+<p>The example shows debugging when all the variables have monomorphic types.&nbsp; The
+debugger does not have access to any run-time type information so it cannot always know
+how to print a value inside a polymorphic type.&nbsp; For example</p>
+
+<p><tt>&gt; fun map f [] = [] | map f (a::b) = f a :: map f b;<br>
+val map = fn : ('a -&gt; 'b) -&gt; 'a list -&gt; 'b list<br>
+&gt; breakIn &quot;map&quot;;<br>
+val it = () : unit<br>
+&gt; map (fn i =&gt; i+1) [1,2,3];<br>
+line:1 function:map<br>
+debug&gt; a;<br>
+val it = ? : 'a</tt></p>
+
+<p>If you know the type is int you can add a type constraint.</p>
+
+<p><tt>debug&gt; a:int;<br>
+val it = 1 : int<br>
+debug&gt; </tt></p>
+
+<p>It is though equally possible to use the wrong constraint and crash Poly/ML. 
+  &nbsp; Future versions of Poly/ML may treat polymorphic variables as opaque 
+  which would prevent this but also prevent &quot;safe&quot; coercions.</p>
+<p>&nbsp;</p>
+
+</body>
+</html>

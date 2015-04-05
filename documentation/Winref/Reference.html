@@ -1,0 +1,282 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference</title>
+</head>
+
+<body>
+
+<h1>Windows Interface Reference</h1>
+
+<p>The Windows&#153; interface is arranged as forty structures containing several hundred
+functions.&nbsp; It is not possible to provide documentation for all these functions and
+it would involve duplicating much of the Windows documentation.&nbsp; Generally the
+functions take the same arguments and return the same result types as the corresponding
+function in C but there are some differences to reflect the differences in the type
+systems.&nbsp; Functions that return a status result in C generally return unit in ML and
+raise an OS.Syserr exception if they fail.&nbsp; Where a C function, such as <a href="Clipping.html#GetClipBox">GetClipBox</a>, takes an argument by reference as a way of
+returning a result the corresponding ML function simply returns the appropriate
+result.&nbsp; This often occurs with functions that extract strings.</p>
+
+<p>Many objects, such as windows and fonts, are represented by <em>handles</em>, e.g. HWND
+and HFONT.&nbsp; Frequently, when programming with Windows in C it is necessary to cast
+between handles and integers, such as when sending a message to obtain the current font
+for a window.&nbsp; The ML interface avoids this where possible by using union types but
+the <a href="Globals.html">Globals</a> structure includes functions to perform these casts
+if necessary.&nbsp; It also contains a value hNull which can be used as a NULL handle.
+&nbsp; Generally though, functions such as <a href="Window.html#SetParent">SetParent</a>
+or <a href="Keyboard.html#GetActiveWindow">GetActiveWindow</a> which can take an optional
+argument or return an optional result use an option type in ML.&nbsp; Although there are
+separate types HFONT, HBITMAP, etc for the various kinds of GDI object, these are all the
+same as HGDIOBJ.&nbsp; This simplifies the types of functions such as <a href="DeviceContext.html#GetCurrentObject">GetCurrentObject</a> and <a href="DeviceContext.html#GetObjectType">GetObjectType</a>.</p>
+
+<p>Frequently functions in C take an integer argument with constants defined.
+&nbsp; Datatypes are used for these in ML where possible.&nbsp; Where in C several options
+can be or-ed together in ML a list of a datatype is used.</p>
+
+<h3>Drawing and device contexts (GDI functions)</h3>
+
+<p>Drawing to a window or printing a page on a printer are handled in the same way. &nbsp;
+An abstract device, a <em>device context</em>, is used and all drawing is done on one of
+these.</p>
+<div align="left">
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+  <tr>
+    <td width="15%"><a href="Bitmap.html">Bitmap</a></td>
+    <td>Arbitrary bitmap patterns</td>
+  </tr>
+  <tr>
+    <td><a href="Brush.html">Brush</a></td>
+    <td>Coloured and patterned brushes</td>
+  </tr>
+  <tr>
+    <td><a href="Clipping.html">Clipping</a></td>
+    <td>Clipping regions</td>
+  </tr>
+  <tr>
+    <td><a href="Color.html">Color</a></td>
+    <td>Colours</td>
+  </tr>
+  <tr>
+    <td><a href="DeviceContext.html">DeviceContext</a></td>
+    <td>Creating device contexts and getting their properties</td>
+  </tr>
+  <tr>
+    <td><a href="Font.html">Font</a></td>
+    <td>Creating fonts and drawing text</td>
+  </tr>
+  <tr>
+    <td><a href="Line.html">Line</a></td>
+    <td>Drawing lines</td>
+  </tr>
+  <tr>
+    <td><a href="Metafile.html">Metafile</a></td>
+    <td>Recording drawing operations</td>
+  </tr>
+  <tr>
+    <td><a href="Path.html">Path</a></td>
+    <td>Sequences of lines to form a path</td>
+  </tr>
+  <tr>
+    <td><a href="Pen.html">Pen</a></td>
+    <td>Pens used when drawing lines</td>
+  </tr>
+  <tr>
+    <td><a href="Printing.html">Printing</a></td>
+    <td>Functions used when drawing to a printer</td>
+  </tr>
+  <tr>
+    <td><a href="Rectangle.html">Rectangle</a></td>
+    <td>Operations on rectangles</td>
+  </tr>
+  <tr>
+    <td><a href="Region.html">Region</a></td>
+    <td>Areas of a device context</td>
+  </tr>
+  <tr>
+    <td><a href="Shape.html">Shape</a></td>
+    <td>Various shapes</td>
+  </tr>
+  <tr>
+    <td><a href="Transform.html">Transform</a></td>
+    <td>Co-ordinate transforms</td>
+  </tr>
+</table>
+</div>
+
+<h3>Window creation and communication</h3>
+<div align="left">
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+  <tr>
+    <td width="15%"><a href="Class.html">Class</a></td>
+    <td>Creating custom window classes.</td>
+  </tr>
+  <tr>
+    <td><a href="Window.html">Window</a></td>
+    <td>General functions on windows.</td>
+  </tr>
+  <tr>
+    <td><a href="Message.html">Message</a></td>
+    <td>Sending messages to windows.</td>
+  </tr>
+  <tr>
+    <td><a href="Caret.html">Caret</a></td>
+    <td>The insertion point in an edit window.</td>
+  </tr>
+  <tr>
+    <td><a href="Cursor.html">Cursor</a></td>
+    <td>Mouse cursors.</td>
+  </tr>
+  <tr>
+    <td><a href="Icon.html">Icon</a></td>
+    <td>Icons for windows.</td>
+  </tr>
+  <tr>
+    <td><a href="Menu.html">Menu</a></td>
+    <td>Pull-down and pop-up menus.</td>
+  </tr>
+  <tr>
+    <td><a href="DragDrop.html">DragDrop</a></td>
+    <td>Dragging and dropping files.</td>
+  </tr>
+  <tr>
+    <td><a href="Keyboard.html">Keyboard</a></td>
+    <td>Keyboard input control.&nbsp; The input itself is by way of messages.</td>
+  </tr>
+  <tr>
+    <td><a href="Mouse.html">Mouse</a></td>
+    <td>Mouse input control.&nbsp; The input itself is by way of messages.</td>
+  </tr>
+  <tr>
+    <td><a href="Painting.html">Painting</a></td>
+    <td>Painting and drawing to a window.</td>
+  </tr>
+</table>
+</div>
+
+<h3>Dialogue windows</h3>
+
+<p>Dialogue boxes are windows typically consisting of a number of controls and a button to
+confirm or cancel a selection.&nbsp; </p>
+<div align="left">
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+  <tr>
+    <td width="15%"><a href="Dialog.html">Dialog</a></td>
+    <td>Custom dialogue boxes.</td>
+  </tr>
+  <tr>
+    <td><a href="MessageBox.html">MessageBox</a></td>
+    <td>A simple dialogue box containing a piece of text and one or more buttons.</td>
+  </tr>
+  <tr>
+    <td><a href="CommonDialog.html">CommonDialog</a></td>
+    <td>Standard dialogues to select a file, print a document, etc.</td>
+  </tr>
+</table>
+</div>
+
+<h3>Standard window classes</h3>
+
+<p>For many purposes a standard window class can be used.&nbsp; These structures mainly
+contain values for the window styles which can be used to control the appearance of the
+window.&nbsp; Most operations are performed by sending messages from the <a href="Message.html">Message</a> structure.</p>
+<div align="left">
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+  <tr>
+    <td width="15%"><a href="Button.html">Button</a></td>
+    <td>Push buttons, radio buttons and check boxes</td>
+  </tr>
+  <tr>
+    <td><a href="Combobox.html">Combobox</a></td>
+    <td>A combination of a list box and an edit box.</td>
+  </tr>
+  <tr>
+    <td><a href="Edit.html">Edit</a></td>
+    <td>Single lines for text input or multiple lines for general editing.</td>
+  </tr>
+  <tr>
+    <td><a href="ListBox.html">ListBox</a></td>
+    <td>Selection from a list of options.</td>
+  </tr>
+  <tr>
+    <td><a href="Scrollbar.html">Scrollbar</a></td>
+    <td>Can be used to scroll a window.&nbsp; This structure includes functions to scroll
+    windows and device contexts..</td>
+  </tr>
+  <tr>
+    <td><a href="Static.html">Static</a></td>
+    <td>Static windows can be used to display text labels or pictures.</td>
+  </tr>
+</table>
+</div>
+
+<h3>Others</h3>
+
+<p>Various other structures.</p>
+<div align="left">
+
+<table border="0" cellpadding="0" cellspacing="0" width="100%">
+  <tr>
+    <td width="15%"><a href="Globals.html">Globals</a></td>
+    <td>Various functions on handles and to obtain the handles for the Poly/ML window and
+    application.</td>
+  </tr>
+  <tr>
+    <td width="15%"><a href="WinSystem.html">WinSystem</a></td>
+    <td>System information functions.</td>
+  </tr>
+  <tr>
+    <td><a href="Resource.html">Resource</a></td>
+    <td>Resource files can be used to hold resources such as menus, strings, dialogues etc.</td>
+  </tr>
+  <tr>
+    <td><a href="Clipboard.html">Clipboard</a></td>
+    <td>The clipboard is used to communicate with other applications.</td>
+  </tr>
+  <tr>
+    <td><a href="Locale.html">Locale</a></td>
+    <td>Language definitions to be used with resource files.</td>
+  </tr>
+</table>
+</div>
+
+<h3>Restrictions and Differences between ML and C</h3>
+
+<p>The interface was designed so that the definition of functions provided for C should
+carry over to the ML version.&nbsp; This simplifies documentation and also makes it
+relatively easy to port programs between C and ML.&nbsp; There are a few differences which
+are worth noting. </p>
+
+<h4>Messages and Window Procedures</h4>
+
+<p>The major difference is in the way messages are handled.&nbsp; In C a message is simply
+an integer but each message is accompanied by two parameters, called <em>wParam</em> and <em>lParam</em>.
+&nbsp; Each message defines how these are to interpreted and it is usually necessary to
+coerce one or other of them to a specific type.&nbsp; Often lParam is defined to be a
+pointer to a particular structure.&nbsp; Sometimes the parameters are pointers which are
+updated by the window procedure.&nbsp; In ML messages are fully typed and as much as
+possible of the message information is made available.&nbsp; This does require some
+conversion and it is possible that information could be lost if a message was converted to
+ML form and then back to C.&nbsp; For this reason the handling of messages is done
+slightly differently from C.&nbsp; In C it is necessary to call DefWindowProc to provide
+default processing of messages.&nbsp; If it is not called a result must be returned to the
+caller.&nbsp; In ML an option type is used.&nbsp; If NONE is returned then DefWindowProc
+is called with the original arguments, before they were converted to ML, otherwise the
+value given is returned as the result.&nbsp; </p>
+
+<p>There are generally complications with callback functions due to differences in the
+notion of a function in ML and C.&nbsp; In C a function is always the pointer to a piece
+of code whereas in ML it is a closure.&nbsp; This makes it impossible to pass ML functions
+directly to C and instead different callbacks have to be implemented by hand.&nbsp; For
+this reason EM_SETWORDBREAKPROC and EM_GETWORDBREAKPROC to set and get the word break
+procedure for an edit window are not implemented nor are various of the callbacks in the
+common controls.</p>
+
+<p><strong><small><small>Last updated: <!--webbot bot="TimeStamp" S-FORMAT="%d %B %Y" S-TYPE="EDITED" startspan -->28 October 2001<!--webbot bot="TimeStamp" endspan i-checksum="32163" --> by David Matthews.</small></small></strong> </p>
+</body>
+</html>

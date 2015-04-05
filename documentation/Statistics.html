@@ -1,0 +1,88 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+	"http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+<head>
+<title>The PolyML.Statistics structure</title>
+</head>
+
+<body>
+<h2><font face="Arial"><strong>PolyML.Statistics structure</strong></font></h2>
+<p>The PolyML.Statistics structure provides a way for a program to read information 
+  about the run-time system. As well as getting information about the local Poly/ML 
+  process it is also possible to get information about another Poly/ML process 
+  being run by the same user.</p>
+<PRE><STRONG>structure</STRONG> Statistics:
+  <strong>sig</strong>
+    <strong>val</strong> getLocalStats : unit ->
+       {sizeHeap: int,
+       gcFullGCs: int,
+       timeGCUser: Time.time,
+       threadsInML: int,
+       gcPartialGCs: int,
+       threadsTotal: int,
+       timeGCSystem: Time.time,
+       userCounters: int vector,
+       threadsWaitIO: int,
+       timeNonGCUser: Time.time,
+       sizeAllocation: int,
+       timeNonGCSystem: Time.time,
+       threadsWaitMutex: int,
+       threadsWaitSignal: int,
+       sizeAllocationFree: int,
+       sizeHeapFreeLastGC: int,
+       threadsWaitCondVar: int,
+       sizeHeapFreeLastFullGC: int}
+
+    <strong>val</strong> getRemoteStats : int ->
+       {sizeHeap: int,
+       gcFullGCs: int,
+       timeGCUser: Time.time,
+       threadsInML: int,
+       gcPartialGCs: int,
+       threadsTotal: int,
+       timeGCSystem: Time.time,
+       userCounters: int vector,
+       threadsWaitIO: int,
+       timeNonGCUser: Time.time,
+       sizeAllocation: int,
+       timeNonGCSystem: Time.time,
+       threadsWaitMutex: int,
+       threadsWaitSignal: int,
+       sizeAllocationFree: int,
+       sizeHeapFreeLastGC: int,
+       threadsWaitCondVar: int,
+       sizeHeapFreeLastFullGC: int}
+
+    <strong>val</strong> setUserCounter : int * int -> unit
+    <strong>val</strong> numUserCounters : unit -> int
+<strong>end</strong></PRE>
+<p>There are two functions that return information..</p>
+<PRE><STRONG>val</STRONG> getLocalStats : unit -&gt; { ... }</PRE>
+<BLOCKQUOTE STYLE="margin-bottom: 0cm"> Returns information about the Poly/ML 
+  process that has called this function.</BLOCKQUOTE>
+<PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> getRemoteStats : int -&gt; { ... }</PRE>
+<BLOCKQUOTE STYLE="margin-bottom: 0cm"> 
+  <p>Returns information about another Poly/ML process. The argument is the process 
+    id (pid) of the Poly/ML process for which information is requested. Raises 
+    the Fail exception if this is not a currently running Poly/ML process or the 
+    calling user does not have permission to read the statistics. The statistics 
+    are held in shared memory and on Unix systems these are memory-mapped files 
+    in the user's .polyml directory.</p>
+</BLOCKQUOTE>
+<p>The actual information returned is still being determined and may well change.</p>
+<p>In addition to information about the run-time system the statistics mechanism 
+  provides a small array of values that can be set by the ML code. This allows 
+  an ML program to set values that can be read in another process.</p>
+<PRE><STRONG>val</STRONG> numUserCounters : unit -&gt; int</PRE>
+<BLOCKQUOTE STYLE="margin-bottom: 0cm"> Returns the number of counters available. 
+  Currently this is eight.</BLOCKQUOTE>
+<PRE STYLE="margin-bottom: 0.5cm"><STRONG>val</STRONG> setUserCounter : int * int -> unit</PRE>
+<BLOCKQUOTE> 
+  <p>setUserCounter(n, m) stores the value m in the n-th counter.</p>
+</BLOCKQUOTE>
+<p>Writing to the counters is potentially an expensive operation. If the information 
+  is likely to change rapidly it will usually be best to use a separate thread 
+  to poll the information periodically and update the counter.</p>
+<PRE><STRONG></STRONG></PRE>
+</body>
+</html>

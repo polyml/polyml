@@ -1,0 +1,99 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: WinSystem structure</title>
+</head>
+
+<body>
+
+<h1>WinSystem</h1>
+
+<p>The WinSystem structure contains functions that obtain system information. &nbsp;&nbsp;
+This is quite limited because the Windows structure in the standard basis library provides
+much of the information in this category.</p>
+
+<pre>structure WinSystem :
+  sig
+    type SystemMetrics
+    val SM_ARRANGE : SystemMetrics
+    val SM_CLEANBOOT : SystemMetrics
+    val SM_CMOUSEBUTTONS : SystemMetrics
+    val SM_CXBORDER : SystemMetrics
+    val SM_CXCURSOR : SystemMetrics
+    val SM_CXDLGFRAME : SystemMetrics
+    val SM_CXDOUBLECLK : SystemMetrics
+    val SM_CXDRAG : SystemMetrics
+    val SM_CXEDGE : SystemMetrics
+    val SM_CXFIXEDFRAME : SystemMetrics
+    val SM_CXFRAME : SystemMetrics
+    val SM_CXFULLSCREEN : SystemMetrics
+    val SM_CXHSCROLL : SystemMetrics
+    val SM_CXHTHUMB : SystemMetrics
+    val SM_CXICON : SystemMetrics
+    val SM_CXICONSPACING : SystemMetrics
+    val SM_CXMAXIMIZED : SystemMetrics
+    val SM_CXMAXTRACK : SystemMetrics
+    val SM_CXMENUCHECK : SystemMetrics
+    val SM_CXMENUSIZE : SystemMetrics
+    val SM_CXMIN : SystemMetrics
+    val SM_CXMINIMIZED : SystemMetrics
+    val SM_CXMINSPACING : SystemMetrics
+    val SM_CXMINTRACK : SystemMetrics
+    val SM_CXSCREEN : SystemMetrics
+    val SM_CXSIZE : SystemMetrics
+    val SM_CXSIZEFRAME : SystemMetrics
+    val SM_CXSMICON : SystemMetrics
+    val SM_CXSMSIZE : SystemMetrics
+    val SM_CXVSCROLL : SystemMetrics
+    val SM_CYBORDER : SystemMetrics
+    val SM_CYCAPTION : SystemMetrics
+    val SM_CYCURSOR : SystemMetrics
+    val SM_CYDLGFRAME : SystemMetrics
+    val SM_CYDOUBLECLK : SystemMetrics
+    val SM_CYDRAG : SystemMetrics
+    val SM_CYEDGE : SystemMetrics
+    val SM_CYFIXEDFRAME : SystemMetrics
+    val SM_CYFRAME : SystemMetrics
+    val SM_CYFULLSCREEN : SystemMetrics
+    val SM_CYHSCROLL : SystemMetrics
+    val SM_CYICON : SystemMetrics
+    val SM_CYICONSPACING : SystemMetrics
+    val SM_CYKANJIWINDOW : SystemMetrics
+    val SM_CYMAXIMIZED : SystemMetrics
+    val SM_CYMAXTRACK : SystemMetrics
+    val SM_CYMENU : SystemMetrics
+    val SM_CYMENUCHECK : SystemMetrics
+    val SM_CYMENUSIZE : SystemMetrics
+    val SM_CYMIN : SystemMetrics
+    val SM_CYMINIMIZED : SystemMetrics
+    val SM_CYMINSPACING : SystemMetrics
+    val SM_CYMINTRACK : SystemMetrics
+    val SM_CYSCREEN : SystemMetrics
+    val SM_CYSIZE : SystemMetrics
+    val SM_CYSIZEFRAME : SystemMetrics
+    val SM_CYSMCAPTION : SystemMetrics
+    val SM_CYSMICON : SystemMetrics
+    val SM_CYSMSIZE : SystemMetrics
+    val SM_CYVSCROLL : SystemMetrics
+    val SM_CYVTHUMB : SystemMetrics
+    val SM_DBCSENABLED : SystemMetrics
+    val SM_DEBUG : SystemMetrics
+    val SM_MENUDROPALIGNMENT : SystemMetrics
+    val SM_MIDEASTENABLED : SystemMetrics
+    val SM_MOUSEPRESENT : SystemMetrics
+    val SM_MOUSEWHEELPRESENT : SystemMetrics
+    val SM_NETWORK : SystemMetrics
+    val SM_PENWINDOWS : SystemMetrics
+    val SM_RESERVED1 : SystemMetrics
+    val SM_RESERVED2 : SystemMetrics
+    val SM_RESERVED3 : SystemMetrics
+    val SM_RESERVED4 : SystemMetrics
+    val SM_SECURE : SystemMetrics
+    val SM_SHOWSOUNDS : SystemMetrics
+    val SM_SLOWMACHINE : SystemMetrics
+    val SM_SWAPBUTTON : SystemMetrics
+    val GetSystemMetrics : SystemMetrics -&gt; int
+  end</pre>
+</body>
+</html>

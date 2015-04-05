@@ -1,0 +1,35 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<head>
+<title>Windows Interface Reference: Caret structure</title>
+</head>
+
+<body>
+
+<h1>Caret</h1>
+
+<p>The Caret structure contains functions to create and manipulate the caret.&nbsp; The
+caret is typically used in edit controls to mark the point where new characters will be
+inserted.&nbsp; Usually it is a vertical bar which blinks on and off.</p>
+
+<pre>structure Caret :
+  sig
+    type HWND and HBITMAP
+    type POINT = { x: int, y: int }
+    datatype
+      caretShape =
+          CaretBitmap of HBITMAP
+        | CaretBlack of {width: int, height: int}
+        | CaretGrey of {width: int, height: int}
+    val CreateCaret : HWND * caretShape -&gt; unit
+    val DestroyCaret : unit -&gt; unit
+    val GetCaretBlinkTime : unit -&gt; Time.time
+    val GetCaretPos : unit -&gt; POINT
+    val HideCaret : HWND -&gt; unit
+    val SetCaretBlinkTime : Time.time -&gt; unit
+    val SetCaretPos : POINT -&gt; unit
+    val ShowCaret : HWND -&gt; bool
+  end</pre>
+</body>
+</html>

@@ -1,0 +1,538 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/REC-html40/loose.dtd">
+<html>
+<head>
+<title>Poly/ML Source Code Overview</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+  <link rel="stylesheet" type="text/css" href="main.css">
+</head>
+
+<body>
+<h1>Overview of the Poly/ML Source Code</h1>
+<p>Poly/ML has a history of over 25 years and the source has undergone many changes 
+  in that time. Many of the file names no longer reflect the current function 
+  of their code. This is intended as a brief introduction to the source code to 
+  enable maintainers and those wanting to experiment with the code to find their 
+  way round it. The source code is fairly well commented at the level of individual 
+  statements.</p>
+<p>The source code is comprised of three parts. The run-time system is written 
+  in C++ with a small amount of assembly code. The compiler is written in Standard 
+  ML and the basis library consists of several Standard ML files.</p>
+<p>The source code changes with each release so the documentation will need to 
+  be updated. This version reflects the state of the 5.4 release.</p>
+<h2>The Poly/ML Compiler</h2>
+<p>The Poly/ML compiler is written in Standard ML. Each file is a module, either 
+  a signature, functor or structure whose name matches the name of the file. This 
+  is a consequence of using the Poly/ML &quot;make&quot; system to build the compiler. 
+  The larger modules will have a signature file, a functor which contains most 
+  of the code and a small file which defines the structure as an application of 
+  the functor to its arguments.</p>
+<h3>Compiler control</h3>
+<p>mlsource/MLCompiler/Debug.ML - Structure<br>
+  mlsource/MLCompiler/COMPILER_BODY.ML - Functor<br>
+  mlsource/MLCompiler/CompilerBody.ML - Structure</p>
+<p>CompilerBody is the main body of the compiler. The compiler consists of four 
+  major passes but the final code-processing pass in particular involves several 
+  minor passes. CompilerBody controls each of the major passes. The source code 
+  is parsed into a parse-tree which is then type checked and subsequently code-generated 
+  into a code-tree. The parsing, type-checking and code-generation passes may 
+  each fail because of errors in the source and if one pass fails the later passes 
+  are not attempted. The final pass which transforms and optimises the code-tree 
+  and generates the final machine code will never fail unless there is an internal 
+  compiler error.</p>
+<p>Debug contains definitions of most of the &quot;tags&quot; that control the 
+  compiler. These are the internal representation of the properties that may be 
+  passed in to PolyML.compiler. Most of these are used to control the output of 
+  debugging information.</p>
+<h3>Identifiers</h3>
+<p>mlsource/MLCompiler/STRUCTVALSIG.sml - Signature<br>
+  mlsource/MLCompiler/STRUCT_VALS.ML - Functor<br>
+  mlsource/MLCompiler/StructVals.ML - Structure</p>
+<p>StructVals contains the fundamental datatypes that describe all Poly/ML values, 
+  types, type-constructors, functors, structures and signatures. These are all 
+  entities that can appear in the top-level name space. The compiler operates 
+  on name-spaces that contain these entities, looking up existing identifiers 
+  and making new identifiers as a result of top-level declarations. The actual 
+  &quot;values&quot; associated with values, functors or structures are described 
+  using the CodeTree datatype (see BaseCodeTree). This allows for inline functions 
+  to contain the full range of code. Structures are actually represented as tuples 
+  and functors as functions, which by default are inline. As well as top-level 
+  entities the datatypes also include versions of values and structures that occur 
+  only during the compilation process.<br>
+</p>
+<h3>Lexical Analysis</h3>
+<p>mlsource/MLCompiler/Symbols.ML - Structure<br>
+  mlsource/MLCompiler/Syms.ML - Structure<br>
+  mlsource/MLCompiler/IntSet.ML - Structure<br>
+  mlsource/MLCompiler/SYM_SET.ML - Functor<br>
+  mlsource/MLCompiler/SymSet.ML - Structure</p>
+<p>Symbols defines the ML reserved words. Syms, IntSet, SYM_SET and SymSet provide 
+  a way of handling sets of symbols during parsing. </p>
+<p>mlsource/MLCompiler/LEXSIG.sml - Signature<br>
+  mlsource/MLCompiler/LEX_.ML - Functor<br>
+  mlsource/MLCompiler/Lex.ML - Structure</p>
+<p>The lexical analyser processes the input text skipping over comments and blank 
+  space. It sets a group of refs to information about the current sysmbol.</p>
+<h3>Parsing</h3>
+<p>mlsource/MLCompiler/PARSE_DEC.ML - Functor<br>
+  mlsource/MLCompiler/ParseDec.ML - Structure<br>
+  mlsource/MLCompiler/PARSE_TYPE.ML - Functor<br>
+  mlsource/MLCompiler/ParseType.ML - Structure<br>
+  mlsource/MLCompiler/SKIPS_.ML - Functor<br>
+  mlsource/MLCompiler/Skips.ML - Structure<br>
+  mlsource/MLCompiler/UTILITIES_.ML - Functor<br>
+  mlsource/MLCompiler/Utilities.ML - Structure</p>
+<p>ParseDec is the main recursive-descent parser. It calls in to the lexical analyser 
+  to get the next symbol and calls functions in ParseTree, Signatures and Structures 
+  to build the parse-tree as it goes. ParseType does this for the type-expressions 
+  such as type constraints or in signatures. Skips and Utilities contain helper 
+  functions for parsing. </p>
+<h3>Parse Tree</h3>
+<p>mlsource/MLCompiler/STRUCTURESSIG.sml - Signature<br>
+  mlsource/MLCompiler/STRUCTURES_.ML - Functor<br>
+  mlsource/MLCompiler/Structures.ML - Structure<br>
+  mlsource/MLCompiler/SIGNATURESSIG.sml - Signature<br>
+  mlsource/MLCompiler/SIGNATURES.sml - Functor<br>
+  mlsource/MLCompiler/SignaturesStruct.sml - Structure<br>
+  mlsource/MLCompiler/PARSETREESIG.sml - Signature<br>
+  mlsource/MLCompiler/PARSE_TREE.ML - Functor<br>
+  mlsource/MLCompiler/ParseTree.ML - Structure</p>
+<p>The parser generates a tree structure to represent the source program during 
+  the parsing pass. The type-checking and code-generation passes work on this 
+  parse tree. ParseTree contains the definitions for the core language, Structures 
+  the definitions for structures and functors and Signatures the definitions for 
+  signatures. The datatypes for the parse tree are local to each of these modules 
+  so each module contains all the code that needs to walk over the parse tree. 
+  Each of these modules makes use of the parse tree support modules to perform 
+  particular tasks.</p>
+<h3>Type Checking</h3>
+<p>mlsource/MLCompiler/TYPETREESIG.sml - Signature<br>
+  mlsource/MLCompiler/TYPE_TREE.ML - Functor<br>
+  mlsource/MLCompiler/TypeTree.ML - Structure<br>
+  mlsource/MLCompiler/COPIERSIG.sml - Signature<br>
+  mlsource/MLCompiler/COPIER.sml - Functor<br>
+  mlsource/MLCompiler/CopierStruct.sml - Structure<br>
+  mlsource/MLCompiler/PRINT_TABLE.ML - Functor<br>
+  mlsource/MLCompiler/PrintTable.ML - Structure</p>
+<p>TypeTree contains the main type-checking code and various other functions to 
+  support operations on types. Copier is used to make a copy of a signature when 
+  it is instantiated to a structure. PrintTable contains a list of current overloadings 
+  of overloaded operations. Previously this included user-provided pretty-printers 
+  but this has now been removed.</p>
+<h3>Parse Tree Support</h3>
+<p> mlsource/MLCompiler/VALUEOPSSIG.sml - Signature<br>
+  mlsource/MLCompiler/VALUE_OPS.ML - Functor<br>
+  mlsource/MLCompiler/ValueOps.ML - Structure<br>
+  mlsource/MLCompiler/PRETTYSIG.sml - Signature<br>
+  mlsource/MLCompiler/Pretty.sml - Structure<br>
+  mlsource/MLCompiler/DATATYPEREPSIG.sml - Signature<br>
+  mlsource/MLCompiler/DATATYPE_REP.ML - Functor<br>
+  mlsource/MLCompiler/DatatypeRep.ML - Structure<br>
+  mlsource/MLCompiler/EXPORTTREESIG.sml - Signature<br>
+  mlsource/MLCompiler/ExportTree.sml - Functor<br>
+  mlsource/MLCompiler/ExportTreeStruct.sml - Structure<br>
+  mlsource/MLCompiler/TYPEIDCODESIG.sml - Signature<br>
+  mlsource/MLCompiler/TYPEIDCODE.sml - Functor<br>
+  mlsource/MLCompiler/TypeIDCodeStruct.sml - Structure<br>
+  mlsource/MLCompiler/DEBUGGERSIG.sml - Signature<br>
+  mlsource/MLCompiler/DEBUGGER_.sml - Functor<br>
+  mlsource/MLCompiler/Debugger.sml - Structure</p>
+<p>There are various support modules involved in the process of type-checking 
+  and code-generation. ValueOps contains operations on identifiers. As well as 
+  simple identifiers it also deals with various sorts of overloaded identifiers 
+  as well as the type-specific functions such as PolyML.print. It contains many 
+  of the functions to display ML values. Pretty defines the type used in the Poly/ML 
+  pretty printer. DatatypeRep produces an optimised representation for the value 
+  constructors of a datatype depending on the number and types of the constructors. 
+  ExportTree is used in the construction of the abstract view of the parse-tree 
+  that is made available through the IDE interface. TYPEIDCODE produces code for 
+  the type-identifiers associated with types and datatypes. These contain the 
+  type-specific printing and equality functions. Debugger is used to build the 
+  data structures and hooks used for debugging ML code if the code is compiled 
+  with PolyML.Compiler.debug set.</p>
+<h3> Code Generation </h3>
+<p> mlsource/MLCompiler/CodeTree/BaseCodeTreeSig.sml - Signature<br>
+  mlsource/MLCompiler/CodeTree/BaseCodeTree.sml - Structure<br>
+  mlsource/MLCompiler/CODETREESIG.ML - Signature<br>
+  mlsource/MLCompiler/CodeTree/CODETREE.ML - Functor<br>
+  mlsource/MLCompiler/CodeTree/ml_bind.ML - Structure</p>
+<p>The third pass of the compiler generates an intermediate code structure from 
+  the parse-tree. BaseCodeTree contains the datatype definition for this structure 
+  and a few additional functions. CODETREE contains the optimiser and processing 
+  functions that transform the tree structure generated from the ML code into 
+  an equivalent tree structure for the low-level code generator. The optimise 
+  function performs inline function expansion, tuple optimisation and various 
+  constant folding operations. Later passes remove redundant declarations especially 
+  those added as part of the inline expansion process and compute life-time values 
+  for the remaining declarations. Life-time information is used by the low-level 
+  code-generator to aid register allocation.<br>
+</p>
+<h3>Code Generation - X86</h3>
+<p> mlsource/MLCompiler/CodeTree/CODE_ARRAY.ML - Structure<br>
+  mlsource/MLCompiler/CodeTree/CODEGEN_TABLESIG.sml - Signature<br>
+  mlsource/MLCompiler/CodeTree/CODEGEN_TABLE.ML - Functor<br>
+  mlsource/MLCompiler/CodeTree/CodeGenTable.ML - Structure<br>
+  mlsource/MLCompiler/CodeTree/CODECONSSIG.sml - Signature<br>
+  mlsource/MLCompiler/CodeTree/X86CODESIG.sml - Signature<br>
+  mlsource/MLCompiler/CodeTree/X86OUTPUTCODE.ML - Functor<br>
+  mlsource/MLCompiler/CodeTree/X86OPTIMISE.ML - Functor<br>
+  mlsource/MLCompiler/CodeTree/X86LOWLEVEL.ML - Functor<br>
+  mlsource/MLCompiler/CodeTree/GENERATE_CODE.ML - Functor<br>
+  mlsource/MLCompiler/CodeTree/GCode.i386.ML - Structure<br>
+  mlsource/MLCompiler/CodeTree/CodeCons.i386.ML - Structure</p>
+  <p>
+  The final part of the compilation process is to generate machine code for the 
+  particular architecture. GCode (GENERATE_CODE) processes the code-tree and builds 
+  a list of instructions. CodeGenTable is used to keep track of declarations and 
+  register allocations. X86LOWLEVEL is the first part of this process. X86OPTIMISE 
+  is a peep-hole optimiser that looks for sequences of instructions that can be 
+  reduced. The final part of the process is handled by X86OUTPUTCODE which takes 
+  the instruction sequence and produces a code-object, a vector containing the 
+  X86 machine code and also the constants used in the code. CODE_ARRAY is a helper 
+  structure that provides byte and word operations on the code-object.</p>
+<h3>Bootstrapping</h3>
+<p> mlsource/MLCompiler/CompilerVersion.sml - Structure<br>
+  mlsource/MLCompiler/MAKE_.ML - Functor<br>
+  mlsource/MLCompiler/Make.ML - Structure<br>
+  mlsource/MLCompiler/INITIALISE_.ML - Functor<br>
+  mlsource/MLCompiler/Initialise.ML - Structure<br>
+  mlsource/MLCompiler/ml_bind.ML</p>
+<p>CompilerVersion is a tiny structure with the current version information. Make 
+  is a wrapper for the compiler and includes a cut-down version of the &quot;use&quot; 
+  function to enable the basis library to be compiled. Initialise contains declarations 
+  needed for bootstrapping. Before the basis library can be compiled there are 
+  certain identifiers that have to be added to the initial name-space. In particular, 
+  the compiler itself and various compiler switches and datatypes have to added 
+  at this stage. ml_bind is the root when building the compiler using PolyML.make. 
+  It sets up the compiler for bootstrapping.
+</p>
+<h3>Support Library</h3>
+<p> mlsource/MLCompiler/Boot/Address.ML<br>
+  mlsource/MLCompiler/Boot/Misc.ML<br>
+  mlsource/MLCompiler/Boot/HashTable.ML<br>
+  mlsource/MLCompiler/Boot/UniversalTable.ML<br>
+  mlsource/MLCompiler/Boot/StretchArray.ML<br>
+  mlsource/MLCompiler/Boot/ml_bind.ML</p>
+<p>The Boot directory contains a few library structures that are used throughout 
+  the compiler. These are gradually being replaced by the Standard Basis Library.</p>
+<h2>The Run-time System</h2>
+<p>The Poly/ML run-time system (RTS) is written mostly in C++ with a few files 
+  in C and assembly code. All interaction between ML code and the operating system 
+  goes through the run-time system. Most interaction is through RTS calls.</p>
+<h3>Stub Functions</h3>
+<p> libpolymain/polystub.c<br>
+  polyimport.c </p>
+<p>Every executable program has to have an initial entry point, (main or WinMain) 
+  and this is provided by either polyimport or polystub. polystub is used to create 
+  the polymain library. All other RTS files are compiled into the polyml library. 
+  polyimport is normally only used during the initial installation and reads a 
+  heap that has been exported in the portable (text) format. polystub is used 
+  when building an executable by linking in an object file that has been exported 
+  with PolyML.export.</p>
+<h3>Globals and Support Modules</h3>
+<p>libpolyml/mpoly.cpp<br>
+  libpolyml/mpoly.h<br>
+  libpolyml/run_time.cpp<br>
+  libpolyml/run_time.h <br>
+  libpolyml/diagnostics.cpp<br>
+  libpolyml/diagnostics.h <br>
+  libpolyml/rts_module.cpp<br>
+  libpolyml/rts_module.h<br>
+  libpolyml/globals.h<br>
+  libpolyml/noreturn.h<br>
+  libpolyml/sys.h<br>
+  libpolyml/version.h<br>
+  config.h<br>
+  winconfig.h</p>
+<p>mpoly.cpp contains the main entry point to the RTS and is immediately called 
+  by the main program in either polyimport or polystub. run_time.cpp contains 
+  the main despatch table for RTS calls from ML code and also various functions 
+  that do not fit elsewhere. diagnostics.cpp contains some functions to produce 
+  debugging information from the RTS. rts_module defines the RTSModule base class 
+  that is used for the more specific modules. sys.h provides symbolic definitions 
+  for run-time system calls. The information in it should match basis/RuntimeCalls.ML. 
+  globals.h defines the PolyWord and PolyObject classes that provide symbolic 
+  access to machine words as well as other global definitions. noreturn.h provides 
+  a way of indicating that a function does not return normally. version.h is a 
+  small file containing the current RTS version. config.h is produced automatically 
+  by the configuration process. winconfig.h is an equivalent for Windows when 
+  compiling under Visual C++.</p>
+<h3>Arithmetic and Strings</h3>
+<p>libpolyml/arb.cpp<br>
+  libpolyml/arb.h<br>
+  libpolyml/reals.cpp<br>
+  libpolyml/reals.h<br>
+  libpolyml/realconv.cpp<br>
+  libpolyml/realconv.h<br>
+  libpolyml/polystring.cpp<br>
+  libpolyml/polystring.h</p>
+<p>arg.cpp contains the arbitrary precision package. It now uses GMP to do the 
+  actual arithmetic if GMP is installed and otherwise uses its own code. reals.cpp 
+  contains real number (floating point) operations. realconv is a slightly modified 
+  version of the real to string conversion functions written by David M. Gay.</p>
+<h3>Basis Library Support</h3>
+<p>libpolyml/process_env.cpp<br>
+  libpolyml/timing.cpp<br>
+  libpolyml/process_env.h<br>
+  libpolyml/timing.h <br>
+  libpolyml/io_internal.h<br>
+  libpolyml/basicio.cpp<br>
+  libpolyml/network.cpp<br>
+  libpolyml/basicio.h<br>
+  libpolyml/network.h<br>
+  libpolyml/errors.h</p>
+<p>libpolyml/proper_io.h<br>
+  libpolyml/proper_io.cpp</p>
+<p>These files contain the operating system interfaces needed to support the Standard 
+  Basis Library. proper_io.cpp contains some wrap-around functions to avoid bugs 
+  and inconsistencies in some operating system calls. errors.h contains a table 
+  that maps between error numbers (the value stored in errno on Unix) and their 
+  textual equivalents.</p>
+<h3>State Saving and Exporting</h3>
+<p>polyexports.h<br>
+  libpolyml/exporter.cpp<br>
+  libpolyml/exporter.h<br>
+  libpolyml/elfexport.cpp<br>
+  libpolyml/elfexport.h<br>
+  libpolyml/machoexport.cpp<br>
+  libpolyml/machoexport.h<br>
+  libpolyml/pecoffexport.cpp<br>
+  libpolyml/pecoffexport.h<br>
+  libpolyml/pexport.cpp<br>
+  libpolyml/pexport.h<br>
+  libpolyml/sharedata.cpp<br>
+  libpolyml/sharedata.h<br>
+  libpolyml/savestate.cpp<br>
+  libpolyml/savestate.h</p>
+<p>These files provide mechanisms for exporting the heap in various forms. Different 
+  operating systems use different formats for object modules: ELF on Linux and 
+  BSD Unix, Mach-O on Mac OS X and PE-COFF on Windows. Poly/ML also has its own 
+  portable text format that is usually used only for the initial installation 
+  and pexport.cpp contains the code to both export and import this format. sharedata.cpp 
+  is used to reduce the size of the heap by combining values that are equivalent. 
+  Although not strictly related to exporting it is usually used before a heap 
+  is exported. savestate.cpp contains code to export and import the heap as a 
+  saved state.</p>
+<h3>Operating-System Specific</h3>
+<p>libpolyml/Console.h<br>
+  libpolyml/Console.cpp<br>
+  resource.h<br>
+  PolyML.rc <br>
+  libpolyml/PolyControl.h <br>
+  libpolyml/windows_specific.cpp<br>
+  libpolyml/unix_specific.cpp<br>
+  libpolyml/xwindows.cpp<br>
+  libpolyml/xcall_numbers.h<br>
+  libpolyml/xwindows.h<br>
+  libpolyml/os_specific.h</p>
+<p>Parts of the RTS are specific to either Windows or to Posix platforms i.e. 
+  Unix and Cygwin. unix_specific.cpp contains code to support the Unix and Posix 
+  structures in the basis library. windows_specific.cpp supports the Windows structure. 
+  Console.cpp provides a simple console window in Windows and PolyML.rc is the 
+  resource file with the menus and icons. xwindows.cpp contains the X-Windows 
+  and Motif interface. It is only included if the appropriate configuration option 
+  is set.</p>
+<h3>Hardware Specific</h3>
+<p>libpolyml/machine_dep.h<br>
+  libpolyml/x86_dep.cpp<br>
+  libpolyml/x86asm.asm <br>
+  libpolyml/power_dep.cpp<br>
+  libpolyml/power_assembly.S<br>
+  libpolyml/sparc_dep.cpp<br>
+  libpolyml/sparc_assembly.S<br>
+  libpolyml/int_opcodes.h<br>
+  libpolyml/interpret.cpp</p>
+<p>Poly/ML is compiled into machine code and uses its own linkage conventions. 
+  When calling from ML to the RTS there needs to be an interface which saves the 
+  ML state and loads the C state for the RTS. Arguments and results need to be 
+  transferred. There is a C++ file and an assembly code file for each of the X86 
+  (32 and 64-bit), PPC and Sparc architectures. On other architectures a portable, 
+  interpreted byte code is used and the interpreter takes the place of the machine-specific 
+  module.</p>
+<h3>Multi-Threading</h3>
+<p>libpolyml/processes.cpp<br>
+  libpolyml/processes.h <br>
+  libpolyml/locking.cpp<br>
+  libpolyml/locking.h
+</p>
+<p>Support for multi-threading is mostly contained in processes.cpp. locking.cpp 
+  provides implementation for the PLock, Plocker and PCondVar classes that are 
+  used in various places to provide mutual exclusion.</p>
+<h3>Memory Management</h3>
+<p>libpolyml/gc.cpp<br>
+  libpolyml/gc.h<br>
+  libpolyml/bitmap.cpp<br>
+  libpolyml/bitmap.h<br>
+  libpolyml/memmgr.cpp<br>
+  libpolyml/memmgr.h<br>
+  libpolyml/osmem.cpp<br>
+  libpolyml/osmem.h<br>
+  libpolyml/save_vec.cpp<br>
+  libpolyml/save_vec.h<br>
+  libpolyml/scanaddrs.cpp<br>
+  libpolyml/scanaddrs.h <br>
+  libpolyml/check_objects.cpp<br>
+  libpolyml/check_objects.h
+</p>
+<p>The main part of the garbage collector is in gc.cpp. bitmap.cpp provides the 
+  Bitmap class that is used to mark allocated words in the memory. memmgr.cpp 
+  provides classes to manage the various segments of memory: local segments for 
+  local heaps and permanent segments for object file heaps and saved states. osmem.cpp 
+  is used for the actual allocation and de-allocation of memory using calls specific 
+  to the operating system. save_vec.cpp defines classes that support a save-vector 
+  for each thread. When in the RTS a thread may need to allocate memory or access 
+  values in the ML heap. It always does this through its save vector which may 
+  be modified if there is a garbage collector. scanaddrs.cpp provides classes 
+  process data structures in the heap by following pointers. This is used in the 
+  garbage collector and also when exporting the heap. check_objects.cpp is used 
+  for debugging.</p>
+<h3>Poly/ML Extensions</h3>
+<p>libpolyml/foreign.cpp<br>
+  libpolyml/foreign.h<br>
+  libpolyml/objsize.cpp<br>
+  libpolyml/objsize.h<br>
+  libpolyml/poly_specific.cpp<br>
+  libpolyml/poly_specific.h<br>
+  libpolyml/profiling.cpp<br>
+  libpolyml/profiling.h<br>
+  libpolyml/sighandler.cpp<br>
+  libpolyml/sighandler.h </p>
+<p>As well as the standard basis library Poly/ML contains various additional structures. 
+  foreign.cpp contains the foreign-function interface (CInterface structure). 
+  objsize.cpp supports PolyML.objSize and PolyML.showSize. poly_specific.cpp has 
+  various additional functions. profiling.cpp supports profiling for time and 
+  space. sighandler.cpp supports the Signal structure that allows an ML function 
+  to be called as the result of a signal.</p>
+<h2>Basis Library</h2>
+<p>The basis library is compiled when Poly/ML is built for a particular platform. 
+  Apart from the entries added by the initialisation process all entries in the 
+  name space come from the basis library. The library is mostly compiled into 
+  a basic name space created during the initialisation process. When this is complete 
+  a new name space is built using functions from the basis library and all the 
+  declarations are copied over with the exception of some of the support modules 
+  that are only used internally in the basis library.</p>
+<h3>Build control</h3>
+<p>exportPoly.sml<br>
+  basis/build.sml </p>
+<p>These files are used to control the build process.</p>
+<h3>Values and Infixes</h3>
+<p>basis/InitialBasis.ML</p>
+<p>Most of the library is arranged as modules (structure or functors and their 
+  signatures). InitialBasis contains various values and infix declarations that 
+  can appear free in the basis and in particular those that are needed to compile 
+  the rest of the basis. A few additional value declarations are made later in 
+  the process, in particular the General structure is opened after it has been 
+  compiled. </p>
+<h3>PolyML structure</h3>
+<p>basis/InitialPolyML.ML<br>
+  basis/PrettyPrinter.ML<br>
+  basis/FinalPolyML.sml<br>
+  basis/TopLevelPolyML.sml</p>
+<p>The PolyML structure is unusual in that it is actually built in several phases. 
+  There is a version of the structure created in the initialisation process that 
+  contains special definitions such as PolyML.print that are infinitely overloaded 
+  and cannot be written in ML. InitialPolyML is compiled at the start of building 
+  the library and extends the structure to include some functions, such as onEntry, 
+  that are used within the basis library itself. PrettyPrinter, FinalPolyML and 
+  TopLevelPolyML are compiled after the rest of the basis library. PrettyPrinter 
+  contains a pretty printer, FinalPolyML contains the definition of PolyML.compiler 
+  and TopLevelPolyML contains code for the IDE protocol.</p>
+<h3>Support Modules</h3>
+<p>basis/LibraryIOSupport.sml<br>
+  basis/LibrarySupport.sml<br>
+  basis/VectorOperations.sml<br>
+  basis/VectorSliceOperations.sml <br>
+  basis/PolyVectorOperations.sml<br>
+  basis/BasicStreamIO.sml<br>
+  basis/ExnPrinter.sml</p>
+<p>A few modules are compiled during the build process and removed later.</p>
+<h3>Standard Basis Library</h3>
+<p> basis/Array.sml<br>
+  basis/Array2.sml<br>
+  basis/BIT_FLAGS.sml<br>
+  basis/BinIO.sml<br>
+  basis/BinPrimIO.sml<br>
+  basis/Bool.sml<br>
+  basis/BoolArray.sml<br>
+  basis/Byte.sml<br>
+  basis/CommandLine.sml<br>
+  basis/Date.sml<br>
+  basis/General.sml<br>
+  basis/GenericSock.sml<br>
+  basis/IEEEReal.sml<br>
+  basis/IEEE_REAL.sml<br>
+  basis/IMPERATIVE_IO.sml<br>
+  basis/INTEGER.sml<br>
+  basis/INetSock.sml<br>
+  basis/IO.sml<br>
+  basis/ImperativeIO.sml<br>
+  basis/Int.sml<br>
+  basis/Int32.sml<br>
+  basis/IntArray.sml<br>
+  basis/IntArray2.sml<br>
+  basis/IntInf.sml<br>
+  basis/LargeWord.sml<br>
+  basis/List.sml<br>
+  basis/ListPair.sml<br>
+  basis/MATH.sml<br>
+  basis/MONO_ARRAY.sml<br>
+  basis/MONO_ARRAY_SLICE.sml<br>
+  basis/MONO_VECTOR.sml<br>
+  basis/MONO_VECTOR_SLICE.sml<br>
+  basis/NetHostDB.sml<br>
+  basis/NetProtDB.sml<br>
+  basis/NetServDB.sml<br>
+  basis/OS.sml<br>
+  basis/Option.sml<br>
+  basis/PRIM_IO.sml<br>
+  basis/PackRealBig.sml<br>
+  basis/PackWord8Big.sml<br>
+  basis/Posix.sml<br>
+  basis/PrimIO.sml<br>
+  basis/Real.sml<br>
+  basis/RealArray.sml<br>
+  basis/STREAM_IO.sml<br>
+  basis/Socket.sml<br>
+  basis/String.sml<br>
+  basis/StringCvt.sml<br>
+  basis/SysWord.sml<br>
+  basis/Text.sml<br>
+  basis/TextIO.sml<br>
+  basis/TextPrimIO.sml<br>
+  basis/Time.sml<br>
+  basis/Timer.sml<br>
+  basis/Unix.sml<br>
+  basis/UnixSock.sml<br>
+  basis/Vector.sml<br>
+  basis/Windows.sml<br>
+  basis/Word32.sml<br>
+  basis/Word32.x86_64.sml<br>
+  basis/Word8.sml<br>
+  basis/Word8Array.sml
+</p>
+<p>These all contain structures, functors and signatures defined in the Standard 
+  Basis Library.</p>
+<h3>Poly/ML Extensions</h3>
+<p> basis/RuntimeCalls.ML<br>
+  basis/Signal.sml<br>
+  basis/SingleAssignment.sml<br>
+  basis/Thread.sml<br>
+  basis/Universal.ML<br>
+  basis/UniversalArray.ML<br>
+  basis/Weak.sml<br>
+  basis/HashArray.ML<br>
+  basis/processes.ML<br>
+  basis/SML90.sml
+</p>
+<p>These are extensions added by the Poly/ML system. RuntimeCalls lists the RTS 
+  call numbers. <a href="/docs/Signal.html">Signal</a> provides a way to handle 
+  Unix signals (and console interrupts in Windows). SingleAssignment provides 
+  a reference that can be assigned to once. <a href="/docs/Threads.html">Thread</a> 
+  provides multi-threading and processes contains a definition of the old Poly/ML 
+  Process structure for backwards compatibility. Weak provides weak references 
+  i.e. references that can be used to detect when a value is no longer referenced. 
+  HashArray provides a hash table structure. SML90 provides backwards compatibility 
+  for ML/90. It was defined in the original standard basis document but later 
+  removed. <br>
+</p>
+</body>
+</html>
