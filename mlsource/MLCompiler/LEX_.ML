@@ -614,6 +614,8 @@ struct
     ); (* insymbol *)
 
     fun pushBackSymbol ({pushedSym,...}:lexan, sym) =
+    (* TODO: This does not restore the location so parses such as val () = ... get the wrong
+       location for the opening parenthesis. *)
         if !pushedSym <> Othersy then raise InternalError "Attempt to push two parentheses"
         else pushedSym := sym
 
