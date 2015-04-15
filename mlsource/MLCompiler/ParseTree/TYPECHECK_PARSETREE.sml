@@ -850,7 +850,7 @@ struct
           | FunDeclaration fund =>
                 (assFunDeclaration fund; badType (* Should never be used. *))
 
-          | OpenDec{decs=ptl, variables, structures, typeconstrs, location, ...} =>
+          | OpenDec{decs=ptl, variables, structures, typeconstrs, ...} =>
                 let
                     (* Go down the list of names opening the structures. *)
                     (* We have to be careful because open A B is not the same as
@@ -863,25 +863,26 @@ struct
                     and structTable = HashTable.hashMake 10
     
                     (* First get the structures... *)
-                    fun findStructure ({name, location, ...}: structureIdentForm) = 
-                        lookupStructure
-                            ("Structure", {lookupStruct = #lookupStruct env}, name,
-                                giveError (v, lex, location))
+                    fun findStructure ({name, location, ...}: structureIdentForm) =
+                        Option.map (fn s => (s, location))
+                            (lookupStructure
+                                ("Structure", {lookupStruct = #lookupStruct env}, name,
+                                    giveError (v, lex, location)))
         
-                    val strs : structVals list = List.mapPartial findStructure ptl
+                    val strs = List.mapPartial findStructure ptl
                         
                     (* Value and substructure entries in a structure will generally have
                        "Formal" access which simply gives the offset of the entry within
                        the parent structure.  We need to convert these into "Select"
                        entries to capture the address of the base structure. *)
-                    fun copyEntries (str as Struct{locations, signat = sigTbl, name=strName, ...}) =
+                    fun copyEntries (str as Struct{locations, signat = sigTbl, name=strName, ...}, varLoc) =
                     let
                         val openLocs =
                         (* If we have a declaration location for the structure set this as the structure
                            location.  Add in here as the "open location". *)
                             case List.find (fn DeclaredAt _ => true | _ => false) locations of
-                                SOME (DeclaredAt loc) => [StructureAt loc, OpenedAt location]
-                            |   _ => [OpenedAt location]
+                                SOME (DeclaredAt loc) => [StructureAt loc, OpenedAt varLoc]
+                            |   _ => [OpenedAt varLoc]
 
                         (* Open the structure.  Formal entries are turned into Selected entries. *)
                         val _ =
