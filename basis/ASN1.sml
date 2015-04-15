@@ -36,6 +36,10 @@ sig
     and asn1BitString: tagType and asn1OctetString: tagType
 
     (* Parse the tag and length information to extract the first tag/value pair from the
+       input.  Returns with the reader pointing at the start of the data. *)
+    val readHeader: (Word8.word, 'a) StringCvt.reader -> ((tagType * int), 'a) StringCvt.reader
+
+    (* Parse the tag and length information to extract the first tag/value pair from the
        input.  Returns the remainder of the input. *)
     val decodeItem: Word8VectorSlice.slice ->
         {tag: tagType, data: Word8VectorSlice.slice, remainder: Word8VectorSlice.slice} option
@@ -69,14 +73,10 @@ struct
     and asn1OctetString = Universal(4, Primitive) (* Could also be constructed *)
 
     open Word8VectorSlice
-
-    fun getNext n =
-        if length n = 0 then NONE
-        else SOME(sub(n, 0), subslice(n, 1, NONE))
-
     (* Convert the length data.  The first byte is either the length itself, if it
        is less than 128 otherwise it is the number of bytes containing the length. *)
-    fun getLength p =
+
+    fun getLength getNext p =
         case getNext p of
             SOME (n, t) =>
             if n < 0wx80 then SOME(Word8.toInt n, t)
@@ -95,7 +95,7 @@ struct
             end
         |   NONE => NONE
 
-    fun decodeItem input =
+    fun readHeader getNext input =
         case getNext input of
             SOME (code, t) =>
                 let
@@ -137,17 +137,28 @@ struct
                     case tagRest of
                         SOME(tag, rest) =>
                         (
-                            case getLength rest of
-                                SOME(len, tail) =>
-                                    SOME{tag = tagType(tag, sc),
-                                        data = Word8VectorSlice.subslice(tail, 0, SOME len),
-                                        remainder = Word8VectorSlice.subslice(tail, len, NONE)
-                                    }
+                            case getLength getNext rest of
+                                SOME(len, tail) => SOME((tagType(tag, sc), len), tail)
                             |   NONE => NONE
                         )
                     |   NONE => NONE
                 end
         |   NONE => NONE
+
+    (* Decode Word8VectorSlice.slice input. *)
+    local
+        fun getNext n =
+            if length n = 0 then NONE
+            else SOME(sub(n, 0), subslice(n, 1, NONE))
+    in
+        fun decodeItem input =
+            case readHeader getNext input of
+                SOME((tag, len), tail) =>
+                    SOME{tag = tag,
+                        data = Word8VectorSlice.subslice(tail, 0, SOME len),
+                        remainder = Word8VectorSlice.subslice(tail, len, NONE)
+                    }
+            |   NONE => NONE
 
         fun decodeInt p =
             case getNext p of
@@ -161,10 +172,11 @@ struct
                 in
                     parseRest(Word8.toIntX h, tl)
                 end
+    end
 
-        and decodeString t = Byte.bytesToString(vector t)
-        
-        and decodeBool p = decodeInt p <> 0
+    fun decodeString t = Byte.bytesToString(vector t)
+    
+    and decodeBool p = decodeInt p <> 0
 
 
     fun encodeItem (tag, value) =
