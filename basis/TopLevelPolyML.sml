@@ -1,12 +1,11 @@
 (*
     Title:      Root function for the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2009
+    Copyright   David Matthews 2009, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,9 +21,7 @@
    Poly/ML top-level loop. *)
 
 local
-    (* Parse trees for topdecs in current file. *)
     val parseTree = ref ("", []) (* Parsetree ID and parsetrees as a list. *)
-    (* "parseTree is not completely interlocked against parallel access. *)
 
     fun runIDEProtocol () =
     let
@@ -48,62 +45,19 @@ local
             result
         end
 
-        local
-            (* Separate out the output stream.  We need to interlock access to stdOut
-               to avoid user code outputing within a packet. *)
-            open TextIO TextIO.StreamIO
-            val outStream = getOutstream stdOut
-            val (writer, buffMode) = getWriter outStream
-            val TextPrimIO.WR
-                { name, chunkSize, writeVec, writeArr, block, canOutput, ioDesc, ... } = writer
-            val outputLock = Thread.Mutex.mutex()
-            (* Create a version of the stream that locks before actually sending output. *)
-            val lockedWriteVec =
-                case writeVec of
-                    NONE => NONE
-                |   SOME writeVec =>
-                        SOME(fn a => LibraryIOSupport.protect outputLock writeVec a)
-            val lockedWriteArray =
-                case writeArr of
-                    NONE => NONE
-                |   SOME writeArr =>
-                        SOME(fn a => LibraryIOSupport.protect outputLock writeArr a)
-            val lockedWriter =
-                TextPrimIO.WR { name = name, chunkSize = chunkSize,
-                                writeVec = lockedWriteVec, writeArr = lockedWriteArray,
-                                writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
-                                getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
-                                close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
-            (* Use this locked version for normal stdOut. *)
-            val () = setOutstream(stdOut,
-                        StreamIO.mkOutstream(TextPrimIO.augmentWriter lockedWriter, buffMode))
-            (* Create an unlocked version for use within the IDE code.  When writing to this
-               stream the IDE code will first get a lock, then output the whole packet before
-               releasing the lock.  Because mutexes are not recursive we can't use the locking
-               version. *)
-            val unLockedWriter =
-                TextPrimIO.WR { name = name, chunkSize = chunkSize, writeVec = writeVec, writeArr = writeArr,
-                                writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
-                                getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
-                                close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
-        in
-            val unlockedStream = StreamIO.mkOutstream(TextPrimIO.augmentWriter unLockedWriter, buffMode)
-            val outputLock = outputLock
-        end
-
         type basicLoc = (* Locations in request packets. *) { startOffset: int, endOffset: int }
-        type compileError = { hardError: bool, location: PolyML.location, message: string }
+        type compileError = { hardError: bool, location: PolyML.location, message: PolyML.pretty }
 
         datatype request =
             (* Requests sent by the IDE to Poly/ML. *)
             PropertyRequest (* O *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
         |   MoveRequest (* M *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, direction: string }
+                of { requestId: string, parseTreeId: string, location: basicLoc, direction: direction }
         |   TypeRequest (* T *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
         |   DecRequest (* I *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, decType: string }
+                of { requestId: string, parseTreeId: string, location: basicLoc, decType: dectype }
         |   RefRequest (* V *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
         |   CompileRequest (* R *)
@@ -112,7 +66,11 @@ local
         |   KillRequest (* K *)
                 of { requestId: string }
         |   UnknownRequest (* Provided for upwards compatibility. *)
-                of { startCh: char }
+                of { request: int, requestId: string}
+
+        and direction = DirUp | DirLeft | DirRight | DirDown
+        
+        and dectype = DecLocal | DecOpen | DecParent
 
         and response =
             (* Replies sent from Poly/ML to the IDE. *)
@@ -121,7 +79,7 @@ local
         |   MoveResponse  (* M *)
                 of { requestId: string, parseTreeId: string, location: basicLoc }
         |   TypeResponse (* T *)
-                of { requestId: string, parseTreeId: string, location: basicLoc, typeRes: string option }
+                of { requestId: string, parseTreeId: string, location: basicLoc, typeRes: PolyML.pretty option }
         |   DecResponse (* I *)
                 of { requestId: string, parseTreeId: string, location: basicLoc,
                      decLocation: PolyML.location option }
@@ -130,320 +88,822 @@ local
         |   CompilerResponse (* R *)
                 of { requestId: string, parseTreeId: string, finalOffset: int, result: compileResult }
         |   UnknownResponse (* Provided for upwards compatibility. *)
-                of { startCh: char }
+                of { request: int, requestId: string }
 
         and compileResult =
             Succeeded of compileError list
-        |   RuntimeException of string * compileError list
+        |   RuntimeException of PolyML.pretty * compileError list
         |   PreludeFail of string
         |   CompileFail of compileError list
         |   CompileCancelled of compileError list
 
-        fun protocolError error =
-        let
-            open OS.Process
-        in
-            TextIO.print ("Protocol error: " ^ error) handle _ => ();
-            exit failure;
-            raise Fail "bad" (* Never called but sets return type as 'a *)
-        end
 
-        (* Reads a request.  Calls OS.Process.exit at end-of-file or on a protocol error. *)
-        fun readRequest (): request =
-        let
-            open TextIO
-
-            (* Returns the string as far as the next ESC and the terminator. *)
-            fun readToEscape (soFar: string, terminator) : string =
-            case input1 stdIn of
-                SOME #"\u001b" =>
-                (
-                    case input1 stdIn of
-                        NONE => protocolError "End of file"
-                    |   SOME ch =>
-                            if ch = terminator
-                            then soFar
-                            else if ch = #"\u001b" (* Escaped ESC. *)
-                            then readToEscape(soFar ^ str #"\u001b", terminator)
-                            else protocolError(str ch ^ " not " ^ str terminator)
-                )
-            |   SOME ch => readToEscape(soFar ^ str ch, terminator)
-            |   NONE => protocolError "End of file"
-
-            (* Parse an integer.  Returns zero if it isn't a valid int. *)
-            fun getInt termCh : int =
-                case Int.fromString (readToEscape("", termCh)) of
-                    NONE => 0
-                |   SOME i => i
-
-            val () =
-                case input1 stdIn of
-                    NONE => OS.Process.exit OS.Process.success (* Close down. *)
-                |   SOME #"\u001b" => () (* Escape- start of packet. *)
-                |   SOME ch => protocolError(str ch ^ " not ESCAPE at start of packet")
-            val startCh = (* Request code *)
-                case input1 stdIn of
-                    NONE => protocolError "End of file"
-                |   SOME ch => ch
-        in
-            case startCh of
-                #"R" =>
-                let (* Compile request. *)
-                    (* Begin a new compilation. *)
-                    val requestId = readToEscape("", #",")
-                    val fileName = readToEscape("", #",")
-                    val startPosition = getInt #","
-                    (* The next two are the lengths *)
-                    val preludeLength = getInt #","
-                    val sourceLength = getInt #","
-                    (* *)
-                    val preludeCode = TextIO.inputN(TextIO.stdIn, preludeLength)
-                    val _ = readToEscape("", #",") (* Should be empty - check? *)
-                    val sourceText = TextIO.inputN(TextIO.stdIn, sourceLength)
-                    val _ = readToEscape("", #"r") (* Should be empty - check? *)
-                in
-                    CompileRequest { requestId = requestId, fileName = fileName, startPosition = startPosition,
-                             preludeCode = preludeCode, sourceCode = sourceText }
-                end
-
-                (* Navigation functions. *)
-                
-            |   #"M" =>
+        val outputLock = Thread.Mutex.mutex()
+        
+        val (readRequest, sendStartedMessage, sendResponse) =
+            case OS.Process.getEnv "POLYIDESOCKET" of
+                NONE => (* Version 1 protocol - backwards compatibility - use stdIn/stdOut *)
                 let
-                    val requestId = readToEscape("", #",")
-                    val parseTreeId = readToEscape("", #",")
-                    val startOffset = getInt #","
-                    val endOffset = getInt #","
-                    val requestType = readToEscape("", #"m")
-                in
-                    MoveRequest{
-                        requestId = requestId, parseTreeId = parseTreeId, direction= requestType,
-                        location = { startOffset = startOffset, endOffset = endOffset }
-                        }
-                end
+                    (* Separate out the output stream.  We need to interlock access to stdOut
+                       to avoid user code outputing within a packet. *)
+                    open TextIO TextIO.StreamIO
+                    val outStream = getOutstream stdOut
+                    val (writer, buffMode) = getWriter outStream
+                    val TextPrimIO.WR
+                        { name, chunkSize, writeVec, writeArr, block, canOutput, ioDesc, ... } = writer
+                    (* Create a version of the stream that locks before actually sending output. *)
+                    val lockedWriteVec =
+                        case writeVec of
+                            NONE => NONE
+                        |   SOME writeVec =>
+                                SOME(fn a => ThreadLib.protect outputLock writeVec a)
+                    val lockedWriteArray =
+                        case writeArr of
+                            NONE => NONE
+                        |   SOME writeArr =>
+                                SOME(fn a => ThreadLib.protect outputLock writeArr a)
+                    val lockedWriter =
+                        TextPrimIO.WR { name = name, chunkSize = chunkSize,
+                                        writeVec = lockedWriteVec, writeArr = lockedWriteArray,
+                                        writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
+                                        getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+                                        close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
+                    (* Use this locked version for normal stdOut. *)
+                    val () = setOutstream(stdOut,
+                                StreamIO.mkOutstream(TextPrimIO.augmentWriter lockedWriter, buffMode))
+                    (* Create an unlocked version for use within the IDE code.  When writing to this
+                       stream the IDE code will first get a lock, then output the whole packet before
+                       releasing the lock.  Because mutexes are not recursive we can't use the locking
+                       version. *)
+                    val unLockedWriter =
+                        TextPrimIO.WR { name = name, chunkSize = chunkSize, writeVec = writeVec, writeArr = writeArr,
+                                        writeVecNB = NONE, writeArrNB = NONE, block = block, canOutput = canOutput,
+                                        getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+                                        close = fn () => raise Fail "stdOut must not be closed", ioDesc = ioDesc }
 
-                (* Print the type of the selected node. *)
-            |   #"T" =>
-                let
-                    val requestId = readToEscape("", #",")
-                    val parseTreeId = readToEscape("", #",")
-                    val startOffset = getInt #","
-                    val endOffset = getInt #"t"
-                in
-                    TypeRequest{
-                        requestId = requestId, parseTreeId = parseTreeId,
-                        location = { startOffset = startOffset, endOffset = endOffset }
-                        }
-                end
+                    val inStream = stdIn
 
-                (* Print the declaration location of the selected node. *)
-            |   #"I" =>
-                let
-                    val requestId = readToEscape("", #",")
-                    val parseTreeId = readToEscape("", #",")
-                    val startOffset = getInt #","
-                    val endOffset = getInt #","
-                    val decType = readToEscape("", #"i")
-                in
-                    DecRequest{
-                        requestId = requestId, parseTreeId = parseTreeId, decType = decType,
-                        location = { startOffset = startOffset, endOffset = endOffset }
-                        }
-                end
+                    val outStream = StreamIO.mkOutstream(TextPrimIO.augmentWriter unLockedWriter, buffMode)
 
-                (* Return the local references to the given identifier. *)
-            |   #"V" =>
-                let
-                    val requestId = readToEscape("", #",")
-                    val parseTreeId = readToEscape("", #",")
-                    val startOffset = getInt #","
-                    val endOffset = getInt #"v"
-                in
-                    RefRequest{
-                        requestId = requestId, parseTreeId = parseTreeId,
-                        location = { startOffset = startOffset, endOffset = endOffset }
-                        }
-                end
+                    fun protocolError error =
+                    let
+                        open OS.Process
+                    in
+                        TextIO.print ("Protocol error: " ^ error) handle _ => ();
+                        exit failure;
+                        raise Fail "bad" (* Never called but sets return type as 'a *)
+                    end
 
-            |   #"O" => (* Print list of valid commands. *)
-                let
-                    val requestId = readToEscape("", #",")
-                    val parseTreeId = readToEscape("", #",")
-                    val startOffset = getInt #","
-                    val endOffset = getInt #"o"
-                in
-                    PropertyRequest{
-                        requestId = requestId, parseTreeId = parseTreeId,
-                        location = { startOffset = startOffset, endOffset = endOffset }
-                        }
-                end
+                    (* Reads a request.  Calls OS.Process.exit at end-of-file or on a protocol error. *)
+                    fun readRequest (): request =
+                    let
+                        open TextIO
 
-            |   #"K" => (* Cancel request. *)
-                    KillRequest { requestId = readToEscape ("", #"k") }
+                        (* Returns the string as far as the next ESC and the terminator. *)
+                        fun readToEscape (soFar: string, terminator) : string =
+                        case input1 inStream of
+                            SOME #"\u001b" =>
+                            (
+                                case input1 inStream of
+                                    NONE => protocolError "End of file"
+                                |   SOME ch =>
+                                        if ch = terminator
+                                        then soFar
+                                        else if ch = #"\u001b" (* Escaped ESC. *)
+                                        then readToEscape(soFar ^ str #"\u001b", terminator)
+                                        else protocolError(str ch ^ " not " ^ str terminator)
+                            )
+                        |   SOME ch => readToEscape(soFar ^ str ch, terminator)
+                        |   NONE => protocolError "End of file"
 
-            |   ch => (* Something else.  Reply with empty response. *)
-                let
-                    (* Unlike the other cases we don't know what may follow ESCAPE. *)
-                    val terminator = Char.toLower ch
-                    fun skipToTerminator () =
-                    case input1 stdIn of
-                        SOME #"\u001b" =>
-                        (
-                            case input1 stdIn of
+                        (* Parse an integer.  Returns zero if it isn't a valid int. *)
+                        fun getInt termCh : int =
+                            case Int.fromString (readToEscape("", termCh)) of
+                                NONE => 0
+                            |   SOME i => i
+
+                        val () =
+                            case input1 inStream of
+                                NONE => OS.Process.exit OS.Process.success (* Close down. *)
+                            |   SOME #"\u001b" => () (* Escape- start of packet. *)
+                            |   SOME ch => protocolError(str ch ^ " not ESCAPE at start of packet")
+                        val startCh = (* Request code *)
+                            case input1 inStream of
                                 NONE => protocolError "End of file"
-                            |   SOME ch =>
-                                    if ch = terminator
-                                    then () (* Found the end. *)
-                                    else (* Some internal escape code. *) skipToTerminator()
-                        )
-                    |   SOME _ => skipToTerminator ()
-                    |   NONE => protocolError "End of file"
-                in
-                    skipToTerminator ();
-                    UnknownRequest { startCh = ch }
-                end
-        end
+                            |   SOME ch => ch
+                    in
+                        case startCh of
+                            #"R" =>
+                            let (* Compile request. *)
+                                (* Begin a new compilation. *)
+                                val requestId = readToEscape("", #",")
+                                val fileName = readToEscape("", #",")
+                                val startPosition = getInt #","
+                                (* The next two are the lengths *)
+                                val preludeLength = getInt #","
+                                val sourceLength = getInt #","
+                                (* *)
+                                val preludeCode = TextIO.inputN(inStream, preludeLength)
+                                val _ = readToEscape("", #",") (* Should be empty - check? *)
+                                val sourceText = TextIO.inputN(inStream, sourceLength)
+                                val _ = readToEscape("", #"r") (* Should be empty - check? *)
+                            in
+                                CompileRequest { requestId = requestId, fileName = fileName, startPosition = startPosition,
+                                         preludeCode = preludeCode, sourceCode = sourceText }
+                            end
 
-        fun sendStartedMessage () = 
-        let 
-            fun print s = TextIO.StreamIO.output(unlockedStream, s)
-            fun printEsc ch = print (String.concat["\u001b", String.str ch])
-            fun sendResponse () =
-            ( (* send the version number of the protocol *)
-                printEsc #"H"; print "1.0.0"; printEsc #"h";
-                TextIO.StreamIO.flushOut unlockedStream
-            )
-        in
-            LibraryIOSupport.protect outputLock sendResponse ()
-        end
+                            (* Navigation functions. *)
             
-        (* Send a reply packet. *)
-        fun sendResponse response =
-        let
-            fun print s = TextIO.StreamIO.output(unlockedStream, s)
-            fun printEsc ch = print (String.concat["\u001b", String.str ch])
+                        |   #"M" =>
+                            let
+                                val requestId = readToEscape("", #",")
+                                val parseTreeId = readToEscape("", #",")
+                                val startOffset = getInt #","
+                                val endOffset = getInt #","
+                                val requestType =
+                                    case readToEscape("", #"m") of
+                                        "N" => DirRight
+                                    |   "P" => DirLeft
+                                    |   "U" => DirUp
+                                    |   _(*"C"*) => DirDown
+                            in
+                                MoveRequest{
+                                    requestId = requestId, parseTreeId = parseTreeId, direction= requestType,
+                                    location = { startOffset = startOffset, endOffset = endOffset }
+                                    }
+                            end
 
-            fun printLocation {startOffset, endOffset } =
-                print (String.concat[Int.toString startOffset, "\u001b,", Int.toString endOffset])
+                            (* Print the type of the selected node. *)
+                        |   #"T" =>
+                            let
+                                val requestId = readToEscape("", #",")
+                                val parseTreeId = readToEscape("", #",")
+                                val startOffset = getInt #","
+                                val endOffset = getInt #"t"
+                            in
+                                TypeRequest{
+                                    requestId = requestId, parseTreeId = parseTreeId,
+                                    location = { startOffset = startOffset, endOffset = endOffset }
+                                    }
+                            end
 
-            and printFullLocation { file, startLine, startPosition, endPosition, ...} =
-            (
-                print file; (* TODO double any escapes. *) printEsc #",";
-                print (Int.toString startLine); printEsc #",";
-                print (Int.toString startPosition); printEsc #",";
-                print (Int.toString endPosition)
-            )
+                            (* Print the declaration location of the selected node. *)
+                        |   #"I" =>
+                            let
+                                val requestId = readToEscape("", #",")
+                                val parseTreeId = readToEscape("", #",")
+                                val startOffset = getInt #","
+                                val endOffset = getInt #","
+                                val decType =
+                                    case readToEscape("", #"i") of
+                                        "J" => DecOpen
+                                    |   "S" => DecParent
+                                    |   _ (*"I"*) => DecLocal
+                            in
+                                DecRequest{
+                                    requestId = requestId, parseTreeId = parseTreeId, decType = decType,
+                                    location = { startOffset = startOffset, endOffset = endOffset }
+                                    }
+                            end
 
-            fun makeResponse (PropertyResponse { requestId, parseTreeId, location, commands }) =
-                let
-                    fun printCommand comm = (printEsc #","; print comm)
+                            (* Return the local references to the given identifier. *)
+                        |   #"V" =>
+                            let
+                                val requestId = readToEscape("", #",")
+                                val parseTreeId = readToEscape("", #",")
+                                val startOffset = getInt #","
+                                val endOffset = getInt #"v"
+                            in
+                                RefRequest{
+                                    requestId = requestId, parseTreeId = parseTreeId,
+                                    location = { startOffset = startOffset, endOffset = endOffset }
+                                    }
+                            end
+
+                        |   #"O" => (* Print list of valid commands. *)
+                            let
+                                val requestId = readToEscape("", #",")
+                                val parseTreeId = readToEscape("", #",")
+                                val startOffset = getInt #","
+                                val endOffset = getInt #"o"
+                            in
+                                PropertyRequest{
+                                    requestId = requestId, parseTreeId = parseTreeId,
+                                    location = { startOffset = startOffset, endOffset = endOffset }
+                                    }
+                            end
+
+                        |   #"K" => (* Cancel request. *)
+                                KillRequest { requestId = readToEscape ("", #"k") }
+
+                        |   ch => (* Something else.  Reply with empty response. *)
+                            let
+                                (* Unlike the other cases we don't know what may follow ESCAPE. *)
+                                val terminator = Char.toLower ch
+                                fun skipToTerminator () =
+                                case input1 inStream of
+                                    SOME #"\u001b" =>
+                                    (
+                                        case input1 inStream of
+                                            NONE => protocolError "End of file"
+                                        |   SOME ch =>
+                                                if ch = terminator
+                                                then () (* Found the end. *)
+                                                else (* Some internal escape code. *) skipToTerminator()
+                                    )
+                                |   SOME _ => skipToTerminator ()
+                                |   NONE => protocolError "End of file"
+                            in
+                                skipToTerminator ();
+                                UnknownRequest { request = Char.ord ch, requestId = "" }
+                            end
+                    end (* readRequest *)
+
+                    fun sendStartedMessage () = 
+                    let 
+                        fun print s = TextIO.StreamIO.output(outStream, s)
+                        fun printEsc ch = print (String.concat["\u001b", String.str ch])
+                        fun sendResponse () =
+                        ( (* send the version number of the protocol *)
+                            printEsc #"H"; print "1.0.0"; printEsc #"h";
+                            TextIO.StreamIO.flushOut outStream
+                        )
+                    in
+                        ThreadLib.protect outputLock sendResponse ()
+                    end
+
+                    (* Send a reply packet. *)
+                    fun sendResponse response =
+                    let
+                        fun print s = TextIO.StreamIO.output(outStream, s)
+                        fun printEsc ch = print (String.concat["\u001b", String.str ch])
+
+                        fun printLocation {startOffset, endOffset } =
+                            print (String.concat[Int.toString startOffset, "\u001b,", Int.toString endOffset])
+
+                        and printFullLocation { file, startLine, startPosition, endPosition, ...} =
+                        (
+                            print file; (* TODO double any escapes. *) printEsc #",";
+                            print (Int.toString startLine); printEsc #",";
+                            print (Int.toString startPosition); printEsc #",";
+                            print (Int.toString endPosition)
+                        )
+
+                        fun makeResponse (PropertyResponse { requestId, parseTreeId, location, commands }) =
+                            let
+                                fun printCommand comm = (printEsc #","; print comm)
+                            in
+                                printEsc #"O";
+                                print requestId; printEsc #",";
+                                print parseTreeId; printEsc #",";
+                                printLocation location;
+                                List.app printCommand commands;
+                                printEsc #"o"
+                            end
+
+                        |   makeResponse (MoveResponse { requestId, parseTreeId, location }) =
+                            (
+                                printEsc #"M";
+                                print requestId; printEsc #",";
+                                print parseTreeId; printEsc #",";
+                                printLocation location;
+                                printEsc #"m"
+                            )
+
+                        |   makeResponse (TypeResponse { requestId, parseTreeId, location, typeRes }) =
+                            let
+                                fun prettyAsString message =
+                                let
+                                    val result = ref []
+                                    fun doPrint s = result := s :: ! result
+                                    val () = PolyML.prettyPrint(doPrint, !PolyML.Compiler.lineLength) message
+                                in
+                                    String.concat(List.rev(! result))
+                                end
+                            in
+                                printEsc #"T";
+                                print requestId; printEsc #",";
+                                print parseTreeId; printEsc #",";
+                                printLocation location;
+                                case typeRes of
+                                    NONE => ()
+                                |   SOME typeRes =>
+                                    (
+                                        printEsc #",";
+                                        print(prettyAsString typeRes)
+                                    );
+                                printEsc #"t"
+                            end
+
+                        |   makeResponse (DecResponse { requestId, parseTreeId, location, decLocation }) =
+                            (
+                                printEsc #"I";
+                                print requestId; printEsc #",";
+                                print parseTreeId; printEsc #",";
+                                printLocation location;
+                                case decLocation of
+                                    SOME location => (printEsc #","; printFullLocation location)
+                                |   NONE => ();
+                                printEsc #"i"
+                            )
+
+                        |   makeResponse (RefResponse { requestId, parseTreeId, location, references }) =
+                            (
+                                printEsc #"V";
+                                print requestId; printEsc #",";
+                                print parseTreeId;  printEsc #",";
+                                printLocation location;
+                                List.app (fn loc => (printEsc #","; printLocation loc)) references;
+                                printEsc #"v"
+                            )
+
+                        |   makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
+                            let
+                                (* Pretty print a message and return the output string. *)
+                                fun prettyMarkupAsString message =
+                                let
+                                    val result = ref []
+                                    fun doPrint s = result := s :: ! result
+                                    val () = PolyML.prettyPrintWithIDEMarkup(doPrint, !PolyML.Compiler.lineLength) message
+                                in
+                                    String.concat(List.rev(! result))
+                                end
+
+                                fun printError { hardError, location, message } =
+                                (
+                                    printEsc #"E";
+                                    if hardError then print "E" else print "W";
+                                    printEsc #",";
+                                    printFullLocation location;
+                                    printEsc #";"; (* N.B. Semicolon here, not comma. *)
+                                    print (prettyMarkupAsString message); (* May include markup *)
+                                    printEsc #"e"
+                                )
+                                fun printOffset() = (printEsc #","; print (Int.toString finalOffset))
+                                fun printErrors errors = (List.app printError errors)
+                            in
+                                printEsc #"R";
+                                print requestId; printEsc #",";
+                                print parseTreeId; printEsc #",";
+                                case result of
+                                    Succeeded errors => (print "S"; printOffset(); printEsc #";"; printErrors errors)
+                                |   RuntimeException (s, errors) =>
+                                    (
+                                        print "X"; printOffset(); 
+                                        printEsc #";";
+                                        printEsc #"X"; print(prettyMarkupAsString s); (* May include markup *)
+                                        printEsc #"x"; 
+                                        printErrors errors
+                                    )
+                                |   PreludeFail s =>
+                                    ( print "L"; printOffset(); printEsc #";"; print s (* May include markup *) )
+                                |   CompileFail errors =>
+                                    ( print "F"; printOffset(); printEsc #";"; printErrors errors )
+                                |   CompileCancelled errors =>
+                                    ( print "C"; printOffset(); printEsc #";"; printErrors errors );
+                                printEsc #"r"
+                             end
+
+                        |   makeResponse (UnknownResponse { request, ... }) =
+                            let
+                                val startCh = Char.chr request
+                            in
+                                (* Response to unknown command - return empty result. *)
+                                ( printEsc startCh; printEsc (Char.toLower startCh))
+                            end
+
+                        fun sendResponse () =
+                        (
+                            makeResponse response handle _ => protocolError "Exception";
+                            TextIO.StreamIO.flushOut outStream
+                        )
+                    in
+                        (* Sending the response packet must be atomic with respect to any other
+                           output to stdOut. *)
+                        ThreadLib.protect outputLock sendResponse ()
+                    end (* sendResponse *)
+
                 in
-                    printEsc #"O";
-                    print requestId; printEsc #",";
-                    print parseTreeId; printEsc #",";
-                    printLocation location;
-                    List.app printCommand commands;
-                    printEsc #"o"
+                    (readRequest, sendStartedMessage, sendResponse)
                 end
 
-            |   makeResponse (MoveResponse { requestId, parseTreeId, location }) =
-                (
-                    printEsc #"M";
-                    print requestId; printEsc #",";
-                    print parseTreeId; printEsc #",";
-                    printLocation location;
-                    printEsc #"m"
-                )
-
-            |   makeResponse (TypeResponse { requestId, parseTreeId, location, typeRes }) =
-                (
-                    printEsc #"T";
-                    print requestId; printEsc #",";
-                    print parseTreeId; printEsc #",";
-                    printLocation location;
-                    case typeRes of
-                        NONE => ()
-                    |   SOME typeRes =>
-                        (
-                            printEsc #",";
-                            print typeRes
-                        );
-                    printEsc #"t"
-                )
-
-            |   makeResponse (DecResponse { requestId, parseTreeId, location, decLocation }) =
-                (
-                    printEsc #"I";
-                    print requestId; printEsc #",";
-                    print parseTreeId; printEsc #",";
-                    printLocation location;
-                    case decLocation of
-                        SOME location => (printEsc #","; printFullLocation location)
-                    |   NONE => ();
-                    printEsc #"i"
-                )
-
-            |   makeResponse (RefResponse { requestId, parseTreeId, location, references }) =
-                (
-                    printEsc #"V";
-                    print requestId; printEsc #",";
-                    print parseTreeId;  printEsc #",";
-                    printLocation location;
-                    List.app (fn loc => (printEsc #","; printLocation loc)) references;
-                    printEsc #"v"
-                )
-
-            |   makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
+            |   SOME portNo =>
+                (* Version 2 protocol - uses ASN1 binary over a socket.*)
                 let
-                    fun printError { hardError, location, message } =
-                    (
-                        printEsc #"E";
-                        if hardError then print "E" else print "W";
-                        printEsc #",";
-                        printFullLocation location;
-                        printEsc #";"; (* N.B. Semicolon here, not comma. *)
-                        print message; (* May include markup *)
-                        printEsc #"e"
-                    )
-                    fun printOffset() = (printEsc #","; print (Int.toString finalOffset))
-                    fun printErrors errors = (List.app printError errors)
-                in
-                    printEsc #"R";
-                    print requestId; printEsc #",";
-                    print parseTreeId; printEsc #",";
-                    case result of
-                        Succeeded errors => (print "S"; printOffset(); printEsc #";"; printErrors errors)
-                    |   RuntimeException (s, errors) =>
+                    val prefBuffSize = 4096 (* Get this from somewhere? *)
+                    val socket = INetSock.TCP.socket(): Socket.active INetSock.stream_sock
+                    (* We don't have a stream to produce error messages so simply fail if
+                       we get an exception here. *)
+                    val localhost = NetHostDB.addr (valOf(NetHostDB.getByName "localhost"))
+                    val port = valOf(Int.fromString portNo)
+                    val () = Socket.connect(socket, INetSock.toAddr(localhost, port))
+                    (* Construct the readers and writers. *)
+
+                    fun sendASN1(v: Word8Vector.vector list) =
+                    let
+                        open Word8VectorSlice
+                        (* Write the whole data, in chunks if necessary. *)
+                        fun sendSlice slice =
+                            if length slice = 0
+                            then ()
+                            else sendSlice(subslice(slice, Socket.sendVec(socket, slice), NONE))
+                    in
+                        sendSlice(Word8VectorSlice.full(Word8Vector.concat v))
+                    end
+
+                    fun readVecFromSocket(n: int): Word8Vector.vector = Socket.recvVec(socket, n)
+
+                    open TextIO Asn1
+
+                    local (* Interlocked writer for TextIO.stdOut *)
+                        (* Whenever we write plain text we package it as an ASN1 packet. *)
+                        fun writeVecToSocket(v: CharVectorSlice.slice) =
+                            (
+                                sendASN1(encodeItem(Application(1, Primitive), [encodeString(CharVectorSlice.vector v)]));
+                                CharVectorSlice.length v (* It's written it all. *)
+                            )
+                        val lockedWriteVec = ThreadLib.protect outputLock writeVecToSocket
+                        val lockedWriter =
+                            TextPrimIO.WR {
+                                name = "TextIO.stdOut", chunkSize = prefBuffSize,
+                                writeVec = SOME lockedWriteVec, writeArr = NONE,
+                                writeVecNB = NONE, writeArrNB = NONE, block = NONE, canOutput = NONE,
+                                getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+                                close = fn () => raise Fail "stdOut must not be closed",
+                                ioDesc = SOME(Socket.ioDesc socket) }
+                    in
+                        (* Use this locked version for normal stdOut. *)
+                        val () = setOutstream(stdOut,
+                                    StreamIO.mkOutstream(TextPrimIO.augmentWriter lockedWriter, IO.LINE_BUF))
+                    end
+
+                    local
+                        (* Create a functional binary stream *)
+                        val reader =
+                            BinPrimIO.RD {
+                                name = "socket", chunkSize = prefBuffSize,
+                                readVec = SOME readVecFromSocket, readArr = NONE, readVecNB = NONE,
+                                readArrNB = NONE, block = NONE,
+                                canInput = NONE, avail = fn _ => NONE,
+                                getPos = NONE, setPos = NONE, endPos = NONE, verifyPos = NONE,
+                                close = fn _ => (), ioDesc = SOME(Socket.ioDesc socket)
+                            }
+                        val binStream =
+                            BinIO.StreamIO.mkInstream(BinPrimIO.augmentReader reader, Word8Vector.fromList [])
+                    in
+                        val inStream = ref binStream
+                    end
+
+                    fun protocolError error =
+                    let
+                        open OS.Process
+                    in
+                        TextIO.print ("Protocol error: " ^ error) handle _ => ();
+                        exit failure
+                    end
+
+                    (* Reads a request.  Calls OS.Process.exit at end-of-file or on a protocol error. *)
+                    fun readRequest (): request =
+                    let
+                        open Asn1
+
+                        (* Read the ASN1 header to get the tag and then read the data.
+                           Position the stream ready to read the next request. *)
+                        val (requestTag, data) =
+                            case readHeader BinIO.StreamIO.input1 (!inStream) of
+                                NONE => (* If we had EOF here it's probably because we've closed. *)
+                                    OS.Process.exit OS.Process.success (* Close down. *)
+                            |   SOME((tag, length), afterHdr) =>
+                                let
+                                    val (vector, afterBlock) =
+                                        BinIO.StreamIO.inputN(afterHdr, length)
+                                in
+                                    if Word8Vector.length vector = length
+                                    then ()
+                                    else protocolError "Stream closed";
+                                    inStream := afterBlock;
+                                    (tag, vector)
+                                end
+
+                        fun splitSequence v =
+                            case decodeItem v of
+                                SOME{tag, data, remainder} =>
+                                    (tag, data) :: splitSequence remainder
+                            |   NONE => []
+
+                        (* See if an item is present and return it if it is. *)
+                        fun findData tag list =
+                            Option.map #2 (List.find (fn (t, _) => t = tag) list)
+
+                        fun findString tag list =
+                            Option.map decodeString (findData tag list)
+                        and findInt tag list =
+                            Option.map decodeInt (findData tag list)
+                    in
+                        case requestTag of
+                            Application(3, _) => (* Compilation request. *)
+                            let
+                                val tdList = splitSequence(Word8VectorSlice.full data)
+                                (* Request id *)
+                                val reqId = findString (Application(1, Primitive)) tdList
+                                (* File name - optional, default "" *)
+                                val fileName = getOpt(findString (Context(1, Primitive)) tdList, "")
+                                (* Start position - optional, default 0 *)
+                                val startPosition = getOpt(findInt (Context(2, Primitive)) tdList, 0)
+                                (* Prelude code - optional, default "" *)
+                                val preludeCode = getOpt(findString (Context(3, Primitive)) tdList, "")
+                                (* Source code *)
+                                val source = findString (Context(4, Primitive)) tdList
+                            in
+                                case (reqId, source) of
+                                    (SOME requestId, SOME sourceText) =>
+                                        CompileRequest { requestId = requestId, fileName = fileName, startPosition = startPosition,
+                                                 preludeCode = preludeCode, sourceCode = sourceText }
+                                |   (SOME requestId, _) => UnknownRequest { request = 3, requestId = requestId }
+                                |   _ => UnknownRequest { request = 3, requestId = "" } (* Malformed *)
+                            end
+
+                        |   Application(4, _) => (* Return the type of the selected node. *)
+                            let
+                                val tdList = splitSequence(Word8VectorSlice.full data)
+                                (* Request id *)
+                                val reqId = findString (Application(1, Primitive)) tdList
+                                (* Parse id *)
+                                val parseId = findString (Application(2, Primitive)) tdList
+                                (* Start offset *)
+                                val startOff = findInt (Context(1, Primitive)) tdList
+                                (* End offset *)
+                                val endOff = findInt (Context(2, Primitive)) tdList
+                            in
+                                case (reqId, parseId, startOff, endOff) of
+                                    (SOME requestId, SOME parseTreeId, SOME startOffset, SOME endOffset) =>
+                                        TypeRequest{
+                                            requestId = requestId, parseTreeId = parseTreeId,
+                                            location = { startOffset = startOffset, endOffset = endOffset }
+                                            }
+                                |   (SOME requestId, _, _, _) => UnknownRequest { request = 4, requestId = requestId }
+                                |   _ => UnknownRequest { request = 4, requestId = "" } (* Malformed *)
+                            end
+
+                        |   Application(5, _) => (* Move request. *)
+                            let
+                                val tdList = splitSequence(Word8VectorSlice.full data)
+                                (* Request id *)
+                                val reqId = findString (Application(1, Primitive)) tdList
+                                (* Parse id *)
+                                val parseId = findString (Application(2, Primitive)) tdList
+                                (* Start offset *)
+                                val startOff = findInt (Context(1, Primitive)) tdList
+                                (* End offset *)
+                                val endOff = findInt (Context(2, Primitive)) tdList
+                                (* Move direction *)
+                                val dir = findInt (Context(3, Primitive)) tdList
+                            in
+                                case (reqId, parseId, startOff, endOff, dir) of
+                                    (SOME requestId, SOME parseTreeId, SOME startOffset,
+                                     SOME endOffset, SOME dir) =>
+                                    let
+                                        val dirn =
+                                            case dir of
+                                                1 => DirUp
+                                            |   2 => DirLeft
+                                            |   3 => DirRight
+                                            |   _ (*4*) => DirDown
+                                    in
+                                        MoveRequest{
+                                            requestId = requestId, parseTreeId = parseTreeId, direction = dirn,
+                                            location = { startOffset = startOffset, endOffset = endOffset }
+                                            }
+                                    end
+                                |   (SOME requestId, _, _, _, _) => UnknownRequest { request = 5, requestId = requestId }
+                                |   _ => UnknownRequest { request = 5, requestId = "" } (* Malformed *)
+
+                            end
+
+                        |   Application(6, _) => (* Declaration location for variables. *)
+                            let
+                                val tdList = splitSequence(Word8VectorSlice.full data)
+                                (* Request id *)
+                                val reqId = findString (Application(1, Primitive)) tdList
+                                (* Parse id *)
+                                val parseId = findString (Application(2, Primitive)) tdList
+                                (* Start offset *)
+                                val startOff = findInt (Context(1, Primitive)) tdList
+                                (* End offset *)
+                                val endOff = findInt (Context(2, Primitive)) tdList
+                                (* Dec type *)
+                                val dt = findInt (Context(3, Primitive)) tdList
+                            in
+                                case (reqId, parseId, startOff, endOff, dt) of
+                                    (SOME requestId, SOME parseTreeId, SOME startOffset,
+                                     SOME endOffset, SOME dect) =>
+                                    let
+                                        val decType =
+                                            case dect of
+                                                2 => DecOpen
+                                            |   3 => DecParent
+                                            |   _ (*1*) => DecLocal
+                                    in
+                                        DecRequest{
+                                            requestId = requestId, parseTreeId = parseTreeId, decType = decType,
+                                            location = { startOffset = startOffset, endOffset = endOffset }
+                                            }
+                                    end
+                                |   (SOME requestId, _, _, _, _) => UnknownRequest { request = 6, requestId = requestId }
+                                |   _ => UnknownRequest { request = 6, requestId = "" } (* Malformed *)
+                            end
+
+                        |   Application(7, _) => (* List the references to a variable. *)
+                            let
+                                val tdList = splitSequence(Word8VectorSlice.full data)
+                                (* Request id *)
+                                val reqId = findString (Application(1, Primitive)) tdList
+                                (* Parse id *)
+                                val parseId = findString (Application(2, Primitive)) tdList
+                                (* Start offset *)
+                                val startOff = findInt (Context(1, Primitive)) tdList
+                                (* End offset *)
+                                val endOff = findInt (Context(2, Primitive)) tdList
+                            in
+                                case (reqId, parseId, startOff, endOff) of
+                                    (SOME requestId, SOME parseTreeId, SOME startOffset, SOME endOffset) =>
+                                        RefRequest{
+                                            requestId = requestId, parseTreeId = parseTreeId,
+                                            location = { startOffset = startOffset, endOffset = endOffset }
+                                            }
+                                |   (SOME requestId, _, _, _) => UnknownRequest { request = 7, requestId = requestId }
+                                |   _ => UnknownRequest { request = 7, requestId = "" } (* Malformed *)
+                            end
+
+                        |   Universal(tagNo, _) => UnknownRequest { request = tagNo, requestId = "" }
+                        |   Application(tagNo, _) => UnknownRequest { request = tagNo, requestId = "" }
+                        |   Context(tagNo, _) => UnknownRequest { request = tagNo, requestId = "" }
+                        |   Private(tagNo, _) => UnknownRequest { request = tagNo, requestId = "" }
+                        (*case startCh of
+                        |   #"O" => (* Print list of valid commands. *)
+                            let
+                                val requestId = readToEscape("", #",")
+                                val parseTreeId = readToEscape("", #",")
+                                val startOffset = getInt #","
+                                val endOffset = getInt #"o"
+                            in
+                                PropertyRequest{
+                                    requestId = requestId, parseTreeId = parseTreeId,
+                                    location = { startOffset = startOffset, endOffset = endOffset }
+                                    }
+                            end
+
+                        |   #"K" => (* Cancel request. *)
+                                KillRequest { requestId = readToEscape ("", #"k") }
+                        *)
+                    end (* readRequest *)
+
+                    fun sendStartedMessage () = 
+                    let
+                        fun sendResponse () =
+                            sendASN1(encodeItem(Application(2, Primitive), [encodeString "1.0.0"]))
+                    in
+                        ThreadLib.protect outputLock sendResponse ()
+                    end
+
+                    (* Send a reply packet. *)
+                    fun sendResponse response =
+                    let
+                        fun encodeFullLocation { file, startLine, startPosition, endPosition, ...} =
+                        let
+                            val encFile =
+                                if file = "" then [] else encodeItem(Context(1, Primitive), [encodeString file])
+                            val encLine =
+                                if startLine = 0 then [] else encodeItem(Context(2, Primitive), [encodeInt startLine])
+                            val encStart =
+                                if startPosition = 0 then [] else encodeItem(Context(3, Primitive), [encodeInt startPosition])
+                            val encEnd =
+                                if endPosition = 0 then [] else encodeItem(Context(4, Primitive), [encodeInt endPosition])
+                        in
+                            encFile @ encLine @ encStart @ encEnd
+                        end
+
+                        and encodeLocation {startOffset, endOffset } =
+                                encodeItem(Context(3, Primitive), [encodeInt startOffset]) @
+                                encodeItem(Context(4, Primitive), [encodeInt endOffset])
+
+                        and encodeRequestId requestId =
+                            encodeItem(Application(20, Primitive), [encodeString requestId])
+                            
+                        and encodeParseId parseId =
+                            encodeItem(Application(21, Primitive), [encodeString parseId])
+
+                        fun mapEnc _ [] = []
+                        |   mapEnc f (hd :: tl) = f hd @ mapEnc f tl
+
+                        (* Turn a pretty-print structure into text, stripping out mark-up. *)
+                        (* TODO: We could return the "pretty" structure and have the IDE format it. *)
+                        fun prettyAsString message =
+                        let
+                            val result = ref []
+                            fun doPrint s = result := s :: ! result
+                            val () = PolyML.prettyPrint(doPrint, 120(*!PolyML.Compiler.lineLength*)) message
+                        in
+                            String.concat(List.rev(! result))
+                        end
+
+                        fun makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
+                            let
+                                fun encodeError { hardError, location, message } =
+                                    encodeItem(Context(4, Constructed),
+                                        encodeItem(Context(1, Primitive), [encodeBool hardError]) @
+                                        encodeItem(Context(3, Constructed), encodeFullLocation location) @
+                                        encodeItem(Context(2, Primitive), [encodeString(prettyAsString message)])
+                                        )
+
+                                val (resultCode, resultData) =
+                                    case result of
+                                        Succeeded errors =>
+                                            (0, mapEnc encodeError errors)
+                                    |   RuntimeException (s, errors) =>
+                                            (1, encodeItem(Context(3, Primitive),
+                                                [encodeString(prettyAsString s)]) @ mapEnc encodeError errors)
+                                    |   PreludeFail s =>
+                                            (2, encodeItem(Context(3, Primitive), [encodeString s]))
+                                    |   CompileFail errors =>
+                                            (3, mapEnc encodeError errors)
+                                    |   CompileCancelled errors =>
+                                            (4, mapEnc encodeError errors)
+                            in
+                                sendASN1(encodeItem(Application(3, Constructed),
+                                    encodeRequestId requestId @ encodeParseId parseTreeId @
+                                    encodeItem(Context(1, Primitive), [encodeInt finalOffset]) @
+                                    encodeItem(Context(2, Primitive), [encodeInt resultCode]) @
+                                    resultData))
+                            end
+
+                        |   makeResponse (PropertyResponse { requestId, parseTreeId, location, commands }) =
+                            let
+                                fun encCommand c = encodeItem(Context(2, Primitive), [encodeString c])
+                            in
+                                sendASN1(encodeItem(Application(4, Constructed),
+                                    encodeRequestId requestId @ encodeParseId parseTreeId @
+                                    encodeItem(Context(1, Constructed), encodeLocation location) @
+                                    mapEnc encCommand commands))
+                            end
+
+                        |   makeResponse (MoveResponse { requestId, parseTreeId, location }) =
+                                sendASN1(encodeItem(Application(7, Constructed),
+                                    encodeRequestId requestId @ encodeParseId parseTreeId @
+                                    encodeItem(Context(1, Constructed), encodeLocation location)))
+
+                        |   makeResponse (TypeResponse { requestId, parseTreeId, location, typeRes }) =
+                            let
+                                val typeData =
+                                    case typeRes of
+                                        NONE => []
+                                    |   SOME t => encodeItem(Context(2, Primitive), [encodeString(prettyAsString t)])
+                            in
+                                sendASN1(encodeItem(Application(8, Constructed),
+                                    encodeRequestId requestId @ encodeParseId parseTreeId @
+                                    encodeItem(Context(1, Constructed), encodeLocation location) @ typeData))
+                            end
+
+                        |   makeResponse (DecResponse { requestId, parseTreeId, location, decLocation }) =
+                            let
+                                val decData =
+                                    case decLocation of
+                                        NONE => []
+                                    |   SOME l => encodeItem(Context(2, Constructed), encodeFullLocation l)
+                            in
+                                sendASN1(encodeItem(Application(9, Constructed),
+                                    encodeRequestId requestId @ encodeParseId parseTreeId @
+                                    encodeItem(Context(1, Constructed), encodeLocation location) @ decData))
+                            end
+
+                        |   makeResponse (RefResponse { requestId, parseTreeId, location, references }) =
+                            let
+                                fun encLoc l = encodeItem(Context(2, Constructed), encodeLocation l)
+                            in
+                                sendASN1(encodeItem(Application(10, Constructed),
+                                    encodeRequestId requestId  @ encodeParseId parseTreeId @
+                                    encodeItem(Context(1, Constructed), encodeLocation location) @
+                                    mapEnc encLoc references))
+                            end
+
+                        |   makeResponse (UnknownResponse { requestId, ... }) =
+                                (* Send an Error packet. *)
+                                sendASN1(encodeItem(Application(0, Constructed),
+                                    if requestId = "" then []
+                                    else encodeRequestId requestId))
+
+                        fun sendResponse () =
                         (
-                            print "X"; printOffset(); 
-                            printEsc #";";
-                            printEsc #"X"; print s; (* May include markup *)
-                            printEsc #"x"; 
-                            printErrors errors
+                            makeResponse response handle _ => protocolError "Exception"
                         )
-                    |   PreludeFail s =>
-                        ( print "L"; printOffset(); printEsc #";"; print s (* May include markup *) )
-                    |   CompileFail errors =>
-                        ( print "F"; printOffset(); printEsc #";"; printErrors errors )
-                    |   CompileCancelled errors =>
-                        ( print "C"; printOffset(); printEsc #";"; printErrors errors );
-                    printEsc #"r"
-                 end
-
-            |   makeResponse (UnknownResponse { startCh: char }) =
-                (* Response to unknown command - return empty result. *)
-                ( printEsc startCh; printEsc (Char.toLower startCh))
-
-            fun sendResponse () =
-            (
-                makeResponse response handle _ => protocolError "Exception";
-                TextIO.StreamIO.flushOut unlockedStream
-            )
-        in
-            (* Sending the response packet must be atomic with respect to any other
-               output to stdOut. *)
-            LibraryIOSupport.protect outputLock sendResponse ()
-        end
+                    in
+                        (* Sending the response packet must be atomic with respect to any other
+                           output to stdOut. *)
+                        ThreadLib.protect outputLock sendResponse ()
+                    end (* sendResponse *)
+                in
+                    (readRequest, sendStartedMessage, sendResponse)
+                end
 
         (* Get the current parse tree and identifier. *)
         fun getCurrentParse() =
@@ -609,24 +1069,6 @@ local
             fun treeLocation NONE = {startOffset = 0, endOffset = 0}
             |   treeLocation (SOME ({startPosition, endPosition, ...}, _)) =
                         {startOffset = startPosition, endOffset = endPosition}
-
-            (* Pretty print a message and return the output string. *)
-            fun prettyAsString message =
-            let
-                val result = ref []
-                fun doPrint s = result := s :: ! result
-                val () = PolyML.prettyPrint(doPrint, !PolyML.Compiler.lineLength) message
-            in
-                String.concat(List.rev(! result))
-            end
-            and prettyMarkupAsString message =
-            let
-                val result = ref []
-                fun doPrint s = result := s :: ! result
-                val () = PolyML.prettyPrintWithIDEMarkup(doPrint, !PolyML.Compiler.lineLength) message
-            in
-                String.concat(List.rev(! result))
-            end
         in
             case readRequest () of
                 PropertyRequest { requestId: string, parseTreeId: string, location } =>
@@ -690,10 +1132,10 @@ local
                                     let
                                         open PolyML
                                         fun find([], _) = (location, tree) (* No change *)
-                                        |   find(PTparent p :: _, "U" (* Up *)) = p()
-                                        |   find(PTpreviousSibling p :: _, "P" (*Left*)) = p()
-                                        |   find(PTnextSibling p :: _, "N" (*Right*)) = p()
-                                        |   find(PTfirstChild p :: _, "C" (* Down *)) = p()
+                                        |   find(PTparent p :: _, DirUp) = p()
+                                        |   find(PTpreviousSibling p :: _, DirLeft) = p()
+                                        |   find(PTnextSibling p :: _, DirRight) = p()
+                                        |   find(PTfirstChild p :: _, DirDown) = p()
                                         |   find(_ :: tl, dir) = find (tl, dir)
                 
                                     in
@@ -735,8 +1177,7 @@ local
                                            an environment to the parse tree. *)
                                         case List.find (fn (PolyML.PTtype _) => true | _ => false) tree of
                                             SOME(PolyML.PTtype t) =>
-                                                SOME(prettyAsString(
-                                                    PolyML.NameSpace.displayTypeExpression(t, 100, PolyML.globalNameSpace)))
+                                                SOME(PolyML.NameSpace.displayTypeExpression(t, 100, PolyML.globalNameSpace))
                                         |   _ => NONE
                                     )
                         in
@@ -771,10 +1212,9 @@ local
                                         open PolyML
                                         val getLoc =
                                             case decType of
-                                                "I" => (fn (PTdeclaredAt p) => SOME p | _ => NONE)
-                                            |   "J" => (fn (PTopenedAt p) => SOME p | _ => NONE)
-                                            |   "S" => (fn (PTstructureAt p) => SOME p | _ => NONE)
-                                            |   _   => (fn _ => NONE (* Unknown request type. *))
+                                                DecLocal => (fn (PTdeclaredAt p) => SOME p | _ => NONE)
+                                            |   DecOpen => (fn (PTopenedAt p) => SOME p | _ => NONE)
+                                            |   DecParent => (fn (PTstructureAt p) => SOME p | _ => NONE)
                                         (* Seatch in the properties of the current node for the property we want. *)
                                         fun findLoc [] = NONE
                                         |   findLoc (hd::tl) =
@@ -1014,7 +1454,7 @@ local
                                 {
                                     hardError = hard,
                                     location = location,
-                                    message = prettyMarkupAsString message
+                                    message = message
                                 }
                             val errorPackets = List.map makeErrorPacket errors
                             val compileResult  =
@@ -1028,9 +1468,8 @@ local
                                                 SOME loc => [ContextLocation loc]
                                             |   NONE => []
                                         val exceptionString =
-                                            prettyMarkupAsString
-                                                (PrettyBlock(0, false, exLoc,
-                                                    [ prettyRepresentation(exn, !PolyML.Compiler.printDepth) ]))
+                                            (PrettyBlock(0, false, exLoc,
+                                                [ prettyRepresentation(exn, !PolyML.Compiler.printDepth) ]))
                                     in
                                         RuntimeException(exceptionString, errorPackets)
                                     end
@@ -1053,14 +1492,22 @@ local
                     end (* compileThread *)
 
                     open Thread.Thread
+
+                    (* First see if the last compilation has terminated.  Starting a new
+                       compilation before the previous one has finished is really a
+                       protocol error. *)
+                    val isStillRunning =
+                        case currentCompilation of
+                            NONE => false
+                        |   SOME (_, lastCompileThread) => isActive lastCompileThread
                 in
-                    (* First see if the last compilation has terminated. *)
-                    case currentCompilation of
-                        NONE => ()
-                    |   SOME (_, lastCompileThread) =>
-                            if isActive lastCompileThread
-                            then protocolError "Multiple Compilations"
-                            else ();
+                    if isStillRunning
+                    then sendResponse(
+                            CompilerResponse {
+                                requestId = requestId, parseTreeId = #3 (getCurrentParse()),
+                                finalOffset = startPosition, result = PreludeFail "Thread still running"
+                            })
+                    else
                     let
                         (* The compile thread is run with interrupts deferred initially. *)
                         val thread = fork(compileThread, [InterruptState InterruptDefer])
@@ -1119,22 +1566,22 @@ in
                 print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
                 print "Compiler arguments:\n";
                 print "\n";
-                print "-v             Print the version of Poly/ML and exit\n";
-                print "--help         Print this message and exit\n";
-                print "-q             Suppress the start-up message and turn off printing of results\n";
-                print "-i             Interactive mode.  Default if input is from a terminal\n";
-                print "--use FILE     Executes 'use \"FILE\";' before the ML shell starts\n";
-                print "--eval STRING  Compiles and executes STRING as ML before the ML shell starts\n";
-                print "--error-exit   Exit shell on unhandled exception\n";
-                print "--with-markup  Include extra mark-up information when printing\n";
-                print "--ideprotocol  Run the IDE communications protocol\n";
-                print "--script       The input is a script.  Skips the first line if it begins with #!";
+                print "-v                   Print the version of Poly/ML and exit\n";
+                print "--help               Print this message and exit\n";
+                print "-q                   Suppress the start-up message and turn off printing of results\n";
+                print "-i                   Interactive mode.  Default if input is from a terminal\n";
+                print "--use FILE           Executes 'use \"FILE\";' before the ML shell starts\n";
+                print "--eval STRING        Compiles and executes STRING as ML before the ML shell starts\n";
+                print "--error-exit         Exit shell on unhandled exception\n";
+                print "--with-markup        Include extra mark-up information when printing\n";
+                print "--ideprotocol[=v2]   Run the IDE communications protocol\n";
+                print "--script             The input is a script.  Skips the first line if it begins with #!";
                 print "\nRun time system arguments:\n";
                 print (rtsHelp())
                )
-           
+
             else if switchOption "--ideprotocol"
-            then runIDEProtocol() (* Run the IDE communication protocol. *)
+            then runIDEProtocol () (* Run the IDE communication protocol. *)
 
             else if switchOption "--script"
             then
