@@ -1,0 +1,31 @@
+# Intermediate files
+*.lo
+*.o
+*.obj
+*.pc
+*.la
+*.exe
+.libs/
+.deps/
+
+# Temporaries
+x86asmtemp.S
+polytemp.txt
+
+# Final executables
+poly
+polyc
+polyimport
+
+# Autoconf generated
+Makefile
+stamp-h1
+config.h
+config.log
+config.status
+fficonfig.h
+libffi/include/ffi.h
+libffi/include/ffitarget.h
+libtool
+local.exp
+.dirstamp
