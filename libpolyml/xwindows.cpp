@@ -2813,7 +2813,7 @@ static void WaitDoubleClickTime(Handle dsHandle, PredicateArgs *A)
   FD_ZERO(&except_fds);
 
   {
-    unsigned fd     = d->fd;
+    int fd = d->fd;
     assert (0 <= fd && fd < FD_SETSIZE); 
     FD_SET(fd,&read_fds);
   }
@@ -3857,7 +3857,7 @@ static void GetSegments(TaskData *taskData, PolyWord pp, void *w, unsigned)
 static void GetChar2(TaskData *taskData, PolyWord p, void *v, unsigned)
 {
     XChar2b *A = (XChar2b *)v;
-    unsigned u = get_C_ushort(taskData, p);
+    unsigned short u = get_C_ushort(taskData, p);
     A->byte1 = u >> 8;
     A->byte2 = u &0xFF;
 }
@@ -4712,7 +4712,7 @@ static void process_may_block(TaskData *taskData, int fd, int/* ioCall*/)
       {
   
           FD_ZERO(&read_fds);
-          FD_SET((int)fd,&read_fds);
+          FD_SET(fd,&read_fds);
 
           /* If there is something there we can return. */
           selRes = select(FD_SETSIZE, &read_fds, NULL, NULL, &poll);

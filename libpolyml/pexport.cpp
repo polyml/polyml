@@ -88,7 +88,7 @@ unsigned long PExport::getIndex(PolyObject *p)
     {
         ASSERT(lower < upper);
         unsigned long middle = (lower+upper)/2;
-        ASSERT(middle >= 0 && middle < nObjects);
+        ASSERT(middle < nObjects);
         if (p < pMap[middle])
         {
             // Use lower to middle
@@ -123,7 +123,7 @@ void PExport::printAddress(void *p)
         POLYUNSIGNED byteOffset = (char*)p - (char*)memTable[area].mtAddr;
         unsigned ioEntry = (unsigned)(byteOffset / (ioSpacing*sizeof(PolyWord)));
         unsigned ioOffset = (unsigned)(byteOffset - ioEntry * (ioSpacing*sizeof(PolyWord)));
-        ASSERT(ioEntry >= 0 && ioEntry < POLY_SYS_vecsize);
+        ASSERT(ioEntry < POLY_SYS_vecsize);
         if (ioOffset == 0)
            fprintf(exportFile, "I%d", ioEntry);
         else
@@ -532,7 +532,7 @@ bool PImport::GetValue(PolyWord *result)
         /* IO entry number. */
         POLYUNSIGNED j;
         fscanf(f, "%" POLYUFMT, &j);
-        ASSERT(j >= 0 && j < POLY_SYS_vecsize);
+        ASSERT(j < POLY_SYS_vecsize);
         *result = (PolyObject*)&gMem.ioSpace->bottom[j * IO_SPACING];
     }
     else if (ch == 'J')
@@ -540,7 +540,7 @@ bool PImport::GetValue(PolyWord *result)
         /* IO entry number with offset. */
         POLYUNSIGNED j, offset;
         fscanf(f, "%" POLYUFMT "+%" POLYUFMT, &j, &offset);
-        ASSERT(j >= 0 && j < POLY_SYS_vecsize);
+        ASSERT(j < POLY_SYS_vecsize);
         PolyWord base = (PolyObject*)&gMem.ioSpace->bottom[j * IO_SPACING];
         *result = PolyWord::FromCodePtr(base.AsCodePtr() + offset);
     }

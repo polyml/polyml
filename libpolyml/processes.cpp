@@ -1249,7 +1249,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (debugOptions & DEBUG_THREADS)
             Log("THREAD: Forked initial root thread %p\n", taskData);
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc & a) {
         ::Exit("Unable to create the initial thread - insufficient memory");
     }
 
@@ -1480,7 +1480,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 
         raise_exception_string(taskData, EXC_thread, "Thread creation failed");
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc & a) {
             raise_exception_string(taskData, EXC_thread, "Insufficient memory");
     }
 }

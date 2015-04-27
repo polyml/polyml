@@ -165,9 +165,9 @@ protected:
 
 //typedef PolyWord POLYWORD;
 
-inline bool OBJ_IS_AN_INTEGER(const PolyWord a)           { return a.IsTagged(); }
-inline bool OBJ_IS_CODEPTR(const PolyWord a)              { return a.IsCodePtr(); }
-inline bool OBJ_IS_DATAPTR(const PolyWord a)              { return a.IsDataPtr(); }
+inline bool OBJ_IS_AN_INTEGER(const PolyWord & a)           { return a.IsTagged(); }
+inline bool OBJ_IS_CODEPTR(const PolyWord & a)              { return a.IsCodePtr(); }
+inline bool OBJ_IS_DATAPTR(const PolyWord & a)              { return a.IsDataPtr(); }
 // The maximum tagged signed number is one less than 0x80 shifted into the top byte then shifted down
 // by the tag shift.
 #define MAXTAGGED                                   (((POLYSIGNED)0x80 << (POLYSIGNED)(8*(sizeof(PolyWord)-1) -POLY_TAGSHIFT)) -1)

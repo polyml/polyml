@@ -181,7 +181,7 @@ LocalMemSpace* MemMgr::NewLocalSpace(POLYUNSIGNED size, bool mut)
             Log("MMGR: New local %smutable space: insufficient space\n", mut ? "": "im");
         return 0;
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc&) {
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New local %smutable space: \"new\" failed\n", mut ? "": "im");
         return 0;
@@ -225,7 +225,7 @@ bool MemMgr::AddLocalSpace(LocalMemSpace *space)
     try {
         AddTree(space);
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc&) {
         RemoveTree(space);
         return false;
     }
@@ -284,7 +284,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         try {
             AddTree(space);
         }
-        catch (std::bad_alloc a) {
+        catch (std::bad_alloc&) {
             RemoveTree(space);
             delete space;
             return 0;
@@ -292,7 +292,7 @@ PermanentMemSpace* MemMgr::NewPermanentSpace(PolyWord *base, POLYUNSIGNED words,
         pSpaces[npSpaces++] = space;
         return space;
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc&) {
         return 0;
     }
 }
@@ -385,7 +385,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         try {
             AddTree(space);
         }
-        catch (std::bad_alloc a) {
+        catch (std::bad_alloc&) {
             RemoveTree(space);
             delete space;
             return 0;
@@ -393,7 +393,7 @@ PermanentMemSpace* MemMgr::NewExportSpace(POLYUNSIGNED size, bool mut, bool noOv
         eSpaces[neSpaces++] = space;
         return space;
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc&) {
         return 0;
     }
 }
@@ -442,7 +442,7 @@ bool MemMgr::PromoteExportSpaces(unsigned hierarchy)
                 currentHeapSize += space->spaceSize();
                 globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
             }
-            catch (std::bad_alloc a) {
+            catch (std::bad_alloc&) {
                 return false;
             }
         }
@@ -508,7 +508,7 @@ bool MemMgr::DemoteImportSpaces()
                 currentHeapSize += space->spaceSize();
                 globalStats.setSize(PSS_TOTAL_HEAP, currentHeapSize * sizeof(PolyWord));
             }
-            catch (std::bad_alloc a) {
+            catch (std::bad_alloc&) {
                 if (debugOptions & DEBUG_MEMMGR)
                     Log("MMGR: Unable to convert saved state space %p into local space (\"new\" failed)\n", pSpace);
                 return false;
@@ -702,7 +702,7 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
         try {
             AddTree(space);
         }
-        catch (std::bad_alloc a) {
+        catch (std::bad_alloc&) {
             RemoveTree(space);
             delete space;
             return 0;
@@ -712,7 +712,7 @@ StackSpace *MemMgr::NewStackSpace(POLYUNSIGNED size)
             Log("MMGR: New stack space %p allocated at %p size %lu\n", space, space->bottom, space->spaceSize());
         return space;
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc&) {
         if (debugOptions & DEBUG_MEMMGR)
             Log("MMGR: New stack space: \"new\" failed\n");
         return 0;
@@ -751,7 +751,7 @@ bool MemMgr::GrowOrShrinkStack(TaskData *taskData, POLYUNSIGNED newSize)
     try {
         AddTree(space, newSpace, newSpace+newSize);
     }
-    catch (std::bad_alloc a) {
+    catch (std::bad_alloc&) {
         RemoveTree(space, newSpace, newSpace+newSize);
         delete space;
         return 0;

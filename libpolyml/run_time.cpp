@@ -1039,7 +1039,7 @@ static unsigned long rtsCallCounts[POLY_SYS_vecsize];
 
 void IncrementRTSCallCount(unsigned ioFunction)
 {
-    if ((debugOptions & DEBUG_RTSCALLS) && ioFunction >= 0 && ioFunction < POLY_SYS_vecsize)
+    if ((debugOptions & DEBUG_RTSCALLS) && ioFunction < POLY_SYS_vecsize)
         rtsCallCounts[ioFunction]++;
 }
 
