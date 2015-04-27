@@ -8,6 +8,17 @@
 .libs/
 .deps/
 
+# Visual Studio
+x64/
+Release/
+Debug/
+Release64/
+Debug64/
+*.user
+*.tlog
+*.suo
+*.sdf
+
 # Temporaries
 x86asmtemp.S
 polytemp.txt
@@ -29,3 +40,6 @@ libffi/include/ffitarget.h
 libtool
 local.exp
 .dirstamp
+
+# Others
+.polysave/
