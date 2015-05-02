@@ -154,6 +154,8 @@ static struct {
 } psStrings[MTP_MAXENTRY+EST_MAX_ENTRY], psGCTotal;
 
 ProfileMode profileMode;
+// If we are just profiling a single thread, this is the thread data.
+static TaskData *singleThreadProfile = 0;
 
 /******************************************************************************/
 /*                                                                            */
@@ -472,6 +474,9 @@ void printprofile(void)
 
 void handleProfileTrap(TaskData *taskData, SIGNALCONTEXT *context)
 {
+    if (singleThreadProfile != 0 && singleThreadProfile != taskData)
+        return;
+
     /* If we are in the garbage-collector add the count to "gc_count"
         otherwise try to find out where we are. */
     if (mainThreadPhase == MTP_USER_CODE)
@@ -574,6 +579,13 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
         PLocker locker(&profLock);
         if (mode == profile_mode) // No change in mode = no-op
             return taskData->saveVec.push(TAGGED(0));
+
+        if (mode == kProfileTimeThread)
+        {
+            mode = kProfileTime;
+            singleThreadProfile = taskData;
+        }
+        else singleThreadProfile = 0;
     
         profile_mode = mode;
     }
@@ -596,7 +608,7 @@ void ProfileRequest::Perform()
         processes->StopProfiling();
         printprofile();
         break;
-        
+       
     case kProfileTime:
         profileMode = kProfileTime;
         processes->StartProfiling();
