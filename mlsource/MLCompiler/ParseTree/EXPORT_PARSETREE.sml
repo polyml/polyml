@@ -126,21 +126,28 @@ struct
         end
     in
         case p of
-            Ident{location, expType=ref expType, value, ...} =>
+            Ident{location, expType=ref expType, value, possible, name, ...} =>
             let
                 (* Include the type and declaration properties if these
                    have been set. *)
-                val (decProp, references) =
+                val (decProp, references, possProp) =
                     case value of
-                        ref (Value{name = "<undefined>", ...}) => ([], NONE)
-                    |   ref (Value{locations, references, ...}) => (mapLocationProps locations, references)
+                        ref (Value{name = "<undefined>", ...}) =>
+                        let
+                            (* Generate possible completions.  For the moment just consider
+                               simple prefixes. *)
+                            val completions = List.filter (String.isPrefix name) (! possible ())
+                        in
+                            ([], NONE, [PTcompletions completions])
+                        end
+                    |   ref (Value{locations, references, ...}) => (mapLocationProps locations, references, [])
                 val refProp =
                     case references of
                         NONE => []
                     |   SOME {exportedRef=ref exp, localRef=ref locals, recursiveRef=ref recs} =>
                             [PTreferences(exp, List.map #1 recs @ locals)]
             in
-                (location, PTtype expType :: decProp @ commonProps @ refProp)
+                (location, PTtype expType :: decProp @ commonProps @ refProp @ possProp)
             end
 
         |   Literal {location, expType=ref expType, ...} => (location, PTtype expType :: commonProps)

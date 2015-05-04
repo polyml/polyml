@@ -251,7 +251,8 @@ struct
         enterType    = #enterType nameSpace,
         enterStruct  = #enterStruct nameSpace,
         enterSig     = #enterSig nameSpace,
-        enterFunct   = #enterFunct nameSpace
+        enterFunct   = #enterFunct nameSpace,
+        allValNames  = fn () => map #1 (#allVal nameSpace ())
     };
 
     (* Return the total user+system time since the start. *)

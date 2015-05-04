@@ -55,16 +55,17 @@ struct
         type ptProperties = address
         type exportTree = location * ptProperties list
 
-        fun PTdeclaredAt(loc: location): ptProperties = cast(0w0, loc)
-        and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w1, entry)
-        and PTnextSibling(entry: unit -> exportTree): ptProperties = cast(0w2, entry)
-        and PTopenedAt(loc: location): ptProperties = cast(0w3, loc)
-        and PTparent(entry: unit -> exportTree): ptProperties = cast(0w4, entry)
-        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = cast(0w5, entry)
-        and PTprint(pr: int -> pretty): ptProperties = cast(0w6, pr)
-        and PTreferences(exp: bool, locs: location list): ptProperties = cast(0w7, exp, locs)
-        and PTstructureAt(loc: location): ptProperties = cast(0w8, loc)
-        and PTtype(typ: types): ptProperties = cast(0w9, typ)
+        fun PTcompletions(sl: string list): ptProperties = cast(0w0, sl)
+        and PTdeclaredAt(loc: location): ptProperties = cast(0w1, loc)
+        and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w2, entry)
+        and PTnextSibling(entry: unit -> exportTree): ptProperties = cast(0w3, entry)
+        and PTopenedAt(loc: location): ptProperties = cast(0w4, loc)
+        and PTparent(entry: unit -> exportTree): ptProperties = cast(0w5, entry)
+        and PTpreviousSibling(entry: unit -> exportTree): ptProperties = cast(0w6, entry)
+        and PTprint(pr: int -> pretty): ptProperties = cast(0w7, pr)
+        and PTreferences(exp: bool, locs: location list): ptProperties = cast(0w8, exp, locs)
+        and PTstructureAt(loc: location): ptProperties = cast(0w9, loc)
+        and PTtype(typ: types): ptProperties = cast(0w10, typ)
     end
 
     (* This representation is exported so we have to use a *)

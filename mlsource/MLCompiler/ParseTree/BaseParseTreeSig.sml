@@ -53,7 +53,13 @@ sig
          type of the value will be 'a * 'a -> bool but the type of a particular
          occurence, i.e. the type of the identifier must be int * int -> bool,
          say, after all the unification has been done. *)
-        { name: string, expType: types ref, value: values ref, location: location }
+        {
+            name: string,
+            expType: types ref,
+            value: values ref,
+            location: location,
+            possible: (unit -> string list) ref (* Used with the IDE. *)
+        }
 
     |   Literal             of
            (* Literal constants may be overloaded on more than one type. The

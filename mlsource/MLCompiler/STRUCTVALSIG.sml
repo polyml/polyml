@@ -304,7 +304,8 @@ sig
             enterFix:     string * fixStatus   -> unit,
             enterStruct:  string * structVals  -> unit,
             enterSig:     string * signatures  -> unit,
-            enterFunct:   string * functors    -> unit
+            enterFunct:   string * functors    -> unit,
+            allValNames:  unit -> string list
         }
 
     val makeEnv: univTable -> env

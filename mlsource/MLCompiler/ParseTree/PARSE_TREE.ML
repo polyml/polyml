@@ -71,7 +71,8 @@ struct
           name   = name,
           expType = ref EmptyType,
           value  = ref undefinedValue,
-          location = loc
+          location = loc,
+          possible = ref(fn () => [])
         };
     
     local    

@@ -299,7 +299,10 @@ struct
                 enterType    = dbEnvEnter gEnv STRUCTVALS.typeConstrVar,
                 enterSig     = dbEnvEnter gEnv STRUCTVALS.signatureVar,
                 enterStruct  = dbEnvEnter gEnv STRUCTVALS.structVar,
-                enterFunct   = dbEnvEnter gEnv STRUCTVALS.functorVar
+                enterFunct   = dbEnvEnter gEnv STRUCTVALS.functorVar,
+                
+                allValNames  =
+                    fn () => map #1 (dbEnvAll gEnv STRUCTVALS.valueVar ())
                 };
 
         fun gEnvAsNameSpace gEnv: nameSpace =
