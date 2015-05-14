@@ -190,7 +190,7 @@ struct
 
     |  tupleWidth(Localdec{body, ...}) =
           (* We are only interested in the last expression. *)
-          tupleWidth(List.last body)
+          tupleWidth(#1 (List.last body))
 
     |  tupleWidth(Case{match, ...}) =
         let
@@ -202,7 +202,7 @@ struct
 
     |  tupleWidth(Parenthesised(p, _)) = tupleWidth p
 
-    |  tupleWidth(ExpSeq(p, _)) = tupleWidth(List.last p)
+    |  tupleWidth(ExpSeq(p, _)) = tupleWidth(#1 (List.last p))
 
     |  tupleWidth(Ident{ expType=ref expType, ...}) = [getCodeArgType expType]
 
@@ -263,109 +263,48 @@ struct
         List.app (reportUnreferencedValue lex) valList
     end
 
+    (* Create code to update the debug state in the thread data.
+       TODO: We really only want to do this if the state has changed and
+       if we are about to call a breakpoint or into a function. *)
+    fun updateDebugState({debugEnv, mkAddr, level, lex, ...}) =
+        if not (getParameter debugTag (debugParams lex)) then []
+        else DEBUGGER.updateDebugState(debugEnv, level, lex, mkAddr)
 
-    (* Debugging control and debug function. *)
-    fun debuggerFun lex =
-        case List.find (Universal.tagIs DEBUGGER.debuggerFunTag) (LEX.debugParams lex) of
-            SOME f => Universal.tagProject DEBUGGER.debuggerFunTag f
-        |   NONE => DEBUGGER.nullDebug
+    fun makeDebugEntries (vars: values list, context as {debugEnv, level, typeVarMap, lex, mkAddr, ...}: cgContext) =
+    let
+        val (code, newDebug) =
+            DEBUGGER.makeValDebugEntries(vars, debugEnv, level, lex, mkAddr, typeVarMap)
+        val setDebugCode =
+            updateDebugState(context |> repDebugEnv newDebug)
+    in
+        (code @ setDebugCode, newDebug)
+    end
 
-    (* Add a call to the debugger. *)
-    fun addDebugCall (location, {decName, debugEnv=(ctEnv, rtEnv), level, lastDebugLine, lex, ...}) : codetree =
+    (* Add a breakpoint if debugging is enabled.  The bpt argument is set in
+       the parsetree so that it can be found by the IDE. *)
+    fun addBreakPointCall(bpt, location, {mkAddr, level, lex, ...}) =
+        if not (getParameter debugTag (debugParams lex)) then []
+        else
         let
-            open DEBUGGER
-            val currLine = #startLine location
-            val debugger =
-                debugFunction(debuggerFun lex, DebugStep, decName, location) ctEnv
+            val (code, newBpt) = DEBUGGER.breakPointCode(location, level, mkAddr)
         in
-            lastDebugLine := currLine;
-            mkEval(mkConst(ADDRESS.toMachineWord debugger), [rtEnv level])
+            bpt := SOME newBpt;
+            code
         end
-
-    (* Add a debug call if line has changed.  This is used between
-       declarations and expression sequences to avoid more than one
-       call on a line.  If there is no line number, e.g. input typed
-       at the top level, always put this in. *)
-    fun changeLine (loc, context as { lex, lastDebugLine, ...}) =
-        if not (getParameter debugTag (debugParams lex)) orelse
-           (#startLine loc = !lastDebugLine andalso #startLine loc <> 0)
-        then []
-        else [mkNullDec(addDebugCall(loc, context))]
-
-    (* TODO: This could probably use makeValDebugEntries *)
-    fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv: level -> codetree), lex, ...}: cgContext) =
-        if not (getParameter debugTag (debugParams lex))
-        then { dec = [], rtEnv = rtEnv, ctEnv = ctEnv }
-        else let
-                val newEnv =
-                (* Create a new entry in the environment. *)
-                      mkTuple [ loadVal (* Value. *), rtEnv level ]
-                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                val ctEntry =
-                    case v of
-                        Value{class=Exception, name, typeOf, locations, ...} =>
-                            EnvException(name, typeOf, locations)
-                    |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
-                            EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
-                    |   Value{name, typeOf, locations, ...} =>
-                            EnvValue(name, typeOf, locations)
-            in
-                { dec = dec, rtEnv = load, ctEnv = ctEntry :: ctEnv}
-            end
-
-    (* Start a new static level.  This is currently used only to
-       distinguish function arguments from the surrounding static
-       environment. *)
-    fun newDebugLevel (ctEnv, rtEnv) = (EnvStaticLevel :: ctEnv, rtEnv)
-
-    fun makeDebugEntries (vars: values list, {debugEnv, level, typeVarMap, lex, mkAddr, ...}: cgContext) =
-        DEBUGGER.makeValDebugEntries(vars, debugEnv, level, lex, mkAddr, typeVarMap)
 
     (* In order to build a call stack in the debugger we need to know about
        function entry and exit.  It would be simpler to wrap the whole function
        in a debug function (i.e. loop the call through the debugger) but that
        would prevent us from using certain call optimisations. *)
-    fun wrapFunctionInDebug(body: codetree, name: string, argCode: codetree,
-                            argType: types, restype: types, location,
-                            {debugEnv=(ctEnv, rtEnv), mkAddr, level, lex, ...}) =
+    fun wrapFunctionInDebug(body, name, restype, location, {debugEnv, mkAddr, level, lex, ...}) =
         if not (getParameter debugTag (debugParams lex)) then body (* Return it unchanged. *)
-        else
-        let
-            open DEBUGGER
-            (* At the moment we can't deal with function arguments. *)
-            fun enterFunction (rtEnv, args) =
-                debugFunction(debuggerFun lex, DebugEnter(args, argType), name, location) ctEnv rtEnv
-            and leaveFunction (rtEnv, result) =
-                (debugFunction(debuggerFun lex, DebugLeave(result, restype), name, location) ctEnv rtEnv; result)
-            and exceptionFunction (rtEnv, exn) =
-                (debugFunction(debuggerFun lex, DebugException exn, name, location) ctEnv rtEnv; raise exn)
+        else DEBUGGER.wrapFunctionInDebug(body, name, restype, location, debugEnv, level, lex, mkAddr)
 
-            val entryCode = ADDRESS.toMachineWord enterFunction
-            and exitCode = ADDRESS.toMachineWord leaveFunction
-            and exceptionCode = ADDRESS.toMachineWord exceptionFunction
-            val ldexAddr = mkAddr 1
-        in
-            mkEnv(
-                (* Call the enter code. *)
-                [mkNullDec (mkEval(mkConst entryCode, [mkTuple[rtEnv level, argCode]]))],
-                (* Call the exit code with the function result. The
-                   function is wrapped in a handler that catches all
-                   exceptions and calls the exception code. *)
-                mkEval(mkConst exitCode,
-                    [mkTuple[rtEnv level,
-                        mkHandle (body,
-                        mkEnv
-                            (
-                                (* Must save the exception packet first. *)
-                                [mkDec(ldexAddr, Ldexc)],
-                                mkEval(mkConst exceptionCode,
-                                    [mkTuple[rtEnv level, mkLoadLocal ldexAddr]]))
-                            )
-                    ]])
-            )
-        end
+    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
+        if not (getParameter debugTag (debugParams lex)) then ([], debugEnv)
+        else DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)
 
-           (* Find all the variables declared by each pattern. *)
+      (* Find all the variables declared by each pattern. *)
       fun findVars vars varl =
         case vars of
           Ident {value, ...} =>
@@ -540,13 +479,12 @@ struct
                 fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...},
                             (localAddr, oldDec, oldEnv)) =
                     let
-                        val load = mkLoad (localAddr, functionLevel, functionLevel)
-                        val {dec=nextDec, ctEnv, rtEnv} =
-                            createDebugEntry(v, load, fnContext |> repDebugEnv oldEnv)
+                        val () = lvAddr  := localAddr
+                        and () = lvLevel := functionLevel
+                        val (nextDec, nextDebugEnv) =
+                            makeDebugEntries([v], fnContext |> repDebugEnv oldEnv)
                     in
-                        lvAddr  := localAddr;
-                        lvLevel := functionLevel;
-                        (localAddr + 1, oldDec @ nextDec, (ctEnv, rtEnv))
+                        (localAddr + 1, oldDec @ nextDec, nextDebugEnv)
                     end
                 |   setAddr _ = raise InternalError "setAddr"
 
@@ -588,7 +526,7 @@ struct
         in
             if not (getParameter debugTag (debugParams lex))
             then code
-            else mkEnv([mkNullDec(addDebugCall(getLocation c, context))], code)
+            else code (*mkEnv([mkNullDec(addDebugCall(getLocation c, context))], code)*)
         end
     in
         codeMatch (near, alt, arg, cgExp, false, context)
@@ -779,15 +717,15 @@ struct
                 fun processBody (previousDecs: codeBinding list, newContext as {debugEnv, ...}) =
                 let
                     fun codeList [] = []
-                     |  codeList (x::tl) =
-                         (* Generate any line change code first, then this entry, then the rest. *)
+                     |  codeList ((p, bpt) :: tl) =
+                         (* Generate any break point code first, then this entry, then the rest. *)
                         let
-                            val lineChange = changeLine(getLocation x, newContext)
-                            val code = mkNullDec(codegen (x, newContext))
+                            val lineChange = addBreakPointCall(bpt, getLocation p, context)
+                            val code = mkNullDec(codegen (p, newContext))
                         in
                             lineChange @ code :: codeList tl
                         end
-                    val exps = codeList body;
+                    val exps = codeList body
                 in
                     (previousDecs @ exps, debugEnv)
                 end
@@ -805,15 +743,15 @@ struct
              all except the last into declarations. *)
             let
                 fun codeList [] = raise InternalError "ExpSeq: empty sequence"
-                |   codeList [last] =
-                        (changeLine(getLocation last, context), codegen (last, context))
-                 |  codeList (x::tl) =
+                |   codeList [(last, bpt)] =
+                        (addBreakPointCall(bpt, getLocation last, context), codegen (last, context))
+                 |  codeList ((p, bpt)::tl) =
                     let
-                        val lineChange = changeLine(getLocation x, context)
-                        val code = mkNullDec(codegen (x, context))
+                        val bptCode = addBreakPointCall(bpt, getLocation p, context)
+                        val code = mkNullDec(codegen (p, context))
                         val (otherDecs, expCode) = codeList tl
                     in
-                        (lineChange @ (code :: otherDecs), expCode)
+                        (bptCode @ (code :: otherDecs), expCode)
                     end
             in
                 mkEnv (codeList ptl)
@@ -829,7 +767,7 @@ struct
                     mkEnv(dec,
                         mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location])
             in
-                if getParameter debugTag (debugParams lex)
+                (*if getParameter debugTag (debugParams lex)
                 then
                 let
                     (* If we are compiling with debugging on we call the debugger before raising the
@@ -842,7 +780,7 @@ struct
                 in
                     mkEval(mkConst exceptionCode, [mkTuple[rtEnv level, excPacket]])
                 end
-                else mkRaise excPacket
+                else *)mkRaise excPacket
             end
 
         | HandleTree {exp, hrules, ...} =>
@@ -884,7 +822,7 @@ struct
        a val rec declaration. *)
     and codeProc(c, location, polyVars,
                     cpContext as
-                        {mkAddr=originalmkAddr, level=originalLevel, decName, debugEnv, ...}) =
+                        {mkAddr=originalmkAddr, level=originalLevel, decName, ...}) =
     let
         fun getFnBody (Constraint {value, ...}) = getFnBody value
         |   getFnBody (Fn{matches, ...})  = matches
@@ -919,18 +857,18 @@ struct
                Currently, we don't apply this optimisation if the function is
                polymorphic. *)
             val newDecName : string = decName ^ "(" ^ Int.toString tupleSize ^ ")";
-            val newDebugEnv = newDebugLevel debugEnv
 
             val fnLevel  = newLevel nLevel
             val argumentCode = mkArgTuple(0, tupleSize)
-            val newContext =
-                cpContext |> repDebugEnv newDebugEnv |> repNewLevel(newDecName, fnMkAddr, fnLevel)
+            val newContext = cpContext |> repNewLevel(newDecName, fnMkAddr, fnLevel)
+            val (debugEntryCode, newDebugEnv) =
+                debugFunctionEntryCode(newDecName, argumentCode, argType, location, newContext)
+            val bodyContext = newContext |> repDebugEnv newDebugEnv
+            
+            val alt = codeAlt (c, f, argumentCode, bodyContext)
+            val wrap = wrapFunctionInDebug(alt, newDecName, resType, location, newContext)
             val mainProc =
-                mkProc
-                    (wrapFunctionInDebug
-                        (codeAlt (c, f, argumentCode, newContext),
-                        newDecName, argumentCode, argType, resType, location, newContext), 
-                    tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
+                mkProc(mkEnv(debugEntryCode, wrap), tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
     
             (* Now make a block containing the procedure which expects
                multiple arguments and an inline procedure which expects
@@ -954,17 +892,17 @@ struct
         else
         let (* No tuple or polymorphic. *)
             val newDecName : string  = decName ^ "(1)";
-            val newDebug = newDebugLevel debugEnv
             val fnLevel  = newLevel nLevel
-            val newContext =
-                cpContext |> repDebugEnv newDebug |> repNewLevel(newDecName, fnMkAddr, fnLevel)
+            val newContext = cpContext |> repNewLevel(newDecName, fnMkAddr, fnLevel)
 
-            val alt  = codeAlt (c, f, mkLoadArgument 0, newContext);
+            val (debugEntryCode, newDebugEnv) =
+                debugFunctionEntryCode(newDecName, mkLoadArgument 0, argType, location, newContext)
+            val bodyContext = newContext |> repDebugEnv newDebugEnv
+
+            val alt  = codeAlt (c, f, mkLoadArgument 0, bodyContext)
             (* If we're debugging add the debug info before resetting the level. *)
-            val wrapped =
-                wrapFunctionInDebug(alt, newDecName, mkLoadArgument 0, argType, resType,
-                    location, newContext)
-            val pr = mkProc (wrapped, 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
+            val wrapped = wrapFunctionInDebug(alt, newDecName, resType, location, bodyContext)
+            val pr = mkProc (mkEnv(debugEntryCode, wrapped), 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
         in
             if null polyVars then pr
             else mkProc(pr, List.length polyVars, newDecName^"(P)", getClosure nLevel, 0)
@@ -973,17 +911,17 @@ struct
 
 
     (* Code-generates a sequence of declarations. *)
-    and codeSequence ([]: parsetree list, leading, codeSeqContext, processBody): codeBinding list * debugenv =
+    and codeSequence ([], leading, codeSeqContext, processBody): codeBinding list * debugenv =
             processBody(leading, codeSeqContext) (* Do the continuation. *)
 
-    |   codeSequence ((firstEntry as FunDeclaration {dec, ...}) :: pTail, leading, codeSeqContext, processBody) =
+    |   codeSequence ((firstEntry as FunDeclaration {dec, ...}, _) :: pTail, leading, codeSeqContext, processBody) =
         let
             val (firstDec, firstEnv) = codeFunBindings(dec, firstEntry, codeSeqContext)
         in
             codeSequence (pTail, leading @ firstDec, codeSeqContext |> repDebugEnv firstEnv, processBody)
         end
 
-    |   codeSequence ((firstEntry as ValDeclaration {dec, location, ...}) :: pTail, leading, codeSeqContext as {lex, ...}, processBody) =
+    |   codeSequence ((firstEntry as ValDeclaration {dec, location, ...}, bpt) :: pTail, leading, codeSeqContext as {lex, ...}, processBody) =
         let
             (* Check the types for escaped datatypes. *)
             local
@@ -1007,11 +945,11 @@ struct
             val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
             val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
         in
-            codeSequence (pTail, leading @ changeLine(location, codeSeqContext) @ nonRecCode @ recCode @ decEnv,
+            codeSequence (pTail, leading @ addBreakPointCall(bpt, location, codeSeqContext) @ nonRecCode @ recCode @ decEnv,
                     codeSeqContext |> repDebugEnv env, processBody)
         end
 
-    |   codeSequence (Localdec {decs, body, varsInBody=ref vars, ...} :: pTail, leading, codeSeqContext, processBody) =
+    |   codeSequence ((Localdec {decs, body, varsInBody=ref vars, ...}, _) :: pTail, leading, codeSeqContext, processBody) =
         let (* Local declarations only *)
             (* The debug environment needs to reflect the local...in...end structure but if
                there are local datatypes we need to process all subsequent declarations in the
@@ -1029,7 +967,7 @@ struct
             codeSequence (decs @ body, leading, codeSeqContext, processTail)
         end
 
-    |   codeSequence (ExDeclaration(tlist, _) :: pTail, leading,
+    |   codeSequence ((ExDeclaration(tlist, _), _) :: pTail, leading,
                       codeSeqContext as {mkAddr, level, typeVarMap, lex, ...}, processBody) =
         let
             fun codeEx (ExBind{value=ref exval, previous, ... }) =
@@ -1078,7 +1016,7 @@ struct
         end (* ExDeclaration *)
 
     |   codeSequence (
-            AbsDatatypeDeclaration {typelist, declist, equalityStatus = ref absEq, isAbsType, withtypes, ...} :: pTail,
+            (AbsDatatypeDeclaration {typelist, declist, equalityStatus = ref absEq, isAbsType, withtypes, ...}, _) :: pTail,
             leading, codeSeqContext as {mkAddr, level, typeVarMap, debugEnv, lex, ...}, processBody) =
         let (* Code-generate the eq and print functions for the abstype first
                then the declarations, which may use these. *)
@@ -1175,7 +1113,7 @@ struct
               getCachedTypeValues newTypeVarMap @ localDecs @ tailDecs, finalEnv)
         end
 
-    |   codeSequence (OpenDec {variables=ref vars, structures = ref structs, typeconstrs = ref types, ...} :: pTail,
+    |   codeSequence ((OpenDec {variables=ref vars, structures = ref structs, typeconstrs = ref types, ...}, _) :: pTail,
                       leading, codeSeqContext as { level, lex, mkAddr, ...}, processBody) =
         let
                 (* All we need to do here is make debugging entries. *)
@@ -1186,7 +1124,7 @@ struct
             codeSequence (pTail, leading @ firstDec @ secondDec @ thirdDec, codeSeqContext |> repDebugEnv thirdEnv, processBody)
         end
 
-    |   codeSequence (TypeDeclaration (typebinds, _) :: pTail, leading,
+    |   codeSequence ((TypeDeclaration (typebinds, _), _) :: pTail, leading,
                       codeSeqContext as { debugEnv, level, lex, mkAddr, ...}, processBody) =
         let
             (* Just create debug entries for the type constructors. *)
@@ -1203,7 +1141,7 @@ struct
     (* Code generate a set of fun bindings.  This is used for other function creation as
        well since it handles the most general case. *)
     and codeFunBindings(tlist: fvalbind list, near,
-                        context as {decName, mkAddr, level, typeVarMap, debugEnv, lex, ...}) =
+                        context as {decName, mkAddr, level, typeVarMap, lex, ...}) =
         let
             (* Check the types for escaped datatypes. *)
             local
@@ -1416,7 +1354,7 @@ struct
                         end
                     
                         val fnContext =
-                            context |> repDebugEnv(newDebugLevel debugEnv) |>
+                            context |>
                                repNewLevel(innerProcName, fnMkAddr, fnLevel) |> repTypeVarMap newTypeVarMap
 
                         (* If we have (mutually) recursive references to polymorphic functions
@@ -1463,7 +1401,11 @@ struct
                                 else createApplications (tlist, addressList, polyVarList, [])
                         end
 
-                        val codeMatches = codeAlt (near, matches, argList, fnContext);
+                        val (debugEntryCode, newDebugEnv) =
+                            debugFunctionEntryCode(procName, argList, aType, location, fnContext)
+                        val bodyContext = fnContext |> repDebugEnv newDebugEnv
+
+                        val codeMatches = codeAlt (near, matches, argList, bodyContext)
 
                         (* If the result is a tuple we try to avoid creating it by adding
                            an extra argument to the inline function and setting this to
@@ -1484,14 +1426,13 @@ struct
 
                         (* If we're debugging add the debug info before resetting the level. *)
                         val wrapped =
-                            wrapFunctionInDebug(bodyCode, procName, argList,
-                                             aType, resType, location, fnContext)
+                            wrapFunctionInDebug(bodyCode, procName, resType, location, bodyContext)
                         val () =
                             if List.length argTypes = totalArgs then () else raise InternalError "Argument length problem"
                     in
                         val innerFun =
                             mkFunction{
-                                body=mkEnv(getCachedTypeValues newTypeVarMap @ appDecs, wrapped),
+                                body=mkEnv(debugEntryCode @ getCachedTypeValues newTypeVarMap @ appDecs, wrapped),
                                 argTypes=argTypes, resultType=resultType, name=innerProcName,
                                 closure=getClosure fnLevel, numLocals=fnMkAddr 0}
                     end;
@@ -1776,7 +1717,7 @@ struct
     fun gencode
             (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
              mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codeBinding list * debugenv =
-        codeSequence ([pt], [],
+        codeSequence ([(pt, ref NONE)], [],
             {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
              debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0, isOuterLevel = true},
              fn (code: codeBinding list, {debugEnv, typeVarMap, ...}) => continuation(code, debugEnv, typeVarMap))

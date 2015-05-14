@@ -86,6 +86,7 @@ public:
                         // This is provided so that ML can easily test if there
                         // is an interrupt pending.
     PolyWord    mlStackSize; // A tagged integer with the maximum ML stack size in bytes
+    PolyWord    debuggerSlots[7]; // These are used by the debugger.
 };
 
 // Other threads may make requests to a thread.

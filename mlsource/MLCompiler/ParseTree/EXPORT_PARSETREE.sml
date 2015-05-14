@@ -35,12 +35,14 @@ functor EXPORT_PARSETREE (
     structure BASEPARSETREE : BaseParseTreeSig
     structure PRINTTREE: PrintParsetreeSig
     structure LEX : LEXSIG
-    structure STRUCTVALS : STRUCTVALSIG;
-    structure EXPORTTREE: EXPORTTREESIG;
+    structure STRUCTVALS : STRUCTVALSIG
+    structure EXPORTTREE: EXPORTTREESIG
     structure TYPETREE : TYPETREESIG
+    structure DEBUGGER : DEBUGGERSIG
 
     sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing
            = EXPORTTREE.Sharing = BASEPARSETREE.Sharing = PRINTTREE.Sharing
+           = DEBUGGER.Sharing
 
 ): ExportParsetreeSig
 =
@@ -61,7 +63,7 @@ struct
 
          (* Put all these into a common list.  That simplifies navigation between
             the various groups in abstypes and datatypes. *)
-        datatype lType = DataT of datatypebind | TypeB of typebind | Decl of parsetree
+        datatype lType = DataT of datatypebind | TypeB of typebind | Decl of parsetree * breakPoint option ref
        
         (* Common code for datatypes, abstypes and type bindings. *)
         fun exportTypeBinding(navigation, this as DataT(DatatypeBind{name, nameLoc, fullLoc, constrs, ...})) =
@@ -111,7 +113,16 @@ struct
             end
 
         |   exportTypeBinding(navigation, Decl dec) =
-                (* Value declarations in an abstype. *) getExportTree(navigation, dec)
+                (* Value declarations in an abstype. *) exportTreeWithBpt(navigation, dec)
+
+        (* In a couple of cases we can have a breakpoint associated with an entry. *)
+        and exportTreeWithBpt(nav, (p, ref NONE)) = getExportTree (nav, p)
+        |   exportTreeWithBpt(nav, (p, ref (SOME bpt))) =
+            let
+                val (loc, props) = getExportTree (nav, p)
+            in
+                (loc, PTbreakPoint(DEBUGGER.setBreakPoint bpt) :: props)
+            end
         
         fun exportMatch(navigation,
                 p as MatchTree{location, vars, exp, resType = ref rtype, argType = ref atype,...}) =
@@ -318,7 +329,7 @@ struct
                 (location, PTtype expType :: exportList(exportMatch, SOME asParent) matches @ commonProps)
 
         |   Localdec{location, decs, body, ...} =>
-                (location, exportList(getExportTree, SOME asParent) (decs @ body) @ commonProps)
+                (location, exportList(exportTreeWithBpt, SOME asParent) (decs @ body) @ commonProps)
 
         |   TypeDeclaration(tbl, location) =>
             let
@@ -338,7 +349,7 @@ struct
         |   DatatypeReplication{location, ...} => (* TODO *) (location, commonProps)
 
         |   ExpSeq(ptl, location) =>
-                (location, exportList(getExportTree, SOME asParent) ptl @ commonProps)
+                (location, exportList(exportTreeWithBpt, SOME asParent) ptl @ commonProps)
 
         |   Directive{location, ...} =>
                 (* No need to process the individual identifiers. *)

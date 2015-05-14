@@ -54,37 +54,16 @@ struct
     |   EnvException of string * types * locationProp list
     |   EnvVConstr of string * types * bool * int * locationProp list
     |   EnvTypeid of { original: typeId, freeId: typeId }
-    |   EnvStaticLevel
     |   EnvStructure of string * signatures * locationProp list
     |   EnvTConstr of string * typeConstrSet
-
-    datatype debugReason =
-        DebugEnter of machineWord * types
-    |   DebugLeave of machineWord * types
-    |   DebugException of exn
-    |   DebugStep
-
-    (* We pass an integer code plus a value as arguments to the debugger function
-       rather than a datatype because it's simpler when passing arguments through
-       the bootstrap. *)
-    type debugger = int * values * int * string * string * nameSpace -> unit
-    (* Create a tag so that the debugger can be included in the parameters. *)
-    val debuggerFunTag : debugger Universal.tag = Universal.tag()
-    fun nullDebug _ = ()
+    |   EnvStartFunction of string * location * types
+    |   EnvEndFunction of string * location * types
 
     (* When stopped at a break-point any Bound ids must be replaced by Free ids.
        We make new Free ids at this point.  *)
     fun envTypeId (id as TypeId{ description, idKind = Bound _, ...}) =
             EnvTypeid { original = id, freeId = makeFreeId(Global CodeZero, isEquality id, description) }
     |   envTypeId id = EnvTypeid { original = id, freeId = id }
-
-    (* Reason codes passed to the debugger function. *)
-    val debugEnterFun = 1
-    and debugLeaveFun = 2
-    and debugExceptFun = 3
-    and debugLineChange = 4
-    
-    val dummyValue = mkGvar("", TYPETREE.unitType, CodeZero, [])
 
     fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
     (
@@ -95,8 +74,9 @@ struct
         |   (NONE, EnvValue _) => searchEnvs match (statics, dynamics)
         |   (NONE, EnvException _) => searchEnvs match (statics, dynamics)
         |   (NONE, EnvStructure _) => searchEnvs match (statics, dynamics)
-                (* EnvStaticLevel and EnvTConstr don't have entries in the dynamic list *)
-        |   (NONE, EnvStaticLevel) => searchEnvs match (statics, dlist)
+        |   (NONE, EnvStartFunction _) => searchEnvs match (statics, dynamics)
+        |   (NONE, EnvEndFunction _) => searchEnvs match (statics, dynamics)
+                (* EnvTConstr doesn't have an entry in the dynamic list *)
         |   (NONE, EnvTConstr _) => searchEnvs match (statics, dlist)
             
     )
@@ -135,7 +115,10 @@ struct
                 fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
     end
 
-    fun makeSpace debugEnviron =
+    (* Exported functions that appear in PolyML.DebuggerInterface. *)
+    type debugState = environEntry list * machineWord list
+
+    fun debugNameSpace (debugEnviron: debugState) : nameSpace =
     let
         (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
         fun copyTheTypeConstructor (TypeConstrSet(tcons, (*tcConstructors*) _)) =
@@ -177,15 +160,9 @@ struct
                 then SOME(makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location))
                 else lookupValues(ntl, vl) s
 
-        |  lookupValues (EnvStaticLevel :: ntl, vl) s =
-                (* Static level markers have no effect here. *)
-                lookupValues(ntl, vl) s
-
-        |  lookupValues (EnvTypeid _ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
-
-        |  lookupValues (EnvStructure _ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
-
         |  lookupValues (EnvTConstr _ :: ntl, vl) s = lookupValues(ntl, vl) s
+        
+        |  lookupValues (_ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
 
         |  lookupValues _ _ =
              (* The name we are looking for isn't in
@@ -203,86 +180,37 @@ struct
                 (name, makeValueConstr(name, runTimeType ty, nullary, count, Global(mkConst valu), location)) ::
                     allValues(ntl, vl)
 
-         |  allValues (EnvStaticLevel :: ntl, vl) = allValues(ntl, vl)
-
-         |  allValues (EnvTypeid _ :: ntl, _ :: vl) = allValues(ntl, vl)
-
-         |  allValues (EnvStructure _ :: ntl, _ :: vl) = allValues(ntl, vl)
-
          |  allValues (EnvTConstr _ :: ntl, vl) = allValues(ntl, vl)
-
+         |  allValues (_ :: ntl, _ :: vl) = allValues(ntl, vl)
          |  allValues _ = []
 
-        fun lookupTypes (EnvValue _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
-
-        |   lookupTypes (EnvException _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
-
-        |   lookupTypes (EnvVConstr _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
-
-        |   lookupTypes (EnvStaticLevel :: ntl, vl) s = lookupTypes(ntl, vl) s
-
-        |   lookupTypes (EnvTypeid _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
-
-        |   lookupTypes (EnvStructure _ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
-
-        |   lookupTypes (EnvTConstr (name, tcSet) :: ntl, vl) s =
+        fun lookupTypes (EnvTConstr (name, tcSet) :: ntl, vl) s =
                 if name = s
                 then SOME (copyTheTypeConstructor tcSet)
                 else lookupTypes(ntl, vl) s
 
+        |   lookupTypes (_ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
         |   lookupTypes _ _ = NONE
 
-        fun allTypes (EnvValue _ :: ntl, _ :: vl) = allTypes(ntl, vl)
-
-         |  allTypes (EnvException _ :: ntl, _ :: vl) = allTypes(ntl, vl)
-
-         |  allTypes (EnvVConstr _ :: ntl, _ :: vl) = allTypes(ntl, vl)
-
-         |  allTypes (EnvStaticLevel :: ntl, vl) = allTypes(ntl, vl)
-
-         |  allTypes (EnvTypeid _ :: ntl, _ :: vl) = allTypes(ntl, vl)
-
-         |  allTypes (EnvStructure _ :: ntl, _ :: vl) = allTypes(ntl, vl)
-
-         |  allTypes (EnvTConstr(name, tcSet) :: ntl, vl) =
+        fun allTypes (EnvTConstr(name, tcSet) :: ntl, vl) =
                 (name, copyTheTypeConstructor tcSet) :: allTypes(ntl, vl)
-
+         |  allTypes (_ :: ntl, _ :: vl) = allTypes(ntl, vl)
          |  allTypes _ = []
 
-        fun lookupStructs (EnvValue _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
-
-        |   lookupStructs (EnvException _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
-
-        |   lookupStructs (EnvVConstr _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
-
-        |   lookupStructs (EnvStaticLevel :: ntl, vl) s = lookupStructs(ntl, vl) s
-
-        |   lookupStructs (EnvTypeid _ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
-
-        |   lookupStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) s =
+        fun lookupStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) s =
                 if name = s
                 then SOME(makeGlobalStruct (name, replaceSignature rSig, mkConst valu, locations))
                 else lookupStructs(ntl, vl) s
 
         |   lookupStructs (EnvTConstr _ :: ntl, vl) s = lookupStructs(ntl, vl) s
-
+        |   lookupStructs (_ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
         |   lookupStructs _ _ = NONE
 
-        fun allStructs (EnvValue _ :: ntl, _ :: vl) = allStructs(ntl, vl)
-
-         |  allStructs (EnvException _ :: ntl, _ :: vl) = allStructs(ntl, vl)
-
-         |  allStructs (EnvVConstr _ :: ntl, _ :: vl) = allStructs(ntl, vl)
-
-         |  allStructs (EnvStaticLevel :: ntl, vl) = allStructs(ntl, vl)
-
-         |  allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
-
-         |  allStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) =
+        fun allStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) =
                 (name, makeGlobalStruct(name, replaceSignature rSig, mkConst valu, locations)) :: allStructs(ntl, vl)
 
-         |  allStructs (EnvTConstr _ :: ntl, vl) = allStructs(ntl, vl)
-
+         |  allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+         |  allStructs (_ :: ntl, vl) = allStructs(ntl, vl)
          |  allStructs _ = []
 
         (* We have a full environment here for future expansion but at
@@ -305,14 +233,41 @@ struct
             allStruct = fn () => allStructs debugEnviron,
             allSig = allEmpty,
             allFunct = allEmpty }
-    end;
+    end
+
+    (* debugFunction just looks at the static data. *)
+    fun debugFunction (cList, _) =
+    (
+        case List.find(fn (EnvStartFunction _) => true | _ => false) cList of
+            SOME(EnvStartFunction(s, l, _)) => SOME (s, l)
+        |   _ => NONE
+    )
+
+    and debugFunctionArg d =
+    let
+        fun match (EnvStartFunction(_, _, ty), valu) =
+            SOME(mkGvar("", runTimeType d ty, mkConst valu, []))
+        |   match _ = NONE
+    in
+        searchEnvs match d
+    end
+
+    and debugFunctionResult d =
+    let
+        fun match (EnvEndFunction(_, _, ty), valu) =
+            SOME(mkGvar("", runTimeType d ty, mkConst valu, []))
+        |   match _ = NONE
+    in
+        searchEnvs match d
+    end
+
 
     (* A pointer to this function is inserted in the code for each line. *)
     (* Although the nameTypeList and valueList are the same
        length we build them separately.  This allows the
        nameTypeList to be built at compile time and reduces
        the run-time costs. *)
-    fun debugFunction (debugger, reason, functionName, location) staticEnv valueList =
+(*    fun debugFunction (debugger, reason, functionName, location) staticEnv valueList =
     let
         (* The function name supplied is made up to be suitable for output
            when profiling.  We need to clean it up a bit for use here. The
@@ -359,7 +314,7 @@ struct
                     (debugLineChange, dummyValue)
     in
         debugger(code, value, #startLine location, #file location, processedName, makeSpace debugEnviron)
-    end
+    end*)
 
     (* Functions to make the debug entries.   These are needed both in CODEGEN_PARSETREE for
        the core language and STRUCTURES for the module language. *)
@@ -480,6 +435,189 @@ struct
         foldIds(typeIds, debugEnv)
     end
 
+    (* Set the current state in the thread data. *)
+    fun updateDebugState((ctEnv, rtEnv), level, lex, mkAddr) =
+        if not (getParameter debugTag (LEX.debugParams lex)) then []
+        else
+        let
+            open ADDRESS RuntimeCalls
+            val threadIdCurrentStatic   = mkConst(toMachineWord 0w6)
+            and threadIdCurrentDynamic  = mkConst(toMachineWord 0w7)
+            val threadId = multipleUses(mkEval(rtsFunction POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+            fun assignItem(offset, value) =
+                mkNullDec(mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, offset, value]))
+        in
+            #dec threadId @
+                [assignItem(threadIdCurrentStatic, mkConst(toMachineWord ctEnv)),
+                 assignItem(threadIdCurrentDynamic, rtEnv level)]
+        end
+
+    (* Function entry code.  This needs to precede any values in the body. *)
+    fun debugFunctionEntryCode(name: string, argCode, argType, location, debugEnv as (ctEnv, rtEnv), level, lex, mkAddr) =
+    if not (getParameter debugTag (LEX.debugParams lex)) then ([], debugEnv)
+    else
+    let
+        val functionName = name (* TODO: munge this to get the root. *)
+        val newEnv = mkTuple [ argCode, rtEnv level ]
+        val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+        val ctEntry = EnvStartFunction(functionName, location, argType)
+    in
+        (dec, (ctEntry :: ctEnv, load))
+    end
+
+    (* Add debugging calls on entry and exit to a function. *)
+    fun wrapFunctionInDebug(body: codetree, name: string, resType: types, location,
+                            entryEnv as (ctEnv, rtEnv), level, lex, mkAddr) =
+        if not (getParameter debugTag (LEX.debugParams lex)) then body (* Return it unchanged. *)
+        else
+        let
+            open ADDRESS RuntimeCalls
+            val threadIdStack           = mkConst(toMachineWord 0w5)
+            and threadIdCurrentStatic   = mkConst(toMachineWord 0w6)
+            and threadIdCurrentDynamic  = mkConst(toMachineWord 0w7)
+            and threadIdOnEntry         = mkConst(toMachineWord 0w8)
+            and threadIdOnExit          = mkConst(toMachineWord 0w9)
+            and threadIdOnExitExc       = mkConst(toMachineWord 0w10)
+            
+            val functionName = name (* TODO: munge this to get the root. *)
+            
+            fun addStartExitEntry((ctEnv, rtEnv), code, ty, startExit) =
+            let
+                val newEnv = mkTuple [ code, rtEnv level ]
+                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                val ctEntry = startExit(functionName, location, ty)
+            in
+                (dec, (ctEntry :: ctEnv, load))
+            end
+
+            (* All the "on" functions take this as an argument. *)
+            val onArgs = [mkConst(toMachineWord(functionName, location))]
+
+            val threadId = multipleUses(mkEval(rtsFunction POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+            fun loadIdEntry offset =
+                multipleUses(mkEval(rtsFunction POLY_SYS_load_word, [#load threadId level, offset]), fn () => mkAddr 1, level)
+            val currStatic = loadIdEntry threadIdCurrentStatic
+            and currDynamic = loadIdEntry threadIdCurrentDynamic
+            and currStack = loadIdEntry threadIdStack
+            
+            val prefixCode = #dec threadId @ #dec currStatic @ #dec currDynamic @ #dec currStack
+            
+            local
+                (* At the start of the function:
+                   1.  Push the previous state to the stack.
+                   2.  Update the state to the state on entry, including the args
+                   3.  Call the global onEntry function if it's set
+                   4.  Call the local onEntry function if it's set *)
+                val assignStack =
+                    mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdStack,
+                        mkDatatype[#load currStatic level, #load currDynamic level, #load currStack level]])
+                (* TODO: Add a "function" entry with the argument info onto the debug state
+                   before we make this assignment. *)
+                val assignStatic =
+                    mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdCurrentStatic,
+                        mkConst(toMachineWord ctEnv)])
+                val assignDynamic =
+                    mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdCurrentDynamic,
+                        rtEnv level])
+                val onEntryFn = loadIdEntry threadIdOnEntry
+                val optCallOnEntry =
+                    mkIf(mkTagTest(#load onEntryFn level, 0w0, 0w0), CodeZero, mkEval(#load onEntryFn level, onArgs))
+                (* TODO: optionally call the function-specific breakpoint. *)
+            in
+                val entryCode =
+                    [mkNullDec assignStack, mkNullDec assignStatic, mkNullDec assignDynamic] @
+                    #dec onEntryFn @ [mkNullDec optCallOnEntry]
+            end
+            
+            (* Restore the state.  Used both if the function returns normally or if
+               it raises an exception.  We use the old state rather than popping the stack
+               because that is more reliable if we have an asynchronous exception. *)
+            local
+                (* Set the entry in the thread vector to an entry from the top-of-stack. *)
+                fun restoreEntry(offset, value) =
+                    mkNullDec(
+                        mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, offset, value]))
+            in
+                val restoreState =
+                    [restoreEntry(threadIdCurrentStatic, #load currStatic level),
+                     restoreEntry(threadIdCurrentDynamic, #load currDynamic level),
+                     restoreEntry(threadIdStack, #load currStack level)]
+            end
+
+            local
+                (* If an exception is raised we need to call the onExitException entry, restore the state
+                   and reraise the exception. *)
+                (* There are potential race conditions here if we have asynchronous exceptions. *)
+                val savedExn = multipleUses(Ldexc, fn () => mkAddr 1, level)
+                val onExitExcFn = loadIdEntry threadIdOnExitExc
+                (* OnExitException has an extra curried argument - the exception packet. *)
+                val optCallOnExitExc =
+                    mkIf(mkTagTest(#load onExitExcFn level, 0w0, 0w0), CodeZero,
+                        mkEval(mkEval(#load onExitExcFn level, onArgs), [#load savedExn level]))
+            in
+                val exceptionCase =
+                    mkEnv(#dec savedExn @ #dec onExitExcFn @  [mkNullDec optCallOnExitExc]  @ restoreState,
+                        mkRaise(#load savedExn level))
+            end
+            
+            (* Code for the body and the exception. *)
+            val bodyCode =
+                multipleUses(mkHandle(body, exceptionCase), fn () => mkAddr 1, level)
+
+            (* Code for normal exit. *)
+            local
+                val (rtEnvDec, exitEnv) = addStartExitEntry(entryEnv, #load bodyCode level, resType, EnvEndFunction)
+                val setResult = updateDebugState(exitEnv, level, lex, mkAddr)
+
+                val onExitFn = loadIdEntry threadIdOnExit
+                val optCallOnExit =
+                    mkIf(mkTagTest(#load onExitFn level, 0w0, 0w0), CodeZero, mkEval(#load onExitFn level, onArgs))
+            in
+                val exitCode = rtEnvDec @ setResult @ #dec onExitFn @ [mkNullDec optCallOnExit]
+            end
+        in
+            mkEnv(prefixCode @ entryCode @ #dec bodyCode @ exitCode @ restoreState, #load bodyCode level)
+        end
+
+    type breakPoint = machineWord ref
+ 
+    (* Create a local break point and check the global and local break points. *)
+    fun breakPointCode(location, level, mkAddr) =
+    let
+        open ADDRESS RuntimeCalls
+        (* Create a new breakpoint ref. *)
+        val localBreakPoint = ref (toMachineWord 0w0)
+        (* First check the global breakpoint. *)
+        val threadIdBreakPoint = mkConst(toMachineWord 0w11)
+        val threadId = mkEval(rtsFunction POLY_SYS_thread_self, [])
+        val globalBpt =
+            multipleUses(
+                mkEval(rtsFunction POLY_SYS_load_word, [threadId, threadIdBreakPoint]), fn () => mkAddr 1, level)
+        (* Then the local breakpoint. *)
+        val localBpt =
+            multipleUses(
+                mkEval(rtsFunction POLY_SYS_load_word,
+                    [mkConst(toMachineWord localBreakPoint), CodeZero]), fn () => mkAddr 1, level)
+        val testCode =
+            mkIf(
+                mkNot(mkTagTest(#load globalBpt level, 0w0, 0w0)), 
+                mkEval(#load globalBpt level, [mkConst(toMachineWord location)]),
+                mkEnv(
+                    #dec localBpt,
+                    mkIf(
+                        mkTagTest(#load localBpt level, 0w0, 0w0),
+                        CodeZero,
+                        mkEval(#load globalBpt level, [mkConst(toMachineWord location)])
+                    )
+                )
+            )
+    in
+        (#dec globalBpt @ [mkNullDec testCode], localBreakPoint)
+    end
+
+    fun setBreakPoint bpt NONE = bpt := ADDRESS.toMachineWord 0w0
+    |   setBreakPoint bpt (SOME f) = bpt := ADDRESS.toMachineWord f
+
     structure Sharing =
     struct
         type types          = types
@@ -498,5 +636,6 @@ struct
         type codeBinding    = codeBinding
         type codetree       = codetree
         type typeVarMap     = typeVarMap
+        type breakPoint     = breakPoint
     end
 end;

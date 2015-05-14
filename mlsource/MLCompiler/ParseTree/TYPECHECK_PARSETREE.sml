@@ -302,14 +302,14 @@ struct
         }
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
-        fun assignSeq env depth (l: parsetree list) =
+        fun assignSeq env depth l =
         let
-          fun applyList last []       = last
-            | applyList _ (h :: t) = 
-              applyList (assignValues(level, depth, env, v, h)) t
+            fun applyList last []       = last
+            |   applyList _ ((h, _) :: t) = 
+                    applyList (assignValues(level, depth, env, v, h)) t
         in
-          applyList badType l
-        end;
+            applyList badType l
+        end
 
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
@@ -2224,13 +2224,13 @@ struct
             (
                 (* Process the body expressions in order but the declarations must be done in
                    reverse order after the body. *)
-                List.app leastGenExp body;
-                List.foldr (fn (p, ()) => leastGenExp p) () decs
+                List.app (leastGenExp o #1) body;
+                List.foldr (fn ((p, _), ()) => leastGenExp p) () decs
             )
 
         |   leastGenExp(AbsDatatypeDeclaration { declist, ... }) =
                 (* Declarations in reverse order *)
-                List.foldr (fn (p, ()) => leastGenExp p) () declist
+                List.foldr (fn ((p, _), ()) => leastGenExp p) () declist
 
             (* All the rest of these just involve processing sub-expressions. *)
         |   leastGenExp(Applic{f, arg, ...}) = (leastGenExp f; leastGenExp arg)
@@ -2244,7 +2244,7 @@ struct
 
         |   leastGenExp(Fn {matches, ...}) = List.app (fn MatchTree{exp, ...} => leastGenExp exp) matches
 
-        |   leastGenExp(ExpSeq(ptl, _)) = List.app leastGenExp ptl
+        |   leastGenExp(ExpSeq(ptl, _)) = List.app (leastGenExp o #1) ptl
 
         |   leastGenExp(HandleTree{exp, hrules, ...}) =
                 (leastGenExp exp; List.app (fn MatchTree{exp, ...} => leastGenExp exp) hrules)

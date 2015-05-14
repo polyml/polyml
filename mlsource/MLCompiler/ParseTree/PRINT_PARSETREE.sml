@@ -85,7 +85,8 @@ struct
     fun displayParsetree (c      : parsetree, (* The value to print. *)
                    depth  : int) : pretty = (* The number of levels to display. *)
     let
-        val displayList: parsetree list * string * int -> pretty list = printList displayParsetree
+        val displayList = printList displayParsetree
+        and displayListWithBpts = printList (fn ((c,_), depth) => displayParsetree(c, depth))
         
         (* type bindings and datatype bindings are used in several cases *)
         fun printTypeBind (TypeBind{name, typeVars, decType, ...}, depth) =
@@ -368,9 +369,9 @@ struct
             PrettyBlock (3, false, [],
                 PrettyString (if isLocal then "local" else "let") ::
                 PrettyBreak (1, 0) ::
-                displayList (decs, ";", depth - 1) @
+                displayListWithBpts (decs, ";", depth - 1) @
                 [PrettyBreak (1, 0), PrettyString "in", PrettyBreak (1, 0)] @
-                displayList (body, ";", depth - 1) @
+                displayListWithBpts (body, ";", depth - 1) @
                 [PrettyBreak (1, 0), PrettyString "end"]
             )
 
@@ -438,7 +439,7 @@ struct
                     PrettyString "with",
                     PrettyBreak (1, 0),
                     PrettyBlock (3, true, [],
-                        displayList (declist, ";", depth - 1))
+                        displayListWithBpts(declist, ";", depth - 1))
                 ]
             )
                 
@@ -447,7 +448,7 @@ struct
             PrettyBlock (3, true, [],
                 PrettyString "(" ::
                 PrettyBreak (0, 0) ::
-                displayList (ptl, ";", depth - 1) @
+                displayListWithBpts (ptl, ";", depth - 1) @
                 [ PrettyBreak (0, 0), PrettyString ")"]
             )
 

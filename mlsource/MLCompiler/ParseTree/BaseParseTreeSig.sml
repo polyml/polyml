@@ -44,6 +44,8 @@ sig
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
+    type breakPoint
+
     datatype parsetree = 
         Ident               of
       (* An identifier is just a name. In the second pass it is associated
@@ -124,8 +126,8 @@ sig
 
     |   Localdec            of (* Local dec in dec and let dec in exp. *)
         {
-            decs: parsetree  list,
-            body: parsetree list,
+            decs: (parsetree * breakPoint option ref) list,
+            body: (parsetree * breakPoint option ref) list,
             isLocal: bool,
             varsInBody: values list ref, (* Variables in the in..dec part
                                             of a local declaration. *)
@@ -139,7 +141,7 @@ sig
             isAbsType: bool,
             typelist:  datatypebind list,
             withtypes: typebind list,
-            declist:   parsetree list,
+            declist:   (parsetree * breakPoint option ref) list,
             location:  location,
             equalityStatus: bool list ref
         }
@@ -153,7 +155,7 @@ sig
             location: location
         }
 
-    |   ExpSeq              of parsetree list * location
+    |   ExpSeq              of (parsetree * breakPoint option ref) list * location
 
     |   Directive           of
             (* Directives are infix, infixr and nonfix. They are processed by the
@@ -310,5 +312,6 @@ sig
         and  datatypebind = datatypebind
         and  exbind = exbind
         and  matchtree = matchtree
+        and  breakPoint = breakPoint
     end
 end;

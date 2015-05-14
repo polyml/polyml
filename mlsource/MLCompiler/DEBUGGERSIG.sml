@@ -1,12 +1,11 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2009, 2014
+    Copyright  (c)   David Matthews 2000, 2009, 2014-15
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -35,17 +34,11 @@ sig
     type codeBinding
     type codetree
     type typeVarMap
+    type breakPoint
+    type environEntry
+ 
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    datatype environEntry =
-        EnvValue of string * types * locationProp list
-    |   EnvException of string * types * locationProp list
-    |   EnvVConstr of string * types * bool * int * locationProp list
-    |   EnvTypeid of { original: typeId, freeId: typeId }
-    |   EnvStaticLevel
-    |   EnvStructure of string * signatures * locationProp list
-    |   EnvTConstr of string * typeConstrSet
 
     val envTypeId: typeId -> environEntry
 
@@ -71,23 +64,7 @@ sig
         allStruct:    unit -> (string*structVals) list,
         allSig:       unit -> (string*signatures) list,
         allFunct:     unit -> (string*functors) list
-      };
-
-    (* The debugger function supplied to the compiler. *)
-    type debugger = int * values * int * string * string * nameSpace -> unit
-    val nullDebug: debugger
-
-    val debuggerFunTag : debugger Universal.tag
-    
-    datatype debugReason =
-        DebugEnter of machineWord * types
-    |   DebugLeave of machineWord * types
-    |   DebugException of exn
-    |   DebugStep
-
-    (* Functions inserted into the compiled code. *)
-    val debugFunction:
-        debugger * debugReason * string * location -> environEntry list -> machineWord list -> unit
+      }
 
     (* Functions to make debug entries for various values, types etc. *)
     type debugenv = environEntry list * (level->codetree)
@@ -97,7 +74,27 @@ sig
     val makeStructDebugEntries: structVals list * debugenv * level * lexan * (int->int) ->
         codeBinding list * debugenv
     val makeTypeIdDebugEntries: typeId list * debugenv * level * lexan * (int->int) -> codeBinding list * debugenv
-        
+
+    (* Create a local break point and check the global and local break points. *)
+    val breakPointCode: location * level * (int->int) -> codeBinding list * breakPoint
+    (* A function to set the break point.  Included in the exported tree. *)
+    val setBreakPoint: breakPoint -> (location -> unit) option -> unit
+
+    (* Set the current state in the thread data. *)
+    val updateDebugState: debugenv * level * lexan * (int -> int) -> codeBinding list
+    (* Add debugging calls on entry and exit to a function. *)
+    val wrapFunctionInDebug:
+        codetree * string * types * location * debugenv * level * lexan * (int -> int) -> codetree
+    (* Create a debug entry for the start of the function. *)
+    val debugFunctionEntryCode:
+        string * codetree * types * location * debugenv * level * lexan * (int -> int) -> codeBinding list * debugenv
+
+    (* Exported functions that appear in PolyML.DebuggerInterface. *)
+    type debugState (* The run-time state. *)
+    val debugNameSpace: debugState -> nameSpace
+    val debugFunction: debugState -> (string * location) option
+    val debugFunctionArg: debugState -> values option
+    val debugFunctionResult: debugState -> values option
 
     structure Sharing:
     sig
@@ -117,5 +114,6 @@ sig
         type codeBinding    = codeBinding
         type codetree       = codetree
         type typeVarMap     = typeVarMap
+        type breakPoint     = breakPoint
     end
 end;

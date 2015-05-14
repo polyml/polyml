@@ -309,8 +309,8 @@ struct
     fun mkLocalDeclaration (decs, body, location, isLocal) : parsetree =
       Localdec 
         {
-          decs = decs,
-          body = body,
+          decs = map (fn p => (p, ref NONE)) decs,
+          body = map (fn p => (p, ref NONE))body,
           isLocal  = isLocal,
           varsInBody = ref [],
           location = location
@@ -335,7 +335,7 @@ struct
             isAbsType = true,
             typelist  = typelist,
             withtypes = withtypes,
-            declist   = declist,
+            declist   = map (fn p => (p, ref NONE)) declist,
             location  = location,
             equalityStatus = ref []
         };
@@ -464,7 +464,7 @@ struct
           location = location
         };
        
-    val mkExpseq  : parsetree list * location -> parsetree = ExpSeq;
+    fun mkExpseq (pl: parsetree list, l: location) = ExpSeq (map (fn p => (p, ref NONE)) pl, l)
     
     val mkExDeclaration  : exbind list * location -> parsetree = ExDeclaration;  
     
