@@ -1291,7 +1291,7 @@ Handle X86TaskData::EnterPolyCode()
                 Crash("Unknown io operation %d\n", ioFunction);
             }
         }
-        catch (IOException) {
+        catch (IOException &) {
         }
     }
 }
@@ -1338,7 +1338,7 @@ int X86TaskData::SwitchToPoly()
                 POLYUNSIGNED min_size = this->stack->top - PSP_SP(this) + OVERFLOW_STACK_SIZE;
                 CheckAndGrowStack(this, min_size);
             }
-            catch (IOException) {
+            catch (IOException &) {
                // We may get an exception while handling this if we run out of store
             }
             return -1; // We're in a safe state to handle any interrupts.
@@ -1355,7 +1355,7 @@ int X86TaskData::SwitchToPoly()
                 POLYUNSIGNED min_size = this->stack->top - stackP + OVERFLOW_STACK_SIZE;
                 CheckAndGrowStack(this, min_size);
             }
-            catch (IOException) {
+            catch (IOException &) {
                // We may get an exception while handling this if we run out of store
             }
             return -1; // We're in a safe state to handle any interrupts.
@@ -1376,7 +1376,7 @@ int X86TaskData::SwitchToPoly()
                 }
                 raise_exception0(this, EXC_divide);
             }
-            catch (IOException) {
+            catch (IOException &) {
                 // Handle the C++ exception.
             }
             break;
@@ -1386,7 +1386,7 @@ int X86TaskData::SwitchToPoly()
                 PSP_IC(this) = (*PSP_SP(this)++).AsCodePtr();
                 this->ArbitraryPrecisionTrap();
             }
-            catch (IOException) {
+            catch (IOException &) {
                 // We may get an exception in the trap handler e.g. if we run out of store.
             }
             break;
@@ -2524,7 +2524,7 @@ void X86TaskData::CallCodeTupled()
                     this->stack->top - PSP_SP(this) + OVERFLOW_STACK_SIZE + argCount - ARGS_IN_REGS;
                 CheckAndGrowStack(this, min_size);
             }
-            catch (IOException)
+            catch (IOException &)
             {
                 return; // Will have been set up to raise an exception.
             }

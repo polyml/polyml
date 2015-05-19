@@ -437,7 +437,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
         // Copy the root and everything reachable from it into the temporary area.
         copiedRoot = copyScan.ScanObjectAddress(rootFunction);
     }
-    catch (MemoryException)
+    catch (MemoryException &)
     {
         // If we ran out of memory.
         copiedRoot = 0;

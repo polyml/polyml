@@ -537,7 +537,7 @@ void RecursiveScanWithStack::PushToStack(PolyObject *obj)
                     stack->nextStack = s;
                 stack = s;
             }
-            catch (std::bad_alloc & a) {
+            catch (std::bad_alloc &) {
                 StackOverflow();
                 return;
             }

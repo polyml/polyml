@@ -794,7 +794,7 @@ bool ShareDataClass::RunShareData(PolyObject *root)
         ProcessAddToVector addToVector(this);
         addToVector.ProcessRoot(root);
     }
-    catch (MemoryException)
+    catch (MemoryException &)
     {
         // If we ran out of memory we may still be able to process what we have.
         // That will also do any clean-up.

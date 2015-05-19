@@ -875,7 +875,7 @@ int IntTaskData::SwitchToPoly()
                         exceptionToTraceException(this,
                             this->saveVec.push(this->p_exception_arg));
                     }
-                    catch (IOException) {
+                    catch (IOException &) {
                     }
                     this->saveVec.reset(marker);
                     // This will have reraised the exception by calling SetException
@@ -1852,7 +1852,7 @@ Handle IntTaskData::EnterPolyCode()
                 Crash("Unknown io operation %d\n", ioFunction);
             }
         }
-        catch (IOException) {
+        catch (IOException &) {
         }
 
     }

@@ -437,7 +437,7 @@ void SaveRequest::Perform()
                 copyScan.ScanAddressesInRegion(space->bottom, space->top);
         }
     }
-    catch (MemoryException)
+    catch (MemoryException &)
     {
         success = false;
     }

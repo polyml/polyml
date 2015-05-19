@@ -1501,10 +1501,10 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
         try {
             taskData = processes->CreateNewTaskData(0, 0, 0, TAGGED(0));
         }
-        catch (std::bad_alloc) {
+        catch (std::bad_alloc &) {
             ::Exit("Unable to create thread data - insufficient memory");
         }
-        catch (MemoryException) {
+        catch (MemoryException &) {
             ::Exit("Unable to create thread data - insufficient memory");
         }
     }

@@ -1124,7 +1124,7 @@ static void *NewThreadFunction(void *parameter)
     try {
         (void)taskData->EnterPolyCode(); // Will normally (always?) call ExitThread.
     }
-    catch (KillException) {
+    catch (KillException &) {
         processesModule.ThreadExit(taskData);
     }
 
@@ -1141,7 +1141,7 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
     try {
         (void)taskData->EnterPolyCode();
     }
-    catch (KillException) {
+    catch (KillException &) {
         processesModule.ThreadExit(taskData);
     }
     return 0;
@@ -1157,7 +1157,7 @@ static void NewThreadFunction(void *parameter)
     try {
         (void)taskData->EnterPolyCode();
     }
-    catch (KillException) {
+    catch (KillException &) {
         processesModule.ThreadExit(taskData);
     }
 }
@@ -1249,7 +1249,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         if (debugOptions & DEBUG_THREADS)
             Log("THREAD: Forked initial root thread %p\n", taskData);
     }
-    catch (std::bad_alloc & a) {
+    catch (std::bad_alloc &) {
         ::Exit("Unable to create the initial thread - insufficient memory");
     }
 
@@ -1480,7 +1480,7 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
 
         raise_exception_string(taskData, EXC_thread, "Thread creation failed");
     }
-    catch (std::bad_alloc & a) {
+    catch (std::bad_alloc &) {
             raise_exception_string(taskData, EXC_thread, "Insufficient memory");
     }
 }
@@ -1492,7 +1492,7 @@ bool Processes::ForkFromRTS(TaskData *taskData, Handle proc, Handle arg)
     try {
         (void)ForkThread(taskData, proc, arg, TAGGED(PFLAG_SYNCH), TAGGED(0));
         return true;
-    } catch (IOException)
+    } catch (IOException &)
     {
         // If it failed
         return false;
