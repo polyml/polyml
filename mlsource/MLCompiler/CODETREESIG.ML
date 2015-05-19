@@ -62,8 +62,6 @@ sig
     val mkDatatype:         codetree list -> codetree
     val mkRaise:            codetree -> codetree;
     val mkNot:              codetree -> codetree;
-    val mkTestnull:         codetree -> codetree;
-    val mkTestnotnull:      codetree -> codetree;
     val mkCor:              codetree * codetree -> codetree;
     val mkCand:             codetree * codetree -> codetree;
     val mkTestptreq:        codetree * codetree -> codetree;
