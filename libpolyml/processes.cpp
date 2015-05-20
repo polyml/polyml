@@ -2,12 +2,11 @@
     Title:      Thread functions
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007,2008,2013,2014 David C.J. Matthews
+    Copyright (c) 2007,2008,2013-15 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -2030,7 +2029,8 @@ extern unsigned NumberOfProcessors(void)
 // Return the number of physical processors.  If hyperthreading is
 // enabled this returns less than NumberOfProcessors.  Returns zero if
 // it cannot be determined.
-#if (defined(_WIN32) && defined(HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
+// This can be used in Cygwin as well as native Windows.
+#if (defined(HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
 typedef BOOL (WINAPI *GETP)(SYSTEM_LOGICAL_PROCESSOR_INFORMATION*, PDWORD);
 
 // Windows - use GetLogicalProcessorInformation if it's available.
@@ -2107,7 +2107,7 @@ static unsigned LinuxNumPhysicalProcessors(void)
 extern unsigned NumberOfPhysicalProcessors(void)
 {
     unsigned numProcs = 0;
-#if (defined(_WIN32) && defined(HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
+#if (defined(HAVE_SYSTEM_LOGICAL_PROCESSOR_INFORMATION))
     numProcs = WinNumPhysicalProcessors();
     if (numProcs != 0) return numProcs;
 #endif
