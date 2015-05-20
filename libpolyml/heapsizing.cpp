@@ -1,12 +1,11 @@
 /*
     Title:  heapsizing.cpp - parameters to adjust heap size
 
-    Copyright (c) Copyright David C.J. Matthews 2012
+    Copyright (c) Copyright David C.J. Matthews 2012, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -82,36 +81,13 @@ debugging.
 HeapSizeParameters gHeapSizeParameters;
 
 #ifdef HAVE_WINDOWS_H
-// Getting hard page counts in Windows is not easy.  Cygwin uses
-// GetProcessMemoryInfo to return the value in ru_majflt but this
-// is actually incorrect because it returns the soft page count not
-// the hard page count.  We use NtQuerySystemInformation to get the
-// total paging on the system on the basis that this is more useful
-// than the soft page faults for the process.
-// This is an undocumented interface and it's all a bit of a mess.
-
-typedef struct  {
-    INT64 pad1[4];
-    DWORD pad2[12];
-    DWORD pagesRead;
-    DWORD pad3[60];
-} SystemPerformanceInfo;
-
-typedef int (WINAPI *NtSystemInfo)(int, SystemPerformanceInfo *, ULONG, void*);
-static NtSystemInfo pFunctionPtr;
-
+// There's no (documented) way to get the per-process hard page
+// count in Windows.  Cygwin uses GetProcessMemoryInfo to return the
+// value in ru_majflt but this is actually incorrect because it returns
+// the soft page count not the hard page count.  We previously used the
+// undocumented NtQuerySystemInformation call.
 static long GetPaging(long)
 {
-    if (pFunctionPtr == 0)
-        pFunctionPtr = (NtSystemInfo) GetProcAddress(GetModuleHandle("Ntdll.dll"), "NtQuerySystemInformation");
-
-    if (pFunctionPtr != 0)
-    {
-        SystemPerformanceInfo pInfo;
-        int result = (*pFunctionPtr)(2/*SystemPerformanceInformation*/, &pInfo, sizeof(pInfo), 0);
-        if (result == 0)
-            return pInfo.pagesRead;
-    }
     return 0;
 }
 #else
@@ -927,76 +903,24 @@ void HeapSizing::Stop()
     gHeapSizeParameters.Final();
 }
 
-
-// Return the physical memory size.  Returns the maximum unsigned integer value if
-// it won't .
-#if defined(HAVE_WINDOWS_H)
-
-// Define this here rather than attempting to use MEMORYSTATUSEX since
-// it may not be in the include and we can't easily test.  The format
-// of MEMORYSTATUSVLM is the same.
-typedef struct _MyMemStatusEx {
-    DWORD dwLength;
-    DWORD dwMemoryLoad;
-    DWORDLONG ullTotalPhys;
-    DWORDLONG ullAvailPhys;
-    DWORDLONG ullTotalPageFile;
-    DWORDLONG ullAvailPageFile;
-    DWORDLONG ullTotalVirtual;
-    DWORDLONG ullAvailVirtual;
-    DWORDLONG ullAvailExtendedVirtual;
-} MyMemStatusEx;
-
-typedef VOID (WINAPI *GLOBALMEMSLVM)(MyMemStatusEx *);
-typedef BOOL (WINAPI *GLOBALMEMSEX)(MyMemStatusEx *);
-#endif
-
-
 static POLYUNSIGNED GetPhysicalMemorySize(void)
 {
     POLYUNSIGNED maxMem = 0-1; // Maximum unsigned value.
 #if defined(HAVE_WINDOWS_H)
     {
-        // This is more complicated than it needs to be.  GlobalMemoryStatus
-        // returns silly values if there is more than 4GB so GlobalMemoryStatusEx
-        // is preferred.  However, it is not in all the include files and may not
-        // be in kernel32.dll in pre-XP versions.  Furthermore at one point it was
-        // called GlobalMemoryStatusVlm.  The only way to do this portably is the
-        // hard way.
-        HINSTANCE hlibKernel = LoadLibrary("kernel32.dll");
-        if (hlibKernel)
+        MEMORYSTATUSEX memStatEx;
+        memset(&memStatEx, 0, sizeof(memStatEx));
+        memStatEx.dwLength = sizeof(memStatEx);
+        if (! GlobalMemoryStatusEx(&memStatEx))
+            memStatEx.ullTotalPhys = 0; // Clobber any rubbish since it says it failed.
+        if (memStatEx.ullTotalPhys) // If it's non-zero assume it succeeded
         {
-            MyMemStatusEx memStatEx;
-            memset(&memStatEx, 0, sizeof(memStatEx));
-            memStatEx.dwLength = sizeof(memStatEx);
-            GLOBALMEMSEX globalMemStatusEx =
-                (GLOBALMEMSEX)GetProcAddress(hlibKernel, "GlobalMemoryStatusEx");
-            GLOBALMEMSLVM globalMemStatusVlm =
-                (GLOBALMEMSLVM)GetProcAddress(hlibKernel, "GlobalMemoryStatusVlm");
-            if (globalMemStatusEx && ! (*globalMemStatusEx)(&memStatEx))
-                memStatEx.ullTotalPhys = 0; // Clobber any rubbish since it says it failed.
-            else if (globalMemStatusVlm)
-                // GlobalMemoryStatusVlm returns VOID so we assume it worked
-                (*globalMemStatusVlm) (&memStatEx);
-            FreeLibrary(hlibKernel);
-            if (memStatEx.ullTotalPhys) // If it's non-zero assume it succeeded
-            {
-                DWORDLONG dwlMax = maxMem;
-                if (memStatEx.ullTotalPhys > dwlMax)
-                    return maxMem;
-                else
-                    return (POLYUNSIGNED)memStatEx.ullTotalPhys;
-           }
+            DWORDLONG dwlMax = maxMem;
+            if (memStatEx.ullTotalPhys > dwlMax)
+                return maxMem;
+            else
+                return (POLYUNSIGNED)memStatEx.ullTotalPhys;
         }
-        // Fallback if that fails.
-
-        MEMORYSTATUS memStatus;
-        memset(&memStatus, 0, sizeof(memStatus));
-        GlobalMemoryStatus(&memStatus);
-        if (memStatus.dwTotalPhys > maxMem)
-            return maxMem;
-        else
-            return (POLYUNSIGNED)memStatus.dwTotalPhys;
     }
 
 #endif
