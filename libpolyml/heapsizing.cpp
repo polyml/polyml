@@ -178,14 +178,14 @@ void HeapSizeParameters::SetHeapParameters(POLYUNSIGNED minsize, POLYUNSIGNED ma
     // The default minimum is zero; in practice the live data size.
 
     // The default initial size is the minimum if that has been provided,
-    // otherwise it is a quarter of the memory or 64M if we can't calculate the memory.
+    // otherwise 8M words.  There are applications that only require a small
+    // heap and if we set the heap large to begin with we'll never do a
+    // full GC and reduce it.
     if (initialSize == 0)
     {
         if (minHeapSize != 0)
             initialSize = minHeapSize;
-        else if (memsize != 0)
-            initialSize =  memsize / 4;
-        else initialSize = 64 * 1024 * 1024;
+        else initialSize = 8 * gMem.DefaultSpaceSize();
         // But not more than the maximum
         if (initialSize > maxHeapSize) initialSize = maxHeapSize;
     }
@@ -590,7 +590,8 @@ bool HeapSizeParameters::getCostAndSize(POLYUNSIGNED &heapSize, double &cost, bo
     // We mustn't reduce the heap size too far.  If the application does a lot
     // of work with few allocations and particularly if it calls PolyML.fullGC
     // explicitly we could attempt to shrink the heap below the current live data size.
-    POLYUNSIGNED minForAllocation = gMem.CurrentHeapSize() + gMem.DefaultSpaceSize() * 2;
+    // Add 3*space size here.  We require 2* after a minor GC. Add 1 for rounding.
+    POLYUNSIGNED minForAllocation = gMem.CurrentHeapSize() + gMem.DefaultSpaceSize() * 3;
     if (minForAllocation > maxHeapSize) minForAllocation = maxHeapSize;
     if (sizeMin < minForAllocation) sizeMin = minForAllocation;
 
