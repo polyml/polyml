@@ -694,16 +694,17 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 1050: // Get version data
         {
             OSVERSIONINFO osver;
-            Handle resVal, major, minor, build, platform, version;
+            ZeroMemory(&osver, sizeof(OSVERSIONINFO));
             osver.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+            // GetVersionEx is deprecated in Windows 8.1
             if (! GetVersionEx(&osver))
                 raise_syscall(taskData, "GetVersionEx failed", -(int)GetLastError());
-            major = Make_arbitrary_precision(taskData, osver.dwMajorVersion);
-            minor = Make_arbitrary_precision(taskData, osver.dwMinorVersion);
-            build = Make_arbitrary_precision(taskData, osver.dwBuildNumber);
-            platform = Make_arbitrary_precision(taskData, osver.dwPlatformId);
-            version = SAVE(C_string_to_Poly(taskData, osver.szCSDVersion));
-            resVal = alloc_and_save(taskData, 5);
+            Handle major = Make_arbitrary_precision(taskData, osver.dwMajorVersion);
+            Handle minor = Make_arbitrary_precision(taskData, osver.dwMinorVersion);
+            Handle build = Make_arbitrary_precision(taskData, osver.dwBuildNumber);
+            Handle platform = Make_arbitrary_precision(taskData, osver.dwPlatformId);
+            Handle version = SAVE(C_string_to_Poly(taskData, osver.szCSDVersion));
+            Handle resVal = alloc_and_save(taskData, 5);
             DEREFHANDLE(resVal)->Set(0, DEREFWORDHANDLE(major));
             DEREFHANDLE(resVal)->Set(1, DEREFWORDHANDLE(minor));
             DEREFHANDLE(resVal)->Set(2, DEREFWORDHANDLE(build));
