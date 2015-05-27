@@ -569,7 +569,7 @@ Index
 * ffi_prep_closure_loc:                  The Closure API.      (line 34)
 * ffi_status <1>:                        The Closure API.      (line 37)
 * ffi_status:                            The Basics.           (line 18)
-* ffi_type:                              Structures.           (line 11)
+* ffi_type:                              Structures.           (line 12)
 * ffi_type_double:                       Primitive Types.      (line 41)
 * ffi_type_float:                        Primitive Types.      (line 38)
 * ffi_type_longdouble:                   Primitive Types.      (line 71)
@@ -592,8 +592,9 @@ Index
 * ffi_type_ushort:                       Primitive Types.      (line 53)
 * ffi_type_void:                         Primitive Types.      (line 10)
 * Foreign Function Interface:            Introduction.         (line 31)
-* void <1>:                              The Closure API.      (line 20)
-* void:                                  The Basics.           (line 65)
+* void <1>:                              The Closure API.      (line 27)
+* void <2>:                              The Basics.           (line 65)
+* void:                                  The Closure API.      (line 20)
 
 
 

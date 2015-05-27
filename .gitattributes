@@ -1,0 +1,17 @@
+*.txt           text
+*.vcproj        eol=crlf
+*.vcxproj       eol=crlf
+*.sln           eol=crlf
+*.dsp           eol=crlf
+*.dsw           eol=crlf
+*.rc            eol=crlf
+*.sh            eol=lf
+*-sh            eol=lf
+configure       eol=lf
+missing         eol=lf
+config.guess    eol=lf
+config.status   eol=lf
+depcomp         eol=lf
+compile         eol=lf
+*.texi          eol=lf
+*.in            eol=lf
