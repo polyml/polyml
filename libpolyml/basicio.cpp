@@ -1,15 +1,14 @@
 /*
     Title:      Basic IO.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000, 2015 David C. J. Matthews
 
     Portions of this code are derived from the original stream io
     package copyright CUTS 1983-2000.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -264,47 +263,6 @@ static bool isAvailable(TaskData *taskData, PIOSTRUCT strm)
       else return false;
 }
 
-#endif
-
-// DCJM 11/5/06 - Do we really need this "fix" for a bug ten years ago in an OS that's
-// probably never used now?
-
-static int proper_stat(char *filename, struct stat *fbp)
-{
-    int res = stat(filename, fbp);
-    while (res != 0 && errno == EINTR) 
-    { 
-        res = stat(filename, fbp);
-        /* There's a bug in SunOS 5.3 (at least) whereby the stat following
-        an interrupted stat call can give junk results (ENOENT on a real file).
-        I suspect a timing-related problem on automounted file systems.
-        So let's try one more time, just to be sure.
-        SPF 16/12/96
-        */
-        if (res != 0)
-        {
-            res = stat(filename, fbp);
-        }
-    };
-    return res;
-}
-
-#if (!defined(_WIN32) || defined(__CYGWIN__))
-/* I don't know whether the same applies to lstat but we'll define
-   it in the same way just in case. DCJM 16/5/00. */
-static int proper_lstat(char *filename, struct stat *fbp)
-{
-    int res = lstat(filename, fbp);
-    while (res != 0 && errno == EINTR) 
-    { 
-        res = lstat(filename, fbp);
-        if (res != 0)
-        {
-            res = lstat(filename, fbp);
-        }
-    };
-    return res;
-}
 #endif
 
 static unsigned max_streams;
@@ -1270,7 +1228,7 @@ Handle isDir(TaskData *taskData, Handle name)
 #else
     {
         struct stat fbuff;
-        if (proper_stat(string_buffer, &fbuff) != 0)
+        if (stat(string_buffer, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
         if ((fbuff.st_mode & S_IFMT) == S_IFDIR)
             return Make_arbitrary_precision(taskData, 1);
@@ -1311,7 +1269,7 @@ Handle fullPath(TaskData *taskData, Handle filename)
         /* Some versions of Unix don't check the final component
            of a file.  To be consistent try doing a "stat" of
            the resulting string to check it exists. */
-        if (proper_stat(resBuf, &fbuff) != 0)
+        if (stat(resBuf, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
     }
 #endif
@@ -1349,7 +1307,7 @@ Handle modTime(TaskData *taskData, Handle filename)
 #else
     {
         struct stat fbuff;
-        if (proper_stat(string_buffer, &fbuff) != 0)
+        if (stat(string_buffer, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
         /* Convert to microseconds. */
         return Make_arb_from_pair_scaled(taskData, STAT_SECS(&fbuff,m),
@@ -1381,7 +1339,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
 #else
     {
     struct stat fbuff;
-    if (proper_stat(string_buffer, &fbuff) != 0)
+    if (stat(string_buffer, &fbuff) != 0)
         raise_syscall(taskData, "stat failed", errno);
     return Make_arbitrary_precision(taskData, fbuff.st_size);
     }
@@ -1775,7 +1733,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 #else
             {
             struct stat fbuff;
-                if (proper_lstat(string_buffer, &fbuff) != 0)
+                if (lstat(string_buffer, &fbuff) != 0)
                     raise_syscall(taskData, "stat failed", errno);
                 if ((fbuff.st_mode & S_IFMT) == S_IFLNK)
                     return Make_arbitrary_precision(taskData, 1);
@@ -1881,7 +1839,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             struct stat fbuff;
             char string_buffer[MAXPATHLEN];
             getFileName(taskData, args, string_buffer, MAXPATHLEN);
-            if (proper_stat(string_buffer, &fbuff) != 0)
+            if (stat(string_buffer, &fbuff) != 0)
                 raise_syscall(taskData, "stat failed", errno);
             /* Assume that inodes are always non-negative. */
             return Make_arbitrary_precision(taskData, fbuff.st_ino);
