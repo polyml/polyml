@@ -89,6 +89,10 @@
 
 /* Define to 1 if you have the <fenv.h> header file. */
 #undef HAVE_FENV_H
+#if (defined(_MSC_VER) && (_MSC_VER >= 1800))
+// Defined in VS 2013
+#define HAVE_FENV_H 1
+#endif
 
 /* Define to 1 if you have the <float.h> header file. */
 #undef HAVE_FLOAT_H
@@ -151,6 +155,10 @@
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
+#if (defined(_MSC_VER) && (_MSC_VER >= 1800))
+// Defined in VS 2013
+#define HAVE_INTTYPES_H 1
+#endif
 
 /* Define to 1 if you have the <io.h> header file. */
 #undef HAVE_IO_H
@@ -221,6 +229,7 @@
 
 /* Define to 1 if the system has the type `long long'. */
 #undef HAVE_LONG_LONG
+#define HAVE_LONG_LONG 1
 
 /* Define to 1 if `lstat' has the bug that it succeeds when given the
    zero-length file name argument. */
