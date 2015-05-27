@@ -88,10 +88,13 @@ typedef char TCHAR;
 #define _T(x) x
 #endif
 
+#include "globals.h"
+// We need to include globals.h before <new> in mingw64 otherwise
+// it messes up POLYUFMT/POLYSFMT.
+
 #include <ffi.h>
 #include <new>
 
-#include "globals.h"
 #include "arb.h"
 #include "reals.h"
 #include "foreign.h"
