@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Mark phase
 
-    Copyright (c) 2010-12 David C. J. Matthews
+    Copyright (c) 2010-12, 2015 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -9,8 +9,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -95,7 +94,7 @@ public:
     virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
     // Have to redefine this for some reason.
     void ScanAddressesInObject(PolyObject *base)
-        { MTGCProcessMarkPointers::ScanAddressesInObject(base, base->LengthWord()); }
+        { ScanAddressesInObject(base, base->LengthWord()); }
 
     virtual void ScanConstant(byte *addressOfConstant, ScanRelocationKind code);
 
@@ -109,10 +108,12 @@ public:
     }
 
     static void MarkRoots(void);
+    static bool RescanForStackOverflow();
 
 private:
     bool TestForScan(PolyWord *pt);
     void MarkAndTestForScan(PolyWord *pt);
+    void Reset();
 
     void PushToStack(PolyObject *obj, PolyWord *currentPtr = 0, POLYUNSIGNED originalLength = 0)
     {
@@ -138,7 +139,7 @@ private:
     }
 
     static void StackOverflow(PolyObject *obj);
-    bool ForkNew(PolyObject *obj);    
+    static bool ForkNew(PolyObject *obj);    
 
     PolyObject *markStack[MARK_STACK_SIZE];
     unsigned msp;
@@ -157,6 +158,10 @@ protected:
     static PLock stackLock;
 };
 
+// There is one mark-stack for each GC thread.  markStacks[0] is used by the
+// main thread when marking the roots and rescanning after mark-stack overflow.
+// Once that work is done markStacks[0] is released and is available for a
+// worker thread.
 MTGCProcessMarkPointers *MTGCProcessMarkPointers::markStacks;
 unsigned MTGCProcessMarkPointers::nThreads, MTGCProcessMarkPointers::nInUse;
 PLock MTGCProcessMarkPointers::stackLock("GC mark stack");
@@ -176,16 +181,26 @@ MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0), active(false), locPt
     // Clear the mark stack
     for (unsigned i = 0; i < MARK_STACK_SIZE; i++)
         markStack[i] = 0;
-    // Clear the large object cache.  Actually only largeObjectCache[0].base
-    // needs to be set to zero and for the objects allocated on the heap it is
-    // cleared before each GC in either MarkRoots or MarkPointersTask.
-    // The remianing case is the RescanMarked sub-class which is allocated on the stack
-    // but it doesn't hurt to clear it in all cases.
+    // Clear the large object cache just to be sure.
     for (unsigned j = 0; j < LARGECACHE_SIZE; j++)
     {
         largeObjectCache[locPtr].base = 0;
         largeObjectCache[locPtr].current = 0;
     }
+}
+
+// Clear the state at the beginning of a new GC pass.
+void MTGCProcessMarkPointers::Reset()
+{
+    locPtr = 0;
+    //largeObjectCache[locPtr].base = 0;
+    // Clear the cache completely just to be safe
+    for (unsigned j = 0; j < LARGECACHE_SIZE; j++)
+    {
+        largeObjectCache[locPtr].base = 0;
+        largeObjectCache[locPtr].current = 0;
+    }
+
 }
 
 // Called when the stack has overflowed.  We need to include this
@@ -238,13 +253,13 @@ bool MTGCProcessMarkPointers::ForkNew(PolyObject *obj)
 void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg2)
 {
     MTGCProcessMarkPointers *marker = (MTGCProcessMarkPointers*)arg1;
-    marker->locPtr = 0;
-    marker->largeObjectCache[0].base = 0;
+    marker->Reset();
+
     marker->ScanAddressesInObject((PolyObject*)arg2);
 
     while (true)
     {
-        // Look for a stack that has at least one item on it
+        // Look for a stack that has at least one item on it.
         MTGCProcessMarkPointers *steal = 0;
         for (unsigned i = 0; i < nThreads && steal == 0; i++)
         {
@@ -262,6 +277,12 @@ void MTGCProcessMarkPointers::MarkPointersTask(GCTaskId *, void *arg1, void *arg
             // at any time.
             PolyObject *toSteal = steal->markStack[j];
             if (toSteal == 0) break; // Nothing more on the stack
+            // The idea here is that the original thread pushed this
+            // because there were at least two addresses it needed to
+            // process.  It started down one branch but left the other.
+            // Since it will have marked cells in the branch it has
+            // followed this thread will start on the unprocessed
+            // address(es).
             marker->ScanAddressesInObject(toSteal);
         }
     }
@@ -581,9 +602,8 @@ void MTGCProcessMarkPointers::MarkRoots(void)
     ASSERT(nThreads >= 1);
     ASSERT(nInUse == 0);
     MTGCProcessMarkPointers *marker = &markStacks[0];
+    marker->Reset();
     marker->active = true;
-    marker->locPtr = 0;
-    marker->largeObjectCache[0].base = 0;
     nInUse = 1;
 
     // Scan the permanent mutable areas.
@@ -603,6 +623,71 @@ void MTGCProcessMarkPointers::MarkRoots(void)
     PLocker lock(&stackLock);
     marker->active = false;
     nInUse--;
+}
+
+// This class just allows us to use ScanAddress::ScanAddressesInRegion to call
+// ScanAddressesInObject for each object in the region.
+class Rescanner: public ScanAddress
+{
+public:
+    Rescanner(MTGCProcessMarkPointers *marker): m_marker(marker) {}
+
+    virtual void ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
+    {
+        // If it has previously been marked it is known to be reachable but
+        // the contents may not have been scanned if the stack overflowed.
+        if (lengthWord &_OBJ_GC_MARK)
+            m_marker->ScanAddressesInObject(obj, lengthWord);
+    }
+
+    // Have to define this.
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { ASSERT(false); return 0; }
+private:
+    MTGCProcessMarkPointers *m_marker;
+};
+
+// When the threads created by marking the roots have completed we need to check that
+// the mark stack has not overflowed.  If it has we need to rescan.  This rescanning
+// pass may result in a further overflow so if we find we have to rescan we repeat.
+bool MTGCProcessMarkPointers::RescanForStackOverflow()
+{
+    ASSERT(nThreads >= 1);
+    ASSERT(nInUse == 0);
+    MTGCProcessMarkPointers *marker = &markStacks[0];
+    marker->Reset();
+    marker->active = true;
+    nInUse = 1;
+    bool rescan = false;
+    Rescanner rescanner(marker);
+
+    for (unsigned m = 0; m < gMem.nlSpaces; m++)
+    {
+        // Rescan any marked objects in the area between fullGCRescanStart and fullGCRescanEnd.
+        // N.B.  We may have threads already processing other areas and they could overflow
+        // their stacks and change fullGCRescanStart or fullGCRescanEnd.
+        LocalMemSpace *lSpace = gMem.lSpaces[m];
+        PolyWord *start, *end;
+        {
+            PLocker lock(&lSpace->spaceLock);
+            start = lSpace->fullGCRescanStart;
+            end = lSpace->fullGCRescanEnd;
+            lSpace->fullGCRescanStart = lSpace->top;
+            lSpace->fullGCRescanEnd = lSpace->bottom;
+        }
+        if (start < end)
+        {
+            rescan = true;
+            if (debugOptions & DEBUG_GC)
+                Log("GC: Mark: Rescanning from %p to %p\n", start, end);
+            rescanner.ScanAddressesInRegion(start, end);
+        }
+    }
+    {
+        PLocker lock(&stackLock);
+        nInUse--;
+        marker->active = false;
+    }
+    return rescan;
 }
 
 static void SetBitmaps(LocalMemSpace *space, PolyWord *pt, PolyWord *top)
@@ -657,54 +742,6 @@ static void CreateBitmapsTask(GCTaskId *, void *arg1, void *arg2)
     SetBitmaps(lSpace, lSpace->bottom, lSpace->top);
 }
 
-class RescanMarked: public MTGCProcessMarkPointers
-{
-public:
-    bool RunRescan(void);
-private:
-    virtual void ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord);
-};
-
-// Called to rescan objects that have already been marked
-// before but are within the range of those that were
-// skipped because of the recursion limit.  We process them
-// again in case there are unmarked addresses in them.
-void RescanMarked::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)
-{
-    if (lengthWord &_OBJ_GC_MARK)
-        MTGCProcessMarkPointers::ScanAddressesInObject(obj, lengthWord);
-}
-
-// Check whether the stack has overflowed and rescan any words
-// in the overflow area.  Returns true if this has happened and
-// we need to try again.
-bool RescanMarked::RunRescan()
-{
-    nInUse = 1;
-    bool rescan = false;
-    for (unsigned m = 0; m < gMem.nlSpaces; m++)
-    {
-        LocalMemSpace *lSpace = gMem.lSpaces[m];
-        if (lSpace->fullGCRescanStart < lSpace->fullGCRescanEnd)
-        {
-            PolyWord *start = lSpace->fullGCRescanStart;
-            PolyWord *end = lSpace->fullGCRescanEnd;
-            lSpace->fullGCRescanStart = lSpace->top;
-            lSpace->fullGCRescanEnd = lSpace->bottom;
-            rescan = true;
-            if (debugOptions & DEBUG_GC)
-                Log("GC: Mark: Rescanning from %p to %p\n", start, end);
-            ScanAddressesInRegion(start, end);
-        }
-    }
-    {
-        PLocker lock(&stackLock);
-        nInUse--;
-    }
-    gpTaskFarm->WaitForCompletion();
-    return rescan;
-}
-
 void GCMarkPhase(void)
 {
     mainThreadPhase = MTP_GCPHASEMARK;
@@ -719,12 +756,14 @@ void GCMarkPhase(void)
     }
     
     MTGCProcessMarkPointers::MarkRoots();
-
     gpTaskFarm->WaitForCompletion();
 
-    // Do we have to recan?
-    RescanMarked rescanner;
-    while (rescanner.RunRescan()) ;
+    // Do we have to rescan because the mark stack overflowed?
+    bool rescan;
+    do {
+        rescan = MTGCProcessMarkPointers::RescanForStackOverflow();
+        gpTaskFarm->WaitForCompletion();
+    } while(rescan);
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Mark");
 
@@ -732,7 +771,7 @@ void GCMarkPhase(void)
     for (unsigned i = 0; i < gMem.nlSpaces; i++)
         gpTaskFarm->AddWorkOrRunNow(&CreateBitmapsTask, gMem.lSpaces[i], 0);
 
-    gpTaskFarm->WaitForCompletion();
+    gpTaskFarm->WaitForCompletion(); // Wait for completion of the bitmaps
 
     gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Bitmap");
 

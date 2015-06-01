@@ -947,6 +947,33 @@ struct
             val Location = mkTypeConstruction ("location", tsConstr typeconstr, [], declInBasis)
         end
 
+        (* Interface to the debugger. *)
+        local
+            open TYPETREE
+            val debuggerInterface as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "DebuggerInterface"
+            val () = #enterStruct polyMLEnv ("DebuggerInterface", debuggerInterface)
+            val (Env debuggerEnv) = makeEnv tab
+            val typeconstr = 
+                makeTypeConstructor("debugState", [],
+                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.DebuggerInterface.debugState")),
+                    declInBasis)
+            val () = #enterType debuggerEnv ("debugState", TypeConstrSet(typeconstr, []))
+            val debugStateType = mkTypeConstruction ("debugState", typeconstr, [], declInBasis)
+            open DEBUGGER
+        in
+            val () = applyList (fn (name, v, t) =>
+                                #enterVal debuggerEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                [
+                    ("debugNameSpace", toMachineWord(debugNameSpace :debugState -> nameSpace), debugStateType ->> nameSpaceType),
+                    ("debugFunction", toMachineWord(debugFunction: debugState -> (string * location) option),
+                        debugStateType ->> Option(String ** Location)),
+                    ("debugFunctionArg", toMachineWord(debugFunctionArg: debugState -> values option),
+                        debugStateType ->> Option valueVal),
+                    ("debugFunctionResult", toMachineWord(debugFunctionResult: debugState -> values option),
+                        debugStateType ->> Option valueVal)
+                ]
+        end
+
 (*****************************************************************************)
 (*                  context type                                           *)
 (*****************************************************************************)
@@ -1136,7 +1163,9 @@ struct
             val () = #enterType polyMLEnv ("typeExpression", TypeConstrSet(typesConstr, []));
 
             val constrs = (* Order is significant. *)
-               [ ("PTdeclaredAt",       Location),
+               [ ("PTbreakPoint",       (Option (Location ->> Unit)) ->> Unit),
+                 ("PTcompletions",      List String),
+                 ("PTdeclaredAt",       Location),
                  ("PTfirstChild",       Unit ->> ParseTree),
                  ("PTnextSibling",      Unit ->> ParseTree),
                  ("PTopenedAt",         Location),
@@ -1210,9 +1239,6 @@ struct
 (*****************************************************************************)
         local
             open DEBUG;
-            val debuggerType =
-                TYPETREE.mkProductType[Int, valueVal, Int, String, String, nameSpaceType] ->> Unit
-            type debuggerType = int * values * int * string * string * nameSpace -> unit
             local
                 open TYPETREE
                 val fields =
@@ -1265,7 +1291,6 @@ struct
                 ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: int tag),        Tag Int),
                 ("lineLengthTag",          toMachineWord (DEBUG.lineLengthTag: int tag),        Tag Int),
                 ("profileAllocationTag",   toMachineWord (DEBUG.profileAllocationTag: int tag), Tag Int),
-                ("debuggerTag",            toMachineWord (DEBUGGER.debuggerFunTag: debuggerType tag), Tag debuggerType),
                 ("printOutputTag",         toMachineWord (PRETTY.printOutputTag: (pretty->unit) tag),  Tag (PrettyType->>Unit)) ,               
                 ("compilerOutputTag",      toMachineWord (PRETTY.compilerOutputTag: (pretty->unit) tag), Tag (PrettyType->>Unit)),
                 ("errorMessageProcTag",    toMachineWord (LEX.errorMessageProcTag: errorMessageProcType tag), Tag errorMessageProcType),

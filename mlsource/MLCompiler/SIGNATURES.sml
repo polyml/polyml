@@ -1001,7 +1001,8 @@ struct
                     (* These next three can't occur. *)
                     enterFix      = fn _ => raise InternalError "Entering fixity in signature",
                     enterSig      = fn _ => raise InternalError "Entering signature in signature",
-                    enterFunct    = fn _ => raise InternalError "Entering functor in signature"
+                    enterFunct    = fn _ => raise InternalError "Entering functor in signature",
+                    allValNames   = #allValNames structEnv
                 }
             end
 
@@ -1034,7 +1035,9 @@ struct
                           enterStruct   = #enterStruct structEnv,
                           enterFix      = #enterFix structEnv,
                           enterSig      = #enterSig structEnv,
-                          enterFunct    = #enterFunct structEnv
+                          enterFunct    = #enterFunct structEnv,
+                          allValNames   = fn () => (#allValNames structEnv () @ #allValNames globalEnv ())
+
                          };
                       val resSig = sigValue (sigStruct, Env newEnv, line, structPath ^ name ^ ".");
                       (* Process the rest of the list before declaring
@@ -1134,7 +1137,8 @@ struct
                             enterStruct   = #enterStruct structEnv,
                             enterFix      = #enterFix structEnv,
                             enterSig      = #enterSig structEnv,
-                            enterFunct    = #enterFunct structEnv
+                            enterFunct    = #enterFunct structEnv,
+                            allValNames   = #allValNames structEnv
                         }
 
                         val resultSig = sigValue(str, Env includeEnv, lno, structPath)
@@ -1239,7 +1243,8 @@ struct
                   enterStruct   = #enterStruct structEnv,
                   enterFix      = #enterFix structEnv,
                   enterSig      = #enterSig structEnv,
-                  enterFunct    = #enterFunct structEnv
+                  enterFunct    = #enterFunct structEnv,
+                  allValNames   = #allValNames structEnv
                  };
 
                 fun makeId (eq, isdt, typeFn, loc) =

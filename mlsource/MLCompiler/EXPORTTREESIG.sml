@@ -37,7 +37,9 @@ sig
     val PTparent: (unit -> exportTree) -> ptProperties 
     val PTpreviousSibling: (unit -> exportTree) -> ptProperties 
     val PTnextSibling: (unit -> exportTree) -> ptProperties 
-    val PTfirstChild: (unit -> exportTree) -> ptProperties 
+    val PTfirstChild: (unit -> exportTree) -> ptProperties
+    val PTcompletions: string list -> ptProperties
+    val PTbreakPoint: ((location->unit) option -> unit) -> ptProperties (* Breakpoint associated with location. *)
     
     type navigation =
         {parent: (unit -> exportTree) option,

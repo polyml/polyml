@@ -35,12 +35,14 @@ functor EXPORT_PARSETREE (
     structure BASEPARSETREE : BaseParseTreeSig
     structure PRINTTREE: PrintParsetreeSig
     structure LEX : LEXSIG
-    structure STRUCTVALS : STRUCTVALSIG;
-    structure EXPORTTREE: EXPORTTREESIG;
+    structure STRUCTVALS : STRUCTVALSIG
+    structure EXPORTTREE: EXPORTTREESIG
     structure TYPETREE : TYPETREESIG
+    structure DEBUGGER : DEBUGGERSIG
 
     sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing
            = EXPORTTREE.Sharing = BASEPARSETREE.Sharing = PRINTTREE.Sharing
+           = DEBUGGER.Sharing
 
 ): ExportParsetreeSig
 =
@@ -61,7 +63,7 @@ struct
 
          (* Put all these into a common list.  That simplifies navigation between
             the various groups in abstypes and datatypes. *)
-        datatype lType = DataT of datatypebind | TypeB of typebind | Decl of parsetree
+        datatype lType = DataT of datatypebind | TypeB of typebind | Decl of parsetree * breakPoint option ref
        
         (* Common code for datatypes, abstypes and type bindings. *)
         fun exportTypeBinding(navigation, this as DataT(DatatypeBind{name, nameLoc, fullLoc, constrs, ...})) =
@@ -111,7 +113,16 @@ struct
             end
 
         |   exportTypeBinding(navigation, Decl dec) =
-                (* Value declarations in an abstype. *) getExportTree(navigation, dec)
+                (* Value declarations in an abstype. *) exportTreeWithBpt(navigation, dec)
+
+        (* In a couple of cases we can have a breakpoint associated with an entry. *)
+        and exportTreeWithBpt(nav, (p, ref NONE)) = getExportTree (nav, p)
+        |   exportTreeWithBpt(nav, (p, ref (SOME bpt))) =
+            let
+                val (loc, props) = getExportTree (nav, p)
+            in
+                (loc, PTbreakPoint(DEBUGGER.setBreakPoint bpt) :: props)
+            end
         
         fun exportMatch(navigation,
                 p as MatchTree{location, vars, exp, resType = ref rtype, argType = ref atype,...}) =
@@ -126,21 +137,28 @@ struct
         end
     in
         case p of
-            Ident{location, expType=ref expType, value, ...} =>
+            Ident{location, expType=ref expType, value, possible, name, ...} =>
             let
                 (* Include the type and declaration properties if these
                    have been set. *)
-                val (decProp, references) =
+                val (decProp, references, possProp) =
                     case value of
-                        ref (Value{name = "<undefined>", ...}) => ([], NONE)
-                    |   ref (Value{locations, references, ...}) => (mapLocationProps locations, references)
+                        ref (Value{name = "<undefined>", ...}) =>
+                        let
+                            (* Generate possible completions.  For the moment just consider
+                               simple prefixes. *)
+                            val completions = List.filter (String.isPrefix name) (! possible ())
+                        in
+                            ([], NONE, [PTcompletions completions])
+                        end
+                    |   ref (Value{locations, references, ...}) => (mapLocationProps locations, references, [])
                 val refProp =
                     case references of
                         NONE => []
                     |   SOME {exportedRef=ref exp, localRef=ref locals, recursiveRef=ref recs} =>
                             [PTreferences(exp, List.map #1 recs @ locals)]
             in
-                (location, PTtype expType :: decProp @ commonProps @ refProp)
+                (location, PTtype expType :: decProp @ commonProps @ refProp @ possProp)
             end
 
         |   Literal {location, expType=ref expType, ...} => (location, PTtype expType :: commonProps)
@@ -311,7 +329,7 @@ struct
                 (location, PTtype expType :: exportList(exportMatch, SOME asParent) matches @ commonProps)
 
         |   Localdec{location, decs, body, ...} =>
-                (location, exportList(getExportTree, SOME asParent) (decs @ body) @ commonProps)
+                (location, exportList(exportTreeWithBpt, SOME asParent) (decs @ body) @ commonProps)
 
         |   TypeDeclaration(tbl, location) =>
             let
@@ -331,7 +349,7 @@ struct
         |   DatatypeReplication{location, ...} => (* TODO *) (location, commonProps)
 
         |   ExpSeq(ptl, location) =>
-                (location, exportList(getExportTree, SOME asParent) ptl @ commonProps)
+                (location, exportList(exportTreeWithBpt, SOME asParent) ptl @ commonProps)
 
         |   Directive{location, ...} =>
                 (* No need to process the individual identifiers. *)

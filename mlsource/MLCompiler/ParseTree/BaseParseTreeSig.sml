@@ -44,6 +44,8 @@ sig
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
+    type breakPoint
+
     datatype parsetree = 
         Ident               of
       (* An identifier is just a name. In the second pass it is associated
@@ -53,7 +55,13 @@ sig
          type of the value will be 'a * 'a -> bool but the type of a particular
          occurence, i.e. the type of the identifier must be int * int -> bool,
          say, after all the unification has been done. *)
-        { name: string, expType: types ref, value: values ref, location: location }
+        {
+            name: string,
+            expType: types ref,
+            value: values ref,
+            location: location,
+            possible: (unit -> string list) ref (* Used with the IDE. *)
+        }
 
     |   Literal             of
            (* Literal constants may be overloaded on more than one type. The
@@ -118,8 +126,8 @@ sig
 
     |   Localdec            of (* Local dec in dec and let dec in exp. *)
         {
-            decs: parsetree  list,
-            body: parsetree list,
+            decs: (parsetree * breakPoint option ref) list,
+            body: (parsetree * breakPoint option ref) list,
             isLocal: bool,
             varsInBody: values list ref, (* Variables in the in..dec part
                                             of a local declaration. *)
@@ -133,7 +141,7 @@ sig
             isAbsType: bool,
             typelist:  datatypebind list,
             withtypes: typebind list,
-            declist:   parsetree list,
+            declist:   (parsetree * breakPoint option ref) list,
             location:  location,
             equalityStatus: bool list ref
         }
@@ -147,7 +155,7 @@ sig
             location: location
         }
 
-    |   ExpSeq              of parsetree list * location
+    |   ExpSeq              of (parsetree * breakPoint option ref) list * location
 
     |   Directive           of
             (* Directives are infix, infixr and nonfix. They are processed by the
@@ -304,5 +312,6 @@ sig
         and  datatypebind = datatypebind
         and  exbind = exbind
         and  matchtree = matchtree
+        and  breakPoint = breakPoint
     end
 end;

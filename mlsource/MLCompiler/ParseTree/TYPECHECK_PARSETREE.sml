@@ -129,7 +129,6 @@ struct
        (i.e. in a signature, structure or functor). *)
     fun pass2 (v, makeTypeId, env, lex, sigTypeIdMap) =
     let
-
         (* Returns a function which can be passed to unify or apply to
            print a bit of context info. *)
         fun foundNear v () =
@@ -286,6 +285,14 @@ struct
               expression being handled.
          *)
 
+    fun stringsOfSearchList { apply: (string * 'a -> unit) -> unit, ...} () =
+    let
+        val v = ref []
+        val () = apply (fn (s, _) => v := s :: !v)
+    in
+        !v
+    end
+
     fun assignValues (level, letDepth, env, near, v)  =
     let
         val typeEnv =
@@ -295,14 +302,14 @@ struct
         }
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
-        fun assignSeq env depth (l: parsetree list) =
+        fun assignSeq env depth l =
         let
-          fun applyList last []       = last
-            | applyList _ (h :: t) = 
-              applyList (assignValues(level, depth, env, v, h)) t
+            fun applyList last []       = last
+            |   applyList _ ((h, _) :: t) = 
+                    applyList (assignValues(level, depth, env, v, h)) t
         in
-          applyList badType l
-        end;
+            applyList badType l
+        end
 
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
@@ -456,7 +463,7 @@ struct
                 map (fn x => processPattern(x, enterResult, level, notConst, mkVar, isRec));
         in
             case pat of
-                Ident {name, value, expType, location, ...} => (* Variable or nullary constructor. *)
+                Ident {name, value, expType, location, possible, ...} => (* Variable or nullary constructor. *)
                 let
                     (* Look up the name. If it is a constructor then use it,
                         otherwise return `undefined'. If it is a qualified name,
@@ -478,9 +485,11 @@ struct
                                 ("Constructor",
                                 {lookupVal= #lookupVal env, lookupStruct= #lookupStruct env},
                                 name,
-                                giveError (pat, lex, location));
-            
-                   
+                                giveError (pat, lex, location))
+
+                    (* Remember the possible names here. *)
+                    val () = possible := #allValNames env
+
                     val instanceType = 
                         (* If the result is a constructor use it. *)
                         if isConstructor nameVal (* exceptions. *)
@@ -550,8 +559,12 @@ struct
                     (* Function must be a constructor. *)
                     val conType = 
                         case con of
-                            Ident {name, value, location, expType, ...} =>
+                            Ident {name, value, location, expType, possible, ...} =>
                             let (* Look up the value and return the type. *)
+                            
+                                (* Remember the possible names here. *)
+                                val () = possible := #allValNames env
+
                                 val constrVal =
                                     lookupValue 
                                         ("Constructor",
@@ -691,7 +704,7 @@ struct
         (* val assValues = assignValues level line env; *)
         and assValues near v =
           case v of
-            Ident {name, value, expType, location, ...} =>
+            Ident {name, value, expType, location, possible, ...} =>
             let
                 val expValue =
                     lookupValue 
@@ -713,6 +726,7 @@ struct
                 |   _ => ();
                 expType := instanceType;
                 value  := expValue;
+                possible := #allValNames env;
                 instanceType (* Result is the instance type. *)
             end
 
@@ -1146,7 +1160,8 @@ struct
                    enterFix      = fn _ => (),
                    enterStruct   = #enter newStrEnv,
                    enterSig      = #enterSig env,
-                   enterFunct    = #enterFunct env
+                   enterFunct    = #enterFunct env,
+                   allValNames   = fn () => (stringsOfSearchList newValEnv () @ #allValNames env ())
                 };
         
               (* Process the local declarations and discard the result. *)
@@ -1180,7 +1195,8 @@ struct
                       (#enter newStrEnv pair;
                        #enterStruct env   pair),
                   enterSig      = #enterSig env,
-                  enterFunct    = #enterFunct env
+                  enterFunct    = #enterFunct env,
+                  allValNames   = #allValNames localEnv
                 };
               (* Now the body, returning its result if it is an expression. *)
                 val resType = assignSeq bodyEnv newLetDepth body
@@ -1216,7 +1232,7 @@ struct
                         case previous of 
                             EmptyTree => (* Generative binding. *)
                                 mkEx (name, oldType, [DeclaredAt nameLoc])
-                        |   Ident {name = prevName, value = prevValue, location, expType, ...} =>
+                        |   Ident {name = prevName, value = prevValue, location, expType, possible, ...} =>
                             let 
                                 (* ex = ex' i.e. a non-generative binding? *)
                                 (* Match up the previous exception. *)
@@ -1235,6 +1251,7 @@ struct
                                 |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
                                 expType := excType; (* And remember the type. *)
+                                possible := #allValNames env;
                                 (* The result is an exception with the same type. *)
                                 mkEx (name, excType, [DeclaredAt nameLoc])
                             end
@@ -1411,7 +1428,9 @@ struct
                   enterFix      = #enterFix env,
                   enterStruct   = #enterStruct env,
                   enterSig      = #enterSig env,
-                  enterFunct    = #enterFunct env
+                  enterFunct    = #enterFunct env,
+                  allValNames   =
+                    fn () => (stringsOfSearchList newEnv () @ #allValNames env ())
                 };
         
               (* Now the body. *)
@@ -1510,7 +1529,11 @@ struct
                             enterFix      = #enterFix env,
                             enterStruct   = #enterStruct env,
                             enterSig      = #enterSig env,
-                            enterFunct    = #enterFunct env
+                            enterFunct    = #enterFunct env,
+                            allValNames   =
+                                if isRecursive
+                                then fn () => (stringsOfSearchList recEnv () @ #allValNames env ())
+                                else #allValNames env
                         }
 
                         val expType = assignValues(newLevel, letDepth, newEnv, exp, exp);
@@ -1723,7 +1746,10 @@ struct
                             enterFix      = #enterFix env,
                             enterStruct   = #enterStruct env,
                             enterSig      = #enterSig env,
-                            enterFunct    = #enterFunct env
+                            enterFunct    = #enterFunct env,
+                            allValNames   =
+                                fn () => (stringsOfSearchList varEnv () @
+                                          stringsOfSearchList newEnv () @ #allValNames env ())
                         };
            
                         (* Now the body. *)
@@ -1819,7 +1845,8 @@ struct
                                   name   = name,
                                   expType = ref EmptyType,
                                   value  = ref undefinedValue,
-                                  location = loc
+                                  location = loc,
+                                  possible = ref(fn () => [])
                                 }
  
                             val fvalAsTree = mkFunDeclaration([fvalBind], explicit, implicit, location)
@@ -2018,6 +2045,7 @@ struct
                         val lookupValFn = 
                             lookupDefault (#lookup localEnv)
                                 (lookupDefault (#lookup consEnv) (#lookupVal env))
+                        fun allValNames () = (stringsOfSearchList localEnv () @ stringsOfSearchList consEnv () @ #allValNames env ())
                         (* We also have to do something similar with types.  This is really
                            only for perverse cases where there is a datatype replication
                            inside the abstype. *)
@@ -2038,7 +2066,8 @@ struct
                             enterFix      = #enterFix env,
                             enterStruct   = #enterStruct env,
                             enterSig      = #enterSig env,
-                            enterFunct    = #enterFunct env
+                            enterFunct    = #enterFunct env,
+                            allValNames   = allValNames
                         }
                     end;
   
@@ -2076,7 +2105,8 @@ struct
             enterFix      = #enterFix gEnv,
             enterStruct   = #enterStruct gEnv,
             enterSig      = #enterSig gEnv,
-            enterFunct    = #enterFunct gEnv
+            enterFunct    = #enterFunct gEnv,
+            allValNames   = #allValNames gEnv
           };
     in
       assignValues(1, 0, env, v, v)
@@ -2194,13 +2224,13 @@ struct
             (
                 (* Process the body expressions in order but the declarations must be done in
                    reverse order after the body. *)
-                List.app leastGenExp body;
-                List.foldr (fn (p, ()) => leastGenExp p) () decs
+                List.app (leastGenExp o #1) body;
+                List.foldr (fn ((p, _), ()) => leastGenExp p) () decs
             )
 
         |   leastGenExp(AbsDatatypeDeclaration { declist, ... }) =
                 (* Declarations in reverse order *)
-                List.foldr (fn (p, ()) => leastGenExp p) () declist
+                List.foldr (fn ((p, _), ()) => leastGenExp p) () declist
 
             (* All the rest of these just involve processing sub-expressions. *)
         |   leastGenExp(Applic{f, arg, ...}) = (leastGenExp f; leastGenExp arg)
@@ -2214,7 +2244,7 @@ struct
 
         |   leastGenExp(Fn {matches, ...}) = List.app (fn MatchTree{exp, ...} => leastGenExp exp) matches
 
-        |   leastGenExp(ExpSeq(ptl, _)) = List.app leastGenExp ptl
+        |   leastGenExp(ExpSeq(ptl, _)) = List.app (leastGenExp o #1) ptl
 
         |   leastGenExp(HandleTree{exp, hrules, ...}) =
                 (leastGenExp exp; List.app (fn MatchTree{exp, ...} => leastGenExp exp) hrules)

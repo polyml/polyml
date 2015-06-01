@@ -1089,6 +1089,8 @@ TaskData *Processes::CreateNewTaskData(Handle threadId, Handle threadFunction,
         taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
         taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
+        for (unsigned i = 0; i < sizeof(taskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
+            taskData->threadObject->debuggerSlots[i] = TAGGED(0);
     }
 
 #ifdef HAVE_PTHREAD
@@ -1193,6 +1195,8 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         taskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         taskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
         taskData->threadObject->mlStackSize = TAGGED(0); // Unlimited stack size
+        for (unsigned i = 0; i < sizeof(taskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
+            taskData->threadObject->debuggerSlots[i] = TAGGED(0);
 #if defined(HAVE_WINDOWS_H)
         taskData->threadHandle = mainThreadHandle;
 #endif
@@ -1393,6 +1397,8 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction,
         newTaskData->threadObject->threadLocal = TAGGED(0); // Empty thread-local store
         newTaskData->threadObject->requestCopy = TAGGED(0); // Cleared interrupt state
         newTaskData->threadObject->mlStackSize = stacksize;
+        for (unsigned i = 0; i < sizeof(newTaskData->threadObject->debuggerSlots)/sizeof(PolyWord); i++)
+            newTaskData->threadObject->debuggerSlots[i] = TAGGED(0);
 
         unsigned thrdIndex;
         schedLock.Lock();

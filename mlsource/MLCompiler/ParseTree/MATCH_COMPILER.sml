@@ -111,29 +111,7 @@ struct
     (* Try this pipeline function *)
     infix |>
     fun a |> f = f a
-  
-    (* Debugging control and debug function. *)
-
-    fun createDebugEntry (v: values, loadVal, {mkAddr, level, debugEnv=(ctEnv, rtEnv: level -> codetree), lex, ...}: cgContext) =
-        if not (getParameter debugTag (debugParams lex))
-        then { dec = [], rtEnv = rtEnv, ctEnv = ctEnv }
-        else let
-                val newEnv =
-                (* Create a new entry in the environment. *)
-                      mkTuple [ loadVal (* Value. *), rtEnv level ]
-                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-                val ctEntry =
-                    case v of
-                        Value{class=Exception, name, typeOf, locations, ...} =>
-                            EnvException(name, typeOf, locations)
-                    |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
-                            EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
-                    |   Value{name, typeOf, locations, ...} =>
-                            EnvValue(name, typeOf, locations)
-            in
-                { dec = dec, rtEnv = load, ctEnv = ctEntry :: ctEnv}
-            end
-
+ 
     (* Devised by Mike Fourman, Nick Rothwell and me (DCJM).  First coded
        up by Nick Rothwell for the Kit Compiler. First phase of the match
        compiler. The purpose of this phase is to take a match (a set of
@@ -637,7 +615,7 @@ struct
         maket patts 1 aotEmpty 
     end
   
-    fun bindPattVars(arg, vars, context as { mkAddr, level, ...}, debugEnv) =
+    fun bindPattVars(arg, vars, { mkAddr, level, lex, typeVarMap, ...}, debugEnv) =
     let
         val addressOfVar = mkAddr 1
         val dec = mkDec (addressOfVar, arg)
@@ -647,11 +625,11 @@ struct
         fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}, (oldDec, oldEnv) ) =
             let (* Set the address of the variable to this and create
                    debug environment entries if required. *)
-                val {dec=nextDec, ctEnv, rtEnv} =
-                    createDebugEntry(v, load, context |> repDebugEnv oldEnv)
+                val () = lvAddr  := addressOfVar (* Must do this BEFORE we create debug entry. *)
+                val () = lvLevel := level
+                val (nextDec, (ctEnv, rtEnv)) =
+                    DEBUGGER.makeValDebugEntries([v], oldEnv, level, lex, mkAddr, typeVarMap)
             in
-                lvAddr  := addressOfVar;
-                lvLevel := level;
                 (oldDec @ nextDec, (ctEnv, rtEnv))
             end
 

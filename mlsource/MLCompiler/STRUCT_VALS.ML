@@ -40,7 +40,8 @@ structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
 structure UNIVERSALTABLE :
 sig
   type 'a tag = 'a Universal.tag;
-  type univTable;
+  type univTable
+  type universal = Universal.universal
   
   val makeUnivTable: unit -> univTable;
   val univEnter:     univTable * 'a tag * string * 'a -> unit;
@@ -48,6 +49,8 @@ sig
   
   (* Freeze a mutable table so it is immutable. *)
   val univFreeze:       univTable -> univTable
+
+    val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
 end;
 
 structure PRETTY: PRETTYSIG (* Temporary addition. *)
@@ -599,6 +602,8 @@ struct
 
     fun makeLook (t:'a tag) table n = univLookup (table, t, n)
     and makeEnter (t:'a tag) table (n, v) = univEnter (table, t, n, v)
+    and makeAllNames (t:'a tag) table () =
+        UNIVERSALTABLE.fold (fn (s, u, l) => if Universal.tagIs t u then s :: l else l) [] table
 
     datatype env = 
     Env of 
@@ -614,7 +619,8 @@ struct
         enterFix:     string * fixStatus   -> unit,
         enterStruct:  string * structVals  -> unit,
         enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit
+        enterFunct:   string * functors    -> unit,
+        allValNames:  unit -> string list
     }
 
     (* This creates functions for entering and looking up names. *)
@@ -630,7 +636,8 @@ struct
           enterFix     = makeEnter fixVar        tab,
           enterStruct  = makeEnter structVar     tab,
           enterSig     = makeEnter signatureVar  tab,
-          enterFunct   = makeEnter functorVar    tab
+          enterFunct   = makeEnter functorVar    tab,
+          allValNames  = makeAllNames valueVar   tab
         }
 
     structure Sharing =
