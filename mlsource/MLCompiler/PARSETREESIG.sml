@@ -3,12 +3,11 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9 David C.J. Matthews
+    Copyright (c) 2000-9, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -149,11 +148,11 @@ sig
     val getExportTree: navigation * parsetree -> exportTree
 
     (* Inherited from CodegenParsetree *)
-    type debugenv = environEntry list * (level->codetree)
+    type debuggerStatus
     val gencode:
-        parsetree * lexan * debugenv * level * (int->int) * typeVarMap * string *
-            (codeBinding list * debugenv * typeVarMap -> codeBinding list * debugenv)
-            -> codeBinding list * debugenv
+        parsetree * lexan * debuggerStatus * level * (int->int) * typeVarMap * string *
+            (codeBinding list * debuggerStatus * typeVarMap -> codeBinding list * debuggerStatus)
+            -> codeBinding list * debuggerStatus
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -185,5 +184,6 @@ sig
         and  matchtree   = matchtree
         and  typeVarMap = typeVarMap
         and  level = level
+        and  debuggerStatus    = debuggerStatus
     end
 end (* PARSETREE export signature *);

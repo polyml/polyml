@@ -965,12 +965,13 @@ struct
                                 #enterVal debuggerEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
                     ("debugNameSpace", toMachineWord(debugNameSpace :debugState -> nameSpace), debugStateType ->> nameSpaceType),
-                    ("debugFunction", toMachineWord(debugFunction: debugState -> (string * location) option),
-                        debugStateType ->> Option(String ** Location)),
+                    ("debugFunction", toMachineWord(debugFunction: debugState -> string option),
+                        debugStateType ->> Option String),
                     ("debugFunctionArg", toMachineWord(debugFunctionArg: debugState -> values option),
                         debugStateType ->> Option valueVal),
                     ("debugFunctionResult", toMachineWord(debugFunctionResult: debugState -> values option),
-                        debugStateType ->> Option valueVal)
+                        debugStateType ->> Option valueVal),
+                    ("debugLocation", toMachineWord(debugLocation :debugState -> location), debugStateType ->> Location)
                 ]
         end
 

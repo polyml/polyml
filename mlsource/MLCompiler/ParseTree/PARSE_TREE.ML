@@ -500,6 +500,7 @@ struct
         and  matchtree   = matchtree
         and  typeVarMap = typeVarMap
         and  level = level
+        and  debuggerStatus   = debuggerStatus
     end
 
 end (* PARSETREE *);

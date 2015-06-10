@@ -67,13 +67,15 @@ sig
       }
 
     (* Functions to make debug entries for various values, types etc. *)
-    type debugenv = environEntry list * (level->codetree)
+    type debuggerStatus
+    val initialDebuggerStatus: debuggerStatus
+
     val makeValDebugEntries:
-        values list * debugenv * level * lexan * (int -> int) * typeVarMap -> codeBinding list * debugenv
-    val makeTypeConstrDebugEntries:  typeConstrSet list * debugenv * level * lexan * (int -> int) -> codeBinding list * debugenv
-    val makeStructDebugEntries: structVals list * debugenv * level * lexan * (int->int) ->
-        codeBinding list * debugenv
-    val makeTypeIdDebugEntries: typeId list * debugenv * level * lexan * (int->int) -> codeBinding list * debugenv
+        values list * debuggerStatus * level * lexan * (int -> int) * typeVarMap -> codeBinding list * debuggerStatus
+    val makeTypeConstrDebugEntries:  typeConstrSet list * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
+    val makeStructDebugEntries: structVals list * debuggerStatus * level * lexan * (int->int) ->
+        codeBinding list * debuggerStatus
+    val makeTypeIdDebugEntries: typeId list * debuggerStatus * level * lexan * (int->int) -> codeBinding list * debuggerStatus
 
     (* Create a local break point and check the global and local break points. *)
     val breakPointCode: location * level * (int->int) -> codeBinding list * breakPoint
@@ -81,20 +83,21 @@ sig
     val setBreakPoint: breakPoint -> (location -> unit) option -> unit
 
     (* Set the current state in the thread data. *)
-    val updateDebugState: debugenv * level * lexan * (int -> int) -> codeBinding list
+    val updateDebugState: debuggerStatus * level * lexan * (int -> int) -> codeBinding list
     (* Add debugging calls on entry and exit to a function. *)
     val wrapFunctionInDebug:
-        codetree * string * types * location * debugenv * level * lexan * (int -> int) -> codetree
+        codetree * string * types * location * debuggerStatus * level * lexan * (int -> int) -> codetree
     (* Create a debug entry for the start of the function. *)
     val debugFunctionEntryCode:
-        string * codetree * types * location * debugenv * level * lexan * (int -> int) -> codeBinding list * debugenv
+        string * codetree * types * location * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
 
     (* Exported functions that appear in PolyML.DebuggerInterface. *)
     type debugState (* The run-time state. *)
     val debugNameSpace: debugState -> nameSpace
-    val debugFunction: debugState -> (string * location) option
+    val debugFunction: debugState -> string option
     val debugFunctionArg: debugState -> values option
     val debugFunctionResult: debugState -> values option
+    val debugLocation: debugState -> location
 
     structure Sharing:
     sig
@@ -115,5 +118,6 @@ sig
         type codetree       = codetree
         type typeVarMap     = typeVarMap
         type breakPoint     = breakPoint
+        type debuggerStatus = debuggerStatus
     end
 end;

@@ -105,7 +105,7 @@ struct
     (* To simplify passing the context it is wrapped up in this type. *)
     type cgContext =
         {
-            decName: string, debugEnv: environEntry list * (level->codetree), mkAddr: int->int,
+            decName: string, debugEnv: debuggerStatus, mkAddr: int->int,
             level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
             isOuterLevel: bool (* Used only to decide if we need to report non-exhaustive matches. *)
         }
@@ -213,7 +213,6 @@ struct
     |  tupleWidth _ = [GeneralType]
 
     (* Start of the code-generator itself. *)
-    type debugenv = environEntry list * (level->codetree)
   
     (* Report unreferenced identifiers. *)
 
@@ -911,7 +910,7 @@ struct
 
 
     (* Code-generates a sequence of declarations. *)
-    and codeSequence ([], leading, codeSeqContext, processBody): codeBinding list * debugenv =
+    and codeSequence ([], leading, codeSeqContext, processBody): codeBinding list * debuggerStatus =
             processBody(leading, codeSeqContext) (* Do the continuation. *)
 
     |   codeSequence ((firstEntry as FunDeclaration {dec, ...}, _) :: pTail, leading, codeSeqContext, processBody) =
@@ -1062,7 +1061,7 @@ struct
                     (constrDecs @ decs @ newDecs, newDebug)
                 end
             in
-                val (valConstrDecs: codeBinding list, constrDebugenv: debugenv) =
+                val (valConstrDecs: codeBinding list, constrDebugenv: debuggerStatus) =
                     ListPair.foldl decConstrs ([], debugEnv) (typelist, constrsCode)
             end
 
@@ -1715,8 +1714,8 @@ struct
 
     (* Code generates the parse tree. *)
     fun gencode
-            (pt : parsetree, lex: lexan, debugEnv: debugenv, outerLevel, 
-             mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codeBinding list * debugenv =
+            (pt : parsetree, lex: lexan, debugEnv: debuggerStatus, outerLevel, 
+             mkOuterAddresses, outerTypeVarMap, structName: string, continuation) : codeBinding list * debuggerStatus =
         codeSequence ([(pt, ref NONE)], [],
             {decName=structName, mkAddr=mkOuterAddresses, level=outerLevel, typeVarMap=outerTypeVarMap,
              debugEnv=debugEnv, lex=lex, lastDebugLine=ref 0, isOuterLevel = true},
@@ -1732,6 +1731,7 @@ struct
         and  level = level
         and  typeVarMap = typeVarMap
         and  codeBinding = codeBinding
+        and  debuggerStatus  = debuggerStatus
     end
 
 end;

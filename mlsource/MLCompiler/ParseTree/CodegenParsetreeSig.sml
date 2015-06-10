@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -26,12 +25,12 @@ sig
     type codeBinding
     type environEntry
 
-    type debugenv = environEntry list * (level->codetree)
+    type debuggerStatus
 
     val gencode:
-        parsetree * lexan * debugenv * level * (int->int) * typeVarMap * string *
-            (codeBinding list * debugenv * typeVarMap -> codeBinding list * debugenv)
-            -> codeBinding list * debugenv
+        parsetree * lexan * debuggerStatus * level * (int->int) * typeVarMap * string *
+            (codeBinding list * debuggerStatus * typeVarMap -> codeBinding list * debuggerStatus)
+            -> codeBinding list * debuggerStatus
 
     structure Sharing:
     sig
@@ -42,5 +41,6 @@ sig
         and  level = level
         and  typeVarMap = typeVarMap
         and  codeBinding = codeBinding
+        and  debuggerStatus  = debuggerStatus
     end
 end

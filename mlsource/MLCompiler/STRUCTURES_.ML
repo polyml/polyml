@@ -2482,7 +2482,7 @@ struct
        This now threads the debugging environment through the functions so
        the name is no longer really appropriate.  DCJM 23/2/01. *)
     fun mapPair
-        (_: 'a * debugenv -> {code: codeBinding list, debug: debugenv})
+        (_: 'a * debuggerStatus -> {code: codeBinding list, debug: debuggerStatus})
         [] debug =
           {
             code = [],
@@ -3029,7 +3029,7 @@ struct
    
         val coded = (* Process top level list. *)
             mapPair (fn (str, debug) => codeTopdecs (str, debug, mkAddr))
-                strs ([], fn _ => CodeZero)
+                strs initialDebuggerStatus
         val loaded = List.foldl (fn (s, l) => loadTopdecs s @ l) [] strs
     in 
         (* The result is code for a vector containing the results of the

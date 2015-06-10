@@ -1218,32 +1218,45 @@ in
                         RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word(t, offset, f)
             in
                 val setOnEntry : Thread.Thread.thread * (string * PolyML.location -> unit) option -> unit =
-                    setThreadData 0w8
-                and setOnExit : Thread.Thread.thread * (string * PolyML.location -> unit) option -> unit =
                     setThreadData 0w9
-                and setOnExitException : Thread.Thread.thread * (string * PolyML.location -> exn -> unit) option -> unit =
+                and setOnExit : Thread.Thread.thread * (string * PolyML.location -> unit) option -> unit =
                     setThreadData 0w10
-                and setOnBreakPoint: Thread.Thread.thread * (PolyML.location -> unit) option -> unit =
+                and setOnExitException : Thread.Thread.thread * (string * PolyML.location -> exn -> unit) option -> unit =
                     setThreadData 0w11
+                and setOnBreakPoint: Thread.Thread.thread * (PolyML.location -> unit) option -> unit =
+                    setThreadData 0w12
             end
 
             fun debugState(t: Thread.Thread.thread): debugState list =
             let
-                datatype stack = End | Stack of Word.word * Word.word * stack
-                val stack: stack = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w5)
+                val stack = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w5)
                 and static = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w6)
                 and dynamic = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w7)
+                and locationInfo = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w8)
 
-                (* If the static entry is empty there's probably no debug data. *)
-                val tlist =
-                    if static = 0w0
-                    then stack
-                    else Stack(static, dynamic, stack)
-
-                fun toList End = []
-                |   toList (Stack(s, d, n)) = RunCall.unsafeCast (s, d) :: toList n
+                (* Turn the chain of saved entries along with the current top entry
+                   into a list.  The bottom entry will generally be the state from
+                   non-debugging code and needs to be filtered out. *)
+                fun toList r =
+                    if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short r
+                    then []
+                    else
+                    let
+                        val s = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w0)
+                        and d = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w1)
+                        and l = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w2)
+                        and n = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word_immut(r, 0w3)
+                    in
+                        if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short s orelse
+                           RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short l
+                        then toList n
+                        else RunCall.unsafeCast (s, d, l) :: toList n
+                    end
             in
-                toList tlist
+                if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short static orelse
+                   RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short locationInfo
+                then toList stack
+                else RunCall.unsafeCast (static, dynamic, locationInfo) :: toList stack
             end
 
         end
@@ -1255,8 +1268,7 @@ in
                 val print = TextIO.print (* Not PolyML.print *)
 
                 fun debugLocation(d: debugState): string * PolyML.location =
-                    getOpt(debugFunction d,
-                        ("", {startLine=0, endLine=0, startPosition=0, endPosition=0, file=""}))
+                    (getOpt(debugFunction d, ""), DebuggerInterface.debugLocation d)
 
                 fun getStack() = debugState(Thread.Thread.self())
 

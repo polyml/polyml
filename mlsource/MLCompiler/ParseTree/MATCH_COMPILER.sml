@@ -93,13 +93,14 @@ struct
     open RuntimeCalls; (* for POLY_SYS numbers *)
 
     datatype environEntry = datatype DEBUGGER.environEntry
-    type debugEnv = environEntry list * (level->codetree)
+
+    type debuggerStatus = DEBUGGER.debuggerStatus
 
     (* To simplify passing the context it is wrapped up in this type.
        This is the same as the context used in CODEGEN_PARSETREE. *)
     type cgContext =
         {
-            decName: string, debugEnv: debugEnv, mkAddr: int->int,
+            decName: string, debugEnv: debuggerStatus, mkAddr: int->int,
             level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
             isOuterLevel: bool (* Used only to decide if we need to report non-exhaustive matches. *)
         }
@@ -627,10 +628,10 @@ struct
                    debug environment entries if required. *)
                 val () = lvAddr  := addressOfVar (* Must do this BEFORE we create debug entry. *)
                 val () = lvLevel := level
-                val (nextDec, (ctEnv, rtEnv)) =
+                val (nextDec, dbEnv) =
                     DEBUGGER.makeValDebugEntries([v], oldEnv, level, lex, mkAddr, typeVarMap)
             in
-                (oldDec @ nextDec, (ctEnv, rtEnv))
+                (oldDec @ nextDec, dbEnv)
             end
 
         | setAddr _ = raise InternalError "setAddr"
@@ -1225,6 +1226,7 @@ struct
         type codeBinding = codeBinding
         type environEntry = environEntry
         type lexan = lexan
+        type debuggerStatus = debuggerStatus
     end
 
 end;
