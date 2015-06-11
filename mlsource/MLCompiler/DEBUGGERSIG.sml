@@ -76,14 +76,14 @@ sig
     val makeStructDebugEntries: structVals list * debuggerStatus * level * lexan * (int->int) ->
         codeBinding list * debuggerStatus
     val makeTypeIdDebugEntries: typeId list * debuggerStatus * level * lexan * (int->int) -> codeBinding list * debuggerStatus
+    
+    val updateDebugLocation: debuggerStatus * location * lexan -> codeBinding list * debuggerStatus
 
     (* Create a local break point and check the global and local break points. *)
-    val breakPointCode: location * level * (int->int) -> codeBinding list * breakPoint
+    val breakPointCode: location * level * lexan * (int->int) -> codeBinding list * breakPoint option
     (* A function to set the break point.  Included in the exported tree. *)
     val setBreakPoint: breakPoint -> (location -> unit) option -> unit
 
-    (* Set the current state in the thread data. *)
-    val updateDebugState: debuggerStatus * level * lexan * (int -> int) -> codeBinding list
     (* Add debugging calls on entry and exit to a function. *)
     val wrapFunctionInDebug:
         codetree * string * types * location * debuggerStatus * level * lexan * (int -> int) -> codetree

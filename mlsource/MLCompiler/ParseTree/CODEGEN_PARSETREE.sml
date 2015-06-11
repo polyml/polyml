@@ -262,46 +262,34 @@ struct
         List.app (reportUnreferencedValue lex) valList
     end
 
-    (* Create code to update the debug state in the thread data.
-       TODO: We really only want to do this if the state has changed and
-       if we are about to call a breakpoint or into a function. *)
-    fun updateDebugState({debugEnv, mkAddr, level, lex, ...}) =
-        if not (getParameter debugTag (debugParams lex)) then []
-        else DEBUGGER.updateDebugState(debugEnv, level, lex, mkAddr)
-
-    fun makeDebugEntries (vars: values list, context as {debugEnv, level, typeVarMap, lex, mkAddr, ...}: cgContext) =
+    fun makeDebugEntries (vars: values list, {debugEnv, level, typeVarMap, lex, mkAddr, ...}: cgContext) =
     let
         val (code, newDebug) =
             DEBUGGER.makeValDebugEntries(vars, debugEnv, level, lex, mkAddr, typeVarMap)
-        val setDebugCode =
-            updateDebugState(context |> repDebugEnv newDebug)
     in
-        (code @ setDebugCode, newDebug)
+        (code, newDebug)
     end
 
     (* Add a breakpoint if debugging is enabled.  The bpt argument is set in
        the parsetree so that it can be found by the IDE. *)
-    fun addBreakPointCall(bpt, location, {mkAddr, level, lex, ...}) =
-        if not (getParameter debugTag (debugParams lex)) then []
-        else
-        let
-            val (code, newBpt) = DEBUGGER.breakPointCode(location, level, mkAddr)
-        in
-            bpt := SOME newBpt;
-            code
-        end
+    fun addBreakPointCall(bpt, location, {mkAddr, level, lex, debugEnv, ...}) =
+    let
+        open DEBUGGER
+        val (lineCode, newStatus) = updateDebugLocation(debugEnv, location, lex)
+        val (code, newBpt) = breakPointCode(location, level, lex, mkAddr)
+    in
+        bpt := newBpt; (* SOME XX if we're debugging, NONE if we're not. *)
+        (lineCode @ code, newStatus)
+    end
 
     (* In order to build a call stack in the debugger we need to know about
-       function entry and exit.  It would be simpler to wrap the whole function
-       in a debug function (i.e. loop the call through the debugger) but that
-       would prevent us from using certain call optimisations. *)
+       function entry and exit. *)
     fun wrapFunctionInDebug(body, name, restype, location, {debugEnv, mkAddr, level, lex, ...}) =
-        if not (getParameter debugTag (debugParams lex)) then body (* Return it unchanged. *)
-        else DEBUGGER.wrapFunctionInDebug(body, name, restype, location, debugEnv, level, lex, mkAddr)
+        DEBUGGER.wrapFunctionInDebug(body, name, restype, location, debugEnv, level, lex, mkAddr)
 
+    (* Create an entry in the static environment for the function. *)
     fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
-        if not (getParameter debugTag (debugParams lex)) then ([], debugEnv)
-        else DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)
+        DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)
 
       (* Find all the variables declared by each pattern. *)
       fun findVars vars varl =
@@ -713,20 +701,24 @@ struct
                    we make new entries in the type value cache after them. *)
                 (* TODO: This is a bit of a mess.  We want to return the result of the
                    last expression as an expression rather than a codeBinding. *)
-                fun processBody (previousDecs: codeBinding list, newContext as {debugEnv, ...}) =
+                fun processBody (previousDecs: codeBinding list, nextContext as {debugEnv, ...}) =
                 let
-                    fun codeList [] = []
-                     |  codeList ((p, bpt) :: tl) =
+                    fun codeList ([], d) = ([], d)
+                     |  codeList ((p, bpt) :: tl, d) =
                          (* Generate any break point code first, then this entry, then the rest. *)
                         let
-                            val lineChange = addBreakPointCall(bpt, getLocation p, context)
-                            val code = mkNullDec(codegen (p, newContext))
+                            val (lineChange, newEnv) =
+                                addBreakPointCall(bpt, getLocation p, nextContext |> repDebugEnv d)
+                            (* addBreakPointCall also updates the location info in case of a break-point
+                               or a function call.  We want to pass that along. *)
+                            val code = mkNullDec(codegen (p, nextContext |> repDebugEnv newEnv))
+                            val (codeRest, finalEnv) = codeList (tl, newEnv)
                         in
-                            lineChange @ code :: codeList tl
+                            (lineChange @ [code] @ codeRest, finalEnv)
                         end
-                    val exps = codeList body
+                    val (exps, finalDebugEnv) = codeList (body, debugEnv)
                 in
-                    (previousDecs @ exps, debugEnv)
+                    (previousDecs @ exps, finalDebugEnv)
                 end
 
                 val (decs, _) = codeSequence (decs, [], context, processBody)
@@ -735,25 +727,28 @@ struct
             end
 
         | ExpSeq(ptl, _) =>
-          (* Sequence of expressions. Discard results of all except the
-             last. It isn't clear whether this will work properly since
-             the code-generator does not expect expressions to return
-             results unless they are wanted. It may be necessary to turn
-             all except the last into declarations. *)
+          (* Sequence of expressions. Discard results of all except the last.*)
             let
-                fun codeList [] = raise InternalError "ExpSeq: empty sequence"
-                |   codeList [(last, bpt)] =
-                        (addBreakPointCall(bpt, getLocation last, context), codegen (last, context))
-                 |  codeList ((p, bpt)::tl) =
+                fun codeList ([], _) = raise InternalError "ExpSeq: empty sequence"
+                 |  codeList ((p, bpt)::tl, d) =
                     let
-                        val bptCode = addBreakPointCall(bpt, getLocation p, context)
-                        val code = mkNullDec(codegen (p, context))
-                        val (otherDecs, expCode) = codeList tl
+                        val (bptCode, newEnv) =
+                            addBreakPointCall(bpt, getLocation p, context |> repDebugEnv d)
+                        (* Because addBreakPointCall updates the location info in the debug env
+                           we need to pass this along in the same way as when making bindings. *)
+                        val thisCode = codegen (p, context |> repDebugEnv newEnv)
                     in
-                        (bptCode @ (code :: otherDecs), expCode)
+                        case tl of
+                            [] => (bptCode, thisCode)
+                        |   tl =>
+                            let
+                                val (otherDecs, expCode) = codeList(tl, newEnv)
+                            in
+                                (bptCode @ (mkNullDec thisCode :: otherDecs), expCode)
+                            end
                     end
             in
-                mkEnv (codeList ptl)
+                mkEnv (codeList(ptl, #debugEnv context))
             end
 
         |   Raise (pt, location) =>
@@ -930,21 +925,25 @@ struct
             in
                 val () = List.app checkVars dec
             end
+            
+            (* Put in a break point *)
+            val (bptCode, bptDbEnv) = addBreakPointCall(bpt, location, codeSeqContext)
+            val postBptContext = codeSeqContext |> repDebugEnv bptDbEnv
             (* Split the bindings into recursive and non-recursive.  These have to
                be processed differently. *)
             val (recBindings, nonrecBindings) =
                 List.partition(fn ValBind{isRecursive, ...} => isRecursive) dec
 
-            val nonRecCode = codeNonRecValBindings(nonrecBindings, firstEntry, codeSeqContext)
+            val nonRecCode = codeNonRecValBindings(nonrecBindings, firstEntry, postBptContext)
             val recCode =
                 case recBindings of
                     [] => []
-                |   _ => #1 (codeRecValBindings(recBindings, firstEntry, codeSeqContext))
+                |   _ => #1 (codeRecValBindings(recBindings, firstEntry, postBptContext))
             (* Construct the debugging environment by loading all variables. *)
             val vars = List.foldl(fn (ValBind{variables=ref v, ...}, vars) => v @ vars) [] dec
-            val (decEnv, env) = makeDebugEntries (vars, codeSeqContext)
+            val (decEnv, env) = makeDebugEntries (vars, postBptContext)
         in
-            codeSequence (pTail, leading @ addBreakPointCall(bpt, location, codeSeqContext) @ nonRecCode @ recCode @ decEnv,
+            codeSequence (pTail, leading @ bptCode @ nonRecCode @ recCode @ decEnv,
                     codeSeqContext |> repDebugEnv env, processBody)
         end
 

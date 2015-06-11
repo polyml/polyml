@@ -285,15 +285,42 @@ struct
 
     (* Functions to make the debug entries.   These are needed both in CODEGEN_PARSETREE for
        the core language and STRUCTURES for the module language. *)
-    type debuggerStatus = {staticEnv: environEntry list, dynEnv: level->codetree}
+    (* Debugger status within the compiler.
+       During compilation the environment is built up as a pair
+       consisting of the static data and code to compute the run-time data.
+       The static data, a constant at run-time, holds the
+       variable names and types.  The run-time code, when executed at
+       run-time, returns the address of a list holding the actual values
+       of the variables. "dynEnv" is always a "load" from a (codetree)
+       variable.  It has type level->codetree rather than codetree
+       because the next reference could be inside an inner function.
+       "lastLoc" is the last location that was *)
+    type debuggerStatus =
+        {staticEnv: environEntry list, dynEnv: level->codetree, lastLoc: location}
     
-    val initialDebuggerStatus: debuggerStatus = {staticEnv = [], dynEnv = fn _ => CodeZero}
+    val initialDebuggerStatus: debuggerStatus =
+        {staticEnv = [], dynEnv = fn _ => CodeZero, lastLoc = LEX.nullLocation }
+
+    (* Set the current state in the thread data. *)
+    fun updateState (level, mkAddr) (decs, debugEnv: debuggerStatus as {staticEnv, dynEnv, ...}) =
+    let
+        open ADDRESS RuntimeCalls
+        val threadId = multipleUses(mkEval(rtsFunction POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
+        fun assignItem(offset, value) =
+            mkNullDec(mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, offset, value]))
+        val newDecs =
+            decs @ #dec threadId @
+                [assignItem(threadIdCurrentStatic, mkConst(toMachineWord staticEnv)),
+                 assignItem(threadIdCurrentDynamic, dynEnv level)]
+    in
+        (newDecs, debugEnv)
+    end
 
     fun makeValDebugEntries (vars: values list, debugEnv: debuggerStatus, level, lex, mkAddr, typeVarMap) =
     if getParameter debugTag (LEX.debugParams lex)
     then
         let
-            fun loadVar (var, (decs, {staticEnv, dynEnv, ...})) =
+            fun loadVar (var, (decs, {staticEnv, dynEnv, lastLoc, ...})) =
                 let
                     val loadVal =
                         codeVal (var, level, typeVarMap, [], lex, LEX.nullLocation)
@@ -310,10 +337,10 @@ struct
                         |   Value{name, typeOf, locations, ...} =>
                                 EnvValue(name, typeOf, locations)
                 in
-                    (decs @ dec, {staticEnv = ctEntry :: staticEnv, dynEnv = load})
+                    (decs @ dec, {staticEnv = ctEntry :: staticEnv, dynEnv = load, lastLoc = lastLoc})
                 end
         in
-            List.foldl loadVar ([], debugEnv) vars
+            updateState (level, mkAddr) (List.foldl loadVar ([], debugEnv) vars)
         end
     else ([], debugEnv)
 
@@ -322,14 +349,14 @@ struct
     then ([], debugEnv)
     else
     let
-        fun foldIds(tc :: tcs, {staticEnv, dynEnv, ...}) =
+        fun foldIds(tc :: tcs, {staticEnv, dynEnv, lastLoc, ...}) =
             let
                 val cons = tsConstr tc
                 val id = tcIdentifier cons
                 val {second = typeName, ...} = UTILITIES.splitString(tcName cons)
             in
                 if isTypeFunction (tcIdentifier(tsConstr tc))
-                then foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: staticEnv, dynEnv=dynEnv})
+                then foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: staticEnv, dynEnv=dynEnv, lastLoc = lastLoc})
                 else
                 let
                     (* This code will build a cons cell containing the run-time value
@@ -342,31 +369,31 @@ struct
                        The type Id is used both for the type constructor and also for any values
                        of the type. *)
                     val (decs, newEnv) =
-                        foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: envTypeId id :: staticEnv, dynEnv=load})
+                        foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: envTypeId id :: staticEnv, dynEnv=load, lastLoc = lastLoc})
                 in
                     (dec @ decs, newEnv)
                 end
             end
         |   foldIds([], debugEnv) = ([], debugEnv)
     in
-        foldIds(typeCons, debugEnv)
+        updateState (level, mkAddr) (foldIds(typeCons, debugEnv))
     end
 
     fun makeStructDebugEntries (strs: structVals list, debugEnv, level, lex, mkAddr) =
     if getParameter debugTag (LEX.debugParams lex)
     then
         let
-            fun loadStruct (str as Struct { name, signat, locations, ...}, (decs, {staticEnv, dynEnv, ...})) =
+            fun loadStruct (str as Struct { name, signat, locations, ...}, (decs, {staticEnv, dynEnv, lastLoc, ...})) =
                 let
                     val loadStruct = codeStruct (str, level)
                     val newEnv = mkTuple [ loadStruct (* Structure. *), dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry = EnvStructure(name, signat, locations)
                 in
-                    (decs @ dec, {staticEnv=ctEntry :: staticEnv, dynEnv=load})
+                    (decs @ dec, {staticEnv=ctEntry :: staticEnv, dynEnv=load, lastLoc = lastLoc})
                 end
         in
-            List.foldl loadStruct ([], debugEnv) strs
+            updateState (level, mkAddr) (List.foldl loadStruct ([], debugEnv) strs)
         end
     else ([], debugEnv)
 
@@ -379,7 +406,7 @@ struct
     then ([], debugEnv)
     else
     let
-        fun foldIds(id :: ids, {staticEnv, dynEnv, ...}) =
+        fun foldIds(id :: ids, {staticEnv, dynEnv, lastLoc, ...}) =
             let
                 (* This code will build a cons cell containing the run-time value
                    associated with the type Id as the hd and the rest of the run-time
@@ -392,32 +419,34 @@ struct
                 val newEnv = mkTuple [ loadTypeId, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val (decs, newEnv) =
-                    foldIds(ids, {staticEnv=envTypeId id :: staticEnv, dynEnv=load})
+                    foldIds(ids, {staticEnv=envTypeId id :: staticEnv, dynEnv=load, lastLoc = lastLoc})
             in
                 (dec @ decs, newEnv)
             end
         |   foldIds([], debugEnv) = ([], debugEnv)
     in
-        foldIds(typeIds, debugEnv)
+        updateState (level, mkAddr) (foldIds(typeIds, debugEnv))
     end
 
-    (* Set the current state in the thread data. *)
-    fun updateDebugState({staticEnv, dynEnv, ...}, level, lex, mkAddr) =
-        if not (getParameter debugTag (LEX.debugParams lex)) then []
-        else
-        let
-            open ADDRESS RuntimeCalls
-            val threadId = multipleUses(mkEval(rtsFunction POLY_SYS_thread_self, []), fn () => mkAddr 1, level)
-            fun assignItem(offset, value) =
-                mkNullDec(mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, offset, value]))
-        in
-            #dec threadId @
-                [assignItem(threadIdCurrentStatic, mkConst(toMachineWord staticEnv)),
-                 assignItem(threadIdCurrentDynamic, dynEnv level)]
-        end
+    (* Update the location info in the thread data if we want debugging info.
+       If the location has not changed don't do anything.  Whether it has changed
+       could depend on whether we're only counting line numbers or whether we
+       have more precise location info with the IDE. *)
+    fun updateDebugLocation(debuggerStatus as {staticEnv, dynEnv, lastLoc, ...}, location, lex) =
+    if not (getParameter debugTag (LEX.debugParams lex)) orelse lastLoc = location
+    then ([], debuggerStatus)
+    else
+    let
+        open ADDRESS RuntimeCalls
+        val setLocation =
+            mkEval(rtsFunction POLY_SYS_assign_word,
+                [mkEval(rtsFunction POLY_SYS_thread_self, []), threadIdCurrentLocation, mkConst(toMachineWord location)])
+    in
+        ([mkNullDec setLocation], {staticEnv=staticEnv, dynEnv=dynEnv, lastLoc=location})
+    end
 
     (* Function entry code.  This needs to precede any values in the body. *)
-    fun debugFunctionEntryCode(name: string, argCode, argType, location, debugEnv as {staticEnv, dynEnv, ...}, level, lex, mkAddr) =
+    fun debugFunctionEntryCode(name: string, argCode, argType, location, debugEnv as {staticEnv, dynEnv, lastLoc, ...}, level, lex, mkAddr) =
     if not (getParameter debugTag (LEX.debugParams lex)) then ([], debugEnv)
     else
     let
@@ -426,7 +455,7 @@ struct
         val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
         val ctEntry = EnvStartFunction(functionName, location, argType)
     in
-        (dec, {staticEnv = ctEntry :: staticEnv, dynEnv = load})
+        (dec, {staticEnv = ctEntry :: staticEnv, dynEnv = load, lastLoc = lastLoc})
     end
 
     (* Add debugging calls on entry and exit to a function. *)
@@ -439,13 +468,13 @@ struct
             
             val functionName = name (* TODO: munge this to get the root. *)
             
-            fun addStartExitEntry({staticEnv, dynEnv, ...}, code, ty, startExit) =
+            fun addStartExitEntry({staticEnv, dynEnv, lastLoc, ...}, code, ty, startExit) =
             let
                 val newEnv = mkTuple [ code, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val ctEntry = startExit(functionName, location, ty)
             in
-                (dec, {staticEnv=ctEntry :: staticEnv, dynEnv=load})
+                (dec, {staticEnv=ctEntry :: staticEnv, dynEnv=load, lastLoc = lastLoc})
             end
 
             (* All the "on" functions take this as an argument. *)
@@ -529,14 +558,14 @@ struct
 
             (* Code for normal exit. *)
             local
-                val (rtEnvDec, exitEnv) = addStartExitEntry(entryEnv, #load bodyCode level, resType, EnvEndFunction)
-                val setResult = updateDebugState(exitEnv, level, lex, mkAddr)
+                val endFn = addStartExitEntry(entryEnv, #load bodyCode level, resType, EnvEndFunction)
+                val (rtEnvDec, _) = updateState (level, mkAddr) endFn
 
                 val onExitFn = loadIdEntry threadIdOnExit
                 val optCallOnExit =
                     mkIf(mkTagTest(#load onExitFn level, 0w0, 0w0), CodeZero, mkEval(#load onExitFn level, onArgs))
             in
-                val exitCode = rtEnvDec @ setResult @ #dec onExitFn @ [mkNullDec optCallOnExit]
+                val exitCode = rtEnvDec @ #dec onExitFn @ [mkNullDec optCallOnExit]
             end
         in
             mkEnv(prefixCode @ entryCode @ #dec bodyCode @ exitCode @ restoreState, #load bodyCode level)
@@ -545,37 +574,39 @@ struct
     type breakPoint = machineWord ref
  
     (* Create a local break point and check the global and local break points. *)
-    fun breakPointCode(location, level, mkAddr) =
-    let
-        open ADDRESS RuntimeCalls
-        (* Create a new breakpoint ref. *)
-        val localBreakPoint = ref (toMachineWord 0w0)
-        (* First check the global breakpoint. *)
-        val threadId = mkEval(rtsFunction POLY_SYS_thread_self, [])
-        val globalBpt =
-            multipleUses(
-                mkEval(rtsFunction POLY_SYS_load_word, [threadId, threadIdBreakPoint]), fn () => mkAddr 1, level)
-        (* Then the local breakpoint. *)
-        val localBpt =
-            multipleUses(
-                mkEval(rtsFunction POLY_SYS_load_word,
-                    [mkConst(toMachineWord localBreakPoint), CodeZero]), fn () => mkAddr 1, level)
-        val testCode =
-            mkIf(
-                mkNot(mkTagTest(#load globalBpt level, 0w0, 0w0)), 
-                mkEval(#load globalBpt level, [mkConst(toMachineWord location)]),
-                mkEnv(
-                    #dec localBpt,
-                    mkIf(
-                        mkTagTest(#load localBpt level, 0w0, 0w0),
-                        CodeZero,
-                        mkEval(#load globalBpt level, [mkConst(toMachineWord location)])
+    fun breakPointCode(location, level, lex, mkAddr) =
+        if not (getParameter debugTag (LEX.debugParams lex)) then ([], NONE)
+        else
+        let
+            open ADDRESS RuntimeCalls
+            (* Create a new breakpoint ref. *)
+            val localBreakPoint = ref (toMachineWord 0w0)
+            (* First check the global breakpoint. *)
+            val threadId = mkEval(rtsFunction POLY_SYS_thread_self, [])
+            val globalBpt =
+                multipleUses(
+                    mkEval(rtsFunction POLY_SYS_load_word, [threadId, threadIdBreakPoint]), fn () => mkAddr 1, level)
+            (* Then the local breakpoint. *)
+            val localBpt =
+                multipleUses(
+                    mkEval(rtsFunction POLY_SYS_load_word,
+                        [mkConst(toMachineWord localBreakPoint), CodeZero]), fn () => mkAddr 1, level)
+            val testCode =
+                mkIf(
+                    mkNot(mkTagTest(#load globalBpt level, 0w0, 0w0)), 
+                    mkEval(#load globalBpt level, [mkConst(toMachineWord location)]),
+                    mkEnv(
+                        #dec localBpt,
+                        mkIf(
+                            mkTagTest(#load localBpt level, 0w0, 0w0),
+                            CodeZero,
+                            mkEval(#load globalBpt level, [mkConst(toMachineWord location)])
+                        )
                     )
                 )
-            )
-    in
-        (#dec globalBpt @ [mkNullDec testCode], localBreakPoint)
-    end
+        in
+            (#dec globalBpt @ [mkNullDec testCode], SOME localBreakPoint)
+        end
 
     fun setBreakPoint bpt NONE = bpt := ADDRESS.toMachineWord 0w0
     |   setBreakPoint bpt (SOME f) = bpt := ADDRESS.toMachineWord f
