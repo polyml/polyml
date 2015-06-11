@@ -59,13 +59,16 @@ typedef void *HANDLE;
 #include <ucontext.h>
 #endif
 
-#ifdef HAVE_UCONTEXT_T
+// SIGNALCONTEXT is the argument type that is passed to GetPCandSPFromContext
+// to get the actual PC and SP in a profiling trap.
+#if defined(HAVE_WINDOWS_H)
+// First because it's used in both native Windows and Cygwin.
+#include <windows.h>
+#define SIGNALCONTEXT CONTEXT // This is the thread context.
+#elif defined(HAVE_UCONTEXT_T)
 #define SIGNALCONTEXT ucontext_t
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
 #define SIGNALCONTEXT struct sigcontext
-#elif defined(HAVE_WINDOWS_H)
-#include <windows.h>
-#define SIGNALCONTEXT CONTEXT // This is the thread context.
 #else
 #define SIGNALCONTEXT void
 #endif
