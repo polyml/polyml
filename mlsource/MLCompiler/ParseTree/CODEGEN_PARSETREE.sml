@@ -344,7 +344,7 @@ struct
     val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
 
 
-    fun codeMatch(near : parsetree, alt : matchtree list, arg : codetree, cgExpression,
+    fun codeMatch(near, alt : matchtree list, arg,
                   isHandlerMatch, matchContext as { level, mkAddr, lex, ...}): codetree =
     let
         val noOfPats  = length alt
@@ -396,7 +396,7 @@ struct
             let
                 val MatchTree {exp, ... } = List.nth(alt, pattChosenIndex)            
             in
-                cgExpression (exp, context)
+                codegen (exp, context)
             end
             else
             let (* Put in a call to the expression as a function. *)
@@ -441,12 +441,12 @@ struct
 
       (* Generate variable-bindings (declarations) for each of the
           expressions as functions. *)
-        fun cgExps([],  _,    _, _, _, _, _, _, _) = []
+        fun cgExps([],  _,    _, _, _, _, _, _) = []
         |   cgExps (MatchTree {exp, ...} ::al, vl::vll,
-                base, patNo, uses, cgExpression, lex, near,
+                base, patNo, uses, lex, near,
                 cgContext as { decName, debugEnv, level, ...}) =
             if IntArray.sub(uses, patNo - 1) <= insertDirectCount
-            then cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
+            then cgExps(al, vll, base, patNo + 1, uses, lex, near, cgContext)
             else
             let
                 val noOfArgs = length vl
@@ -484,153 +484,133 @@ struct
                 val (_, envDec, newEnv) = List.foldl setAddr (firstLocal, [], debugEnv) vl
 
                 val functionBody =
-                    mkEnv(localDecs @ envDec, cgExpression (exp, fnContext |> repDebugEnv newEnv))
+                    mkEnv(localDecs @ envDec, codegen (exp, fnContext |> repDebugEnv newEnv))
             in
                 mkDec(base + patNoIndex,
                     mkProc (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo, getClosure functionLevel, fnMkAddrs 0)) ::
-                    cgExps(al, vll, base, patNo + 1, uses, cgExpression, lex, near, cgContext)
+                    cgExps(al, vll, base, patNo + 1, uses, lex, near, cgContext)
             end
 
         |   cgExps _ = raise InternalError "cgExps"
                 (* Now generate the expressions as functions, inline
            if only used once. *)
         val expressionFuns =
-            cgExps(alt, allVars, baseAddr, 1, uses, cgExpression, lex, near, matchContext)
+            cgExps(alt, allVars, baseAddr, 1, uses, lex, near, matchContext)
     in
         (* Return the code in a block. *)
         mkEnv (#dec decCode @ expressionFuns, matchCode)
     end (* codeMatch *)
 
-    (* Makes a block from a series of alternatives in a match.
-       Used only for functions. *)
-    fun codeAlt(near: parsetree, alt : matchtree list, arg : codetree, context as {lex, ...}) =
-    let
-        (* Insert a call to the debugger in each arm of the match after
-           the variables have been bound but before the body. *)
-        fun cgExp (c: parsetree, context) =
+    (* Code-generates a piece of tree.  Returns the code and also the, possibly updated,
+       debug context.  This is needed to record the last location that was set in the
+       thread data. *)
+    and codeGenerate(Ident {value = ref (v as Value{class = Exception, ...}), location, ...},
+                     { level, typeVarMap, lex, debugEnv, ...}) = (* Exception identifier *)
+        (codeExFunction (v, level, typeVarMap, [], lex, location), debugEnv)
+
+    |   codeGenerate(Ident {value = ref (v as Value{class = Constructor _, ...}), expType=ref expType, location, ...},
+                     { level, typeVarMap, lex, debugEnv, ...}) = (* Constructor identifier *)
         let
-            val code = codegen(c, context)
+            (* The instance type is not necessarily the same as the type
+               of the value of the identifier. e.g. in the expression
+               1 :: nil, "::" has an instance type of
+               int * list int -> list int but the type of "::" is
+               'a * 'a list -> 'a list. *)
+            (* When using the constructor as a value we just want
+               the second word.  Must pass [] as the polyVars otherwise
+               this will be applied BEFORE extracting the construction
+               function not afterwards. *)
+            fun getConstr level =
+                ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
+            val polyVars = getPolymorphism (v, expType, typeVarMap)
+            val code =
+                applyToInstance(if justForEqualityTypes then [] else polyVars, level, typeVarMap, getConstr)
         in
-            if not (getParameter debugTag (debugParams lex))
-            then code
-            else code (*mkEnv([mkNullDec(addDebugCall(getLocation c, context))], code)*)
+            (code, debugEnv)
         end
-    in
-        codeMatch (near, alt, arg, cgExp, false, context)
-    end
 
-      (* Code-generates a piece of tree. *)
-    and codegen (c: parsetree, context as { level, decName, typeVarMap, mkAddr, lex, ...}) : codetree =
-    let
-    in
-        case c of
-            Ident {value = ref (v as Value{class, ...}), expType=ref expType, location, ...} =>
-            let
-                (* The instance type is not necessarily the same as the type
-                   of the value of the identifier. e.g. in the expression
-                   1 :: nil, "::" has an instance type of
-                   int * list int -> list int but the type of "::" is
-                   'a * 'a list -> 'a list. *)
-                val polyVars = getPolymorphism (v, expType, typeVarMap)
-                (*val () =
-                    print(concat[name, " has ", Int.toString(List.length(#1 polyVars)), " ",
-                            Int.toString(List.length(#2 polyVars)), "\n"]);*)
-            in
-                case class of
-                    Exception => codeExFunction (v, level, typeVarMap, [], lex, location)
-                |   Constructor _ =>
-                    let
-                        (* When using the constructor as a value we just want
-                           then second word.  Must pass [] as the polyVars otherwise
-                           this will be applied BEFORE extracting the construction
-                           function not afterwards. *)
-                        fun getConstr level =
-                            ValueConstructor.extractInjection(codeVal (v, level, typeVarMap, [], lex, location))
-                    in
-                        applyToInstance(if justForEqualityTypes then [] else polyVars, level, typeVarMap, getConstr)
-                    end
+    |   codeGenerate(Ident {value = ref v, expType=ref expType, location, ...},
+                     { level, typeVarMap, lex, debugEnv, ...}) = (* Value identifier *)
+        let
+            val polyVars = getPolymorphism (v, expType, typeVarMap)
+            val code = codeVal (v, level, typeVarMap, polyVars, lex, location)
+        in
+            (code, debugEnv)
+        end
+ 
+    |   codeGenerate(c as Literal{converter, literal, expType=ref expType, location}, { lex, debugEnv, ...}) =
+        (
+            case getLiteralValue(converter, literal, expType, fn s => errorNear(lex, true, c, location, s)) of
+                SOME w  => (mkConst w, debugEnv)
+              | NONE    => (CodeZero, debugEnv)
+        )
 
-                |   _ => codeVal (v, level, typeVarMap, polyVars, lex, location)
-            end
-  
-        |   Literal{converter, literal, expType=ref expType, location} =>
-            (
-                case getLiteralValue(converter, literal, expType, fn s => errorNear(lex, true, c, location, s)) of
-                    SOME w => mkConst w
-                  | NONE => CodeZero
-            )
+    |   codeGenerate(Applic {f = Ident {value = ref function, expType=ref expType, ...}, arg, location, ...}, context as { level, typeVarMap, lex, ...}) =
+        (* Some functions are special e.g. overloaded and type-specific functions.
+           These need to picked out and processed by applyFunction. *)
+        let
+            val polyVars = getPolymorphism (function, expType, typeVarMap)
+            val (argCode, argEnv) = codeGenerate (arg, context)
+            val code = applyFunction (function, argCode, level, typeVarMap, polyVars, lex, location)
+        in
+            (code, argEnv)
+        end
 
-        | Applic {f, arg, location, ...} =>
-            let
-                (* The overloaded functions of more than one argument are
-                   applied to their arguments rather than to a tuple. *)
-                (* The only other optimisation we make is to remove applications
-                   of constructors such as ``::'' which are no-ops. *)
-                val argument : codetree = codegen (arg, context)
-            in
-                (* Some functions are special e.g. overloaded and type-specific functions.
-                   These need to picked out and processed by applyFunction. *)
-                case f of
-                    Ident {value = ref function, expType=ref expType, ...} =>
-                    let
-                        val polyVars = getPolymorphism (function, expType, typeVarMap)
-                        (*val () =
-                            print(concat[name, " has ", Int.toString(List.length(#1 polyVars)), " ",
-                                    Int.toString(List.length(#2 polyVars)), "\n"]);*)
-                    in
-                        applyFunction (function, argument, level, typeVarMap, polyVars, lex, location)
-                    end
-                |   _ =>
-                    mkEval (codegen (f, context), [argument])
-            end
+    |   codeGenerate(Applic {f, arg, ...}, context) =
+        let
+            val (fnCode, fnEnv) = codeGenerate(f, context)
+            val (argCode, argEnv) = codeGenerate(arg, context |> repDebugEnv fnEnv)
+        in
+            (mkEval (fnCode, [argCode]), argEnv)
+        end
 
-        | Cond {test, thenpt, elsept, ...} =>
-            mkIf (codegen (test, context), codegen (thenpt, context), codegen (elsept, context))
+    |   codeGenerate(Cond {test, thenpt, elsept, ...}, context as { debugEnv, ...}) =
+            (mkIf (codegen (test, context), codegen (thenpt, context), codegen (elsept, context)), debugEnv)
 
-        | TupleTree{fields=[(*pt*)_], ...} =>
+    |   codeGenerate(TupleTree{fields=[(*pt*)_], ...}, _) =
             (* There was previously a special case to optimise unary tuples but I can't
                understand how they can occur.  Check this and remove the special case
                if it really doesn't. *)
             raise InternalError "codegen: Unary tuple" (*codegen (pt, context)*)
 
-        | TupleTree{fields, ...} => (* Construct a vector of objects. *)
-            mkTuple(map (fn x => codegen (x, context)) fields)
+    |   codeGenerate(TupleTree{fields, ...}, context as { debugEnv, ...}) = (* Construct a vector of objects. *)
+            (mkTuple(map (fn x => codegen (x, context)) fields), debugEnv)
 
-        | Labelled {recList = [{valOrPat, ...}], ...} =>
-            codegen (valOrPat, context) (* optimise unary records *)
+    |   codeGenerate(Labelled {recList = [{valOrPat, ...}], ...}, context) =
+            codeGenerate (valOrPat, context) (* optimise unary records *)
 
-        | Labelled {recList, expType=ref expType, ...} =>
-            let
-                (* We must evaluate the expressions in the order they are
-                   written. This is not necessarily the order they appear
-                   in the record. *)
-                val recordSize = length recList; (* The size of the record. *)
+    |   codeGenerate(Labelled {recList, expType=ref expType, ...}, context as { level, mkAddr, debugEnv, ...}) =
+        let
+            (* We must evaluate the expressions in the order they are
+               written. This is not necessarily the order they appear
+               in the record. *)
+            val recordSize = length recList; (* The size of the record. *)
+    
+            (* First declare the values as local variables. *)
+            (* We work down the list evaluating the expressions and putting
+               the results away in temporaries. When we reach the end we
+               construct the tuple by asking for each entry in turn. *) 
+            fun declist [] look = ([], mkTuple (List.tabulate (recordSize, look)))
+      
+            |   declist ({name, valOrPat, ...} :: t) look =
+                let
+                    val thisDec = 
+                        multipleUses (codegen (valOrPat, context), fn () => mkAddr 1, level);
         
-                (* First declare the values as local variables. *)
-                (* We work down the list evaluating the expressions and putting
-                   the results away in temporaries. When we reach the end we
-                   construct the tuple by asking for each entry in turn. *) 
-                fun declist [] look = ([], mkTuple (List.tabulate (recordSize, look)))
-          
-                |   declist ({name, valOrPat, ...} :: t) look =
-                    let
-                        val thisDec = 
-                            multipleUses (codegen (valOrPat, context), fn () => mkAddr 1, level);
-            
-                        val myPosition = entryNumber (name, expType);
-            
-                        fun lookFn i =
-                            if i = myPosition then #load thisDec (level) else look i
-                        val (otherDecs, tuple) = declist t lookFn
-                    in
-                        (#dec thisDec @ otherDecs, tuple)
-                    end
-            in
-                (* Create the record and package it up as a block. *)
-                mkEnv (declist recList (fn _ => raise InternalError "missing in record"))  : codetree
-            end
+                    val myPosition = entryNumber (name, expType);
+        
+                    fun lookFn i =
+                        if i = myPosition then #load thisDec (level) else look i
+                    val (otherDecs, tuple) = declist t lookFn
+                in
+                    (#dec thisDec @ otherDecs, tuple)
+                end
+        in
+            (* Create the record and package it up as a block. *)
+            (mkEnv (declist recList (fn _ => raise InternalError "missing in record")), debugEnv)
+        end
 
-        | Selector {name, labType, location, typeof, ...} =>
+    |   codeGenerate(c as Selector {name, labType, location, typeof, ...}, { decName, typeVarMap, lex, debugEnv, ...}) =
             let
                 (* Check that the type is frozen. *)
                 val () =
@@ -647,19 +627,21 @@ struct
                     in
                         mkInd (offset, singleArg)
                     end
-            in    (* Make an inline function. *)
+                val code =(* Make an inline function. *)
                 case filterTypeVars (getPolyTypeVars(typeof, mapTypeVars typeVarMap)) of
                     [] => mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0)
                 |   polyVars => (* This may be polymorphic. *)
                         mkInlproc(
                             mkInlproc (selectorBody, 1, decName ^ "#" ^ name, [], 0),
                             List.length polyVars, decName ^ "#" ^ name ^ "(P)", [], 0)
+            in
+                (code, debugEnv)
             end
 
-        | Unit _ => (* Use zero.  It is possible to have () = (). *)
-            CodeZero : codetree
+    |   codeGenerate(Unit _, { debugEnv, ...}) = (* Use zero.  It is possible to have () = (). *)
+            (CodeZero, debugEnv)
 
-        |   List{elements, expType = ref listType, location, ...} =>
+    |   codeGenerate(List{elements, expType = ref listType, location, ...}, context as { level, typeVarMap, lex, debugEnv, ...}) =
             let (* Construct a list.  We need to apply the constructors appropriate to the type. *)
                 val baseType =
                     case listType of
@@ -683,16 +665,16 @@ struct
                         applyFunction (consConstructor, mkTuple [H,T], level, typeVarMap, polyVars, lex, location)
                     end
             in
-                consList elements : codetree
+                (consList elements, debugEnv)
             end
 
-        | Constraint {value, ...} => codegen (value, context) (* code gen. the value *)
+    |   codeGenerate(Constraint {value, ...}, context) = codeGenerate (value, context) (* code gen. the value *)
 
-        | Fn { location, expType=ref expType, ... } =>
+    |   codeGenerate(c as Fn { location, expType=ref expType, ... }, context as { typeVarMap, debugEnv, ...}) =
             (* Function *)
-            codeProc(c, location, filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context)
+            (codeProc(c, location, filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context), debugEnv)
 
-        |   Localdec {decs, body, ...} =>
+    |   codeGenerate(Localdec {decs, body, ...}, context) =
             (* Local expressions only. Local declarations will be handled
                 by codeSequence.*)
             let
@@ -721,12 +703,12 @@ struct
                     (previousDecs @ exps, finalDebugEnv)
                 end
 
-                val (decs, _) = codeSequence (decs, [], context, processBody)
+                val (decs, lastEnv) = codeSequence (decs, [], context, processBody)
             in
-                decSequenceWithFinalExp decs
+                (decSequenceWithFinalExp decs, lastEnv)
             end
 
-        | ExpSeq(ptl, _) =>
+    |   codeGenerate(ExpSeq(ptl, _), context as { debugEnv, ...}) =
           (* Sequence of expressions. Discard results of all except the last.*)
             let
                 fun codeList ([], _) = raise InternalError "ExpSeq: empty sequence"
@@ -736,81 +718,84 @@ struct
                             addBreakPointCall(bpt, getLocation p, context |> repDebugEnv d)
                         (* Because addBreakPointCall updates the location info in the debug env
                            we need to pass this along in the same way as when making bindings. *)
-                        val thisCode = codegen (p, context |> repDebugEnv newEnv)
+                        val (thisCode, postCodeEnv) = codeGenerate (p, context |> repDebugEnv newEnv)
                     in
                         case tl of
-                            [] => (bptCode, thisCode)
+                            [] => (bptCode, thisCode, postCodeEnv)
                         |   tl =>
                             let
-                                val (otherDecs, expCode) = codeList(tl, newEnv)
+                                val (otherDecs, expCode, postListEnv) = codeList(tl, postCodeEnv)
                             in
-                                (bptCode @ (mkNullDec thisCode :: otherDecs), expCode)
+                                (bptCode @ (mkNullDec thisCode :: otherDecs), expCode, postListEnv)
                             end
                     end
+                val (codeDecs, codeExp, finalEnv) = codeList(ptl, debugEnv)
             in
-                mkEnv (codeList(ptl, #debugEnv context))
+                (mkEnv (codeDecs, codeExp), finalEnv)
             end
 
-        |   Raise (pt, location) =>
+    |   codeGenerate(Raise (pt, location), context as { level, mkAddr, ...}) =
             let
-                val {dec, load} = 
-                    multipleUses (codegen (pt, context), fn () => mkAddr 1, level)
+                val (raiseCode, raiseEnv) = codeGenerate(pt, context)
+                val {dec, load} = multipleUses (raiseCode, fn () => mkAddr 1, level)
                 val load = load level
                 (* Copy the identifier, name and argument from the packet and add this location. *)
                 val excPacket =
                     mkEnv(dec,
                         mkTuple[mkInd(0, load), mkInd(1, load), mkInd(2, load), codeLocation location])
             in
-                (*if getParameter debugTag (debugParams lex)
-                then
-                let
-                    (* If we are compiling with debugging on we call the debugger before raising the
-                       exception in case we are tracing this exception. *)
-                    open DEBUGGER
-                    val {debugEnv=(ctEnv, rtEnv), ...} = context
-                    fun exceptionFunction (rtEnv, exn) =
-                        (debugFunction(debuggerFun lex, DebugException exn, decName ^ "-raise", location) ctEnv rtEnv; raise exn)
-                    val exceptionCode = ADDRESS.toMachineWord exceptionFunction
-                in
-                    mkEval(mkConst exceptionCode, [mkTuple[rtEnv level, excPacket]])
-                end
-                else *)mkRaise excPacket
+                (mkRaise excPacket, raiseEnv)
             end
 
-        | HandleTree {exp, hrules, ...} =>
+    |   codeGenerate(c as HandleTree {exp, hrules, ...}, context as { debugEnv, ...}) =
           (* Execute an expression in the scope of a handler *)
-          let
-            val handleExp = codegen (exp, context)          
-            val handlerCode = codeMatch (c, hrules, Ldexc, codegen, true, context)
-          in
-            mkHandle (handleExp, handlerCode)
-          end
+            let
+                val handleExp = codegen (exp, context)          
+                val handlerCode = codeMatch (c, hrules, Ldexc, true, context)
+            in
+                (mkHandle (handleExp, handlerCode), debugEnv)
+            end
 
-        | While {test, body, ...} => mkWhile (codegen (test, context), codegen (body, context)) : codetree
+    |   codeGenerate(While {test, body, ...}, context as { debugEnv, ...}) =
+            (mkWhile (codegen (test, context), codegen (body, context)), debugEnv)
 
-        | Case {test, match, ...} =>
-          (* The matches are made into a series of tests and
-             applied to the test expression. *)
-          let
+    |   codeGenerate(c as Case {test, match, ...}, context as { debugEnv, ...}) =
+      (* The matches are made into a series of tests and
+         applied to the test expression. *)
+        let
             val testCode = codegen (test, context)
-          in
-            codeMatch (c, match, testCode, codegen, false, context)
-          end
+        in
+            (codeMatch (c, match, testCode, false, context), debugEnv)
+        end
 
-        | Andalso {first, second, ...} =>
-          (* Equivalent to  if first then second else false *)
-            mkCand (codegen (first,  context), codegen (second, context)) : codetree
+    |   codeGenerate(Andalso {first, second, ...}, context) =
+        let
+            val (firstCode, firstEnv) = codeGenerate(first,  context)
+            (* Any updates to the debug context in the first part will carry over
+               but we can't be sure whether any of the second part will be executed. *)
+            val (secondCode, _) = codeGenerate(second, context |> repDebugEnv firstEnv)
+        in
+            (* Equivalent to  if first then second else false *)
+            (mkCand (firstCode, secondCode), firstEnv)
+        end
 
-        | Orelse {first, second, ...} =>
+    |   codeGenerate(Orelse {first, second, ...}, context) =
+        let
+            val (firstCode, firstEnv) = codeGenerate(first,  context)
+            (* Any updates to the debug context in the first part will carry over
+               but we can't be sure whether any of the second part will be executed. *)
+            val (secondCode, _) = codeGenerate(second, context |> repDebugEnv firstEnv)
+        in
           (* Equivalent to  if first then true else second *)
-            mkCor (codegen (first,  context), codegen (second, context))
+            (mkCor (firstCode, secondCode), firstEnv)
+        end
 
-        | Parenthesised(p, _) => codegen (p, context)
+    |   codeGenerate(Parenthesised(p, _), context) = codeGenerate (p, context)
 
-        | _ => (* empty and any others *)
-           CodeZero : codetree
+    |   codeGenerate(_, {debugEnv, ...}) = (CodeZero, debugEnv) (* empty and any others *)
 
-      end (* codegen *)
+    (* Old codegen function which discards the debug context. *)
+    and codegen (c: parsetree, context) = #1 (codeGenerate(c, context))
 
     (* Generate a function either as a free standing lambda expression or as
        a val rec declaration. *)
@@ -859,7 +844,7 @@ struct
                 debugFunctionEntryCode(newDecName, argumentCode, argType, location, newContext)
             val bodyContext = newContext |> repDebugEnv newDebugEnv
             
-            val alt = codeAlt (c, f, argumentCode, bodyContext)
+            val alt = codeMatch (c, f, argumentCode, false, bodyContext)
             val wrap = wrapFunctionInDebug(alt, newDecName, resType, location, newContext)
             val mainProc =
                 mkProc(mkEnv(debugEntryCode, wrap), tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
@@ -893,7 +878,7 @@ struct
                 debugFunctionEntryCode(newDecName, mkLoadArgument 0, argType, location, newContext)
             val bodyContext = newContext |> repDebugEnv newDebugEnv
 
-            val alt  = codeAlt (c, f, mkLoadArgument 0, bodyContext)
+            val alt  = codeMatch (c, f, mkLoadArgument 0, false, bodyContext)
             (* If we're debugging add the debug info before resetting the level. *)
             val wrapped = wrapFunctionInDebug(alt, newDecName, resType, location, bodyContext)
             val pr = mkProc (mkEnv(debugEntryCode, wrapped), 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
@@ -1403,7 +1388,7 @@ struct
                             debugFunctionEntryCode(procName, argList, aType, location, fnContext)
                         val bodyContext = fnContext |> repDebugEnv newDebugEnv
 
-                        val codeMatches = codeAlt (near, matches, argList, bodyContext)
+                        val codeMatches = codeMatch (near, matches, argList, false, bodyContext)
 
                         (* If the result is a tuple we try to avoid creating it by adding
                            an extra argument to the inline function and setting this to
