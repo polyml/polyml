@@ -672,7 +672,7 @@ struct
 
     |   codeGenerate(c as Fn { location, expType=ref expType, ... }, context as { typeVarMap, debugEnv, ...}) =
             (* Function *)
-            (codeProc(c, location, filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context), debugEnv)
+            (codeLambda(c, location, filterTypeVars(getPolyTypeVars(expType, mapTypeVars typeVarMap)), context), debugEnv)
 
     |   codeGenerate(Localdec {decs, body, ...}, context) =
             (* Local expressions only. Local declarations will be handled
@@ -797,9 +797,8 @@ struct
     (* Old codegen function which discards the debug context. *)
     and codegen (c: parsetree, context) = #1 (codeGenerate(c, context))
 
-    (* Generate a function either as a free standing lambda expression or as
-       a val rec declaration. *)
-    and codeProc(c, location, polyVars,
+    (* Code-generate a lambda (fn expression). *)
+    and codeLambda(c, location, polyVars,
                     cpContext as
                         {mkAddr=originalmkAddr, level=originalLevel, decName, ...}) =
     let
@@ -822,7 +821,7 @@ struct
         val (firstPat, resType, argType) = 
             case f of 
                 MatchTree {vars, resType = ref rtype, argType = ref atype, ...} :: _  => (vars, rtype, atype)
-            |   _ => raise InternalError "codeProc: body of fn is not a clause list";
+            |   _ => raise InternalError "codeLambda: body of fn is not a clause list";
 
         val tupleSize = List.length(tupleWidth firstPat)
     in
@@ -886,7 +885,7 @@ struct
             if null polyVars then pr
             else mkProc(pr, List.length polyVars, newDecName^"(P)", getClosure nLevel, 0)
         end
-    end (* codeProc *)
+    end (* codeLambda *)
 
 
     (* Code-generates a sequence of declarations. *)
@@ -1126,6 +1125,9 @@ struct
     and codeFunBindings(tlist: fvalbind list, near,
                         context as {decName, mkAddr, level, typeVarMap, lex, ...}) =
         let
+            (* Get the function variables. *)
+            val functionVars = map (fn(FValBind{functVar = ref var, ...}) => var) tlist
+
             (* Check the types for escaped datatypes. *)
             local
                 fun checkVars(FValBind{functVar=ref var, location, ...}) =
@@ -1384,38 +1386,49 @@ struct
                                 else createApplications (tlist, addressList, polyVarList, [])
                         end
 
-                        val (debugEntryCode, newDebugEnv) =
-                            debugFunctionEntryCode(procName, argList, aType, location, fnContext)
-                        val bodyContext = fnContext |> repDebugEnv newDebugEnv
+                        local
+                            (* Function body.  The debug state has a "start of function" entry that
+                               is used when tracing and points to the arguments.  There are then
+                               entries for the recursive functions so they can be used if we
+                               break within the function. *)
+                            val (debugEntryCode, fnEntryEnv) =
+                                debugFunctionEntryCode(procName, argList, aType, location, fnContext)
+                            (* Create debug entries for recursive references. *)
+                            val (recDecs, recDebugEnv) =
+                                makeDebugEntries(functionVars, fnContext |> repDebugEnv fnEntryEnv)
+                            val bodyContext = fnContext |> repDebugEnv recDebugEnv
+                            
+                            val debugEntryCode = debugEntryCode @ recDecs
+                            val codeMatches = codeMatch (near, matches, argList, false, bodyContext)
 
-                        val codeMatches = codeMatch (near, matches, argList, false, bodyContext)
+                            (* If the result is a tuple we try to avoid creating it by adding
+                               an extra argument to the inline function and setting this to
+                               the result. *)
+                            val bodyCode =
+                            if resTupleLength = 1
+                            then codeMatches
+                            else
+                                (* The function sets the extra argument to the result
+                                   of the body of the function.  We use the last
+                                   argument for the container so that
+                                   other arguments will be passed in registers in
+                                   preference.  Since the container is used for the
+                                   result this argument is more likely to have to be
+                                   pushed onto the stack within the function than an
+                                   argument which may have its last use early on. *)
+                                mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, resTupleLength)
+                        in
+                            (* If we're debugging add the debug info before resetting the level. *)
+                            val codeForBody =
+                                wrapFunctionInDebug(mkEnv(debugEntryCode, bodyCode), procName, resType, location, fnContext)
+                        end
 
-                        (* If the result is a tuple we try to avoid creating it by adding
-                           an extra argument to the inline function and setting this to
-                           the result. *)
-                        val bodyCode =
-                        if resTupleLength = 1
-                        then codeMatches
-                        else
-                            (* The function sets the extra argument to the result
-                               of the body of the function.  We use the last
-                               argument for the container so that
-                               other arguments will be passed in registers in
-                               preference.  Since the container is used for the
-                               result this argument is more likely to have to be
-                               pushed onto the stack within the function than an
-                               argument which may have its last use early on. *)
-                            mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, resTupleLength)
-
-                        (* If we're debugging add the debug info before resetting the level. *)
-                        val wrapped =
-                            wrapFunctionInDebug(bodyCode, procName, resType, location, bodyContext)
                         val () =
                             if List.length argTypes = totalArgs then () else raise InternalError "Argument length problem"
                     in
                         val innerFun =
                             mkFunction{
-                                body=mkEnv(debugEntryCode @ getCachedTypeValues newTypeVarMap @ appDecs, wrapped),
+                                body=mkEnv(getCachedTypeValues newTypeVarMap @ appDecs, codeForBody),
                                 argTypes=argTypes, resultType=resultType, name=innerProcName,
                                 closure=getClosure fnLevel, numLocals=fnMkAddr 0}
                     end;
@@ -1497,15 +1510,13 @@ struct
                loading any debug references. *)
             val () = ListPair.appEq (fn (t, a) => setValueAddress(t, a, level)) (tlist, addressList)
 
-            (* Construct the debugging environment by loading all variables.
-               This won't be available recursively in the
-               functions but it will be in the rest of the scope. *)
-            val vars = map (fn(FValBind{functVar, ...}) => !functVar) tlist
-            val (decEnv, newDebugEnv) = makeDebugEntries(vars, context)
+            (* Construct the debugging environment for the rest of the scope. *)
+
+            val (decEnv, newDebugEnv) = makeDebugEntries(functionVars, context)
             (* Check whether any of the functions were unreferenced. *)
             val _ =
                 if getParameter reportUnreferencedIdsTag (debugParams lex)
-                then reportUnreferencedValues(vars, lex)
+                then reportUnreferencedValues(functionVars, lex)
                 else ()
 
         in
