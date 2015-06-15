@@ -1,10 +1,9 @@
 (*
-    Copyright (c) 2012,13 David C.J. Matthews
+    Copyright (c) 2012,13,15 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1465,7 +1464,7 @@ struct
     let
         fun topLevel _ = raise InternalError "top level reached in optimiser"
 
-        fun processTree (code, nLocals, optAgain, count) =
+        fun processTree (code, nLocals, optAgain) =
         let
             (* First run the simplifier.  Among other things this does inline
                expansion and if it does any we at least need to run cleanProc
@@ -1475,8 +1474,6 @@ struct
             if optAgain orelse simpAgain
             then
             let
-                (* Check for looping at least during testing.*)
-                val _ = count < 100 orelse raise InternalError "Too many passes"
                 (* Identify usage information and remove redundant code. *)
                 val printCodeTree      = DEBUG.getParameter DEBUG.codetreeTag debugSwitches
                 and compilerOut        = PRETTY.getCompilerOutput debugSwitches
@@ -1514,12 +1511,12 @@ struct
                 val () = if printCodeTree then compilerOut (BASECODETREE.pretty llCode) else ()
             in
                 (* Rerun the simplifier at least. *)
-                processTree(llCode, llCount, llAgain, count+1)
+                processTree(llCode, llCount, llAgain)
             end
             else (simpCode, simpCount) (* We're done *)
         end
 
-        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *), 1)
+        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *))
         val (rGeneral, rDecs, rSpec) = postOptCode
     in
         { numLocals = postOptCount, general = rGeneral, bindings = rDecs, special = rSpec }
