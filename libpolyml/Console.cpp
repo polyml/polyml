@@ -104,8 +104,8 @@ HANDLE hOldStdin = INVALID_HANDLE_VALUE;
 
 static char *lpszServiceName;
 
-static LPTSTR   lpArgs[100]; // Argument list.
-static int      nArgs;
+static LPSTR*   lpArgs = 0; // Argument list.
+static int      nArgs = 0;
 static int initDDEControl(const char *lpszName);
 static void uninitDDEControl(void);
 static DWORD dwDDEInstance;
@@ -713,6 +713,7 @@ static BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
     return FALSE;
 }
 
+// Main entry point.  Called from WinMain with a pointer to the ML code.
 int PolyWinMain(
   HINSTANCE hInstance,
   HINSTANCE hPrevInstance,
@@ -860,41 +861,34 @@ int PolyWinMain(
         fdopen(0, "rt");
     }
 
-    // Convert the command line into Unix-style arguments.
-    LPTSTR lpCommandLine = GetCommandLine();
-    nArgs = 0;
-    while (*lpCommandLine != 0)
+    // Set nArgs and lpArgs to the command line arguments.
+    // Convert the command line into Unix-style arguments.  There isn't a
+    // CommandLineToArgvA function so we have to use the Unicode version and
+    // convert the results.
     {
-        if (*lpCommandLine == '"')
+        // Get the unicode args
+        LPWSTR *uniArgs = CommandLineToArgvW(GetCommandLineW(), &nArgs);
+        if (uniArgs != NULL)
         {
-            // Treat quoted items as a whole.
-            lpCommandLine++;
-            lpArgs[nArgs++] = lpCommandLine;
-            while (*lpCommandLine != 0 && *lpCommandLine != '"')
-                lpCommandLine++;
-            if (*lpCommandLine != 0) *lpCommandLine++ = 0;
-        }
-        else
-        {
-            // Not quoted - look for a separating space.
-            lpArgs[nArgs++] = lpCommandLine;
-            while (*lpCommandLine != 0 && *lpCommandLine != ' ')
-                lpCommandLine++;
-        }
-        // Remove multiple spaces.
-        while (*lpCommandLine == ' ') *lpCommandLine++ = 0;
-
-        if (nArgs == sizeof(lpArgs)/sizeof(lpArgs[0])) break;
-
-        // Extract the service name argument.
-        if (strcmp(lpArgs[nArgs-1], "-pServiceName") == 0)
-        {
-            nArgs--;
-            fNext = TRUE;
-        }
-        else {
-            if (fNext) lpszServiceName = lpArgs[--nArgs];
-            fNext = FALSE;
+            lpArgs = (LPSTR*)calloc(nArgs, sizeof(LPSTR));
+            if (lpArgs != 0)
+            {
+                for (int i = 0; i < nArgs; i++)
+                {
+                    // See how much space will be needed
+                    int space =
+                        WideCharToMultiByte(CP_ACP, 0, uniArgs[i], -1, NULL, 0, NULL, NULL);
+                    if (space == 0) break; // Failed for some reason
+                    // Allocate the space then do the conversion
+                    LPSTR buff = (LPSTR)malloc(space);
+                    if (buff == 0) break;
+                    int result =
+                        WideCharToMultiByte(CP_ACP, 0, uniArgs[i], -1, buff, space, NULL, NULL);
+                    if (result == 0) { free(buff); break; }
+                    lpArgs[i] = buff;
+                }
+            }
+            LocalFree(uniArgs);
         }
     }
 
