@@ -723,7 +723,6 @@ int PolyWinMain(
 )
 {
     HANDLE hWriteToScreen = INVALID_HANDLE_VALUE;
-    BOOL fNext = FALSE;
     DWORD dwInId, dwRes;
 
     InitializeCriticalSection(&csIOInterlock);
