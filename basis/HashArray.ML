@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008, 2014
+    Modified David C.J. Matthews 2008, 2014, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -105,12 +104,27 @@ in
 
         fun enter a i (entry as (name, _)) =
         (* Loops until it either finds an empty entry - in which case it
-           enters the value in there, or it finds the string. *)
+           enters the value in there, or it finds the string.
+           If it finds a deleted entry it can reuse that but it must check
+           that we haven't also got the same string further along. *)
         case a sub i of
             Empty =>  (* Empty.  Add the entry and increment "used". *)
                 (update (a, i, Used entry); true)
         |   Deleted => (* Deleted.  Use this entry. *)
-                (update (a, i, Used entry); false)
+            let
+                fun checkEntry i =
+                    case a sub i of
+                        Empty => ()
+                    |   Deleted => checkEntry((if i = 0 then length a else i) - 1)
+                    |   Used(n, _) =>
+                            if n = name
+                            then update(a, i, Deleted)
+                            else checkEntry((if i = 0 then length a else i) - 1)
+            in
+                checkEntry i;
+                update (a, i, Used entry);
+                false
+            end
         |   Used (n, _) =>  (* In use.  Overwrite if it's the same name. *)
                 if n = name
                 then (update (a, i, Used entry); false) (* Same name as previous - overwrite it *)
