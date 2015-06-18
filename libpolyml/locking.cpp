@@ -1,12 +1,11 @@
 /*
     Title:      Mutex and Condition Variable library.
 
-    Copyright (c) 2007, 2012 David C. J. Matthews
+    Copyright (c) 2007, 2012, 2015 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -31,9 +30,6 @@
 #define HAVE_PTHREAD 1
 #include <pthread.h>
 #elif (defined(HAVE_WINDOWS_H))
-// We need the next define to get TryEnterCriticalSection and
-// InitializeCriticalSectionAndSpinCount.
-#define _WIN32_WINNT 0x0500
 #include <windows.h>
 #endif
 
@@ -85,7 +81,7 @@ PLock::PLock(const char *n): lockName(n), lockCount(0)
 #ifdef HAVE_PTHREAD
     pthread_mutex_init(&lock, 0);
 #elif defined(HAVE_WINDOWS_H)
-    InitializeCriticalSectionAndSpinCount(&lock, 12000);
+    InitializeCriticalSection(&lock);
 #endif
 }
 
