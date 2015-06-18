@@ -404,6 +404,12 @@ WaitNet::WaitNet(SOCKET sock, bool isOOB)
     if (isOOB) SetExcept(sock); else SetRead(sock);
 }
 
+// Wait for a socket to be free to write.
+class WaitNetSend: public WaitSelect {
+public:
+    WaitNetSend(SOCKET sock) { SetWrite(sock); }
+};
+
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
     int c = get_C_int(taskData, DEREFWORDHANDLE(code));
@@ -988,7 +994,8 @@ TryAgain: // Used for various retries.
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 51 /* blocking */)
                 {
-                    processes->ThreadPause(taskData);
+                    WaitNetSend waiter(strm->device.sock);
+                    processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
                     goto TryAgain;
                 }
@@ -1038,7 +1045,8 @@ TryAgain: // Used for various retries.
                 err = GETERROR;
                 if (err == EWOULDBLOCK && c == 52 /* blocking */)
                 {
-                    processes->ThreadPause(taskData);
+                    WaitNetSend waiter(strm->device.sock);
+                    processes->ThreadPauseForIO(taskData, &waiter);
                     // It is NOT safe to just loop here.  We may have GCed.
                     goto TryAgain;
                 }
