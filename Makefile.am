@@ -53,7 +53,7 @@ else
 if ARCHX86_64
 EXTRALDFLAGS += -mwindows -Wl,-u,WinMain
 else
-EXTRALDFLAGS += -mwindows -Wl,-u,_WinMain@16
+EXTRALDFLAGS += -mwindows -Wl,-u,_WinMain@16 -Wl,--large-address-aware
 endif
 endif
 
