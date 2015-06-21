@@ -46,8 +46,13 @@ struct
        i.e. '!' returns either the previous value or the current one and
        not some intermediate value. *)
 
+    (* Use no-overwrite refs for imperative streams.  This is really only needed for
+       stdIn to make sure that when we call PolyML.SaveState.loadState we don't
+       overwrite any unread input by the contents of the buffer when saveState
+       was called. *)
+
     fun mkInstream (s : StreamIO.instream) : instream =
-        InStream{fStream = ref s, lock = Thread.Mutex.mutex()}
+        InStream{fStream = LibrarySupport.noOverwriteRef s, lock = Thread.Mutex.mutex()}
         
     fun protect (InStream{fStream, lock}) f =
         LibraryIOSupport.protect lock f fStream
@@ -119,7 +124,7 @@ struct
     (* These are simply wrappers. *)
 
     fun mkOutstream (s : StreamIO.outstream) : outstream =
-        OutStream{fStream = ref s}
+        OutStream{fStream = LibrarySupport.noOverwriteRef s}
 
     fun getOutstream(OutStream{fStream = ref s}) = s
     and setOutstream(OutStream{fStream}, s) = fStream := s

@@ -298,34 +298,9 @@ structure TextIO :> TEXT_IO = struct
     (* Get the entries for standard input, standard output and standard error. *)
     val stdIn = wrapInFileDescr(stdInDesc, "stdIn")
 
-    (* This is a bit of a mess.  When we load a saved state the references associated with stdIn
-       will be overwritten.  That could actually happen with any input file but stdIn is the only
-       one that definitely is "persistent".  We need to save the contents of the buffer across the
-       load and update the buffer with the saved contents.  *)
     local
-(*        fun onLoad doLoad =
-            case stdIn of
-                InStream(impStream, _) =>
-                    let
-                        open ImpIO
-                        open StreamIO
-                        val s = ImpIO.getInstream impStream
-                        val (r, v) = getReader s
-                    in
-                        (* Because we may have this function installed more than once
-                           and because getReader truncates the stream so that a second
-                           call to getReader raises an exception we have to set
-                           the stream back before as well as after the load. *)
-                        ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)));
-                        doLoad();
-                        ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)))
-                    end*)
-
-         fun onLoad doLoad = doLoad()
-
         (* On startup reset stdIn to the original stream.  Among other things this clears
-           any data that may have been in the buffer when we exported.
-           Also install the onLoad function. *)
+           any data that may have been in the buffer when we exported. *)
         fun onStartUp () =
         let
             val textPrimRd =
@@ -333,15 +308,11 @@ structure TextIO :> TEXT_IO = struct
                     name="stdIn", initBlkMode=true}
             val streamIo = StreamIO.mkInstream(textPrimRd, "")
         in
-            ImpIO.setInstream(stdIn, streamIo);
-             (* Install the onLoad function each time we start up. *)
-            PolyML.onLoad onLoad
+            ImpIO.setInstream(stdIn, streamIo)
         end
     in
         (* Set up an onEntry handler so that this is always installed. *)
-        val () = PolyML.onEntry onStartUp;
-        (* Install it now. *)
-        val () = PolyML.onLoad onLoad
+        val () = PolyML.onEntry onStartUp
     end;
 
     (* We may want to consider unbuffered output or even linking stdOut with stdIn

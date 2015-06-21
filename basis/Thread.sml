@@ -185,16 +185,10 @@ struct
     
     exception Thread = RunCall.Thread
     
-    local
-        (* Create non-overwritable mutables for mutexes and condition variables.
-           A non-overwritable mutable in the executable or a saved state is not
-           overwritten when a saved state further down the hierarchy is loaded. *)
-        val System_alloc: word*word*word->word  =
-            RunCall.run_call3 POLY_SYS_alloc_store
-    in
-        fun nvref (a: 'a) : 'a ref =
-            RunCall.unsafeCast(System_alloc(0w1, 0wx48, RunCall.unsafeCast a))
-    end
+    (* Create non-overwritable mutables for mutexes and condition variables.
+       A non-overwritable mutable in the executable or a saved state is not
+       overwritten when a saved state further down the hierarchy is loaded. *)
+    val nvref = LibrarySupport.noOverwriteRef
     
     structure Thread =
     struct

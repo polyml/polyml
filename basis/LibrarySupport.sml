@@ -55,6 +55,7 @@ sig
     val w8vectorAsAddress : Word8Array.vector -> address
     val maxAllocation: word
     val reraise: exn -> 'a
+    val noOverwriteRef: 'a -> 'a ref
 end
 =
 struct
@@ -268,8 +269,15 @@ struct
         (* This can be used where we have already checked the range. *)
         fun unsafeStringSub(s: string, i: word): char =
             if isShortString s then RunCall.unsafeCast s
-            else System_loadb(s, i + wordSize);
+            else System_loadb(s, i + wordSize)
 
+        (* Create non-overwritable mutables for mutexes and condition variables.
+           A non-overwritable mutable in the executable or a saved state is not
+           overwritten when a saved state further down the hierarchy is loaded. 
+           This is also used for imperative streams, really only so that stdIn
+           works properly across SaveState.loadState calls. *)
+        fun noOverwriteRef (a: 'a) : 'a ref =
+            RunCall.unsafeCast(System_alloc(0w1, 0wx48, RunCall.unsafeCast a))
     end
 
     (* Re-raise an exception that has been handled preserving the location. *)
