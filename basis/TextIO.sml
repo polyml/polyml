@@ -190,85 +190,28 @@ structure TextIO :> TEXT_IO = struct
             if c = #"\n" andalso getBufferMode f = LINE_BUF
             then flushOut f else ()
             )
-    end (* TextStreamIO. *)
+    end (* StreamIO. *)
 
 
     (* The imperative IO streams *)
-    structure ImpIO = ImperativeIO(
+    structure ImpIO = BasicImperativeIO(
         structure StreamIO = TextStreamIO
         structure Vector = CharVector
         structure Array = CharArray)
 
-    (* open ImpIO *)
+    open ImpIO
+    (* Now define StreamIO as our extended StreamIO *)
 
     (* Replace the StreamIO from ImpIO by our version. *)
     structure StreamIO =
     struct
         open TextStreamIO
+        
+        val outputSubstr = outputVec
+    end
 
-        (* TODO: This is unnecessary.  CharVectorSlice.slice and Substring.substring are the same type. *)
-        fun outputSubstr(f, s) =
-        let
-            val (v, i, l) = Substring.base s
-        in
-            outputVec(f, CharVectorSlice.slice(v, i, SOME l))
-        end
-    end;
-
-    (* The simple, and original implementation was in terms of the
-       ImperativeIO structure.  The big disadvantage of it is that
-       in the common case when we simply open a stream on a file
-       and read it entirely through the TextIO interface we have
-       a lot of overhead.  I've changed it to use the underlying
-       layers if required but otherwise to use the file descriptor
-       directly.  This isn't such a problem with output so we use
-       the lower layers directly.
-       
-       Stream IO has now been reimplemented to be much more
-       efficient.  It seems there is still some speed advantage
-       in using the low-level directly but there's much less
-       difference than there used to be. *)
-
-    (* The type of a stream without the layers in between. If we extract
-       the lower level this gets replaced. *)
-    type textInstream = {
-        descr: OS.IO.iodesc,
-        buffer: CharArray.array,
-        bufp: int ref,
-        buflimit: int ref,
-        (* buflimit: size of useful data in the buffer.  Some values of
-           this are special.
-           If this is ~1 it means that the buffer does not contain valid
-           data but we have not detected an end-of-file or if we have we
-           have passed this back to the caller.
-           If this is 0 it means that the last read returned zero (EOF)
-           AND we have not yet returned this to the caller.  This happens
-           if we're reading a large amount of data and we stop because we
-           reach EOF.  We return as much as we can this time and the NEXT
-           read returns (and clears) EOF. *)
-        name: string
-    }
-
-    datatype baseInstream =
-        Underlying of ImpIO.instream
-      | Direct of textInstream
-      
     open Thread.Thread
     open Thread.Mutex
-
-    datatype instream = InStream of baseInstream ref * mutex
-
-    type outstream = ImpIO.outstream
-    val output = ImpIO.output
-    val output1 = ImpIO.output1
-    val flushOut = ImpIO.flushOut
-    val closeOut = ImpIO.closeOut
-    val mkOutstream = ImpIO.mkOutstream
-    val getOutstream = ImpIO.getOutstream
-    val setOutstream = ImpIO.setOutstream
-    val getPosOut = ImpIO.getPosOut
-    val setPosOut = ImpIO.setPosOut
-
     open RuntimeCalls LibrarySupport.CharArray
     type fileDescr = OS.IO.iodesc;
     type address = LibrarySupport.address
@@ -291,39 +234,17 @@ structure TextIO :> TEXT_IO = struct
         val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
     in
         fun sys_get_buffsize (strm: fileDescr): int = doIo(15, strm, 0)
-        and sys_can_input(strm: fileDescr): int = doIo(16, strm, 0)
-        and sys_avail(strm: fileDescr): int = doIo(17, strm, 0)
-    end
-
-    local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
-    in
-        fun sys_close (strm: fileDescr): unit = doIo(7, strm, 0)
-    end
-
-    local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
-    in
-        fun sys_read_text (strm: fileDescr, vil: address*word*word): int =
-            doIo(8, strm, vil)
-    end
-
-    local
-        val doIo = RunCall.run_call3 POLY_SYS_io_dispatch
-    in
-        fun sys_read_string (strm: fileDescr, len: int): string =
-            doIo(10, strm, len)
     end
 
     (* Create the primitive IO functions and add the higher layers. *)
-    fun wrapInFileDescr(n, name, buffContents) =
+    fun wrapInFileDescr(n, name) =
     let
         val textPrimRd =
             LibraryIOSupport.wrapInFileDescr{fd=n,
                 name=name, initBlkMode=true}
-        val streamIo = StreamIO.mkInstream(textPrimRd, buffContents)
+        val streamIo = StreamIO.mkInstream(textPrimRd, "")
     in
-        streamIo
+        ImpIO.mkInstream streamIo
     end
 
     fun wrapOutFileDescr(n, name, buffering, isAppend) =
@@ -364,94 +285,34 @@ structure TextIO :> TEXT_IO = struct
             true (* setPos will not work. *))
     end
 
-    (* Open a file for input.  We start off using the Direct interface. *)
+    (* Open a file for input. *)
     fun openIn s =
     let
         val f = 
             sys_open_in_text s
                 handle exn => raise mapToIo(exn, s, "TextIO.openIn")
-        val buffsize = sys_get_buffsize f
     in
-        InStream(
-            ref (Direct{descr=f, name=s, buffer=CharArray.array(buffsize, #" "),
-                        bufp=ref 0, buflimit=ref ~1}),
-            mutex())
+        wrapInFileDescr(f, s)
     end
 
     (* Get the entries for standard input, standard output and standard error. *)
-    val stdIn =
-        let
-            val buffsize = sys_get_buffsize stdInDesc
-        in
-            InStream(
-                ref (Direct{descr=stdInDesc, name="stdIn",
-                        buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
-                        buflimit=ref ~1}),
-                mutex())
-        end
+    val stdIn = wrapInFileDescr(stdInDesc, "stdIn")
 
-    (* This is a bit of a mess.  When we load a saved state the references associated with stdIn
-       will be overwritten.  That could actually happen with any input file but stdIn is the only
-       one that definitely is "persistent".  We need to save the contents of the buffer across the
-       load and update the buffer with the saved contents.  *)
     local
-        fun onLoad doLoad =
-            case stdIn of
-                InStream(ref(Direct{buffer, bufp as ref savedBufp, buflimit as ref savedBufLimit, ...}), _) =>
-                    let
-                        (* Have to extract the contents and save it in a local variable. *)
-                        val savedBuff =
-                            if savedBufLimit < 0
-                            then ""
-                            else CharArraySlice.vector(
-                                CharArraySlice.slice(buffer, savedBufp, SOME(savedBufLimit - savedBufp)));
-                    in
-                        doLoad();
-                        CharArray.copyVec { src=savedBuff, dst=buffer, di=savedBufp };
-                        bufp := savedBufp;
-                        buflimit := savedBufLimit
-                    end
-
-            |   InStream(ir as ref(Underlying impStream), _) =>
-                    let
-                        open ImpIO
-                        open StreamIO
-                        val s = ImpIO.getInstream impStream
-                        val (r, v) = getReader s
-                    in
-                        (* Because we may have this function installed more than once
-                           and because getReader truncates the stream so that a second
-                           call to getReader raises an exception we have to set
-                           the stream back before as well as after the load. *)
-                        ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)));
-                        doLoad();
-                        ir := Underlying(ImpIO.mkInstream(mkInstream(r,v)))
-                    end
-
         (* On startup reset stdIn to the original stream.  Among other things this clears
-           any data that may have been in the buffer when we exported.
-           Also install the onLoad function. *)
+           any data that may have been in the buffer when we exported. *)
         fun onStartUp () =
         let
-            val InStream(r, _) = stdIn
-            val buffsize = sys_get_buffsize stdInDesc
+            val textPrimRd =
+                LibraryIOSupport.wrapInFileDescr{fd=stdInDesc,
+                    name="stdIn", initBlkMode=true}
+            val streamIo = StreamIO.mkInstream(textPrimRd, "")
         in
-          case stdIn of
-               InStream(ref(Direct{bufp, buflimit, ...}),_) => (bufp := 0; buflimit := ~1)
-               (* For some reason the IDE code, at least, breaks if we always set this to a
-                  new direct stream.  It seems to be something to do with making a new
-                  buffer array. *)
-           |  _ => r := Direct{descr=stdInDesc, name="stdIn",
-                        buffer=CharArray.array(buffsize, #" "), bufp=ref 0,
-                        buflimit=ref ~1};
-             (* Install the onLoad function each time we start up. *)
-            PolyML.onLoad onLoad
+            ImpIO.setInstream(stdIn, streamIo)
         end
     in
         (* Set up an onEntry handler so that this is always installed. *)
-        val () = PolyML.onEntry onStartUp;
-        (* Install it now. *)
-        val () = PolyML.onLoad onLoad
+        val () = PolyML.onEntry onStartUp
     end;
 
     (* We may want to consider unbuffered output or even linking stdOut with stdIn
@@ -488,306 +349,14 @@ structure TextIO :> TEXT_IO = struct
             false)
     end
 
-    (* Lock the mutex during any lookup or entry. *)
-    fun protect f (InStream(r, m)) = LibraryIOSupport.protect m f r
-
-    (* Read something into the buffer. *)
-    fun fillBuffer({buffer=Array(length, addr), bufp, buflimit, descr, name, ...}: textInstream) : unit =
-        (
-        bufp := 0;
-        buflimit := ~1; (* Set these first in case of an exception. *)
-        (* Read the text and set the buffer limit.  If the result was
-           zero we've reached end-of-stream. *)
-        buflimit := sys_read_text(descr, (addr, 0w0, length))
-            handle exn => raise mapToIo(exn, name, "TextIO.fillBuffer")
-        )
-
-    (* If we make a text stream from the lower level we always wrap it
-       up.  It might be possible to get the underlying file descriptor. *)
-    fun mkInstream (s : StreamIO.instream) : instream =
-        InStream(ref(Underlying(ImpIO.mkInstream s)), mutex())
-
     local
-        fun getInstream'(ref(Underlying strm)) = ImpIO.getInstream strm
-        |   getInstream'(instr as ref(Direct{descr, buffer, bufp, buflimit, name})) =
-            let
-                (* We have to wrap the stream at this point and pass it the
-                   remains of the buffer. *)
-                val unprocessed =
-                    if !buflimit < 0
-                    then ""
-                    else CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
-                val strm = wrapInFileDescr(descr, name, unprocessed)
-            in
-                instr := Underlying(ImpIO.mkInstream strm);
-                strm
-            end
-    in
-        val getInstream = protect getInstream'
-    end
-
-    local
-        fun setInstream' s (ref(Underlying strm)) = ImpIO.setInstream(strm, s)
-        |   setInstream' s (instr as ref(Direct _)) =
-                (* Should we close the existing stream or just discard it?
-                   We can't have previously called getInstream because that
-                   would have turned the "Direct" into an "Underlying" so
-                   there can't be any other reference to this stream.
-                   Leave it for the moment. *)
-                instr := Underlying(ImpIO.mkInstream s)
-    in
-        fun setInstream(r, s) = protect (setInstream' s) r
-    end
-    
-
-    local
-        (* Read the next natural unit of the stream. *)
-        fun input'(ref(Underlying strm)) = ImpIO.input strm
-        |   input'(ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
-            if !buflimit = 0
-            then (* Last read returned end-of-file.  Clear the EOF state once
-                    we return this empty string. *)
-               (buflimit := ~1; "")
-            else 
-                (
-                (* If we have exhausted the buffer or never read before we
-                   have to try reading now. *)
-                if !bufp >= !buflimit
-                then fillBuffer strm else ();
-                if !buflimit = 0 then
-                    (* Now reached eof. Since we're returning an empty string we
-                       need to set buflimit to ~1 to indicate that we should try
-                       reading again. *)
-                    (buflimit := ~1; "")
-                else
-                let
-                    (* Return the rest of the buffer. *)
-                    val resString =
-                        CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
-                in
-                    bufp := !buflimit;
-                    resString
-                end
-                )
-    in
-        val input = protect input'
-    end
-
-    local
-        fun input1'(ref(Underlying strm)) = ImpIO.input1 strm
-        |   input1'(ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
-            if !buflimit = 0
-            then (* Last read returned end-of-file.  Clear the EOF state once
-                    we return NONE. *)
-                (buflimit := ~1; NONE)
-            else
-                (
-                (* If we have exhausted the buffer or never read before we
-                   have to try reading now. *)
-                if !bufp >= !buflimit
-                then fillBuffer strm else ();
-                if !buflimit = 0
-                then (* We must only return a single end-of-file for this read.
-                        We set the limit to ~1 so that we will read again. *)
-                    (buflimit := ~1; NONE)
-                else
-                let
-                    val resCh = CharArray.sub(buffer, !bufp)
-                in
-                    bufp := !bufp + 1;
-                    SOME resCh
-                end
-                )
-    in
-        val input1 = protect input1'
-    end
-
-    local
-        fun inputN' n (ref(Underlying strm)) = ImpIO.inputN(strm, n)
-        |   inputN' n (ref(Direct(strm as {buffer, bufp, buflimit, ...}))) =
-            if n < 0 orelse n > CharVector.maxLen
-            then raise Size
-            else if n = 0
-            then "" (* Return the empty string without blocking *)
-            else if !buflimit = 0
-            then (* Last read returned end-of-file.  Clear the EOF state once
-                    we return this empty string. *)
-                (buflimit := ~1; "")
-            else 
-            let
-                fun readN toRead =
-                    if !bufp + toRead <= !buflimit
-                    then (* Can satisfy the request from the buffer. *)
-                    let
-                        val resString =
-                            CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME toRead));
-                    in
-                        bufp := !bufp + toRead;
-                        [resString]
-                    end
-                    else
-                    let
-                        val available =
-                            if !buflimit < 0 then 0 else !buflimit - !bufp
-                        val resString =
-                            CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME available))
-                    in
-                        fillBuffer strm;
-                        if !buflimit = 0
-                        then (* Reached eof - return what we have. *)
-                            [resString]
-                        else resString :: readN (toRead - available)
-                    end
-                 val result = concat(readN n)
-            in
-                (* If we reached EOF without reading anything we clear the EOF
-                   indicator.  Otherwise we leave it.  That way we always return
-                   a single null string for each eof. *)
-                if n <> 0 andalso size result = 0
-                then buflimit := ~1
-                else ();
-                result
-            end
-    in
-        fun inputN(r, n) = protect (inputN' n) r
-    end
-
-
-    local
-        fun inputAll'(ref(Underlying strm)) = ImpIO.inputAll strm
-        |   inputAll'(ref(Direct({buffer, bufp, buflimit, descr, name, ...}))) =
-            if !buflimit = 0
-            (* Last read returned an empty buffer.  Clear the EOF state once
-               we return this empty string. *)
-            then (buflimit := ~1; "")
-            else
-            let
-                val soFar =
-                    if !buflimit < 0
-                    then ""
-                    else CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)));
-    
-                (* Find out how much we have available and try reading
-                   a vector of that size.  It may get less than the whole
-                   file so we have to keep trying. *)
-                fun readAll() =
-                let
-                    (* The call to sys_avail can raise an exception if the file is a
-                       special device e.g. in the /proc filing system on Linux. *)
-                    val charsAvailable = sys_avail descr handle OS.SysErr _ => 0
-                    (* If it's less than the blocksize get a block.  This way we
-                       always get a reasonable amount if "avail" is giving us a
-                       small amount. *)
-                    val toRead = Int.max(charsAvailable, CharArray.length buffer)
-                    val readRest =
-                        sys_read_string(descr, toRead)
-                            handle exn => raise mapToIo(exn, name, "TextIO.inputAll")
-                in
-                    if readRest = ""
-                    then [""] (* Reached eof. *)
-                    else readRest :: readAll()
-                end
-                (* Put it all together. *)
-                val result = concat(soFar :: readAll())
-            in
-                bufp := 0; (* The buffer is now empty. *)
-                (* If we are returning a null string then we clear the eof
-                   indicator. *)
-                if size result = 0
-                then buflimit := ~1
-                else buflimit := 0; (* We're at eof. *)
-                result
-            end
-    in
-        val inputAll = protect inputAll'
-    end
-
-    local
-    fun canInput' n (ref(Underlying strm)) = ImpIO.canInput(strm, n)
-    |   canInput' n (ref(Direct{bufp, buflimit, descr, name, buffer, ...})) =
-        if n < 0 orelse n > CharVector.maxLen
-        then raise Size
-        else
+        (* This requires access to the underlying representation in order to be
+           able to lock the stream while reading the line.  This ensures that
+           if multiple threads are reading lines from a stream each thread
+           will get a complete line. *)
+        fun inputLine' fStream =
         let
-            val available =
-                if !buflimit < 0 then 0 else !buflimit - !bufp
-        in
-            if available >= n then SOME n (* Sufficient in the buffer. *)
-            else if !buflimit = 0 then SOME 0 (* At EOF. *)
-            else (* Try reading ahead. *)
-                (
-                (* Copy the unused data so it is at the start of the buffer. *)
-                if !bufp = 0 orelse !buflimit < 0 then () (* Nothing in the buffer. *)
-                else if !bufp = !buflimit (* Nothing left in the buffer. *)
-                then buflimit := ~1
-                else
-                    (
-                    CharArraySlice.copy{src = CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)),
-                                    dst = buffer, di = 0};
-                    buflimit := !buflimit - !bufp
-                    );
-                bufp := 0;
-                (* Try reading ahead into the rest of the buffer. *)
-                if (sys_can_input descr > 0)
-                        handle exn => raise mapToIo(exn, name, "TextIO.canInput")
-                then (* We can read ahead without blocking.
-                        How should we implement this?  We are supposed to
-                        try reading ahead to see whether we actually have
-                        n bytes available.  What if n-available > length buffer?
-                        The definition says that this should use readVecNB to
-                        try to read the rest.  There's no guarantee that this
-                        will return more than the blocksize anyway. *)
-                let
-                    val Array(length, addr) = buffer
-                    val inBuffer = if !buflimit < 0 then 0 else !buflimit;
-                    val inBuffW = Word.fromInt inBuffer
-                    val haveRead =
-                        sys_read_text(descr, (addr, inBuffW, length-inBuffW))
-                            handle exn => raise mapToIo(exn, name, "TextIO.canInput")
-                in
-                    buflimit := inBuffer + haveRead;
-                    SOME(Int.min(n, !buflimit))
-                end
-                else if available = 0
-                then NONE (* Nothing in the buffer and can't read ahead. *)
-                else SOME available (* Just what's in the buffer. *)
-                )
-        end
-    in
-        fun canInput(r, n) = protect (canInput' n) r
-    end
-
-    local
-        fun closeIn'(ref(Underlying strm)) = ImpIO.closeIn strm
-        |   closeIn'(ref(Direct{descr, ...})) =
-            (
-                (* Do we need to do something to get the right effect with
-                   getInstream? *)
-                sys_close(descr)
-            )
-    in
-        val closeIn = protect closeIn'
-    end
-
-    local
-        fun endOfStream'(ref(Underlying strm)) = ImpIO.endOfStream strm
-        |   endOfStream'(ref(Direct(strm as {buflimit, bufp, ...}))) =
-                (
-                (* If we have never read before or we have exhausted the
-                   input we have to read now. *)
-                if !bufp >= !buflimit andalso !buflimit <> 0
-                then fillBuffer strm else ();
-                (* At eof if the buffer is now empty. *)
-                !buflimit = 0
-                )
-    in
-        val endOfStream = protect endOfStream'
-    end
-
-    local
-    fun inputLine' (ref(Underlying strm)) =
-        let
-            val f = ImpIO.getInstream strm
+            val f = ! fStream
         in
             case StreamIO.inputLine f of
                 NONE =>
@@ -796,73 +365,14 @@ structure TextIO :> TEXT_IO = struct
                            temporary EOF. *)
                         val (_, f') = StreamIO.input f
                     in
-                        ImpIO.setInstream(strm, f');
+                        fStream := f';
                         NONE
                     end
-            |   SOME (s, f') => ( ImpIO.setInstream(strm, f'); SOME s )
-        end
-    |  inputLine' (ref(Direct(strm as {buflimit, buffer, bufp, ...}))) =
-        if !buflimit = 0 then (buflimit := ~1; NONE) (* Already at EOF. *)
-        else
-        let
-            fun newlinePos i =
-                if i = !buflimit then !buflimit+1
-                else if CharArray.sub(buffer, i) = #"\n"
-                then i+1 (* Return characters including newline. *)
-                else newlinePos (i+1)
-            fun readToNL haveRead =
-                if ! buflimit = 0
-                then (* At EOF.  The definition says that we should add
-                        a newline if the file doesn't end with one and
-                        only return NONE if we were already at EOF. *)
-                    if haveRead then ["\n"] else [""]
-                else
-                let
-                    val nlPos = newlinePos (!bufp)
-                in
-                    if nlPos <= !buflimit
-                    then (* Newline in the buffer - extract up to it.*)
-                    let
-                        val resString =
-                            CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(nlPos - !bufp)))
-                    in
-                        bufp := nlPos;
-                        [resString]
-                    end
-                    else (* No newline in the buffer. *)
-                    let
-                        val resString =
-                            CharArraySlice.vector(CharArraySlice.slice(buffer, !bufp, SOME(!buflimit - !bufp)))
-                    in
-                        fillBuffer strm;
-                        resString :: readToNL true
-                    end
-                end
-            val _ = if !bufp >= !buflimit then fillBuffer strm else ();
-            val result = concat(readToNL false)
-        in
-            if size result = 0 (* I think the effect of this is that we only clear a temporary EOF after we
-                                  have returned NONE and not if we have returned a string with a newline appended. *)
-            then ( buflimit := ~1; NONE )
-            else SOME result
+            |   SOME (s, f') => ( fStream := f'; SOME s )
         end
     in
-        val inputLine = protect inputLine'
+        fun inputLine s = ImpIO.protect s inputLine'
     end
-
-    local
-        fun lookahead' (ref(Underlying strm)) = ImpIO.lookahead strm
-        |   lookahead' (ref(Direct(strm as {buflimit, buffer, bufp, ...}))) =
-            (
-            if !bufp >= ! buflimit andalso !buflimit <> 0
-            then fillBuffer strm else ();
-            if !buflimit = 0 then NONE (* EOF *)
-            else SOME(CharArray.sub(buffer, !bufp))
-            )
-    in
-        val lookahead = protect lookahead'
-    end
-
 
     fun outputSubstr(f, s) = StreamIO.outputSubstr(getOutstream f, s)
 
@@ -916,7 +426,7 @@ structure TextIO :> TEXT_IO = struct
             }
         val streamIo = StreamIO.mkInstream(textPrimRd, "")
     in
-        InStream(ref(Underlying(ImpIO.mkInstream streamIo)), mutex())
+        ImpIO.mkInstream streamIo
     end
 
     fun scanStream scanFn strm =
@@ -931,16 +441,6 @@ structure TextIO :> TEXT_IO = struct
                 SOME v
             )
                    
-    end
-
-    local
-        open PolyML
-        fun prettyIn _     _ (InStream(ref(Direct{ name, ... }), _)) =
-                PolyML.PrettyString(String.concat["Instream-\"", String.toString name, "\""])
-        |   prettyIn depth _ (InStream(ref(Underlying s), _)) =
-                PolyML.prettyRepresentation(s, depth)
-    in
-        val () = addPrettyPrinter prettyIn
     end
 end;
 

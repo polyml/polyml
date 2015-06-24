@@ -460,7 +460,9 @@ struct
        requires either a separate thread or some way of registering
        a function to be called to check the list.  *)
     val ostreamLock = Thread.Mutex.mutex()
-    val outputStreamList: outstream list ref = ref nil;
+    (* Use a no-overwrite ref for the list of streams.  This ensures that
+       the ref will not be overwritten if we load a saved state. *)
+    val outputStreamList: outstream list ref = LibrarySupport.noOverwriteRef nil;
 
     fun protectOut f (outs as OutStream{locker, ...}) = LibraryIOSupport.protect locker f outs
 
@@ -719,29 +721,8 @@ struct
            being nil. *)
             List.foldl (fn (s, ()) => closeOut s handle _ => ()) ()
                 (! outputStreamList)
-        (* In addition, discard any unwritten data in open streams.
-           If we have called PolyML.export with unwritten data that will still be
-           there whenever the exported function is run so we need to discard it. 
-           This issue really applies only to stdOut since stdErr is normally
-           unbuffered and other streams will generate an exception if we try to
-           write. *)
-        fun discardAll () =
-            List.app (fn(OutStream{bufp, ...}) => bufp := 0) (! outputStreamList)
-        (* When we load a saved state global variables are overwritten.  We need
-           to preserve the outputStreamList across the call.  We also flush the
-           buffers before the call and discard any output that had been buffered
-           in the saved state.
-           This is a bit of a mess and probably needs to be changed. *)
-        fun doOnLoad doLoad =
-        let
-            val savedList = ! outputStreamList
-        in
-            List.app flushOut savedList;
-            doLoad();
-            outputStreamList := savedList;
-            discardAll()
-        end
-        fun doOnEntry () = (discardAll(); PolyML.onLoad doOnLoad; OS.Process.atExit closeAll)
+
+        fun doOnEntry () = OS.Process.atExit closeAll
     in
         val () = PolyML.onEntry doOnEntry;
         val () = doOnEntry() (* Set it up for this session as well. *)

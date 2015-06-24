@@ -1,11 +1,10 @@
 (*
     Title:      Standard Basis Library: ImperativeIO functor
-    Copyright   David C.J. Matthews 2000
+    Copyright   David C.J. Matthews 2000, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,23 +16,15 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-(* G&R 2004 status: Done.  Added where type constraints to result signature. *)
-functor ImperativeIO (
+(* This is also used in TextIO.  We need "protect". *)
+functor BasicImperativeIO (
     structure StreamIO : STREAM_IO
     structure Vector : MONO_VECTOR
     structure Array : MONO_ARRAY
     sharing type StreamIO.elem = Vector.elem = Array.elem
     sharing type StreamIO.vector = Vector.vector = Array.vector
-) : IMPERATIVE_IO
-        where type StreamIO.elem = StreamIO.elem
-        where type StreamIO.vector = StreamIO.vector
-        where type StreamIO.instream = StreamIO.instream
-        where type StreamIO.outstream = StreamIO.outstream
-        where type StreamIO.out_pos = StreamIO.out_pos
-        where type StreamIO.reader = StreamIO.reader
-        where type StreamIO.writer = StreamIO.writer
-        where type StreamIO.pos = StreamIO.pos
-        =
+) (* No signature on the result *)
+=
 struct
 
     structure StreamIO = StreamIO
@@ -55,8 +46,13 @@ struct
        i.e. '!' returns either the previous value or the current one and
        not some intermediate value. *)
 
+    (* Use no-overwrite refs for imperative streams.  This is really only needed for
+       stdIn to make sure that when we call PolyML.SaveState.loadState we don't
+       overwrite any unread input by the contents of the buffer when saveState
+       was called. *)
+
     fun mkInstream (s : StreamIO.instream) : instream =
-        InStream{fStream = ref s, lock = Thread.Mutex.mutex()}
+        InStream{fStream = LibrarySupport.noOverwriteRef s, lock = Thread.Mutex.mutex()}
         
     fun protect (InStream{fStream, lock}) f =
         LibraryIOSupport.protect lock f fStream
@@ -128,7 +124,7 @@ struct
     (* These are simply wrappers. *)
 
     fun mkOutstream (s : StreamIO.outstream) : outstream =
-        OutStream{fStream = ref s}
+        OutStream{fStream = LibrarySupport.noOverwriteRef s}
 
     fun getOutstream(OutStream{fStream = ref s}) = s
     and setOutstream(OutStream{fStream}, s) = fStream := s
@@ -153,3 +149,23 @@ struct
         val () = addPrettyPrinter prettyOut
     end
 end;
+
+(* General exported version with final signature. *)
+functor ImperativeIO (
+    structure StreamIO : STREAM_IO
+    structure Vector : MONO_VECTOR
+    structure Array : MONO_ARRAY
+    sharing type StreamIO.elem = Vector.elem = Array.elem
+    sharing type StreamIO.vector = Vector.vector = Array.vector
+) : IMPERATIVE_IO
+        where type StreamIO.elem = StreamIO.elem
+        where type StreamIO.vector = StreamIO.vector
+        where type StreamIO.instream = StreamIO.instream
+        where type StreamIO.outstream = StreamIO.outstream
+        where type StreamIO.out_pos = StreamIO.out_pos
+        where type StreamIO.reader = StreamIO.reader
+        where type StreamIO.writer = StreamIO.writer
+        where type StreamIO.pos = StreamIO.pos
+        =
+    BasicImperativeIO(structure StreamIO = StreamIO and Vector = Vector and Array = Array);
+

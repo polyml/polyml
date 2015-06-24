@@ -153,6 +153,7 @@ PolyML.Compiler.forgetFunctor "BasicStreamIO";
 PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";
 PolyML.Compiler.forgetFunctor "VectorSliceOperations";
+PolyML.Compiler.forgetFunctor "BasicImperativeIO";
 
 (* Now we've created the new name space we must use PolyML.make/use. N.B. Unlike Bootstrap.use
    these don't automatically look at the -I option. *)
