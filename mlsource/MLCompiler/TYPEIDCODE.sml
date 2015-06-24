@@ -187,6 +187,7 @@ struct
                they don't have the right form the optimiser will complain.
                If we're only using type values for equality type variables the default
                print function will be used in polymorphic functions so must print "?". *)
+            val codePrintDefault = mkProc(codePrettyString "?", 1, "print-default", [], 0)
             val errorFunction2 = mkProc(CodeZero, 2, "errorCode2", [], 0)
             val codeFn = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
@@ -882,8 +883,10 @@ struct
     (* Create a printer function for a datatype when the datatype is declared.
        We don't have to treat mutually recursive datatypes specially because
        this is called after the type IDs have been created. *)
-    fun printerForDatatype(TypeConstrSet(TypeConstrs{name, typeVars=argTypes, ...}, vConstrs), level, typeVarMap) =
+    fun printerForDatatype(TypeConstrSet(typeConstr, vConstrs), level, typeVarMap) =
     let
+        val name = tcName typeConstr
+        val argTypes = tcTypeVars typeConstr
         val argCode = mkInd(0, arg1)
         and depthCode = mkInd(1, arg1)
         val nLevel = newLevel level
@@ -910,95 +913,27 @@ struct
                 end
 
         (* If we have an expression as the argument we parenthesise it unless it is
-           a simple string, a tuple, a record or a list. *)
-(*         fun parenthesise p =
+           a simple string, a tuple, a record or a list.
+           A reference to this function is copied into the code.
+           N.B.  This code is also in InitialBasis to handle "ref" and "option". *)
+        fun parenthesise p =
+            if isPrettyBlock p
+            then
             let
-                val test =
-                    case p of
-                        PrettyBlock(_, _, _, items) =>
-                        (
-                            case items of
-                                PrettyString first :: tl =>
-                                    not(null tl) andalso
-                                        first <> "(" andalso first <> "{" andalso  first <> "["
-                            |   _ => false   
-                        )
-                    |   _ => false
+                val (_, _, _, items) = projPrettyBlock p
             in
-                if test
-                then PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), p, PrettyBreak(0, 0), PrettyString ")" ])
-                else p
+                case items of
+                    [ _ ] => p (* Just one item.  No need for parentheses. *)
+                |   [] => p (* Shouldn't generally happen. *)
+                |   first :: _ =>
+                    if isPrettyString first
+                        andalso (case projPrettyString first of
+                                    "(" => true | "{" => true | "[" => true | _ => false)
+                    then p (* Already parenthesised. *)
+                    else
+                        PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), p, PrettyBreak(0, 0), PrettyString ")" ])
             end
-*)
-
-        local
-            fun callIo function args =
-                mkEval (rtsFunction function, args)
-
-            fun eqStr (arg, str) =
-                callIo POLY_SYS_word_eq [arg, mkConst(toMachineWord str)]
-
-            fun isNotNull arg =
-                callIo POLY_SYS_not_bool [callIo POLY_SYS_is_short [arg]]
-
-            fun testTag(arg, tagV) =
-            (* Test the tag in the first word of the datatype. *)
-                mkTagTest(mkInd(0, arg), tagV, maxPrettyTag)
-
-            fun listHd x = mkVarField(0, x)
-            and listTl x = mkVarField(1, x)
-        in
-            val parenCode =
-                mkProc(
-                    mkIf(
-                        testTag(mkLoadArgument 0, tagPrettyBlock),
-                        (* then *)
-                        mkEnv(
-                            [mkDec(0, mkVarField(4, mkLoadArgument 0))], (* items *)
-                            mkIf
-                            (
-                                (* not(null items) andalso not(null(tl items)) andalso
-                                   not (isPrettyString(hd items) andalso bracket) *)
-                                mkCand(
-                                    isNotNull(mkLoadLocal 0),
-                                    mkCand(
-                                        isNotNull (listTl(mkLoadLocal 0)),
-                                        callIo POLY_SYS_not_bool
-                                        [
-                                            mkCand(testTag(listHd(mkLoadLocal 0), tagPrettyString),
-                                            mkEnv(
-                                                [mkDec(1, mkVarField(1, listHd(mkLoadLocal 0)))],
-                                                mkCor(eqStr(mkLoadLocal 1, "("), mkCor(eqStr(mkLoadLocal 1, "{"), eqStr(mkLoadLocal 1, "[")))
-                                                )
-                                            )
-                                        ]
-                                    )
-                                ),
-                                (* then: Parenthesise the argument. *)
-                                codePrettyBlock(
-                                    3, true, [],
-                                    mkDatatype [
-                                        codePrettyString "(",
-                                        mkDatatype [
-                                            codePrettyBreak(0, 0),
-                                            mkDatatype [
-                                                mkLoadArgument 0,
-                                                mkDatatype [
-                                                    codePrettyBreak(0, 0),
-                                                    mkDatatype [codePrettyString ")", CodeZero ]
-                                                ]
-                                            ]
-                                        ]
-                                    ]
-                                ),
-                                (* else *) mkLoadArgument 0
-                            )
-                        ),
-                        (* else *) mkLoadArgument 0
-                    ),
-                1, "parenthesise", [], 2)
-        end
-
+            else p (* String or Break *)
 
         fun printerForConstructors
                 (Value{name, typeOf, access, class = Constructor{nullary, ...}, locations, ...} :: rest) =
@@ -1041,7 +976,7 @@ struct
                                     nameCode,
                                     codePrettyBreak (1, 0),
                                     (* Print the argument and parenthesise it if necessary. *)
-                                    mkEval(parenCode,
+                                    mkEval(mkConst(toMachineWord parenthesise),
                                         [
                                             mkEval(
                                                 printerForType(typeOfArg, innerLevel, newTypeVarMap),
@@ -1247,23 +1182,13 @@ struct
 
         (* Create the print functions and set the printer code for each typeId. *)
         local
-
-            fun setPrinter{typeConstr as TypeConstrSet(TypeConstrs{identifier, typeVars, ...}, _), ...} =
-            let
-                val printCode =
-                    if makePrintFunction
-                    then printerForDatatype(typeConstr, level, typeVarMap)
-                    else if null typeVars
-                    then codePrintDefault
-                    else mkProc(codePrintDefault, List.length typeVars, "print-printdefault", [], 0)
-            in
+            fun setPrinter{typeConstr=tc, ...} =
                 mkNullDec(
                     mkEval(
                         rtsFunction POLY_SYS_assign_word,
-                        [TypeValue.extractPrinter(codeId(identifier, level)),
-                                  CodeZero, printCode]
+                        [TypeValue.extractPrinter(codeId(tcIdentifier(tsConstr tc), level)),
+                                  CodeZero, printerForDatatype(tc, level, typeVarMap)]
                         ))
-            end
         in
             val printerCode = List.map setPrinter typeDatalist
         end
@@ -1296,7 +1221,7 @@ struct
         val printCode =
             mkEval(
                 rtsFunction POLY_SYS_alloc_store,
-                [ mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrettyString "?"])
+                [ mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), codePrintDefault])
     in
         createTypeValue{
             eqCode = alwaysTrue, printCode = printCode,
