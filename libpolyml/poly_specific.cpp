@@ -263,7 +263,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
         Handle mark = taskData->saveVec.mark();
 #ifdef HAVE_WINDOWS_H
         Handle sizeValue = 
-            Make_arb_from_pair(taskData, stats->psTimers[k].dwHighDateTime, stats->psTimers[k].dwLowDateTime);
+            Make_arb_from_32bit_pair(taskData, stats->psTimers[k].dwHighDateTime, stats->psTimers[k].dwLowDateTime);
 #else
         Handle sizeValue =
             Make_arb_from_pair_scaled(taskData, stats->psTimers[k].tv_sec, stats->psTimers[k].tv_usec, 1000000);

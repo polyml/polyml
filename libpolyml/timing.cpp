@@ -165,7 +165,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ft;
             GetSystemTimeAsFileTime(&ft);
-            return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
+            return Make_arb_from_32bit_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)
@@ -312,7 +312,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             FILETIME ut, ct, et, kt;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
-            return Make_arb_from_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
+            return Make_arb_from_32bit_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
 #else
             struct rusage rusage;
             if (getrusage(RUSAGE_SELF, &rusage) != 0)
@@ -328,7 +328,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             FILETIME ct, et, kt, ut;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
-            return Make_arb_from_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
+            return Make_arb_from_32bit_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
 #else
             struct rusage rusage;
             if (getrusage(RUSAGE_SELF, &rusage) != 0)
@@ -347,7 +347,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             FILETIME ft;
             GetSystemTimeAsFileTime(&ft);
             subFiletimes(&ft, &startTime);
-            return Make_arb_from_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
+            return Make_arb_from_32bit_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
 #else
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)

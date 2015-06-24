@@ -219,51 +219,6 @@ unsigned short get_C_ushort(TaskData *taskData, PolyWord number)
     return 0;
 }
 
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-/* Get a arbitrary precision value as a pair of words.
-   At present this is used to extract a 64-bit quantity as two
-   words.  Only used in Windows code.  */
-void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo)
-{
-    if ( IS_INT(number) )
-    {
-        *pLo = (unsigned long) UNTAGGED(number);
-#if (SIZEOF_VOIDP > SIZEOF_LONG)
-        *pHi = (unsigned long) (UNTAGGED(number) >> sizeof(unsigned long)*8);
-#else
-        *pHi = 0;
-#endif
-        return;
-    }
-    if (OBJ_IS_NEGATIVE(GetLengthWord(number))) raise_exception0(taskData, EXC_size);
-
-#ifdef USE_GMP
-    // This code won't work with GMP but it's only relevant to Windows.
-#error("get_C_pair is not implemented for GMP")
-#else    
-    POLYUNSIGNED length = get_length(number);
-#endif
-    POLYUNSIGNED i;
-    unsigned long c;
-    POLYOBJPTR ptr = number.AsObjPtr();
-
-    if ( length > 2 * sizeof(unsigned long) ) raise_exception0(taskData, EXC_size);
-
-    /* Low-order word. */
-    if (length > sizeof(unsigned long)) i = sizeof(unsigned long); else i = length;
-    c = 0;
-    while (i--) c = (c << 8) | ((byte *) ptr)[i];
-    *pLo = c;
-
-    /* High-order word. */
-    i = length;
-    c = 0;
-    while (i-- > sizeof(unsigned long)) c = (c << 8) | ((byte *) ptr)[i];
-    *pHi = c;
-}
-#endif
-
-
 #if (SIZEOF_LONG == SIZEOF_VOIDP)
 unsigned get_C_unsigned(TaskData *taskData, PolyWord number)
 {
@@ -488,59 +443,41 @@ Handle Make_arbitrary_precision(TaskData *taskData, long long val)
         if (val == -val)
         {
             val = -(val + 1LL);
-            pos = Make_arb_from_pair(taskData,
-                                     (unsigned)(val >> (sizeof(unsigned) * 8)),
-                                     (unsigned)val);
+            pos = Make_arb_from_32bit_pair(taskData,
+                                     (unsigned long)(val >> (sizeof(unsigned long) * 8)),
+                                     (unsigned long)val);
             Handle one = Make_arbitrary_precision(taskData, 1);
             return neg_longc(taskData, add_longc(taskData, pos, one));
         }
         val = -val;
-        pos = Make_arb_from_pair(taskData,
-                                 (unsigned)(val >> (sizeof(unsigned) * 8)),
-                                 (unsigned)val);
+        pos = Make_arb_from_32bit_pair(taskData,
+                                 (unsigned long)(val >> (sizeof(unsigned long) * 8)),
+                                 (unsigned long)val);
         return neg_longc(taskData, pos);
     }
-    return Make_arb_from_pair(taskData,
-                              (unsigned)(val >> (sizeof(unsigned) * 8)),
-                              (unsigned)val);
+    return Make_arb_from_32bit_pair(taskData,
+                              (unsigned long)(val >> (sizeof(unsigned long) * 8)),
+                              (unsigned long)val);
 }
 
 Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long uval)
 {
-    return Make_arb_from_pair(taskData,
-                              (unsigned)(uval >> (sizeof(unsigned) * 8)),
-                              (unsigned)uval);
+    return Make_arb_from_32bit_pair(taskData,
+                              (unsigned long)(uval >> (sizeof(unsigned long) * 8)),
+                              (unsigned long)uval);
 }
 #endif
 #endif
 
 /* Creates an arbitrary precision number from two words.
    At present this is used for 64-bit quantities. */
-Handle Make_arb_from_pair(TaskData *taskData, unsigned hi, unsigned lo)
+Handle Make_arb_from_32bit_pair(TaskData *taskData, unsigned long hi, unsigned long lo)
 {
-    /* If the high word is zero we can use either the tagged short
-       form or a single word. */
-    if (hi == 0) return Make_arbitrary_precision(taskData, lo);
-    int words = 2;
-    // If the high order byte is non-zero add an extra word for the sign.
-    if ((hi >> ((sizeof(hi)-1)*8)) != 0) words++;
-
-    Handle y = alloc_and_save(taskData, words, F_BYTE_OBJ);
-
-    byte *v = DEREFBYTEHANDLE(y);
-    int i;
-    for (i = 0; i < 4/* Get a 32 bit value. */; i++)
-    {
-        v[i] = lo & 0xff;
-        lo >>= 8;
-    }
-    for (; hi != 0 && i < 8; i++)
-    {
-        v[i] = hi & 0xff;
-        hi >>= 8;
-    }
-
-    return y;
+    Handle hHi = Make_arbitrary_precision(taskData, hi);
+    Handle hLo = Make_arbitrary_precision(taskData, lo);
+    Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
+    Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
+    return add_longc(taskData, mult_longc(taskData, hHi, twoTo32), hLo);
 }
 
 /* Returns hi*scale+lo as an arbitrary precision number.  Currently used
@@ -1210,6 +1147,20 @@ Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
     DEREFHANDLE(result)->Set(0, DEREFWORDHANDLE(divHandle));
     DEREFHANDLE(result)->Set(1, DEREFWORDHANDLE(remHandle));
     return taskData->saveVec.push(TAGGED(0));
+}
+
+// Get a arbitrary precision value as a pair of words.
+// Used only in Windows code, largely for FILETIME values.
+// The argument must be an unsigned 64-bit quantity.
+void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo)
+{
+    Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
+    Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
+    Handle numHandle = taskData->saveVec.push(number);
+    Handle highPart, lowPart;
+    quotRem(taskData, twoTo32, numHandle, lowPart, highPart);
+    *pLo = get_C_ulong(taskData, lowPart->Word());
+    *pHi = get_C_ulong(taskData, highPart->Word());
 }
 
 /* compare_unsigned is passed LONG integers only */

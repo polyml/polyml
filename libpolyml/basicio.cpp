@@ -882,12 +882,14 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
             {
             case 0: /* Check the time out. */
                 {
+                    Handle hSave = taskData->saveVec.mark();
                     /* The time argument is an absolute time. */
                     FILETIME ftTime, ftNow;
                     /* Get the file time. */
                     get_C_pair(taskData, DEREFHANDLE(args)->Get(2),
                         &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
                     GetSystemTimeAsFileTime(&ftNow);
+                    taskData->saveVec.reset(hSave);
                     /* If the timeout time is earlier than the current time
                        we must return, otherwise we block. */
                     if (CompareFileTime(&ftTime, &ftNow) <= 0)
@@ -1301,7 +1303,7 @@ Handle modTime(TaskData *taskData, Handle filename)
         if (hFind == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
-        return Make_arb_from_pair(taskData, wFind.ftLastWriteTime.dwHighDateTime,
+        return Make_arb_from_32bit_pair(taskData, wFind.ftLastWriteTime.dwHighDateTime,
                                   wFind.ftLastWriteTime.dwLowDateTime);
     }
 #else
@@ -1334,7 +1336,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
         if (hFind == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
-        return Make_arb_from_pair(taskData, wFind.nFileSizeHigh, wFind.nFileSizeLow);
+        return Make_arb_from_32bit_pair(taskData, wFind.nFileSizeHigh, wFind.nFileSizeLow);
     }
 #else
     {

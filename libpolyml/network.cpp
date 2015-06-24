@@ -1525,11 +1525,13 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             {
             /* The time argument is an absolute time. */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
+            Handle hSave = taskData->saveVec.mark();
             FILETIME ftTime, ftNow;
             /* Get the file time. */
             get_C_pair(taskData, DEREFHANDLE(args)->Get(3),
                 &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
             GetSystemTimeAsFileTime(&ftNow);
+            taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (CompareFileTime(&ftTime, &ftNow) <= 0)
@@ -1537,6 +1539,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             /* else drop through and block. */
 #else /* Unix */
             struct timeval tv;
+            Handle hSave = taskData->saveVec.mark();
             /* We have a value in microseconds.  We need to split
                it into seconds and microseconds. */
             Handle hTime = SAVE(DEREFWORDHANDLE(args)->Get(3));
@@ -1545,6 +1548,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
                 get_C_ulong(taskData, DEREFWORDHANDLE(div_longc(taskData, hMillion, hTime)));
             unsigned long usecs =
                 get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
+            taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time
                we must return, otherwise we block. */
             if (gettimeofday(&tv, NULL) != 0)

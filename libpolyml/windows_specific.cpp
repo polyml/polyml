@@ -545,7 +545,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
                 raise_syscall(taskData, "FileTimeToLocalFileTime failed",
                         -(int)GetLastError());
-            return Make_arb_from_pair(taskData, ftLocal.dwHighDateTime,
+            return Make_arb_from_32bit_pair(taskData, ftLocal.dwHighDateTime,
                         ftLocal.dwLowDateTime);
         }
 
@@ -558,7 +558,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
                 raise_syscall(taskData, "LocalFileTimeToFileTime failed",
                         -(int)GetLastError());
-            return Make_arb_from_pair(taskData, ftUTC.dwHighDateTime,
+            return Make_arb_from_32bit_pair(taskData, ftUTC.dwHighDateTime,
                         ftUTC.dwLowDateTime);
         }
 
