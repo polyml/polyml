@@ -107,11 +107,6 @@ AC_SEARCH_LIBS([floor], [m])
 AC_CHECK_LIB(wsock32, main)
 AC_CHECK_LIB(gdi32, main)
 
-## Check for signed and unsigned integer types large enough
-## to hold pointer values
-AC_CHECK_TYPES([intptr_t],[],[AC_TYPE_INTPTR_T])
-AC_CHECK_TYPES([uintptr_t],[],[AC_TYPE_UINTPTR_T])
-
 ## External names on Win64.  They have no leading underscores as per
 ## the X64 ABI published by MS.  Earlier versions of GCC (anything
 ## prior to 4.5.0) were faulty.
@@ -119,7 +114,6 @@ LT_SYS_SYMBOL_USCORE
 if test x$sys_symbol_underscore = xyes; then
     AC_DEFINE(POLY_LINKAGE_PREFIX, [_], [Define prefix of external names])
 fi
-
 
 # Solaris needs -lsocket, -lnsl and -lrt
 AC_SEARCH_LIBS([gethostbyname], [nsl])
@@ -310,6 +304,14 @@ AM_CONDITIONAL([EXPMACHO], [test "$polyexport" = macho])
 # Checks for typedefs, structures, and compiler characteristics.
 AC_HEADER_STDBOOL
 AC_C_CONST
+AC_TYPE_INT16_T
+AC_TYPE_UINT16_T
+AC_TYPE_INT32_T
+AC_TYPE_UINT32_T
+AC_TYPE_INT64_T
+AC_TYPE_UINT64_T
+AC_TYPE_INTPTR_T
+AC_TYPE_UINTPTR_T
 AC_TYPE_UID_T
 AC_TYPE_MODE_T
 AC_TYPE_OFF_T
