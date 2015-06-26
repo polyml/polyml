@@ -536,7 +536,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
         POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-        int length = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(2));
+        unsigned length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
         int haveRead;
 #else
         size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
@@ -643,7 +643,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
     PolyWord base = DEREFWORDHANDLE(args)->Get(0);
     POLYUNSIGNED    offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    int length = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(2));
+    unsigned length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     int haveWritten;
 #else
     size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
