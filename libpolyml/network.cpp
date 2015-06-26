@@ -412,7 +412,7 @@ public:
 
 Handle Net_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
 TryAgain: // Used for various retries.
           // N.B.  If we call ThreadPause etc we may GC.  We MUST reload any handles so for
           // safety we always come back here.
@@ -964,8 +964,8 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
-            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
+            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
             unsigned int dontRoute = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, sent;
@@ -1014,8 +1014,8 @@ TryAgain: // Used for various retries.
             PolyStringObject * psAddr = (PolyStringObject *)args->WordP()->Get(1).AsObjPtr();
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
-            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
-            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
+            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int dontRoute = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(6));
             int flags = 0, sent;
@@ -1063,8 +1063,8 @@ TryAgain: // Used for various retries.
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
+            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
             unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, recvd;
@@ -1105,8 +1105,8 @@ TryAgain: // Used for various retries.
         {
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
-            unsigned int offset = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(2));
-            unsigned int length = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(3));
+            POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
+            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
             unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             int flags = 0, recvd;
@@ -1528,8 +1528,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             Handle hSave = taskData->saveVec.mark();
             FILETIME ftTime, ftNow;
             /* Get the file time. */
-            get_C_pair(taskData, DEREFHANDLE(args)->Get(3),
-                &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
+            getFileTimeFromArb(taskData, DEREFHANDLE(args)->Get(3), &ftTime);
             GetSystemTimeAsFileTime(&ftNow);
             taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time

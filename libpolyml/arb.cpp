@@ -2,15 +2,14 @@
     Title:      Arbitrary Precision Package.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Further modification Copyright 2010, 2012 David C. J. Matthews
+    Further modification Copyright 2010, 2012, 2015 David C. J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
 
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -131,7 +130,8 @@ static POLYUNSIGNED get_length(PolyWord x)
 }
 #endif
 
-POLYUNSIGNED get_C_ulong(TaskData *taskData, PolyWord number)
+// Return a uintptr_t value i.e. unsigned 32-bits on 32-bit architecture and 64-bits on 64-bit architecture.
+POLYUNSIGNED getPolyUnsigned(TaskData *taskData, PolyWord number)
 {
     if ( IS_INT(number) )
     {
@@ -163,7 +163,8 @@ POLYUNSIGNED get_C_ulong(TaskData *taskData, PolyWord number)
 }
 
 #define MAX_INT_PLUS1   ((POLYUNSIGNED)0x80 << ( (sizeof(PolyWord)-1) *8))
-POLYSIGNED get_C_long(TaskData *taskData, PolyWord number)
+// Return an intptr_t value i.e. signed 32-bits on 32-bit architecture and 64-bits on 64-bit architecture.
+POLYSIGNED getPolySigned(TaskData *taskData, PolyWord number)
 {
     if ( IS_INT(number) )
     {
@@ -354,7 +355,6 @@ static Handle make_canonical(TaskData *taskData, Handle x, int sign)
 #endif
 }
 
-
 Handle ArbitraryPrecionFromSigned(TaskData *taskData, POLYSIGNED val)
 /* Called from routines in the run-time system to generate an arbitrary
    precision integer from a word value. */
@@ -433,45 +433,38 @@ Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long uval)
     return ArbitraryPrecionFromUnsigned(taskData, uval);
 }
 #else
+// 32-bit implementation.
 Handle Make_arbitrary_precision(TaskData *taskData, long long val)
 {
-    if (val < 0)
-    {
-        Handle pos;
-
-        // Have to handle the most negative long long specially
-        if (val == -val)
-        {
-            val = -(val + 1LL);
-            pos = Make_arb_from_32bit_pair(taskData,
-                                     (unsigned long)(val >> (sizeof(unsigned long) * 8)),
-                                     (unsigned long)val);
-            Handle one = Make_arbitrary_precision(taskData, 1);
-            return neg_longc(taskData, add_longc(taskData, pos, one));
-        }
-        val = -val;
-        pos = Make_arb_from_32bit_pair(taskData,
-                                 (unsigned long)(val >> (sizeof(unsigned long) * 8)),
-                                 (unsigned long)val);
-        return neg_longc(taskData, pos);
-    }
-    return Make_arb_from_32bit_pair(taskData,
-                              (unsigned long)(val >> (sizeof(unsigned long) * 8)),
-                              (unsigned long)val);
+    if (val <= (long long)(MAXTAGGED) && val >= -((long long)(MAXTAGGED))-1) /* No overflow */
+        return taskData->saveVec.push(TAGGED((POLYSIGNED)val));
+    // Recursive call to handle the high-order part
+    Handle hi = Make_arbitrary_precision(taskData, val >> (sizeof(int32_t) * 8));
+    // The low-order part is treated as UNsigned.
+    Handle lo = Make_arbitrary_precision(taskData, (uint32_t)val);
+    Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
+    Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
+    return add_longc(taskData, mult_longc(taskData, hi, twoTo32), lo);
 }
 
 Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long uval)
 {
-    return Make_arb_from_32bit_pair(taskData,
-                              (unsigned long)(uval >> (sizeof(unsigned long) * 8)),
-                              (unsigned long)uval);
+    if (uval <= (unsigned long long)(MAXTAGGED))
+        return taskData->saveVec.push(TAGGED((POLYUNSIGNED)uval));
+    // Recursive call to handle the high-order part
+    Handle hi = Make_arbitrary_precision(taskData, uval >> (sizeof(uint32_t) * 8));
+    Handle lo = Make_arbitrary_precision(taskData, (uint32_t)uval);
+    Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
+    Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
+    return add_longc(taskData, mult_longc(taskData, hi, twoTo32), lo);
 }
 #endif
 #endif
 
-/* Creates an arbitrary precision number from two words.
-   At present this is used for 64-bit quantities. */
-Handle Make_arb_from_32bit_pair(TaskData *taskData, unsigned long hi, unsigned long lo)
+#if defined(_WIN32)
+// Creates an arbitrary precision number from two words.
+// Used only in Windows for FILETIME and file-size.
+Handle Make_arb_from_32bit_pair(TaskData *taskData, uint32_t hi, uint32_t lo)
 {
     Handle hHi = Make_arbitrary_precision(taskData, hi);
     Handle hLo = Make_arbitrary_precision(taskData, lo);
@@ -479,6 +472,13 @@ Handle Make_arb_from_32bit_pair(TaskData *taskData, unsigned long hi, unsigned l
     Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
     return add_longc(taskData, mult_longc(taskData, hHi, twoTo32), hLo);
 }
+
+// Convert a Windows FILETIME into an arbitrary precision integer
+Handle Make_arb_from_Filetime(TaskData *taskData, const FILETIME &ft)
+{
+    return Make_arb_from_32bit_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
+}
+#endif
 
 /* Returns hi*scale+lo as an arbitrary precision number.  Currently used
    for Unix time values where the time is returned as two words, a number
@@ -1149,19 +1149,20 @@ Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
     return taskData->saveVec.push(TAGGED(0));
 }
 
-// Get a arbitrary precision value as a pair of words.
-// Used only in Windows code, largely for FILETIME values.
-// The argument must be an unsigned 64-bit quantity.
-void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo)
+#if defined(_WIN32)
+// Return a FILETIME from an arbitrary precision number.  On both 32-bit and 64-bit Windows
+// this is a pair of 32-bit values.
+void getFileTimeFromArb(TaskData *taskData, PolyWord number, PFILETIME ft)
 {
     Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
     Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
     Handle numHandle = taskData->saveVec.push(number);
     Handle highPart, lowPart;
     quotRem(taskData, twoTo32, numHandle, lowPart, highPart);
-    *pLo = get_C_ulong(taskData, lowPart->Word());
-    *pHi = get_C_ulong(taskData, highPart->Word());
+    ft->dwLowDateTime = get_C_ulong(taskData, lowPart->Word());
+    ft->dwHighDateTime  = get_C_ulong(taskData, highPart->Word());
 }
+#endif
 
 /* compare_unsigned is passed LONG integers only */
 static int compare_unsigned(Handle x, Handle y)

@@ -4,10 +4,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
+    Further modification Copyright 2015 David C. J. Matthews
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -39,10 +40,12 @@ extern Handle Make_arbitrary_precision(TaskData *taskData, long long);
 extern Handle Make_arbitrary_precision(TaskData *taskData, unsigned long long);
 #endif
 
-extern Handle Make_arb_from_32bit_pair(TaskData *taskData, unsigned long hi, unsigned long lo);
+extern Handle Make_arb_from_32bit_pair(TaskData *taskData, uint32_t hi, uint32_t lo);
 extern Handle Make_arb_from_pair_scaled(TaskData *taskData, unsigned hi, unsigned lo, unsigned scale);
 
-void get_C_pair(TaskData *taskData, PolyWord number, unsigned long *pHi, unsigned long *pLo);
+#if defined(_WIN32)
+extern Handle Make_arb_from_Filetime(TaskData *taskData, const FILETIME &ft);
+#endif
 
 extern Handle add_longc(TaskData *taskData, Handle,Handle);
 extern Handle sub_longc(TaskData *taskData, Handle,Handle);
@@ -66,13 +69,24 @@ extern Handle int_to_word_c(TaskData *taskData, Handle x);
 extern Handle gcd_arbitrary(TaskData *taskData, Handle,Handle);
 extern Handle lcm_arbitrary(TaskData *taskData, Handle,Handle);
 
-extern POLYUNSIGNED     get_C_ulong(TaskData *taskData, PolyWord);
+extern int              compareLong(TaskData *taskData, Handle,Handle);
+
+// Return a uintptr_t/intptr_t value.
+extern POLYUNSIGNED     getPolyUnsigned(TaskData *taskData, PolyWord);
+extern POLYSIGNED       getPolySigned(TaskData *taskData, PolyWord);
+
+#define get_C_ulong     getPolyUnsigned
 extern unsigned short   get_C_ushort(TaskData *taskData, PolyWord);
 extern unsigned         get_C_unsigned(TaskData *taskData, PolyWord);
-extern POLYSIGNED       get_C_long(TaskData *taskData, PolyWord);
+
+#define get_C_long      getPolySigned
 extern short            get_C_short(TaskData *taskData, PolyWord);
 extern int              get_C_int(TaskData *taskData, PolyWord);
-extern int              compareLong(TaskData *taskData, Handle,Handle);
+
 extern double           get_C_real(TaskData *taskData, PolyWord x);
+
+#if defined(_WIN32)
+void getFileTimeFromArb(TaskData *taskData, PolyWord number, PFILETIME ft);
+#endif
 
 #endif

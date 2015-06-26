@@ -262,8 +262,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
     {
         Handle mark = taskData->saveVec.mark();
 #ifdef HAVE_WINDOWS_H
-        Handle sizeValue = 
-            Make_arb_from_32bit_pair(taskData, stats->psTimers[k].dwHighDateTime, stats->psTimers[k].dwLowDateTime);
+        Handle sizeValue = Make_arb_from_Filetime(taskData, stats->psTimers[k]);
 #else
         Handle sizeValue =
             Make_arb_from_pair_scaled(taskData, stats->psTimers[k].tv_sec, stats->psTimers[k].tv_usec, 1000000);
@@ -296,7 +295,7 @@ static Handle unpackStats(TaskData *taskData, const polystatistics *stats)
 
 Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 1:
@@ -385,7 +384,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
             unsigned index = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(0));
             if (index >= N_PS_USER)
                 raise_exception0(taskData, EXC_subscript);
-            POLYSIGNED value = get_C_long(taskData, DEREFHANDLE(args)->Get(1));
+            POLYSIGNED value = getPolySigned(taskData, DEREFHANDLE(args)->Get(1));
             globalStats.setUserCounter(index, value);
             Make_arbitrary_precision(taskData, 0);
         }
@@ -394,7 +393,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return globalStats.getLocalStatistics(taskData);
 
     case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
-        return globalStats.getRemoteStatistics(taskData, get_C_ulong(taskData, DEREFHANDLE(args)));
+        return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, DEREFHANDLE(args)));
 
     case 50: // GCD
         return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));

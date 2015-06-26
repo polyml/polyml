@@ -523,7 +523,7 @@ Handle CodeSegmentFlags(TaskData *taskData, Handle flags_handle, Handle addr_han
 Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle byte_no, Handle vector)
 {
     PolyWord value = DEREFHANDLE(value_handle);
-    POLYUNSIGNED  offset  = get_C_ulong(taskData, DEREFWORDHANDLE(byte_no));  /* SPF 31/10/93 */
+    POLYUNSIGNED  offset  = getPolyUnsigned(taskData, DEREFWORDHANDLE(byte_no));  /* SPF 31/10/93 */
     byte *pointer = DEREFBYTEHANDLE(vector);    
     byte v = (byte)UNTAGGED(value);
     pointer[offset] = v;
@@ -534,7 +534,7 @@ Handle assign_byte_long_c(TaskData *taskData, Handle value_handle, Handle byte_n
 Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle word_no, Handle vector)
 {
     PolyWord value      = DEREFHANDLE(value_handle);
-    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(word_no)); /* SPF 31/10/93 */
+    POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(word_no)); /* SPF 31/10/93 */
     PolyObject *pointer   = DEREFWORDHANDLE(vector);
     pointer->Set(offset, value);
     return taskData->saveVec.push(TAGGED(0));
@@ -545,12 +545,12 @@ Handle assign_word_long_c(TaskData *taskData, Handle value_handle, Handle word_n
 Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
-    POLYUNSIGNED src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
+    POLYUNSIGNED src_offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(src_offset_handle));
     byte *source = DEREFBYTEHANDLE(src_handle) + src_offset;
-    POLYUNSIGNED dest_offset = get_C_ulong(taskData, DEREFWORDHANDLE(dest_offset_handle));
+    POLYUNSIGNED dest_offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(dest_offset_handle));
     byte *destination = DEREFBYTEHANDLE(dest_handle);
     byte *dest = destination + dest_offset;
-    POLYUNSIGNED bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
+    POLYUNSIGNED bytes = getPolyUnsigned(taskData, DEREFWORDHANDLE(len));
     PolyObject *obj = DEREFHANDLE(dest_handle);
     ASSERT(obj->IsByteObject());
 
@@ -564,16 +564,16 @@ Handle move_bytes_long_c(TaskData *taskData, Handle len, Handle dest_offset_hand
 Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offset_handle, Handle dest_handle,
                        Handle src_offset_handle, Handle src_handle)
 {
-    POLYUNSIGNED src_offset = get_C_ulong(taskData, DEREFWORDHANDLE(src_offset_handle));
+    POLYUNSIGNED src_offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(src_offset_handle));
     PolyObject *sourceObj = DEREFWORDHANDLE(src_handle);
     PolyWord *source = sourceObj->Offset(src_offset);
 
-    POLYUNSIGNED dest_offset = get_C_ulong(taskData, DEREFWORDHANDLE(dest_offset_handle));
+    POLYUNSIGNED dest_offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(dest_offset_handle));
 
     PolyObject *destObject = DEREFWORDHANDLE(dest_handle);
     PolyWord *dest = destObject->Offset(dest_offset);
 
-    POLYUNSIGNED words = get_C_ulong(taskData, DEREFWORDHANDLE(len));
+    POLYUNSIGNED words = getPolyUnsigned(taskData, DEREFWORDHANDLE(len));
 
     ASSERT(! destObject->IsByteObject());
 
@@ -584,13 +584,13 @@ Handle move_words_long_c(TaskData *taskData, Handle len, Handle dest_offset_hand
 Handle testBytesEqual(TaskData *taskData, Handle len, Handle yOffset, Handle y,
                              Handle xOffset, Handle x)
 {
-    POLYUNSIGNED x_offset = get_C_ulong(taskData, DEREFWORDHANDLE(xOffset));
+    POLYUNSIGNED x_offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(xOffset));
     byte *xAddr = DEREFBYTEHANDLE(x) + x_offset;
 
-    POLYUNSIGNED y_offset = get_C_ulong(taskData, DEREFWORDHANDLE(yOffset));
+    POLYUNSIGNED y_offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(yOffset));
     byte *yAddr = DEREFBYTEHANDLE(y) + y_offset;
 
-    POLYUNSIGNED bytes = get_C_ulong(taskData, DEREFWORDHANDLE(len));
+    POLYUNSIGNED bytes = getPolyUnsigned(taskData, DEREFWORDHANDLE(len));
 
     int res = memcmp(xAddr, yAddr, bytes);
     if (res == 0) return taskData->saveVec.push(TAGGED(1));
@@ -605,13 +605,13 @@ Handle vec_length_c(TaskData *taskData, Handle vector)    /* Length of a vector 
 
 Handle load_byte_long_c(TaskData *taskData, Handle byte_no /* offset in BYTES */, Handle addr)
 {
-    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(byte_no));
+    POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(byte_no));
     return taskData->saveVec.push(TAGGED(DEREFBYTEHANDLE(addr)[offset]));
 }
 
 Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in WORDS */, Handle addr)
 {
-    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORDHANDLE(word_no));
+    POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(word_no));
     return taskData->saveVec.push(addr->Word().AsObjPtr()->Get(offset));
 }
 
@@ -622,7 +622,7 @@ Handle load_word_long_c(TaskData *taskData, Handle word_no /* offset in WORDS */
 Handle alloc_store_long_c(TaskData *taskData, Handle initial, Handle flags_handle, Handle size )
 {
     unsigned flags = get_C_unsigned(taskData, DEREFWORD(flags_handle));
-    POLYUNSIGNED usize = get_C_ulong(taskData, DEREFWORD(size));
+    POLYUNSIGNED usize = getPolyUnsigned(taskData, DEREFWORD(size));
     
     if (usize == 0 || usize >= MAX_OBJECT_SIZE)
         raise_exception0(taskData, EXC_size);
@@ -993,7 +993,7 @@ void CheckAndGrowStack(TaskData *taskData, POLYUNSIGNED minSize)
     // If it is too small double its size.
     POLYUNSIGNED new_len; /* New size */
     for (new_len = old_len; new_len < minSize; new_len *= 2);
-    POLYUNSIGNED limitSize = get_C_ulong(taskData, taskData->threadObject->mlStackSize);
+    POLYUNSIGNED limitSize = getPolyUnsigned(taskData, taskData->threadObject->mlStackSize);
 
     // Do not grow the stack if its size is already too big.
     if (limitSize != 0 && old_len >= limitSize || ! gMem.GrowOrShrinkStack(taskData, new_len))

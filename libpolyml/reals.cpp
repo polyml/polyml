@@ -617,7 +617,7 @@ Handle Real_strc(TaskData *mdTaskData, Handle hDigits, Handle hMode, Handle arg)
 /* Functions added for Standard Basis Library are all indirected through here. */
 Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_int(mdTaskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* tan */ return real_result(mdTaskData, tan(real_arg(args)));

@@ -337,7 +337,7 @@ Handle ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 
 Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
     TaskData *ptaskData = taskData;
     switch (c)
     {
@@ -434,10 +434,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             // On Windows it is the number of 100ns units since the epoch
             FILETIME tWake;
             if (! isInfinite)
-            {
-                get_C_pair(taskData, DEREFWORDHANDLE(wakeTime),
-                    (unsigned long*)&tWake.dwHighDateTime, (unsigned long*)&tWake.dwLowDateTime);
-            }
+                getFileTimeFromArb(taskData, DEREFWORDHANDLE(wakeTime), &tWake);
 #else
             // Unix style times.
             struct timespec tWake;
@@ -579,7 +576,7 @@ Handle Processes::ThreadDispatch(TaskData *taskData, Handle args, Handle code)
             if (newSize != TAGGED(0))
             {
                 POLYUNSIGNED current = taskData->currentStackSpace(); // Current size in words
-                POLYUNSIGNED newWords = get_C_ulong(taskData, newSize);
+                POLYUNSIGNED newWords = getPolyUnsigned(taskData, newSize);
                 if (current > newWords)
                     raise_exception0(taskData, EXC_interrupt);
             }

@@ -155,7 +155,7 @@ static PLock timeLock("Timing");
 
 Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_int(taskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Get ticks per microsecond. */
@@ -165,7 +165,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             FILETIME ft;
             GetSystemTimeAsFileTime(&ft);
-            return Make_arb_from_32bit_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
+            return Make_arb_from_Filetime(taskData, ft);
 #else
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)
@@ -199,8 +199,11 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
 #endif
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             /* Although the offset is in seconds it is since 1601. */
+            FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
+            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftSeconds); /* May raise exception. */
             ULARGE_INTEGER   liTime;
-            get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
+            liTime.HighPart = ftSeconds.dwHighDateTime;
+            liTime.LowPart = ftSeconds.dwLowDateTime;
             theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
             theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
@@ -245,9 +248,11 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             time_t theTime;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            /* Although the offset is in seconds it is since 1601. */
+            FILETIME ftSeconds; // Not really a file-time because it's a number of seconds.
+            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftSeconds); /* May raise exception. */
             ULARGE_INTEGER   liTime;
-            get_C_pair(taskData, DEREFWORDHANDLE(args), (unsigned long*)&liTime.HighPart, (unsigned long*)&liTime.LowPart); /* May raise exception. */
+            liTime.HighPart = ftSeconds.dwHighDateTime;
+            liTime.LowPart = ftSeconds.dwLowDateTime;
             theTime = (long)(liTime.QuadPart - SECSSINCE1601);
 #else
             theTime = get_C_long(taskData, DEREFWORDHANDLE(args)); /* May raise exception. */
@@ -312,7 +317,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             FILETIME ut, ct, et, kt;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
-            return Make_arb_from_32bit_pair(taskData, ut.dwHighDateTime, ut.dwLowDateTime);
+            return Make_arb_from_Filetime(taskData, ut);
 #else
             struct rusage rusage;
             if (getrusage(RUSAGE_SELF, &rusage) != 0)
@@ -328,7 +333,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             FILETIME ct, et, kt, ut;
             if (! GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
                 raise_syscall(taskData, "GetProcessTimes failed", 0-GetLastError());
-            return Make_arb_from_32bit_pair(taskData, kt.dwHighDateTime, kt.dwLowDateTime);
+            return Make_arb_from_Filetime(taskData, kt);
 #else
             struct rusage rusage;
             if (getrusage(RUSAGE_SELF, &rusage) != 0)
@@ -347,7 +352,7 @@ Handle timing_dispatch_c(TaskData *taskData, Handle args, Handle code)
             FILETIME ft;
             GetSystemTimeAsFileTime(&ft);
             subFiletimes(&ft, &startTime);
-            return Make_arb_from_32bit_pair(taskData, ft.dwHighDateTime, ft.dwLowDateTime);
+            return Make_arb_from_Filetime(taskData, ft);
 #else
             struct timeval tv;
             if (gettimeofday(&tv, NULL) != 0)

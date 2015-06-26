@@ -538,8 +538,8 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         // the higher-level IO interfaces in ML which have their own mutexes.
         int fd = strm->device.ioDesc;
         byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
-        unsigned offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-        unsigned length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+        POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+        POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
         int haveRead;
         int err;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -568,7 +568,7 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
    choose the appropriate function depending on need. */
 static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
-    unsigned length = get_C_unsigned(taskData, DEREFWORD(args));
+    POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFWORD(args));
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
 
@@ -634,8 +634,8 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
        when the file was opened to determine whether to translate
        LF into CRLF. */
     PolyWord base = DEREFWORDHANDLE(args)->Get(0);
-    unsigned        offset = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-    unsigned        length = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+    POLYUNSIGNED    offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+    POLYUNSIGNED    length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
     PIOSTRUCT       strm = get_stream(stream->WordP());
     byte    ch;
     /* Raise an exception if the stream has been closed. */
@@ -886,8 +886,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* The time argument is an absolute time. */
                     FILETIME ftTime, ftNow;
                     /* Get the file time. */
-                    get_C_pair(taskData, DEREFHANDLE(args)->Get(2),
-                        &ftTime.dwHighDateTime, &ftTime.dwLowDateTime);
+                    getFileTimeFromArb(taskData, DEREFHANDLE(args)->Get(2), &ftTime);
                     GetSystemTimeAsFileTime(&ftNow);
                     taskData->saveVec.reset(hSave);
                     /* If the timeout time is earlier than the current time
@@ -1303,8 +1302,7 @@ Handle modTime(TaskData *taskData, Handle filename)
         if (hFind == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
-        return Make_arb_from_32bit_pair(taskData, wFind.ftLastWriteTime.dwHighDateTime,
-                                  wFind.ftLastWriteTime.dwLowDateTime);
+        return Make_arb_from_Filetime(taskData, wFind.ftLastWriteTime);
     }
 #else
     {
@@ -1359,13 +1357,11 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
        use SetFileTime. */
     {
         FILETIME ft;
-        HANDLE hFile;
         /* Get the file time. */
-        get_C_pair(taskData, DEREFWORDHANDLE(fileTime),
-                    &ft.dwHighDateTime, &ft.dwLowDateTime);
+        getFileTimeFromArb(taskData, DEREFWORDHANDLE(fileTime), &ft);
         /* Open an existing file with write access. We need that
            for SetFileTime. */
-        hFile = CreateFile(buff, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+        HANDLE hFile = CreateFile(buff, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
                     FILE_ATTRIBUTE_NORMAL, NULL);
         if (hFile == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "CreateFile failed", -(int)GetLastError());
@@ -1495,7 +1491,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 /* IO_dispatchc.  Called from assembly code module. */
 Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 {
-    int c = get_C_int(taskData, DEREFWORD(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORD(code));
     switch (c)
     {
     case 0: /* Return standard input */

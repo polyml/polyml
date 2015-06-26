@@ -777,7 +777,7 @@ void HeapSizeParameters::RecordSharingData(POLYUNSIGNED recovery)
 Handle HeapSizeParameters::getGCUtime(TaskData *taskData) const
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    return Make_arb_from_32bit_pair(taskData, ((FILETIME)totalGCUserCPU).dwHighDateTime, ((FILETIME)totalGCUserCPU).dwLowDateTime);
+    return Make_arb_from_Filetime(taskData, totalGCUserCPU);
 #else
     return Make_arb_from_pair_scaled(taskData, ((struct timeval)totalGCUserCPU).tv_sec, ((struct timeval)totalGCUserCPU).tv_usec, 1000000);
 #endif
@@ -786,7 +786,7 @@ Handle HeapSizeParameters::getGCUtime(TaskData *taskData) const
 Handle HeapSizeParameters::getGCStime(TaskData *taskData) const
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    return Make_arb_from_32bit_pair(taskData, ((FILETIME)totalGCSystemCPU).dwHighDateTime, ((FILETIME)totalGCSystemCPU).dwLowDateTime);
+    return Make_arb_from_Filetime(taskData, totalGCSystemCPU);
 #else
     return Make_arb_from_pair_scaled(taskData, ((struct timeval)totalGCSystemCPU).tv_sec, ((struct timeval)totalGCSystemCPU).tv_usec, 1000000);
 #endif

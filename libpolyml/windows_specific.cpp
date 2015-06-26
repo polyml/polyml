@@ -298,7 +298,7 @@ HKEY hkPredefinedKeyTab[] =
 
 Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 {
-    int c = get_C_int(taskData, DEREFWORD(code));
+    unsigned c = get_C_unsigned(taskData, DEREFWORD(code));
     switch (c)
     {
     case 0: /* Return our OS type.  Not in any structure. */
@@ -540,26 +540,22 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            get_C_pair(taskData, DEREFWORDHANDLE(args),
-                    &ftUTC.dwHighDateTime, &ftUTC.dwLowDateTime);
+            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftUTC);
             if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
                 raise_syscall(taskData, "FileTimeToLocalFileTime failed",
                         -(int)GetLastError());
-            return Make_arb_from_32bit_pair(taskData, ftLocal.dwHighDateTime,
-                        ftLocal.dwLowDateTime);
+            return Make_arb_from_Filetime(taskData, ftLocal);
         }
 
     case 1031: // Convert local time values to UTC. -- No longer used??
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            get_C_pair(taskData, DEREFWORDHANDLE(args),
-                    &ftLocal.dwHighDateTime, &ftLocal.dwLowDateTime);
+            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftLocal);
             if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
                 raise_syscall(taskData, "LocalFileTimeToFileTime failed",
                         -(int)GetLastError());
-            return Make_arb_from_32bit_pair(taskData, ftUTC.dwHighDateTime,
-                        ftUTC.dwLowDateTime);
+            return Make_arb_from_Filetime(taskData, ftUTC);
         }
 
     case 1032: // Get volume information.

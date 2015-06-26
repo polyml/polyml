@@ -612,7 +612,7 @@ void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length
 // and a 64-bit constant on a 64-bit machine.
 static Handle set_code_constant(TaskData *taskData, Handle data, Handle constant, Handle offseth, Handle base)
 {
-    POLYUNSIGNED offset = get_C_ulong(taskData, DEREFWORD(offseth)); // Byte offset
+    POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORD(offseth)); // Byte offset
     byte *pointer = DEREFWORD(base).AsCodePtr() + offset;
     POLYUNSIGNED flags = UNTAGGED(DEREFWORD(data));
     POLYUNSIGNED c = DEREFWORD(constant).AsUnsigned(); // N.B.  This may well really be an address.

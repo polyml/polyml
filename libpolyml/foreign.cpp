@@ -420,7 +420,7 @@ static void sanity_check_vols(void)
    store so we need to call address(alloc s). */
 static Handle allocate (TaskData *taskData, Handle h)
 { TRACE; {
-    POLYUNSIGNED size = get_C_ulong(taskData, DEREFWORD(h)); /* bytes */
+    POLYUNSIGNED size = getPolyUnsigned(taskData, DEREFWORD(h)); /* bytes */
     Handle space = vol_alloc_with_c_space(taskData, size);
     return space;
 }}

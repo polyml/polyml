@@ -149,7 +149,7 @@ void CygwinSpawnRequest::Perform()
 
 Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 {
-    int c = get_C_int(mdTaskData, DEREFWORDHANDLE(code));
+    unsigned c = get_C_unsigned(mdTaskData, DEREFWORDHANDLE(code));
     switch (c)
     {
     case 0: /* Return the program name. */
