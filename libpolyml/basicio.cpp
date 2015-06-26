@@ -128,10 +128,6 @@ typedef char TCHAR;
 #define INFTIM (-1)
 #endif
 
-#ifndef HAVE_SSIZE_T
-typedef int ssize_t;
-#endif
-
 #include "globals.h"
 #include "basicio.h"
 #include "sys.h"
@@ -539,8 +535,13 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
         int fd = strm->device.ioDesc;
         byte *base = DEREFHANDLE(args)->Get(0).AsObjPtr()->AsBytePtr();
         POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-        POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        int length = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(2));
         int haveRead;
+#else
+        size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+        ssize_t haveRead;
+#endif
         int err;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
@@ -568,7 +569,13 @@ static Handle readArray(TaskData *taskData, Handle stream, Handle args, bool/*is
    choose the appropriate function depending on need. */
 static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*isText*/)
 {
-    POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFWORD(args));
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    int length = get_C_int(taskData, DEREFWORD(args));
+    int haveRead;
+#else
+    size_t length = getPolyUnsigned(taskData, DEREFWORD(args));
+    ssize_t haveRead;
+#endif
     // We should check for interrupts even if we're not going to block.
     processes->TestAnyEvents(taskData);
 
@@ -600,7 +607,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         if (length > 102400) length = 102400;
         byte *buff = (byte*)malloc(length);
         if (buff == 0) raise_syscall(taskData, "Unable to allocate buffer", ENOMEM);
-        POLYSIGNED haveRead;
+
         int err;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         if (isConsole(strm))
@@ -635,7 +642,13 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
        LF into CRLF. */
     PolyWord base = DEREFWORDHANDLE(args)->Get(0);
     POLYUNSIGNED    offset = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-    POLYUNSIGNED    length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    int length = get_C_int(taskData, DEREFWORDHANDLE(args)->Get(2));
+    int haveWritten;
+#else
+    size_t length = getPolyUnsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
+    ssize_t haveWritten;
+#endif
     PIOSTRUCT       strm = get_stream(stream->WordP());
     byte    ch;
     /* Raise an exception if the stream has been closed. */
@@ -654,7 +667,7 @@ static Handle writeArray(TaskData *taskData, Handle stream, Handle args, bool/*i
         length = 1;
     }
     else toWrite = base.AsObjPtr()->AsBytePtr();
-    ssize_t haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
+    haveWritten = write(strm->device.ioDesc, toWrite+offset, length);
     if (haveWritten < 0) raise_syscall(taskData, "Error while writing", errno);
 
     return Make_arbitrary_precision(taskData, haveWritten);

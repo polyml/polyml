@@ -965,10 +965,14 @@ TryAgain: // Used for various retries.
             PolyWord pBase = DEREFHANDLE(args)->Get(1);
             char    ch, *base;
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+            int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
+#else
+            ssize_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#endif
             unsigned int dontRoute = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
-            int flags = 0, sent;
+            int flags = 0;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -985,6 +989,11 @@ TryAgain: // Used for various retries.
             while (1)
             {
                 int err;
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+                int sent;
+#else
+                ssize_t sent;
+#endif
                 sent = send(strm->device.sock, base+offset, length, flags);
                 /* It isn't clear that EINTR can ever occur with
                    send but just to be safe we deal with that case and
@@ -1015,10 +1024,14 @@ TryAgain: // Used for various retries.
             PolyWord pBase = DEREFHANDLE(args)->Get(2);
             char    ch, *base;
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
-            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(4));
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+            int length = get_C_int(taskData, DEREFHANDLE(args)->Get(4));
+#else
+            size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(4));
+#endif
             unsigned int dontRoute = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(6));
-            int flags = 0, sent;
+            int flags = 0;
             if (dontRoute != 0) flags |= MSG_DONTROUTE;
             if (outOfBand != 0) flags |= MSG_OOB;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
@@ -1035,6 +1048,11 @@ TryAgain: // Used for various retries.
             while (1)
             {
                 int err;
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+                int sent;
+#else
+                ssize_t sent;
+#endif
                 sent = sendto(strm->device.sock, base+offset, length, flags,
                             (struct sockaddr *)psAddr->chars, (int)psAddr->length);
                 /* It isn't clear that EINTR can ever occur with
@@ -1064,16 +1082,25 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+            int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
+#else
+            size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#endif
             unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
-            int flags = 0, recvd;
+            int flags = 0;
             if (peek != 0) flags |= MSG_PEEK;
             if (outOfBand != 0) flags |= MSG_OOB;
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 
             while (1) {
                 int err;
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+                int recvd;
+#else
+                ssize_t recvd;
+#endif
                 recvd = recv(strm->device.sock, base+offset, length, flags);
                 err = GETERROR;
                 if (recvd != SOCKET_ERROR) { /* OK. */
@@ -1106,10 +1133,14 @@ TryAgain: // Used for various retries.
             PIOSTRUCT strm = get_stream(DEREFHANDLE(args)->Get(0).AsObjPtr());
             char *base = (char*)DEREFHANDLE(args)->Get(1).AsObjPtr()->AsBytePtr();
             POLYUNSIGNED offset = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(2));
-            POLYUNSIGNED length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+            int length = get_C_int(taskData, DEREFHANDLE(args)->Get(3));
+#else
+            size_t length = getPolyUnsigned(taskData, DEREFHANDLE(args)->Get(3));
+#endif
             unsigned int peek = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(4));
             unsigned int outOfBand = get_C_unsigned(taskData, DEREFHANDLE(args)->Get(5));
-            int flags = 0, recvd;
+            int flags = 0;
             socklen_t addrLen;
             struct sockaddr resultAddr;
 
@@ -1119,6 +1150,11 @@ TryAgain: // Used for various retries.
 
             while (1) {
                 int err;
+#if(defined(_WIN32) && ! defined(_CYGWIN))
+                int recvd;
+#else
+                ssize_t recvd;
+#endif
                 recvd = recvfrom(strm->device.sock, base+offset,
                                  length, flags, &resultAddr, &addrLen);
                 err = GETERROR;

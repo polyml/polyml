@@ -1159,8 +1159,8 @@ void getFileTimeFromArb(TaskData *taskData, PolyWord number, PFILETIME ft)
     Handle numHandle = taskData->saveVec.push(number);
     Handle highPart, lowPart;
     quotRem(taskData, twoTo32, numHandle, lowPart, highPart);
-    ft->dwLowDateTime = get_C_ulong(taskData, lowPart->Word());
-    ft->dwHighDateTime  = get_C_ulong(taskData, highPart->Word());
+    ft->dwLowDateTime = get_C_unsigned(taskData, lowPart->Word());
+    ft->dwHighDateTime  = get_C_unsigned(taskData, highPart->Word());
 }
 #endif
 

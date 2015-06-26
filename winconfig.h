@@ -729,6 +729,15 @@
 /* Define to `unsigned int' if <sys/types.h> does not define. */
 #undef size_t
 
+/* Define to `int' if <sys/types.h> does not define. */
+// There is an SSIZE_T 
+#undef ssize_t
+
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 /* Define to `int' if <sys/types.h> doesn't define. */
 #define uid_t int
 
