@@ -116,7 +116,11 @@ HeapSizeParameters::HeapSizeParameters()
     sharingCostFactor = 2; // It doubles the cost
 }
 
-/* This macro must make a whole number of chunks */
+// These macros were originally in globals.h and used more generally.
+// Since only K_to_words is used now this can be greatly simplified.
+#define BITSPERWORD (sizeof(PolyWord)*8)
+#define ROUNDUP_UNITS(m,n)   (((m) + (n) - 1) / (n))
+#define ROUNDUP(m,n)   (ROUNDUP_UNITS(m,n) * (n))
 #define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
 
 // Returns physical memory size in bytes

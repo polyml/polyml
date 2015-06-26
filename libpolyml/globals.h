@@ -364,13 +364,9 @@ public:
 #error Poly/ML requires GCC version 3 or newer
 #endif
 
-
 inline POLYUNSIGNED GetLengthWord(PolyWord p) { return p.AsObjPtr()->LengthWord(); }
 // Get the length of an object.
 inline POLYUNSIGNED OBJECT_LENGTH(PolyWord p) { return OBJ_OBJECT_LENGTH(GetLengthWord(p)); }
-
-
-#define OBJ_PTR_TO_CONSTS_PTR(pt, xp) xp = pt->ConstPtrForCode()
 
 // A list cell.  This can be passed to or returned from certain RTS functions.
 class ML_Cons_Cell: public PolyObject {
@@ -405,46 +401,6 @@ class StreamToken: public PolyObject
 public:
     unsigned    streamNo;
 };
-
-/***********************************************************************
- *
- * Used by Mmapping.
- *
- ***********************************************************************/
-
-//#define M_WRITABLE  0x1
-//#define M_PROFILED  0x2
-//#define M_DISCGARB1 0x40    /* Set on the source database when running discgarb. */
-//#define M_DISCGARB2 0x80    /* Set on the destination database when running discgarb. */
-
-//#define WRITABLE(f)  ((f) & M_WRITABLE)
-//#define PROFILED(f)  ((f) & M_PROFILED)
-//#define DISCGARB1(f) ((f) & M_DISCGARB1)
-//#define DISCGARB2(f) ((f) & M_DISCGARB2)
-
-typedef enum { NoMoreChildren,CannotCreate,CreatedOk } CStatus ;
-
-// We allocate memory in units of at least this value so we have an integral
-// number of words in the bitmaps.
-#define BITSPERWORD (sizeof(PolyWord)*8)
-
-
-/* How many units of size n do we need to hold an object of size m? */
-#define ROUNDUP_UNITS(m,n)   (((m) + (n) - 1) / (n))
-#define ROUNDDOWN_UNITS(m,n) ((m) / (n))
-
-/* Rounds m UP or DOWN to nearest multiple of n */
-#define ROUNDUP(m,n)   (ROUNDUP_UNITS(m,n) * (n))
-#define ROUNDDOWN(m,n) (ROUNDDOWN_UNITS(m,n) * (n))
-
-#define MBytes(n) ((n)*1024*1024)
-
-
-/**********************************************************************
- *
- * Low level definitions.
- *
- **********************************************************************/
 
 /* Macro to round a number of bytes up to a number of words. */
 #define WORDS(s) ((s+sizeof(PolyWord)-1)/sizeof(PolyWord))
