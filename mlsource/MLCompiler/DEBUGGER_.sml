@@ -59,22 +59,48 @@ struct
     |   EnvStartFunction of string * location * types
     |   EnvEndFunction of string * location * types
 
-    (* Entries in the thread data.  The RTS allocates enough space for this.
-       The first entry is 5 because earlier entries are used by Thread.Thread. *)
-    (* "Data" entries. *)
     local
-        open ADDRESS
+        open ADDRESS RuntimeCalls
     in
+        (* Entries in the thread data.  The RTS allocates enough space for this.
+           The first entry is 5 because earlier entries are used by Thread.Thread. *)
         val threadIdStack           = mkConst(toMachineWord 0w5) (* The static/dynamic/location entries for calling fns *)
         and threadIdCurrentStatic   = mkConst(toMachineWord 0w6) (* The static info for bindings i.e. name/type. *)
         and threadIdCurrentDynamic  = mkConst(toMachineWord 0w7) (* Dynamic infor for bindings i.e. actual run-time value. *)
         and threadIdCurrentLocation = mkConst(toMachineWord 0w8) (* Location in code: line number/offset etc. *)
-        (* "Function" entries.  Initially zero. *)
-        and threadIdOnEntry         = mkConst(toMachineWord 0w9)
-        and threadIdOnExit          = mkConst(toMachineWord 0w10)
-        and threadIdOnExitExc       = mkConst(toMachineWord 0w11)
-        and threadIdBreakPoint      = mkConst(toMachineWord 0w12)
+        
+        (* Global function entries.  These could be in storage allocated by the RTS. *)
+        (* Specialised option type here.  Because a function is always boxed this
+           avoids the need for an extra level of indirection. *)
+        datatype ('a, 'b) functionOpt = NoFunction | AFunction of 'a -> 'b
+        val globalOnEntry       = ref NoFunction
+        and globalOnExit        = ref NoFunction
+        and globalOnExitExc     = ref NoFunction
+        and globalOnBreakPoint  = ref NoFunction
+
+        val onEntryCode =
+            mkEval(rtsFunction POLY_SYS_load_word, [mkConst(toMachineWord globalOnEntry), CodeZero])
+        and onExitCode =
+            mkEval(rtsFunction POLY_SYS_load_word, [mkConst(toMachineWord globalOnExit), CodeZero])
+        and onExitExcCode =
+            mkEval(rtsFunction POLY_SYS_load_word, [mkConst(toMachineWord globalOnExitExc), CodeZero])
+        and onBreakPointCode =
+            mkEval(rtsFunction POLY_SYS_load_word, [mkConst(toMachineWord globalOnBreakPoint), CodeZero])
+
+        fun setOnEntry NONE = globalOnEntry := NoFunction
+        |   setOnEntry (SOME(f: string * PolyML.location -> unit)) = globalOnEntry := AFunction f
+
+        and setOnExit NONE = globalOnExit := NoFunction
+        |   setOnExit (SOME(f: string * PolyML.location -> unit)) = globalOnExit := AFunction f
+
+        and setOnExitException NONE = globalOnExitExc := NoFunction
+        |   setOnExitException (SOME(f: string * PolyML.location -> exn -> unit)) = globalOnExitExc := AFunction f
+
+        and setOnBreakPoint NONE = globalOnBreakPoint := NoFunction
+        |   setOnBreakPoint (SOME(f: PolyML.location * bool ref -> unit)) = globalOnBreakPoint := AFunction f
     end
+
+    
 
     (* When stopped at a break-point any Bound ids must be replaced by Free ids.
        We make new Free ids at this point.  *)
@@ -511,7 +537,7 @@ struct
                 val assignLocation =
                     mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdCurrentLocation,
                         mkConst(toMachineWord location)])
-                val onEntryFn = loadIdEntry threadIdOnEntry
+                val onEntryFn = multipleUses(onEntryCode, fn () => mkAddr 1, level)
                 val optCallOnEntry =
                     mkIf(mkTagTest(#load onEntryFn level, 0w0, 0w0), CodeZero, mkEval(#load onEntryFn level, onArgs))
             in
@@ -541,7 +567,7 @@ struct
                    and reraise the exception. *)
                 (* There are potential race conditions here if we have asynchronous exceptions. *)
                 val savedExn = multipleUses(Ldexc, fn () => mkAddr 1, level)
-                val onExitExcFn = loadIdEntry threadIdOnExitExc
+                val onExitExcFn = multipleUses(onExitExcCode, fn () => mkAddr 1, level)
                 (* OnExitException has an extra curried argument - the exception packet. *)
                 val optCallOnExitExc =
                     mkIf(mkTagTest(#load onExitExcFn level, 0w0, 0w0), CodeZero,
@@ -561,7 +587,7 @@ struct
                 val endFn = addStartExitEntry(entryEnv, #load bodyCode level, resType, EnvEndFunction)
                 val (rtEnvDec, _) = updateState (level, mkAddr) endFn
 
-                val onExitFn = loadIdEntry threadIdOnExit
+                val onExitFn = multipleUses(onExitCode, fn () => mkAddr 1, level)
                 val optCallOnExit =
                     mkIf(mkTagTest(#load onExitFn level, 0w0, 0w0), CodeZero, mkEval(#load onExitFn level, onArgs))
             in
@@ -590,10 +616,7 @@ struct
                 |   r as ref NONE =>
                     let val b = ref false in r := SOME b; b end;
             (* Call the breakpoint function if it's defined. *)
-            val threadId = mkEval(rtsFunction POLY_SYS_thread_self, [])
-            val globalBpt =
-                multipleUses(
-                    mkEval(rtsFunction POLY_SYS_load_word, [threadId, threadIdBreakPoint]), fn () => mkAddr 1, level)
+            val globalBpt = multipleUses(onBreakPointCode, fn () => mkAddr 1, level)
             val testCode =
                 mkIf(
                     mkNot(mkTagTest(#load globalBpt level, 0w0, 0w0)), 
@@ -604,9 +627,6 @@ struct
         in
             #dec globalBpt @ [mkNullDec testCode]
         end
-
-    fun setBreakPoint bpt NONE = bpt := ADDRESS.toMachineWord 0w0
-    |   setBreakPoint bpt (SOME f) = bpt := ADDRESS.toMachineWord f
 
     structure Sharing =
     struct

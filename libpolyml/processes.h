@@ -2,12 +2,11 @@
     Title:      Lightweight process library
     Author:     David C.J. Matthews
 
-    Copyright (c) 2007-8, 2012 David C.J. Matthews
+    Copyright (c) 2007-8, 2012, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -89,7 +88,7 @@ public:
                         // This is provided so that ML can easily test if there
                         // is an interrupt pending.
     PolyWord    mlStackSize; // A tagged integer with the maximum ML stack size in bytes
-    PolyWord    debuggerSlots[8]; // These are used by the debugger.
+    PolyWord    debuggerSlots[4]; // These are used by the debugger.
 };
 
 // Other threads may make requests to a thread.

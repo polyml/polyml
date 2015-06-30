@@ -1211,22 +1211,6 @@ in
         struct
             open PolyML.DebuggerInterface
  
-            local
-                fun setThreadData offset (t: Thread.Thread.thread, NONE): unit =
-                        RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word(t, offset, 0w0)
-                |   setThreadData offset (t: Thread.Thread.thread, SOME f): unit =
-                        RunCall.run_call3 RuntimeCalls.POLY_SYS_assign_word(t, offset, f)
-            in
-                val setOnEntry : Thread.Thread.thread * (string * PolyML.location -> unit) option -> unit =
-                    setThreadData 0w9
-                and setOnExit : Thread.Thread.thread * (string * PolyML.location -> unit) option -> unit =
-                    setThreadData 0w10
-                and setOnExitException : Thread.Thread.thread * (string * PolyML.location -> exn -> unit) option -> unit =
-                    setThreadData 0w11
-                and setOnBreakPoint: Thread.Thread.thread * (PolyML.location * bool ref -> unit) option -> unit =
-                    setThreadData 0w12
-            end
-
             fun debugState(t: Thread.Thread.thread): debugState list =
             let
                 val stack = RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word(t, 0w5)
@@ -1446,7 +1430,7 @@ in
                        the pending break in the exit code.  Otherwise we could try and break
                        in some other code. *)
                     if checkLineBreak (file, startLine) orelse checkFnBreak false funName
-                    then (breakNext := true; setOnBreakPoint(Thread.Thread.self(), SOME onBreakPoint))
+                    then (breakNext := true; setOnBreakPoint(SOME onBreakPoint))
                     else ()
                 )
                 
@@ -1476,14 +1460,12 @@ in
                 )
                 
                 fun setCallBacks () =
-                let
-                    val self = Thread.Thread.self()
-                in
-                    setOnEntry(self, if !tracing orelse not(null(! fnBreakPoints)) then SOME onEntry else NONE);
-                    setOnExit(self, if !tracing then SOME onExit else NONE);
-                    setOnExitException(self, if !tracing orelse not(null(! exBreakPoints)) then SOME onExitException else NONE);
-                    setOnBreakPoint(self, if !tracing orelse ! stepDebug orelse not(null(! lineBreakPoints)) then SOME onBreakPoint else NONE)
-                end
+                (
+                    setOnEntry(if !tracing orelse not(null(! fnBreakPoints)) then SOME onEntry else NONE);
+                    setOnExit(if !tracing then SOME onExit else NONE);
+                    setOnExitException(if !tracing orelse not(null(! exBreakPoints)) then SOME onExitException else NONE);
+                    setOnBreakPoint(if !tracing orelse ! stepDebug orelse not(null(! lineBreakPoints)) then SOME onBreakPoint else NONE)
+                )
             in
                 (* singleStep causes the debugger to be entered on the next call.
                    stepOver enters the debugger on the next call when the stack is no larger

@@ -97,6 +97,10 @@ sig
     val debugFunctionArg: debugState -> values option
     val debugFunctionResult: debugState -> values option
     val debugLocation: debugState -> location
+    val setOnEntry: (string * PolyML.location -> unit) option -> unit
+    and setOnExit: (string * PolyML.location -> unit) option -> unit
+    and setOnExitException: (string * PolyML.location -> exn -> unit) option -> unit
+    and setOnBreakPoint: (PolyML.location * bool ref -> unit) option -> unit
 
     structure Sharing:
     sig

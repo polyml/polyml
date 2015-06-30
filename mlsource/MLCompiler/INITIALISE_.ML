@@ -971,7 +971,15 @@ struct
                         debugStateType ->> Option valueVal),
                     ("debugFunctionResult", toMachineWord(debugFunctionResult: debugState -> values option),
                         debugStateType ->> Option valueVal),
-                    ("debugLocation", toMachineWord(debugLocation :debugState -> location), debugStateType ->> Location)
+                    ("debugLocation", toMachineWord(debugLocation :debugState -> location), debugStateType ->> Location),
+                    ("setOnEntry", toMachineWord(setOnEntry: (string * PolyML.location -> unit) option -> unit),
+                        Option (String ** Location ->> Unit) ->> Unit),
+                    ("setOnExit", toMachineWord(setOnExit: (string * PolyML.location -> unit) option -> unit),
+                        Option (String ** Location ->> Unit) ->> Unit),
+                    ("setOnExitException", toMachineWord(setOnExitException: (string * PolyML.location -> exn -> unit) option -> unit),
+                        Option (String ** Location ->> Exn ->> Unit) ->> Unit),
+                    ("setOnBreakPoint", toMachineWord(setOnBreakPoint: (PolyML.location * bool ref -> unit) option -> unit),
+                        Option (Location ** Ref Bool ->> Unit) ->> Unit)
                 ]
         end
 
