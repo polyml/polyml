@@ -798,7 +798,7 @@ struct
                     )
             end
 
-          | Cond {test, thenpt, elsept, location} =>
+          | Cond {test, thenpt, elsept, location, ...} =>
             let
                 (* The test must be bool, and the then and else parts must be the
                    same. The result is either of these two once they have been
@@ -1310,7 +1310,7 @@ struct
               expType (* Result is expType. *)
             end
 
-          | While {test, body, location} =>
+          | While {test, body, location, ...} =>
             let
                 val testType = assValues v test
             in
@@ -1674,7 +1674,7 @@ struct
                        with the type that we've already created for the function variable. *)
                     val funType = mkTypeVar(generalisable, false, false, false)
 
-                    fun processClause (clause as FValClause {dec, exp, line}) =
+                    fun processClause (clause as FValClause {dec, exp, line, ...}) =
                     let
                         val { ident = ident, args, constraint, ... } = dec
 

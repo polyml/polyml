@@ -125,14 +125,18 @@ struct
             end
         
         fun exportMatch(navigation,
-                p as MatchTree{location, vars, exp, resType = ref rtype, argType = ref atype,...}) =
+                p as MatchTree{location, vars, exp, resType = ref rtype, argType = ref atype, breakPoint = ref bpt, ...}) =
         let
             fun asParent () = exportMatch(navigation, p)
+            val debugProp =
+                case bpt of
+                    NONE => []
+                |   SOME bpt => [PTbreakPoint(DEBUGGER.setBreakPoint bpt)]
         in
             (location,
                 [PTprint(fn d => displayMatch(p, d)), PTtype (mkFunctionType (atype, rtype))] @ 
                 exportList(getExportTree, SOME asParent) [vars, exp] @
-                exportNavigationProps navigation
+                exportNavigationProps navigation @ debugProp
                 )
         end
     in
@@ -173,8 +177,10 @@ struct
         |   Applic{location, f, arg, expType=ref expType, ...} =>
                 (location, PTtype expType :: exportList(getExportTree, SOME asParent) [f, arg] @ commonProps)
 
-        |   Cond{location, test, thenpt, elsept, ...} =>
-                (location, exportList(getExportTree, SOME asParent) [test, thenpt, elsept] @ commonProps)
+        |   Cond{location, test, thenpt, elsept, thenBreak, elseBreak, ...} =>
+                (location,
+                    exportList(exportTreeWithBpt, SOME asParent)
+                        [(test, ref NONE), (thenpt, thenBreak), (elsept, elseBreak)] @ commonProps)
 
         |   TupleTree{fields, location, expType=ref expType, ...}=>
                 (location, PTtype expType :: exportList(getExportTree, SOME asParent) fields @ commonProps)
@@ -237,7 +243,7 @@ struct
                     end
 
                 fun exportAClause(
-                        FValClause{dec = {ident, isInfix, args, constraint}, exp, ...}, refs, exportThis) =
+                        FValClause{dec = {ident, isInfix, args, constraint}, exp, breakPoint = ref bpt, ...}, refs, exportThis) =
                 let
                     (* The effect of this is to have all the elements of the clause as
                        a single level except that if we have an infixed application of
@@ -251,8 +257,13 @@ struct
                                 FunIdent(ident, refs) :: map FunPtree args
 
                     val constraint = case constraint of NONE => [] |SOME typ => [FunConstraint typ]
+                    
+                    val debugProp =
+                        case bpt of
+                            NONE => []
+                        |   SOME bpt => [PTbreakPoint(DEBUGGER.setBreakPoint bpt)]
                 in
-                    exportList(exportFunEntry, SOME exportThis) (funAndArgs @ constraint @ [FunPtree exp])
+                    exportList(exportFunEntry, SOME exportThis) (funAndArgs @ constraint @ [FunPtree exp]) @ debugProp
                 end
 
                 fun exportFB(navigation,
@@ -413,8 +424,10 @@ struct
                 (location, [PTfirstChild getExpr] @ commonProps)
             end
 
-        |   While{location, test, body, ...}           =>
-                (location, exportList(getExportTree, SOME asParent) [test, body] @ commonProps)
+        |   While{location, test, body, breakPoint, ...}           =>
+                (location,
+                    exportList(exportTreeWithBpt, SOME asParent)
+                        [(test, ref NONE), (body, breakPoint)] @ commonProps)
 
         |   Case{location, test, match, listLocation, expType=ref expType, ...}            =>
             let

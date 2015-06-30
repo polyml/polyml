@@ -116,12 +116,15 @@ struct
         };
     
     fun mkCond (test, thenpt, elsept, location) : parsetree  = 
-      Cond  
-       { test   = test,
-         thenpt = thenpt,
-         elsept = elsept,
-         location = location
-       };
+        Cond  
+        {
+            test   = test,
+            thenpt = thenpt,
+            elsept = elsept,
+            location = location,
+            thenBreak = ref NONE,
+            elseBreak = ref NONE
+        }
        
     fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
     
@@ -272,7 +275,8 @@ struct
         {
           dec  = dec,
           exp  = exp,
-          line = line
+          line = line,
+          breakPoint = ref NONE
         }
 
     fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref EmptyType }
@@ -303,8 +307,9 @@ struct
           exp  = exp,
           location = location,
           argType = ref badType,
-          resType = ref badType
-        };
+          resType = ref badType,
+          breakPoint = ref NONE
+        }
   
     fun mkLocalDeclaration (decs, body, location, isLocal) : parsetree =
       Localdec 
@@ -423,12 +428,13 @@ struct
          };
        
     fun mkWhile (test, body, location) : parsetree =
-      While
+        While
         { 
             test = test,
             body = body,
-            location = location
-        };
+            location = location,
+            breakPoint = ref NONE
+        }
       
     fun mkCase (test, match, location, listLocation) : parsetree =
       Case

@@ -80,7 +80,7 @@ sig
     val updateDebugLocation: debuggerStatus * location * lexan -> codeBinding list * debuggerStatus
 
     (* Create a local break point and check the global and local break points. *)
-    val breakPointCode: location * level * lexan * (int->int) -> codeBinding list * breakPoint option
+    val breakPointCode: breakPoint option ref * location * level * lexan * (int->int) -> codeBinding list
     (* A function to set the break point.  Included in the exported tree. *)
     val setBreakPoint: breakPoint -> (location -> unit) option -> unit
 

@@ -75,7 +75,14 @@ sig
 
     |   Cond                of
             (* Conditional *)
-            { test: parsetree, thenpt: parsetree, elsept: parsetree, location: location } 
+        {
+            test: parsetree,
+            thenpt: parsetree,
+            elsept: parsetree,
+            location: location,
+            thenBreak: breakPoint option ref,
+            elseBreak: breakPoint option ref
+        } 
 
     |   TupleTree           of { fields: parsetree list, location: location, expType: types ref }
 
@@ -172,7 +179,7 @@ sig
 
     |   While               of
             (* Ordinary while-loop *)
-            { test: parsetree, body: parsetree, location: location } 
+            { test: parsetree, body: parsetree, location: location, breakPoint: breakPoint option ref } 
 
     |   Case                of
             (* Case-statement *)
@@ -225,7 +232,13 @@ sig
          }
 
     and fvalclause = (* Clause within a function binding. *)
-        FValClause of { dec: funpattern, exp: parsetree, line: location }
+        FValClause of
+        {
+            dec: funpattern,
+            exp: parsetree,
+            line: location,
+            breakPoint: breakPoint option ref
+        }
         
     and typebind = (* Non-generative type binding *)
         TypeBind of
@@ -265,13 +278,15 @@ sig
     and matchtree =
     (* A match is a pattern and an expression. If the pattern matches then
        the expression is evaluated in the environment of the pattern. *)
-    MatchTree of {
-       vars: parsetree,
-       exp: parsetree,
-       location: location,
-       argType: types ref,
-       resType: types ref
-     } 
+        MatchTree of
+        {
+            vars: parsetree,
+            exp: parsetree,
+            location: location,
+            argType: types ref,
+            resType: types ref,
+            breakPoint: breakPoint option ref
+        } 
 
     (* Name of a structure. Used only in an ``open'' declaration. *)
     withtype structureIdentForm = 

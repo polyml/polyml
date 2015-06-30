@@ -572,15 +572,26 @@ struct
         end
 
     type breakPoint = machineWord ref
+    
+    (* Create a new breakpoint ref. *)
+    fun createBreakPoint() = ref (ADDRESS.toMachineWord 0w0)
  
     (* Create a local break point and check the global and local break points. *)
-    fun breakPointCode(location, level, lex, mkAddr) =
-        if not (getParameter debugTag (LEX.debugParams lex)) then ([], NONE)
+    fun breakPointCode(breakPoint, location, level, lex, mkAddr) =
+        if not (getParameter debugTag (LEX.debugParams lex)) then []
         else
         let
             open ADDRESS RuntimeCalls
-            (* Create a new breakpoint ref. *)
-            val localBreakPoint = ref (toMachineWord 0w0)
+            (* Create a new local breakpoint and assign it to the ref.
+               It is possible for the ref to be already assigned a local breakpoint
+               value if we are compiling a match.  In that case the same expression
+               may be code-generated more than once but we only want one local
+               break-point. *)
+            val localBreakPoint =
+                case breakPoint of
+                    ref (SOME bpt) => bpt
+                |   r as ref NONE =>
+                    let val b = ref (ADDRESS.toMachineWord 0w0) in r := SOME b; b end;
             (* First check the global breakpoint. *)
             val threadId = mkEval(rtsFunction POLY_SYS_thread_self, [])
             val globalBpt =
@@ -605,7 +616,7 @@ struct
                     )
                 )
         in
-            (#dec globalBpt @ [mkNullDec testCode], SOME localBreakPoint)
+            #dec globalBpt @ [mkNullDec testCode]
         end
 
     fun setBreakPoint bpt NONE = bpt := ADDRESS.toMachineWord 0w0

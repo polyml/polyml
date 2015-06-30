@@ -276,9 +276,8 @@ struct
     let
         open DEBUGGER
         val (lineCode, newStatus) = updateDebugLocation(debugEnv, location, lex)
-        val (code, newBpt) = breakPointCode(location, level, lex, mkAddr)
+        val code = breakPointCode(bpt, location, level, lex, mkAddr)
     in
-        bpt := newBpt; (* SOME XX if we're debugging, NONE if we're not. *)
         (lineCode @ code, newStatus)
     end
 
@@ -394,9 +393,11 @@ struct
             if useCount <= insertDirectCount
             then (* Use the expression directly *)
             let
-                val MatchTree {exp, ... } = List.nth(alt, pattChosenIndex)            
+                val MatchTree {exp, breakPoint, ... } = List.nth(alt, pattChosenIndex)            
+                val (bptCode, bptEnv) =
+                    addBreakPointCall(breakPoint, getLocation exp, context)
             in
-                codegen (exp, context)
+                mkEnv(bptCode, codegen (exp, context |> repDebugEnv bptEnv))
             end
             else
             let (* Put in a call to the expression as a function. *)
@@ -564,8 +565,18 @@ struct
             (mkEval (fnCode, [argCode]), argEnv)
         end
 
-    |   codeGenerate(Cond {test, thenpt, elsept, ...}, context as { debugEnv, ...}) =
-            (mkIf (codegen (test, context), codegen (thenpt, context), codegen (elsept, context)), debugEnv)
+    |   codeGenerate(Cond {test, thenpt, elsept, thenBreak, elseBreak, ...}, context) =
+        let
+            val (testCode, testEnv) = codeGenerate(test, context)
+            val (thenBptCode, thenDebug) =
+                addBreakPointCall(thenBreak, getLocation thenpt, context |> repDebugEnv testEnv)
+            val (thenCode, _) = codeGenerate(thenpt, context |> repDebugEnv thenDebug)
+            val (elseBptCode, elseDebug) =
+                addBreakPointCall(elseBreak, getLocation elsept, context |> repDebugEnv testEnv)
+            val (elseCode, _) = codeGenerate(elsept, context |> repDebugEnv elseDebug)
+        in
+            (mkIf (testCode, mkEnv(thenBptCode, thenCode), mkEnv(elseBptCode, elseCode)), testEnv)
+        end
 
     |   codeGenerate(TupleTree{fields=[(*pt*)_], ...}, _) =
             (* There was previously a special case to optimise unary tuples but I can't
@@ -756,8 +767,15 @@ struct
                 (mkHandle (handleExp, handlerCode), debugEnv)
             end
 
-    |   codeGenerate(While {test, body, ...}, context as { debugEnv, ...}) =
-            (mkWhile (codegen (test, context), codegen (body, context)), debugEnv)
+    |   codeGenerate(While {test, body, breakPoint, ...}, context as { debugEnv, ...}) =
+        let
+            val (testCode, testEnv) = codeGenerate(test, context)
+            val (bptCode, testDebug) =
+                addBreakPointCall(breakPoint, getLocation body, context |> repDebugEnv testEnv)
+            val (bodyCode, _) = codeGenerate(body, context |> repDebugEnv testDebug)
+        in
+            (mkWhile (testCode, mkEnv(bptCode, bodyCode)), debugEnv)
+        end
 
     |   codeGenerate(c as Case {test, match, ...}, context as { debugEnv, ...}) =
       (* The matches are made into a series of tests and
@@ -1238,7 +1256,7 @@ struct
                         numOfPats = 1 andalso totalArgs = 1 andalso tupleSeq = [[GeneralType]] andalso resultType = GeneralType
 
                     (* Turn the list of clauses into a match. *)
-                    fun clauseToTree(FValClause {dec={ args, ...}, exp, line, ...}) =
+                    fun clauseToTree(FValClause {dec={ args, ...}, exp, line, breakPoint, ...}) =
                         MatchTree
                         {
                             vars =
@@ -1247,7 +1265,8 @@ struct
                             exp  = exp,
                             location = line,
                             argType = ref badType,
-                            resType = ref badType
+                            resType = ref badType,
+                            breakPoint = breakPoint
                         }
                     val matches = map clauseToTree clauses
 
@@ -1536,13 +1555,13 @@ struct
                 |   getMatches (Parenthesised(p, _)) = getMatches p
                 |   getMatches _       = raise InternalError "getMatches"
 
-                fun matchTreeToClause(MatchTree{vars, exp, location, ...}) =
+                fun matchTreeToClause(MatchTree{vars, exp, location, breakPoint, ...}) =
                 let
                     val dec =
                         { ident = { name="", expType=ref EmptyType, location=location},
                             isInfix = false, args=[vars], constraint=NONE}
                 in
-                    FValClause{dec = dec, exp=exp, line=location }
+                    FValClause{dec = dec, exp=exp, line=location, breakPoint = breakPoint }
                 end
                 
                 val clauses = List.map matchTreeToClause (getMatches exp)
