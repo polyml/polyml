@@ -34,7 +34,6 @@ sig
     type codeBinding
     type codetree
     type typeVarMap
-    type breakPoint
     type environEntry
  
     type location =
@@ -66,6 +65,8 @@ sig
         allFunct:     unit -> (string*functors) list
       }
 
+    type breakPoint = bool ref
+
     (* Functions to make debug entries for various values, types etc. *)
     type debuggerStatus
     val initialDebuggerStatus: debuggerStatus
@@ -81,8 +82,6 @@ sig
 
     (* Create a local break point and check the global and local break points. *)
     val breakPointCode: breakPoint option ref * location * level * lexan * (int->int) -> codeBinding list
-    (* A function to set the break point.  Included in the exported tree. *)
-    val setBreakPoint: breakPoint -> (location -> unit) option -> unit
 
     (* Add debugging calls on entry and exit to a function. *)
     val wrapFunctionInDebug:
@@ -117,7 +116,6 @@ sig
         type codeBinding    = codeBinding
         type codetree       = codetree
         type typeVarMap     = typeVarMap
-        type breakPoint     = breakPoint
         type debuggerStatus = debuggerStatus
     end
 end;

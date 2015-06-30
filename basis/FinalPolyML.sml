@@ -1223,7 +1223,7 @@ in
                     setThreadData 0w10
                 and setOnExitException : Thread.Thread.thread * (string * PolyML.location -> exn -> unit) option -> unit =
                     setThreadData 0w11
-                and setOnBreakPoint: Thread.Thread.thread * (PolyML.location -> unit) option -> unit =
+                and setOnBreakPoint: Thread.Thread.thread * (PolyML.location * bool ref -> unit) option -> unit =
                     setThreadData 0w12
             end
 
@@ -1442,6 +1442,9 @@ in
                     else ();
                     (* We don't actually break here because at this stage we don't
                        have any variables declared. *)
+                    (* TODO: If for whatever reason we fail to find the breakpoint we need to cancel
+                       the pending break in the exit code.  Otherwise we could try and break
+                       in some other code. *)
                     if checkLineBreak (file, startLine) orelse checkFnBreak false funName
                     then (breakNext := true; setOnBreakPoint(Thread.Thread.self(), SOME onBreakPoint))
                     else ()
@@ -1464,7 +1467,7 @@ in
                     else ()
                 )
                 
-                and onBreakPoint({file, startLine, ...}: PolyML.location) =
+                and onBreakPoint({file, startLine, ...}: PolyML.location, _) =
                 (
                     if (!stepDebug andalso (!stepDepth < 0 orelse List.length(getStack()) <= !stepDepth)) orelse
                        checkLineBreak (file, startLine) orelse ! breakNext

@@ -571,10 +571,7 @@ struct
             mkEnv(prefixCode @ entryCode @ #dec bodyCode @ exitCode @ restoreState, #load bodyCode level)
         end
 
-    type breakPoint = machineWord ref
-    
-    (* Create a new breakpoint ref. *)
-    fun createBreakPoint() = ref (ADDRESS.toMachineWord 0w0)
+    type breakPoint = bool ref
  
     (* Create a local break point and check the global and local break points. *)
     fun breakPointCode(breakPoint, location, level, lex, mkAddr) =
@@ -591,29 +588,18 @@ struct
                 case breakPoint of
                     ref (SOME bpt) => bpt
                 |   r as ref NONE =>
-                    let val b = ref (ADDRESS.toMachineWord 0w0) in r := SOME b; b end;
-            (* First check the global breakpoint. *)
+                    let val b = ref false in r := SOME b; b end;
+            (* Call the breakpoint function if it's defined. *)
             val threadId = mkEval(rtsFunction POLY_SYS_thread_self, [])
             val globalBpt =
                 multipleUses(
                     mkEval(rtsFunction POLY_SYS_load_word, [threadId, threadIdBreakPoint]), fn () => mkAddr 1, level)
-            (* Then the local breakpoint. *)
-            val localBpt =
-                multipleUses(
-                    mkEval(rtsFunction POLY_SYS_load_word,
-                        [mkConst(toMachineWord localBreakPoint), CodeZero]), fn () => mkAddr 1, level)
             val testCode =
                 mkIf(
                     mkNot(mkTagTest(#load globalBpt level, 0w0, 0w0)), 
-                    mkEval(#load globalBpt level, [mkConst(toMachineWord location)]),
-                    mkEnv(
-                        #dec localBpt,
-                        mkIf(
-                            mkTagTest(#load localBpt level, 0w0, 0w0),
-                            CodeZero,
-                            mkEval(#load globalBpt level, [mkConst(toMachineWord location)])
-                        )
-                    )
+                    mkEval(#load globalBpt level,
+                        [mkTuple[mkConst(toMachineWord location), mkConst(toMachineWord localBreakPoint)]]),
+                    CodeZero
                 )
         in
             #dec globalBpt @ [mkNullDec testCode]
@@ -640,7 +626,6 @@ struct
         type codeBinding    = codeBinding
         type codetree       = codetree
         type typeVarMap     = typeVarMap
-        type breakPoint     = breakPoint
         type debuggerStatus = debuggerStatus
     end
 end;

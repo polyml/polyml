@@ -47,6 +47,8 @@ struct
     |   PTpreviousSibling of unit -> exportTree
     |   PTnextSibling of unit -> exportTree
     |   PTfirstChild of unit -> exportTree
+    |   PTbreakPoint of bool ref
+    |   PTcompletions of string list
     withtype exportTree = location * ptProperties list *)
     local
         open Address
@@ -55,7 +57,7 @@ struct
         type ptProperties = address
         type exportTree = location * ptProperties list
 
-        fun PTbreakPoint(bpt: (location->unit) option -> unit): ptProperties = cast(0w0, bpt)
+        fun PTbreakPoint(bpt: bool ref): ptProperties = cast(0w0, bpt)
         and PTcompletions(sl: string list): ptProperties = cast(0w1, sl)
         and PTdeclaredAt(loc: location): ptProperties = cast(0w2, loc)
         and PTfirstChild(entry: unit -> exportTree): ptProperties = cast(0w3, entry)

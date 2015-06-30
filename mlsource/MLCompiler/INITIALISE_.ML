@@ -1164,7 +1164,7 @@ struct
             val () = #enterType polyMLEnv ("typeExpression", TypeConstrSet(typesConstr, []));
 
             val constrs = (* Order is significant. *)
-               [ ("PTbreakPoint",       (Option (Location ->> Unit)) ->> Unit),
+               [ ("PTbreakPoint",       Ref Bool),
                  ("PTcompletions",      List String),
                  ("PTdeclaredAt",       Location),
                  ("PTfirstChild",       Unit ->> ParseTree),

@@ -44,7 +44,7 @@ sig
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
 
-    type breakPoint
+    type breakPoint = bool ref
 
     datatype parsetree = 
         Ident               of
@@ -327,6 +327,5 @@ sig
         and  datatypebind = datatypebind
         and  exbind = exbind
         and  matchtree = matchtree
-        and  breakPoint = breakPoint
     end
 end;

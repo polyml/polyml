@@ -325,7 +325,6 @@ struct
         and  datatypebind = datatypebind
         and  exbind = exbind
         and  matchtree = matchtree
-        and  breakPoint = breakPoint
     end
 
 end;

@@ -121,7 +121,7 @@ struct
             let
                 val (loc, props) = getExportTree (nav, p)
             in
-                (loc, PTbreakPoint(DEBUGGER.setBreakPoint bpt) :: props)
+                (loc, PTbreakPoint bpt :: props)
             end
         
         fun exportMatch(navigation,
@@ -131,7 +131,7 @@ struct
             val debugProp =
                 case bpt of
                     NONE => []
-                |   SOME bpt => [PTbreakPoint(DEBUGGER.setBreakPoint bpt)]
+                |   SOME bpt => [PTbreakPoint bpt]
         in
             (location,
                 [PTprint(fn d => displayMatch(p, d)), PTtype (mkFunctionType (atype, rtype))] @ 
@@ -261,7 +261,7 @@ struct
                     val debugProp =
                         case bpt of
                             NONE => []
-                        |   SOME bpt => [PTbreakPoint(DEBUGGER.setBreakPoint bpt)]
+                        |   SOME bpt => [PTbreakPoint bpt]
                 in
                     exportList(exportFunEntry, SOME exportThis) (funAndArgs @ constraint @ [FunPtree exp]) @ debugProp
                 end
