@@ -99,7 +99,8 @@ enum {
     OPT_RESERVE,
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
-    OPT_DEBUGFILE
+    OPT_DEBUGFILE,
+    OPT_DDESERVICE
 };
 
 static struct __argtab {
@@ -115,6 +116,10 @@ static struct __argtab {
     { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
     { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    ,
+    { "-pServiceName",  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE }
+#endif
 };
 
 static struct __debugOpts {
@@ -284,6 +289,9 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         break;
                     case OPT_DEBUGFILE:
                         SetLogFile(p);
+                        break;
+                    case OPT_DDESERVICE:
+                        // This has already been processed.
                         break;
                     }
                     argUsed = true;

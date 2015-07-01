@@ -889,6 +889,19 @@ int PolyWinMain(
             }
             LocalFree(uniArgs);
         }
+
+        // We have to extract the -pServiceName argument if it's there.
+        // It might be better to process it as part of the normal argument
+        // processing but we'd then have to do a call back here.
+        for (int j = 0; j < nArgs; j++)
+        {
+            if (strcmp(lpArgs[j], "-pServiceName") == 0 && j+1 < nArgs)
+            {
+                lpszServiceName = lpArgs[j+1];
+                // For the moment leave the argument.
+                break;
+            }
+        }
     }
 
     // Create an internal hidden window to handle DDE requests from the ML thread.
