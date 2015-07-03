@@ -85,7 +85,7 @@ sig
 
     (* Add debugging calls on entry and exit to a function. *)
     val wrapFunctionInDebug:
-        codetree * string * types * location * debuggerStatus * level * lexan * (int -> int) -> codetree
+        codetree * string * types * location * codeBinding list * debuggerStatus * level * lexan * (int -> int) -> codetree
     (* Create a debug entry for the start of the function. *)
     val debugFunctionEntryCode:
         string * codetree * types * location * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus

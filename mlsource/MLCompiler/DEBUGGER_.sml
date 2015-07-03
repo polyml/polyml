@@ -485,7 +485,7 @@ struct
     end
 
     (* Add debugging calls on entry and exit to a function. *)
-    fun wrapFunctionInDebug(body: codetree, name: string, resType: types, location,
+    fun wrapFunctionInDebug(body: codetree, name: string, resType: types, location, debuggerDecs,
                             entryEnv: debuggerStatus as {staticEnv, dynEnv, ...}, level, lex, mkAddr) =
         if not (getParameter debugTag (LEX.debugParams lex)) then body (* Return it unchanged. *)
         else
@@ -515,7 +515,7 @@ struct
             and currStack = loadIdEntry threadIdStack
             
             val prefixCode =
-                #dec threadId @ #dec currStatic @ #dec currDynamic @ #dec currLocation @ #dec currStack
+                debuggerDecs @ #dec threadId @ #dec currStatic @ #dec currDynamic @ #dec currLocation @ #dec currStack
             
             local
                 (* At the start of the function:

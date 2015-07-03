@@ -283,8 +283,8 @@ struct
 
     (* In order to build a call stack in the debugger we need to know about
        function entry and exit. *)
-    fun wrapFunctionInDebug(body, name, restype, location, {debugEnv, mkAddr, level, lex, ...}) =
-        DEBUGGER.wrapFunctionInDebug(body, name, restype, location, debugEnv, level, lex, mkAddr)
+    fun wrapFunctionInDebug(body, name, restype, location, debugDecs, {debugEnv, mkAddr, level, lex, ...}) =
+        DEBUGGER.wrapFunctionInDebug(body, name, restype, location, debugDecs, debugEnv, level, lex, mkAddr)
 
     (* Create an entry in the static environment for the function. *)
     fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
@@ -862,9 +862,8 @@ struct
             val bodyContext = newContext |> repDebugEnv newDebugEnv
             
             val alt = codeMatch (c, f, argumentCode, false, bodyContext)
-            val wrap = wrapFunctionInDebug(alt, newDecName, resType, location, newContext)
-            val mainProc =
-                mkProc(mkEnv(debugEntryCode, wrap), tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
+            val wrap = wrapFunctionInDebug(alt, newDecName, resType, location, debugEntryCode, bodyContext)
+            val mainProc = mkProc(wrap, tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
     
             (* Now make a block containing the procedure which expects
                multiple arguments and an inline procedure which expects
@@ -897,8 +896,8 @@ struct
 
             val alt  = codeMatch (c, f, mkLoadArgument 0, false, bodyContext)
             (* If we're debugging add the debug info before resetting the level. *)
-            val wrapped = wrapFunctionInDebug(alt, newDecName, resType, location, bodyContext)
-            val pr = mkProc (mkEnv(debugEntryCode, wrapped), 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
+            val wrapped = wrapFunctionInDebug(alt, newDecName, resType, location, debugEntryCode, bodyContext)
+            val pr = mkProc (wrapped, 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
         in
             if null polyVars then pr
             else mkProc(pr, List.length polyVars, newDecName^"(P)", getClosure nLevel, 0)
@@ -1439,7 +1438,7 @@ struct
                         in
                             (* If we're debugging add the debug info before resetting the level. *)
                             val codeForBody =
-                                wrapFunctionInDebug(mkEnv(debugEntryCode, bodyCode), procName, resType, location, fnContext)
+                                wrapFunctionInDebug(bodyCode, procName, resType, location, debugEntryCode, bodyContext)
                         end
 
                         val () =
