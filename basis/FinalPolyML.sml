@@ -1213,7 +1213,6 @@ in
         struct
             local
                 open DebuggerInterface
-                val print = TextIO.print (* Not PolyML.print *)
 
                 fun debugLocation(d: debugState): string * PolyML.location =
                     (getOpt(debugFunction d, ""), DebuggerInterface.debugLocation d)
@@ -1287,30 +1286,36 @@ in
                 fun checkExnBreak(ex: exn) =
                     let val exnId = getExnId ex in List.exists (fn n => n = exnId) (! exBreakPoints) end
 
-                fun printSpaces () =
-                let
-                    fun printSp 0 = () | printSp n = (print " "; printSp (n-1))
-                    val depth = List.length(getStack())
-                in
-                    if depth > 50
-                    then printSp 50
-                    else if depth = 0
-                    then ()
-                    else printSp (depth-1)
-                end
+                fun getArgResult stack get =
+                    case stack of
+                        hd :: _ =>
+                            (
+                                case get hd of
+                                    SOME v =>
+                                        Bootstrap.printValue(v, !printDepth, globalNameSpace)
+                                |   NONE =>PrettyString "?"
+                            )
+                    |   _ => PrettyString "?"
 
-                fun printVal v =
-                    prettyPrintWithOptionalMarkup(TextIO.print, 77) (Bootstrap.printValue(v, !printDepth, globalNameSpace))
-                
-                fun printOptVal(SOME v) = printVal v | printOptVal NONE = print "?"
-                fun printArg() =
-                    case getStack() of
-                        hd :: _ => printOptVal(debugFunctionArg hd)
-                    |   _ => print "?"
-                fun printRes() =
-                    case getStack() of
-                        hd :: _ => printOptVal(debugFunctionResult hd)
-                    |   _ => print "?"
+                fun printTrace (funName, location, stack, argsAndResult) =
+                let
+                    (* This prints a block with the argument and, if we're exiting the result.
+                       The function name is decorated with the location.
+                       TODO: This works fine so long as the recursion depth is not too deep
+                       but once it gets too wide the pretty-printer starts breaking the lines. *)
+                    val block =
+                        PrettyBlock(0, false, [],
+                            [
+                                PrettyBreak(length stack, 0),
+                                PrettyBlock(0, false, [],
+                                [
+                                    PrettyBlock(0, false, [ContextLocation location], [PrettyString funName]),
+                                    PrettyBreak(1, 3)
+                                ] @ argsAndResult)
+                            ])
+                in
+                    prettyPrintWithOptionalMarkup (TextIO.print, !lineLength) block
+                end
 
                 (* Try to print the appropriate line from the file.*)
                 fun printSourceLine(fileName: string, line: int, funName: string, justLocation) =
@@ -1348,10 +1353,16 @@ in
                 end
 
                 (* These functions are installed as global callbacks if necessary. *)
-                fun onEntry (funName, {file, startLine, ...}: PolyML.location) =
+                fun onEntry (funName, location as {file, startLine, ...}: PolyML.location) =
                 (
                     if ! tracing
-                    then (printSpaces(); print funName; print " "; printArg(); print "\n")
+                    then
+                    let
+                        val stack = getStack()
+                        val arg = getArgResult stack debugFunctionArg
+                    in
+                        printTrace(funName, location, stack, [arg])
+                    end
                     else ();
                     (* We don't actually break here because at this stage we don't
                        have any variables declared. *)
@@ -1363,17 +1374,33 @@ in
                     else ()
                 )
                 
-                and onExit (funName, _) =
+                and onExit (funName, location) =
                 (
                     if ! tracing
-                    then (printSpaces(); print funName; print " "; printArg(); print " = "; printRes(); print "\n")
+                    then
+                    let
+                        val stack = getStack()
+                        val arg = getArgResult stack debugFunctionArg
+                        val res = getArgResult stack debugFunctionResult
+                    in
+                        printTrace(funName, location, stack,
+                            [arg, PrettyBreak(1, 3), PrettyString "=", PrettyBreak(1, 3), res])
+                    end
                     else ()
                 )
 
-                and onExitException(funName, _) exn =
+                and onExitException(funName, location) exn =
                 (
                     if ! tracing
-                    then (printSpaces(); print funName; print " "; printArg(); print (" raised " ^ exnName exn ^ "\n"))
+                    then
+                    let
+                        val stack = getStack()
+                        val arg = getArgResult stack debugFunctionArg
+                    in
+                        printTrace(funName, location, stack,
+                            [arg, PrettyBreak(1, 3), PrettyString "=", PrettyBreak(1, 3),
+                             PrettyString "raised", PrettyBreak(1, 3), PrettyString(exnName exn)])
+                    end
                     else ();
                     if checkExnBreak exn
                     then enterDebugger ()
