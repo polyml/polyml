@@ -85,10 +85,8 @@ sig
 
     (* Add debugging calls on entry and exit to a function. *)
     val wrapFunctionInDebug:
-        codetree * string * types * location * codeBinding list * debuggerStatus * level * lexan * (int -> int) -> codetree
-    (* Create a debug entry for the start of the function. *)
-    val debugFunctionEntryCode:
-        string * codetree * types * location * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
+        (debuggerStatus -> codetree) * string * codetree * types * types *
+        location * debuggerStatus * level * lexan * (int -> int) -> codetree
 
     (* Exported functions that appear in PolyML.DebuggerInterface. *)
     type debugState (* The run-time state. *)

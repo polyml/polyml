@@ -471,23 +471,11 @@ struct
         ([mkNullDec setLocation], {staticEnv=staticEnv, dynEnv=dynEnv, lastLoc=location})
     end
 
-    (* Function entry code.  This needs to precede any values in the body. *)
-    fun debugFunctionEntryCode(name: string, argCode, argType, location, debugEnv as {staticEnv, dynEnv, lastLoc, ...}, level, lex, mkAddr) =
-    if not (getParameter debugTag (LEX.debugParams lex)) then ([], debugEnv)
-    else
-    let
-        val functionName = name (* TODO: munge this to get the root. *)
-        val newEnv = mkTuple [ argCode, dynEnv level ]
-        val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
-        val ctEntry = EnvStartFunction(functionName, location, argType)
-    in
-        (dec, {staticEnv = ctEntry :: staticEnv, dynEnv = load, lastLoc = lastLoc})
-    end
-
     (* Add debugging calls on entry and exit to a function. *)
-    fun wrapFunctionInDebug(body: codetree, name: string, resType: types, location, debuggerDecs,
-                            entryEnv: debuggerStatus as {staticEnv, dynEnv, ...}, level, lex, mkAddr) =
-        if not (getParameter debugTag (LEX.debugParams lex)) then body (* Return it unchanged. *)
+    fun wrapFunctionInDebug(codeBody: debuggerStatus -> codetree, name: string, argCode, argType, resType: types, location,
+                            entryEnv: debuggerStatus, level, lex, mkAddr) =
+        if not (getParameter debugTag (LEX.debugParams lex))
+        then codeBody entryEnv (* Code-generate the body without any wrapping. *)
         else
         let
             open ADDRESS RuntimeCalls
@@ -513,21 +501,39 @@ struct
             and currDynamic = loadIdEntry threadIdCurrentDynamic
             and currLocation = loadIdEntry threadIdCurrentLocation
             and currStack = loadIdEntry threadIdStack
-            
+
+            (* At the start of the function:
+               1.  Push the previous state to the stack.
+               2.  Create a debugging entry for the arguments
+               3.  Update the state to the state on entry, including the args
+               4.  Call the global onEntry function if it's set
+               5.  Call the local onEntry function if it's set *)
+            (* Save the previous state. *)
+            val assignStack =
+                mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdStack,
+                    mkDatatype[
+                        #load currStatic level, #load currDynamic level,
+                        #load currLocation level, #load currStack level]])
+
             val prefixCode =
-                debuggerDecs @ #dec threadId @ #dec currStatic @ #dec currDynamic @ #dec currLocation @ #dec currStack
-            
+                #dec threadId @ #dec currStatic @ #dec currDynamic @ #dec currLocation @ #dec currStack @ [mkNullDec assignStack]
+
+            (* Make a debugging entry for the arguments.  This needs to be set
+               before we call onEntry so we can produce tracing info.  It also needs
+               to be passed to the body of the function so that it is included in the
+               debug status of the rest of the body. *)
             local
-                (* At the start of the function:
-                   1.  Push the previous state to the stack.
-                   2.  Update the state to the state on entry, including the args
-                   3.  Call the global onEntry function if it's set
-                   4.  Call the local onEntry function if it's set *)
-                val assignStack =
-                    mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdStack,
-                        mkDatatype[
-                            #load currStatic level, #load currDynamic level,
-                            #load currLocation level, #load currStack level]])
+                val {staticEnv, dynEnv, lastLoc, ...} = entryEnv
+                val newEnv = mkTuple [ argCode, dynEnv level ]
+                val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
+                val ctEntry = EnvStartFunction(functionName, location, argType)
+            in
+                val debuggerDecs = dec
+                val bodyDebugEnv = {staticEnv = ctEntry :: staticEnv, dynEnv = load, lastLoc = lastLoc}
+            end
+
+            local
+                val {staticEnv, dynEnv, ...} = bodyDebugEnv
                 val assignStatic =
                     mkEval(rtsFunction POLY_SYS_assign_word, [#load threadId level, threadIdCurrentStatic,
                         mkConst(toMachineWord staticEnv)])
@@ -541,8 +547,8 @@ struct
                 val optCallOnEntry =
                     mkIf(mkTagTest(#load onEntryFn level, 0w0, 0w0), CodeZero, mkEval(#load onEntryFn level, onArgs))
             in
-                val entryCode =
-                    [mkNullDec assignStack, mkNullDec assignStatic, mkNullDec assignDynamic, mkNullDec assignLocation] @
+                val entryCode = debuggerDecs @
+                    [mkNullDec assignStatic, mkNullDec assignDynamic, mkNullDec assignLocation] @
                     #dec onEntryFn @ [mkNullDec optCallOnEntry]
             end
             
@@ -580,7 +586,7 @@ struct
             
             (* Code for the body and the exception. *)
             val bodyCode =
-                multipleUses(mkHandle(body, exceptionCase), fn () => mkAddr 1, level)
+                multipleUses(mkHandle(codeBody bodyDebugEnv, exceptionCase), fn () => mkAddr 1, level)
 
             (* Code for normal exit. *)
             local

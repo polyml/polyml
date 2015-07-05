@@ -283,12 +283,12 @@ struct
 
     (* In order to build a call stack in the debugger we need to know about
        function entry and exit. *)
-    fun wrapFunctionInDebug(body, name, restype, location, debugDecs, {debugEnv, mkAddr, level, lex, ...}) =
-        DEBUGGER.wrapFunctionInDebug(body, name, restype, location, debugDecs, debugEnv, level, lex, mkAddr)
+    fun wrapFunctionInDebug(codeBody, name, argCode, argType, restype, location, {debugEnv, mkAddr, level, lex, ...}) =
+        DEBUGGER.wrapFunctionInDebug(codeBody, name, argCode, argType, restype, location, debugEnv, level, lex, mkAddr)
 
     (* Create an entry in the static environment for the function. *)
-    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
-        DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)
+(*    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
+        DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)*)
 
       (* Find all the variables declared by each pattern. *)
       fun findVars vars varl =
@@ -857,12 +857,16 @@ struct
             val fnLevel  = newLevel nLevel
             val argumentCode = mkArgTuple(0, tupleSize)
             val newContext = cpContext |> repNewLevel(newDecName, fnMkAddr, fnLevel)
-            val (debugEntryCode, newDebugEnv) =
-                debugFunctionEntryCode(newDecName, argumentCode, argType, location, newContext)
-            val bodyContext = newContext |> repDebugEnv newDebugEnv
-            
-            val alt = codeMatch (c, f, argumentCode, false, bodyContext)
-            val wrap = wrapFunctionInDebug(alt, newDecName, resType, location, debugEntryCode, bodyContext)
+
+            fun codeAlts newDebugEnv =
+            let
+                val bodyContext = newContext |> repDebugEnv newDebugEnv
+            in
+                codeMatch (c, f, argumentCode, false, bodyContext)
+            end
+
+            val wrap =
+                wrapFunctionInDebug(codeAlts, newDecName, argumentCode, argType, resType, location, newContext)
             val mainProc = mkProc(wrap, tupleSize, newDecName, getClosure fnLevel, fnMkAddr 0)
     
             (* Now make a block containing the procedure which expects
@@ -889,14 +893,17 @@ struct
             val newDecName : string  = decName ^ "(1)";
             val fnLevel  = newLevel nLevel
             val newContext = cpContext |> repNewLevel(newDecName, fnMkAddr, fnLevel)
+            
+            fun codeAlts newDebugEnv =
+            let
+                val bodyContext = newContext |> repDebugEnv newDebugEnv
+            in
+                codeMatch (c, f, mkLoadArgument 0, false, bodyContext)
+            end
 
-            val (debugEntryCode, newDebugEnv) =
-                debugFunctionEntryCode(newDecName, mkLoadArgument 0, argType, location, newContext)
-            val bodyContext = newContext |> repDebugEnv newDebugEnv
-
-            val alt  = codeMatch (c, f, mkLoadArgument 0, false, bodyContext)
             (* If we're debugging add the debug info before resetting the level. *)
-            val wrapped = wrapFunctionInDebug(alt, newDecName, resType, location, debugEntryCode, bodyContext)
+            val wrapped =
+                wrapFunctionInDebug(codeAlts, newDecName, mkLoadArgument 0, argType, resType, location, newContext)
             val pr = mkProc (wrapped, 1, newDecName, getClosure fnLevel,  fnMkAddr 0)
         in
             if null polyVars then pr
@@ -1408,37 +1415,37 @@ struct
                             (* Function body.  The debug state has a "start of function" entry that
                                is used when tracing and points to the arguments.  There are then
                                entries for the recursive functions so they can be used if we
-                               break within the function. *)
-                            val (debugEntryCode, fnEntryEnv) =
-                                debugFunctionEntryCode(procName, argList, aType, location, fnContext)
-                            (* Create debug entries for recursive references. *)
-                            val (recDecs, recDebugEnv) =
-                                makeDebugEntries(functionVars, fnContext |> repDebugEnv fnEntryEnv)
-                            val bodyContext = fnContext |> repDebugEnv recDebugEnv
-                            
-                            val debugEntryCode = debugEntryCode @ recDecs
-                            val codeMatches = codeMatch (near, matches, argList, false, bodyContext)
+                               break within the function. *)                            
+                            fun codeBody fnEntryEnv =
+                            let
+                                val startContext = fnContext |> repDebugEnv fnEntryEnv
+                                (* Create debug entries for recursive references. *)
+                                val (recDecs, recDebugEnv) = makeDebugEntries(functionVars, startContext)
+                                val bodyContext = fnContext |> repDebugEnv recDebugEnv
 
-                            (* If the result is a tuple we try to avoid creating it by adding
-                               an extra argument to the inline function and setting this to
-                               the result. *)
-                            val bodyCode =
-                            if resTupleLength = 1
-                            then codeMatches
-                            else
-                                (* The function sets the extra argument to the result
-                                   of the body of the function.  We use the last
-                                   argument for the container so that
-                                   other arguments will be passed in registers in
-                                   preference.  Since the container is used for the
-                                   result this argument is more likely to have to be
-                                   pushed onto the stack within the function than an
-                                   argument which may have its last use early on. *)
-                                mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, resTupleLength)
+                                val codeMatches =
+                                    mkEnv(recDecs, codeMatch (near, matches, argList, false, bodyContext))
+                            in
+                                (* If the result is a tuple we try to avoid creating it by adding
+                                   an extra argument to the inline function and setting this to
+                                   the result. *)
+                                if resTupleLength = 1
+                                then codeMatches
+                                else
+                                    (* The function sets the extra argument to the result
+                                       of the body of the function.  We use the last
+                                       argument for the container so that
+                                       other arguments will be passed in registers in
+                                       preference.  Since the container is used for the
+                                       result this argument is more likely to have to be
+                                       pushed onto the stack within the function than an
+                                       argument which may have its last use early on. *)
+                                    mkSetContainer(mkLoadParam(nArgTypes-1, fnLevel, fnLevel), codeMatches, resTupleLength)
+                            end
                         in
                             (* If we're debugging add the debug info before resetting the level. *)
                             val codeForBody =
-                                wrapFunctionInDebug(bodyCode, procName, resType, location, debugEntryCode, bodyContext)
+                                wrapFunctionInDebug(codeBody, procName, argList, aType, resType, location, fnContext)
                         end
 
                         val () =
