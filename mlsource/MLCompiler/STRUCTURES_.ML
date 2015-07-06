@@ -3026,16 +3026,27 @@ struct
         in
             fun mkAddr n = !address before (address := ! address+n)
         end
-   
-        val coded = (* Process top level list. *)
-            mapPair (fn (str, debug) => codeTopdecs (str, debug, mkAddr))
-                strs initialDebuggerStatus
-        val loaded = List.foldl (fn (s, l) => loadTopdecs s @ l) [] strs
+
+        fun codeProgram debugEnv =
+        let
+            val coded = (* Process top level list. *)
+                mapPair (fn (str, debug) => codeTopdecs (str, debug, mkAddr))
+                    strs debugEnv
+            val loaded = List.foldl (fn (s, l) => loadTopdecs s @ l) [] strs
+            (* The result is code for a vector containing the results of the
+               declarations which pass4 can use to pull out the values after
+               the code has been run. *)
+        in
+            mkEnv (#code coded, mkTuple(List.rev loaded))
+        end
+        (* This is wrapped up as a function when debugging mainly to ensure that any
+           existing debug state in the thread is preserved across this. *)
+        val wrapped =
+            wrapFunctionInDebug(
+                codeProgram, "<Top Level>", CodeZero, unitType, unitType, nullLocation,
+                initialDebuggerStatus, baseLevel, lex, mkAddr)
     in 
-        (* The result is code for a vector containing the results of the
-           declarations which pass4 can use to pull out the values after
-           the code has been run. *)
-        (mkEnv (#code coded, mkTuple(List.rev loaded)), mkAddr 0)
+        (wrapped, mkAddr 0)
     end (* gencodeStructs *);
 
   (* Once the code has been executed the declarations must be added to
