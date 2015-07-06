@@ -555,11 +555,11 @@ struct
                 then lexError(state, "unknown symbol ." ^ str(!ch))
                 else
                 (
-                    nextCh state;
                     setSymbolEnd state;
+                    nextCh state;
                     if !ch <> #"." 
                     then lexError(state, "unknown symbol .." ^ str(!ch))
-                    else (sy := ThreeDots; nextCh state; setSymbolEnd state)
+                    else (sy := ThreeDots; setSymbolEnd state; nextCh state)
                 )
             )
               
