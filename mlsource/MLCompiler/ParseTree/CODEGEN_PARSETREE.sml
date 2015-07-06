@@ -290,68 +290,43 @@ struct
 (*    fun debugFunctionEntryCode(name, argCode, argType, location, {debugEnv, mkAddr, level, lex, ...}) =
         DEBUGGER.debugFunctionEntryCode(name, argCode, argType, location, debugEnv, level, lex, mkAddr)*)
 
-      (* Find all the variables declared by each pattern. *)
-      fun findVars vars varl =
-        case vars of
-          Ident {value, ...} =>
-          let
-            val ident = ! value;
-          in
-            if isConstructor ident
-            then varl (* Ignore constructors *)
-            else ident :: varl
-          end
-      
-        | TupleTree{fields, ...} =>
-            List.foldl (fn (v1, v2) => findVars v1 v2) varl fields
-      
-        | Labelled {recList, ...} =>
-            List.foldl (fn ({valOrPat, ...}, v) => findVars valOrPat v) varl recList
-      
-         (* Application of a constructor: only the argument
+    (* Find all the variables declared by each pattern. *)
+    fun getVariablesInPatt (Ident {value = ref ident, ...}, varl) =
+            (* Ignore constructors *)
+            if isConstructor ident then varl else ident :: varl
+    |   getVariablesInPatt(TupleTree{fields, ...}, varl) = List.foldl getVariablesInPatt varl fields
+    |   getVariablesInPatt(Labelled {recList, ...}, varl) =
+            List.foldl (fn ({valOrPat, ...}, vl) => getVariablesInPatt(valOrPat, vl)) varl recList
+        (* Application of a constructor: only the argument
             can contain vars. *)
-        | Applic {arg, ...} =>
-            findVars arg varl
-      
-        | List{elements, ...} =>
-            List.foldl (fn (v1, v2) => findVars v1 v2) varl elements
-      
-        | Constraint {value, ...} =>
-            findVars value varl
-      
-        | Layered {var, pattern, ...} =>
+    |   getVariablesInPatt(Applic {arg, ...}, varl) = getVariablesInPatt (arg, varl)
+    |   getVariablesInPatt(List{elements, ...}, varl) = List.foldl getVariablesInPatt varl elements
+    |   getVariablesInPatt(Constraint {value, ...}, varl) = getVariablesInPatt(value, varl)
+    |   getVariablesInPatt(Layered {var, pattern, ...}, varl) =
              (* There may be a constraint on the variable
                 so it is easiest to recurse. *)
-            findVars pattern (findVars var varl)
-
-        | Parenthesised(p, _) =>
-            findVars p varl
-       
-        | _ =>
-            varl (* constants and error cases. *);
-
-      val findAllVars =
-          map (fn (MatchTree{vars, ...}) => findVars vars []);
-
-      (* Make an argument list from the variables bound in the pattern. *)
-      fun makeArglist []        _ = []
-        | makeArglist (Value{access=Local{addr=ref lvAddr, ...}, ...} :: vs) argno =
-            mkLoadLocal lvAddr :: makeArglist vs (argno - 1) 
-        | makeArglist _ _ = raise InternalError "makeArgList"
+            getVariablesInPatt(pattern, getVariablesInPatt(var, varl))
+    |   getVariablesInPatt(Parenthesised(p, _), varl) = getVariablesInPatt(p, varl)
+    |   getVariablesInPatt(_, varl) = varl (* constants and error cases. *);
 
     (* If we are only passing equality types filter out the others. *)
     val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
 
 
     fun codeMatch(near, alt : matchtree list, arg,
-                  isHandlerMatch, matchContext as { level, mkAddr, lex, ...}): codetree =
+                  isHandlerMatch, matchContext as { level, mkAddr, lex, typeVarMap, ...}): codetree =
     let
         val noOfPats  = length alt
-        val allVars   = findAllVars alt
         (* Check for unreferenced variables. *)
         val () =
             if getParameter reportUnreferencedIdsTag (debugParams lex)
-            then List.app (fn l => List.app (reportUnreferencedValue lex) l) allVars
+            then 
+            let
+                fun getVars(MatchTree{vars, ...}, l) = getVariablesInPatt(vars, l)
+                val allVars = List.foldl getVars [] alt
+            in
+                List.app (reportUnreferencedValue lex) allVars
+            end
             else ()
 
         val lineNo =
@@ -384,26 +359,33 @@ struct
         val uses = IntArray.array (noOfPats, 0);
 
         (* Called when a selection has been made to code-generate the expression. *)
-        fun codePatternExpression(pattChosenIndex, context) =
+        fun codePatternExpression pattChosenIndex =
         let
+            val context = matchContext
             (* Increment the count for this pattern. *)
             val useCount = IntArray.sub(uses, pattChosenIndex) + 1
             val () = IntArray.update (uses, pattChosenIndex, useCount)
+            val MatchTree {vars, exp, breakPoint, ... } = List.nth(alt, pattChosenIndex)
         in
             if useCount <= insertDirectCount
             then (* Use the expression directly *)
             let
-                val MatchTree {exp, breakPoint, ... } = List.nth(alt, pattChosenIndex)            
+                (* If debugging add debug entries for the variables then put in a break-point. *)
+                val vl = getVariablesInPatt(vars, [])
+                val (envDec, varDebugEnv) = makeDebugEntries(vl, context)
                 val (bptCode, bptEnv) =
-                    addBreakPointCall(breakPoint, getLocation exp, context)
+                    addBreakPointCall(breakPoint, getLocation exp, context |> repDebugEnv varDebugEnv)
             in
-                mkEnv(bptCode, codegen (exp, context |> repDebugEnv bptEnv))
+                mkEnv(envDec @ bptCode, codegen (exp, context |> repDebugEnv bptEnv))
             end
             else
             let (* Put in a call to the expression as a function. *)
-                val thisVars    = List.nth(allVars, pattChosenIndex)
-                val noOfArgs    = length thisVars
-                val argsForCall = makeArglist thisVars noOfArgs
+                val thisVars    = getVariablesInPatt(vars, [])
+                (* Make an argument list from the variables bound in the pattern. *)
+                fun makeArg(Value{access=Local{addr=ref lvAddr, ...}, ...}) =
+                        mkLoadLocal lvAddr
+                |   makeArg _ = raise InternalError "makeArg"
+                val argsForCall = List.map makeArg thisVars
             in
                 mkEval(mkLoadLocal (baseAddr + pattChosenIndex), argsForCall)
             end
@@ -411,8 +393,13 @@ struct
 
         (* Generate the code and also check for redundancy
            and exhaustiveness. *)
-        val (matchCode, exhaustive) =
-            codeMatchPatterns(alt, loadExpCode, isHandlerMatch, lineNo, codePatternExpression, matchContext)
+        local
+            val cmContext =
+                { mkAddr = mkAddr, level = level, typeVarMap = typeVarMap, lex = lex }
+        in
+            val (matchCode, exhaustive) =
+                codeMatchPatterns(alt, loadExpCode, isHandlerMatch, lineNo, codePatternExpression, cmContext)
+        end
 
         (* Report inexhaustiveness if necessary.  TODO: It would be nice to have
            some example of a pattern that isn't matched for. *)
@@ -440,19 +427,16 @@ struct
             val () = IntArray.appi reportRedundant uses
         end
 
-      (* Generate variable-bindings (declarations) for each of the
-          expressions as functions. *)
-        fun cgExps([],  _,    _, _, _, _, _, _) = []
-        |   cgExps (MatchTree {exp, ...} ::al, vl::vll,
-                base, patNo, uses, lex, near,
-                cgContext as { decName, debugEnv, level, ...}) =
+        (* Generate functions for expressions that have been used more than 3 times. *)
+        fun cgExps([], _, _, _, _, _, _) = []
+
+        |   cgExps (MatchTree {vars, exp, breakPoint, ...} ::al,
+                    base, patNo, uses, lex, near, cgContext as { decName, level, ...}) =
             if IntArray.sub(uses, patNo - 1) <= insertDirectCount
-            then cgExps(al, vll, base, patNo + 1, uses, lex, near, cgContext)
+            then (* Skip if it has been inserted directly and we don't need a fn. *)
+                cgExps(al, base, patNo + 1, uses, lex, near, cgContext)
             else
             let
-                val noOfArgs = length vl
-                val patNoIndex = patNo - 1
-
                 val functionLevel = newLevel level (* For the function. *)
                 local
                     val addresses = ref 1
@@ -462,41 +446,40 @@ struct
     
                 val fnContext = cgContext |> repNewLevel(decName, fnMkAddrs, functionLevel)
 
-                (* Set the addresses to be suitable for arguments.  At the
-                   same time create a debugging environment if required. *)
-                fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...},
-                            (localAddr, oldDec, oldEnv)) =
-                    let
-                        val () = lvAddr  := localAddr
-                        and () = lvLevel := functionLevel
-                        val (nextDec, nextDebugEnv) =
-                            makeDebugEntries([v], fnContext |> repDebugEnv oldEnv)
-                    in
-                        (localAddr + 1, oldDec @ nextDec, nextDebugEnv)
-                    end
-                |   setAddr _ = raise InternalError "setAddr"
+                (* We have to pass the variables as arguments.  Bind a local variable to the argument
+                   so we can set the variable address as a local address. *)
+                val pattVars = getVariablesInPatt(vars, [])
+                val noOfArgs = length pattVars
+                val argumentList = List.tabulate(noOfArgs, mkLoadArgument)
+                val localAddresses = List.map(fn _ => fnMkAddrs 1) pattVars (* One address for each argument. *)
+                val localDecs = ListPair.mapEq mkDec (localAddresses, argumentList)
 
-                (* Bind a local variable to the argument so we can set the variable address as
-                   a local address. *)
-                val firstLocal = fnMkAddrs 0
-                val localDecs =
-                    List.tabulate(noOfArgs, fn n => mkDec(fnMkAddrs 1, mkLoadArgument n)) (* One address for each argument. *)
+                local
+                    (* Set the addresses to be suitable for arguments.  At the
+                       same time create a debugging environment if required. *)
+                    fun setAddr (Value{access=Local{addr=lvAddr, level=lvLevel}, ...}, localAddr) =
+                        (lvAddr  := localAddr; lvLevel := functionLevel)
+                    |   setAddr _ = raise InternalError "setAddr"
+                in
+                    val _ = ListPair.appEq setAddr (pattVars, localAddresses)
+                end
 
-                val (_, envDec, newEnv) = List.foldl setAddr (firstLocal, [], debugEnv) vl
+                (* If debugging add the debug entries for the variables then a break-point. *)
+                val (envDec, varDebugEnv) = makeDebugEntries(pattVars, fnContext)
+                val (bptCode, bptEnv) =
+                    addBreakPointCall(breakPoint, getLocation exp, fnContext |> repDebugEnv varDebugEnv)
 
                 val functionBody =
-                    mkEnv(localDecs @ envDec, codegen (exp, fnContext |> repDebugEnv newEnv))
+                    mkEnv(localDecs @ envDec @ bptCode, codegen (exp, fnContext |> repDebugEnv bptEnv))
+                val patNoIndex = patNo - 1
             in
                 mkDec(base + patNoIndex,
                     mkProc (functionBody, noOfArgs, decName ^ "/" ^ Int.toString patNo, getClosure functionLevel, fnMkAddrs 0)) ::
-                    cgExps(al, vll, base, patNo + 1, uses, lex, near, cgContext)
+                    cgExps(al, base, patNo + 1, uses, lex, near, cgContext)
             end
 
-        |   cgExps _ = raise InternalError "cgExps"
-                (* Now generate the expressions as functions, inline
-           if only used once. *)
         val expressionFuns =
-            cgExps(alt, allVars, baseAddr, 1, uses, lex, near, matchContext)
+            cgExps(alt, baseAddr, 1, uses, lex, near, matchContext)
     in
         (* Return the code in a block. *)
         mkEnv (#dec decCode @ expressionFuns, matchCode)
@@ -1641,8 +1624,13 @@ struct
                 val decCode = multipleUses (exp, fn () => mkAddr 1, level)
 
                 (* Generate the code and also check for redundancy and exhaustiveness. *)
-                val (bindCode, exhaustive) =
-                    codeBindingPattern(vbDec, #load decCode level, line, localContext)
+                local
+                    val cmContext =
+                        { mkAddr = mkAddr, level = level, typeVarMap = typeVarMap, lex = lex }
+                in
+                    val (bindCode, exhaustive) =
+                        codeBindingPattern(vbDec, #load decCode level, line, cmContext)
+                end
 
                 (* Report inexhaustiveness if necessary. *)
                 val () =
@@ -1653,7 +1641,7 @@ struct
                 (* Check for unreferenced variables. *)
                 val () =
                     if getParameter reportUnreferencedIdsTag (debugParams lex)
-                    then List.app (reportUnreferencedValue lex) (findVars vbDec [])
+                    then List.app (reportUnreferencedValue lex) (getVariablesInPatt(vbDec, []))
                     else ()
                 
                 val resultCode =

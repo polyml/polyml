@@ -97,21 +97,9 @@ struct
     type debuggerStatus = DEBUGGER.debuggerStatus
 
     (* To simplify passing the context it is wrapped up in this type.
-       This is the same as the context used in CODEGEN_PARSETREE. *)
-    type cgContext =
-        {
-            decName: string, debugEnv: debuggerStatus, mkAddr: int->int,
-            level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
-            isOuterLevel: bool (* Used only to decide if we need to report non-exhaustive matches. *)
-        }
-
-    fun repDebugEnv debugEnv ({decName, mkAddr, level, typeVarMap, lex, lastDebugLine, isOuterLevel, ...}: cgContext) =
-        { debugEnv=debugEnv, mkAddr=mkAddr, level=level, typeVarMap=typeVarMap,
-          decName=decName, lex=lex, lastDebugLine=lastDebugLine, isOuterLevel = isOuterLevel}: cgContext
-
-    (* Try this pipeline function *)
-    infix |>
-    fun a |> f = f a
+       This is a subset of the context used in CODEGEN_PARSETREE. *)
+    type matchContext =
+        { mkAddr: int->int, level: level, typeVarMap: typeVarMap, lex: lexan }
  
     (* Devised by Mike Fourman, Nick Rothwell and me (DCJM).  First coded
        up by Nick Rothwell for the Kit Compiler. First phase of the match
@@ -616,29 +604,24 @@ struct
         maket patts 1 aotEmpty 
     end
   
-    fun bindPattVars(arg, vars, { mkAddr, level, lex, typeVarMap, ...}, debugEnv) =
+    fun bindPattVars(arg, vars, { mkAddr, level, ...}) =
     let
         val addressOfVar = mkAddr 1
         val dec = mkDec (addressOfVar, arg)
         and load = mkLoadLocal addressOfVar
 
         (* Set the addresses of the variables and create debug entries. *)
-        fun setAddr (v as Value{access=Local{addr=lvAddr, level=lvLevel}, ...}, (oldDec, oldEnv) ) =
-            let (* Set the address of the variable to this and create
-                   debug environment entries if required. *)
-                val () = lvAddr  := addressOfVar (* Must do this BEFORE we create debug entry. *)
-                val () = lvLevel := level
-                val (nextDec, dbEnv) =
-                    DEBUGGER.makeValDebugEntries([v], oldEnv, level, lex, mkAddr, typeVarMap)
-            in
-                (oldDec @ nextDec, dbEnv)
-            end
+        fun setAddr (Value{access=Local{addr=lvAddr, level=lvLevel}, ...}) =
+            ( (* Set the address of the variable. *)
+                lvAddr  := addressOfVar;
+                lvLevel := level
+            )
 
         | setAddr _ = raise InternalError "setAddr"
 
-        val (envDec, newEnv) = List.foldl setAddr ([], debugEnv) vars
+        val () = List.app setAddr vars
      in
-        (load, dec :: envDec, newEnv)
+        (load, dec)
      end
 
     local
@@ -996,12 +979,12 @@ struct
 
         |   makeNaiveTests ((NaiveWild, _) :: rest, arg, tupleMap, context) = makeNaiveTests(rest, arg, tupleMap, context)
 
-        |   makeNaiveTests ((NaiveBindTuple tupleNo, _) :: rest, arg, tupleMap, context as { debugEnv, ...}) =
+        |   makeNaiveTests ((NaiveBindTuple tupleNo, _) :: rest, arg, tupleMap, context) =
             let
                 (* Bind it to a variable.  We don't set the addresses of the vars at this point. *)
-                val (declLoad, declDecs, _) = bindPattVars(arg, [], context, debugEnv)
+                val (declLoad, declDec) = bindPattVars(arg, [], context)
             in
-                mkEnv(declDecs, makeNaiveTests(rest, arg, (tupleNo, declLoad) :: tupleMap, context))
+                mkEnv([declDec], makeNaiveTests(rest, arg, (tupleNo, declLoad) :: tupleMap, context))
             end
 
         |   makeNaiveTests ((NaiveTupleSelect { tupleNo, fieldOffset}, _) :: rest, _, tupleMap, context) =
@@ -1011,62 +994,62 @@ struct
                 makeNaiveTests(rest, mkInd(fieldOffset, #2 (valOf findTuple)), tupleMap, context)
             end
 
-        |   makeNaiveTests ((NaivePattTest constr, _) :: rest, arg, tupleMap, context as { debugEnv, ...}) =
+        |   makeNaiveTests ((NaivePattTest constr, _) :: rest, arg, tupleMap, context) =
             let
                 (* Bind it to a variable.  This avoids making multiple copies of code. *)
-                val (declLoad, declDecs, _) = bindPattVars(arg, [], context, debugEnv)
+                val (declLoad, declDec) = bindPattVars(arg, [], context)
                 val (thisTest, inverse) = constructorCode(constr, declLoad, context)
             in
-                mkEnv(declDecs, mkCand(thisTest, makeNaiveTests(rest, inverse, tupleMap, context)))
+                mkEnv([declDec], mkCand(thisTest, makeNaiveTests(rest, inverse, tupleMap, context)))
             end
 
         (* Load all the variables. *)
-        fun makeLoads([], _, _, _, _, debugEnv) = ([], debugEnv)
+        fun makeLoads([], _, _, _, _) = []
 
-        |   makeLoads((pattern, vars) :: rest, patNo, arg, tupleMap, context, debugEnv) =
+        |   makeLoads((pattern, vars) :: rest, patNo, arg, tupleMap, context) =
             let
-                val (declLoad, declDecs, declEnv) = bindPattVars(arg, vars, context, debugEnv)
+                val (declLoad, declDec) = bindPattVars(arg, vars, context)
 
-                val (pattLoad, resEnv) =
+                val pattLoad =
                     case pattern of
-                        NaiveWild => makeLoads(rest, patNo, declLoad, tupleMap, context, declEnv)
+                        NaiveWild => makeLoads(rest, patNo, declLoad, tupleMap, context)
                     |   NaiveBindTuple tupleNo =>
-                            makeLoads(rest, patNo, declLoad, (tupleNo, declLoad) :: tupleMap, context, declEnv)
+                            makeLoads(rest, patNo, declLoad, (tupleNo, declLoad) :: tupleMap, context)
                     |   NaiveTupleSelect { tupleNo, fieldOffset} =>
                         let
                             val findTuple = List.find(fn(a, _) => tupleNo = a) tupleMap
                         in
-                            makeLoads(rest, patNo, mkInd(fieldOffset, #2 (valOf findTuple)), tupleMap, context, declEnv)
+                            makeLoads(rest, patNo, mkInd(fieldOffset, #2 (valOf findTuple)), tupleMap, context)
                         end
                     |   NaivePattTest constr =>
                         let
                             val (_, inverse) = constructorCode(constr, declLoad, context)
                         in
-                            makeLoads(rest, patNo, inverse, tupleMap, context, declEnv)
+                            makeLoads(rest, patNo, inverse, tupleMap, context)
                         end
             in
-                (declDecs @ pattLoad, resEnv)
+                declDec :: pattLoad
             end
     in
         
         fun codeGenerateMatch(patCode, arg, firePatt,
-                context: cgContext as {level, typeVarMap, debugEnv, ...}) =
+                context: matchContext as {level, typeVarMap,  ...}) =
         let
-            fun codeMatch({ leafSet, vars, code, ...}, arg, tupleMap, debugEnv) =
+            fun codeMatch({ leafSet, vars, code, ...}, arg, tupleMap) =
             let
                 (* Bind the current value to a codetree variable and set the addresses
                    of any ML variables to this. *)
-                val (declLoad, declDecs, declEnv) = bindPattVars(arg, vars, context, debugEnv)
+                val (declLoad, declDec) = bindPattVars(arg, vars, context)
 
 
                 val pattCode =
                     case code of
                         PattCodeLeaf => (* Finished - fire the pattern. *)
-                            firePatt(first leafSet, declEnv)
+                            firePatt(first leafSet)
 
                     |   PattCodeBindTuple { tupleNo, next }=>
                             (* Bind the tuple number to this address. *)
-                            codeMatch(next, arg, (tupleNo, declLoad) :: tupleMap, declEnv)
+                            codeMatch(next, arg, (tupleNo, declLoad) :: tupleMap)
 
                     |   PattCodeTupleSelect { tupleNo, fieldOffset, next } =>
                         let
@@ -1074,7 +1057,7 @@ struct
                                select the field. *)
                             val findTuple = List.find(fn(a, _) => tupleNo = a) tupleMap
                         in
-                            codeMatch(next, mkInd(fieldOffset, #2 (valOf findTuple)), tupleMap, declEnv)
+                            codeMatch(next, mkInd(fieldOffset, #2 (valOf findTuple)), tupleMap)
                         end
 
                     |   PattCodeConstructors { nConstrs, patterns, default } =>
@@ -1086,16 +1069,16 @@ struct
                                     val _ = null rest orelse raise InternalError "doPattern: not at end"
                                     val invertCode = makeInverse (cons, polyVars, declLoad, level, typeVarMap)
                                 in
-                                    codeMatch(code, invertCode, tupleMap, declEnv)
+                                    codeMatch(code, invertCode, tupleMap)
                                 end
 
                             |   doPattern([], _) = (* We've done all of them - do the default *)
-                                    codeMatch(default, arg, tupleMap, declEnv)
+                                    codeMatch(default, arg, tupleMap)
 
                             |   doPattern((constructor, matchCode) :: next, constrsLeft) =
                                 let
                                     val (testCode, invertCode) = constructorCode(constructor, declLoad, context)
-                                    val thenCode = codeMatch(matchCode, invertCode, tupleMap, declEnv)
+                                    val thenCode = codeMatch(matchCode, invertCode, tupleMap)
                                 in
                                     mkIf(testCode, thenCode, doPattern(next, constrsLeft-1))
                                 end
@@ -1109,9 +1092,8 @@ struct
                             fun makePatterns [] = raise InternalError "makeTests: empty"
                             |   makePatterns ({ tests, pattNo} :: rest) =
                                 let
-                                    val (pattDecs, pattEnv) =
-                                        makeLoads(tests, pattNo, arg, tupleMap, context, declEnv)
-                                    val pattCode = mkEnv(pattDecs, firePatt(pattNo, pattEnv))
+                                    val pattDecs = makeLoads(tests, pattNo, arg, tupleMap, context)
+                                    val pattCode = mkEnv(pattDecs, firePatt pattNo)
                                 in
                                     (* If this is the last one there's no need for a test. *)
                                     if null rest
@@ -1122,10 +1104,10 @@ struct
                             makePatterns patterns
                         end
             in
-                mkEnv(declDecs, pattCode)
+                mkEnv([declDec], pattCode)
             end
         in
-            codeMatch(patCode, arg, [], debugEnv)
+            codeMatch(patCode, arg, [])
         end
 
         (* Binding.  This should be a single naive match.  Generally it will be exhaustive
@@ -1133,20 +1115,19 @@ struct
         fun codeBinding(
                 { leafSet, vars, 
                     code = PattCodeNaive({ tests, ...} :: _ (* Normally nil but could be PattCodeWild if non-exhaustive *)), ...}, 
-                arg, line, context as { debugEnv, ...}) =
+                arg, line, context) =
             let
                 (* Bind this to a variable and set any top-level variable(s). *)
-                val (declLoad, declDecs, _) = bindPattVars(arg, vars, context, debugEnv)
+                val (declLoad, declDec) = bindPattVars(arg, vars, context)
                 (* Create any test code to raise the bind exception *)
                 val testCode =
                     if not (0 inside leafSet)
                     then [] (* Exhaustive - no test needed. *)
                     else [mkNullDec(mkIf(makeNaiveTests(tests, declLoad, [], context), CodeZero, raiseBindException line))]
-                (* Load the variables.  The debug environment is discarded and instead
-                   created by the calling code. *)
-                val (pattDecs, _) = makeLoads(tests, 1, declLoad, [], context, debugEnv)
+                (* Load the variables.  *)
+                val pattDecs = makeLoads(tests, 1, declLoad, [], context)
             in
-                declDecs @ testCode @ pattDecs
+                declDec :: testCode @ pattDecs
             end
 
         |   codeBinding _ = raise InternalError "codeBinding: should be naive pattern match"
@@ -1202,15 +1183,14 @@ struct
         (* It's not exhaustive if pattern zero is in the set. *)
         val exhaustive = not (0 inside leafSet)
 
-        fun firePatt (0, _) =
+        fun firePatt 0 =
         (
             exhaustive andalso raise InternalError "codeDefault called but exhaustive";
             if isHandlerMatch
             then mkRaise arg
             else raiseMatchException lineNo
         )
-        |   firePatt(pattChosen, debugEnv) =
-                codePatternExpression(pattChosen - 1, context |> repDebugEnv debugEnv)
+        |   firePatt pattChosen = codePatternExpression(pattChosen - 1)
     in
         (codeGenerateMatch(patternCode, arg, firePatt, context), exhaustive)
     end
@@ -1224,9 +1204,7 @@ struct
         type codetree = codetree
         type matchtree = matchtree
         type codeBinding = codeBinding
-        type environEntry = environEntry
         type lexan = lexan
-        type debuggerStatus = debuggerStatus
     end
 
 end;

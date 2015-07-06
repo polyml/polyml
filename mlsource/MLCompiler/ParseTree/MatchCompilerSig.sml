@@ -23,25 +23,17 @@ sig
     type codetree
     type matchtree
     type codeBinding
-    type environEntry
     type lexan
-    type debuggerStatus
 
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    type cgContext =
-        {
-            decName: string, debugEnv: debuggerStatus, mkAddr: int->int,
-            level: level, typeVarMap: typeVarMap, lex: lexan, lastDebugLine: int ref,
-            isOuterLevel: bool
-        }
+    and matchContext =
+        { mkAddr: int->int, level: level, typeVarMap: typeVarMap, lex: lexan }
 
     val codeMatchPatterns:
-        matchtree list * codetree * bool * location * (int * cgContext -> codetree) * cgContext -> codetree * bool
-
-    val codeBindingPattern:
-        parsetree * codetree * location * cgContext -> codeBinding list * bool
+        matchtree list * codetree * bool * location * (int -> codetree) * matchContext -> codetree * bool
+    and codeBindingPattern:
+        parsetree * codetree * location * matchContext -> codeBinding list * bool
 
     structure Sharing:
     sig
@@ -51,8 +43,6 @@ sig
         type codetree = codetree
         type matchtree = matchtree
         type codeBinding = codeBinding
-        type environEntry = environEntry
         type lexan = lexan
-        type debuggerStatus = debuggerStatus
     end
 end;
