@@ -965,12 +965,9 @@ struct
                                 #enterVal debuggerEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
                     ("debugNameSpace", toMachineWord(debugNameSpace :debugState -> nameSpace), debugStateType ->> nameSpaceType),
-                    ("debugFunction", toMachineWord(debugFunction: debugState -> string option),
-                        debugStateType ->> Option String),
-                    ("debugFunctionArg", toMachineWord(debugFunctionArg: debugState -> values option),
-                        debugStateType ->> Option valueVal),
-                    ("debugFunctionResult", toMachineWord(debugFunctionResult: debugState -> values option),
-                        debugStateType ->> Option valueVal),
+                    ("debugFunction", toMachineWord(debugFunction: debugState -> string), debugStateType ->> String),
+                    ("debugFunctionArg", toMachineWord(debugFunctionArg: debugState -> values), debugStateType ->> valueVal),
+                    ("debugFunctionResult", toMachineWord(debugFunctionResult: debugState -> values), debugStateType ->> valueVal),
                     ("debugLocation", toMachineWord(debugLocation :debugState -> location), debugStateType ->> Location),
                     ("setOnEntry", toMachineWord(setOnEntry: (string * PolyML.location -> unit) option -> unit),
                         Option (String ** Location ->> Unit) ->> Unit),

@@ -279,14 +279,20 @@ struct
             allFunct = allEmpty }
     end
 
-    (* debugFunction just looks at the static data. *)
+    val unitValue = mkGvar("", unitType, CodeZero, [])
+
+    (* debugFunction just looks at the static data.
+       There should always be an EnvStartFunction entry. *)
     fun debugFunction (cList, _, _) =
     (
         case List.find(fn (EnvStartFunction _) => true | _ => false) cList of
-            SOME(EnvStartFunction(s, _, _)) => SOME s
-        |   _ => NONE
+            SOME(EnvStartFunction(s, _, _)) => s
+        |   _ => "?"
     )
 
+    (* Function argument.  This should always be present but if
+       it isn't just return unit.  That's probably better than
+       an exception here. *)
     and debugFunctionArg (cList, rList, _) =
     let
         val d = (cList, rList)
@@ -294,9 +300,10 @@ struct
             SOME(mkGvar("", runTimeType d ty, mkConst valu, []))
         |   match _ = NONE
     in
-        searchEnvs match d
+        getOpt(searchEnvs match d, unitValue) 
     end
 
+    (* Function result - only valid in exit function. *)
     and debugFunctionResult (cList, rList, _) =
     let
         val d = (cList, rList)
@@ -304,7 +311,7 @@ struct
             SOME(mkGvar("", runTimeType d ty, mkConst valu, []))
         |   match _ = NONE
     in
-        searchEnvs match d
+        getOpt(searchEnvs match d, unitValue)
     end
 
     fun debugLocation (_, _, locn) = locn

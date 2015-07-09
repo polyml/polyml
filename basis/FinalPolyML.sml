@@ -1215,7 +1215,7 @@ in
                 open DebuggerInterface
 
                 fun debugLocation(d: debugState): string * PolyML.location =
-                    (getOpt(debugFunction d, ""), DebuggerInterface.debugLocation d)
+                    (debugFunction d, DebuggerInterface.debugLocation d)
 
                 fun getStack() = debugState(Thread.Thread.self())
                 (* These are only relevant when we are stopped at the debugger but
@@ -1288,13 +1288,7 @@ in
 
                 fun getArgResult stack get =
                     case stack of
-                        hd :: _ =>
-                            (
-                                case get hd of
-                                    SOME v =>
-                                        Bootstrap.printValue(v, !printDepth, globalNameSpace)
-                                |   NONE =>PrettyString "?"
-                            )
+                        hd :: _ => Bootstrap.printValue(get hd, !printDepth, globalNameSpace)
                     |   _ => PrettyString "?"
 
                 fun printTrace (funName, location, stack, argsAndResult) =
