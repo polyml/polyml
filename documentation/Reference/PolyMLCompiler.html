@@ -1,0 +1,111 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML.Compiler structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML.Compiler 
+  structure</font></STRONG></H2>
+<p>
+The PolyML.Compiler structure contains functions associated with the compiler.</p>
+<pre>
+structure Compiler :
+  sig
+    val allocationProfiling : int ref
+    val assemblyCode : bool ref
+    val codetree : bool ref
+    val codetreeAfterOpt : bool ref
+    datatype compilerParameters =
+      CPAllocationProfiling of int
+    | CPCompilerResultFun of
+        parseTree option *
+    (
+    unit ->
+      {fixes: (string * NameSpace.fixityVal) list,
+      functors: (string * NameSpace.functorVal) list,
+      signatures: (string * NameSpace.signatureVal) list,
+      structures: (string * NameSpace.structureVal) list,
+      types: (string * NameSpace.typeVal) list,
+      values: (string * NameSpace.valueVal) list}) option -> unit -> unit
+    | CPDebug of bool
+    | CPDebuggerFunction of
+        int * NameSpace.valueVal * int * string * string * nameSpace -> unit
+    | CPErrorDepth of int
+    | CPErrorMessageProc of
+        {context: pretty option,
+      hard: bool, location: location, message: pretty} -> unit
+    | CPFileName of string
+    | CPLineLength of int
+    | CPLineNo of unit -> int
+    | CPLineOffset of unit -> int
+    | CPNameSpace of nameSpace
+    | CPOutStream of string -> unit
+    | CPPrintDepth of unit -> int
+    | CPPrintInAlphabeticalOrder of bool
+    | CPPrintStream of string -> unit
+    | CPProfiling of int
+    | CPResultFun of
+        {fixes: (string * NameSpace.fixityVal) list,
+      functors: (string * NameSpace.functorVal) list,
+      signatures: (string * NameSpace.signatureVal) list,
+      structures: (string * NameSpace.structureVal) list,
+      types: (string * NameSpace.typeVal) list,
+      values: (string * NameSpace.valueVal) list} -> unit
+    | CPRootTree of
+        {next: (unit -> parseTree) option,
+      parent: (unit -> parseTree) option,
+      previous: (unit -> parseTree) option}
+    | CPTiming of bool
+    val compilerVersion : string
+    val compilerVersionNumber : int
+    val createPrintFunctions : bool ref
+    val debug : bool ref
+    val errorDepth : int ref
+    val fixityNames : unit -> string list
+    val forgetFixity : string -> unit
+    val forgetFunctor : string -> unit
+    val forgetSignature : string -> unit
+    val forgetStructure : string -> unit
+    val forgetType : string -> unit
+    val forgetValue : string -> unit
+    val functorNames : unit -> string list
+    val inlineFunctors : bool ref
+    val lineLength : int ref
+    val lowlevelOptimise : bool ref
+    val maxInlineSize : int ref
+    val narrowOverloadFlexRecord : bool ref
+    val parsetree : bool ref
+    val printDepth : int ref
+    val printInAlphabeticalOrder : bool ref
+    val profiling : int ref
+    val prompt1 : string ref
+    val prompt2 : string ref
+    val pstackTrace : bool ref
+    val reportExhaustiveHandlers : bool ref
+    val reportUnreferencedIds : bool ref
+    val signatureNames : unit -> string list
+    val structureNames : unit -> string list
+    val timing : bool ref
+    val traceCompiler : bool ref
+    val typeNames : unit -> string list
+    val valueNames : unit -> string list
+  end
+</pre>
+<p>
+The PolyML.Compiler structure is </p>
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+
+</body>
+</html>

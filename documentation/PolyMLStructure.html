@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<ul class="nav">
+	<li><a href="StandBasis.html">Previous</a></li>
+	<li><a href="../Doc.html">Up</a></li>
+	<li><a href="Signal.html">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML structure</font></STRONG></H2>
+<p>Generally, the basis library of Poly/ML follows the ML standard libraries. 
+  With a few exceptions the extensions are all contained in the PolyML structure. 
+  There are a number of sub-structures that are documented separately.</p>
+<pre>structure PolyML:
+sig
+   structure CodeTree : sig ... end
+   structure Compiler : sig ... end 
+   structure Debug : sig ... end
+   structure DebuggerInterface : sig ... end
+   structure Exception : sig ... end
+
+
+   exception Foreign of string
+
+
+   structure IDEInterface :
+   sig
+      val parseTree : (string * (location * ptProperties list) list) ref
+      val runIDEProtocol : unit -&gt; unit
+   end
+
+   structure IntInf :
+   sig
+      val gcd : int * int -&gt; int
+      val lcm : int * int -&gt; int
+   end
+
+   structure NameSpace : sig ... end
+
+   structure SaveState : sig ... end
+
+   structure Statistics : sig ... end
+
+   exception XWindows of string
+
+   val addPrettyPrinter : (int -&gt; 'a -&gt; 'b -&gt; pretty) -&gt; unit
+   val architecture = fn: unit -&gt; string
+   val compiler = fn:
+   (unit -&gt; char option) * Compiler.compilerParameters list -&gt; unit -&gt;    unit
+   datatype context =
+   ContextLocation of location
+   | ContextProperty of string * string
+   val error_depth = fn: int -&gt; unit
+   val exceptionLocation = fn: exn -&gt; location option
+   val exception_trace = fn: (unit -&gt; 'a) -&gt; 'a
+   val export = fn: string * (unit -&gt; unit) -&gt; unit
+   val exportPortable = fn: string * (unit -&gt; unit) -&gt; unit
+   val fullGC = fn: unit -&gt; unit
+   val globalNameSpace =
+   {allFix = fn, allFunct = fn, allSig = fn, allStruct = fn, allType = fn,
+   allVal = fn, enterFix = fn, enterFunct = fn, enterSig = fn, enterStruct =
+   fn, enterType = fn, enterVal = fn, lookupFix = fn, lookupFunct = fn,
+   lookupSig = fn, lookupStruct = fn, lookupType = fn, lookupVal = fn}:
+   nameSpace
+   val install_pp :
+   ((string -&gt; unit) * (int * bool -&gt; unit) * (int * int -&gt; unit) *
+   (unit -&gt; unit) -&gt; int -&gt; 'a -&gt; 'b -&gt; unit) -&gt; unit
+   val line_length = fn: int -&gt; unit
+   type location =
+   {endLine: int,
+   endPosition: int, file: string, startLine: int, startPosition: int}
+   val make = fn: string -&gt; unit
+   val makestring : 'a -&gt; string
+   val objProfile = fn: 'a -&gt; int
+   val objSize = fn: 'a -&gt; int
+   val onEntry = fn: (unit -&gt; unit) -&gt; unit
+   type parseTree = location * ptProperties list
+   val pointerEq = fn: 'a * 'a -&gt; bool
+   datatype pretty =
+   PrettyBlock of int * bool * context list * pretty list
+   | PrettyBreak of int * int
+   | PrettyLineBreak
+   | PrettyString of string
+   | PrettyStringWithWidth of string * int
+   val prettyMarkup = fn:
+   (context list -&gt; unit) * (context list -&gt; unit) -&gt;
+   (string -&gt; unit) * int -&gt; pretty -&gt; unit
+   val prettyPrint = fn: (string -&gt; unit) * int -&gt; pretty -&gt; unit
+   val prettyPrintWithIDEMarkup = fn: (string -&gt; unit) * int -&gt; pretty -&gt;    unit
+   val prettyRepresentation : 'a * int -&gt; pretty
+   val print : 'a -&gt; 'a
+   val print_depth = fn: int -&gt; unit
+   val profiling = fn: int -&gt; unit
+   datatype ptProperties =
+   PTbreakPoint of bool ref
+   | PTcompletions of string list
+   | PTdeclaredAt of location
+   | PTfirstChild of unit -&gt; parseTree
+   | PTnextSibling of unit -&gt; parseTree
+   | PTopenedAt of location
+   | PTparent of unit -&gt; parseTree
+   | PTpreviousSibling of unit -&gt; parseTree
+   | PTprint of int -&gt; pretty
+   | PTreferences of bool * location list
+   | PTstructureAt of location
+   | PTtype of typeExpression
+   val raiseWithLocation = fn: exn * location -&gt; 'a
+   val rootFunction = fn: unit -&gt; unit
+   val rtsArgumentHelp = fn: unit -&gt; string
+   val rtsVersion = fn: unit -&gt; int
+   val runFunction = fn: (unit -&gt; 'a) -&gt; unit -&gt; 'b
+   val shareCommonData = fn: 'a -&gt; unit
+   val shell = fn: unit -&gt; unit
+   val showSize = fn: 'a -&gt; int
+   val sourceLocation : unit -&gt; location
+   val stackTrace = fn: unit -&gt; unit
+   val suffixes = ref [&quot;&quot;, &quot;.ML&quot;, &quot;.sml&quot;]: string    list ref
+   val timing = fn: bool -&gt; unit
+   type typeExpression
+   val use = fn: string -&gt; unit
+end
+ </pre>
+<ul class="nav">
+	<li><a href="StandBasis.html">Previous</a></li>
+	<li><a href="../Doc.html"">Up</a></li>
+	<li><a href="Signal.html">Next</a></li>
+</ul>
+</body>
+</html>

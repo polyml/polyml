@@ -1,0 +1,69 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML.NameSpace structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML.NameSpace 
+  structure</font></STRONG></H2>
+<p>
+The PolyML.NameSpace structure is primarily used with the compiler.</p>
+<pre>
+structure NameSpace :
+  sig
+    val codeForFunct = fn: functorVal -> CodeTree.codetree
+    val codeForStruct = fn: structureVal -> CodeTree.codetree
+    val codeForValue = fn: valueVal -> CodeTree.codetree
+    val displayFix = fn: string * fixityVal -> pretty
+    val displayFunct = fn: functorVal * int * nameSpace -> pretty
+    val displaySig = fn: signatureVal * int * nameSpace -> pretty
+    val displayStruct = fn: structureVal * int * nameSpace -> pretty
+    val displayType = fn: typeVal * int * nameSpace -> pretty
+    val displayTypeExpression = fn:
+     typeExpression * int * nameSpace -> pretty
+    val displayVal = fn: valueVal * int * nameSpace -> pretty
+    type fixityVal
+    type functorVal
+    type nameSpace =
+     {allFix: unit -> (string * fixityVal) list,
+       allFunct: unit -> (string * functorVal) list,
+       allSig: unit -> (string * signatureVal) list,
+       allStruct: unit -> (string * structureVal) list,
+       allType: unit -> (string * typeVal) list,
+       allVal: unit -> (string * valueVal) list,
+       enterFix: string * fixityVal -> unit,
+       enterFunct: string * functorVal -> unit,
+       enterSig: string * signatureVal -> unit,
+       enterStruct: string * structureVal -> unit,
+       enterType: string * typeVal -> unit,
+       enterVal: string * valueVal -> unit,
+       lookupFix: string -> fixityVal option,
+       lookupFunct: string -> functorVal option,
+       lookupSig: string -> signatureVal option,
+       lookupStruct: string -> structureVal option,
+       lookupType: string -> typeVal option,
+       lookupVal: string -> valueVal option}
+    type signatureVal
+    type structureVal
+    type typeVal
+    type valueVal
+  end
+</pre>
+<p>
+The PolyML.NameSpace structure is </p>
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+
+</body>
+</html>

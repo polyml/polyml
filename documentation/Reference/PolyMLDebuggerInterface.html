@@ -1,0 +1,147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>The PolyML.DebuggerInterface structure</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<link href="../docstyle.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="../PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+<H2><STRONG><font face="Arial, Helvetica, sans-serif">The PolyML.DebuggerInterface 
+  structure</font></STRONG></H2>
+<p>The PolyML.DebuggerInterface structure provides a programmatic interface to 
+  assist with debugging programs. It is intended for use by applications that 
+  replace the default Poly/ML top-level. Most users will not need to use this 
+  and for most purposes the functions in <a href="../Debugging.html">PolyML.Debug</a> 
+  will be more appropriate.</p>
+<PRE><STRONG>structure</STRONG> DebuggerInterface:
+  <strong>sig</strong>
+     <strong>val</strong> setOnEntry = <strong>fn</strong>: (string * location -> unit) option -> unit
+     <strong>val</strong> setOnExit = <strong>fn</strong>: (string * location -> unit) option -> unit
+     <strong>val</strong> setOnExitException = fn: (string * location -> exn -> unit) option -> unit
+     <strong>val</strong> setOnBreakPoint = <strong>fn</strong>: (location * bool ref -> unit) option -> unit
+
+     <strong>type</strong> debugState
+     <strong>val</strong> debugState = <strong>fn</strong>: Thread.Thread.thread -> debugState list
+     <strong>val</strong> debugFunction = <strong>fn</strong>: debugState -> string
+     <strong>val</strong> debugFunctionArg = <strong>fn</strong>: debugState -> PolyML.NameSpace.valueVal
+     <strong>val</strong> debugFunctionResult = <strong>fn</strong>: debugState -&gt; PolyML.NameSpace.valueVal
+     <strong>val</strong> debugLocation = <strong>fn</strong>: debugState -> location
+     <strong>val</strong> debugNameSpace = <strong>fn</strong>: debugState -> nameSpace
+  <strong>end</strong></PRE>
+<p>The Poly/ML compiler will add debugging information to a program if PolyML.Compiler.debug 
+  is set to true or CPDebug true is included among the options. By default, these 
+  options are turned off because using them greatly reduces the speed of the code 
+  and in particular optimisations such as tail-recursion are disabled. When debugging 
+  is enabled the compiler adds code to allow the debugger to be entered at various 
+  points and for the debugger then to extract information about the state of the 
+  program being debugged, the <em>debuggee</em>. </p>
+<p>There are four global references that can be set by the debugger. Each of them 
+  holds an optional function and the code being debugged tests these references 
+  at various points in the program and calls the function if it is set.</p>
+<pre><strong>val</strong> setOnEntry = <strong>fn</strong>: (string * location -> unit) option -> unit</pre>
+<blockquote> 
+  <p>The function set with setOnEntry is called at the start of every function. 
+    This function is called with the name of the function and its location. It 
+    is called after the argument information has been added to the debug state 
+    but before anything else.</p>
+</blockquote>
+<pre><strong>val</strong> setOnExit = <strong>fn</strong>: (string * location -> unit) option -> unit</pre>
+<blockquote> 
+  <p>The function set with setOnExit is called at the end of every function if 
+    it returns a result. This function is called with the name of the function 
+    and its location. It is called after the function result has been added to 
+    the debug state.</p>
+</blockquote>
+<pre><strong>val</strong> setOnExitException = <strong>fn</strong>: (string * location -> exn -> unit) option -> unit</pre>
+<blockquote> 
+  <p>The function set with setOnExitException is called at the end of every function 
+    if it is returning by raising an exception. This function is called with the 
+    name of the function and its location and with the exception packet being 
+    returned.</p>
+</blockquote>
+<pre><strong>val</strong> setOnBreakPoint = <strong>fn</strong>: (location * bool ref -> unit) option -> unit</pre>
+<blockquote> 
+  <p>The function set with setOnBreakPoint is called at various <em>break-points</em> 
+    within the function. Currently the compiler inserts break-points at the beginning 
+    of the expression in a <em>match</em>, i.e. after the pattern has been discriminated 
+    and any variable bindings have been made; after each value declaration; after 
+    each expression separated by semicolons in let-expressions or parenthesised 
+    sequence of expressions; at the beginning of the then- and else-parts of an 
+    if-then-else and at the start of the body of a while-expression.</p>
+  <p>The function is called with two arguments: the location of the break-point 
+    and a break-point identifier, a boolean reference. Break-point identifiers 
+    are intended for use with an IDE that is capable of examining the parse-tree. 
+    A node in the parse-tree with a break-point associated with it will contain 
+    a PTbreakPoint property. All break-point identifiers are initially false. 
+    To set a break-point at a particular node the IDE should set the reference 
+    to true and install a break-point function that calls the debugger when it 
+    is passed a reference that is true.</p>
+</blockquote>
+<p>All functions are called by the thread that is running the program being debugged. 
+  All the functions return unit and if they return normally the program will continue 
+  as before. It is possible for the function to raise an exception in which case 
+  this exception will be raised in place of any existing exception. This can sometimes 
+  be useful to terminate the program. Installing any function will add an overhead 
+  to the running program. It is better to set a function option to NONE if it 
+  is not actually required.</p>
+<p>When debugging is enabled the running program maintains information about local 
+  variables that can be examined when the program has stopped by calling in to 
+  the debugger.</p>
+<pre><strong>type</strong> debugState
+<strong>val</strong> debugState = <strong>fn</strong>: Thread.Thread.thread -> debugState list
+</pre>
+<blockquote> 
+  <p>The stack of a debuggable thread can be extracted using the debugState function. 
+    This should either be called by the thread itself or by the debugger after 
+    the thread has been paused with a condition variable. Extracting the debugging 
+    state of another thread while the thread is running will lead to unpredictable 
+    results. </p>
+</blockquote>
+<pre><strong>val</strong> debugFunction = <strong>fn</strong>: debugState -> string
+<strong>val</strong> debugFunctionArg = <strong>fn</strong>: debugState -> PolyML.NameSpace.valueVal
+<strong>val</strong> debugFunctionResult = <strong>fn</strong>: debugState -> PolyML.NameSpace.valueVal
+</pre>
+<blockquote> 
+  <p>Each node in the state list normally represents a function. These return 
+    the name of the function, its argument and its result. The result is only 
+    available in an exit function.</p>
+</blockquote>
+<pre><strong>val</strong> debugLocation = <strong>fn</strong>: debugState -> location</pre>
+<blockquote> 
+  <p>This function returns the location associated with a node in the list. This 
+    will either be the location of the break-point or where the function has called 
+    the next function in the list.</p>
+</blockquote>
+<pre>
+<strong>val</strong> debugNameSpace = <strong>fn</strong>: debugState -> nameSpace</pre>
+<blockquote> 
+  <p>Access to the local variables can be obtained through the name-space. A name-space 
+    is a record of functions that can be used to look up variables and list the 
+    variables. In the general case it can also be used to add variables to the 
+    name space but that is not appropriate here and the enter functions all raise 
+    an exception. The name space can be used directly to print the values of variables 
+    using functions from PolyML.NameSpace. Alternatively the name-space can be 
+    used with the Poly/ML compiler to provide an interactive top-level in which 
+    the user can enter expressions to be evaluated with local variables as though 
+    they had been declared at the top-level. When paused at a break-point it is 
+    possible to evaluate local functions as though they were global. Any changes 
+    to local reference values will affect the program state when the program resumes.</p>
+  <p>Currently, the name space contains all the variables that were in scope at 
+    the break-point, both those local to the function itself and free variables 
+    declared in outer scopes. It excludes any variables that were declared in 
+    the outer top-level scope.</p>
+</blockquote>
+
+<ul class="nav">
+	<li><a href="#">Previous</a></li>
+	<li><a href="../PolyMLStructure.html">Up</a></li>
+	<li><a href="#">Next</a></li>
+</ul>
+</body>
+</html>
