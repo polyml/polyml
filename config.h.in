@@ -548,6 +548,9 @@
 /* Define to 1 if the system has the type `_Bool'. */
 #undef HAVE__BOOL
 
+/* Define if the host is an ARM (64 bit) */
+#undef HOSTARCHITECTURE_AARCH64
+
 /* Define if the host is an ARM (32 bit) */
 #undef HOSTARCHITECTURE_ARM
 

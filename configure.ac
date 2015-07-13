@@ -412,6 +412,10 @@ case "${host_cpu}" in
             AC_DEFINE([HOSTARCHITECTURE_ARM], [1], [Define if the host is an ARM (32 bit)])
             polyarch=interpret
             ;;
+      aarch64*)
+            AC_DEFINE([HOSTARCHITECTURE_AARCH64], [1], [Define if the host is an ARM (64 bit)])
+            polyarch=interpret
+            ;;
       ia64*)
             AC_DEFINE([HOSTARCHITECTURE_IA64], [1], [Define if the host is Itanium])
             polyarch=interpret

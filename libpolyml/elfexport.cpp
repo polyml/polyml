@@ -344,6 +344,10 @@ void ELFExport::exportStore(void)
     directReloc = R_IA64_DIR64LSB;
     fhdr.e_flags = EF_IA_64_ABI64;
     useRela = true;
+#elif defined(HOSTARCHITECTURE_AARCH64)
+    fhdr.e_machine = EM_AARCH64;
+    directReloc = R_AARCH64_ABS64;
+    useRela = true;
 #else
 #error "No support for exporting on this architecture"
 #endif
