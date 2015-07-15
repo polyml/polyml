@@ -66,19 +66,20 @@ in
                 exit()
             end
         end
-    in
-        (* The equivalent of atExit except that functions are added to
-           the list persistently and of course the functions are executed
-           at start-up rather than close-down. *)
-        (* TODO: There ought to be a mutex here. *)
-        fun onEntry (f: unit->unit) = onEntryList := f :: !onEntryList
-
+ 
         fun runFunction f () =
         (
             runOnEntry(! onEntryList); (* Perform start-up operations. *)
             f(); (* Run the main function. *)
             exit() (* Perform close-down actions. *)
         )
+
+   in
+        (* The equivalent of atExit except that functions are added to
+           the list persistently and of course the functions are executed
+           at start-up rather than close-down. *)
+        (* TODO: There ought to be a mutex here. *)
+        fun onEntry (f: unit->unit) = onEntryList := f :: !onEntryList
         
         (* Export functions - write out the function and everything reachable from it. *)
         fun export(filename: string, f: unit->unit): unit =
