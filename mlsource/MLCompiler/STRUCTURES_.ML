@@ -1975,8 +1975,6 @@ struct
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
                name. *)
-            (* Temporarily, if this is a type abbreviation always make a free ID and don't include
-               it in any lists. *)
             fun makeId (eq, isdt, (_, EmptyType), { location, name, description }) =
                     makeLocalTypeId(true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
@@ -1989,7 +1987,7 @@ struct
             val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
        in
          ()
-       end; (* pass2Singleton *)
+       end (* pass2Singleton *)
 
         fun pass2Dec (str as StructureDec { bindings, typeIdsForDebug, ... }) =
                 pass2StructureDec (str, bindings, typeIdsForDebug)
