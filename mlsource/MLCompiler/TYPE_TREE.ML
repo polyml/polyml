@@ -98,6 +98,10 @@ struct
   fun typesFunctionType     (FunctionType     x) = x
      | typesFunctionType     _ = raise Match;
 
+    (* This is really left over from an old definition. *)
+    fun tcEquivalent(TypeConstrs{identifier = TypeId {idKind = TypeFn(_, result), ...}, ...}) = result
+    |   tcEquivalent _ = raise InternalError "tcEquivalent: Not a type function"
+
   (* A type construction is the application of a type constructor to
      a sequence of types to yield a type. A construction may have a nil
      list if it is a single type identifier such as ``int''. *)
@@ -619,20 +623,19 @@ struct
                equalTypes(#typeof x, #typeof y) andalso equalRecordLists (xs, ys)
         |   equalRecordLists _             = false
 
-        val mappedX as TypeId{typeFn=(_, xEquiv), ...} =
+        val mappedX =
             case (xMap, x) of
                 (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
             |   (_, id) => id
-        val mappedY as TypeId{typeFn=(_, yEquiv), ...} =
+        val mappedY =
             case (yMap, y) of
                 (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
             |   (_, id) => id
     in
-        (* If they are the same type ID they are the same type except in one
-           case.  If they are actually type functions that started out in the
-           same signature they will have the same (Free) type ID but may be
-           equivalent to different types. *)
-        sameTypeId(mappedX, mappedY) andalso equalTypes(xEquiv, yEquiv)
+        case (mappedX, mappedY) of
+            (TypeId{idKind=TypeFn(_, xEquiv), ...}, TypeId{idKind=TypeFn(_, yEquiv), ...}) =>
+                equalTypes(xEquiv, yEquiv)
+        |   _ => sameTypeId(mappedX, mappedY) 
     end
 
 
@@ -730,7 +733,24 @@ struct
        function copies that as well. Does not copy value constructors. *)
     fun copyTypeConstrWithCache (tcon, typeMap, _, mungeName, cache) =
         case tcIdentifier tcon of
-            id as TypeId{typeFn=(_, EmptyType), ...} =>
+            TypeId{idKind = TypeFn(args, equiv), description, access, ...} =>
+            let
+                val copiedEquiv =
+                    copyType(equiv, fn x => x,
+                        fn tcon =>
+                            copyTypeConstrWithCache (tcon, typeMap, fn x => x, mungeName, cache))
+            in
+                if identical (equiv, copiedEquiv)
+                then tcon (* Type is identical and we don't want to change the name. *)
+                else (* How do we find a type function? *)
+                    makeTypeConstructor (mungeName(tcName tcon), args,
+                        TypeId {
+                            access = access, description = description, idKind = TypeFn(args, copiedEquiv)},
+                            tcLocations tcon)
+
+            end
+
+       |    id =>
             (
                 case typeMap id of
                     NONE =>
@@ -770,24 +790,6 @@ struct
                     end
             )
 
-       |    TypeId{typeFn=(args, equiv), description, access, idKind, ...} =>
-            let
-                val copiedEquiv =
-                    copyType(equiv, fn x => x,
-                        fn tcon =>
-                            copyTypeConstrWithCache (tcon, typeMap, fn x => x, mungeName, cache))
-            in
-                if identical (equiv, copiedEquiv)
-                then tcon (* Type is identical and we don't want to change the name. *)
-                else (* How do we find a type function? *)
-                    makeTypeConstructor (mungeName(tcName tcon), args,
-                        TypeId {
-                            access = access, description = description, idKind = idKind,
-                            typeFn=(args, copiedEquiv)}, tcLocations tcon)
-
-            end
-
-
     (* Exported version. *)
     fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
         copyTypeConstrWithCache(tcon, typeMap, copyTypeVar, mungeName, [])
@@ -796,11 +798,11 @@ struct
        just return the result of the first. *)
     fun composeMaps(m1, m2) n =
     let
-        fun map2 (TypeId{idKind=Bound{ offset, ...}, typeFn=(_, EmptyType), ...}) = m2 offset
+        fun map2 (TypeId{idKind=Bound{ offset, ...}, ...}) = m2 offset
 
-        |   map2 (id as TypeId{idKind=Free _, typeFn=(_, EmptyType), ...}) = id
+        |   map2 (id as TypeId{idKind=Free _, ...}) = id
 
-        |   map2 (TypeId{typeFn=(args, equiv), access, description, idKind, ...}) =
+        |   map2 (TypeId{idKind=TypeFn(args, equiv), access, description, ...}) =
             let
                 fun copyId(TypeId{idKind=Free _, ...}) = NONE
                 |   copyId id = SOME(map2 id)
@@ -810,7 +812,7 @@ struct
                     copyType(equiv, fn x => x,
                         fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
             in
-                TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
+                TypeId{idKind = TypeFn(args, copiedEquiv), access=access, description=description}
             end
     in
         map2(m1 n)
@@ -1631,8 +1633,7 @@ struct
        and then copying the type. *)
     fun makeEquivalent (atyp, args) =
         case tcIdentifier atyp of
-            TypeId{typeFn=(_, EmptyType), ...} => raise InternalError "makeEquivalent: Not a type function"
-        |   TypeId{typeFn=(typeArgs, typeResult), ...} =>
+            TypeId{idKind=TypeFn(typeArgs, typeResult), ...} =>
             let
                 val matches = ListPair.zip(typeArgs, args)
                 fun getArg tv =
@@ -1642,6 +1643,8 @@ struct
             in
                 #1 (generaliseTypes(typeResult, getArg))
             end
+
+        |   TypeId _ => raise InternalError "makeEquivalent: Not a type function"
 
     (* Look for the occurrence of locally declared datatypes in the type of a value. *)
     fun checkForEscapingDatatypes(ty: types, errorFn: string->unit) : unit =
@@ -2911,8 +2914,9 @@ struct
                 else
                 (
                     case tcIdentifier constr of
-                        tId as TypeId{typeFn=(_, EmptyType), ...} => SOME tId
-                    |   _ => NONE
+                        TypeId{idKind=TypeFn _, ...} => NONE
+                    |   tId => SOME tId
+
                 )
         |   _ => NONE
     end

@@ -4,17 +4,17 @@
 
     Modified David C. J. Matthews 2009, 2015.
 
-    This library is free software you can redistribute it and/or
+    This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY without even the implied warranty of
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
     Lesser General Public License for more details.
     
     You should have received a copy of the GNU Lesser General Public
-    License along with this library if not, write to the Free Software
+    License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
@@ -47,11 +47,12 @@ sig
     val makeRef: unit -> references
 
     datatype typeId =
-        TypeId of { access: valAccess, description: typeIdDescription,
-                    typeFn: typeVarForm list * types, idKind: typeIdKind }
+        TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
+
     and typeIdKind =
         Free of { uid: uniqueId, allowUpdate: bool  }
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
+    |   TypeFn of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
     and types = 
@@ -183,9 +184,6 @@ sig
 
 
     (* type identifiers. *)
-    val isFreeId:     typeId -> bool
-    val isBoundId:    typeId -> bool
-    val isTypeFunction: typeId -> bool
     val isEquality:   typeId -> bool
     val offsetId:     typeId -> int
     val idAccess:     typeId -> valAccess
@@ -212,7 +210,6 @@ sig
     val tcName:            typeConstrs -> string
     val tcArity:           typeConstrs -> int
     val tcTypeVars:        typeConstrs -> typeVarForm list
-    val tcEquivalent:      typeConstrs -> types
     val tcEquality:        typeConstrs -> bool
     val tcSetEquality:     typeConstrs * bool -> unit
     val tcIdentifier:      typeConstrs -> typeId

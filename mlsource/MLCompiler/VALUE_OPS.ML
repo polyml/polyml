@@ -1255,9 +1255,9 @@ struct
            end
 
        | AddOverload =>
-           (* AddOverload is only intended for use by writers of library modules.
-           It only does limited checking and should be regarded as "unsafe". *)
-           let
+            (* AddOverload is only intended for use by writers of library modules.
+               It only does limited checking and should be regarded as "unsafe". *)
+            let
 
             fun rmvars (TypeVar tv) = rmvars(tvValue tv)
             |   rmvars t = t
@@ -1269,14 +1269,15 @@ struct
                     [{value=alpha, ...}, {value=beta, ...}] => (rmvars alpha, rmvars beta)
                 |   _ => (badType, badType)
 
-            fun followTypes(TypeConstruction{constr, args, ...}):typeConstrs =
-                   if not (tcIsAbbreviation constr)
-                   then if not (isFreeId(tcIdentifier constr))
-                   then raise Fail "Cannot install an overload within a structure or functor"
-                   else constr
-                   else followTypes (makeEquivalent (constr, args))
+            fun followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = Free _, ...},...}, ...}) = constr
+ 
+            |   followTypes(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
+                    followTypes (makeEquivalent (constr, args))
 
-             | followTypes _ = raise Fail "Invalid type (not a type construction) (addOverload)"
+            |   followTypes(TypeConstruction{constr = TypeConstrs {identifier = TypeId{idKind = Bound _, ...},...}, ...}) =
+                   raise Fail "Cannot install an overload within a structure or functor"
+
+            |   followTypes _ = raise Fail "Invalid type (not a type construction) (addOverload)"
 
             fun addOverloading (argCode: codetree) (name: string) =
                 let

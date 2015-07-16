@@ -1083,29 +1083,7 @@ struct
        does not affect the old type. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(sourceId as TypeId{typeFn=(_, EmptyType), ...}, _, mkAddr, level: level) =
-        let (* Datatype. *)
-            open TypeValue
-            val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
-            val loadLocal = load level
-            val printCode =
-                    mkEval
-                        (rtsFunction POLY_SYS_alloc_store,
-                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         mkEval(rtsFunction POLY_SYS_load_word,
-                            [extractPrinter loadLocal, CodeZero])
-                          ])
-        in
-            mkEnv(
-                dec,
-                createTypeValue {
-                    eqCode = extractEquality loadLocal, printCode = printCode,
-                    boxedCode = extractBoxed loadLocal, sizeCode = extractSize loadLocal
-                }
-             )
-        end
-
-    |   codeGenerativeId(TypeId{typeFn=([], resType), ...}, isEq, mkAddr, level) =
+    fun codeGenerativeId(TypeId{idKind=TypeFn([], resType), ...}, isEq, mkAddr, level) =
         let (* Monotype abbreviation. *)
             (* Create a new type value cache. *)
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
@@ -1136,7 +1114,7 @@ struct
                 })
         end
 
-    |   codeGenerativeId(TypeId{typeFn=(argTypes, resType), ...}, isEq, mkAddr, level) =
+    |   codeGenerativeId(TypeId{idKind=TypeFn(argTypes, resType), ...}, isEq, mkAddr, level) =
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)
@@ -1190,6 +1168,29 @@ struct
                     sizeCode = sizeCode
                 })
         end
+
+    |   codeGenerativeId(sourceId, _, mkAddr, level: level) =
+        let (* Datatype. *)
+            open TypeValue
+            val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
+            val loadLocal = load level
+            val printCode =
+                    mkEval
+                        (rtsFunction POLY_SYS_alloc_store,
+                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
+                         mkEval(rtsFunction POLY_SYS_load_word,
+                            [extractPrinter loadLocal, CodeZero])
+                          ])
+        in
+            mkEnv(
+                dec,
+                createTypeValue {
+                    eqCode = extractEquality loadLocal, printCode = printCode,
+                    boxedCode = extractBoxed loadLocal, sizeCode = extractSize loadLocal
+                }
+             )
+        end
+
 
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)

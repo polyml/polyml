@@ -2174,7 +2174,7 @@ struct
                        need to enter these bound IDs into the local environment but as Selected entries. *)
                     local
                         fun mkId(TypeId{idKind=Bound{ eqType, isDatatype, offset, ...},
-                                        description={ location, name, description}, access = Formal addr, typeFn, ...}) =
+                                        description={ location, name, description}, access = Formal addr, ...}) =
                             TypeId{idKind=Bound { offset = offset, eqType = eqType, isDatatype = isDatatype },
                                     description =
                                     {
@@ -2183,8 +2183,7 @@ struct
                                         name=if argName = "" then name else argName^"."^name,
                                         description=description
                                     },
-                                    access = makeSelected(addr, resArg),
-                                    typeFn = typeFn }
+                                    access = makeSelected(addr, resArg)}
                         |   mkId _ = raise InternalError "mkId: Not Bound or not Formal"                            
                     in
                         (* argIDVector is part of the environment now. *)
@@ -2696,14 +2695,11 @@ struct
                 structureCode (arg, strName, debugEnv, mkAddr, level)
             (* Match the actual argument to the required arguments. *)
             fun getMatchedId(n, isEq) =
-            let
-                val id = #source(List.nth (argIds, n))
-            in
-                case id of
-                    TypeId{typeFn=(_, EmptyType), ...} => idAccess id
-                |   _ => (* Have to generate a function here. *)
+                case #source(List.nth (argIds, n)) of
+                    id as TypeId{idKind=TypeFn _, ...} => (* Have to generate a function here. *)
                         Global(codeGenerativeId(id, isEq, mkAddr, level))
-            end
+                |   id => idAccess id
+
             val argCode = applyMatchActions(argLoadSource, matchToArgument, getMatchedId, mkAddr, level)
 
             (* To produce the generative type IDs we need to save the result vector returned by the
@@ -2716,8 +2712,8 @@ struct
                 val () = #addr  resl := resAddr; 
                 val () = #level resl := level
                 fun mkSelected {
-                        source = TypeId{idKind, access = Formal addr, description, typeFn}, dest } =
-                    { source = TypeId{idKind=idKind, access = makeSelected(addr, dummyResStruct), description = description, typeFn=typeFn },
+                        source = TypeId{idKind, access = Formal addr, description}, dest } =
+                    { source = TypeId{idKind=idKind, access = makeSelected(addr, dummyResStruct), description = description },
                       dest = dest }
                 |   mkSelected _ = raise InternalError "makeSelected: Not Bound or not Formal"
                 val resultIds = List.map mkSelected resIds
@@ -2957,14 +2953,11 @@ struct
                         val {code = strCode, load = strLoad, ...} =
                             structureCode (body, name ^ "().", fBindDebugEnv, mkAddr, level)
                         fun getIds(n, isEq) =
-                        let
-                            val id = #source(List.nth(resIds, n))
-                        in
-                            case id of
-                                TypeId{typeFn=(_, EmptyType), ...} => idAccess id
-                            |   _ => (* Have to generate a function here. *)
+                            case #source(List.nth(resIds, n)) of
+                                id as TypeId{idKind=TypeFn _, ...} => (* Have to generate a function here. *)
                                     Global(codeGenerativeId(id, isEq, mkAddr, level))
-                        end
+                            |   id => idAccess id
+
                         val matchedCode = applyMatchActions(strLoad, matchToResult, getIds, mkAddr, level)
                     in
                         val functorCode = (* The function that implements the functor. *)
@@ -3215,8 +3208,8 @@ struct
                     else if n >= argMinTypes
                     then case List.nth(argBoundIds, n-argMinTypes) of
                         (* Add the argument structure name onto the name of type IDs in the argument. *)
-                        TypeId{ access, idKind, typeFn, description={location, name, description}} =>
-                            TypeId { access=access, idKind=idKind, typeFn=typeFn,
+                        TypeId{ access, idKind, description={location, name, description}} =>
+                            TypeId { access=access, idKind=idKind,
                                     description=
                                         {
                                             location=location, description=description,

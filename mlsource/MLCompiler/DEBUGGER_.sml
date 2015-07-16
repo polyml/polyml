@@ -156,20 +156,21 @@ struct
             if sameTypeId(original, typeid)
             then 
                 case freeId of
-                    TypeId{description, idKind as Free _, typeFn, ...} =>
+                    TypeId{description, idKind as Free _, ...} =>
                         (* This can occur for datatypes inside functions. *)
-                        SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description, typeFn = typeFn })
+                        SOME(TypeId { access= Global(mkConst valu), idKind=idKind, description=description})
                 |   _ => raise Misc.InternalError "searchType: TypeFunction"
             else NONE
         |   match _ = NONE
     in
         case (searchEnvs match envs, typeid) of
             (SOME t, _) => t
-        |   (NONE, typeid as TypeId{description, typeFn=(_, EmptyType), ...}) =>
+        |   (NONE, TypeId{description, idKind = TypeFn typeFn, ...}) => makeTypeFunction(description, typeFn)
+
+        |   (NONE, typeid as TypeId{description, ...}) =>
                 (* The type ID is missing.  Make a new temporary ID. *)
                 makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
 
-        |   (NONE, TypeId{description, typeFn, ...}) => makeTypeFunction(description, typeFn)
     end
 
     fun runTimeType debugEnviron ty =
@@ -411,7 +412,7 @@ struct
                 val id = tcIdentifier cons
                 val {second = typeName, ...} = UTILITIES.splitString(tcName cons)
             in
-                if isTypeFunction (tcIdentifier(tsConstr tc))
+                if tcIsAbbreviation (tsConstr tc)
                 then foldIds(tcs, {staticEnv=EnvTConstr(typeName, tc) :: staticEnv, dynEnv=dynEnv, lastLoc = lastLoc})
                 else
                 let

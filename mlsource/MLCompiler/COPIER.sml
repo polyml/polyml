@@ -102,7 +102,21 @@ struct
                 (* On the first pass we build datatypes, on the second type abbreviations
                    using the copied datatypes. *)
                 case tcIdentifier tcon of
-                    id as TypeId{typeFn=(_, EmptyType), ...} =>
+                    TypeId{idKind=TypeFn(args, equiv), access, description, ...} =>
+                    if buildDatatypes then rest (* Not on this pass. *)
+                    else (* Build a new entry whether the typeID has changed or not. *)
+                    let
+                        val copiedEquiv =
+                            copyType(equiv, fn x => x,
+                                fn tcon =>
+                                    copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
+                        val copiedId =
+                            TypeId{idKind=TypeFn(args, copiedEquiv), access=access, description=description}
+                    in
+                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, tcLocations tcon) :: rest
+                    end
+
+                |   id =>
                     if not buildDatatypes then rest (* Not on this pass. *)
                     else
                     (
@@ -113,19 +127,6 @@ struct
                                 (makeName(tcName tcon),
                                     tcTypeVars tcon, newId, tcLocations tcon) :: rest
                     )
-                 |  TypeId{typeFn=(args, equiv), access, description, idKind, ...} =>
-                    if buildDatatypes then rest (* Not on this pass. *)
-                    else (* Build a new entry whether the typeID has changed or not. *)
-                    let
-                        val copiedEquiv =
-                            copyType(equiv, fn x => x,
-                                fn tcon =>
-                                    copyTypeConstrWithCache(tcon, copyId, fn x => x, makeName, initialCache))
-                        val copiedId =
-                            TypeId{typeFn=(args, copiedEquiv), access=access, description=description, idKind=idKind}
-                    in
-                        makeTypeConstructor(makeName(tcName tcon), args, copiedId, tcLocations tcon) :: rest
-                    end
             end
             else rest
         in
