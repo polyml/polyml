@@ -889,7 +889,9 @@ struct
             val signatureVal = createType "signatureVal"
             val structureVal = createType "structureVal"
             val functorVal = createType "functorVal"
-            
+            (* Representation of the type of a value. *)
+            val Types = createType "typeExpression"
+
             (* nameSpace type.  Labelled record. *)
             fun createFields(name, vType): { name: string, typeof: types} list =
             let
@@ -936,6 +938,8 @@ struct
             val signatureVal = signatureVal
             val structureVal = structureVal
             val functorVal = functorVal
+            
+            val Types = Types
             
             val nameSpaceEnv = nameSpaceEnv
          end
@@ -1161,13 +1165,6 @@ struct
             val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("parseTree", TypeConstrSet(parseTreeConstr, []));
 
-            (* Representation of the type of a value. *)
-            val typesConstr =
-                makeTypeConstructor("typeExpression", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.typeExpression"), declInBasis);    
-            val Types = mkTypeConstruction ("typeExpression", typesConstr, [], declInBasis)
-            val () = #enterType polyMLEnv ("typeExpression", TypeConstrSet(typesConstr, []));
-
             val constrs = (* Order is significant. *)
                [ ("PTbreakPoint",       Ref Bool),
                  ("PTcompletions",      List String),
@@ -1194,7 +1191,7 @@ struct
             val () = #enterType polyMLEnv ("ptProperties", TypeConstrSet(propConstr, constructors));
 
         in
-            val ParseTree = ParseTree and Types = Types
+            val ParseTree = ParseTree
         end
 
 (*****************************************************************************)
