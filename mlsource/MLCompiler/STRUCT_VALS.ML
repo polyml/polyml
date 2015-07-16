@@ -112,8 +112,8 @@ struct
         TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
 
     and typeIdKind =
-        Free of { uid: uniqueId, allowUpdate: bool  }
-    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
+        Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
+    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
     |   TypeFn of typeVarForm list * types
 
     (* A type is the union of these different cases. *)
@@ -149,8 +149,6 @@ struct
         TypeConstrs of
         {
             name:       string,
-            arity:      int,
-            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
@@ -308,24 +306,24 @@ struct
     }
 
     (* Identifiers *)
-    fun makeFreeId(access, eq, desc) =
+    fun makeFreeId(arity, access, eq, desc) =
         TypeId { access=access, description = desc,
-            idKind = Free {uid = ref eq, allowUpdate=false}};
+            idKind = Free {uid = ref eq, allowUpdate=false, arity=arity}}
     (* At the moment the only reason for distinguishing makeFreeId and makeFreeIdEqUpdate
        is that it allows us to check that we're actually permitting update when needed. *)
-    fun makeFreeIdEqUpdate(access, eq, desc) =
+    fun makeFreeIdEqUpdate(arity, access, eq, desc) =
         TypeId { access=access, description = desc,
-            idKind = Free {uid = ref eq, allowUpdate=true}};
+            idKind = Free {uid = ref eq, allowUpdate=true, arity=arity}}
 
-    fun makeBoundId (access, n, eq, isdt, desc) =
+    fun makeBoundId (arity, access, n, eq, isdt, desc) =
         TypeId { access=access, description = desc,
-            idKind = Bound{offset=n, eqType=FrozenRef eq, isDatatype = isdt}};
+            idKind = Bound{offset=n, eqType=FrozenRef eq, isDatatype = isdt, arity=arity}}
 
     (* Within the body of a functor we make bound stamps but may need to
        set the equality attribute. *)
-    fun makeBoundIdWithEqUpdate (access, n, eq, isdt, desc) =
+    fun makeBoundIdWithEqUpdate (arity, access, n, eq, isdt, desc) =
         TypeId { access=access, description = desc,
-            idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt}}
+            idKind = Bound{offset=n, eqType=VariableRef(ref eq), isDatatype = isdt, arity=arity}}
 
     (* Type functions currently always have Free ids. *)
     fun makeTypeFunction(desc, typeFn) =
@@ -460,8 +458,6 @@ struct
      flag indicating if the values can be tested for equality. *)
       
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcArity      (TypeConstrs {arity,...})      = arity
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
@@ -470,18 +466,20 @@ struct
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
     |   tcIsAbbreviation _ = false
 
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn(args, _),...}, ...}) = length args
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+    |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
     (* Equality and "equivalence" are now properties of the type id.  Retain these functions for the moment. *)
 
     val tcEquality = isEquality o tcIdentifier;
     fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
 
     (* Construct a type constructor. *)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
+    fun makeTypeConstructor (name, uid, locations) =
         TypeConstrs
         {
             name       = name,
-            arity      = length typeVars,
-            typeVars   = typeVars,
             identifier = uid,
             locations = locations
         }

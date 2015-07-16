@@ -127,8 +127,8 @@ struct
 
     (* When stopped at a break-point any Bound ids must be replaced by Free ids.
        We make new Free ids at this point.  *)
-    fun envTypeId (id as TypeId{ description, idKind = Bound _, ...}) =
-            EnvTypeid { original = id, freeId = makeFreeId(Global CodeZero, isEquality id, description) }
+    fun envTypeId (id as TypeId{ description, idKind = Bound{arity, ...}, ...}) =
+            EnvTypeid { original = id, freeId = makeFreeId(arity, Global CodeZero, isEquality id, description) }
     |   envTypeId id = EnvTypeid { original = id, freeId = id }
 
     fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
@@ -167,9 +167,13 @@ struct
             (SOME t, _) => t
         |   (NONE, TypeId{description, idKind = TypeFn typeFn, ...}) => makeTypeFunction(description, typeFn)
 
-        |   (NONE, typeid as TypeId{description, ...}) =>
+        |   (NONE, typeid as TypeId{description, idKind = Bound{arity, ...}, ...}) =>
                 (* The type ID is missing.  Make a new temporary ID. *)
-                makeFreeId(Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+                makeFreeId(arity, Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
+
+        |   (NONE, typeid as TypeId{description, idKind = Free{arity, ...}, ...}) =>
+                (* The type ID is missing.  Make a new temporary ID. *)
+                makeFreeId(arity, Global(TYPEIDCODE.codeForUniqueId()), isEquality typeid, description)
 
     end
 
@@ -193,7 +197,7 @@ struct
         let
             val typeID = searchType debugEnviron (tcIdentifier tcons)
             val newTypeCons =
-                makeTypeConstructor(tcName tcons, tcTypeVars tcons, typeID, tcLocations tcons)
+                makeTypeConstructor(tcName tcons, typeID, tcLocations tcons)
 
             val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in
@@ -203,7 +207,7 @@ struct
         (* When creating a structure we have to add a type map that will look up the bound Ids. *)
         fun replaceSignature (Signatures{ name, tab, typeIdMap, firstBoundIndex, declaredAt, ... }) =
         let
-            fun getFreeId n = searchType debugEnviron (makeBoundId(Global CodeZero, n, false, false, basisDescription ""))
+            fun getFreeId n = searchType debugEnviron (makeBoundId(0 (* ??? *), Global CodeZero, n, false, false, basisDescription ""))
         in
             makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, getFreeId), [])
         end

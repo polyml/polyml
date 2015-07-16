@@ -742,8 +742,11 @@ struct
         if eqStatus
         then
         let
-            val argTypes = tcTypeVars tyConstr
-            val nTypeVars = List.length argTypes
+            val nTypeVars = tcArity tyConstr
+            val argTypes =
+                List.tabulate(tcArity tyConstr,
+                    fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
+                                 equality=false, printable=false})
             val baseEqLevelP1 = newLevel baseEqLevel
 
             (* Argument type variables. *)
@@ -882,17 +885,22 @@ struct
     (* Create a printer function for a datatype when the datatype is declared.
        We don't have to treat mutually recursive datatypes specially because
        this is called after the type IDs have been created. *)
-    fun printerForDatatype(TypeConstrSet(TypeConstrs{name, typeVars=argTypes, ...}, vConstrs), level, typeVarMap) =
+    fun printerForDatatype(TypeConstrSet(typeCons as TypeConstrs{name, ...}, vConstrs), level, typeVarMap) =
     let
         val argCode = mkInd(0, arg1)
         and depthCode = mkInd(1, arg1)
         val nLevel = newLevel level
+        val constrArity = tcArity typeCons
 
         val (localArgList, innerLevel, newTypeVarMap) =
-            case argTypes of
-                [] => ([], nLevel, typeVarMap)
-            |   _ =>
+            case constrArity of
+                0 => ([], nLevel, typeVarMap)
+            |   arity =>
                 let
+                    val argTypes = 
+                        List.tabulate(arity,
+                            fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
+                                         equality=false, printable=false})
                     val nnLevel = newLevel nLevel
                     fun mkTcArgMap (argTypes, level, oldLevel) =
                         let
@@ -1012,7 +1020,7 @@ struct
                    functions.  For monotypes the fields contain the injection/test/projection
                    functions directly. *)
                 fun addPolymorphism c =
-                   if null argTypes  orelse justForEqualityTypes then c else mkEval(c, localArgList)
+                   if constrArity = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
 
                 open ValueConstructor
 
@@ -1069,11 +1077,11 @@ struct
         val printerCode = printerForConstructors vConstrs
     in
         (* Wrap this in the functions for the base types. *)
-        if null argTypes
+        if constrArity = 0
         then mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)
         else mkProc(mkEnv(getCachedTypeValues newTypeVarMap,
                             mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)),
-                    List.length argTypes, "print"^name^"()", getClosure nLevel, 0)
+                    constrArity, "print"^name^"()", getClosure nLevel, 0)
     end    
 
     (* Opaque matching and functor application create new type IDs using an existing
@@ -1209,7 +1217,7 @@ struct
             (* If this is polymorphic make two addresses, one for the returned equality function and
                one for the inner function. *)
             fun makeEqAddr{typeConstr=TypeConstrSet(tyConstr, _), ...} =
-                mkAddr(if null (tcTypeVars tyConstr) then 1 else 2)
+                mkAddr(if tcArity tyConstr = 0 then 1 else 2)
         in
             val eqAddresses = List.map makeEqAddr typeDatalist (* Make addresses for the equalities. *)
         end
@@ -1249,14 +1257,15 @@ struct
         (* Create the print functions and set the printer code for each typeId. *)
         local
 
-            fun setPrinter{typeConstr as TypeConstrSet(TypeConstrs{identifier, typeVars, ...}, _), ...} =
+            fun setPrinter{typeConstr as TypeConstrSet(tCons as TypeConstrs{identifier, ...}, _), ...} =
             let
+                val arity = tcArity tCons
                 val printCode =
                     if makePrintFunction
                     then printerForDatatype(typeConstr, level, typeVarMap)
-                    else if null typeVars
+                    else if arity = 0
                     then codePrintDefault
-                    else mkProc(codePrintDefault, List.length typeVars, "print-printdefault", [], 0)
+                    else mkProc(codePrintDefault, arity, "print-printdefault", [], 0)
             in
                 mkNullDec(
                     mkEval(

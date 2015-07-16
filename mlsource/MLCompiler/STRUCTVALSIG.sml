@@ -50,8 +50,8 @@ sig
         TypeId of { access: valAccess, description: typeIdDescription, idKind: typeIdKind }
 
     and typeIdKind =
-        Free of { uid: uniqueId, allowUpdate: bool  }
-    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool }
+        Free of { uid: uniqueId, allowUpdate: bool, arity: int  }
+    |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
     |   TypeFn of typeVarForm list * types
 
         (* A type is the union of these different cases. *)
@@ -87,8 +87,6 @@ sig
         TypeConstrs of
         {
             name:       string,
-            arity:      int,
-            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
@@ -191,10 +189,10 @@ sig
     val setEquality:  typeId * bool -> unit
 
     val basisDescription: string -> typeIdDescription
-    val makeFreeId:     valAccess * bool * typeIdDescription -> typeId
-    val makeFreeIdEqUpdate:     valAccess * bool * typeIdDescription -> typeId
-    val makeBoundId:    valAccess * int * bool * bool * typeIdDescription -> typeId
-    val makeBoundIdWithEqUpdate: valAccess * int * bool * bool * typeIdDescription -> typeId
+    val makeFreeId: int * valAccess * bool * typeIdDescription -> typeId
+    val makeFreeIdEqUpdate: int * valAccess * bool * typeIdDescription -> typeId
+    val makeBoundId: int * valAccess * int * bool * bool * typeIdDescription -> typeId
+    val makeBoundIdWithEqUpdate: int * valAccess * int * bool * bool * typeIdDescription -> typeId
     val makeTypeFunction: typeIdDescription * (typeVarForm list * types) -> typeId
     
     (* Types *)
@@ -209,7 +207,6 @@ sig
 
     val tcName:            typeConstrs -> string
     val tcArity:           typeConstrs -> int
-    val tcTypeVars:        typeConstrs -> typeVarForm list
     val tcEquality:        typeConstrs -> bool
     val tcSetEquality:     typeConstrs * bool -> unit
     val tcIdentifier:      typeConstrs -> typeId
@@ -217,7 +214,7 @@ sig
     val tcIsAbbreviation:  typeConstrs -> bool
 
     val makeTypeConstructor:
-        string * typeVarForm list * typeId * locationProp list -> typeConstrs
+        string * typeId * locationProp list -> typeConstrs
 
     datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
         TypeConstrSet of typeConstrs * values list
