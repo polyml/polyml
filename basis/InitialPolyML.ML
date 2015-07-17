@@ -192,9 +192,6 @@ in
         val exceptionLocation = Exception.exceptionLocation
         and raiseWithLocation = Exception.raiseWithLocation
 
-        exception XWindows = RunCall.XWindows
-        and       Foreign  = RunCall.Foreign
-
         structure IntInf =
         struct
             fun gcd(args: int * int): int =

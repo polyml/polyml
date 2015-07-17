@@ -19,7 +19,7 @@
 
 structure XCall =
 struct
-    exception XWindows = PolyML.XWindows;
+    exception XWindows = RunCall.XWindows;
   
   fun xcall n = RunCall.run_call1 RuntimeCalls.POLY_SYS_XWindows n
 
