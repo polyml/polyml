@@ -349,20 +349,7 @@ struct
         in
             val () = enterGlobalType  ("ref", TypeConstrSet(refConstr, [refCons]));
             val () = enterGlobalValue ("ref", refCons);
-        end;
-
-        (* '!' does not really have to be here but it makes it easier
-           to ensure that it is implemented in-line. *)
-        local
-            val plingCode = (* we load the zero'th word from the parameter *)
-                mkInlproc
-                    (mkEval (rtsFunction POLY_SYS_load_word, [mkLoadArgument 0, CodeZero]), 1, "!(1)", [], 0)
-            val a = makeTV ()
-            val plingType = Ref a ->> a
-            val plingVal  = mkGvar ("!", plingType, makePolymorphic([a], plingCode), declInBasis);
-        in
-            val () = enterGlobalValue ("!", plingVal);
-        end;        
+        end
 
 (*****************************************************************************)
 (*                  exn                                                      *)

@@ -228,6 +228,8 @@ end;
 (* The following version of "o" currently gets optimised better. *)
 fun (f o g) = fn x => f (g x); (* functional composition *)
 
+fun ! (ref x) = x;
+
 fun length l =
     let
     (* Tail-recursive function. *)
