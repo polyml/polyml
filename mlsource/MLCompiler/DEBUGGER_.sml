@@ -359,7 +359,7 @@ struct
                         codeVal (var, level, typeVarMap, [], lex, LEX.nullLocation)
                     val newEnv =
                     (* Create a new entry in the environment. *)
-                          mkTuple [ loadVal (* Value. *), dynEnv level ]
+                          mkDatatype [ loadVal (* Value. *), dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry =
                         case var of
@@ -396,7 +396,7 @@ struct
                        associated with the type Id as the hd and the rest of the run-time
                        environment as the tl. *)                
                     val loadTypeId = TYPEIDCODE.codeId(id, level)
-                    val newEnv = mkTuple [ loadTypeId, dynEnv level ]
+                    val newEnv = mkDatatype [ loadTypeId, dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     (* Make an entry for the type constructor itself as well as the new type id.
                        The type Id is used both for the type constructor and also for any values
@@ -419,7 +419,7 @@ struct
             fun loadStruct (str as Struct { name, signat, locations, ...}, (decs, {staticEnv, dynEnv, lastLoc, ...})) =
                 let
                     val loadStruct = codeStruct (str, level)
-                    val newEnv = mkTuple [ loadStruct (* Structure. *), dynEnv level ]
+                    val newEnv = mkDatatype [ loadStruct (* Structure. *), dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry = EnvStructure(name, signat, locations)
                 in
@@ -449,7 +449,7 @@ struct
                         (* If we are processing functor arguments we will have a Formal here. *)
                         mkInd(addr, mkLoadArgument 0)
                     |   _ => TYPEIDCODE.codeId(id, level)
-                val newEnv = mkTuple [ loadTypeId, dynEnv level ]
+                val newEnv = mkDatatype [ loadTypeId, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val (decs, newEnv) =
                     foldIds(ids, {staticEnv=envTypeId id :: staticEnv, dynEnv=load, lastLoc = lastLoc})
@@ -491,7 +491,7 @@ struct
             
             fun addStartExitEntry({staticEnv, dynEnv, lastLoc, ...}, code, ty, startExit) =
             let
-                val newEnv = mkTuple [ code, dynEnv level ]
+                val newEnv = mkDatatype [ code, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val ctEntry = startExit(functionName, location, ty)
             in
@@ -531,7 +531,7 @@ struct
                debug status of the rest of the body. *)
             local
                 val {staticEnv, dynEnv, lastLoc, ...} = entryEnv
-                val newEnv = mkTuple [ argCode, dynEnv level ]
+                val newEnv = mkDatatype [ argCode, dynEnv level ]
                 val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                 val ctEntry = EnvStartFunction(functionName, location, argType)
             in
