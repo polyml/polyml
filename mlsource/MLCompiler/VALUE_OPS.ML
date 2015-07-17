@@ -404,14 +404,16 @@ struct
         |   _ => []
 
 
-    (* displays value as a block, with no external formatting *)
+    (* Displays value as a block, with no external formatting.  This is used at the
+       top level but it can be applied to values extracted with #lookup globalNameSpace.
+       That can include constructors and overloaded functions. *)
     fun displayValues (Value{name, typeOf, class, access, locations, ...}, depth, nameSpace, sigMap): pretty =
     let
         (* Create the "val X =" part. *)
-        fun valPart equOrColon =
+        fun valPart (valOrCons, equOrColon) =
             PrettyBlock (0, false, [],
                 [
-                    PrettyString "val",
+                    PrettyString valOrCons,
                     PrettyBreak (1, 0),
                     PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                     PrettyBreak (1, 0),
@@ -425,25 +427,30 @@ struct
         if depth <= 0 
         then PrettyString "..."
 
-        else
-        case (class, access) of
-            (ValBound, Global code) => (* Normal top-level values *)
-             PrettyBlock (3, false, [],
-                [
-                    valPart "=",
-                    PrettyBreak (1, 0),
-                    printValueForType (valOf(evalue code), typeOf, depth),
-                    PrettyString ":",
-                    PrettyBreak (1, 0),
-                    displayWithMap (typeOf, depth, typeEnv, sigMap)
-                 ])
+        else case class of
+            ValBound =>
+            let
+                (* In nearly all cases if we have Global code we will have a constant.
+                   There was one case where "!" was actually a Lambda that hadn't been
+                   code-generated. *)
+                val value =
+                    case access of Global code => evalue code | _ => NONE
+                val start =
+                    case value of
+                        SOME v =>
+                        [
+                            valPart("val", "="),
+                            PrettyBreak (1, 0),
+                            printValueForType (v, typeOf, depth),
+                            PrettyString ":"
+                        ]
+                    |   _ => [ valPart("val", ":") ]
+            in
+                PrettyBlock (3, false, [],
+                    start @ [ PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
+            end
 
-        |    (ValBound, _) => (* Values in structures and overloaded values (from PolyML). *)
-                (* We can't get a value to print in this case. *)
-             PrettyBlock (3, false, [],
-                [ valPart ":", PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
-
-        |    (Exception, _) => (* exceptions *)
+        |    Exception => (* exceptions *)
              PrettyBlock (0, false, [],
                 PrettyBlock (0, false, [],
                     [
@@ -460,9 +467,15 @@ struct
                         [ PrettyBreak (1, 1), PrettyString "of", PrettyBreak (1, 3), displayWithMap (excType, depth, typeEnv, sigMap) ]
                 )
             )
-      
-        | _ => PrettyString "" (* ??? *)
-    end;
+
+        | Constructor _ => (* This can only occur with #lookupVal *)
+            PrettyBlock (3, false, [],
+                [ valPart("constructor", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
+     
+        | PattBound => (* Can this every occur? *)
+            PrettyBlock (3, false, [],
+                [ valPart("val", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
+    end
 
   (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
   fun printValues (Value{typeOf, class, access, ...}, depth, _) =
