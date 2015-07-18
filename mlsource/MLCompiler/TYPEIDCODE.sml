@@ -1086,9 +1086,9 @@ struct
 
     (* Opaque matching and functor application create new type IDs using an existing
        type as implementation.  The equality function is inherited whether the type
-       was specified as an eqtype or not.  The print function is inherited but a new
-       ref is created so that if a pretty printer is installed for the new type it
-       does not affect the old type. *)
+       was specified as an eqtype or not.  The print function is no longer inherited.
+       Instead a new reference is installed with a default print function.  This hides
+       the implementation. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
     fun codeGenerativeId(TypeId{idKind=TypeFn([], resType), ...}, isEq, mkAddr, level) =
@@ -1097,9 +1097,6 @@ struct
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
 
             open TypeValue
-            (* Create a printer for a type function.  This is used to create the general
-               print function for any type. *)
-            val printCode = printerForType(resType, level, typeVarMap)
 
             val eqCode =
                 if not isEq then CodeZero
@@ -1118,7 +1115,7 @@ struct
                     mkEval
                         (rtsFunction POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         printCode])
+                         codePrintDefault])
                 })
         end
 
@@ -1149,10 +1146,8 @@ struct
                 end
 
             open TypeValue
-            (* Create a printer for a type function.  This is used to create the general
-               print function for any type. *)
-            val printCode =
-                createCode(fn(nLevel, argTypeMap) => printerForType(resType, nLevel, argTypeMap), "print-helper()")
+            (* Create a print function.*)
+            val printCode = createCode(fn _ => codePrintDefault, "print-helper()")
             and eqCode =
                 if not isEq then CodeZero
                 else createCode(fn(nLevel, argTypeMap) =>
@@ -1178,17 +1173,25 @@ struct
         end
 
     |   codeGenerativeId(sourceId, _, mkAddr, level: level) =
-        let (* Datatype. *)
+        let (* Datatype.  This is the same for monotype and polytypes except for the print fn. *)
             open TypeValue
             val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
             val loadLocal = load level
+            val arity =
+                case sourceId of
+                    TypeId{idKind=Bound{arity, ...},...} => arity
+                |   TypeId{idKind=Free{arity, ...},...} => arity
+                |   TypeId{idKind=TypeFn _,...} => raise InternalError "Already checked"
+
+            val printFn =
+                if arity = 0 then codePrintDefault
+                else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
+
             val printCode =
                     mkEval
                         (rtsFunction POLY_SYS_alloc_store,
-                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         mkEval(rtsFunction POLY_SYS_load_word,
-                            [extractPrinter loadLocal, CodeZero])
-                          ])
+                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn ]
+                        )
         in
             mkEnv(
                 dec,
@@ -1198,7 +1201,6 @@ struct
                 }
              )
         end
-
 
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
