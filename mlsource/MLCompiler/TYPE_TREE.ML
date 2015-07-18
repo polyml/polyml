@@ -1159,8 +1159,10 @@ struct
     and display (t : types, depth : int, env) =
         tDisp (t, depth, varNameSequence (), env, NONE)
 
-    (* Print out one or more type variables (unblocked) *)
-    fun printTypeVars([oneVar], depth, typeV) =
+    (* Print out zero, one or more type variables (unblocked) *)
+    fun printTypeVars([], _, _) = [] (* No type vars i.e. monotype *)
+ 
+    |   printTypeVars([oneVar], depth, typeV) = (* Single type var. *)
         [
             tDisp (TypeVar oneVar, depth, typeV, emptyTypeEnv, NONE), 
             PrettyBreak (1, 0)
