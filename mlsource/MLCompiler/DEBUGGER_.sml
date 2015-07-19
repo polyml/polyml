@@ -87,17 +87,40 @@ struct
         and onBreakPointCode =
             mkEval(rtsFunction POLY_SYS_load_word, [mkConst(toMachineWord globalOnBreakPoint), CodeZero])
 
+        (* We need to ensure that any break-point code preserves the state.  It could be modified
+           if we hit a break-point and run the interactive debugger with PolyML.Compiler.debug true. *)
+        fun wrap (f:'a -> unit) (x: 'a) : unit =
+        let
+            val threadId: address = RunCall.run_call0 POLY_SYS_thread_self ()
+            val stack = loadWord(threadId, 0w5)
+            and static = loadWord(threadId, 0w6)
+            and dynamic = loadWord(threadId, 0w7)
+            and location = loadWord(threadId, 0w8)
+
+            fun restore () =
+            (
+                assignWord(threadId, 0w5, stack);
+                assignWord(threadId, 0w6, static);
+                assignWord(threadId, 0w7, dynamic);
+                assignWord(threadId, 0w8, location)
+            )
+        in
+            f x handle exn => (restore(); PolyML.Exception.reraise exn);
+            restore()
+        end
+
         fun setOnEntry NONE = globalOnEntry := NoFunction
-        |   setOnEntry (SOME(f: string * PolyML.location -> unit)) = globalOnEntry := AFunction f
+        |   setOnEntry (SOME(f: string * PolyML.location -> unit)) = globalOnEntry := AFunction (wrap f)
 
         and setOnExit NONE = globalOnExit := NoFunction
-        |   setOnExit (SOME(f: string * PolyML.location -> unit)) = globalOnExit := AFunction f
+        |   setOnExit (SOME(f: string * PolyML.location -> unit)) = globalOnExit := AFunction (wrap f)
 
         and setOnExitException NONE = globalOnExitExc := NoFunction
-        |   setOnExitException (SOME(f: string * PolyML.location -> exn -> unit)) = globalOnExitExc := AFunction f
+        |   setOnExitException (SOME(f: string * PolyML.location -> exn -> unit)) =
+                globalOnExitExc := AFunction (fn x => wrap (f x))
 
         and setOnBreakPoint NONE = globalOnBreakPoint := NoFunction
-        |   setOnBreakPoint (SOME(f: PolyML.location * bool ref -> unit)) = globalOnBreakPoint := AFunction f
+        |   setOnBreakPoint (SOME(f: PolyML.location * bool ref -> unit)) = globalOnBreakPoint := AFunction (wrap f)
     end
 
     
