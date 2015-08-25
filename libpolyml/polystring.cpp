@@ -1,12 +1,11 @@
 /*
     Title:  polystring.cpp - String functions and types
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -133,68 +132,137 @@ char *Poly_string_to_C_alloc(PolyWord ps)
     return res;
 } /* Poly_string_to_C_alloc */
 
-#ifdef UNICODE
+#if (defined(_WIN32) && defined(UNICODE))
+
+unsigned int codePage = CP_UTF8;//CP_ACP;
 
 /* We need Unicode versions of these. */
-PolyWord C_string_to_Poly(const WCHAR *buffer)
+PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer)
 /* Returns a Unicode string as a Poly string. */
 {
     if (buffer == NULL) return EmptyString();
-    
-    unsigned long length = wcslen(buffer);
 
-    /* Return the null string if it's empty. */
-    if (length == 0) return EmptyString();
+    // Get the length of the string, without the terminating null.
+    int buffLen = (int)wcslen(buffer);
+    if (buffLen == 0) return EmptyString(); // If it's zero return empty string.
+
+    // Find the length when converted.
+    int outputLen = WideCharToMultiByte(codePage, 0, buffer, buffLen, NULL, 0, NULL, NULL);
+
+    // Return the null string if there's an error 
+    if (outputLen <= 0) return EmptyString();
     
-    /* Return the character itself if the length is 1 */
-    if (length == 1) return TAGGED(((unsigned char *)buffer)[0]);
+    // Return the character itself if the length is 1 */
+    if (outputLen == 1)
+    {
+        char obuff[1];
+        int check = WideCharToMultiByte(codePage, 0, buffer, buffLen, obuff, 1, NULL, NULL);
+        if (check <= 0) return EmptyString();
+        return TAGGED(obuff[0]);
+    }
     
-    /* Get the number of words required, plus 1 for length word,
-       plus flag bit. */
-    PolyStringObject *result = (PolyStringObject *)(alloc(WORDS(length) + 1, F_BYTE_OBJ));
+    // Get the number of words required, plus 1 for length word, plus flag bit.
+    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(outputLen) + 1, F_BYTE_OBJ));
     
-    /* Set length of string, then copy the characters. */
-    result->length = length;
-    for (unsigned long i = 0; i < length; i++) result->chars[i] = (char)buffer[i];
+    // Set length of string, then copy the characters.
+    result->length = outputLen;
+    int check = WideCharToMultiByte(codePage, 0, buffer, buffLen, result->chars, outputLen, NULL, NULL);
+    if (check <= 0) return EmptyString();
 
     return result;
-} /* C_string_to_Poly */
+}
 
 POLYUNSIGNED Poly_string_to_C(PolyWord ps, WCHAR *buff, POLYUNSIGNED bufflen)
 {
+    char iBuff[1];
+    int iLength = 0;
+    const char *iPtr;
+
     if (IS_INT(ps))
     {
-        buff[0] = (WCHAR)(UNTAGGED(ps));
-        buff[1] = 0;
-        return(1);
-    }
-
-    PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
-    POLYUNSIGNED chars = str->length >= bufflen ? bufflen-1 : str->length;
-    for (POLYUNSIGNED i = 0; i < chars; i++) buff[i] = str->chars[i];
-    buff[chars] = 0;
-    return chars;
-} /* Poly_string_to_C */
-
-WCHAR *Poly_string_to_U_alloc(PolyWord ps)
-{
-    if (IS_INT(ps))
-    {
-        WCHAR *res = (WCHAR*)malloc(2 * sizeof(WCHAR));
-        res[0] = (WCHAR)(UNTAGGED(ps));
-        res[1] = 0;
-        return res;
+        iLength = 1;
+        iBuff[0] = (char)UNTAGGED(ps);
+        iPtr = iBuff;
     }
     else
     {
         PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
-        POLYUNSIGNED chars = str->length;
-        WCHAR * res = (WCHAR*)malloc((chars+1) * sizeof(WCHAR));
-        for (POLYUNSIGNED i = 0; i < chars; i++) res[i] = str->chars[i];
-        res[chars] = 0;
-        return res;
+        iLength = (int)str->length;
+        if (iLength == 0)
+        {
+            // Null string.
+            if (bufflen != 0) buff[0] = 0;
+            return 0;
+        }
+        iPtr = str->chars;
     }
-} /* Poly_string_to_U_alloc */
+    // We can convert it directly using the maximum string length.
+    int space = MultiByteToWideChar(codePage, 0, iPtr, iLength, buff, (int)bufflen-1);
+
+    if (space <= 0)
+    {
+        if (bufflen != 0) buff[0] = 0;
+        return 0; // Error
+    }
+
+    buff[space] = 0; // Null terminate
+    return space;
+}
+
+WCHAR *Poly_string_to_U_alloc(PolyWord ps)
+{
+    char iBuff[1];
+    int iLength = 0;
+    const char *iPtr;
+
+    if (IS_INT(ps))
+    {
+        iLength = 1;
+        iBuff[0] = (char)UNTAGGED(ps);
+        iPtr = iBuff;
+    }
+    else
+    {
+        PolyStringObject *str = (PolyStringObject *)ps.AsObjPtr();
+        iLength = (int)str->length;
+        if (iLength == 0) return _wcsdup(L"");
+        iPtr = str->chars;
+    }
+
+    // Find the space required.
+    int chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, NULL, 0);
+    if (chars <= 0) return _wcsdup(L"");
+    WCHAR *res = (WCHAR*)malloc((chars+1) * sizeof(WCHAR));
+    chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, res, chars);
+    res[chars] = 0;
+    return res;
+
+}
+
+// convert_string_list return a list of strings.
+// This converts Unicode strings.
+Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings)
+{
+    Handle saved = mdTaskData->saveVec.mark();
+    Handle list  = SAVE(ListNull);
+    
+    // It's simplest to process the strings in reverse order */
+    for (int i = count - 1; 0 <= i; i--)
+    {
+        Handle value = SAVE(C_string_to_Poly(mdTaskData, strings[i]));
+        Handle next  = alloc_and_save(mdTaskData, SIZEOF(ML_Cons_Cell));
+        
+        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
+        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+        
+        // reset save vector to stop it overflowing    
+        mdTaskData->saveVec.reset(saved);
+        list = SAVE(DEREFHANDLE(next));
+    }
+    
+    return list;
+}
+
 
 #endif
 
@@ -204,7 +272,7 @@ Handle convert_string_list(TaskData *mdTaskData, int count, char **strings)
     Handle saved = mdTaskData->saveVec.mark();
     Handle list  = SAVE(ListNull);
     
-    /* It's simplest to process the strings in reverse order */
+    // It's simplest to process the strings in reverse order */
     for (int i = count - 1; 0 <= i; i--)
     {
         /* 
@@ -219,7 +287,7 @@ Handle convert_string_list(TaskData *mdTaskData, int count, char **strings)
         DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
         DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
         
-        /* reset save vector to stop it overflowing */    
+        // reset save vector to stop it overflowing    
         mdTaskData->saveVec.reset(saved);
         list = SAVE(DEREFHANDLE(next));
     }

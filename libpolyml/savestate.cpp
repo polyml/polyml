@@ -1,12 +1,11 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007 David C.J. Matthews
+    Copyright (c) 2007, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -224,15 +223,15 @@ static bool sameFile(const char *x, const char *y)
 {
     // Get the lengths and return if either does not exist.
     LPSTR filePart;
-    DWORD dwxLen = GetFullPathName(x, 1, 0, 0);
+    DWORD dwxLen = GetFullPathNameA(x, 1, 0, 0);
     if (dwxLen == 0) return false;
-    DWORD dwyLen = GetFullPathName(y, 0, 0, 0);
+    DWORD dwyLen = GetFullPathNameA(y, 0, 0, 0);
     if (dwyLen == 0) return false;
     if (dwxLen != dwyLen) return false;
     AutoFree<char*> xName = (char*)malloc(dwxLen+1);
-    GetFullPathName(x, dwxLen+1, xName, &filePart);
+    GetFullPathNameA(x, dwxLen+1, xName, &filePart);
     AutoFree<char*> yName = (char*)malloc(dwyLen+1);
-    GetFullPathName(y, dwyLen+1, yName, &filePart);
+    GetFullPathNameA(y, dwyLen+1, yName, &filePart);
 #ifdef _MSC_VER
     return strcmpi(xName, yName) == 0;
 #else

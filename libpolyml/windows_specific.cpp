@@ -1,12 +1,11 @@
 /*
     Title:      Operating Specific functions: Windows version.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000, 2015 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -560,7 +559,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1032: // Get volume information.
         {
-            char rootName[MAX_PATH], volName[MAX_PATH], sysName[MAX_PATH];
+            TCHAR rootName[MAX_PATH], volName[MAX_PATH], sysName[MAX_PATH];
             DWORD dwVolSerial, dwMaxComponentLen, dwFlags;
             Handle volHandle, sysHandle, serialHandle, maxCompHandle;
             Handle resultHandle;
@@ -587,7 +586,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1033:
         {
-            char fileName[MAX_PATH], execName[MAX_PATH];
+            TCHAR fileName[MAX_PATH], execName[MAX_PATH];
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), fileName, MAX_PATH);
             HINSTANCE hInst;
             if (length > MAX_PATH)
@@ -646,8 +645,8 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
             Handle handToken;
             PHANDLETAB pTab;
             HCONV hcDDEConv;
-            char *serviceName = Poly_string_to_C_alloc(args->WordP()->Get(0));
-            char *topicName = Poly_string_to_C_alloc(args->WordP()->Get(1));
+            TCHAR *serviceName = Poly_string_to_T_alloc(args->WordP()->Get(0));
+            TCHAR *topicName = Poly_string_to_T_alloc(args->WordP()->Get(1));
             /* Send a request to the main thread to do the work. */
             hcDDEConv = StartDDEConversation(serviceName, topicName);
             free(serviceName); free(topicName);
@@ -711,23 +710,23 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1051: // Get windows directory
         {
-            char path[MAX_PATH+1];
-            if (GetWindowsDirectory(path, sizeof(path)/sizeof(char)) == 0)
+            TCHAR path[MAX_PATH+1];
+            if (GetWindowsDirectory(path, sizeof(path)/sizeof(TCHAR)) == 0)
                 raise_syscall(taskData, "GetWindowsDirectory failed", -(int)GetLastError());
             return SAVE(C_string_to_Poly(taskData, path));
         }
 
     case 1052: // Get system directory
         {
-            char path[MAX_PATH+1];
-            if (GetSystemDirectory(path, sizeof(path)/sizeof(char)) == 0)
+            TCHAR path[MAX_PATH+1];
+            if (GetSystemDirectory(path, sizeof(path)/sizeof(TCHAR)) == 0)
                 raise_syscall(taskData, "GetSystemDirectory failed", -(int)GetLastError());
             return SAVE(C_string_to_Poly(taskData, path));
         }
 
     case 1053: // Get computer name
         {
-            char name[MAX_COMPUTERNAME_LENGTH +1];
+            TCHAR name[MAX_COMPUTERNAME_LENGTH +1];
             DWORD dwSize = MAX_COMPUTERNAME_LENGTH +1;
             if (GetComputerName(name, &dwSize) == 0)
                 raise_syscall(taskData, "GetComputerName failed", -(int)GetLastError());
@@ -736,7 +735,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1054: // Get user name
         {
-            char name[UNLEN +1];
+            TCHAR name[UNLEN +1];
             DWORD dwSize = UNLEN +1;
             if (GetUserName(name, &dwSize) == 0)
                 raise_syscall(taskData, "GetUserName failed", -(int)GetLastError());
@@ -807,7 +806,6 @@ interpose a thread which can signal an event when input is available.
 */
 static Handle execute(TaskData *taskData, Handle args)
 {
-    char *commandName = 0, *arguments = 0;
     LPCSTR lpszError = "";
     HANDLE hWriteToChild = INVALID_HANDLE_VALUE,
            hReadFromParent = INVALID_HANDLE_VALUE,
@@ -820,8 +818,8 @@ static Handle execute(TaskData *taskData, Handle args)
     Handle handToken = make_handle_entry(taskData);
     PHANDLETAB pTab = &handleTable[STREAMID(handToken)];
 
-    commandName = Poly_string_to_C_alloc(args->WordP()->Get(0));
-    arguments = Poly_string_to_C_alloc(args->WordP()->Get(1));
+    LPTSTR commandName = Poly_string_to_T_alloc(args->WordP()->Get(0));
+    LPTSTR arguments = Poly_string_to_T_alloc(args->WordP()->Get(1));
 
     // Create pipes for connection. Setting the security argument to NULL creates
     // the pipe handles as non-inheritable.  We have to make sure that the

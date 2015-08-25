@@ -4,12 +4,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2008-2014.
+    Further development Copyright David C.J. Matthews 2008-2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -761,9 +760,9 @@ static Handle load_lib (TaskData *taskData, Handle string)
 
 static Handle load_sym (TaskData *taskData, Handle h)
 {
-    TCHAR name[500];
+    char name[500];
     
-    Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name)/sizeof(TCHAR));
+    Poly_string_to_C(DEREFHANDLE(h)->Get(1), name, sizeof(name));
     info(("<%s>\n", name));
     
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -772,7 +771,7 @@ static Handle load_sym (TaskData *taskData, Handle h)
     if (sym == NULL) 
     {
         char buf[256];
-        sprintf(buf, "load_sym <%s> : %lu", name,GetLastError());
+        sprintf(buf, "load_sym <%s> : %lu", name, GetLastError());
         RAISE_EXN(buf);
     }
 

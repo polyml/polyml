@@ -430,7 +430,11 @@ TryAgain:
     {
         Handle str_token = make_stream_entry(taskData);
         unsigned stream_no = STREAMID(str_token);
+#if (defined(_WIN32) && defined(UNICODE))
+        stream = _wopen(string_buffer, mode, access);
+#else
         stream = open(string_buffer, mode, access);
+#endif
         if (stream >= 0)
         {
             PIOSTRUCT strm = &basic_io_vector[stream_no];
@@ -1681,7 +1685,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 54: /* Get current working directory. */
         {
-            char string_buffer[MAXPATHLEN+1];
+            TCHAR string_buffer[MAXPATHLEN+1];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             if (GetCurrentDirectory(MAXPATHLEN+1, string_buffer) == 0)
                raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
@@ -1818,7 +1822,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 #else
             strcpy(buff, "/tmp/");
 #endif
-            strcat(buff, "MLTEMPXXXXXX");
+            lstrcat(buff, _T("MLTEMPXXXXXX"));
 #ifdef HAVE_MKSTEMP
             // Set the umask to mask out access by anyone else.
             // mkstemp generally does this anyway.
@@ -1829,9 +1833,15 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (fd != -1) close(fd);
             else raise_syscall(taskData, "mkstemp failed", wasError);
 #else
+#if (defined(_WIN32) && defined(UNICODE))
+            if (_wmktemp(buff) == 0)
+                raise_syscall(taskData, "mktemp failed", errno);
+            int fd = _wopen(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
+#else
             if (mktemp(buff) == 0)
                 raise_syscall(taskData, "mktemp failed", errno);
             int fd = open(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
+#endif
             if (fd != -1) close(fd);
             else raise_syscall(taskData, "Temporary file creation failed", errno);
 #endif

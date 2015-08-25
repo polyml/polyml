@@ -4,10 +4,11 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
+    Further development copyright David C.J. Matthews 2001-12, 2015
+
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,8 +28,8 @@
 
 extern struct _userOptions {
     unsigned    user_arg_count;
-    char        **user_arg_strings;
-    const char  *programName;
+    TCHAR       **user_arg_strings;
+    const TCHAR *programName;
     unsigned    gcthreads;    // Number of threads to use for gc
 } userOptions;
 
@@ -42,5 +43,9 @@ NORETURNFN(extern void finish(int n));
 extern char *RTSArgHelp(void);
 
 extern time_t exportTimeStamp;
+
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+int polymain(int argc, TCHAR *argv[], exportDescription *exports);
+#endif
 
 #endif /* _MPOLY_H_DEFINED */

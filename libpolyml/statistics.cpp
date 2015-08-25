@@ -1,12 +1,11 @@
 /*
     Title:  statics.cpp - Profiling statistics
 
-    Copyright (c) 2011, 2013 David C.J. Matthews
+    Copyright (c) 2011, 2013, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -106,6 +105,10 @@
 #define ASSERT(x)
 #endif
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#endif
+
 #include "run_time.h"
 #include "sys.h"
 #include "save_vec.h"
@@ -144,8 +147,8 @@ Statistics::Statistics(): accessLock("Statistics")
     hFileMap = NULL;
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
-    char shmName[MAX_PATH];
-    sprintf(shmName, POLY_STATS_NAME "%lu", pid);
+    TCHAR shmName[MAX_PATH];
+    wsprintf(shmName, _T(POLY_STATS_NAME) _T("%lu"), pid);
 
     // Create a piece of shared memory
     hFileMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
@@ -610,8 +613,8 @@ Handle Statistics::getLocalStatistics(TaskData *taskData)
 Handle Statistics::getRemoteStatistics(TaskData *taskData, POLYUNSIGNED pid)
 {
 #ifdef HAVE_WINDOWS_H
-    char shmName[MAX_PATH];
-    sprintf(shmName, POLY_STATS_NAME "%" POLYUFMT, pid);
+    TCHAR shmName[MAX_PATH];
+    wsprintf(shmName, _T(POLY_STATS_NAME) _T("%") _T(POLYUFMT), pid);
     HANDLE hRemMemory = OpenFileMapping(FILE_MAP_READ, FALSE, shmName);
     if (hRemMemory == NULL)
         raise_exception_string(taskData, EXC_Fail, "No statistics available");

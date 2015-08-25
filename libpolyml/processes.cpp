@@ -92,6 +92,10 @@
 #include <sys/sysctl.h>
 #endif
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#endif
+
 #include <new>
 
 /************************************************************************
@@ -2039,7 +2043,7 @@ typedef BOOL (WINAPI *GETP)(SYSTEM_LOGICAL_PROCESSOR_INFORMATION*, PDWORD);
 // Windows - use GetLogicalProcessorInformation if it's available.
 static unsigned WinNumPhysicalProcessors(void)
 {
-    GETP getProcInfo = (GETP) GetProcAddress(GetModuleHandle("kernel32"), "GetLogicalProcessorInformation");
+    GETP getProcInfo = (GETP) GetProcAddress(GetModuleHandle(_T("kernel32")), "GetLogicalProcessorInformation");
     if (getProcInfo == 0) return 0;
 
     // It's there - use it.
