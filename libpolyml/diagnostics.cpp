@@ -67,6 +67,7 @@
 #include "errors.h"
 #include "noreturn.h"
 #include "globals.h"
+#include "diagnostics.h"
 
 unsigned debugOptions = 0; // Debugging options requested on command line.
 

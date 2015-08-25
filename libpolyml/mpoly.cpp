@@ -54,6 +54,12 @@
 
 #ifdef HAVE_TCHAR_H
 #include <tchar.h>
+#else
+#define _T(x) x
+#define _tcslen strlen
+#define _tcstol strtol
+#define _tcsncmp strncmp
+#define _tcschr strchr
 #endif
 
 #include "globals.h"

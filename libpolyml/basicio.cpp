@@ -102,11 +102,9 @@ DCJM May 2000.
 #ifdef HAVE_TCHAR_H
 #include <tchar.h>
 #else
-#ifdef UNICODE
-typedef short TCHAR;
-#else
 typedef char TCHAR;
-#endif
+#define _T(x) x
+#define lstrcat strcat
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))

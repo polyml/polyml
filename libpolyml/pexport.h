@@ -22,6 +22,12 @@
 #ifndef PEXPORT_H_INCLUDED
 #define PEXPORT_H_INCLUDED
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#endif
+
 #include "scanaddrs.h" // For base class
 #include "exporter.h"
 #include "globals.h"

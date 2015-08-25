@@ -23,6 +23,12 @@
 #ifndef _MPOLY_H_DEFINED
 #define _MPOLY_H_DEFINED
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#endif
+
 #include "noreturn.h"
 #include "../polyexports.h"
 

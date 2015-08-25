@@ -26,6 +26,12 @@
 #include "noreturn.h"
 #include "globals.h"
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#endif
+
 NORETURNFN(extern void Exit(const char *, ...));
 NORETURNFN(extern void Crash(const char *, ...));
 
