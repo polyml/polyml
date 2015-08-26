@@ -719,7 +719,12 @@ static Handle load_lib (TaskData *taskData, Handle string)
     TCHAR name[500];
     
     Poly_string_to_C(DEREFWORD(string), name, sizeof(name)/sizeof(TCHAR));
+
+#if (defined(_WIN32) && defined(UNICODE))
+    info(("<%S>\n", name));
+#else
     info(("<%s>\n", name));
+#endif
     // If the name is the null string use the current executable.
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     HINSTANCE lib;
@@ -728,7 +733,11 @@ static Handle load_lib (TaskData *taskData, Handle string)
     if (lib == NULL) 
     {
         char buf[256];
+#if (defined(_WIN32) && defined(UNICODE))
+        sprintf(buf, "load_lib <%S> : %lu", name, GetLastError());
+#else
         sprintf(buf, "load_lib <%s> : %lu", name, GetLastError());
+#endif
         RAISE_EXN(buf);
     }
 

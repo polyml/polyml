@@ -420,12 +420,20 @@ void Usage(const char *message, ...)
 
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        printf("%S <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#else
         printf("%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#endif
     }
     printf("Debug options:\n");
     for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        printf("%S <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#else
         printf("%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#endif
     }
     fflush(stdout);
     
@@ -447,7 +455,11 @@ char *RTSArgHelp(void)
     char *p = buff;
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        int spaces = sprintf(p, "%S <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#else
         int spaces = sprintf(p, "%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#endif
         p += spaces;
     }
     {
@@ -456,7 +468,11 @@ char *RTSArgHelp(void)
     }
     for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        int spaces = sprintf(p, "%S <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#else
         int spaces = sprintf(p, "%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#endif
         p += spaces;
     }
     ASSERT((unsigned)(p - buff) < (unsigned)sizeof(buff));

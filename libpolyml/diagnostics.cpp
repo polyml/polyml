@@ -154,12 +154,15 @@ void SetLogFile(const TCHAR *fileName)
 {
 #if (defined(_WIN32) && defined(UNICODE))
     FILE *stream = _wfopen(fileName, L"w");
+    if (stream == NULL)
+        printf("Unable to open debug file %S\n", fileName);
+    else logStream = stream;
 #else
     FILE *stream = fopen(fileName, "w");
-#endif
     if (stream == NULL)
         printf("Unable to open debug file %s\n", fileName);
     else logStream = stream;
+#endif
 }
 
 // For the moment log to stdout
