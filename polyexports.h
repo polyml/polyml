@@ -102,7 +102,7 @@ extern "C" {
 # endif
 
 extern POLYLIB_API int PolyWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                    LPTSTR lpCmdLine, int nCmdShow, exportDescription *exports);
+                    LPSTR lpCmdLine, int nCmdShow, exportDescription *exports);
 #else
 int polymain(int argc, char *argv[], exportDescription *exports);
 #endif

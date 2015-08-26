@@ -67,6 +67,7 @@
 #include "console.h"
 #include "../polyexports.h"
 #include "processes.h"
+#include "polystring.h"
 
 /*
 This module takes the place of the Windows console which
@@ -700,11 +701,13 @@ static DWORD WINAPI InThrdProc(LPVOID lpParameter)
         buff[dwRead] = 0;
         if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
 #ifdef UNICODE
-        // We need to write Unicode here.
-        WCHAR wBuff[4096];
-        int wlen = MultiByteToWideChar(CP_ACP, 0, buff, dwRead, wBuff, sizeof(wBuff)/sizeof(WCHAR) - 1);
-        wBuff[wlen] = 0;
+        // We need to write Unicode here.  Convert it using the current code-page.
+        int wlen = MultiByteToWideChar(codePage, 0, buff, -1, NULL, 0);
+        if (wlen == 0) continue;
+        WCHAR *wBuff = new WCHAR[wlen];
+        wlen = MultiByteToWideChar(codePage, 0, buff, -1, wBuff, wlen);
         SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)wBuff);
+        delete[] wBuff;
 #else
         SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)buff);
 #endif
@@ -734,7 +737,7 @@ static BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
 int PolyWinMain(
   HINSTANCE hInstance,
   HINSTANCE hPrevInstance,
-  LPTSTR lpCmdLine,
+  LPSTR lpCmdLineUnused,
   int nCmdShow,
   exportDescription *exports
 )
