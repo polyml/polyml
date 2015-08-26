@@ -1821,7 +1821,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             strcpy(buff, "/tmp/");
 #endif
             lstrcat(buff, _T("MLTEMPXXXXXX"));
-#ifdef HAVE_MKSTEMP
+#if (defined(HAVE_MKSTEMP) && ! defined(UNICODE))
             // Set the umask to mask out access by anyone else.
             // mkstemp generally does this anyway.
             mode_t oldMask = umask(0077);
