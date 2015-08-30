@@ -48,4 +48,6 @@ extern HANDLE hOldStdin; // If stdin has been provided
 // If the original stdin handle was missing we're using our console.
 #define useConsole (hOldStdin == INVALID_HANDLE_VALUE)
 
+extern void SetupDDEHandler(const TCHAR *lpszName);
+
 #endif

@@ -102,8 +102,6 @@ HANDLE hInputEvent;  // Signalled when input is available.
 static HWND hDDEWindow;     // Window to handle DDE requests from ML thread.
 HANDLE hOldStdin = INVALID_HANDLE_VALUE;
 
-static TCHAR *lpszServiceName;
-
 static LPTSTR*  lpArgs = 0; // Argument list.
 static int      nArgs = 0;
 static int initDDEControl(const TCHAR *lpszName);
@@ -128,6 +126,7 @@ static bool isActive = false;
 #define WM_DDESTART     (WM_APP+1)
 #define WM_DDESTOP      (WM_APP+2)
 #define WM_DDEEXEC      (WM_APP+3)
+#define WM_DDESERVINIT      (WM_APP+4)
 
 /* These functions are called by the I/O routines to test for input and
    to read from the keyboard. */
@@ -302,11 +301,19 @@ LRESULT ExecuteDDE(char *command, HCONV hConv)
     return SendMessage(hDDEWindow, WM_DDEEXEC, (WPARAM)hConv, (LPARAM)command);
 }
 
+// This is called by the main Poly/ML thread after the arguments have been processed.
+void SetupDDEHandler(const TCHAR *lpszServiceName)
+{
+    SendMessage(hDDEWindow, WM_DDESERVINIT, 0, (LPARAM)lpszServiceName);
+}
 
 LRESULT CALLBACK DDEWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg) 
     {
+    case WM_DDESERVINIT:
+        return initDDEControl((const TCHAR*)lParam);
+
     case WM_DDESTART:
         {
             HCONV hcDDEConv;
@@ -913,19 +920,6 @@ int PolyWinMain(
             LocalFree(uniArgs);
         }
 #endif
-
-        // We have to extract the -pServiceName argument if it's there.
-        // It might be better to process it as part of the normal argument
-        // processing but we'd then have to do a call back here.
-        for (int j = 0; j < nArgs; j++)
-        {
-            if (_tcscmp(lpArgs[j], _T("-pServiceName")) == 0 && j+1 < nArgs)
-            {
-                lpszServiceName = lpArgs[j+1];
-                // For the moment leave the argument.
-                break;
-            }
-        }
     }
 
     // Create an internal hidden window to handle DDE requests from the ML thread.
@@ -954,8 +948,6 @@ int PolyWinMain(
             NULL     // pointer to window-creation data
             );
     }
-
-    initDDEControl(lpszServiceName);
 
     // Call the main program to do the rest of the initialisation.
     HANDLE hMainThread = CreateThread(NULL, 0, MainThrdProc, exports, 0, &dwInId);
@@ -1022,7 +1014,7 @@ HDDEDATA CALLBACK DdeCallback(UINT uType, UINT uFmt, HCONV hconv,
 
 static int initDDEControl(const TCHAR *lpszName)
 {
-    HSZ hszServiceName;
+    // Start the DDE service.  This receives remote requests.
     if (DdeInitialize(&dwDDEInstance, DdeCallback,
         APPCLASS_STANDARD | CBF_FAIL_ADVISES | CBF_FAIL_POKES |
         CBF_FAIL_REQUESTS | CBF_SKIP_ALLNOTIFICATIONS, 0)
@@ -1032,7 +1024,7 @@ static int initDDEControl(const TCHAR *lpszName)
     // If we were given a service name we register that,
     // otherwise we use the default name.
     if (lpszName == 0) lpszName = POLYMLSERVICE;
-    hszServiceName = DdeCreateStringHandle(dwDDEInstance, lpszName, DDECODEPAGE);
+    HSZ hszServiceName = DdeCreateStringHandle(dwDDEInstance, lpszName, DDECODEPAGE);
     if (hszServiceName == 0) return 0;
 
     DdeNameService(dwDDEInstance, hszServiceName, 0L, DNS_REGISTER);

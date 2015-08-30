@@ -52,6 +52,8 @@ extern Handle convert_string_list(TaskData *mdTaskData, int count, char **string
 
 extern unsigned int codePage;
 
+extern bool setWindowsCodePage(const TCHAR *codePageArg);
+
 #ifdef HAVE_TCHAR_H
 #include <tchar.h>
 #else

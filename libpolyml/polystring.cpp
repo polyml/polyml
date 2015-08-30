@@ -134,7 +134,23 @@ char *Poly_string_to_C_alloc(PolyWord ps)
 
 #if (defined(_WIN32) && defined(UNICODE))
 
-unsigned int codePage = CP_UTF8;//CP_ACP;
+unsigned int codePage = CP_ACP;
+
+bool setWindowsCodePage(const TCHAR *codePageArg)
+{
+    if (_tcscmp(codePageArg, _T("CP_ACP")) == 0) { codePage = CP_ACP; return true; }
+    if (_tcscmp(codePageArg, _T("CP_UTF7")) == 0 || lstrcmpi(codePageArg, _T("utf7")) == 0)
+         { codePage = CP_UTF7; return true; }
+    if (_tcscmp(codePageArg, _T("CP_UTF8")) == 0 || lstrcmpi(codePageArg, _T("utf8")) == 0)
+         { codePage = CP_UTF8; return true; }
+    if (*codePageArg >= '0' && *codePageArg <= '9')
+    {
+        TCHAR *endp;
+        codePage = _tcstol(codePageArg, &endp, 10);
+        return true;
+    }
+    return false;
+}
 
 /* We need Unicode versions of these. */
 PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer)

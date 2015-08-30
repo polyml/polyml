@@ -77,9 +77,12 @@
 #include "../polyexports.h"
 #include "memmgr.h"
 #include "pexport.h"
+#include "polystring.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
+
+static const TCHAR *lpszServiceName = 0; // DDE service name
 #endif
 
 static void  InitHeaderFromExport(exportDescription *exports);
@@ -105,7 +108,8 @@ enum {
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
     OPT_DEBUGFILE,
-    OPT_DDESERVICE
+    OPT_DDESERVICE,
+    OPT_CODEPAGE
 };
 
 static struct __argtab {
@@ -124,6 +128,9 @@ static struct __argtab {
     { _T("--logfile"),      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     ,
+#ifdef UNICODE
+    { _T("--codepage"),     "Code-page to use for file-names etc in Windows",       OPT_CODEPAGE },
+#endif
     { _T("-pServiceName"),  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE }
 #endif
 };
@@ -298,9 +305,17 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                     case OPT_DEBUGFILE:
                         SetLogFile(p);
                         break;
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                     case OPT_DDESERVICE:
-                        // This has already been processed.
+                        // Set the name for the DDE service.  This allows the caller to specify the
+                        // service name to be used to send Interrupt "signals".
+                        lpszServiceName = p;
                         break;
+                    case OPT_CODEPAGE:
+                        if (! setWindowsCodePage(p))
+                            Usage("Unknown argument to --codepage. Use code page number or CP_ACP, CP_UTF8.\n");
+                        break;
+#endif
                     }
                     argUsed = true;
                     break;
@@ -342,7 +357,11 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
 
     // Set the heap size if it has been provided otherwise use the default.
     gHeapSizeParameters.SetHeapParameters(minsize, maxsize, initsize, gcpercent);
-   
+
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    SetupDDEHandler(lpszServiceName); // Windows: Start the DDE handler now we processed any service name.
+#endif
+
     // Initialise the run-time system before creating the heap.
     InitModules();
     CreateHeap();
