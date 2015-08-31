@@ -236,18 +236,25 @@ static bool AddHierarchyEntry(const TCHAR *fileName, time_t timeStamp)
 #ifdef _WIN32
 static bool sameFile(const TCHAR *x, const TCHAR *y)
 {
-    // Get the lengths and return if either does not exist.
-    LPTSTR filePart;
-    DWORD dwxLen = GetFullPathName(x, 0, 0, 0);
-    if (dwxLen == 0) return false;
-    DWORD dwyLen = GetFullPathName(y, 0, 0, 0);
-    if (dwyLen == 0) return false;
-    if (dwxLen != dwyLen) return false;
-    AutoFree<TCHAR*> xName = (TCHAR*)malloc((dwxLen+1)*sizeof(TCHAR));
-    GetFullPathName(x, dwxLen+1, xName, &filePart);
-    AutoFree<TCHAR*> yName = (TCHAR*)malloc((dwyLen+1)*sizeof(TCHAR));
-    GetFullPathName(y, dwyLen+1, yName, &filePart);
-    return lstrcmpi(xName, yName) == 0;
+    HANDLE hXFile = INVALID_HANDLE_VALUE, hYFile = INVALID_HANDLE_VALUE;
+    bool result = false;
+
+    hXFile = CreateFile(x, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hXFile == INVALID_HANDLE_VALUE) goto closeAndExit;
+    hYFile = CreateFile(y, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hYFile == INVALID_HANDLE_VALUE) goto closeAndExit;
+    BY_HANDLE_FILE_INFORMATION fileInfoX, fileInfoY;
+    if (! GetFileInformationByHandle(hXFile, &fileInfoX)) goto closeAndExit;
+    if (! GetFileInformationByHandle(hYFile, &fileInfoY)) goto closeAndExit;
+
+    result = fileInfoX.dwVolumeSerialNumber == fileInfoY.dwVolumeSerialNumber &&
+        fileInfoX.nFileIndexLow == fileInfoY.nFileIndexLow &&
+        fileInfoX.nFileIndexHigh == fileInfoY.nFileIndexHigh;
+
+closeAndExit:
+    if (hXFile != INVALID_HANDLE_VALUE) CloseHandle(hXFile);
+    if (hYFile != INVALID_HANDLE_VALUE) CloseHandle(hYFile);
+    return result;
 }
 #else
 static bool sameFile(const char *x, const char *y)
