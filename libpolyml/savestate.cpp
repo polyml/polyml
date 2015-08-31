@@ -70,6 +70,21 @@
 #define ASSERT(x)
 #endif
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#define _T(x) x
+#define _tfopen fopen
+#define _tcscpy strcpy
+#define _tcsdup strdup
+#define lstrcmpi strcasecmp
+#define _tcslen strlen
+#define _fputtc fputc
+#define _fputts fputs
+#endif
+
+
 #include "globals.h"
 #include "savestate.h"
 #include "processes.h"
@@ -194,9 +209,9 @@ typedef struct _relocationEntry
 class HierarchyTable
 {
 public:
-    HierarchyTable(const char *file, time_t time):
-      fileName(strdup(file)), timeStamp(time) { }
-    AutoFree<char*> fileName;
+    HierarchyTable(const TCHAR *file, time_t time):
+      fileName(_tcsdup(file)), timeStamp(time) { }
+    AutoFree<TCHAR*> fileName;
     time_t          timeStamp;
 };
 
@@ -204,7 +219,7 @@ HierarchyTable **hierarchyTable;
 
 static unsigned hierarchyDepth;
 
-static bool AddHierarchyEntry(const char *fileName, time_t timeStamp)
+static bool AddHierarchyEntry(const TCHAR *fileName, time_t timeStamp)
 {
     // Add an entry to the hierarchy table for this file.
     HierarchyTable *newEntry = new HierarchyTable(fileName, timeStamp);
@@ -219,24 +234,20 @@ static bool AddHierarchyEntry(const char *fileName, time_t timeStamp)
 
 // Test whether we're overwriting a parent of ourself.
 #ifdef _WIN32
-static bool sameFile(const char *x, const char *y)
+static bool sameFile(const TCHAR *x, const TCHAR *y)
 {
     // Get the lengths and return if either does not exist.
-    LPSTR filePart;
-    DWORD dwxLen = GetFullPathNameA(x, 1, 0, 0);
+    LPTSTR filePart;
+    DWORD dwxLen = GetFullPathName(x, 0, 0, 0);
     if (dwxLen == 0) return false;
-    DWORD dwyLen = GetFullPathNameA(y, 0, 0, 0);
+    DWORD dwyLen = GetFullPathName(y, 0, 0, 0);
     if (dwyLen == 0) return false;
     if (dwxLen != dwyLen) return false;
-    AutoFree<char*> xName = (char*)malloc(dwxLen+1);
-    GetFullPathNameA(x, dwxLen+1, xName, &filePart);
-    AutoFree<char*> yName = (char*)malloc(dwyLen+1);
-    GetFullPathNameA(y, dwyLen+1, yName, &filePart);
-#ifdef _MSC_VER
-    return strcmpi(xName, yName) == 0;
-#else
-    return strcasecmp(xName, yName) == 0;
-#endif
+    AutoFree<TCHAR*> xName = (TCHAR*)malloc((dwxLen+1)*sizeof(TCHAR));
+    GetFullPathName(x, dwxLen+1, xName, &filePart);
+    AutoFree<TCHAR*> yName = (TCHAR*)malloc((dwyLen+1)*sizeof(TCHAR));
+    GetFullPathName(y, dwyLen+1, yName, &filePart);
+    return lstrcmpi(xName, yName) == 0;
 }
 #else
 static bool sameFile(const char *x, const char *y)
@@ -334,12 +345,12 @@ void SaveStateExport::ScanConstant(byte *addr, ScanRelocationKind code)
 class SaveRequest: public MainThreadRequest
 {
 public:
-    SaveRequest(const char *name, unsigned h): MainThreadRequest(MTP_SAVESTATE),
+    SaveRequest(const TCHAR *name, unsigned h): MainThreadRequest(MTP_SAVESTATE),
         fileName(name), newHierarchy(h),
         errorMessage(0), errCode(0) {}
 
     virtual void Perform();
-    const char *fileName;
+    const TCHAR *fileName;
     unsigned newHierarchy;
     const char *errorMessage;
     int errCode;
@@ -415,7 +426,7 @@ void SaveRequest::Perform()
 
     SaveStateExport exports;
     // Open the file.  This could quite reasonably fail if the path is wrong.
-    exports.exportFile = fopen(fileName, "wb");
+    exports.exportFile = _tfopen(fileName, _T("wb"));
     if (exports.exportFile == NULL)
     {
         errorMessage = "Cannot open save file";
@@ -540,7 +551,7 @@ void SaveRequest::Perform()
     else
     {
         saveHeader.parentTimeStamp = hierarchyTable[newHierarchy-2]->timeStamp;
-        saveHeader.parentNameEntry = 1; // Always the first entry.
+        saveHeader.parentNameEntry = sizeof(TCHAR); // Always the first entry.
     }
     saveHeader.timeStamp = time(NULL);
     saveHeader.segmentDescrCount = exports.memTableEntries; // One segment for each space.
@@ -613,10 +624,10 @@ void SaveRequest::Perform()
     if (newHierarchy > 1)
     {
         saveHeader.stringTable = ftell(exports.exportFile);
-        fputc(0, exports.exportFile); // First byte of string table is zero
-        fputs(hierarchyTable[newHierarchy-2]->fileName, exports.exportFile);
-        fputc(0, exports.exportFile); // A terminating null.
-        saveHeader.stringTableSize = strlen(hierarchyTable[newHierarchy-2]->fileName) + 2;
+        _fputtc(0, exports.exportFile); // First byte of string table is zero
+        _fputts(hierarchyTable[newHierarchy-2]->fileName, exports.exportFile);
+        _fputtc(0, exports.exportFile); // A terminating null.
+        saveHeader.stringTableSize = _tcslen(hierarchyTable[newHierarchy-2]->fileName) + 2*sizeof(TCHAR);
     }
 
     // Rewrite the header and the segment tables now they're complete.
@@ -632,7 +643,7 @@ void SaveRequest::Perform()
 
 Handle SaveState(TaskData *taskData, Handle args)
 {
-    char fileNameBuff[MAXPATHLEN];
+    TCHAR fileNameBuff[MAXPATHLEN];
     POLYUNSIGNED length =
         Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
     if (length > MAXPATHLEN)
@@ -662,8 +673,8 @@ Handle SaveState(TaskData *taskData, Handle args)
 class StateLoader: public MainThreadRequest
 {
 public:
-    StateLoader(const char *file): MainThreadRequest(MTP_LOADSTATE),
-        errorResult(0), errNumber(0) { strcpy(fileName, file); }
+    StateLoader(const TCHAR *file): MainThreadRequest(MTP_LOADSTATE),
+        errorResult(0), errNumber(0) { _tcscpy(fileName, file); }
 
     virtual void Perform(void);
     bool LoadFile(bool isInitial, time_t requiredStamp);
@@ -671,7 +682,7 @@ public:
     // The fileName here is the last file loaded.  As well as using it
     // to load the name can also be printed out at the end to identify the
     // particular file in the hierarchy that failed.
-    char fileName[MAXPATHLEN];
+    TCHAR fileName[MAXPATHLEN];
     int errNumber;
 };
 
@@ -762,9 +773,9 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
 {
     LoadRelocate relocate;
-    AutoFree<char*> thisFile(strdup(fileName));
+    AutoFree<TCHAR*> thisFile(_tcsdup(fileName));
 
-    AutoClose loadFile(fopen(fileName, "rb"));
+    AutoClose loadFile(_tfopen(fileName, _T("rb")));
     if ((FILE*)loadFile == NULL)
     {
         errorResult = "Cannot open load file";
@@ -991,7 +1002,7 @@ Handle LoadState(TaskData *taskData, Handle hFileName)
 // Load a saved state file and any ancestors.
 {
     // Open the load file
-    char fileNameBuff[MAXPATHLEN];
+    TCHAR fileNameBuff[MAXPATHLEN];
     POLYUNSIGNED length =
         Poly_string_to_C(DEREFHANDLE(hFileName), fileNameBuff, MAXPATHLEN);
     if (length > MAXPATHLEN)
@@ -1009,9 +1020,11 @@ Handle LoadState(TaskData *taskData, Handle hFileName)
         else
         {
             char buff[MAXPATHLEN+100];
-            strcpy(buff, loader.errorResult);
-            strcat(buff, ": ");
-            strcat(buff, loader.fileName);
+#if (defined(_WIN32) && defined(UNICODE))
+            sprintf(buff, "%s: %S", loader.errorResult, loader.fileName);
+#else
+            sprintf(buff, "%s: %s", loader.errorResult, loader.fileName);
+#endif
             raise_syscall(taskData, buff, loader.errNumber);
         }
     }
@@ -1048,7 +1061,7 @@ Handle ShowHierarchy(TaskData *taskData)
 Handle RenameParent(TaskData *taskData, Handle args)
 // Change the name of the immediate parent stored in a child
 {
-    char fileNameBuff[MAXPATHLEN], parentNameBuff[MAXPATHLEN];
+    TCHAR fileNameBuff[MAXPATHLEN], parentNameBuff[MAXPATHLEN];
     // The name of the file to modify.
     POLYUNSIGNED fileLength =
         Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
@@ -1060,12 +1073,15 @@ Handle RenameParent(TaskData *taskData, Handle args)
     if (parentLength > MAXPATHLEN)
         raise_syscall(taskData, "Parent name too long", ENAMETOOLONG);
 
-    AutoClose loadFile(fopen(fileNameBuff, "r+b")); // Open for reading and writing
+    AutoClose loadFile(_tfopen(fileNameBuff, _T("r+b"))); // Open for reading and writing
     if ((FILE*)loadFile == NULL)
     {
         char buff[MAXPATHLEN+1+23];
-        strcpy(buff, "Cannot open load file: ");
-        strcat(buff, fileNameBuff);
+#if (defined(_WIN32) && defined(UNICODE))
+        sprintf(buff, "Cannot open load file: %S", fileNameBuff);
+#else
+        sprintf(buff, "Cannot open load file: %s", fileNameBuff);
+#endif
         raise_syscall(taskData, buff, errno);
     }
 
@@ -1094,10 +1110,10 @@ Handle RenameParent(TaskData *taskData, Handle args)
     // significant.
     fseek(loadFile, 0, SEEK_END);
     header.stringTable = ftell(loadFile); // Remember where this is
-    fputc(0, loadFile); // First byte of string table is zero
-    fputs(parentNameBuff, loadFile);
-    fputc(0, loadFile); // A terminating null.
-    header.stringTableSize = strlen(parentNameBuff) + 2;
+    _fputtc(0, loadFile); // First byte of string table is zero
+    _fputts(parentNameBuff, loadFile);
+    _fputtc(0, loadFile); // A terminating null.
+    header.stringTableSize = _tcslen(parentNameBuff) + 2*sizeof(TCHAR);
 
     // Now rewind and write the header with the revised string table.
     fseek(loadFile, 0, SEEK_SET);
@@ -1109,18 +1125,21 @@ Handle RenameParent(TaskData *taskData, Handle args)
 Handle ShowParent(TaskData *taskData, Handle hFileName)
 // Return the name of the immediate parent stored in a child
 {
-    char fileNameBuff[MAXPATHLEN+1];
+    TCHAR fileNameBuff[MAXPATHLEN+1];
     POLYUNSIGNED length =
         Poly_string_to_C(DEREFHANDLE(hFileName), fileNameBuff, MAXPATHLEN);
     if (length > MAXPATHLEN)
         raise_syscall(taskData, "File name too long", ENAMETOOLONG);
 
-    AutoClose loadFile(fopen(fileNameBuff, "rb"));
+    AutoClose loadFile(_tfopen(fileNameBuff, _T("rb")));
     if ((FILE*)loadFile == NULL)
     {
         char buff[MAXPATHLEN+1+23];
-        strcpy(buff, "Cannot open load file: ");
-        strcat(buff, fileNameBuff);
+#if (defined(_WIN32) && defined(UNICODE))
+        sprintf(buff, "Cannot open load file: %S", fileNameBuff);
+#else
+        sprintf(buff, "Cannot open load file: %s", fileNameBuff);
+#endif
         raise_syscall(taskData, buff, errno);
     }
 
@@ -1142,7 +1161,7 @@ Handle ShowParent(TaskData *taskData, Handle hFileName)
     // Does this have a parent?
     if (header.parentNameEntry != 0)
     {
-        char parentFileName[MAXPATHLEN+1];
+        TCHAR parentFileName[MAXPATHLEN+1];
         size_t toRead = header.stringTableSize-header.parentNameEntry;
         if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
 
