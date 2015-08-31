@@ -51,6 +51,15 @@
 #include <stdlib.h>
 #endif
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+#define _T(x) x
+#define _tcslen strlen
+#define _tcscmp strcmp
+#define _tcscat strcat
+#endif
+
 #include "exporter.h"
 #include "save_vec.h"
 #include "polystring.h"
@@ -398,18 +407,22 @@ public:
     Exporter *exporter;
 };
 
-static void exporter(TaskData *taskData, Handle args, const char *extension, Exporter *exports)
+static void exporter(TaskData *taskData, Handle args, const TCHAR *extension, Exporter *exports)
 {
-    char fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
+    TCHAR fileNameBuff[MAXPATHLEN+MAX_EXTENSION];
     POLYUNSIGNED length =
         Poly_string_to_C(DEREFHANDLE(args)->Get(0), fileNameBuff, MAXPATHLEN);
     if (length > MAXPATHLEN)
         raise_syscall(taskData, "File name too long", ENAMETOOLONG);
 
     // Does it already have the extension?  If not add it on.
-    if (length < strlen(extension) || strcmp(fileNameBuff + length - strlen(extension), extension) != 0)
-        strcat(fileNameBuff, extension);
+    if (length < _tcslen(extension) || _tcscmp(fileNameBuff + length - _tcslen(extension), extension) != 0)
+        _tcscat(fileNameBuff, extension);
+#if (defined(_WIN32) && defined(UNICODE))
+    exports->exportFile = _wfopen(fileNameBuff, L"wb");
+#else
     exports->exportFile = fopen(fileNameBuff, "wb");
+#endif
     if (exports->exportFile == NULL)
         raise_syscall(taskData, "Cannot open export file", errno);
 
@@ -509,7 +522,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 #ifdef HAVE_PECOFF
     // Windows including Cygwin
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    const char *extension = ".obj"; // Windows
+    const TCHAR *extension = _T(".obj"); // Windows
 #else
     const char *extension = ".o"; // Cygwin
 #endif
@@ -534,7 +547,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 Handle exportPortable(TaskData *taskData, Handle args)
 {
     PExport exports;
-    exporter(taskData, args, ".txt", &exports);
+    exporter(taskData, args, _T(".txt"), &exports);
     return taskData->saveVec.push(TAGGED(0));
 }
 
