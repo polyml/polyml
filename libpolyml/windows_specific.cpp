@@ -871,9 +871,9 @@ static Handle execute(TaskData *taskData, Handle args)
     // What should we do about the stderr?  For the moment, inherit the original.
     startupInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
 
-    // Try starting the process first using the given name.
-    if (!CreateProcess(commandName,
-            arguments, // Command line
+    // Treat the empty string as NULL.  This is non-standard.
+    if (!CreateProcess(commandName[0] == 0 ? NULL: commandName,
+            arguments[0] == 0 ? NULL: arguments, // Command line
             NULL, NULL, TRUE, // Security attributes. Inherit handles
             CREATE_NO_WINDOW, // creation flags
             NULL, NULL, // Inherit our environment and directory
@@ -942,9 +942,9 @@ static Handle simpleExecute(TaskData *taskData, Handle args)
     startupInfo.hStdError = hNull;
     STARTUPINFO *start = &startupInfo;
 
-    // Try starting the process first using the given name.
-    if (!CreateProcess(commandName,
-            arguments, // Command line
+    // Treat the empty string as NULL.  This is non-standard.
+    if (!CreateProcess(commandName[0] == 0 ? NULL : commandName,
+            arguments[0] == 0 ? NULL : arguments, // Command line
             NULL, NULL, // Security attributes
             TRUE, CREATE_NO_WINDOW, // Inherit handles, creation flags
             NULL, NULL, // Inherit our environment and directory
