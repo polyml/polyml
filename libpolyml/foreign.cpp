@@ -1119,10 +1119,6 @@ static Handle fromCuint (TaskData *taskData, Handle h)
  *  String Conversion
  *   
  **********************************************************************/
-
-#define PSTRING_LENGTH(pstr) \
-    (IS_INT((pstr)) ? 1 : (pstr)->length)
-
 static Handle fillCstring (TaskData *taskData, Handle h)
 { TRACE; {
     POLYUNSIGNED size;
