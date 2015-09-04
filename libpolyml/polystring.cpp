@@ -134,6 +134,11 @@ char *Poly_string_to_C_alloc(PolyWord ps)
     return res;
 } /* Poly_string_to_C_alloc */
 
+TempCString::~TempCString()
+{
+    free(m_value); 
+}
+
 #if (defined(_WIN32) && defined(UNICODE))
 
 unsigned int codePage = CP_ACP;
@@ -282,6 +287,10 @@ Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strings)
     return list;
 }
 
+TempString::~TempString()
+{
+    free(m_value); 
+}
 
 #endif
 

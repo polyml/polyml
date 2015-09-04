@@ -51,6 +51,22 @@ extern char *Poly_string_to_C_alloc(PolyWord ps);
 
 extern Handle convert_string_list(TaskData *mdTaskData, int count, char **strings);
 
+// Dynamically allocated strings with automatic freeing.
+// These are mainly used for file-names.
+class TempCString
+{
+public:
+    TempCString(char *p = 0):  m_value(p) {}
+    TempCString(PolyWord ps): m_value(Poly_string_to_C_alloc(ps)) {}
+    ~TempCString();
+
+    operator char*() { return m_value; }
+    char* operator = (char* p)  { return (m_value = p); }
+
+private:
+    char *m_value;
+};
+
 #if (defined(_WIN32) && defined(UNICODE))
 
 extern unsigned int codePage;
@@ -73,8 +89,24 @@ extern Handle convert_string_list(TaskData *mdTaskData, int count, WCHAR **strin
 // Poly_string_to_T_alloc returns a Unicode string in Unicode and char string otherwise.
 #define Poly_string_to_T_alloc  Poly_string_to_U_alloc
 
+// Unicode on Windows, character strings elsewhere.
+class TempString
+{
+public:
+    TempString(TCHAR *p = 0): m_value(p) {}
+    TempString(PolyWord ps): m_value(Poly_string_to_T_alloc(ps)) {}
+    ~TempString();
+
+    operator TCHAR*() { return m_value; }
+    TCHAR* operator = (TCHAR* p)  { return (m_value = p); }
+
+private:
+    TCHAR *m_value;
+};
+
 #else
 #define Poly_string_to_T_alloc  Poly_string_to_C_alloc
+#define TempString TempCString
 #endif
 
 extern char **stringListToVector(Handle list);
@@ -95,37 +127,5 @@ extern Handle testStringGreater(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x);
-
-// Dynamically allocated strings with automatic freeing.
-// These are mainly used for file-names.
-class TempCString
-{
-public:
-    TempCString(char *p = 0):  m_value(p) {}
-    TempCString(PolyWord ps): m_value(Poly_string_to_C_alloc(ps)) {}
-    ~TempCString() { free(m_value); }
-
-    operator char*() { return m_value; }
-    char* operator = (char* p)  { return (m_value = p); }
-
-private:
-    char *m_value;
-};
-
-// Unicode on Windows, character strings elsewhere.
-class TempString
-{
-public:
-    TempString(TCHAR *p = 0): m_value(p) {}
-    TempString(PolyWord ps): m_value(Poly_string_to_T_alloc(ps)) {}
-    ~TempString() { free(m_value); }
-
-    operator TCHAR*() { return m_value; }
-    TCHAR* operator = (TCHAR* p)  { return (m_value = p); }
-
-private:
-    TCHAR *m_value;
-};
-
 
 #endif /* POLYSTRING_H */

@@ -107,6 +107,7 @@ typedef char TCHAR;
 #define lstrcat strcat
 #define _topen open
 #define _tmktemp mktemp
+#define _tcsdup strdup
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -1082,7 +1083,7 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
             strm->device.directory.fFindSucceeded = 1;
         }
 #else
-        TempString dirName(dirname.Word());
+        TempString dirName(dirname->Word());
         if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
         DIR *dirp = opendir(dirName);
         if (dirp == NULL)
@@ -1091,14 +1092,14 @@ static Handle openDirectory(TaskData *taskData, Handle dirname)
             switch (errno)
             {
             case EINTR:
-                goto TryAgain; // Just retry the call.
+                continue; // Just retry the call.
             case EMFILE:
                 {
                     if (emfileFlag) /* Previously had an EMFILE error. */
                         raise_syscall(taskData, "Cannot open", EMFILE);
                     emfileFlag = true;
                     FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                    goto TryAgain;
+                    continue;
                 }
             default:
                 raise_syscall(taskData, "opendir failed", errno);
@@ -1265,7 +1266,7 @@ Handle fullPath(TaskData *taskData, Handle filename)
     }
 #else
     {
-        TempCString resBuf(realpath(string_buffer, NULL));
+        TempCString resBuf(realpath(cFileName, NULL));
         if (resBuf == NULL)
             raise_syscall(taskData, "realpath failed", errno);
         /* Some versions of Unix don't check the final component
