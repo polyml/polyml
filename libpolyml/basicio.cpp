@@ -105,6 +105,8 @@ DCJM May 2000.
 typedef char TCHAR;
 #define _T(x) x
 #define lstrcat strcat
+#define _topen open
+#define _tmktemp mktemp
 #endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
@@ -406,33 +408,17 @@ static int getFileType(int stream)
 }
 #endif
 
-/* Copy a file name to a buffer.  Raises an exception if
-   the string will not fit. */
-static void getFileName(TaskData *taskData, Handle name, TCHAR *buff, POLYUNSIGNED buffSize)
-{
-    POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(name), buff, buffSize);
-    if (length > buffSize)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
-}
-
 /* Open a file in the required mode. */
 static Handle open_file(TaskData *taskData, Handle filename, int mode, int access, int isPosix)
 {
-    TCHAR string_buffer[MAXPATHLEN];
-    int stream;
-
-TryAgain:
-    /* Copy the string and check the length. */
-    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
-
+    while (true) // Repeat only with certain kinds of errors
     {
+        TempString cFileName(filename->Word()); // Get file name
+        if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
         Handle str_token = make_stream_entry(taskData);
         unsigned stream_no = STREAMID(str_token);
-#if (defined(_WIN32) && defined(UNICODE))
-        stream = _wopen(string_buffer, mode, access);
-#else
-        stream = open(string_buffer, mode, access);
-#endif
+        int stream = _topen(cFileName, mode, access);
+
         if (stream >= 0)
         {
             PIOSTRUCT strm = &basic_io_vector[stream_no];
@@ -456,25 +442,25 @@ TryAgain:
             }
 #endif
             emfileFlag = false; /* Successful open. */
-            return(str_token);
+            return str_token;
         }
 
         free_stream_entry(stream_no);
         switch (errno)
         {
         case EINTR: // Just try the call.  Is it possible to block here indefinitely?
-            goto TryAgain;
+            continue;
         case EMFILE: /* too many open files */
             {
                 if (emfileFlag) /* Previously had an EMFILE error. */
                     raise_syscall(taskData, "Cannot open", EMFILE);
                 emfileFlag = true;
                 FullGC(taskData); /* May clear emfileFlag if we close a file. */
-                goto TryAgain;
+                continue;
             }
         default:
             raise_syscall(taskData, "Cannot open", errno);
-           /*NOTREACHED*/
+            /*NOTREACHED*/
             return 0;
         }
     }
@@ -1074,24 +1060,21 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
 /* Open a directory. */
 static Handle openDirectory(TaskData *taskData, Handle dirname)
 {
-    TCHAR string_buffer[MAXPATHLEN+2];
-#if (!defined(_WIN32) || defined(__CYGWIN__))
-TryAgain:
-#endif
-    /* Copy the string and check the length. */
-    getFileName(taskData, dirname, string_buffer, MAXPATHLEN+2);
+    while (1) // Only certain errors
     {
         Handle str_token = make_stream_entry(taskData);
         unsigned stream_no    = STREAMID(str_token);
         PIOSTRUCT strm = &basic_io_vector[stream_no];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         {
-            HANDLE hFind;
-            /* Tack on \* to the end so that we find all files in
-               the directory. */
-            lstrcat(string_buffer, _T("\\*"));
-            hFind = FindFirstFile(string_buffer,
-                        &strm->device.directory.lastFind);
+            // Get the directory name but add on two characters for the \* plus one for the NULL.
+            POLYUNSIGNED length = PolyStringLength(dirname->Word());
+            TempString dirName((TCHAR*)malloc((length + 3)*sizeof(TCHAR)));
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            Poly_string_to_C(dirname->Word(), dirName, length+2);
+            // Tack on \* to the end so that we find all files in the directory.
+            lstrcat(dirName, _T("\\*"));
+            HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
             if (hFind == INVALID_HANDLE_VALUE)
                 raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
             strm->device.directory.hFind = hFind;
@@ -1099,7 +1082,9 @@ TryAgain:
             strm->device.directory.fFindSucceeded = 1;
         }
 #else
-        DIR *dirp = opendir(string_buffer);
+        TempString dirName(dirname.Word());
+        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        DIR *dirp = opendir(dirName);
         if (dirp == NULL)
         {
             free_stream_entry(stream_no);
@@ -1184,18 +1169,16 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
     if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
-        TCHAR string_buffer[MAXPATHLEN+2];
-        HANDLE hFind;
         /* There's no rewind - close and reopen. */
         FindClose(strm->device.directory.hFind);
         strm->ioBits = 0;
-
-        getFileName(taskData, dirname, string_buffer, MAXPATHLEN+2);
-        /* Tack on \* to the end so that we find all files in
-           the directory. */
-        lstrcat(string_buffer, _T("\\*"));
-        hFind = FindFirstFile(string_buffer,
-                    &strm->device.directory.lastFind);
+        POLYUNSIGNED length = PolyStringLength(dirname->Word());
+        TempString dirName((TCHAR*)malloc((length + 3)*sizeof(TCHAR)));
+        if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        Poly_string_to_C(dirname->Word(), dirName, length+2);
+        // Tack on \* to the end so that we find all files in the directory.
+        lstrcat(dirName, _T("\\*"));
+        HANDLE hFind = FindFirstFile(dirName, &strm->device.directory.lastFind);
         if (hFind == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         strm->device.directory.hFind = hFind;
@@ -1214,13 +1197,13 @@ Handle rewindDirectory(TaskData *taskData, Handle stream, Handle dirname)
 Handle change_dirc(TaskData *taskData, Handle name)
 /* Change working directory. */
 {
-    TCHAR string_buffer[MAXPATHLEN];
-    getFileName(taskData, name, string_buffer, MAXPATHLEN);
+    TempString cDirName(name->Word());
+    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    if (SetCurrentDirectory(string_buffer) == FALSE)
+    if (SetCurrentDirectory(cDirName) == FALSE)
        raise_syscall(taskData, "SetCurrentDirectory failed", -(int)GetLastError());
 #else
-    if (chdir(string_buffer) != 0)
+    if (chdir(cDirName) != 0)
         raise_syscall(taskData, "chdir failed", errno);
 #endif
     return SAVE(TAGGED(0));
@@ -1229,12 +1212,11 @@ Handle change_dirc(TaskData *taskData, Handle name)
 /* Test for a directory. */
 Handle isDir(TaskData *taskData, Handle name)
 {
-    TCHAR string_buffer[MAXPATHLEN];
-    getFileName(taskData, name, string_buffer, MAXPATHLEN);
-
+    TempString cDirName(name->Word());
+    if (cDirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
-        DWORD dwRes = GetFileAttributes(string_buffer);
+        DWORD dwRes = GetFileAttributes(cDirName);
         if (dwRes == 0xFFFFFFFF)
             raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
         if (dwRes & FILE_ATTRIBUTE_DIRECTORY)
@@ -1244,7 +1226,7 @@ Handle isDir(TaskData *taskData, Handle name)
 #else
     {
         struct stat fbuff;
-        if (stat(string_buffer, &fbuff) != 0)
+        if (stat(cDirName, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
         if ((fbuff.st_mode & S_IFMT) == S_IFDIR)
             return Make_arbitrary_precision(taskData, 1);
@@ -1256,48 +1238,53 @@ Handle isDir(TaskData *taskData, Handle name)
 /* Get absolute canonical path name. */
 Handle fullPath(TaskData *taskData, Handle filename)
 {
-    TCHAR string_buffer[MAXPATHLEN], resBuf[MAXPATHLEN];
-    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
+    TempString cFileName;
 
     /* Special case of an empty string. */
-    if (string_buffer[0] == '\0') { string_buffer[0] = '.'; string_buffer[1] = 0;}
+    if (PolyStringLength(filename->Word()) == 0) cFileName = _tcsdup(_T("."));
+    else cFileName = Poly_string_to_T_alloc(filename->Word());
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
-        LPTSTR lastPart;
-        DWORD dwRes =
-            GetFullPathName(string_buffer, MAXPATHLEN,
-                resBuf, &lastPart);
-        if (dwRes > MAXPATHLEN)
-            raise_syscall(taskData, "GetFullPathName failed", ENAMETOOLONG);
+        // Get the length
+        DWORD dwRes = GetFullPathName(cFileName, 0, NULL, NULL);
         if (dwRes == 0)
             raise_syscall(taskData, "GetFullPathName failed", -(int)GetLastError());
+        TempString resBuf((TCHAR*)malloc(dwRes * sizeof(TCHAR)));
+        if (resBuf == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+        // When the length is enough the result is the length excluding the null
+        DWORD dwRes1 = GetFullPathName(cFileName, dwRes, resBuf, NULL);
+        if (dwRes1 == 0 || dwRes1 >= dwRes)
+            raise_syscall(taskData, "GetFullPathName failed", -(int)GetLastError());
         /* Check that the file exists.  GetFullPathName doesn't do that. */
-        dwRes = GetFileAttributes(string_buffer);
+        dwRes = GetFileAttributes(resBuf);
         if (dwRes == 0xffffffff)
             raise_syscall(taskData, "File does not exist", ENOENT);
+        return(SAVE(C_string_to_Poly(taskData, resBuf)));
     }
 #else
     {
-        struct stat fbuff;
-        if (realpath(string_buffer, resBuf) == NULL)
+        TempCString resBuf(realpath(string_buffer, NULL));
+        if (resBuf == NULL)
             raise_syscall(taskData, "realpath failed", errno);
         /* Some versions of Unix don't check the final component
            of a file.  To be consistent try doing a "stat" of
            the resulting string to check it exists. */
+        struct stat fbuff;
         if (stat(resBuf, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
+        return(SAVE(C_string_to_Poly(taskData, resBuf)));
     }
 #endif
-    return(SAVE(C_string_to_Poly(taskData, resBuf)));
 }
 
 /* Get file modification time.  This returns the value in the
    time units and from the base date used by timing.c. c.f. filedatec */
 Handle modTime(TaskData *taskData, Handle filename)
 {
-    TCHAR string_buffer[MAXPATHLEN];
-    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
+    TempString cFileName(filename->Word());
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* There are two ways to get this information.
@@ -1309,11 +1296,11 @@ Handle modTime(TaskData *taskData, Handle filename)
            to "glob" this, which isn't what we want here. */
         WIN32_FIND_DATA wFind;
         HANDLE hFind;
-        TCHAR *p;
-        for(p = string_buffer; *p; p++)
+        const TCHAR *p;
+        for(p = cFileName; *p; p++)
             if (*p == '*' || *p == '?')
                 raise_syscall(taskData, "Invalid filename", EBADF);
-        hFind = FindFirstFile(string_buffer, &wFind);
+        hFind = FindFirstFile(cFileName, &wFind);
         if (hFind == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
@@ -1322,7 +1309,7 @@ Handle modTime(TaskData *taskData, Handle filename)
 #else
     {
         struct stat fbuff;
-        if (stat(string_buffer, &fbuff) != 0)
+        if (stat(cFileName, &fbuff) != 0)
             raise_syscall(taskData, "stat failed", errno);
         /* Convert to microseconds. */
         return Make_arb_from_pair_scaled(taskData, STAT_SECS(&fbuff,m),
@@ -1334,18 +1321,18 @@ Handle modTime(TaskData *taskData, Handle filename)
 /* Get file size. */
 Handle fileSize(TaskData *taskData, Handle filename)
 {
-    TCHAR string_buffer[MAXPATHLEN];
-    getFileName(taskData, filename, string_buffer, MAXPATHLEN);
+    TempString cFileName(filename->Word());
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
         /* Similar to modTime*/
         WIN32_FIND_DATA wFind;
         HANDLE hFind;
-        TCHAR *p;
-        for(p = string_buffer; *p; p++)
+        const TCHAR *p;
+        for(p = cFileName; *p; p++)
             if (*p == '*' || *p == '?')
                 raise_syscall(taskData, "Invalid filename", EBADF);
-        hFind = FindFirstFile(string_buffer, &wFind);
+        hFind = FindFirstFile(cFileName, &wFind);
         if (hFind == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "FindFirstFile failed", -(int)GetLastError());
         FindClose(hFind);
@@ -1354,7 +1341,7 @@ Handle fileSize(TaskData *taskData, Handle filename)
 #else
     {
     struct stat fbuff;
-    if (stat(string_buffer, &fbuff) != 0)
+    if (stat(cFileName, &fbuff) != 0)
         raise_syscall(taskData, "stat failed", errno);
     return Make_arbitrary_precision(taskData, fbuff.st_size);
     }
@@ -1364,8 +1351,8 @@ Handle fileSize(TaskData *taskData, Handle filename)
 /* Set file modification and access times. */
 Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
 {
-    TCHAR buff[MAXPATHLEN];
-    getFileName(taskData, fileName, buff, MAXPATHLEN);
+    TempString cFileName(fileName->Word());
+    if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     /* The only way to set the time is to open the file and
@@ -1376,7 +1363,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
         getFileTimeFromArb(taskData, DEREFWORDHANDLE(fileTime), &ft);
         /* Open an existing file with write access. We need that
            for SetFileTime. */
-        HANDLE hFile = CreateFile(buff, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+        HANDLE hFile = CreateFile(cFileName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
                     FILE_ATTRIBUTE_NORMAL, NULL);
         if (hFile == INVALID_HANDLE_VALUE)
             raise_syscall(taskData, "CreateFile failed", -(int)GetLastError());
@@ -1403,7 +1390,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
             get_C_ulong(taskData, DEREFWORDHANDLE(rem_longc(taskData, hMillion, hTime)));
         times[0].tv_sec = times[1].tv_sec = secs;
         times[0].tv_usec = times[1].tv_usec = usecs;
-        if (utimes(buff, times) != 0)
+        if (utimes(cFileName, times) != 0)
             raise_syscall(taskData, "utimes failed", errno);
     }
 #endif
@@ -1413,39 +1400,11 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
 /* Rename a file. */
 Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
 {
-    TCHAR oldName[MAXPATHLEN], newName[MAXPATHLEN];
-    getFileName(taskData, oldFileName, oldName, MAXPATHLEN);
-    getFileName(taskData, newFileName, newName, MAXPATHLEN);
+    TempString oldName(oldFileName->Word()), newName(newFileName->Word());
+    if (oldName == 0 || newName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    /* This is defined to delete any existing file with the new name.
-       We can do this with MoveFileEx but that isn't supported on
-       Windows 95.  We have to use DeleteFile followed by MoveFile in
-       that case.
-       This means we can't guarantee that a file with
-       the new name will always exist because we might fail between
-       deleting the original file and renaming the old one. */
-    {
-        DWORD dwErr;
-        /* Try using MoveFile and see if that works. */
-        if (MoveFile(oldName, newName))
-            return Make_arbitrary_precision(taskData, 0);
-        dwErr = GetLastError();
-        if (dwErr != /* ERROR_FILE_EXISTS */ ERROR_ALREADY_EXISTS)
-            raise_syscall(taskData, "MoveFile failed", -(int)dwErr);
-        /* Failed because destination file exists. */
-        if (GetVersion() & 0x80000000)
-        {
-            /* Windows 95 - must use delete. */
-            if (!DeleteFile(newName))
-                raise_syscall(taskData, "DeleteFile failed", -(int)GetLastError());
-            if (!MoveFile(oldName, newName))
-                raise_syscall(taskData, "MoveFile failed", -(int)GetLastError());
-        }
-        else /* Windows NT.  Although it's not defined to be atomic
-                there's a better chance that it will be. */
-            if (! MoveFileEx(oldName, newName, MOVEFILE_REPLACE_EXISTING))
-                raise_syscall(taskData, "MoveFileEx failed", -(int)GetLastError());
-    }
+    if (! MoveFileEx(oldName, newName, MOVEFILE_REPLACE_EXISTING))
+        raise_syscall(taskData, "MoveFileEx failed", -(int)GetLastError());
 #else
     if (rename(oldName, newName) != 0)
         raise_syscall(taskData, "rename failed", errno);
@@ -1461,9 +1420,9 @@ Handle renameFile(TaskData *taskData, Handle oldFileName, Handle newFileName)
 /* Get access rights to a file. */
 Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
 {
-    TCHAR string_buffer[MAXPATHLEN];
+    TempString fileName(name->Word());
+    if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
     int rts = get_C_int(taskData, DEREFWORD(rights));
-    getFileName(taskData, name, string_buffer, MAXPATHLEN);
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     {
@@ -1474,7 +1433,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
            .exe, .com or .bat?).  It would be possible, in NT, to
            examine the access structures but that seems far too
            complicated.  Leave it for the moment. */
-        DWORD dwRes = GetFileAttributes(string_buffer);
+        DWORD dwRes = GetFileAttributes(fileName);
         if (dwRes == 0xffffffff)
             return Make_arbitrary_precision(taskData, 0);
         /* If we asked for write access but it is read-only we
@@ -1493,7 +1452,7 @@ Handle fileAccess(TaskData *taskData, Handle name, Handle rights)
         if (mode == 0) mode = F_OK;
         /* Return true if access is allowed, otherwise false
            for any other error. */
-        if (access(string_buffer, mode) == 0)
+        if (access(fileName, mode) == 0)
             return Make_arbitrary_precision(taskData, 1);
         else return Make_arbitrary_precision(taskData, 0);
     }
@@ -1683,27 +1642,35 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 54: /* Get current working directory. */
         {
-            TCHAR string_buffer[MAXPATHLEN+1];
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            if (GetCurrentDirectory(MAXPATHLEN+1, string_buffer) == 0)
+            DWORD space = GetCurrentDirectory(0, NULL);
+            if (space == 0)
                raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
+            TempString buff((TCHAR*)malloc(space * sizeof(TCHAR)));
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (GetCurrentDirectory(space, buff) == 0)
+                raise_syscall(taskData, "GetCurrentDirectory failed", -(int)GetLastError());
+            return SAVE(C_string_to_Poly(taskData, buff));
 #else
+            // This is a bit messy in Unix.  getcwd will return an error result if there's
+            // not enough space be we have to iterate to find the size.
+            // Use the fixed size for the moment.
+            TCHAR string_buffer[MAXPATHLEN+1];
             if (getcwd(string_buffer, MAXPATHLEN+1) == NULL)
                raise_syscall(taskData, "getcwd failed", errno);
-#endif
             return SAVE(C_string_to_Poly(taskData, string_buffer));
+#endif
         }
 
     case 55: /* Create a new directory. */
         {
-            TCHAR string_buffer[MAXPATHLEN];
-            getFileName(taskData, args, string_buffer, MAXPATHLEN);
-
+            TempString dirName(args->Word());
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            if (! CreateDirectory(string_buffer, NULL))
+            if (! CreateDirectory(dirName, NULL))
                raise_syscall(taskData, "CreateDirectory failed", -(int)GetLastError());
 #else
-            if (mkdir(string_buffer, 0777) != 0)
+            if (mkdir(dirName, 0777) != 0)
                 raise_syscall(taskData, "mkdir failed", errno);
 #endif
 
@@ -1712,14 +1679,13 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 56: /* Delete a directory. */
         {
-            TCHAR string_buffer[MAXPATHLEN];
-            getFileName(taskData, args, string_buffer, MAXPATHLEN);
-
+            TempString dirName(args->Word());
+            if (dirName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            if (! RemoveDirectory(string_buffer))
+            if (! RemoveDirectory(dirName))
                raise_syscall(taskData, "RemoveDirectory failed", -(int)GetLastError());
 #else
-            if (rmdir(string_buffer) != 0)
+            if (rmdir(dirName) != 0)
                 raise_syscall(taskData, "rmdir failed", errno);
 #endif
 
@@ -1731,22 +1697,19 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 58: /* Test for symbolic link. */
         {
-            TCHAR string_buffer[MAXPATHLEN];
-            getFileName(taskData, args, string_buffer, MAXPATHLEN);
+            TempString fileName(args->Word());
+            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             {
-                /* Windows does not have symbolic links.  Raise an
-                   exception if the file does not exist but otherwise
-                   return false.  */
-                DWORD dwRes = GetFileAttributes(string_buffer);
+                DWORD dwRes = GetFileAttributes(fileName);
                 if (dwRes == 0xFFFFFFFF)
                     raise_syscall(taskData, "GetFileAttributes failed", -(int)GetLastError());
-                return Make_arbitrary_precision(taskData, 0);
+                return Make_arbitrary_precision(taskData, dwRes & FILE_ATTRIBUTE_REPARSE_POINT);
             }
 #else
             {
             struct stat fbuff;
-                if (lstat(string_buffer, &fbuff) != 0)
+                if (lstat(fileName, &fbuff) != 0)
                     raise_syscall(taskData, "stat failed", errno);
                 if ((fbuff.st_mode & S_IFMT) == S_IFLNK)
                     return Make_arbitrary_precision(taskData, 1);
@@ -1758,15 +1721,16 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
     case 59: /* Read a symbolic link. */
         {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            /* Windows does not have symbolic links. Raise an exception. */
+            // Windows has added symbolic links but reading the target is far from
+            // straightforward.   It's probably not worth trying to implement this.
             raiseSyscallMessage(taskData, "Not implemented");
             return taskData->saveVec.push(TAGGED(0)); /* To keep compiler happy. */
 #else
             int nLen;
-            char string_buffer[MAXPATHLEN], resBuf[MAXPATHLEN];
-            getFileName(taskData, args, string_buffer, MAXPATHLEN);
-
-            nLen = readlink(string_buffer, resBuf, sizeof(resBuf));
+            TempString linkName(args->Word());
+            if (linkName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            char resBuf[MAXPATHLEN];
+            nLen = readlink(linkName, resBuf, sizeof(resBuf));
             if (nLen < 0) raise_syscall(taskData, "readlink failed", errno);
             return(SAVE(Buffer_to_Poly(taskData, resBuf, nLen)));
 #endif
@@ -1786,14 +1750,13 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 64: /* Delete a file. */
         {
-            TCHAR string_buffer[MAXPATHLEN];
-            getFileName(taskData, args, string_buffer, MAXPATHLEN);
-
+            TempString fileName(args->Word());
+            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            if (! DeleteFile(string_buffer))
+            if (! DeleteFile(fileName))
                raise_syscall(taskData, "DeleteFile failed", 0-GetLastError());
 #else
-            if (unlink(string_buffer) != 0)
+            if (unlink(fileName) != 0)
                 raise_syscall(taskData, "unlink failed", errno);
 #endif
 
@@ -1808,20 +1771,27 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
 
     case 67: /* Return a temporary file name. */
         {
-            TCHAR buff[MAXPATHLEN];
-
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            if (GetTempPath(sizeof(buff) - 14, buff) == 0)
+            DWORD dwSpace = GetTempPath(0, NULL);
+            if (dwSpace == 0)
                 raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
-            lstrcat(buff, _T("\\"));
-#elif (defined(P_tempdir))
-            strcpy(buff, P_tempdir);
-            strcat(buff, "\\");
-#else
-            strcpy(buff, "/tmp/");
-#endif
+            TempString buff((TCHAR*)malloc((dwSpace + 12)*sizeof(TCHAR)));
+            if (buff == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (GetTempPath(dwSpace, buff) == 0)
+                raise_syscall(taskData, "GetTempPath failed", -(int)(GetLastError()));
             lstrcat(buff, _T("MLTEMPXXXXXX"));
+#else
+            TCHAR buff[MAXPATHLEN];
+#ifdef P_tmpdir
+            strcpy(buff, P_tmpdir);
+#else
+            strcpy(buff, "/tmp");
+#endif
+            strcat(buff, "/MLTEMPXXXXXX");
+#endif
+
 #if (defined(HAVE_MKSTEMP) && ! defined(UNICODE))
+            // mkstemp is present in the Mingw64 headers but only as ANSI not Unicode.
             // Set the umask to mask out access by anyone else.
             // mkstemp generally does this anyway.
             mode_t oldMask = umask(0077);
@@ -1831,15 +1801,9 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             if (fd != -1) close(fd);
             else raise_syscall(taskData, "mkstemp failed", wasError);
 #else
-#if (defined(_WIN32) && defined(UNICODE))
-            if (_wmktemp(buff) == 0)
+            if (_tmktemp(buff) == 0)
                 raise_syscall(taskData, "mktemp failed", errno);
-            int fd = _wopen(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
-#else
-            if (mktemp(buff) == 0)
-                raise_syscall(taskData, "mktemp failed", errno);
-            int fd = open(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
-#endif
+            int fd = _topen(buff, O_RDWR | O_CREAT | O_EXCL, 00600);
             if (fd != -1) close(fd);
             else raise_syscall(taskData, "Temporary file creation failed", errno);
 #endif
@@ -1856,9 +1820,9 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             return Make_arbitrary_precision(taskData, -1);
 #else
             struct stat fbuff;
-            char string_buffer[MAXPATHLEN];
-            getFileName(taskData, args, string_buffer, MAXPATHLEN);
-            if (stat(string_buffer, &fbuff) != 0)
+            TempString fileName(args->Word());
+            if (fileName == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            if (stat(fileName, &fbuff) != 0)
                 raise_syscall(taskData, "stat failed", errno);
             /* Assume that inodes are always non-negative. */
             return Make_arbitrary_precision(taskData, fbuff.st_ino);

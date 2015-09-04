@@ -67,6 +67,13 @@
 #endif
 #endif
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#define _tgetenv getenv
+#endif
+
 
 #include "globals.h"
 #include "sys.h"
@@ -89,10 +96,6 @@
 
 #define SAVE(x) mdTaskData->saveVec.push(x)
 #define ALLOC(n) alloc_and_save(mdTaskData, n)
-
-#if(!defined(MAXPATHLEN) && defined(MAX_PATH))
-#define MAXPATHLEN MAX_PATH
-#endif
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #define ISPATHSEPARATOR(c)  ((c) == '\\' || (c) == '/')
@@ -160,17 +163,14 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 14: /* Return a string from the environment. */
         {
-            char buff[MAXPATHLEN], *res;
-            /* Get the string. */
-            POLYUNSIGNED length =
-                Poly_string_to_C(DEREFWORDHANDLE(args), buff, sizeof(buff));
-            if (length >= sizeof(buff)) raise_syscall(mdTaskData, "Not Found", 0);
-            res = getenv(buff);
+            TempString buff(args->Word());
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            TCHAR *res = _tgetenv(buff);
             if (res == NULL) raise_syscall(mdTaskData, "Not Found", 0);
             else return SAVE(C_string_to_Poly(mdTaskData, res));
         }
 
-    case 21: /* Return the whole environment. */
+    case 21: // Return the whole environment.  Only available in Posix.ProcEnv.
         {
             /* Count the environment strings */
             int env_count = 0;
@@ -186,29 +186,21 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 17: /* Run command. */
         {
-            char buff[MAXPATHLEN];
-            /* Get the string. */
+            TempString buff(args->Word());
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
             int res = -1;
-            POLYUNSIGNED length =
-                Poly_string_to_C(DEREFWORD(args), buff, sizeof(buff));
-            if (length >= sizeof(buff))
-                raise_syscall(mdTaskData, "Command too long", ENAMETOOLONG);
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
             // Windows.
-            char *argv[4];
-            argv[0] = getenv("COMSPEC"); // Default CLI.
-            if (argv[0] == 0)
-            {
-                if (GetVersion() & 0x80000000) argv[0] = (char*)"command.com"; // Win 95 etc.
-                else argv[0] = (char*)"cmd.exe"; // Win NT etc.
-            }
-            argv[1] = (char*)"/c";
+            TCHAR *argv[4];
+            argv[0] = _tgetenv(_T("COMSPEC")); // Default CLI.
+            if (argv[0] == 0) argv[0] = (TCHAR*)_T("cmd.exe"); // Win NT etc.
+            argv[1] = _T("/c");
             argv[2] = buff;
             argv[3] = NULL;
             // If _P_NOWAIT is given the result is the process handle.
             // spawnvp does any necessary path searching if argv[0]
             // does not contain a full path.
-            intptr_t pid = spawnvp(_P_NOWAIT, argv[0], argv);
+            intptr_t pid = _tspawnvp(_P_NOWAIT, argv[0], argv);
             if (pid == -1)
                 raise_syscall(mdTaskData, "Function system failed", errno);
 #else
@@ -445,8 +437,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                currently selected directory on the volume A.
             */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            char buff[MAXPATHLEN];
-            POLYUNSIGNED length = Poly_string_to_C(path, buff, MAXPATHLEN);
+            TempCString buff(path); // Not Unicode at the moment
+            if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
+            size_t length = strlen(buff);
             /* Ignore the case where the whole path is too long. */
             if (length >= 2 && buff[1] == ':')
             { /* Volume name? */
