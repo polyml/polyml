@@ -118,6 +118,7 @@ char *Poly_string_to_C_alloc(PolyWord ps)
     if (IS_INT(ps))
     {
         res = (char*)malloc(2);
+        if (res == 0) return 0;
         res[0] = (char)(UNTAGGED(ps));
         res[1] = '\0';
     }
@@ -126,6 +127,7 @@ char *Poly_string_to_C_alloc(PolyWord ps)
         PolyStringObject * str = (PolyStringObject *)ps.AsObjPtr();
         POLYUNSIGNED chars = str->length;
         res = (char*)malloc(chars+1);
+        if (res == 0) return 0;
         if (chars != 0) strncpy(res, str->chars, chars);
         res[chars] = '\0';
     }
@@ -249,6 +251,7 @@ WCHAR *Poly_string_to_U_alloc(PolyWord ps)
     int chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, NULL, 0);
     if (chars <= 0) return _wcsdup(L"");
     WCHAR *res = (WCHAR*)malloc((chars+1) * sizeof(WCHAR));
+    if (res == 0) return 0;
     chars = MultiByteToWideChar(codePage, 0, iPtr, iLength, res, chars);
     res[chars] = 0;
     return res;
