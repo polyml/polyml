@@ -36,7 +36,10 @@ public:
     char chars[1];
 };
 
-//typedef PolyStringObject STRING, *pstring;
+inline POLYUNSIGNED PolyStringLength(PolyWord ps) { return IS_INT(ps) ? 1 : ((PolyStringObject*)ps.AsObjPtr())->length; }
+
+// We often want to be able to allocate a temporary C string from a Poly string
+// and have it automatically deallocated when the context has been exited.
 
 extern PolyWord EmptyString(void);
 
@@ -58,6 +61,7 @@ extern bool setWindowsCodePage(const TCHAR *codePageArg);
 #include <tchar.h>
 #else
 #define WCHAR short
+#define TCHAR char
 #endif
 
 extern PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer);
@@ -92,6 +96,36 @@ extern Handle testStringLess(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringGreaterOrEqual(TaskData *mdTaskData, Handle y, Handle x);
 extern Handle testStringLessOrEqual(TaskData *mdTaskData, Handle y, Handle x);
 
+// Dynamically allocated strings with automatic freeing.
+// These are mainly used for file-names.
+class TempCString
+{
+public:
+    TempCString(char *p = 0):  m_value(p) {}
+    TempCString(PolyWord ps): m_value(Poly_string_to_C_alloc(ps)) {}
+    ~TempCString() { free(m_value); }
+
+    operator char*() { return m_value; }
+    char* operator = (char* p)  { return (m_value = p); }
+
+private:
+    char *m_value;
+};
+
+// Unicode on Windows, character strings elsewhere.
+class TempString
+{
+public:
+    TempString(TCHAR *p = 0): m_value(p) {}
+    TempString(PolyWord ps): m_value(Poly_string_to_T_alloc(ps)) {}
+    ~TempString() { free(m_value); }
+
+    operator TCHAR*() { return m_value; }
+    TCHAR* operator = (TCHAR* p)  { return (m_value = p); }
+
+private:
+    TCHAR *m_value;
+};
 
 
 #endif /* POLYSTRING_H */
