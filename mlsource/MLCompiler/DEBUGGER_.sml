@@ -146,9 +146,10 @@ struct
         |   (NONE, EnvTConstr _) => searchEnvs match (statics, dlist)
             
     )
-    |   searchEnvs _ ([], []) = NONE
     
-    |   searchEnvs _ _ = raise Misc.InternalError "searchEnvs: Static and dynamic lists have different lengths"
+    |   searchEnvs _ _ = NONE
+        (* N.B.  It is possible to have ([EnvTConstr ...], []) in the arguments so we can't treat
+           that if either the static or dynamic list is nil and the other non-nil as an error. *)
 
     fun searchType envs typeid =
     let
