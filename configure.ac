@@ -46,7 +46,7 @@ case "${host_os}" in
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
     *mingw*)
-        AC_SUBST([OSFLAG], [-DUNICODE -D_UNICODE])
+        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE"])
         AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
         poly_no_undefined=yes
@@ -57,7 +57,7 @@ case "${host_os}" in
         poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], [-DUNICODE -D_UNICODE])
+                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE"])
                 poly_native_windows=yes
                 CFLAGS="$CFLAGS -mthreads"
                 CXXFLAGS="$CXXFLAGS -mthreads"
