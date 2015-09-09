@@ -310,8 +310,8 @@ static bool doGC(const POLYUNSIGNED wordsRequiredToAllocate)
     if (debugOptions & DEBUG_HEAPSIZE)
         gMem.ReportHeapSizes("Full GC (after)");
 
-    if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
-        printprofile();
+//    if (profileMode == kProfileLiveData || profileMode == kProfileLiveMutables)
+//        printprofile();
 
     CheckMemory();
 
