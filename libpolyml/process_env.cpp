@@ -514,19 +514,11 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 13: /* Is the string a valid file name? */
         {
-            /* Should we check for special names such as aux, con, prn ?? */
             PolyWord volName = DEREFWORD(args);
+            // First check for NULL.  This is not allowed in either Unix or Windows.
             if (IS_INT(volName))
             {
-                char ch = (char)UNTAGGED(volName);
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-                if (ch == '<' || ch == '>' || ch == '|' ||
-                    ch == '"' || ch < ' ')
-#else
-                /* Basically, everything is allowed in Unix
-                   except NULL. */
-                if (ch == '\0')
-#endif
+                if (volName == TAGGED(0))
                     return Make_arbitrary_precision(mdTaskData, 0);
             }
             else
@@ -534,17 +526,30 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 PolyStringObject * volume = (PolyStringObject *)(volName.AsObjPtr());
                 for (POLYUNSIGNED i = 0; i < volume->length; i++)
                 {
-                    char ch = volume->chars[i];
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-                    if (ch == '<' || ch == '>' || ch == '|' ||
-                        ch == '"' || ch < ' ')
-#else
-                    if (ch == '\0')
-#endif
+                    if (volume->chars[i] == '\0')
                         return Make_arbitrary_precision(mdTaskData, 0);
                 }
             }
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+            // We need to look for certain invalid characters but only after
+            // we've converted it to Unicode if necessary.
+            TempString name(volName);
+            for (const TCHAR *p = name; *p != 0; p++)
+            {
+                switch (*p)
+                {
+                case '<': case '>': case ':': case '"': case '/':
+                case '\\': case '|': case '?': case '*': case '\0':
+                    return Make_arbitrary_precision(mdTaskData, 0);
+                }
+                if (*p >= 0 && *p <= 31) return Make_arbitrary_precision(mdTaskData, 0);
+            }
+            // Should we check for special names such as aux, con, prn ??
             return Make_arbitrary_precision(mdTaskData, 1);
+#else
+            // That's all we need for Unix.
+            return Make_arbitrary_precision(mdTaskData, 1);
+#endif
         }
 
         // A group of calls have now been moved to poly_specific.
