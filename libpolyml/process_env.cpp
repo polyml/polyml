@@ -537,8 +537,12 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             {
                 switch (*p)
                 {
-                case '<': case '>': case ':': case '"': case '/':
+                case '<': case '>': case ':': case '"': 
                 case '\\': case '|': case '?': case '*': case '\0':
+#if (0)
+                // This currently breaks the build.
+                case '/':
+#endif
                     return Make_arbitrary_precision(mdTaskData, 0);
                 }
                 if (*p >= 0 && *p <= 31) return Make_arbitrary_precision(mdTaskData, 0);
@@ -547,6 +551,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             return Make_arbitrary_precision(mdTaskData, 1);
 #else
             // That's all we need for Unix.
+            // TODO: Check for /.  It's invalid in a file name arc.
             return Make_arbitrary_precision(mdTaskData, 1);
 #endif
         }
