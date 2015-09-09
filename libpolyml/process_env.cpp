@@ -423,7 +423,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
 
     case 11: /* Match the volume name part of a path. */
         {
-            const char *volName = NULL;
+            const TCHAR *volName = NULL;
             int  isAbs = 0;
             int  toRemove = 0;
             PolyWord path = DEREFHANDLE(args);
@@ -437,10 +437,9 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                currently selected directory on the volume A.
             */
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-            TempCString buff(path); // Not Unicode at the moment
+            TempString buff(path);
             if (buff == 0) raise_syscall(mdTaskData, "Insufficient memory", ENOMEM);
-            size_t length = strlen(buff);
-            /* Ignore the case where the whole path is too long. */
+            size_t length = _tcslen(buff);
             if (length >= 2 && buff[1] == ':')
             { /* Volume name? */
                 if (length >= 3 && ISPATHSEPARATOR(buff[2]))
@@ -475,7 +474,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
                 /* \a\b strictly speaking is relative to the
                    current drive.  It's much easier to treat it
                    as absolute. */
-                { toRemove = 1; isAbs = 1; volName = ""; }
+                { toRemove = 1; isAbs = 1; volName = _T(""); }
 #else
             /* Unix - much simpler. */
             char toTest = 0;
