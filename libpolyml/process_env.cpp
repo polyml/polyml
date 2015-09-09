@@ -194,7 +194,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
             TCHAR *argv[4];
             argv[0] = _tgetenv(_T("COMSPEC")); // Default CLI.
             if (argv[0] == 0) argv[0] = (TCHAR*)_T("cmd.exe"); // Win NT etc.
-            argv[1] = _T("/c");
+            argv[1] = (TCHAR*)_T("/c");
             argv[2] = buff;
             argv[3] = NULL;
             // If _P_NOWAIT is given the result is the process handle.
