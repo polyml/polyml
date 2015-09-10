@@ -208,13 +208,40 @@ struct
     end
   
     (* switch profiling on/off *)
-    val systemProfile : int -> unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler
+    val systemProfile : int -> (int * string) list = RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler
   
     fun startProfile 0 = ()
-    |   startProfile level = systemProfile level
+    |   startProfile level = (systemProfile level handle Fail _ => []; ())
       
-    fun stopProfile 0 = ()
-    |   stopProfile level = systemProfile 0
+    fun stopProfile (_, 0) = ()
+    |   stopProfile (printOut, _) =
+        let
+            val profRes = systemProfile 0 handle Fail _ => []
+            (* Sort in ascending order. *)
+            val sorted = quickSort (fn (a, _) => fn (b, _) => a <= b) profRes
+            
+            fun doPrint (count, name) =
+            let
+                val cPrint = Int.toString count
+                val prefix =
+                    CharVector.tabulate(Int.max(0, 10-size cPrint), fn _ => #" ")
+                val aLine =
+                    PrettyBlock(0, true, [],
+                        [
+                            PrettyString(prefix ^ cPrint),
+                            PrettyBreak(1, 1),
+                            PrettyString name
+                        ])
+            in
+                printOut aLine
+            end
+            
+            val total = List.foldl (fn ((c,_),s) => c+s) 0 profRes
+        in
+            List.app doPrint sorted;
+            if total = 0 then ()
+            else printOut(PrettyString("Total " ^ Int.toString total))
+        end
 
     val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
 
@@ -333,50 +360,50 @@ struct
             
                             val resultVec = (* Now run it *)
                                 (* If we were profiling or timing we have to handle the exception to turn
-                                   these off even though it will mess up information about where the exception
-                                   was raised. *)
+                                   these off.  Don't handle the exception unnecessarily since it will
+                                   interfere with any exception trace. *)
                                 if wasProfiling <> 0 orelse timing
                                 then
                                 (
-                                 resultCode ()
-                                     handle exn => (* Exceptions in run-time code. *)
-                                     let
-                                         val () = stopProfile wasProfiling;
-                                         val endRunTime = cpuTime()
-                                         (* if we are profiling, stop and force out the profile counts *)
-                                         val () = stopProfile wasProfiling;
-                                     in
-                                         (* print out timing info *)
-                                         if timing
-                                         then printTimes compilerOutput
+                                    let
+                                        val resVec = resultCode () (* Actually run it - May raise an exception. *)
+                                        val endRunTime = cpuTime ()
+                                        val () = stopProfile(compilerOutput, wasProfiling)
+                                    in
+                                        (* print out timing info *)
+                                        if timing
+                                        then printTimes compilerOutput
                                                 {
                                                     startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
                                                     treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
                                                     endRunTime=endRunTime
                                                 }
-                                         else ();
-                                         raise exn
-                                     end
+                                        else ();
+                                        resVec
+                                    end
+                                    handle exn => (* Exceptions in run-time code. *)
+                                    let
+                                        val endRunTime = cpuTime()
+                                        (* if we are profiling, stop and force out the profile counts *)
+                                        val () = stopProfile(compilerOutput, wasProfiling)
+                                    in
+                                        (* print out timing info *)
+                                        if timing
+                                        then printTimes compilerOutput
+                                                {
+                                                    startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
+                                                    treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
+                                                    endRunTime=endRunTime
+                                                }
+                                        else ();
+                                        (* Reraise the exception with the original location. *)
+                                        PolyML.Exception.reraise exn
+                                    end
                                 )
                                 else resultCode ()
-             
-                            val () = stopProfile wasProfiling;
-                            val endRunTime = cpuTime ()
-                             
-                            val extractedResults = STRUCTURES.pass4Structs (resultVec, parseTree)
-            
                         in
-                            (* print out timing info *)
-                            if timing
-                            then printTimes compilerOutput
-                                    {
-                                        startTime=startTime, parseTime=parseTime, pass2Time=pass2Time,
-                                        treeTime=treeTime,codeTime=codeTime, startRunTime=startRunTime,
-                                        endRunTime=endRunTime
-                                    }
-                            else ();
                 
-                            extractedResults
+                            STRUCTURES.pass4Structs (resultVec, parseTree)
                         end
                      
                     in
