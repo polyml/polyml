@@ -1,12 +1,11 @@
 /*
     Title:      Poly/ML Console Window.
 
-    Copyright (c) 2000 David C. J. Matthews
+    Copyright (c) 2000, 2015 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -68,6 +67,7 @@
 #include "console.h"
 #include "../polyexports.h"
 #include "processes.h"
+#include "polystring.h"
 
 /*
 This module takes the place of the Windows console which
@@ -102,11 +102,9 @@ HANDLE hInputEvent;  // Signalled when input is available.
 static HWND hDDEWindow;     // Window to handle DDE requests from ML thread.
 HANDLE hOldStdin = INVALID_HANDLE_VALUE;
 
-static char *lpszServiceName;
-
-static LPSTR*   lpArgs = 0; // Argument list.
+static LPTSTR*  lpArgs = 0; // Argument list.
 static int      nArgs = 0;
-static int initDDEControl(const char *lpszName);
+static int initDDEControl(const TCHAR *lpszName);
 static void uninitDDEControl(void);
 static DWORD dwDDEInstance;
 
@@ -114,7 +112,13 @@ static int nInitialShow; // Value of nCmdShow passed in.
 static bool isActive = false;
 
 // Default DDE service name.
-#define POLYMLSERVICE   "PolyML"
+#define POLYMLSERVICE   _T("PolyML")
+
+#ifdef UNICODE
+#define DDECODEPAGE CP_WINUNICODE
+#else
+#define DDECODEPAGE CP_WINANSI
+#endif
 
 
 /* Messages interpreted by the main window thread. */
@@ -122,6 +126,7 @@ static bool isActive = false;
 #define WM_DDESTART     (WM_APP+1)
 #define WM_DDESTOP      (WM_APP+2)
 #define WM_DDEEXEC      (WM_APP+3)
+#define WM_DDESERVINIT      (WM_APP+4)
 
 /* These functions are called by the I/O routines to test for input and
    to read from the keyboard. */
@@ -281,7 +286,7 @@ static void CheckForBufferSpace(int nChars)
    DDE calls and processed the message list in an "interrupt" routine.
    That complicates the Windows interface so now the ML thread sends messages
    to the main window thread to do the work. */
-HCONV StartDDEConversation(char *serviceName, char *topicName)
+HCONV StartDDEConversation(TCHAR *serviceName, TCHAR *topicName)
 {
     return (HCONV)SendMessage(hDDEWindow, WM_DDESTART, (WPARAM)serviceName, (LPARAM)topicName);
 }
@@ -296,21 +301,29 @@ LRESULT ExecuteDDE(char *command, HCONV hConv)
     return SendMessage(hDDEWindow, WM_DDEEXEC, (WPARAM)hConv, (LPARAM)command);
 }
 
+// This is called by the main Poly/ML thread after the arguments have been processed.
+void SetupDDEHandler(const TCHAR *lpszServiceName)
+{
+    SendMessage(hDDEWindow, WM_DDESERVINIT, 0, (LPARAM)lpszServiceName);
+}
 
 LRESULT CALLBACK DDEWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg) 
     {
+    case WM_DDESERVINIT:
+        return initDDEControl((const TCHAR*)lParam);
+
     case WM_DDESTART:
         {
             HCONV hcDDEConv;
             HSZ hszServiceName, hszTopicName;
-            char *serviceName = (char*)wParam;
-            char *topicName = (char*)lParam;
+            TCHAR *serviceName = (TCHAR*)wParam;
+            TCHAR *topicName = (TCHAR*)lParam;
             hszServiceName =
-                DdeCreateStringHandle(dwDDEInstance, serviceName, CP_WINANSI);
+                DdeCreateStringHandle(dwDDEInstance, serviceName, DDECODEPAGE);
             hszTopicName =
-                DdeCreateStringHandle(dwDDEInstance, topicName, CP_WINANSI);
+                DdeCreateStringHandle(dwDDEInstance, topicName, DDECODEPAGE);
             hcDDEConv =
                 DdeConnect(dwDDEInstance, hszServiceName, hszTopicName, NULL);
             DdeFreeStringHandle(dwDDEInstance, hszServiceName);
@@ -509,7 +522,11 @@ static BOOL CALLBACK AboutProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lP
     }
 }
 
+#ifdef UNICODE
+#define CF_TEXTFORMAT   CF_UNICODETEXT
+#else
 #define CF_TEXTFORMAT   CF_TEXT
+#endif
 
 /* This is the main window procedure. */
 LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -548,7 +565,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                     FALSE, FALSE, FALSE, ANSI_CHARSET,
                                     OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN,
-                                    "Courier");
+                                    _T("Courier"));
                 if (hFont) SendMessage(hEditWnd, WM_SETFONT, (WPARAM)hFont, 0);
  
                 SendMessage(hEditWnd, WM_SETTEXT, 0, (LPARAM) "");
@@ -690,7 +707,17 @@ static DWORD WINAPI InThrdProc(LPVOID lpParameter)
             return 0;
         buff[dwRead] = 0;
         if (! isActive) { ShowWindow(hMainWindow, nInitialShow); isActive = true; }
+#ifdef UNICODE
+        // We need to write Unicode here.  Convert it using the current code-page.
+        int wlen = MultiByteToWideChar(codePage, 0, buff, -1, NULL, 0);
+        if (wlen == 0) continue;
+        WCHAR *wBuff = new WCHAR[wlen];
+        wlen = MultiByteToWideChar(codePage, 0, buff, -1, wBuff, wlen);
+        SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)wBuff);
+        delete[] wBuff;
+#else
         SendMessage(hMainWindow, WM_ADDTEXT, 0, (LPARAM)buff);
+#endif
     }
 }
 
@@ -717,7 +744,7 @@ static BOOL WINAPI CtrlHandler(DWORD dwCtrlType)
 int PolyWinMain(
   HINSTANCE hInstance,
   HINSTANCE hPrevInstance,
-  LPTSTR lpCmdLine,
+  LPSTR lpCmdLineUnused,
   int nCmdShow,
   exportDescription *exports
 )
@@ -867,6 +894,9 @@ int PolyWinMain(
     {
         // Get the unicode args
         LPWSTR *uniArgs = CommandLineToArgvW(GetCommandLineW(), &nArgs);
+#ifdef UNICODE
+        lpArgs = uniArgs;
+#else
         if (uniArgs != NULL)
         {
             lpArgs = (LPSTR*)calloc(nArgs, sizeof(LPSTR));
@@ -889,19 +919,7 @@ int PolyWinMain(
             }
             LocalFree(uniArgs);
         }
-
-        // We have to extract the -pServiceName argument if it's there.
-        // It might be better to process it as part of the normal argument
-        // processing but we'd then have to do a call back here.
-        for (int j = 0; j < nArgs; j++)
-        {
-            if (strcmp(lpArgs[j], "-pServiceName") == 0 && j+1 < nArgs)
-            {
-                lpszServiceName = lpArgs[j+1];
-                // For the moment leave the argument.
-                break;
-            }
-        }
+#endif
     }
 
     // Create an internal hidden window to handle DDE requests from the ML thread.
@@ -912,13 +930,13 @@ int PolyWinMain(
         wndClass.cbSize = sizeof(wndClass);
         wndClass.lpfnWndProc = DDEWndProc; 
         wndClass.hInstance = hInstance; 
-        wndClass.lpszClassName = "PolyMLDDEWindowClass";
+        wndClass.lpszClassName = _T("PolyMLDDEWindowClass");
 
         if ((atClass = RegisterClassEx(&wndClass)) == 0) return 1;
 
         hDDEWindow = CreateWindow(
             (LPTSTR)(intptr_t)atClass,
-            "Poly/ML-DDE",
+            _T("Poly/ML-DDE"),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -930,8 +948,6 @@ int PolyWinMain(
             NULL     // pointer to window-creation data
             );
     }
-
-    initDDEControl(lpszServiceName);
 
     // Call the main program to do the rest of the initialisation.
     HANDLE hMainThread = CreateThread(NULL, 0, MainThrdProc, exports, 0, &dwInId);
@@ -975,15 +991,15 @@ HDDEDATA CALLBACK DdeCallback(UINT uType, UINT uFmt, HCONV hconv,
             {
                 // See what the message is.  The only ones we
                 // handle are interrupt and terminate.
-                CHAR buff[256];
+                TCHAR buff[256];
                 buff[0] = 0;
                 DdeGetData(hdata, (LPBYTE)buff, sizeof(buff), 0);
-                if (lstrcmpi(buff, POLYINTERRUPT) == 0)
+                if (lstrcmpi(buff, _T(POLYINTERRUPT)) == 0)
                 {
                     RequestConsoleInterrupt();
                     return (HDDEDATA) DDE_FACK;
                 }
-                if (lstrcmpi(buff, POLYTERMINATE) == 0)
+                if (lstrcmpi(buff, _T(POLYTERMINATE)) == 0)
                 {
                     processes->Exit(0);
                     return (HDDEDATA) DDE_FACK;
@@ -996,9 +1012,9 @@ HDDEDATA CALLBACK DdeCallback(UINT uType, UINT uFmt, HCONV hconv,
     } 
 } 
 
-static int initDDEControl(const char *lpszName)
+static int initDDEControl(const TCHAR *lpszName)
 {
-    HSZ hszServiceName;
+    // Start the DDE service.  This receives remote requests.
     if (DdeInitialize(&dwDDEInstance, DdeCallback,
         APPCLASS_STANDARD | CBF_FAIL_ADVISES | CBF_FAIL_POKES |
         CBF_FAIL_REQUESTS | CBF_SKIP_ALLNOTIFICATIONS, 0)
@@ -1008,7 +1024,7 @@ static int initDDEControl(const char *lpszName)
     // If we were given a service name we register that,
     // otherwise we use the default name.
     if (lpszName == 0) lpszName = POLYMLSERVICE;
-    hszServiceName = DdeCreateStringHandle(dwDDEInstance, lpszName, CP_WINANSI);
+    HSZ hszServiceName = DdeCreateStringHandle(dwDDEInstance, lpszName, DDECODEPAGE);
     if (hszServiceName == 0) return 0;
 
     DdeNameService(dwDDEInstance, hszServiceName, 0L, DNS_REGISTER);

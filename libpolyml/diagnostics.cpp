@@ -1,15 +1,14 @@
 /*
     Title:      Diagnostics
 
-    Copyright (c) 2011 David C.J. Matthews
+    Copyright (c) 2011, 2015 David C.J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -68,6 +67,7 @@
 #include "errors.h"
 #include "noreturn.h"
 #include "globals.h"
+#include "diagnostics.h"
 
 unsigned debugOptions = 0; // Debugging options requested on command line.
 
@@ -89,7 +89,7 @@ void Exit(const char *msg, ...)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
+        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
     }
 #endif
     exit(1);
@@ -110,7 +110,7 @@ void Crash(const char *msg, ...)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
+        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
     }
 #else    
     {
@@ -136,7 +136,7 @@ void ExitWithError(const char *msg, int err)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
+        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
     }
 #endif
     exit(1);
@@ -150,12 +150,19 @@ static FILE *logStream = NULL;
 static FILE *logStream = stdout;
 #endif
 
-void SetLogFile(const char *fileName)
+void SetLogFile(const TCHAR *fileName)
 {
+#if (defined(_WIN32) && defined(UNICODE))
+    FILE *stream = _wfopen(fileName, L"w");
+    if (stream == NULL)
+        printf("Unable to open debug file %S\n", fileName);
+    else logStream = stream;
+#else
     FILE *stream = fopen(fileName, "w");
     if (stream == NULL)
         printf("Unable to open debug file %s\n", fileName);
     else logStream = stream;
+#endif
 }
 
 // For the moment log to stdout
@@ -167,7 +174,7 @@ void Log(const char *msg, ...)
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     char buff[1024];
     if (_vsnprintf(buff, sizeof(buff), msg, vl) > 0)
-        ::OutputDebugString(buff);
+        ::OutputDebugStringA(buff);
 #endif
     va_end(vl);
     if (logStream) fflush(logStream);

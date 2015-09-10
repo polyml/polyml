@@ -4,12 +4,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development copyright David C.J. Matthews 2001-12
+    Further development copyright David C.J. Matthews 2001-12, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -55,6 +54,12 @@
 
 #ifdef HAVE_TCHAR_H
 #include <tchar.h>
+#else
+#define _T(x) x
+#define _tcslen strlen
+#define _tcstol strtol
+#define _tcsncmp strncmp
+#define _tcschr strchr
 #endif
 
 #include "globals.h"
@@ -72,9 +77,12 @@
 #include "../polyexports.h"
 #include "memmgr.h"
 #include "pexport.h"
+#include "polystring.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
+
+static const TCHAR *lpszServiceName = 0; // DDE service name
 #endif
 
 static void  InitHeaderFromExport(exportDescription *exports);
@@ -100,49 +108,55 @@ enum {
     OPT_GCTHREADS,
     OPT_DEBUGOPTS,
     OPT_DEBUGFILE,
-    OPT_DDESERVICE
+    OPT_DDESERVICE,
+    OPT_CODEPAGE
 };
 
 static struct __argtab {
-    const char *argName, *argHelp;
+    const TCHAR *argName;
+    const char *argHelp;
     unsigned argKey;
 } argTable[] =
 {
-    { "-H",             "Initial heap size (MB)",                               OPT_HEAPINIT },
-    { "--minheap",      "Minimum heap size (MB)",                               OPT_HEAPMIN },
-    { "--maxheap",      "Maximum heap size (MB)",                               OPT_HEAPMAX },
-    { "--gcpercent",    "Target percentage time in GC (1-99)",                  OPT_GCPERCENT },
-    { "--stackspace",   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
-    { "--gcthreads",    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
-    { "--debug",        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
-    { "--logfile",      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
+    { _T("-H"),             "Initial heap size (MB)",                               OPT_HEAPINIT },
+    { _T("--minheap"),      "Minimum heap size (MB)",                               OPT_HEAPMIN },
+    { _T("--maxheap"),      "Maximum heap size (MB)",                               OPT_HEAPMAX },
+    { _T("--gcpercent"),    "Target percentage time in GC (1-99)",                  OPT_GCPERCENT },
+    { _T("--stackspace"),   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
+    { _T("--gcthreads"),    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
+    { _T("--debug"),        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
+    { _T("--logfile"),      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     ,
-    { "-pServiceName",  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE }
+#ifdef UNICODE
+    { _T("--codepage"),     "Code-page to use for file-names etc in Windows",       OPT_CODEPAGE },
+#endif
+    { _T("-pServiceName"),  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE }
 #endif
 };
 
 static struct __debugOpts {
-    const char *optName, *optHelp;
+    const TCHAR *optName;
+    const char *optHelp;
     unsigned optKey;
 } debugOptTable[] =
 {
-    { "checkmem",           "Perform additional debugging checks on memory",    DEBUG_CHECK_OBJECTS },
-    { "gc",                 "Log summary garbage-collector information",        DEBUG_GC },
-    { "gcdetail",           "Log detailed garbage-collector information",       DEBUG_GC_DETAIL },
-    { "memmgr",             "Memory manager information",                       DEBUG_MEMMGR },
-    { "threads",            "Thread related information",                       DEBUG_THREADS },
-    { "gctasks",            "Log multi-thread GC information",                  DEBUG_GCTASKS },
-    { "heapsize",           "Log heap resizing data",                           DEBUG_HEAPSIZE },
-    { "x",                  "Log X-windows information",                        DEBUG_X},
-    { "sharing",            "Information from PolyML.shareCommonData",          DEBUG_SHARING},
-    { "locks",              "Information about contended locks",                DEBUG_CONTENTION},
-    { "rts",                "General run-time system calls",                    DEBUG_RTSCALLS}
+    { _T("checkmem"),           "Perform additional debugging checks on memory",    DEBUG_CHECK_OBJECTS },
+    { _T("gc"),                 "Log summary garbage-collector information",        DEBUG_GC },
+    { _T("gcdetail"),           "Log detailed garbage-collector information",       DEBUG_GC_DETAIL },
+    { _T("memmgr"),             "Memory manager information",                       DEBUG_MEMMGR },
+    { _T("threads"),            "Thread related information",                       DEBUG_THREADS },
+    { _T("gctasks"),            "Log multi-thread GC information",                  DEBUG_GCTASKS },
+    { _T("heapsize"),           "Log heap resizing data",                           DEBUG_HEAPSIZE },
+    { _T("x"),                  "Log X-windows information",                        DEBUG_X},
+    { _T("sharing"),            "Information from PolyML.shareCommonData",          DEBUG_SHARING},
+    { _T("locks"),              "Information about contended locks",                DEBUG_CONTENTION},
+    { _T("rts"),                "General run-time system calls",                    DEBUG_RTSCALLS}
 };
 
 // Parse a parameter that is meant to be a size.  Returns the value as a number
 // of kilobytes.
-POLYUNSIGNED parseSize(const char *p, const char *arg)
+POLYUNSIGNED parseSize(const TCHAR *p, const TCHAR *arg)
 {
     POLYUNSIGNED result = 0;
     if (*p < '0' || *p > '9')
@@ -187,7 +201,7 @@ POLYUNSIGNED parseSize(const char *p, const char *arg)
 }
 
 /* In the Windows version this is called from WinMain in Console.c */
-int polymain(int argc, char **argv, exportDescription *exports)
+int polymain(int argc, TCHAR **argv, exportDescription *exports)
 {
     POLYUNSIGNED minsize=0, maxsize=0, initsize=0;
     unsigned gcpercent=0;
@@ -200,13 +214,13 @@ int polymain(int argc, char **argv, exportDescription *exports)
     if (argc > 0) 
         userOptions.programName = argv[0];
     else
-        userOptions.programName = ""; // Set it to a valid empty string
+        userOptions.programName = _T(""); // Set it to a valid empty string
     
-    char *importFileName = 0;
+    TCHAR *importFileName = 0;
     debugOptions       = 0;
 
     userOptions.user_arg_count   = 0;
-    userOptions.user_arg_strings = (char**)malloc(argc * sizeof(char*)); // Enough room for all of them
+    userOptions.user_arg_strings = (TCHAR**)malloc(argc * sizeof(TCHAR*)); // Enough room for all of them
 
     // Process the argument list removing those recognised by the RTS and adding the
     // remainder to the user argument list.
@@ -217,11 +231,12 @@ int polymain(int argc, char **argv, exportDescription *exports)
             bool argUsed = false;
             for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
             {
-                size_t argl = strlen(argTable[j].argName);
-                if (strncmp(argv[i], argTable[j].argName, argl) == 0)
+                size_t argl = _tcslen(argTable[j].argName);
+                if (_tcsncmp(argv[i], argTable[j].argName, argl) == 0)
                 {
-                    char *p, *endp;
-                    if (strlen(argv[i]) == argl)
+                    const TCHAR *p;
+                    TCHAR *endp;
+                    if (_tcslen(argv[i]) == argl)
                     { // If it has used all the argument pick the next
                         i++;
                         p = argv[i];
@@ -245,7 +260,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         initsize = parseSize(p, argTable[j].argName);
                         break;
                     case OPT_GCPERCENT:
-                        gcpercent = strtol(p, &endp, 10);
+                        gcpercent = _tcstol(p, &endp, 10);
                         if (*endp != '\0') 
                             Usage("Malformed %s option\n", argTable[j].argName);
                         if (gcpercent < 1 || gcpercent > 99)
@@ -262,7 +277,7 @@ int polymain(int argc, char **argv, exportDescription *exports)
                             break;
                         }
                     case OPT_GCTHREADS:
-                        userOptions.gcthreads = strtol(p, &endp, 10);
+                        userOptions.gcthreads = _tcstol(p, &endp, 10);
                         if (*endp != '\0') 
                             Usage("Incomplete %s option\n", argTable[j].argName);
                         break;
@@ -271,12 +286,12 @@ int polymain(int argc, char **argv, exportDescription *exports)
                         {
                             // Debug options are separated by commas
                             bool optFound = false;
-                            char *q = strchr(p, ',');
-                            if (q == NULL) q = p+strlen(p);
+                            const TCHAR *q = _tcschr(p, ',');
+                            if (q == NULL) q = p+_tcslen(p);
                             for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
                             {
-                                if (strlen(debugOptTable[k].optName) == (size_t)(q-p) &&
-                                        strncmp(p, debugOptTable[k].optName, q-p) == 0)
+                                if (_tcslen(debugOptTable[k].optName) == (size_t)(q-p) &&
+                                        _tcsncmp(p, debugOptTable[k].optName, q-p) == 0)
                                 {
                                     debugOptions |= debugOptTable[k].optKey;
                                     optFound = true;
@@ -290,9 +305,17 @@ int polymain(int argc, char **argv, exportDescription *exports)
                     case OPT_DEBUGFILE:
                         SetLogFile(p);
                         break;
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
                     case OPT_DDESERVICE:
-                        // This has already been processed.
+                        // Set the name for the DDE service.  This allows the caller to specify the
+                        // service name to be used to send Interrupt "signals".
+                        lpszServiceName = p;
                         break;
+                    case OPT_CODEPAGE:
+                        if (! setWindowsCodePage(p))
+                            Usage("Unknown argument to --codepage. Use code page number or CP_ACP, CP_UTF8.\n");
+                        break;
+#endif
                     }
                     argUsed = true;
                     break;
@@ -334,7 +357,11 @@ int polymain(int argc, char **argv, exportDescription *exports)
 
     // Set the heap size if it has been provided otherwise use the default.
     gHeapSizeParameters.SetHeapParameters(minsize, maxsize, initsize, gcpercent);
-   
+
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+    SetupDDEHandler(lpszServiceName); // Windows: Start the DDE handler now we processed any service name.
+#endif
+
     // Initialise the run-time system before creating the heap.
     InitModules();
     CreateHeap();
@@ -412,19 +439,27 @@ void Usage(const char *message, ...)
 
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        printf("%S <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#else
         printf("%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#endif
     }
     printf("Debug options:\n");
     for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        printf("%S <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#else
         printf("%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#endif
     }
     fflush(stdout);
     
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
     if (useConsole)
     {
-        MessageBox(hMainWindow, "Poly/ML has exited", "Poly/ML", MB_OK);
+        MessageBox(hMainWindow, _T("Poly/ML has exited"), _T("Poly/ML"), MB_OK);
     }
 #endif
     exit (1);
@@ -439,7 +474,11 @@ char *RTSArgHelp(void)
     char *p = buff;
     for (unsigned j = 0; j < sizeof(argTable)/sizeof(argTable[0]); j++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        int spaces = sprintf(p, "%S <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#else
         int spaces = sprintf(p, "%s <%s>\n", argTable[j].argName, argTable[j].argHelp);
+#endif
         p += spaces;
     }
     {
@@ -448,7 +487,11 @@ char *RTSArgHelp(void)
     }
     for (unsigned k = 0; k < sizeof(debugOptTable)/sizeof(debugOptTable[0]); k++)
     {
+#if (defined(_WIN32) && defined(UNICODE))
+        int spaces = sprintf(p, "%S <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#else
         int spaces = sprintf(p, "%s <%s>\n", debugOptTable[k].optName, debugOptTable[k].optHelp);
+#endif
         p += spaces;
     }
     ASSERT((unsigned)(p - buff) < (unsigned)sizeof(buff));

@@ -1,15 +1,14 @@
 /*
     Title:  Header for diagnostics.c
 
-    Copyright (c) 2011,12 David C.J. Matthews
+    Copyright (c) 2011-12, 2015 David C.J. Matthews
 
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,12 +26,18 @@
 #include "noreturn.h"
 #include "globals.h"
 
+#ifdef HAVE_TCHAR_H
+#include <tchar.h>
+#else
+typedef char TCHAR;
+#endif
+
 NORETURNFN(extern void Exit(const char *, ...));
 NORETURNFN(extern void Crash(const char *, ...));
 
 NORETURNFN(extern void ExitWithError(const char *, int err));
 
-extern void SetLogFile(const char *fileName);
+extern void SetLogFile(const TCHAR *fileName);
 extern void Log(const char *, ...);
 extern void LogSize(POLYUNSIGNED wordSize);
 
