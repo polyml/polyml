@@ -4,12 +4,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development copyright (c) David C.J. Matthews 2011
+    Further development copyright (c) David C.J. Matthews 2011, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -48,6 +47,7 @@
 #include "scanaddrs.h"
 #include "locking.h"
 #include "run_time.h"
+#include "sys.h"
 
 static POLYUNSIGNED mainThreadCounts[MTP_MAXENTRY];
 static const char* const mainThreadText[MTP_MAXENTRY] =
@@ -89,8 +89,6 @@ static const char * const extraStoreText[EST_MAX_ENTRY] =
     "Mutable byte data (profiling counts)"
 };
 
-static POLYUNSIGNED total_count = 0;
-
 // Poly strings for "standard" counts.  These are generated from the C strings
 // above the first time profiling is activated.
 static PolyWord psRTSString[MTP_MAXENTRY], psExtraStrings[EST_MAX_ENTRY], psGCTotal;
@@ -109,7 +107,8 @@ typedef struct _PROFENTRY
 class ProfileRequest: public MainThreadRequest
 {
 public:
-    ProfileRequest(unsigned prof): MainThreadRequest(MTP_PROFILING), mode(prof), total(0), pTab(0) {}
+    ProfileRequest(unsigned prof, TaskData *pTask):
+        MainThreadRequest(MTP_PROFILING), mode(prof), pCallingThread(pTask), pTab(0), errorMessage(0) {}
     ~ProfileRequest();
     virtual void Perform();
     Handle extractAsList(TaskData *taskData);
@@ -121,8 +120,11 @@ private:
 
 private:
     unsigned mode;
-    POLYUNSIGNED   total;
+    TaskData *pCallingThread;
     PPROFENTRY pTab;
+
+public:
+    const char *errorMessage;
 };
 
 ProfileRequest::~ProfileRequest()
@@ -185,7 +187,6 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
                 PLocker locker(&countLock);
                 if (profObject)
                     profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + incr));
-                total_count += incr;
                 return;
             }
             /* else just fall through and try next candidate address */
@@ -198,7 +199,6 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
         {
             PLocker locker(&countLock);
             mainThreadCounts[MTP_USER_CODE] += incr;
-            total_count += incr;
             return;
         }
     } /* loop "forever" */
@@ -210,7 +210,7 @@ void add_count(TaskData *taskData, POLYCODEPTR fpc, PolyWord *sp, POLYUNSIGNED i
 PPROFENTRY ProfileRequest::newProfileEntry(void)
 {
     PPROFENTRY newEntry = (PPROFENTRY)malloc(sizeof(PROFENTRY));
-    if (newEntry == 0) return 0;
+    if (newEntry == 0) { errorMessage = "Insufficient memory"; return 0; }
     newEntry->nextEntry = pTab;
     pTab = newEntry;
     return newEntry;
@@ -254,12 +254,12 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
                         if (name != TAGGED(0))
                         {
                             PPROFENTRY pEnt = newProfileEntry();
+                            if (pEnt == 0) return;
                             pEnt->count = count;
                             pEnt->functionName = name;
                         }
                     
                         profCount->Set(0, PolyWord::FromUnsigned(0));
-                        total += count;
                     }
                 }
             } /* code object */
@@ -269,26 +269,21 @@ void ProfileRequest::getProfileResults(PolyWord *bottom, PolyWord *top)
 }
 
 void ProfileRequest::getResults(void)
-/* Print profiling information and reset profile counts.    */
-/* Profile counts are also reset by commit so that objects  */
-/* written to the persistent store always have zero counts. */
+// Print profiling information and reset profile counts.
 {
-    if (total_count != 0)
+    for (unsigned j = 0; j < gMem.npSpaces; j++)
     {
-        for (unsigned j = 0; j < gMem.npSpaces; j++)
-        {
-            MemSpace *space = gMem.pSpaces[j];
-            // Permanent areas are filled with objects from the bottom.
-            getProfileResults(space->bottom, space->top); // Bottom to top
-        }
-        for (unsigned j = 0; j < gMem.nlSpaces; j++)
-        {
-            LocalMemSpace *space = gMem.lSpaces[j];
-            // Local areas only have objects from the allocation pointer to the top.
-            getProfileResults(space->bottom, space->lowerAllocPtr);
-            getProfileResults(space->upperAllocPtr, space->top);
-        }
-    } // else if we haven't actually had an interrupt avoid expensive scan of memory.
+        MemSpace *space = gMem.pSpaces[j];
+        // Permanent areas are filled with objects from the bottom.
+        getProfileResults(space->bottom, space->top); // Bottom to top
+    }
+    for (unsigned j = 0; j < gMem.nlSpaces; j++)
+    {
+        LocalMemSpace *space = gMem.lSpaces[j];
+        // Local areas only have objects from the allocation pointer to the top.
+        getProfileResults(space->bottom, space->lowerAllocPtr);
+        getProfileResults(space->upperAllocPtr, space->top);
+    }
 
     {
         POLYUNSIGNED gc_count =
@@ -310,8 +305,6 @@ void ProfileRequest::getResults(void)
     {
         if (mainThreadCounts[k])
         {
-            total     += mainThreadCounts[k];
-            total_count += mainThreadCounts[k];
             PPROFENTRY pEnt = newProfileEntry();
             if (pEnt == 0) return; // Report insufficient memory?
             pEnt->count = mainThreadCounts[k];
@@ -324,8 +317,6 @@ void ProfileRequest::getResults(void)
     {
         if (extraStoreCounts[l])
         {
-            total     += extraStoreCounts[l];
-            total_count += extraStoreCounts[l];
             PPROFENTRY pEnt = newProfileEntry();
             if (pEnt == 0) return; // Report insufficient memory?
             pEnt->count = extraStoreCounts[l];
@@ -398,7 +389,6 @@ void AddObjectProfile(PolyObject *obj)
         PolyObject *profObject = profWord.AsObjPtr();
         ASSERT(profObject->IsMutable() && profObject->IsByteObject() && profObject->Length() == 1);
         profObject->Set(0, PolyWord::FromUnsigned(profObject->Get(0).AsUnsigned() + length + 1));
-        total_count += length+1;
     }
     // If it doesn't have a profile pointer add it to the appropriate count.
     else if (obj->IsMutable())
@@ -434,11 +424,6 @@ void AddObjectProfile(PolyObject *obj)
     else extraStoreCounts[EST_WORD] += length+1;
 }
 
-// To speed up testing whether profiling is off already we
-// maintain a variable that contains the global state.
-static unsigned profile_mode = 0;
-static PLock profLock;
-
 // Called from ML to control profiling.
 Handle profilerc(TaskData *taskData, Handle mode_handle)
 /* Profiler - generates statistical profiles of the code.
@@ -452,21 +437,9 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
 {
     unsigned mode = get_C_unsigned(taskData, DEREFWORDHANDLE(mode_handle));
     {
-        PLocker locker(&profLock);
-        if (mode == profile_mode) // No change in mode = no-op
-            return taskData->saveVec.push(TAGGED(0));
-
-        if (mode == kProfileTimeThread)
-        {
-            mode = kProfileTime;
-            singleThreadProfile = taskData;
-        }
-        else singleThreadProfile = 0;
-    
-        profile_mode = mode;
-
         // Create any strings we need.  We only need to do this once but
         // it must be done by a non-root thread since it needs a taskData object.
+        // Don't bother locking.  At worst we'll create some garbage.
         for (unsigned k = 0; k < MTP_MAXENTRY; k++)
         {
             if (psRTSString[k] == TAGGED(0))
@@ -483,14 +456,24 @@ Handle profilerc(TaskData *taskData, Handle mode_handle)
     // All these actions are performed by the root thread.  Only profile
     // printing needs to be performed with all the threads stopped but it's
     // simpler to serialise all requests.
-    ProfileRequest request(mode);
+    ProfileRequest request(mode, taskData);
     processes->MakeRootRequest(taskData, &request);
+    if (request.errorMessage != 0) raise_exception_string(taskData, EXC_Fail, request.errorMessage);
     return request.extractAsList(taskData);
 }
 
 // This is called from the root thread when all the ML threads have been paused.
 void ProfileRequest::Perform()
 {
+    if (mode != kProfileOff && profileMode != kProfileOff)
+    {
+        // Profiling must be stopped first.
+        errorMessage = "Profiling is currently active";
+        return;
+    }
+
+    singleThreadProfile = 0; // Unless kProfileTimeThread is given this should be 0
+
     switch (mode)
     {
     case kProfileOff:
@@ -499,12 +482,16 @@ void ProfileRequest::Perform()
         processes->StopProfiling();
         getResults();
         break;
-       
+
+    case kProfileTimeThread:
+        singleThreadProfile = pCallingThread;
+        // And drop through to kProfileTime
+      
     case kProfileTime:
         profileMode = kProfileTime;
         processes->StartProfiling();
         break;
-        
+
     case kProfileStoreAllocation:
         profileMode = kProfileStoreAllocation;
         break;
@@ -543,7 +530,6 @@ void Profiling::Init(void)
     // Reset profiling counts.
     profileMode = kProfileOff;
     for (unsigned k = 0; k < MTP_MAXENTRY; k++) mainThreadCounts[k] = 0;
-    total_count = 0;
 }
 
 void Profiling::GarbageCollect(ScanAddress *process)
