@@ -205,133 +205,131 @@ struct
         in
             printOut message
         end
-    end;
-
+    end
   
-  (* switch profiling on/off *)
-  val systemProfile : int -> unit =
-    RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler;
+    (* switch profiling on/off *)
+    val systemProfile : int -> unit = RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler
   
-  fun startProfile (level : int) : unit = 
-    if level <> 0 then systemProfile level else ();
+    fun startProfile 0 = ()
+    |   startProfile level = systemProfile level
       
-  fun stopProfile (level : int) : unit = 
-    if level <> 0 then systemProfile 0 else ();
+    fun stopProfile 0 = ()
+    |   stopProfile level = systemProfile 0
 
-  val stopSyms =
-    let
-      open SYMSET
-    in
-      op ++ (abortParse, semicolon)
-    end;
+    val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
 
-  fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) : 
+    fun baseCompiler (lex : lexan, nameSpace: nameSpace, debugSwitches) : 
        exportTree option * (unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
              structures: (string * structVals) list, signatures: (string * signatures) list,
              functors: (string * functors) list, types: (string * typeConstrSet) list }) option =
-  let (* let1 *)
+    let (* let1 *)
 
-    val compilerOutput = getCompilerOutput debugSwitches
+        val compilerOutput = getCompilerOutput debugSwitches
     
-    val timing         = DEBUG.getParameter DEBUG.timingTag debugSwitches
-    and printParsetree = DEBUG.getParameter DEBUG.parsetreeTag debugSwitches
-    and profiling      = DEBUG.getParameter DEBUG.profilingTag debugSwitches
+        val timing         = DEBUG.getParameter DEBUG.timingTag debugSwitches
+        and printParsetree = DEBUG.getParameter DEBUG.parsetreeTag debugSwitches
+        and profiling      = DEBUG.getParameter DEBUG.profilingTag debugSwitches
 
-    val globals =
-    { 
-        lookupFix    = #lookupFix nameSpace,
-        lookupVal    = #lookupVal nameSpace,
-        lookupType   = #lookupType nameSpace,
-        lookupSig    = #lookupSig nameSpace,
-        lookupStruct = #lookupStruct nameSpace,
-        lookupFunct  = #lookupFunct nameSpace,
-        enterFix     = #enterFix nameSpace,
-        enterVal     = #enterVal nameSpace,
-        enterType    = #enterType nameSpace,
-        enterStruct  = #enterStruct nameSpace,
-        enterSig     = #enterSig nameSpace,
-        enterFunct   = #enterFunct nameSpace,
-        allValNames  = fn () => map #1 (#allVal nameSpace ())
-    };
+        val globals =
+        { 
+            lookupFix    = #lookupFix nameSpace,
+            lookupVal    = #lookupVal nameSpace,
+            lookupType   = #lookupType nameSpace,
+            lookupSig    = #lookupSig nameSpace,
+            lookupStruct = #lookupStruct nameSpace,
+            lookupFunct  = #lookupFunct nameSpace,
+            enterFix     = #enterFix nameSpace,
+            enterVal     = #enterVal nameSpace,
+            enterType    = #enterType nameSpace,
+            enterStruct  = #enterStruct nameSpace,
+            enterSig     = #enterSig nameSpace,
+            enterFunct   = #enterFunct nameSpace,
+            allValNames  = fn () => map #1 (#allVal nameSpace ())
+        }
 
-    (* Return the total user+system time since the start. *)
+        (* Return the total user+system time since the start. *)
  
-    val startTime = cpuTime()
+        val startTime = cpuTime()
     
-    val startLocn = location lex
-    val () =
-      if SYMSET.inside (sy lex, SYMSET.semicolon)
-      then insymbol lex
-      else ();
+        val startLocn = location lex
+
+        val () =
+            if SYMSET.inside (sy lex, SYMSET.semicolon)
+            then insymbol lex
+            else ()
       
-    val parentTreeNav =
-        case List.find (Universal.tagIs rootTreeTag) debugSwitches of
-            SOME opt => Universal.tagProject rootTreeTag opt
-        |   NONE => { parent = NONE, next = NONE, previous = NONE }
-  in (* let1 *)
-    (* An empty declaration (or end of file!) *)
-    if SYMSET.inside (sy lex, stopSyms)
-    then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
-       then (NONE, NONE)
-       else (SOME(locSpan(startLocn, location lex), []), 
+        val parentTreeNav =
+            case List.find (Universal.tagIs rootTreeTag) debugSwitches of
+                SOME opt => Universal.tagProject rootTreeTag opt
+            |   NONE => { parent = NONE, next = NONE, previous = NONE }
+
+    in (* let1 *)
+        (* An empty declaration (or end of file!) *)
+        if SYMSET.inside (sy lex, stopSyms)
+        then if errorOccurred lex (* We could have, for example, an unterminated comment. *)
+        then (NONE, NONE)
+        else (SOME(locSpan(startLocn, location lex), []), 
                  SOME (fn () => { fixes=[], values=[], structures=[], functors=[], types=[], signatures=[] })
             ) (* Do nothing *)
-    else let (* let2 *)
-      (* create a "throw away" compiling environment for this topdec *)
-      val newFixEnv = UTILITIES.searchList ();
-      val enterFix  = #enter newFixEnv;
-      val lookupFix = lookupDefault (#lookup newFixEnv) (#lookupFix globals);
+        else
+        let (* let2 *)
+            (* create a "throw away" compiling environment for this topdec *)
+            val newFixEnv = UTILITIES.searchList ()
+            val enterFix  = #enter newFixEnv
+            val lookupFix = lookupDefault (#lookup newFixEnv) (#lookupFix globals)
    
-      (* parse a program: a sequence of topdecs ending with a semicolon. *)
-      val parseTree : STRUCTURES.program = 
-        PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix});
+            (* parse a program: a sequence of topdecs ending with a semicolon. *)
+            val parseTree : STRUCTURES.program = 
+                PARSEDEC.parseDec (stopSyms, lex, {enterFix  = enterFix, lookupFix = lookupFix})
 
-      val parseTime = cpuTime()
+            val parseTime = cpuTime()
 
-      val () = 
-        if printParsetree
-        then compilerOutput (STRUCTURES.displayProgram (parseTree, 10000))
-        else ();
+            val () = 
+                if printParsetree
+                then compilerOutput (STRUCTURES.displayProgram (parseTree, 10000))
+                else ()
         
-      in (* let2 *)
-          if errorOccurred lex
-          then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
-          else let (* let3 *)
-          (* If no errors then do second pass to match identifiers
-             and declarations and return type of expression. *)
-          val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals);
-     
-          val pass2Time = cpuTime()
-          
-          in (* let3 *)
+        in (* let2 *)
             if errorOccurred lex
-            then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
-            else let (* let4 *)
-              
-              (* Only code-generate if there were no errors and it's not a directive. *)
-              val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex);
-              val treeTime = cpuTime()
-              
-              in
+            then (NONE, NONE) (* Error: No result and the parse tree won't be useful. *)
+            else
+            let (* let3 *)
+                (* If no errors then do second pass to match identifiers
+                   and declarations and return type of expression. *)
+                val () = STRUCTURES.pass2Structs (parseTree, lex, Env globals)
+     
+                val pass2Time = cpuTime()
+          
+            in (* let3 *)
                 if errorOccurred lex
-                then (* Errors can be produced during the code-generation phase. *)
-                   (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
-                else let (* let5 *)                      
-                      val resultCode : unit -> CODETREE.codetree =
-                         CODETREE.genCode(structCode, debugSwitches, nLocals)
-                      val codeTime = cpuTime()
+                then (SOME(structsExportTree(parentTreeNav, parseTree)), NONE)
+                else
+                let (* let4 *)
+                    (* Only code-generate if there were no errors and it's not a directive. *)
+                    val (structCode, nLocals) = STRUCTURES.gencodeStructs (parseTree, lex);
+                    val treeTime = cpuTime()
+
+                in
+                    if errorOccurred lex
+                    then (* Errors can be produced during the code-generation phase. *)
+                        (SOME(structsExportTree(parentTreeNav, parseTree)), NONE) (* Error: No result. *)
+                    else
+                    let (* let5 *)                      
+                        val resultCode : unit -> CODETREE.codetree =
+                            CODETREE.genCode(structCode, debugSwitches, nLocals)
+                        val codeTime = cpuTime()
                       
-                      (* This is the procedure which is returned as the result of
-                         the compilation. *)
-                      fun executeCode() =
+                        (* This is the function that is returned as the result of
+                           the compilation. *)
+                        fun executeCode() =
                         let
                             (* Save the value of the profiling switch,
                                  and switch profiling on if required. *)
                             val wasProfiling = profiling;
                     
                             val startRunTime = cpuTime() (* Save the run-time *)
-                            val () = startProfile wasProfiling;
+                            val () = startProfile wasProfiling
             
                             val resultVec = (* Now run it *)
                                 (* If we were profiling or timing we have to handle the exception to turn
@@ -387,7 +385,7 @@ struct
                 end (* let4 *)
             end (* let3 *)
         end (* let2 *)
-    end; (* let1 *)
+    end (* let1 *)
 
     fun compiler (nameSpace: nameSpace, getChar: unit->char option, parameters: Universal.universal list) : 
        exportTree option * (unit ->
