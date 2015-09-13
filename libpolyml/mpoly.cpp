@@ -311,10 +311,12 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                         // service name to be used to send Interrupt "signals".
                         lpszServiceName = p;
                         break;
+#if (defined(UNICODE))
                     case OPT_CODEPAGE:
                         if (! setWindowsCodePage(p))
                             Usage("Unknown argument to --codepage. Use code page number or CP_ACP, CP_UTF8.\n");
                         break;
+#endif
 #endif
                     }
                     argUsed = true;
