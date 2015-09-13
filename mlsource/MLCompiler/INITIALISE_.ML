@@ -96,8 +96,6 @@ sig
     val lineNumberTag: (unit->int) Universal.tag
     val offsetTag: (unit->int) Universal.tag
     val fileNameTag: string Universal.tag
-    val profilingTag  : int Universal.tag;
-    val timingTag     : bool Universal.tag;
     val printDepthFunTag : (unit->int) Universal.tag;
     val errorDepthTag : int Universal.tag;
     val lineLengthTag : int Universal.tag;
@@ -1275,8 +1273,6 @@ struct
                 ("traceCompilerTag",       toMachineWord (traceCompilerTag: bool tag),          Tag Bool),
                 ("inlineFunctorsTag",      toMachineWord (inlineFunctorsTag: bool tag),         Tag Bool),
                 ("debugTag",               toMachineWord (debugTag: bool tag),                  Tag Bool),
-                ("profilingTag",           toMachineWord (DEBUG.profilingTag: int tag),         Tag Int),
-                ("timingTag",              toMachineWord (DEBUG.timingTag: bool tag),           Tag Bool),
                 ("printDepthFunTag",       toMachineWord (DEBUG.printDepthFunTag: (unit->int) tag), Tag (Unit->>Int)),
                 ("errorDepthTag",          toMachineWord (DEBUG.errorDepthTag: int tag),        Tag Int),
                 ("lineLengthTag",          toMachineWord (DEBUG.lineLengthTag: int tag),        Tag Int),

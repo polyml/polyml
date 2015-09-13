@@ -148,10 +148,9 @@ local
            Default: Execute the code and call the result function if the compilation
            succeeds.  Raise an exception if the compilation failed. *)
     |   CPProfiling of int
-        (* Control profiling.  0 is no profiling, 1 is time etc.  Default is value of PolyML.profiling. *)
+        (* Deprecated: No longer used. *)
     |   CPTiming of bool
-        (* Control whether the compiler should time various phases of the
-           compilation and also the run time. Default: value of PolyML.timing. *)
+        (* Deprecated: No longer used.  *)
     |   CPDebug of bool
         (* Control whether calls to the debugger should be inserted into the compiled
            code.  This allows breakpoints to be set, values to be examined and printed
@@ -185,7 +184,7 @@ local
            zero means no profiling and one means add the allocating function. *)
 
     |   CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -> unit
-        (* This is no longer used and is just left for backwards compatibility. *)
+        (* Deprecated: No longer used. *)
 
     (* References for control and debugging. *)
     val profiling = ref 0
@@ -333,6 +332,15 @@ local
             )
         end
 
+        fun quickSort _                      ([]:'a list)      = []
+        |   quickSort _                      ([h]:'a list)     = [h]
+        |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
+        let
+            val (after, befor) = List.partition (leq h) t
+        in
+            quickSort leq befor @ (h :: quickSort leq after)
+        end
+
         (* Default function to print and enter a value. *)
         fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
                            stream: string->unit, depth: int)
@@ -367,15 +375,6 @@ local
             fun order (s1: string, k1) (s2, k2) =
                     if s1 = s2 then kindToInt k1 <= kindToInt k2
                     else s1 <= s2
-
-            fun quickSort _                      ([]:'a list)      = []
-            |   quickSort _                      ([h]:'a list)     = [h]
-            |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
-            let
-                val (after, befor) = List.partition (leq h) t
-            in
-                quickSort leq befor @ (h :: quickSort leq after)
-            end;
 
             (* Don't sort the declarations if we want them in declaration order. *)
             val sortedDecs =
@@ -416,6 +415,7 @@ local
             if depth > 0 then List.app printDec sortedDecs else ()
         end
     in
+        (* This function ends up as PolyML.compiler.  *)
         fun polyCompiler (getChar: unit->char option, parameters: compilerParameters list) =
         let
             (* Find the first item that matches or return the default. *)
@@ -432,8 +432,6 @@ local
             val fileName = find (fn CPFileName s => SOME s | _ => NONE) "" parameters
             val printInOrder = find (fn CPPrintInAlphabeticalOrder t => SOME t | _ => NONE)
                                 (! printInAlphabeticalOrder) parameters
-            val profiling = find (fn CPProfiling i => SOME i | _ => NONE) (!profiling) parameters
-            val timing = find  (fn CPTiming b => SOME b | _ => NONE) (!timing) parameters
             val printDepth = find (fn CPPrintDepth f => SOME f | _ => NONE) (fn () => !printDepth) parameters
             val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
                (printAndEnter(printInOrder, nameSpace, outstream, printDepth())) parameters
@@ -477,8 +475,6 @@ local
                     tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
-                    tagInject timingTag timing,
-                    tagInject profilingTag profiling,
                     tagInject profileAllocationTag allocProfiling,
                     tagInject errorDepthTag (! errorDepth),
                     tagInject printDepthFunTag printDepth,
@@ -495,7 +491,7 @@ local
         in
             compilerResultFun treeAndCode
         end
- 
+
         (* Top-level read-eval-print loop.  This is the normal top-level loop and is
            also used for the debugger. *)
         fun topLevel {isDebug, nameSpace, exitLoop, exitOnError, isInteractive } =
@@ -558,19 +554,73 @@ local
                 realDataRead := false;
                 (* Compile and then run the code. *)
                 let
+                    (* switch profiling on/off *)
+                    val systemProfile : int -> (int * string) list = RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler
+
+                    val startCompile = Timer.startCPUTimer()
+
+                    (* Compile a top-level declaration/expression. *)
                     val code =
-                        polyCompiler(readin, [CPNameSpace nameSpace, CPOutStream printOut])
-                        handle Fail s => 
+                        polyCompiler (readin, [CPNameSpace nameSpace, CPOutStream printOut])
+                            (* Don't print any times if this raises an exception. *)
+                        handle exn as Fail s =>
                         (
                             printOut(s ^ "\n");
                             flushInput();
                             lastWasEol := true;
-                            raise Fail s
+                            PolyML.Exception.reraise exn
                         )
+                        
+                    val endCompile = Timer.checkCPUTimer startCompile
+            
+                    val startRun = Timer.startCPUTimer()
+                    val wasProfiling = ! profiling (* In case this is switched on in the command. *)
+                    val () =
+                        if wasProfiling = 0
+                        then ()
+                        else (systemProfile wasProfiling handle Fail _ => []; ())
+
+                    (* Run the code and capture any exception (temporarily). *)
+                    val finalResult = (code(); NONE) handle exn => SOME exn
+
+                    (* Print profiling results if required. *)
+                    val () =
+                        if wasProfiling = 0
+                        then ()
+                        else
+                        let
+                            val profRes = systemProfile 0 handle Fail _ => []
+                            (* Sort in ascending order. *)
+                            val sorted = quickSort (fn (a, _) => fn (b, _) => a <= b) profRes
+            
+                            fun doPrint (count, name) =
+                            let
+                                val cPrint = Int.toString count
+                                val prefix =
+                                    CharVector.tabulate(Int.max(0, 10-size cPrint), fn _ => #" ")
+                            in
+                                printOut(concat[prefix, cPrint, " ", name, "\n"])
+                            end
+            
+                            val total = List.foldl (fn ((c,_),s) => c+s) 0 profRes
+                        in
+                            List.app doPrint sorted;
+                            if total = 0 then ()
+                            else printOut(concat["Total ", Int.toString total, "\n"])
+                        end
+
+                    (* Print the times if required. *)
+                    val endRun = Timer.checkCPUTimer startRun
+                    val () =
+                        if !timing
+                        then printOut(
+                                concat["Timing - compile: ", Time.fmt 1 (#usr endCompile + #sys endCompile),
+                                       " run: ", Time.fmt 1 (#usr endRun + #sys endRun), "\n"])
+                        else ()
                 in
-                    code ()
-                    (* Report exceptions in running code. *)
-                        handle exn =>
+                    case finalResult of
+                        NONE => () (* No exceptions raised. *)
+                    |   SOME exn => (* Report exceptions in running code. *)
                         let
                             open PolyML PolyML.Exception
                             val exLoc =
@@ -587,7 +637,7 @@ local
                                         PrettyBreak(1, 3),
                                         PrettyString "raised"
                                     ]));
-                            LibrarySupport.reraise exn
+                            reraise exn
                         end
                 end
             end; (* readEvalPrint *)
