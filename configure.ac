@@ -66,7 +66,20 @@ case "${host_os}" in
         ;;
 esac
 
- # libpolyml can be a DLL but libpolymain can't.
+# Enable/Disable the GUI in Windows.  Should this only be present if
+# building on mingw?
+AC_ARG_ENABLE([windows-gui],
+        [AS_HELP_STRING([--enable-windows-gui],
+            [create a GUI in Windows. If this is disabled use a Windows console. @<:@default=yes@:>@])],
+        [case "${enableval}" in
+           yes) enablegui=true ;;
+           no)  enablegui=false ;;
+           *) AC_MSG_ERROR([bad value ${enableval} for --enable-windows-gui]) ;;
+        esac],
+        [enablegui=true])
+AM_CONDITIONAL([WINDOWSGUI], [test x$enablegui = xtrue])
+
+# libpolyml can be a DLL but libpolymain can't.
 # Disable shared libraries by default.  It complicates installation to "non-standard" places.
 LT_INIT([win32-dll disable-shared])
 AM_MAINTAINER_MODE
