@@ -761,8 +761,59 @@ int PolyWinMain(
     // to connect it.  We use _get_osfhandle here because that
     // checks for handles passed in in the STARTUPINFO as well as
     // those inherited as standard handles.
-    if (_get_osfhandle(fileno(stdin)) == -1 ||
-        _get_osfhandle(fileno(stdout)) == -1)
+    HANDLE hStdInHandle = (HANDLE)_get_osfhandle(fileno(stdin));
+    HANDLE hStdOutHandle = (HANDLE)_get_osfhandle(fileno(stdout));
+    HANDLE hStdErrHandle = (HANDLE)_get_osfhandle(fileno(stderr));
+
+    // Do we have stdin?  If we do we need to create a pipe to buffer
+    // the input.
+    if (hStdInHandle != INVALID_HANDLE_VALUE)
+    {
+        // We're using the stdin passed in by the caller.  This may well
+        // be a pipe and in order to get reasonable performance we need
+        // to interpose a thread.  This is the only way to be able to have
+        // something we can pass to MsgWaitForMultipleObjects, in this case
+        // hInputEvent, which will indicate the input is available.
+        // Duplicate the handle because we're going to close this.
+        if (! DuplicateHandle(GetCurrentProcess(), hStdInHandle,
+                              GetCurrentProcess(), &hOldStdin, 0, TRUE, // inheritable
+                              DUPLICATE_SAME_ACCESS ))
+            return 1;
+
+        HANDLE hNewStdin = CreateCopyPipe(hOldStdin, hInputEvent);
+        if (hNewStdin == NULL) return 1;
+
+        SetConsoleCtrlHandler(CtrlHandler, TRUE); // May fail if there's no console.
+
+        // Replace the current stdin with the output from the pipe.
+        fclose(stdin);
+        int newstdin = _open_osfhandle ((INT_PTR)hNewStdin, _O_RDONLY | _O_TEXT);
+        if (newstdin != 0) _dup2(newstdin, 0);
+        fdopen(0, "rt");
+    }
+    else
+    {
+        // No stdin.  Open it on NUL.  If we actually create our own console
+        // we won't actually use this and instead we'll read from the console.
+        // In that case we won't use stdin but something else might.
+        fclose(stdin);
+        int newstdin = open("NUL", _O_RDONLY);
+        _dup2(newstdin, 0);
+        // Open it for stdio as well.  Because the entries in the FILE table
+        // are opened in order we need to do this to ensure that stdout and
+        // stderr point to the correct entries.
+        _fdopen(0, "rt");
+        hStdInHandle =  (HANDLE)_get_osfhandle(newstdin);
+        SetStdHandle(STD_INPUT_HANDLE, hStdInHandle);
+
+        // If we're not going to create a console because we have a stdout
+        // we need to set this as the original stdin.
+        if (hStdOutHandle != INVALID_HANDLE_VALUE)
+            hOldStdin = hStdInHandle;
+    }
+
+    // If we don't have a standard output we use our own console.
+    if (hStdOutHandle == INVALID_HANDLE_VALUE)
     {
         WNDCLASSEX wndClass;
         ATOM atClass;
@@ -776,8 +827,7 @@ int PolyWinMain(
         HANDLE hTemp;
         // The pipe handles we have are not inheritable.  We have to
         // make hWriteToScreen an inheritable handle so that
-        // processes we fork using "system" or "_popen"
-        // (used for profiling) can write to the screen.
+        // processes we fork using "system" can write to the screen.
         if (! DuplicateHandle(GetCurrentProcess(), hWriteToScreen,
                              GetCurrentProcess(), &hTemp, 0, TRUE, // inheritable
                              DUPLICATE_SAME_ACCESS )) {
@@ -786,34 +836,28 @@ int PolyWinMain(
         CloseHandle(hWriteToScreen);
         hWriteToScreen = hTemp;
 
-        // We never use stdin internally if we have our own console
-        // but _pipe, (used in profiling) at least, needs stdin to
-        // be non-empty.  Open it on NUL.
-        fclose(stdin);
-        int newstdin = open("NUL", _O_RDONLY);
-        _dup2(newstdin, 0);
-        // Open it for stdio as well.  Because the entries in the FILE table
-        // are opened in order we need to do this to ensure that stdout and
-        // stderr point to the correct entries.
-        fdopen(0, "rt");
-        SetStdHandle(STD_INPUT_HANDLE, (HANDLE)_get_osfhandle(newstdin));
         // Replace the standard Windows handles.
         SetStdHandle(STD_OUTPUT_HANDLE, hWriteToScreen);
-        SetStdHandle(STD_ERROR_HANDLE, hWriteToScreen);
         // Close the stdio streams.  They may have been opened
         // on dummy handles.
         fclose(stdout);
-        fclose(stderr);
         // Set up the new handles.
         int newstdout = _open_osfhandle ((INT_PTR)hWriteToScreen, _O_TEXT);
         if (newstdout != 1) _dup2(newstdout, 1);
-        _dup2(newstdout, 2); // Stderr
         // Open for stdio.
-        fdopen(1, "wt"); // == stdout
-        fdopen(2, "wt"); // == stderr
-        // Set stderr to unbuffered so that messages get written correctly.
-        // (stdout is explicitly flushed).
-        setvbuf(stderr, NULL, _IONBF, 0);
+        _fdopen(1, "wt"); // == stdout
+
+        if (hStdErrHandle == INVALID_HANDLE_VALUE)
+        {
+            // If we didn't have stderr write any stderr output to our console.
+            SetStdHandle(STD_ERROR_HANDLE, hWriteToScreen);
+            fclose(stderr);
+            _dup2(newstdout, 2); // Stderr
+            _fdopen(2, "wt"); // == stderr
+            // Set stderr to unbuffered so that messages get written correctly.
+            // (stdout is explicitly flushed).
+            setvbuf(stderr, NULL, _IONBF, 0);
+        }
 
         // Create a thread to manage the output from ML.
         HANDLE hInThread = CreateThread(NULL, 0, InThrdProc, 0, 0, &dwInId);
@@ -863,28 +907,19 @@ int PolyWinMain(
         // actually using another window this will never get displayed.
         nInitialShow = nCmdShow;
     }
-    else {
-        // We're using the stdin passed in by the caller.  This may well
-        // be a pipe and in order to get reasonable performance we need
-        // to interpose a thread.  This is the only way to be able to have
-        // something we can pass to MsgWaitForMultipleObjects, in this case
-        // hInputEvent, which will indicate the input is available.
-        // Duplicate the handle because we're going to close this.
-        if (! DuplicateHandle(GetCurrentProcess(), GetStdHandle(STD_INPUT_HANDLE),
-                              GetCurrentProcess(), &hOldStdin, 0, TRUE, // inheritable
-                              DUPLICATE_SAME_ACCESS ))
-            return 1;
-
-        HANDLE hNewStdin = CreateCopyPipe(hOldStdin, hInputEvent);
-        if (hNewStdin == NULL) return 1;
-
-        SetConsoleCtrlHandler(CtrlHandler, TRUE); // May fail if there's no console.
-
-        // Replace the current stdin with the output from the pipe.
-        fclose(stdin);
-        int newstdin = _open_osfhandle ((INT_PTR)hNewStdin, _O_RDONLY | _O_TEXT);
-        if (newstdin != 0) _dup2(newstdin, 0);
-        fdopen(0, "rt");
+    // We had a stdout but maybe not stderr.  We could choose to direct stderr output
+    // to the provided stdout but maybe that's not what the user wants.  Instead
+    // we open one on NUL.
+    else if (hStdErrHandle == INVALID_HANDLE_VALUE)
+    {
+        fclose(stderr);
+        int newstderr = open("NUL", _O_WRONLY);
+        _dup2(newstderr, 2); // Stderr
+        _fdopen(2, "wt"); // == stderr
+        SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(newstderr));
+        // Set stderr to unbuffered so that messages get written correctly.
+        // (stdout is explicitly flushed).
+        setvbuf(stderr, NULL, _IONBF, 0);
     }
 
     // Set nArgs and lpArgs to the command line arguments.
