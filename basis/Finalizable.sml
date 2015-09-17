@@ -89,31 +89,32 @@ structure Finalizable :> FINALIZABLE =
           Thread.ConditionVar.wait (Weak.weakSignal, Weak.weakLock)
         )
       )
+
+
+        fun cleanAtExit () =
+        let
+            fun loop ps =
+              let
+                val () = PolyML.fullGC ()  (* PolyML.fullGC is synchronous *)
+                val (changed, ps') = clean ((), ps)
+              in
+                if changed
+                then loop ps'
+                else ()
+              end
+
+            (* Empty the pending list so that the cleaning thread does not
+             * start running finalizers too. *)
+            val ps = updatePendingList swap []
+        in
+            loop ps
+        end
+
+        fun startUp () = (Thread.Thread.fork (threadFn, []); OS.Process.atExit cleanAtExit)
     in
-      val _ = Thread.Thread.fork (threadFn, [])
+        val () = PolyML.onEntry startUp; (* For future sessions *)
+        val () = startUp() (* For this session *)
     end
-
-
-    fun cleanAtExit () =
-      let
-        fun loop ps =
-          let
-            val () = PolyML.fullGC ()  (* PolyML.fullGC is synchronous *)
-            val (changed, ps') = clean ((), ps)
-          in
-            if changed
-            then loop ps'
-            else ()
-          end
-
-        (* Empty the pending list so that the cleaning thread does not
-         * start running finalizers too. *)
-        val ps = updatePendingList swap []
-      in
-        loop ps
-      end
-    val () = OS.Process.atExit cleanAtExit
-
 
     fun new (v : 'a) : 'a t =
       let
