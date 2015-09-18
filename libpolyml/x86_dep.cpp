@@ -438,6 +438,7 @@ extern "C" {
     extern int word_neq();
     extern int not_bool();
     extern int string_length();
+    extern int touch_final();
     extern int int_geq(), int_leq(), int_gtr(), int_lss();
     extern int or_word(), and_word(), xor_word(), shift_left_word(), shift_right_arith_word();
     extern int word_eq();
@@ -2390,6 +2391,7 @@ void X86Dependent::InitInterfaceVector(void)
     add_function_to_io_area(POLY_SYS_word_neq, &word_neq);
     add_function_to_io_area(POLY_SYS_not_bool, &not_bool);
     add_function_to_io_area(POLY_SYS_string_length, &string_length);
+    add_function_to_io_area(POLY_SYS_touch_final, &touch_final);
     add_function_to_io_area(POLY_SYS_int_eq, &word_eq);
     add_function_to_io_area(POLY_SYS_int_neq, &word_neq);
     add_function_to_io_area(POLY_SYS_int_geq, &int_geq);

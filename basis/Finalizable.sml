@@ -29,9 +29,8 @@ structure Finalizable :> FINALIZABLE =
       }
 
     (* `touch (T {value, ...})` is an operation that requires `value` but
-     * does nothing.  Something has to be done to `value` to require it, so
-     * it is assigned to itself. *)
-    fun touch (T {value, ...}) = value := !value
+     * does nothing. *)
+    fun touch (T {value, ...}) = RunCall.run_call1 RuntimeCalls.POLY_SYS_touch_final value: unit
 
     fun withValue (t as T {value, ...}, f) =
       f (!value) handle e => (touch t; raise e)

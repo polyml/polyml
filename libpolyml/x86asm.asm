@@ -1506,6 +1506,10 @@ alloc_in_rts:
     MOVL    Reax,Redi
 CALLMACRO   CALL_IO    POLY_SYS_alloc_store
 
+CALLMACRO   INLINE_ROUTINE touch_final
+;# This is really a pseudo-op
+    MOVL    CONST UNIT,Reax
+CALLMACRO   RegMask touch_final,(M_Reax)
 
 CALLMACRO   INLINE_ROUTINE  add_long
     MOVL    Reax,Redi
@@ -3225,7 +3229,7 @@ ENDIF
     dd  Mask_all                 ;# 225 is unused
     dd  Mask_all                 ;# 226 is unused
     dd  Mask_all                 ;# 227 is unused
-    dd  Mask_all                 ;# 228 is unused
+    dd  Mask_touch_final         ;# 228
     dd  Mask_int_eq              ;# 229
     dd  Mask_int_neq             ;# 230
     dd  Mask_int_geq             ;# 231
