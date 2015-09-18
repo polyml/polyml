@@ -70,12 +70,12 @@ structure Finalizable :> FINALIZABLE =
     fun clean ((), ps) =
       foldl
         (
-          fn (p as {isAlive, runFinalizers}, (changed, ps)) =>
+          fn (p as {isAlive, runFinalizers}, (runNowFns, ps)) =>
             if isAlive ()
-            then (changed, p :: ps)
-            else (runFinalizers (); (true, ps))
+            then (runNowFns, p :: ps)
+            else (runFinalizers :: runNowFns, ps)
         )
-        (false, [])
+        ([], [])
         ps
 
     fun swap (a, b) = (b, a)
@@ -85,7 +85,7 @@ structure Finalizable :> FINALIZABLE =
       fun threadFn () = (
         Thread.Mutex.lock Weak.weakLock;
         while true do (
-          ignore (updatePendingList clean ());
+          app (fn f => f ()) (updatePendingList clean ());
           Thread.ConditionVar.wait (Weak.weakSignal, Weak.weakLock)
         )
       )
@@ -96,9 +96,10 @@ structure Finalizable :> FINALIZABLE =
             fun loop ps =
               let
                 val () = PolyML.fullGC ()  (* PolyML.fullGC is synchronous *)
-                val (changed, ps') = clean ((), ps)
+                val (runNowFns, ps') = clean ((), ps)
               in
-                if changed
+                app (fn f => f ()) runNowFns;
+                if not (null runNowFns)
                 then loop ps'
                 else ()
               end
