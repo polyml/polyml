@@ -7,8 +7,6 @@
  * The structure Finalizable is based on MLtonFinalizable.  See
  * https://github.com/MLton/mlton/blob/master/basis-library/mlton/finalizable.sml
  *
- * The function cleanAtExit does not appear to run any finalizers.  This needs
- * investigating.
  *)
 
 signature FINALIZABLE =
@@ -49,7 +47,10 @@ structure Finalizable :> FINALIZABLE =
 
     local
       (* global state for finalizables that have not been finalized. *)
-      val pendingList : pending list ref = ref []
+      (* Use a no-overwrite reference here so that it is not reset when
+         SaveState.loadState is called. *)
+      val pendingList : pending list ref = 
+        LibrarySupport.noOverwriteRef []
 
       fun update f x =
         let
