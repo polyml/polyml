@@ -101,18 +101,29 @@ void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
                 // set the contents of the SOME to TAGGED(0).
                 ASSERT(someObj->Length() == 1 && someObj->IsWordObject()); // Should be a SOME node.
                 PolyWord refAddress = someObj->Get(0);
-                LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
-                if (space != 0)
-                    // If the ref is permanent it's always there.
+                bool deleteRef = false;
+                if (refAddress.IsTagged())
+                    // If we have the same SOME cell referenced in two different places
+                    // we will have overwritten the address with TAGGED(0) "For safety".
+                    // We still need to overwrite the new reference to the SOME cell.
+                    deleteRef = true; // We've overwritten it.
+                else
                 {
-                    POLYUNSIGNED new_bitno = space->wordNo(refAddress.AsStackAddr());
-                    if (! space->bitmap.TestBit(new_bitno))
+                    // Usual case: the contents of the SOME cell is the address of a ref.
+                    LocalMemSpace *space = gMem.LocalSpaceForAddress(refAddress.AsAddress());
+                    if (space != 0) // If the ref is permanent it's always there.
                     {
+                        POLYUNSIGNED new_bitno = space->wordNo(refAddress.AsStackAddr());
                         // It wasn't marked so it's otherwise unreferenced.
-                        baseAddr[i] = TAGGED(0); // Set it to NONE.
-                        someObj->Set(0, TAGGED(0)); // For safety.
-                        convertedWeak = true;
+                        if (! space->bitmap.TestBit(new_bitno)) deleteRef = true;
                     }
+                }
+                if (deleteRef)
+                {
+                        
+                    baseAddr[i] = TAGGED(0); // Set it to NONE.
+                    someObj->Set(0, TAGGED(0)); // For safety.
+                    convertedWeak = true;
                 }
             }
         }
