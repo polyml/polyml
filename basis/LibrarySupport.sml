@@ -54,7 +54,6 @@ sig
     val stringAsAddress : string -> address
     val w8vectorAsAddress : Word8Array.vector -> address
     val maxAllocation: word
-    val reraise: exn -> 'a
     val noOverwriteRef: 'a -> 'a ref
 end
 =
@@ -279,12 +278,5 @@ struct
         fun noOverwriteRef (a: 'a) : 'a ref =
             RunCall.unsafeCast(System_alloc(0w1, 0wx48, RunCall.unsafeCast a))
     end
-
-    (* Re-raise an exception that has been handled preserving the location. *)
-    fun reraise exn =
-        case PolyML.exceptionLocation exn of
-            NONE => raise exn
-        |   SOME location => PolyML.raiseWithLocation (exn, location);
-
 end;
 

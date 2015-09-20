@@ -1618,14 +1618,14 @@ in
                     open PolyML.Compiler
                     val code = PolyML.compiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
                         handle exn =>
-                            ( closeIn(!stream); LibrarySupport.reraise exn )
+                            ( closeIn(!stream); PolyML.Exception.reraise exn )
                 in
                     code() handle exn =>
                     (
                         (* Report exceptions in running code. *)
                         TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                         input1 (! stream);
-                        LibrarySupport.reraise exn
+                        PolyML.Exception.reraise exn
                     )
                 end;
                 (* Normal termination: close the stream. *)

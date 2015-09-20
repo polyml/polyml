@@ -20,10 +20,10 @@
 
 val () = Bootstrap.use "basis/RuntimeCalls.ML";
 val () = Bootstrap.use "basis/InitialBasis.ML";
-val () = Bootstrap.use "basis/InitialPolyML.ML";
 val () = Bootstrap.use "basis/Universal.ML";
 val () = Bootstrap.use "basis/General.sml";
 val () = Bootstrap.use "basis/LibrarySupport.sml";
+val () = Bootstrap.use "basis/PolyMLException.sml";
 val () = Bootstrap.use "basis/Option.sml";
 val () = Bootstrap.use "basis/VectorOperations.sml";
 val () = Bootstrap.use "basis/PolyVectorOperations.sml";
@@ -76,6 +76,7 @@ val () = Bootstrap.use "basis/Timer.sml";
 val () = Bootstrap.use "basis/CommandLine.sml";
 val () = Bootstrap.use "basis/OS.sml";
 val () = Bootstrap.use "basis/ExnPrinter.sml"; (* Relies on OS. *)
+val () = Bootstrap.use "basis/InitialPolyML.ML"; (* Relies on OS. *)
 val () = Bootstrap.use "basis/IO.sml";
 val () = Bootstrap.use "basis/PRIM_IO.sml";
 val () = Bootstrap.use "basis/PrimIO.sml";

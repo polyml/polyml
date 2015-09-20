@@ -711,7 +711,7 @@ struct
             (
                 unlock m; restoreAttrs();
                 (* Reraise the exception preserving the location information. *)
-                LibrarySupport.reraise exn
+                PolyML.Exception.reraise exn
             )
     in
         unlock m;

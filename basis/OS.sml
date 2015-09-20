@@ -1118,8 +1118,6 @@ struct
         end
 
         local
-        (* This code is duplicated in prelude2 for when a root function returns
-           without calling OS.Process.exit. *)
             val doExit =
                 RunCall.run_call1 RuntimeCalls.POLY_SYS_exit
             val doCall: int*unit -> (unit->unit) =
