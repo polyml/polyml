@@ -3,12 +3,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2007-12
+    Further development Copyright David C.J. Matthews 2007-12, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -154,6 +153,7 @@
 #define POLY_SYS_word_neq            217
 #define POLY_SYS_not_bool            218
 #define POLY_SYS_string_length       223
+#define POLY_SYS_touch_final         228
 #define POLY_SYS_int_eq              229  // Deprecated - identical to word_eq
 #define POLY_SYS_int_neq             230  // Deprecated - identical to word_ne
 #define POLY_SYS_int_geq             231

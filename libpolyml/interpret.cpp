@@ -531,7 +531,11 @@ int IntTaskData::SwitchToPoly()
                            single character. */
                         if (IS_INT(*sp)) *sp = TAGGED(1);
                         else *sp = TAGGED(((PolyStringObject*)(*sp).AsObjPtr())->length);
-                        break; 
+                        break;
+
+                    case POLY_SYS_touch_final:
+                        *sp = TAGGED(0);
+                        break;
 
                     case POLY_SYS_set_string_length: 
                         {
@@ -1935,6 +1939,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_word_neq, TAGGED(POLY_SYS_word_neq));
     add_word_to_io_area(POLY_SYS_not_bool, TAGGED(POLY_SYS_not_bool));
     add_word_to_io_area(POLY_SYS_string_length, TAGGED(POLY_SYS_string_length));
+    add_word_to_io_area(POLY_SYS_touch_final, TAGGED(POLY_SYS_touch_final));
     add_word_to_io_area(POLY_SYS_int_eq, TAGGED(POLY_SYS_int_eq));
     add_word_to_io_area(POLY_SYS_int_neq, TAGGED(POLY_SYS_int_neq));
     add_word_to_io_area(POLY_SYS_int_geq, TAGGED(POLY_SYS_int_geq));

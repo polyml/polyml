@@ -196,6 +196,7 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_word_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_touch_final: return PROPWORD_NORAISE; // We need to treat this as though it had side-effects.
     case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;

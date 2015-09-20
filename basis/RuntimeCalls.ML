@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2012
+    Further work copyright David C. J. Matthews 2012, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -143,6 +142,7 @@ struct
   val POLY_SYS_word_neq            = 217
   val POLY_SYS_not_bool            = 218
   val POLY_SYS_string_length       = 223
+  val POLY_SYS_touch_final         = 228
   val POLY_SYS_int_geq             = 231 (* These are actually arbitrary precision ops. *)
   val POLY_SYS_int_leq             = 232
   val POLY_SYS_int_gtr             = 233
