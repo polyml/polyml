@@ -4,11 +4,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
+    Further development Copyright David C.J. Matthews 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -492,10 +492,6 @@ int IntTaskData::SwitchToPoly()
                             goto CALL_CLOSURE;
                         }
  
-                    case POLY_SYS_int_eq: u = *sp++; *sp = (u == *sp)?True:False; break;
-
-                    case POLY_SYS_int_neq: u = *sp++; *sp = (u != *sp)?True:False; break;
-
                     case POLY_SYS_word_eq: 
                        u = *sp++;
                        *sp = u == *sp ? True : False;
@@ -1176,7 +1172,7 @@ int IntTaskData::SwitchToPoly()
                 break;
                 }
 
-        case INSTR_io_vec_229: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_eq); break;
+
         case INSTR_io_vec_233: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_int_gtr); break;
         case INSTR_io_vec_236: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_or_word); break;
         case INSTR_io_vec_251: *(--sp) = (PolyObject*)IoEntry(POLY_SYS_word_eq); break;
@@ -1940,8 +1936,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_not_bool, TAGGED(POLY_SYS_not_bool));
     add_word_to_io_area(POLY_SYS_string_length, TAGGED(POLY_SYS_string_length));
     add_word_to_io_area(POLY_SYS_touch_final, TAGGED(POLY_SYS_touch_final));
-    add_word_to_io_area(POLY_SYS_int_eq, TAGGED(POLY_SYS_int_eq));
-    add_word_to_io_area(POLY_SYS_int_neq, TAGGED(POLY_SYS_int_neq));
     add_word_to_io_area(POLY_SYS_int_geq, TAGGED(POLY_SYS_int_geq));
     add_word_to_io_area(POLY_SYS_int_leq, TAGGED(POLY_SYS_int_leq));
     add_word_to_io_area(POLY_SYS_int_gtr, TAGGED(POLY_SYS_int_gtr));

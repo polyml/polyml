@@ -1122,12 +1122,10 @@ CALLMACRO   RegMask move_words,Mask_all
 RetFalse:
     MOVL    CONST FALSE,Reax
     ret
-CALLMACRO   RegMask int_eq,(M_Reax)
 
 RetTrue:
     MOVL    CONST TRUE,Reax
     ret
-CALLMACRO   RegMask int_neq,(M_Reax)
 
 CALLMACRO   INLINE_ROUTINE  not_bool
     XORL    CONST (TRUE-TAG),Reax   ;# Change the value but leave the tag
@@ -2988,6 +2986,280 @@ CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
 CALLMACRO CREATE_EXTRA_CALL RETURN_RAISE_DIV
 CALLMACRO CREATE_EXTRA_CALL RETURN_ARB_EMULATION
 
+
+;# Entry point vector.  These are copied into the io_vector during initialisation.
+IFDEF WINDOWS
+IFDEF HOSTARCHITECTURE_X86_64
+DDQ    TEXTEQU <dq>
+ELSE
+DDQ    TEXTEQU <dd>
+ENDIF
+    align 4
+    PUBLIC entryPointVector
+entryPointVector DDQ 0                   ;# 0 is unused
+ELSE
+#define DDQ  .long
+        GLOBAL EXTNAME(entryPointVector)
+EXTNAME(entryPointVector):
+    DDQ 0                               ;# 0 is unused
+ENDIF
+    DDQ  X86AsmCallPOLY_SYS_exit        ;# 1
+    DDQ  0                              ;# 2 is unused
+    DDQ  0                              ;# 3 is unused
+    DDQ  0                              ;# 4 is unused
+    DDQ  0                              ;# 5 is unused
+    DDQ  0                              ;# 6 is unused
+    DDQ  0                              ;# 7 is unused
+    DDQ  0                              ;# 8 is unused
+    DDQ  X86AsmCallPOLY_SYS_chdir       ;# 9
+    DDQ  0                              ;# 10 is unused
+    DDQ  alloc_store                    ;# 11
+    DDQ  alloc_uninit                   ;# 12
+    DDQ  0                              ;# 13 is unused
+    DDQ  raisex                         ;# raisex = 14
+    DDQ  get_length_a                   ;# 15
+    DDQ  0                              ;# 16 is unused
+    DDQ  X86AsmCallPOLY_SYS_get_flags   ;# 17
+    DDQ  0                              ;# 18 is no longer used
+    DDQ  0                              ;# 19 is no longer used
+    DDQ  0                              ;# 20 is no longer used
+    DDQ  0                              ;# 21 is unused
+    DDQ  0                              ;# 22 is unused
+    DDQ  str_compare                    ;# 23
+    DDQ  0                              ;# 24 is unused
+    DDQ  0                              ;# 25 is unused
+    DDQ  teststrgtr                     ;# 26
+    DDQ  teststrlss                     ;# 27
+    DDQ  teststrgeq                     ;# 28
+    DDQ  teststrleq                     ;# 29
+    DDQ  0                              ;# 30
+    DDQ  0                              ;# 31 is no longer used
+    DDQ  X86AsmCallPOLY_SYS_exception_trace_fn ;# 32
+    DDQ  0                              ;# 33 - exception trace
+    DDQ  0                              ;# 34 is no longer used
+    DDQ  0                              ;# 35 is no longer used
+    DDQ  0                              ;# 36 is no longer used
+    DDQ  0                              ;# 37 is unused
+    DDQ  0                              ;# 38 is unused
+    DDQ  0                              ;# 39 is unused
+    DDQ  0                              ;# 40 is unused
+    DDQ  0                              ;# 41 is unused
+    DDQ  0                              ;# 42
+    DDQ  0                              ;# 43
+    DDQ  0                              ;# 44 is no longer used
+    DDQ  0                              ;# 45 is no longer used
+    DDQ  0                              ;# 46
+    DDQ  locksega                       ;# 47
+    DDQ  0                              ;# nullorzero = 48
+    DDQ  0                              ;# 49 is no longer used
+    DDQ  0                              ;# 50 is no longer used
+    DDQ  X86AsmCallPOLY_SYS_network     ;# 51
+    DDQ  X86AsmCallPOLY_SYS_os_specific ;# 52
+    DDQ  eq_longword                    ;# 53
+    DDQ  neq_longword                   ;# 54
+    DDQ  geq_longword                   ;# 55
+    DDQ  leq_longword                   ;# 56
+    DDQ  gt_longword                    ;# 57
+    DDQ  lt_longword                    ;# 58
+    DDQ  0                              ;# 59 is unused
+    DDQ  0                              ;# 60 is unused
+    DDQ  X86AsmCallPOLY_SYS_io_dispatch ;# 61
+    DDQ  X86AsmCallPOLY_SYS_signal_handler ;# 62
+    DDQ  0                              ;# 63 is unused
+    DDQ  0                              ;# 64 is unused
+    DDQ  0                              ;# 65 is unused
+    DDQ  0                              ;# 66 is unused
+    DDQ  0                              ;# 67 is unused
+    DDQ  0                              ;# 68 is unused
+    DDQ  atomic_reset                   ;# 69
+    DDQ  atomic_incr                    ;# 70
+    DDQ  atomic_decr                    ;# 71
+    DDQ  thread_self                    ;# 72
+    DDQ  X86AsmCallPOLY_SYS_thread_dispatch ;# 73
+    DDQ  plus_longword                  ;# 74
+    DDQ  minus_longword                 ;# 75
+    DDQ  mul_longword                   ;# 76
+    DDQ  div_longword                   ;# 77
+    DDQ  mod_longword                   ;# 78
+    DDQ  andb_longword                  ;# 79
+    DDQ  orb_longword                   ;# 80
+    DDQ  xorb_longword                  ;# 81
+    DDQ  0                              ;# 82 is unused
+    DDQ  0                              ;# 83 is now unused
+    DDQ  X86AsmCallPOLY_SYS_kill_self   ;# 84
+    DDQ  shift_left_longword            ;# 85
+    DDQ  shift_right_longword           ;# 86
+    DDQ  shift_right_arith_longword     ;# 87
+    DDQ  X86AsmCallPOLY_SYS_profiler    ;# 88
+    DDQ  longword_to_tagged             ;# 89
+    DDQ  signed_to_longword             ;# 90
+    DDQ  unsigned_to_longword           ;# 91
+    DDQ  X86AsmCallPOLY_SYS_full_gc     ;# 92
+    DDQ  X86AsmCallPOLY_SYS_stack_trace ;# 93
+    DDQ  X86AsmCallPOLY_SYS_timing_dispatch ;# 94
+    DDQ  0                              ;# 95 is unused
+    DDQ  0                              ;# 96 is unused
+    DDQ  0                              ;# 97 is unused
+    DDQ  0                              ;# 98 is unused
+    DDQ  X86AsmCallPOLY_SYS_objsize     ;# 99
+    DDQ  X86AsmCallPOLY_SYS_showsize    ;# 100
+    DDQ  0                              ;# 101 is unused
+    DDQ  0                              ;# 102 is unused
+    DDQ  0                              ;# 103 is unused
+    DDQ  quotrem_long                   ;# 104
+    DDQ  is_shorta                      ;# 105
+    DDQ  add_long                       ;# 106
+    DDQ  sub_long                       ;# 107
+    DDQ  mult_long                      ;# 108
+    DDQ  div_long                       ;# 109
+    DDQ  rem_long                       ;# 110
+    DDQ  neg_long                       ;# 111
+    DDQ  xor_long                       ;# 112
+    DDQ  equal_long                     ;# 113
+    DDQ  or_long                        ;# 114
+    DDQ  and_long                       ;# 115
+    DDQ  0                              ;# 116 is unused
+    DDQ  X86AsmCallPOLY_SYS_Real_str    ;# 117
+    DDQ  real_geq                       ;# 118
+    DDQ  real_leq                       ;# 119
+    DDQ  real_gtr                       ;# 120
+    DDQ  real_lss                       ;# 121
+    DDQ  real_eq                        ;# 122
+    DDQ  real_neq                       ;# 123
+    DDQ  X86AsmCallPOLY_SYS_Real_Dispatch  ;# 124
+    DDQ  real_add                       ;# 125
+    DDQ  real_sub                       ;# 126
+    DDQ  real_mul                       ;# 127
+    DDQ  real_div                       ;# 128
+    DDQ  real_abs                       ;# 129
+    DDQ  real_neg                       ;# 130
+    DDQ  0                              ;# 131 is unused
+    DDQ  X86AsmCallPOLY_SYS_Repr_real   ;# 132
+    DDQ  X86AsmCallPOLY_SYS_conv_real   ;# 133
+    DDQ  X86AsmCallPOLY_SYS_real_to_int ;# 134
+    DDQ  real_from_int                  ;# 135
+    DDQ  X86AsmCallPOLY_SYS_sqrt_real   ;# 136
+    DDQ  X86AsmCallPOLY_SYS_sin_real    ;# 137
+    DDQ  X86AsmCallPOLY_SYS_cos_real    ;# 138
+    DDQ  X86AsmCallPOLY_SYS_arctan_real ;# 139
+    DDQ  X86AsmCallPOLY_SYS_exp_real    ;# 140
+    DDQ  X86AsmCallPOLY_SYS_ln_real     ;# 141
+    DDQ  0                              ;# 142 is no longer used
+    DDQ  0                              ;# 143 is unused
+    DDQ  0                              ;# 144 is unused
+    DDQ  0                              ;# 145 is unused
+    DDQ  0                              ;# 146 is unused
+    DDQ  0                              ;# 147 is unused
+    DDQ  0                              ;# stdin = 148
+    DDQ  0                              ;# stdout= 149
+    DDQ  X86AsmCallPOLY_SYS_process_env ;# 150
+    DDQ  set_string_length_a            ;# 151
+    DDQ  get_first_long_word_a          ;# 152
+    DDQ  X86AsmCallPOLY_SYS_poly_specific ;# 153
+    DDQ  bytevec_eq                     ;# 154
+    DDQ  0                                          ;# 155 is unused
+    DDQ  0                              ;# 156 is unused
+    DDQ  0                              ;# 157 is unused
+    DDQ  0                              ;# 158 is unused
+    DDQ  0                              ;# 159 is unused
+    DDQ  0                              ;# 160 is unused
+    DDQ  0                              ;# 161 is unused
+    DDQ  0                              ;# 162 is unused
+    DDQ  0                              ;# 163 is unused
+    DDQ  0                              ;# 164 is unused
+    DDQ  0                              ;# 165 is unused
+    DDQ  0                              ;# 166 is unused
+    DDQ  0                              ;# 167 is unused
+    DDQ  0                              ;# 168 is unused
+    DDQ  0                              ;# 169 is unused
+    DDQ  0                              ;# 170 is unused
+    DDQ  0                              ;# 171 is unused
+    DDQ  0                              ;# 172 is unused
+    DDQ  0                              ;# 173 is unused
+    DDQ  0                              ;# 174 is unused
+    DDQ  0                              ;# 175 is unused
+    DDQ  0                              ;# 176 is unused
+    DDQ  0                              ;# 177 is unused
+    DDQ  0                              ;# 178 is unused
+    DDQ  0                              ;# 179 is unused
+    DDQ  0                              ;# 180 is unused
+    DDQ  0                              ;# 181 is unused
+    DDQ  0                              ;# 182 is unused
+    DDQ  0                              ;# 183 is unused
+    DDQ  0                              ;# 184 is unused
+    DDQ  0                              ;# 185 is unused
+    DDQ  0                              ;# 186 is unused
+    DDQ  0                              ;# 187 is unused
+    DDQ  0                              ;# 188 is unused
+    DDQ  X86AsmCallPOLY_SYS_io_operation ;# 189
+    DDQ  0                              ;# 190 is unused
+    DDQ  0                              ;# 191 is no longer used
+    DDQ  0                              ;# 192 is unused
+    DDQ  move_words                     ;# move_words_overlap = 193
+    DDQ  X86AsmCallPOLY_SYS_set_code_constant ;# 194
+    DDQ  move_words                     ;# 195
+    DDQ  shift_right_arith_word         ;# 196
+    DDQ  int_to_word                    ;# 197
+    DDQ  move_bytes                     ;# 198
+    DDQ  move_bytes                     ;# move_words_overlap = 199
+    DDQ  X86AsmCallPOLY_SYS_code_flags  ;# 200
+    DDQ  X86AsmCallPOLY_SYS_shrink_stack ;# 201
+    DDQ  0                              ;# stderr = 202
+    DDQ  0                              ;# 203 now unused
+    DDQ  X86AsmCallPOLY_SYS_callcode_tupled ;# 204
+    DDQ  X86AsmCallPOLY_SYS_foreign_dispatch ;# 205
+    DDQ  0                              ;# 206 - foreign null
+    DDQ  0                              ;# 207 is unused
+    DDQ  0                              ;# 208 now unused
+    DDQ  X86AsmCallPOLY_SYS_XWindows ;# 209
+    DDQ  0                              ;# 210 is unused
+    DDQ  0                              ;# 211 is unused
+    DDQ  0                              ;# 212 is unused
+    DDQ  is_big_endian                  ;# 213
+    DDQ  bytes_per_word                 ;# 214
+    DDQ  offset_address                 ;# 215
+    DDQ  shift_right_word               ;# 216
+    DDQ  word_neq                       ;# 217
+    DDQ  not_bool                       ;# 218
+    DDQ  0                              ;# 219 is unused
+    DDQ  0                              ;# 220 is unused
+    DDQ  0                              ;# 221 is unused
+    DDQ  0                              ;# 222 is unused
+    DDQ  string_length                  ;# 223
+    DDQ  0                              ;# 224 is unused
+    DDQ  0                              ;# 225 is unused
+    DDQ  0                              ;# 226 is unused
+    DDQ  0                              ;# 227 is unused
+    DDQ  touch_final                    ;# 228
+    DDQ  0                              ;# 229 is no longer used
+    DDQ  0                              ;# 230 is no longer used
+    DDQ  int_geq                        ;# 231
+    DDQ  int_leq                        ;# 232
+    DDQ  int_gtr                        ;# 233
+    DDQ  int_lss                        ;# 234
+    DDQ  load_byte                      ;# load_byte_immut = 235
+    DDQ  load_word                      ;# load_word_immut = 236
+    DDQ  0                              ;# 237 is unused
+    DDQ  mul_word                       ;# 238
+    DDQ  plus_word                      ;# 239
+    DDQ  minus_word                     ;# 240
+    DDQ  div_word                       ;# 241
+    DDQ  or_word                        ;# 242
+    DDQ  and_word                       ;# 243
+    DDQ  xor_word                       ;# 244
+    DDQ  shift_left_word                ;# 245
+    DDQ  mod_word                       ;# 246
+    DDQ  word_geq                       ;# 247
+    DDQ  word_leq                       ;# 248
+    DDQ  word_gtr                       ;# 249
+    DDQ  word_lss                       ;# 250
+    DDQ  word_eq                        ;# 251
+    DDQ  load_byte                      ;# 252
+    DDQ  load_word                      ;# 253
+    DDQ  assign_byte                    ;# 254
+    DDQ  assign_word                    ;# 255
+
+
 ;# Register mask vector. - extern int registerMaskVector[];
 ;# Each entry in this vector is a set of the registers modified
 ;# by the function.  It is an untagged bitmap with the registers
@@ -3033,7 +3305,7 @@ ENDIF
     dd  Mask_teststrleq          ;# 29
     dd  Mask_all                 ;# 30
     dd  Mask_all                 ;# 31 is no longer used
-    dd  Mask_all                 ;# 32 is no longer used
+    dd  Mask_all                 ;# exception_trace_fn 32
     dd  Mask_all                 ;# 33 is no longer used
     dd  Mask_all                 ;# 34 is no longer used
     dd  Mask_all                 ;# 35 is no longer used
@@ -3117,7 +3389,7 @@ ENDIF
     dd  Mask_equala              ;# 113
     dd  Mask_ora                 ;# 114
     dd  Mask_anda                ;# 115
-    dd  Mask_all                 ;# version_number_3 = 116
+    dd  Mask_all                 ;# 116 is unused
     dd  Mask_all                 ;# 117
     dd  Mask_real_geq            ;# 118
     dd  Mask_real_leq            ;# 119
@@ -3154,7 +3426,7 @@ ENDIF
     dd  Mask_all                 ;# 150
     dd  Mask_set_string_length   ;# 151
     dd  Mask_get_first_long_word ;# 152
-    dd  Mask_all                 ;# 153 is unused
+    dd  Mask_all                 ;# poly_specific = 153
     dd  Mask_bytevec_eq          ;# 154
     dd  Mask_all                 ;# 155 is unused
     dd  Mask_all                 ;# 156 is unused
@@ -3194,13 +3466,13 @@ ENDIF
     dd  Mask_all                 ;# 190 is unused
     dd  Mask_all                 ;# 191 is no longer used
     dd  Mask_all                 ;# 192 is unused
-    dd  Mask_all                 ;# 193 is unused
+    dd  Mask_move_words          ;# 193
     dd  Mask_all                 ;# 194
     dd  Mask_move_words          ;# 195
     dd  Mask_shift_right_arith_word  ;# 196
     dd  Mask_int_to_word         ;# 197
     dd  Mask_move_bytes          ;# 198
-    dd  Mask_all                 ;# 199 now unused
+    dd  Mask_move_bytes          ;# 199
     dd  Mask_all                 ;# 200
     dd  Mask_all                 ;# 201
     dd  Mask_all                 ;# stderr = 202
@@ -3230,14 +3502,14 @@ ENDIF
     dd  Mask_all                 ;# 226 is unused
     dd  Mask_all                 ;# 227 is unused
     dd  Mask_touch_final         ;# 228
-    dd  Mask_int_eq              ;# 229
-    dd  Mask_int_neq             ;# 230
+    dd  Mask_all                 ;# 229 - no longer used
+    dd  Mask_all                 ;# 230 - no longer used
     dd  Mask_int_geq             ;# 231
     dd  Mask_int_leq             ;# 232
     dd  Mask_int_gtr             ;# 233
     dd  Mask_int_lss             ;# 234
-    dd  Mask_all                 ;# 235
-    dd  Mask_all                 ;# 236 is unused
+    dd  Mask_load_byte           ;# load_byte_immut = 235
+    dd  Mask_load_word           ;# load_word_immut = 236
     dd  Mask_all                 ;# 237 is unused
     dd  Mask_mul_word            ;# 238
     dd  Mask_plus_word           ;# 239
