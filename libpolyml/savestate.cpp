@@ -634,7 +634,7 @@ void SaveRequest::Perform()
         _fputtc(0, exports.exportFile); // First byte of string table is zero
         _fputts(hierarchyTable[newHierarchy-2]->fileName, exports.exportFile);
         _fputtc(0, exports.exportFile); // A terminating null.
-        saveHeader.stringTableSize = _tcslen(hierarchyTable[newHierarchy-2]->fileName) + 2*sizeof(TCHAR);
+        saveHeader.stringTableSize = (_tcslen(hierarchyTable[newHierarchy-2]->fileName) + 2)*sizeof(TCHAR);
     }
 
     // Rewrite the header and the segment tables now they're complete.
@@ -1120,7 +1120,7 @@ Handle RenameParent(TaskData *taskData, Handle args)
     _fputtc(0, loadFile); // First byte of string table is zero
     _fputts(parentNameBuff, loadFile);
     _fputtc(0, loadFile); // A terminating null.
-    header.stringTableSize = _tcslen(parentNameBuff) + 2*sizeof(TCHAR);
+    header.stringTableSize = (_tcslen(parentNameBuff) + 2)*sizeof(TCHAR);
 
     // Now rewind and write the header with the revised string table.
     fseek(loadFile, 0, SEEK_SET);
