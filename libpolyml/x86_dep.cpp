@@ -382,9 +382,11 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
 
-    POLYUNSIGNED entryPointVector[];
-    int registerMaskVector[];
 };
+
+// GCC doesn't seem to like these inside the brackets above.
+extern "C" POLYUNSIGNED entryPointVector[];
+extern "C" int registerMaskVector[];
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
