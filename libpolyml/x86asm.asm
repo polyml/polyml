@@ -2973,7 +2973,11 @@ ENDIF
     PUBLIC entryPointVector
 entryPointVector DDQ 0                   ;# 0 is unused
 ELSE
-#define DDQ  .long
+IFDEF HOSTARCHITECTURE_X86_64
+#define DDQ .quad
+ELSE
+#define DDQ .long
+ENDIF
         GLOBAL EXTNAME(entryPointVector)
 EXTNAME(entryPointVector):
     DDQ 0                               ;# 0 is unused
