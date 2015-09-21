@@ -382,14 +382,15 @@ extern "C" {
     extern int X86AsmCallExtraRETURN_CALLBACK_RETURN(void);
     extern int X86AsmCallExtraRETURN_CALLBACK_EXCEPTION(void);
 
-    extern int raisex();
+    POLYUNSIGNED entryPointVector[];
+    int registerMaskVector[];
 };
 
 X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
 {
     memRegisters.inRTS = 1; // We start off in the RTS.
     // Point "raiseException" at the assembly code for "raisex"
-    memRegisters.raiseException = (byte*)raisex;
+    memRegisters.raiseException = (byte*)entryPointVector[POLY_SYS_raisex];
     // Entry point to save the state for an IO call.  This is the common entry
     // point for all the return and IO-call cases.
     memRegisters.ioEntry = (byte*)X86AsmSaveStateAndReturn;
@@ -2229,8 +2230,6 @@ void X86TaskData::ArbitraryPrecisionTrap()
 // It's 7 bytes on both x86 and X86_64.
 #define MAKE_CALL_SEQUENCE_BYTES     7
 
-extern "C" POLYUNSIGNED entryPointVector[];
-
 void X86Dependent::InitInterfaceVector(void)
 {
     for (int i = 0; i < POLY_SYS_vecsize; i++)
@@ -2634,8 +2633,6 @@ void X86Dependent::ScanConstantsWithinCode(PolyObject *addr, PolyObject *old, PO
         }
     }
 }
-
-extern "C" int registerMaskVector[];
 
 int X86TaskData::GetIOFunctionRegisterMask(int ioCall)
 {
