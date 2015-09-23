@@ -1521,7 +1521,14 @@ struct
                     (regIndex, ops)
                 end
                 else (entry, []) (* Safe *)
-        |   _ => (entry, []) (* Safe *)
+        |   _ =>
+            (* We must remove any floating point registers that cache this entry.
+               This is a bit of a shame because we may want the FP register
+               further on but is because argAsSource chooses ActInRegisterSet
+               if the cache is non-empty.  That's wrong if we want the FP value
+               in memory because we will attempt to store the FP register again.
+               See Tests/Succeed/Test159.ML *)
+            (entry, clearCacheEntry(table, floatingPtRegisters, entry))
 
     (* Checks if we are going to overwrite the stack, and loads the entry
        into a register. *)
@@ -2804,6 +2811,14 @@ struct
                 if cache <> noRegisters
                 then
                 (
+                    (* This assumes that it is preferable to have the value in a
+                       register.  That's generally true but can be wrong if we have
+                       pushed a floating point value to the stack, i.e. we've
+                       allocated a heap cell and stored the FP value into it
+                       then pushed the address of the cell.  In that case we
+                       might actually want the heap cell address.
+                       ensureNoAllocation has to clear the cache to make
+                       sure we use the address. *)
                     if lastRef
                     then ActInRegisterSet{modifiable=cache, readable=cache}
                     else ActInRegisterSet{modifiable=noRegisters, readable=cache}
