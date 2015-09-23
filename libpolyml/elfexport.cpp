@@ -180,6 +180,11 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
         }
         break;
 #if(defined(HOSTARCHITECTURE_X86) || defined(HOSTARCHITECTURE_X86_64))
+#ifdef HOSTARCHITECTURE_X86
+#define R_PC_RELATIVE R_386_PC32
+#else
+#define R_PC_RELATIVE R_X86_64_PC32
+#endif
      case PROCESS_RELOC_I386RELATIVE:         // 32 bit relative address
         {
             if (useRela)
@@ -188,7 +193,7 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 setRelocationAddress(addr, &reloc.r_offset);
                 // We seem to need to subtract 4 bytes to get the correct offset in ELF
                 offset -= 4;
-                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
+                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
                 reloc.r_addend = offset;
                 // Clear the field.  Even though it's not supposed to be used with Rela the
                 // Linux linker at least seems to add the value in here sometimes.
@@ -201,7 +206,7 @@ void ELFExport::ScanConstant(byte *addr, ScanRelocationKind code)
                 setRelocationAddress(addr, &reloc.r_offset);
                  // We seem to need to subtract 4 bytes to get the correct offset in ELF
                 offset -= 4;
-                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_386_PC32);
+                reloc.r_info = ELFXX_R_INFO(AreaToSym(aArea), R_PC_RELATIVE);
                 for (unsigned i = 0; i < 4; i++)
                 {
                     addr[i] = (byte)(offset & 0xff);
