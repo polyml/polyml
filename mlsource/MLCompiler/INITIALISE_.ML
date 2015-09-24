@@ -1442,7 +1442,7 @@ struct
             and codeForFunct (Functor{access = Global code, ...}) = code
             |   codeForFunct _ = raise Fail "Not a global functor"
             
-            fun propsForValue (Value {locations, ...}) = mapLocationProps locations
+            fun propsForValue (Value {locations, typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
             and propsForTypeConstr (TypeConstrs {locations, ...}) = mapLocationProps locations
             and propsForStruct (Struct {locations, ...}) = mapLocationProps locations
             and propsForSig (Signatures {locations, ...}) = mapLocationProps locations
