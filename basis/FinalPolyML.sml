@@ -98,6 +98,45 @@ local
         and forgetStruct = delete strTable
     end
 
+    local
+        open PolyML (* For prettyprint datatype *)
+
+        (* Install a pretty printer for parsetree properties.  This isn't done in
+           the compiler. *)
+        fun prettyProps depth _ l =
+            if depth <= 0 then PrettyString "..."
+            else prettyProp(l, depth-1)
+        
+        (* Use prettyRepresentation to print most of the arguments *)
+        and prettyProp(PTbreakPoint b, d) =     blockArg("PTbreakPoint", prettyRepresentation(b, d))
+        |   prettyProp(PTcompletions s, d) =    blockArg("PTcompletions", prettyRepresentation(s, d))
+        |   prettyProp(PTdeclaredAt l, d) =     blockArg("PTdeclaredAt", prettyRepresentation(l, d))
+        |   prettyProp(PTdefId i, d) =          blockArg("PTdefId", prettyRepresentation(i, d))
+        |   prettyProp(PTfirstChild _, _) =     blockArg("PTfirstChild", PrettyString "fn")
+        |   prettyProp(PTnextSibling _, _) =    blockArg("PTnextSibling", PrettyString "fn")
+        |   prettyProp(PTopenedAt f, d) =       blockArg("PTopenedAt", prettyRepresentation(f, d))
+        |   prettyProp(PTparent _, _) =         blockArg("PTparent", PrettyString "fn")
+        |   prettyProp(PTpreviousSibling _, _)= blockArg("PTpreviousSibling", PrettyString "fn")
+        |   prettyProp(PTprint _, _) =          blockArg("PTprint", PrettyString "fn")
+        |   prettyProp(PTreferences f, d) =     blockArg("PTreferences", prettyRepresentation(f, d))
+        |   prettyProp(PTrefId f, d) =          blockArg("PTrefId", prettyRepresentation(f, d))
+        |   prettyProp(PTstructureAt f, d) =    blockArg("PTstructureAt", prettyRepresentation(f, d))
+        |   prettyProp(PTtype f, d) =           blockArg("PTtype", prettyRepresentation(f, d))
+        
+        and blockArg (s, arg) =
+            PrettyBlock(3, true, [], [PrettyString s, PrettyBreak(1, 1), parenthesise arg])
+        
+        and parenthesise(p as PrettyBlock(_, _, _, PrettyString "(" :: _)) = p
+        |   parenthesise(p as PrettyBlock(_, _, _, PrettyString "{" :: _)) = p
+        |   parenthesise(p as PrettyBlock(_, _, _, PrettyString "[" :: _)) = p
+        |   parenthesise(p as PrettyBlock(_, _, _, _ :: _)) =
+                PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), p, PrettyBreak(0, 0), PrettyString ")" ])
+        |   parenthesise p = p
+
+    in
+        val () = addPrettyPrinter prettyProps
+    end
+
     (* PolyML.compiler takes a list of these parameter values.  They all
        default so it's possible to pass only those that are actually
        needed. *)
