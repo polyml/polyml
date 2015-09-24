@@ -93,15 +93,16 @@ structure ADDRESS : AddressSig
 
 structure DEBUG :
 sig
-    val lineNumberTag: (unit->int) Universal.tag
-    val offsetTag: (unit->int) Universal.tag
-    val fileNameTag: string Universal.tag
-    val profilingTag  : int Universal.tag;
-    val timingTag     : bool Universal.tag;
-    val printDepthFunTag : (unit->int) Universal.tag;
-    val errorDepthTag : int Universal.tag;
-    val lineLengthTag : int Universal.tag;
-    val profileAllocationTag : int Universal.tag
+    val lineNumberTag:          (unit->int) Universal.tag
+    val offsetTag:              (unit->int) Universal.tag
+    val fileNameTag:            string Universal.tag
+    val bindingCounterTag:      (unit->int) Universal.tag
+    val profilingTag:           int Universal.tag;
+    val timingTag:              bool Universal.tag;
+    val printDepthFunTag:       (unit->int) Universal.tag;
+    val errorDepthTag:          int Universal.tag;
+    val lineLengthTag:          int Universal.tag;
+    val profileAllocationTag:   int Universal.tag
 
     val assemblyCodeTag        : bool Universal.tag;
     val parsetreeTag           : bool Universal.tag;
@@ -1156,6 +1157,7 @@ struct
                [ ("PTbreakPoint",       Ref Bool),
                  ("PTcompletions",      List String),
                  ("PTdeclaredAt",       Location),
+                 ("PTdefId",            Int),
                  ("PTfirstChild",       Unit ->> ParseTree),
                  ("PTnextSibling",      Unit ->> ParseTree),
                  ("PTopenedAt",         Location),
@@ -1163,6 +1165,7 @@ struct
                  ("PTpreviousSibling",  Unit ->> ParseTree),
                  ("PTprint",            Int ->> PrettyType),
                  ("PTreferences",       Bool ** List Location),
+                 ("PTrefId",            Int),
                  ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];
@@ -1179,6 +1182,7 @@ struct
 
         in
             val ParseTree = ParseTree
+            and PtProperties = PtProperties
         end
 
 (*****************************************************************************)
@@ -1265,6 +1269,7 @@ struct
                 ("lineNumberTag",          toMachineWord (lineNumberTag : (unit->int) tag),     Tag (Unit->>Int)),
                 ("offsetTag",              toMachineWord (offsetTag: (unit->int) tag),          Tag (Unit->>Int)),
                 ("fileNameTag",            toMachineWord (fileNameTag: string tag),             Tag String),
+                ("bindingCounterTag",      toMachineWord (bindingCounterTag: (unit->int) tag),  Tag (Unit->>Int)),
                 ("maxInlineSizeTag",       toMachineWord (maxInlineSizeTag: int tag),           Tag Int),
                 ("assemblyCodeTag",        toMachineWord (assemblyCodeTag: bool tag),           Tag Bool),
                 ("parsetreeTag",           toMachineWord (parsetreeTag: bool tag),              Tag Bool),
@@ -1328,17 +1333,17 @@ struct
             fun unsafeMakeFunctor(functorName, argsig, result, code) =
             let
                 val location = { file = "Imported", startLine=0, startPosition=0, endLine=0, endPosition=0 }
-                val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } = argsig
+                val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, locations, ... } = argsig
                 val _ = firstBoundIndex = 0 orelse raise Fail "unsafeMakeFunctor: firstBoundIndex"
                 fun newMap n = List.nth(boundIds, n)
                 val functorArgSig =
-                    makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
+                    makeSignature(name, tab, firstBoundIndex, locations, composeMaps(typeIdMap, newMap), boundIds)
                 val argStruct = makeLocalStruct ("", functorArgSig, [])
 
                 (* The code should be a function.  Wrap it up as a constant with the code as "inline". *)
                 val gcode = importFunctor code
             in
-                makeFunctor(functorName, argStruct, result, Global gcode, location)
+                makeFunctor(functorName, argStruct, result, Global gcode, [DeclaredAt location])
             end
 
         in
@@ -1436,6 +1441,12 @@ struct
 
             and codeForFunct (Functor{access = Global code, ...}) = code
             |   codeForFunct _ = raise Fail "Not a global functor"
+            
+            fun propsForValue (Value {locations, ...}) = mapLocationProps locations
+            and propsForTypeConstr (TypeConstrs {locations, ...}) = mapLocationProps locations
+            and propsForStruct (Struct {locations, ...}) = mapLocationProps locations
+            and propsForSig (Signatures {locations, ...}) = mapLocationProps locations
+            and propsForFunctor (Functor {locations, ...}) = mapLocationProps locations
         in
             (* Add these to the PolyML.NameSpace structure. *)
             val () = applyList (fn (name, v, t) =>
@@ -1460,7 +1471,18 @@ struct
                 (* Code functions *)
                 ("codeForValue",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
                 ("codeForStruct",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
-                ("codeForFunct",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree)
+                ("codeForFunct",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree),
+                (* Properties functions *)
+                ("propsForValue",   toMachineWord (propsForValue: values ->ptProperties list),
+                    valueVal ->> List PtProperties),
+                ("propsForTypeConstr",   toMachineWord (propsForTypeConstr: typeConstrs ->ptProperties list),
+                    typeVal ->> List PtProperties),
+                ("propsForStruct",   toMachineWord (propsForStruct: structVals ->ptProperties list),
+                    structureVal ->> List PtProperties),
+                ("propsForSig",   toMachineWord (propsForSig: signatures ->ptProperties list),
+                    signatureVal ->> List PtProperties),
+                ("propsForFunctor",   toMachineWord (propsForFunctor: functors ->ptProperties list),
+                    functorVal ->> List PtProperties)
                ]
             (* Put this in Bootstrap, at least for the moment.
                Used to print values in the debugger without the "val", "=" and the type. *)

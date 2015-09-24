@@ -34,6 +34,8 @@ struct
         val offsetTag: (unit->int) tag               = tag()
         (* File name. *)
         val fileNameTag: string tag                  = tag()
+        (* Binding counter *)
+        val bindingCounterTag: (unit->int) tag       = tag()
 
         (* Print times for compilation and execution: default false. *)
         val timingTag: bool tag                      = tag()
@@ -97,6 +99,7 @@ struct
             tagInject lineNumberTag (fn () => 0), (* Zero line number *)
             tagInject offsetTag (fn () => 0), (* Zero offset *)
             tagInject fileNameTag "",
+            tagInject bindingCounterTag (fn () => 0), (* Zero counter *)
             tagInject inlineFunctorsTag true,
             tagInject maxInlineSizeTag 80,
             tagInject profileAllocationTag 0,

@@ -121,7 +121,7 @@ sig
             typeIdMap:          int -> typeId,
             firstBoundIndex:    int,
             boundIds:           typeId list,
-            declaredAt:         location
+            locations:          locationProp list
         }
  
     and functors =
@@ -131,7 +131,7 @@ sig
             arg:        structVals,
             result:     signatures,
             access:     valAccess,
-            declaredAt: location
+            locations:  locationProp list
         }
 
     (* Values. *)
@@ -171,6 +171,7 @@ sig
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
+    |   SequenceNo of int
 
     withtype labelledRec =
     {
@@ -267,11 +268,11 @@ sig
     val makeSelectedStruct: structVals * structVals * locationProp list -> structVals
 
     (* Functors *)
-    val makeFunctor: string * structVals * signatures * valAccess * location -> functors
+    val makeFunctor: string * structVals * signatures * valAccess * locationProp list -> functors
 
     (* Signatures *)
     val makeSignatureTable: unit -> univTable
-    val makeSignature: string * univTable * int * location * (int -> typeId) * typeId list -> signatures
+    val makeSignature: string * univTable * int * locationProp list * (int -> typeId) * typeId list -> signatures
 
     (* Values. *)
     val valName: values -> string

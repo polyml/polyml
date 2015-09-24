@@ -212,7 +212,7 @@ struct
             typeIdMap:          int -> typeId,
             firstBoundIndex:    int,
             boundIds:           typeId list,
-            declaredAt:         location
+            locations:          locationProp list
         }
 
     and functors =
@@ -222,7 +222,7 @@ struct
             arg:        structVals,
             result:     signatures,
             access:     valAccess,
-            declaredAt: location
+            locations:  locationProp list
         }
 
     (* Values. *)
@@ -268,6 +268,7 @@ struct
         DeclaredAt of location
     |   OpenedAt of location
     |   StructureAt of location
+    |   SequenceNo of int
   
     withtype uniqueId = bool ref
         (* We use a ref here both because we can then set equality if we
@@ -365,13 +366,13 @@ struct
     val makeSignatureTable = makeUnivTable
 
     (* Make a signature, freezing the table. *)
-    fun makeSignature (name, table, fbi, location, typeIdMap, boundIds) =
+    fun makeSignature (name, table, fbi, locations, typeIdMap, boundIds) =
         Signatures { name = name,
                tab        = univFreeze table,
                typeIdMap  = typeIdMap,
                firstBoundIndex   = fbi,
                boundIds   = boundIds,
-               declaredAt = location  };
+               locations = locations  }
     
   (* Types. *)
 
@@ -541,8 +542,8 @@ struct
                    typeIdMap  = fn _ => raise Subscript,
                    firstBoundIndex   = 0, 
                    boundIds   = [],
-                   declaredAt = inBasis  },
-            makeGlobal CodeZero, [DeclaredAt inBasis]);
+                   locations =  [DeclaredAt inBasis] },
+            makeGlobal CodeZero, [DeclaredAt inBasis])
      
     (* Local structure. *)
     fun makeLocalStruct (name, signat, location) = 
@@ -583,14 +584,14 @@ struct
 
 
     (* Functor value. *)
-    fun makeFunctor (name, arg, result, access, location) = 
+    fun makeFunctor (name, arg, result, access, locations) = 
         Functor 
         {
             name = name,
             arg = arg,
             result = result,
             access = access,
-            declaredAt = location
+            locations = locations
         }
 
     val valueVar:      values      tag = tag();

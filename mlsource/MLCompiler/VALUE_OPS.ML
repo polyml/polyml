@@ -195,10 +195,10 @@ struct
                     case lookupStruct suffix of
                         SOME (Struct {signat, access, name=structName, locations, ...})  =>
                         let
-                            val Signatures { name=sigName, tab, typeIdMap = childMap, declaredAt, ... } = signat
+                            val Signatures { name=sigName, tab, typeIdMap = childMap, locations=sigLocs, ... } = signat
                             (* We need to apply the map from the parent structure to the child. *)
                             val copiedSig =
-                                makeSignature(sigName, tab, firstBoundIndex, declaredAt, composeMaps(childMap, typeIdMap), [])
+                                makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(childMap, typeIdMap), [])
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case access of
@@ -574,7 +574,7 @@ struct
         end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
-  and displaySignatures (str as Signatures{declaredAt, name, ...}, depth : int, nameSpace) : pretty =
+  and displaySignatures (str as Signatures{locations, name, ...}, depth : int, nameSpace) : pretty =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock(0, false, [],
@@ -583,7 +583,7 @@ struct
                     [
                         PrettyString "signature",
                         PrettyBreak(1, 0),
-                        PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                        PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                         PrettyBreak(1, 0),
                         PrettyString "="
                     ]
@@ -617,7 +617,7 @@ struct
             displaySig (sign, depth, space, nameSpace, sigMap)
     |   displayNamedSig(Signatures{name, ...}, _, _, _, _) = PrettyString name
 
-    fun displayFunctors (Functor{ name, declaredAt, arg, result, ...}, depth, nameSpace) =
+    fun displayFunctors (Functor{ name, locations, arg, result, ...}, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock (0, false, [],
@@ -625,7 +625,7 @@ struct
                 [
                     PrettyString "functor",
                     PrettyBreak(1, 0),
-                    PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                    PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                     PrettyBreak(1, 0),
                     PrettyString "("
                 ]) ::
