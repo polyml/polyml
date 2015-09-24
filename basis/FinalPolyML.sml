@@ -226,6 +226,10 @@ local
     |   CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -> unit
         (* This is no longer used and is just left for backwards compatibility. *)
 
+    |   CPBindingSeq of unit -> int
+        (* Used to create a sequence no for PTdefId properties.  This can be used in an IDE
+           to allocate a unique Id for an identifier.  Default fn _ => 0. *)
+
     (* References for control and debugging. *)
     val profiling = ref 0
     and timing = ref false
@@ -480,6 +484,7 @@ local
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
             val allocProfiling = find(fn CPAllocationProfiling l  => SOME l | _ => NONE) (!allocationProfiling) parameters
+            val bindingSeq = find(fn CPBindingSeq l  => SOME l | _ => NONE) (fn () => 0) parameters
             local
                 (* Default is to filter the parse tree argument. *)
                 fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
@@ -508,6 +513,7 @@ local
                     tagInject lineNumberTag lineNo,
                     tagInject offsetTag lineOffset,
                     tagInject fileNameTag fileName,
+                    tagInject bindingCounterTag bindingSeq,
                     tagInject inlineFunctorsTag (! inlineFunctors),
                     tagInject maxInlineSizeTag (! maxInlineSize),
                     tagInject parsetreeTag (! parsetree),
