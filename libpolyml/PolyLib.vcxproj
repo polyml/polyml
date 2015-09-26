@@ -1083,6 +1083,7 @@
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile Include="polyffi.cpp" />
     <ClCompile Include="poly_specific.cpp">
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='DebugConsole|Win32'">%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -1577,6 +1578,7 @@
     <ClInclude Include="osmem.h" />
     <ClInclude Include="pecoffexport.h" />
     <ClInclude Include="pexport.h" />
+    <ClInclude Include="polyffi.h" />
     <ClInclude Include="poly_specific.h" />
     <ClInclude Include="PolyControl.h" />
     <ClInclude Include="..\polyexports.h" />
