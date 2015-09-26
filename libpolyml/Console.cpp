@@ -568,7 +568,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                     _T("Courier"));
                 if (hFont) SendMessage(hEditWnd, WM_SETFONT, (WPARAM)hFont, 0);
  
-                SendMessage(hEditWnd, WM_SETTEXT, 0, (LPARAM) "");
+                SetWindowText(hEditWnd, _T(""));
                 return 0; /* Succeeded */
             }
  
@@ -666,7 +666,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                  _T("Confirm Quit"), MB_OKCANCEL) == IDOK)
                 processes->Exit(0);
             return 0;
-
 
         case WM_ADDTEXT:
             // Request from the input thread to add some text.
