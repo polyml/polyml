@@ -926,8 +926,14 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
                 (descr->segmentFlags & SSF_WRITABLE ? MTF_WRITEABLE : 0) |
                 (descr->segmentFlags & SSF_NOOVERWRITE ? MTF_NO_OVERWRITE : 0) |
                 (descr->segmentFlags & SSF_BYTES ? MTF_BYTES : 0);
-            space = gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord), mFlags,
+            PermanentMemSpace *newSpace =
+                gMem.NewPermanentSpace(mem, actualSize / sizeof(PolyWord), mFlags,
                         descr->segmentIndex, hierarchyDepth+1);
+            if (newSpace->isMutable && newSpace->byteOnly)
+            {
+                ClearWeakByteRef cwbr;
+                cwbr.ScanAddressesInRegion(newSpace->bottom, newSpace->topPointer);
+            }
         }
     }
 

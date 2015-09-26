@@ -1,12 +1,11 @@
 /*
     Title:  exporter.cpp - Export a function as an object or C file
 
-    Copyright (c) 2006-7 David C.J. Matthews
+    Copyright (c) 2006-7, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -355,6 +354,14 @@ PolyObject *CopyScan::ScanObjectAddress(PolyObject *base)
     return val.AsObjPtr();
 }
 
+// We clear the data in weak byte ref cells when they are exported
+// to an object file and also when they are read from a saved state.
+void ClearWeakByteRef::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
+{
+    if (OBJ_IS_MUTABLE_OBJECT(lengthWord) && OBJ_IS_BYTE_OBJECT(lengthWord) && OBJ_IS_WEAKREF_OBJECT(lengthWord))
+        memset(base, 0, base->Length() * sizeof(PolyWord));
+}
+
 #define MAX_EXTENSION   4 // The longest extension we may need to add is ".obj"
 
 // Convert the forwarding pointers in a region back into length words.
@@ -505,6 +512,11 @@ void Exporter::RunExport(PolyObject *rootFunction)
         else
             entry->mtFlags = MTF_EXECUTABLE;
         if (space->byteOnly) entry->mtFlags |= MTF_BYTES;
+        if (space->isMutable && space->byteOnly)
+        {
+            ClearWeakByteRef cwbr;
+            cwbr.ScanAddressesInRegion(space->bottom, space->topPointer);
+        }
     }
 
     exports->memTableEntries = gMem.neSpaces+1;
