@@ -3173,7 +3173,7 @@ ENDIF
     DDQ  0                              ;# 187 is unused
     DDQ  0                              ;# 188 is unused
     DDQ  CallPOLY_SYS_io_operation      ;# 189
-    DDQ  CALLPOLY_SYS_ffi               ;# 190
+    DDQ  CallPOLY_SYS_ffi               ;# 190
     DDQ  0                              ;# 191 is no longer used
     DDQ  0                              ;# 192 is unused
     DDQ  move_words                     ;# move_words_overlap = 193

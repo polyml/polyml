@@ -47,6 +47,18 @@
 #include <stdio.h>
 #endif
 
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
+
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #include "globals.h"
 // TODO: Do we need this??
 // We need to include globals.h before <new> in mingw64 otherwise
@@ -62,7 +74,12 @@
 #include "sys.h"
 #include "processes.h"
 #include "polystring.h"
-#include "Console.h" // For hApplicationInstance
+
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#include <windows.h>
+#include "Console.h" /* For hApplicationInstance. */
+#endif
+
 #include "scanaddrs.h"
 #include "diagnostics.h"
 #include "reals.h"
@@ -196,7 +213,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             if (lib == NULL)
             {
                 char buf[256];
-                snprintf(buf, sizeof(buf), "Loading <%s> failed: %s", libName, dlerror());
+                snprintf(buf, sizeof(buf), "Loading <%s> failed: %s", (const char *)libName, dlerror());
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
             }
@@ -213,7 +230,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             if (lib == NULL)
             {
                 char buf[256];
-                snprintf(buf, sizeof(buf), "Loading address of executable failed: %s", libName, dlerror());
+                snprintf(buf, sizeof(buf), "Loading address of executable failed: %s", dlerror());
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
             }
@@ -231,7 +248,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             if (dlclose(lib) != 0)
             {
                 char buf[256];
-                snprintf(buf, sizeof(buf), "dlclose failed: %s", name, dlerror());
+                snprintf(buf, sizeof(buf), "dlclose failed: %s", dlerror());
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
             }
@@ -257,7 +274,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             if (sym == NULL)
             {
                 char buf[256];
-                snprintf(buf, sizeof(buf), "load_sym <%s> : %s", name, dlerror());
+                snprintf(buf, sizeof(buf), "load_sym <%s> : %s", (const char *)symName, dlerror());
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
             }
