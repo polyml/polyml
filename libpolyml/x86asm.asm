@@ -629,6 +629,7 @@ POLY_SYS_ln_real             EQU 141
 POLY_SYS_process_env         EQU 150
 POLY_SYS_poly_specific       EQU 153
 POLY_SYS_io_operation        EQU 189
+POLY_SYS_ffi                 EQU 190
 POLY_SYS_set_code_constant   EQU 194
 POLY_SYS_code_flags          EQU 200
 POLY_SYS_shrink_stack        EQU 201
@@ -2941,6 +2942,7 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_shrink_stack
 CALLMACRO CREATE_IO_CALL  POLY_SYS_process_env
 CALLMACRO CREATE_IO_CALL  POLY_SYS_callcode_tupled
 CALLMACRO CREATE_IO_CALL  POLY_SYS_foreign_dispatch
+CALLMACRO CREATE_IO_CALL  POLY_SYS_ffi
 CALLMACRO CREATE_IO_CALL  POLY_SYS_stack_trace
 CALLMACRO CREATE_IO_CALL  POLY_SYS_full_gc
 CALLMACRO CREATE_IO_CALL  POLY_SYS_XWindows
@@ -3171,7 +3173,7 @@ ENDIF
     DDQ  0                              ;# 187 is unused
     DDQ  0                              ;# 188 is unused
     DDQ  CallPOLY_SYS_io_operation      ;# 189
-    DDQ  0                              ;# 190 is unused
+    DDQ  CALLPOLY_SYS_ffi               ;# 190
     DDQ  0                              ;# 191 is no longer used
     DDQ  0                              ;# 192 is unused
     DDQ  move_words                     ;# move_words_overlap = 193
@@ -3442,7 +3444,7 @@ ENDIF
     dd  Mask_all                 ;# 187 is unused
     dd  Mask_all                 ;# 188 is unused
     dd  Mask_all                 ;# 189
-    dd  Mask_all                 ;# 190 is unused
+    dd  Mask_all                 ;# 190
     dd  Mask_all                 ;# 191 is no longer used
     dd  Mask_all                 ;# 192 is unused
     dd  Mask_move_words          ;# 193

@@ -123,6 +123,7 @@ struct
   val POLY_SYS_poly_specific       = 153  (* DCJM 17/6/06 *)
   val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
   val POLY_SYS_io_operation        = 189
+  val POLY_SYS_ffi                 = 190
   val POLY_SYS_move_words_overlap  = 193
   val POLY_SYS_set_code_constant   = 194  (* DCJM 2/1/01 *)
   val POLY_SYS_move_words          = 195  (* DCJM 9/10/99 *)

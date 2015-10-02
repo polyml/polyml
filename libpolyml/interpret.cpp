@@ -68,8 +68,7 @@
 #include "memmgr.h"
 #include "poly_specific.h"
 #include "scanaddrs.h"
-
-#define VERSION_NUMBER  POLY_version_number
+#include "polyffi.h"
 
 #define arg1    (pc[0] + pc[1]*256)
 #define arg2    (pc[2] + pc[3]*256)
@@ -128,8 +127,10 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
 
-    virtual Handle CallBackResult();
-    virtual int  GetIOFunctionRegisterMask(int ioCall) { return 0; }
+    // These aren't implemented in the interpreted version.
+    virtual Handle EnterCallbackFunction(Handle func, Handle args) { ASSERT(0); return 0; }
+
+    virtual int GetIOFunctionRegisterMask(int ioCall) { return 0; }
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
@@ -1450,7 +1451,7 @@ Handle IntTaskData::EnterPolyCode()
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult();
+                ASSERT(0); // Callbacks aren't implemented
 
             case POLY_SYS_exit:
                 CallIO1(this, &finishc);
@@ -1702,6 +1703,10 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO2(this, &foreign_dispatch_c);
                 break;
 
+            case POLY_SYS_ffi:
+                CallIO2(this, &poly_ffi);
+                break;
+
             case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
 
             case POLY_SYS_shrink_stack:
@@ -1858,12 +1863,6 @@ Handle IntTaskData::EnterPolyCode()
     }
 }
 
-// Return the callback result.  The current ML process (thread) terminates.
-Handle IntTaskData::CallBackResult()
-{
-    return this->saveVec.push(this->p_sp[1]);
-}
-
 void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
@@ -1965,6 +1964,7 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_full_gc,     TAGGED(POLY_SYS_full_gc));
     add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));
     add_word_to_io_area(POLY_SYS_foreign_dispatch, TAGGED(POLY_SYS_foreign_dispatch));
+    add_word_to_io_area(POLY_SYS_ffi,               TAGGED(POLY_SYS_ffi));
     add_word_to_io_area(POLY_SYS_callcode_tupled,  TAGGED(POLY_SYS_callcode_tupled));
     add_word_to_io_area(POLY_SYS_process_env,      TAGGED(POLY_SYS_process_env));
     add_word_to_io_area(POLY_SYS_set_string_length, TAGGED(POLY_SYS_set_string_length));
