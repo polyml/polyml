@@ -219,17 +219,17 @@ sig
         val callwithAbi: LibFFI.abi -> symbol -> ctype list -> ctype -> Memory.voidStar list * Memory.voidStar -> unit
         val call: symbol -> ctype list -> ctype -> Memory.voidStar list * Memory.voidStar -> unit
         
-        val functionWithAbi:
+        val cFunctionWithAbi:
             LibFFI.abi -> ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
-        val function:
+        val cFunction:
             ctype list -> ctype -> (Memory.voidStar * Memory.voidStar -> unit) -> Memory.voidStar
     end
 
     type 'a conversion =
     {
         load: Memory.voidStar -> 'a, (* Load a value from C memory *)
-        store: 'a * Memory.voidStar -> unit, (* Store a value in C memory *)
-        free: Memory.voidStar -> unit, (* Free any memory allocated in "store" *)
+        store: Memory.voidStar * 'a -> unit, (* Store a value in C memory *)
+        release: Memory.voidStar * 'a -> unit, (* Copy back any result and free any memory allocated in "store" *)
         ctype: LowLevel.ctype
     }
 
@@ -255,39 +255,42 @@ sig
     val cFloat: real conversion
     val cDouble: real conversion
 
-    val function0withAbi: LibFFI.abi -> unit -> 'a conversion -> (unit -> 'a) conversion
-    val function0: unit -> 'a conversion -> (unit -> 'a) conversion
-    val function1withAbi: LibFFI.abi -> 'a conversion -> 'b conversion -> ('a -> 'b) conversion
-    val function1: 'a conversion -> 'b conversion -> ('a -> 'b) conversion
-    val function2withAbi:
+    val cFunction0withAbi: LibFFI.abi -> unit -> 'a conversion -> (unit -> 'a) conversion
+    val cFunction0: unit -> 'a conversion -> (unit -> 'a) conversion
+    val cFunction1withAbi: LibFFI.abi -> 'a conversion -> 'b conversion -> ('a -> 'b) conversion
+    val cFunction1: 'a conversion -> 'b conversion -> ('a -> 'b) conversion
+    val cFunction2withAbi:
         LibFFI.abi -> 'a conversion * 'b conversion -> 'c conversion -> ('a * 'b -> 'c) conversion
-    val function2: 'a conversion * 'b conversion -> 'c conversion -> ('a * 'b -> 'c) conversion
-    val function3withAbi:
+    val cFunction2: 'a conversion * 'b conversion -> 'c conversion -> ('a * 'b -> 'c) conversion
+    val cFunction3withAbi:
         LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> ('a * 'b *'c -> 'd) conversion
-    val function3: 'a conversion * 'b conversion *  'c conversion -> 'd conversion -> ('a * 'b * 'c -> 'd) conversion
-    val function4withAbi:
+    val cFunction3: 'a conversion * 'b conversion *  'c conversion -> 'd conversion -> ('a * 'b * 'c -> 'd) conversion
+    val cFunction4withAbi:
         LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
             ('a * 'b * 'c * 'd -> 'e) conversion
-    val function4: 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+    val cFunction4: 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
             ('a * 'b * 'c * 'd -> 'e) conversion
-    val function5withAbi:
+    val cFunction5withAbi:
         LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion -> 'f conversion ->
             ('a * 'b * 'c * 'd * 'e -> 'f) conversion
-    val function5: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion -> 'f conversion ->
+    val cFunction5: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion -> 'f conversion ->
             ('a * 'b * 'c * 'd * 'e -> 'f) conversion
-    val function6withAbi:
+    val cFunction6withAbi:
         LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion ->
             'g conversion -> ('a * 'b * 'c * 'd * 'e * 'f -> 'g) conversion
-    val function6:
+    val cFunction6:
         'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion ->
             'g conversion -> ('a * 'b * 'c * 'd * 'e * 'f -> 'g) conversion
 
-    (* Remove the "free" from a conversion.  Used if extra memory allocated
+    (* Remove the "release" from a conversion.  Used if extra memory allocated
        by the argument must not be freed when the function returns.  *)
     val permanent: 'a conversion -> 'a conversion
+
+    (* Call by reference.  *)
+    val cStar: 'a conversion -> 'a ref conversion
     
-    val struct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
-    val struct3: 'a conversion * 'b conversion * 'c conversion -> ('a*'b*'c)conversion
+    val cStruct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
+    val cStruct3: 'a conversion * 'b conversion * 'c conversion -> ('a*'b*'c)conversion
     
     val call0withAbi: LibFFI.abi -> symbol -> unit -> 'a conversion -> unit -> 'a
     val call0: symbol -> unit -> 'a conversion -> unit -> 'a
@@ -617,7 +620,8 @@ struct
                         val () = callFunction { cif=cif(), function=fnAddr(), result = argResVec, arguments = argLocn}
                         val result: SysWord.word = getffArg(argResVec, 0w0)
                     in
-                        (* Copy to the final location. *)
+                        (* Copy to the final location.  Currently "void" has size 1 so if
+                           the function has a void result we still copy one byte. *)
                         if #size resType = 0w1
                         then set8(resMem, 0w0, Word8.fromLargeWord result)
                         else if #size resType = 0w2
@@ -653,7 +657,7 @@ struct
 
             (* Build a call-back function.  Returns a function to take the actual ML function,
                create a callback and then return the address. *)
-            fun functionWithAbi (abi: abi) (argTypes: ctype list) (resType: ctype):
+            fun cFunctionWithAbi (abi: abi) (argTypes: ctype list) (resType: ctype):
                     (voidStar * voidStar -> unit) -> voidStar =
             let
                 fun buildCif () = createCIF (abi, #ffiType resType (), map (fn {ffiType, ...} => ffiType ()) argTypes)
@@ -662,7 +666,7 @@ struct
                 fn cbFun => createCallback(cbFun, cif())
             end
             
-            fun function x = functionWithAbi abiDefault x
+            fun cFunction x = cFunctionWithAbi abiDefault x
         end
 
     end
@@ -670,8 +674,8 @@ struct
     type 'a conversion =
     {
         load: Memory.voidStar -> 'a, (* Load a value from C memory *)
-        store: 'a * Memory.voidStar -> unit, (* Store a value in C memory *)
-        free: Memory.voidStar -> unit, (* Free any memory allocated in "store" *)
+        store: Memory.voidStar * 'a -> unit, (* Store a value in C memory *)
+        release: Memory.voidStar * 'a -> unit, (* Free any memory allocated in "store" *)
         ctype: LowLevel.ctype
     }
 
@@ -679,123 +683,123 @@ struct
     local
         open LibFFI Memory LowLevel
         fun checkRange(i, min, max) = if i < min orelse i > max then raise Overflow else i
-        fun noFree _ = () (* None of these allocate extra memory. *)
+        fun noFree _ = () (* None of these allocate extra memory or need to update. *)
     in
         val cVoid: unit conversion =
-            { load=fn _ => (), store=fn _ => (), free = noFree, ctype = cTypeVoid }
+            { load=fn _ => (), store=fn _ => (), release = noFree, ctype = cTypeVoid }
 
         (* cPointer should only be used to base other conversions on. *)
         val cPointer: voidStar conversion =
-            { load=fn a => getAddress(a, 0w0), store=fn(v, a) => setAddress(a, 0w0, v),
-              free = noFree, ctype = cTypePointer }
+            { load=fn a => getAddress(a, 0w0), store=fn(a, v) => setAddress(a, 0w0, v),
+              release = noFree, ctype = cTypePointer }
 
         local
             fun load(m: voidStar): int = Word8.toIntX(get8(m, 0w0))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set8(m, 0w0, Word8.fromInt(checkRange(i, ~128, 127)))
         in
             val cInt8: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeInt8 }
+                { load=load, store=store, release = noFree, ctype = cTypeInt8 }
         end
 
         local
             (* Char is signed in C but unsigned in ML. *)
             fun load(m: voidStar): char = Char.chr(Word8.toInt(get8(m, 0w0)))
-            fun store(i: char, m: voidStar) =
+            fun store(m: voidStar, i: char) =
                 set8(m, 0w0, Word8.fromInt(Char.ord i))
         in
             val cChar: char conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeChar }
+                { load=load, store=store, release = noFree, ctype = cTypeChar }
         end
 
         local
             (* Uchar - convert as Word8.word. *)
             fun load(m: voidStar): Word8.word = get8(m, 0w0)
-            fun store(i: Word8.word, m: voidStar) = set8(m, 0w0, i)
+            fun store(m: voidStar, i: Word8.word) = set8(m, 0w0, i)
         in
             val cUchar: Word8.word conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeUchar }
+                { load=load, store=store, release = noFree, ctype = cTypeUchar }
         end
 
         local
             fun load(m: voidStar): int = Word8.toInt(get8(m, 0w0))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set8(m, 0w0, Word8.fromInt(checkRange(i, 0, 255)))
         in
             val cUint8: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeUint8 }
+                { load=load, store=store, release = noFree, ctype = cTypeUint8 }
         end
 
         local
             fun load(m: voidStar): int = Word.toIntX(get16(m, 0w0))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set16(m, 0w0, Word.fromInt(checkRange(i, ~32768, 32767)))
         in
             val cInt16: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeInt16 }
+                { load=load, store=store, release = noFree, ctype = cTypeInt16 }
         end
 
         local
             fun load(m: voidStar): int = Word.toInt(get16(m, 0w0))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set16(m, 0w0, Word.fromInt(checkRange(i, 0, 65535)))
         in
             val cUint16: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeUint16 }
+                { load=load, store=store, release = noFree, ctype = cTypeUint16 }
         end
 
         local
             fun load(m: voidStar): int = Word32.toIntX(get32(m, 0w0))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set32(m, 0w0, Word32.fromInt(checkRange(i, ~2147483648, 2147483647)))
         in
             val cInt32: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeInt32 }
+                { load=load, store=store, release = noFree, ctype = cTypeInt32 }
         end
 
         local
             fun load(m: voidStar): int = Word32.toInt(get32(m, 0w0))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set32(m, 0w0, Word32.fromInt(checkRange(i, 0, 4294967295)))
         in
             val cUint32: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeUint32 }
+                { load=load, store=store, release = noFree, ctype = cTypeUint32 }
         end
 
         local
             fun load(m: voidStar): int = SysWord.toIntX(get64(m, 0w0))
             val max = IntInf.<<(1, 0w63) - 1 and min = ~ (IntInf.<<(1, 0w63))
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set64(m, 0w0, SysWord.fromInt(checkRange(i, min, max)))
         in
             val cInt64: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeInt64 }
+                { load=load, store=store, release = noFree, ctype = cTypeInt64 }
         end
 
         local
             fun load(m: voidStar): int = SysWord.toInt(get64(m, 0w0))
             val max = IntInf.<<(1, 0w64) - 1
-            fun store(i: int, m: voidStar) =
+            fun store(m: voidStar, i: int) =
                 set64(m, 0w0, SysWord.fromInt(checkRange(i, 0, max)))
         in
             val cUint64: int conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeUint64 }
+                { load=load, store=store, release = noFree, ctype = cTypeUint64 }
         end
 
         local
             fun load(m: voidStar): real = getFloat(m, 0w0)
-            fun store(v: real, m: voidStar) = setFloat(m, 0w0, v)
+            fun store(m: voidStar, v: real) = setFloat(m, 0w0, v)
         in
             val cFloat: real conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeFloat }
+                { load=load, store=store, release = noFree, ctype = cTypeFloat }
         end
 
         local
             fun load(m: voidStar): real = getDouble(m, 0w0)
-            fun store(v: real, m: voidStar) = setDouble(m, 0w0, v)
+            fun store(m: voidStar, v: real) = setDouble(m, 0w0, v)
         in
             val cDouble: real conversion =
-                { load=load, store=store, free = noFree, ctype = cTypeDouble }
+                { load=load, store=store, release = noFree, ctype = cTypeDouble }
         end
 
         val cShort =
@@ -848,7 +852,7 @@ struct
                 String.implode(loadChar 0w0)
             end
             
-            fun store(s: string, v: voidStar) =
+            fun store(v: voidStar, s: string) =
             let
                 val sLen = Word.fromInt(String.size s)
                 val sMem = checkedMalloc(sLen + 0w1)
@@ -858,50 +862,87 @@ struct
                 setAddress(v, 0w0, sMem)
             end
             
-            fun free(s: voidStar) = Memory.free(getAddress(s, 0w0))
+            fun release(s: voidStar, _) = Memory.free(getAddress(s, 0w0))
         in
             val cString: string conversion =
-                { load=load, store=store, free = free, ctype = cTypePointer }
+                { load=load, store=store, release = release, ctype = cTypePointer }
         end
 
     end
 
-    (* Replace the "free" function by a null function.  This is intended for situations
-       where an argument should not be deleted once the function completes.  *)
+    (* Replace the "release" function by a null function.  This is intended for situations
+       where an argument should not be deleted once the function completes.
+       This also prevents copying of the result if necessary. *)
     fun permanent({load, store, ctype, ...}: 'a conversion): 'a conversion =
-        { free=fn _ => (), load=load, store=store, ctype=ctype }
+        { release=fn _ => (), load=load, store=store, ctype=ctype }
     
     val toSysWord = SysWord.fromLarge o Word.toLarge
 
-    fun struct2(a: 'a conversion, b: 'b conversion): ('a*'b)conversion =
+    fun cStruct2(a: 'a conversion, b: 'b conversion): ('a*'b)conversion =
     let
-        val {load=loada, store=storea, free=freea, ctype = ctypea as {size=sizea, ... }} = a
-        and {load=loadb, store=storeb, free=freeb, ctype = ctypeb as {align=alignb, ... }} = b
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ... }} = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {align=alignb, ... }} = b
         
         val offsetb = alignUp(sizea, alignb)
         fun load s = (loada s, loadb(s + toSysWord offsetb))
-        and store ((a, b), s) = (storea(a, s); storeb(b, s + toSysWord offsetb))
-        and free s = (freea s; freeb(s + toSysWord offsetb))
+        and store (s, (a, b)) = (storea(s, a); storeb(s + toSysWord offsetb, b))
+        and release(s, (a, b)) = (releasea(s, a); releaseb(s + toSysWord offsetb, b))
 
     in
-        {load=load, store=store, free = free, ctype = LowLevel.cStruct[ctypea, ctypeb]}
+        {load=load, store=store, release = release, ctype = LowLevel.cStruct[ctypea, ctypeb]}
     end
 
-    fun struct3(a: 'a conversion, b: 'b conversion, c: 'c conversion): ('a*'b*'c)conversion =
+    fun cStruct3(a: 'a conversion, b: 'b conversion, c: 'c conversion): ('a*'b*'c)conversion =
     let
-        val {load=loada, store=storea, free=freea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, free=freeb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, free=freec, ctype = ctypec as {align=alignc, ...} } = c
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {align=alignc, ...} } = c
        
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
 
         fun load s = (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc))
-        and store ((a, b, c), s) =
-            (storea(a, s); storeb(b, s + toSysWord offsetb); storec(c, s + toSysWord offsetc))
-        and free s = (freea s; freeb(s + toSysWord offsetb); freec(s + toSysWord offsetc))
+        and store (s, (a, b, c)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c))
+        and release(s, (a, b, c)) = (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c))
     in
-        {load=load, store=store, free=free, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
+        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
+    end
+
+    (* Conversion for call-by-reference. *)
+    local
+        open Memory LowLevel
+    in
+        fun cStar({load=loada, store=storea, release=releasea, ctype=ctypea}: 'a conversion): 'a ref conversion =
+        let
+            (* It's not clear if this is useful. *)
+            fun load s = ref(loada(getAddress(s, 0w0)))
+            
+            fun store(m, ref s) =
+            let
+                (* When we pass a ref X into a cStar cX function we need to
+                   allocate a memory cell big enough for a cX value.  Then
+                   we copy the current value of the ML into this.  We set
+                   the argument, a pointer, to the address of the cell. *)
+                val mem = malloc(#size ctypea)
+                val () = setAddress(m, 0w0, mem)
+            in
+                storea(mem, s)
+            end
+            
+            fun release(m, s) =
+            let
+                val mem = getAddress(m, 0w0) (* The address of our cell. *)
+                val olds = !s
+            in
+                s := loada mem; (* Update the ref from the value in the cell. *)
+                (* It's not clear what release should do here. *)
+                releasea(mem, olds);
+                free mem
+            end
+        in
+            {load=load, store=store, release=release, ctype = cTypePointer}
+        end
     end
 
     (* Calls with conversion. *)
@@ -940,9 +981,9 @@ struct
                 (* TODO: Use a single allocation here. *)
                 val rMem = checkedMalloc(#size resType)
                 val argMem = checkedMalloc(#size(#ctype argConv))
-                val () = #store argConv (x, argMem)
+                val () = #store argConv (argMem, x)
                 fun freeAll () =
-                    (#free argConv argMem; free rMem; free argMem)
+                    (#release argConv (argMem, x); free rMem; free argMem)
             in
                 let
                     val () = callF([argMem], rMem)
@@ -966,11 +1007,11 @@ struct
             let
                 val rMem = checkedMalloc(#size resType)
                 val arg1Mem = checkedMalloc(#size(#ctype arg1Conv))
-                val () = #store arg1Conv (x, arg1Mem)
+                val () = #store arg1Conv (arg1Mem, x)
                 val arg2Mem = checkedMalloc(#size(#ctype arg2Conv))
-                val () = #store arg2Conv (y, arg2Mem)
+                val () = #store arg2Conv (arg2Mem, y)
                 fun freeAll() =
-                    (#free arg1Conv arg1Mem; #free arg2Conv arg2Mem; free rMem; free arg1Mem; free arg2Mem)
+                    (#release arg1Conv(arg1Mem, x); #release arg2Conv (arg2Mem, y); free rMem; free arg1Mem; free arg2Mem)
             in
                 let
                     val () = callF([arg1Mem, arg2Mem], rMem)
@@ -992,49 +1033,49 @@ struct
             abi: abi, argTypes: ctype list, resType: ctype,
             callback: ('a -> 'b) -> voidStar * voidStar -> unit): ('a -> 'b) conversion =
         let
-            val makeCallback = functionWithAbi abi argTypes resType
+            val makeCallback = cFunctionWithAbi abi argTypes resType
             
             (* Create the callback *)
-            fun store(f: 'a -> 'b, v: voidStar) =
+            fun store(v: voidStar, f: 'a -> 'b) =
                 setAddress(v, 0w0, makeCallback(callback f))
  
             (* Release the callback *)
-            fun free v = freeCallback(getAddress(v, 0w0))
+            fun release(v, _) = freeCallback(getAddress(v, 0w0))
 
             (* load should never be called. *)
             fun load _ = raise Foreign "Callbacks cannot be returned as results"
        in
-            { load=load, store=store, free=free, ctype = cTypePointer }
+            { load=load, store=store, release=release, ctype = cTypePointer }
         end
     in
         (* Callback conversion *)
-        fun function0withAbi (abi: abi) () (resConv: 'a conversion) : (unit -> 'a) conversion =
+        fun cFunction0withAbi (abi: abi) () (resConv: 'a conversion) : (unit -> 'a) conversion =
         let
             fun callback (f: unit -> 'a) (_: voidStar, res: voidStar): unit =
                 (* f has no arguments so just store away the result. *)
-                #store resConv (f(), res)
+                #store resConv (res, f())
         in
             makeCallbackConv(abi, [], #ctype resConv, callback)
         end
         
-        fun function0 x = function0withAbi abiDefault x
+        fun cFunction0 x = cFunction0withAbi abiDefault x
 
-        fun function1withAbi (abi: abi) (argConv: 'a conversion) (resConv: 'b conversion) : ('a -> 'b) conversion =
+        fun cFunction1withAbi (abi: abi) (argConv: 'a conversion) (resConv: 'b conversion) : ('a -> 'b) conversion =
         let
             fun callback (f: 'a -> 'b) (args: voidStar, res: voidStar): unit =
                 (* args is the address of a vector containing just one argument *)
             let
                 val result = f (#load argConv (getAddress(args, 0w0)))
             in
-                #store resConv (result, res)
+                #store resConv (res, result)
             end
         in
             makeCallbackConv(abi, [#ctype argConv], #ctype resConv, callback)
         end
         
-        fun function1 x = function1withAbi abiDefault x
+        fun cFunction1 x = cFunction1withAbi abiDefault x
 
-        fun function2withAbi (abi: abi) (arg1Conv: 'a conversion, arg2Conv: 'b conversion)
+        fun cFunction2withAbi (abi: abi) (arg1Conv: 'a conversion, arg2Conv: 'b conversion)
                              (resConv: 'c conversion) : ('a *'b -> 'c) conversion =
         let
             fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
@@ -1044,15 +1085,15 @@ struct
                         #load arg1Conv (getAddress(args, 0w0)),
                         #load arg2Conv (getAddress(args, 0w1)))
             in
-                #store resConv (result, res)
+                #store resConv (res, result)
             end
         in
             makeCallbackConv(abi, [#ctype arg1Conv, #ctype arg2Conv], #ctype resConv, callback)
         end
         
-        fun function2 x = function2withAbi abiDefault x
+        fun cFunction2 x = cFunction2withAbi abiDefault x
 
-        fun function3withAbi (abi: abi) (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion)
+        fun cFunction3withAbi (abi: abi) (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion)
                              (resConv: 'd conversion) : ('a *'b * 'c -> 'd) conversion =
         let
             fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
@@ -1063,16 +1104,16 @@ struct
                         #load arg2Conv (getAddress(args, 0w1)),
                         #load arg3Conv (getAddress(args, 0w2)))
             in
-                #store resConv (result, res)
+                #store resConv (res, result)
             end
         in
             makeCallbackConv(abi,
                 [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv], #ctype resConv, callback)
         end
         
-        fun function3 x = function3withAbi abiDefault x
+        fun cFunction3 x = cFunction3withAbi abiDefault x
 
-        fun function4withAbi (abi: abi)
+        fun cFunction4withAbi (abi: abi)
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, arg4Conv: 'd conversion)
                 (resConv: 'e conversion) : ('a *'b * 'c * 'd -> 'e) conversion =
         let
@@ -1085,16 +1126,16 @@ struct
                         #load arg3Conv (getAddress(args, 0w2)),
                         #load arg4Conv (getAddress(args, 0w3)))
             in
-                #store resConv (result, res)
+                #store resConv (res, result)
             end
         in
             makeCallbackConv(abi,
                 [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv], #ctype resConv, callback)
         end
         
-        fun function4 x = function4withAbi abiDefault x
+        fun cFunction4 x = cFunction4withAbi abiDefault x
 
-        fun function5withAbi (abi: abi)
+        fun cFunction5withAbi (abi: abi)
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
                  arg4Conv: 'd conversion, arg5Conv: 'e conversion)
                 (resConv: 'f conversion) : ('a *'b * 'c * 'd * 'e -> 'f) conversion =
@@ -1109,7 +1150,7 @@ struct
                         #load arg4Conv (getAddress(args, 0w3)),
                         #load arg5Conv (getAddress(args, 0w4)))
             in
-                #store resConv (result, res)
+                #store resConv (res, result)
             end
         in
             makeCallbackConv(abi,
@@ -1117,9 +1158,9 @@ struct
                 #ctype resConv, callback)
         end
         
-        fun function5 x = function5withAbi abiDefault x
+        fun cFunction5 x = cFunction5withAbi abiDefault x
 
-        fun function6withAbi (abi: abi)
+        fun cFunction6withAbi (abi: abi)
                 (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
                  arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion)
                 (resConv: 'g conversion) : ('a *'b * 'c * 'd * 'e * 'f -> 'g) conversion =
@@ -1135,7 +1176,7 @@ struct
                         #load arg5Conv (getAddress(args, 0w4)),
                         #load arg6Conv (getAddress(args, 0w5)))
             in
-                #store resConv (result, res)
+                #store resConv (res, result)
             end
         in
             makeCallbackConv(abi,
@@ -1144,7 +1185,7 @@ struct
                 #ctype resConv, callback)
         end
         
-        fun function6 x = function6withAbi abiDefault x
+        fun cFunction6 x = cFunction6withAbi abiDefault x
 
     end
 end;
