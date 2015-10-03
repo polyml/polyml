@@ -1390,7 +1390,6 @@ static void CallIO3(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-/*
 static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
     Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
@@ -1401,7 +1400,7 @@ static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_sp += 4;
     *(taskData->p_sp) = DEREFWORD(result);
     taskData->p_lastInstr = 256;
-} */
+}
 
 static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
@@ -1735,6 +1734,54 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO5(this, &testBytesEqual);
                 break;
 
+            case POLY_SYS_cmem_load_8:
+                CallIO3(this, &cmem_load_8);
+                break;
+
+            case POLY_SYS_cmem_load_16:
+                CallIO3(this, &cmem_load_16);
+                break;
+
+            case POLY_SYS_cmem_load_32:
+                CallIO3(this, &cmem_load_32);
+                break;
+
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
+            case POLY_SYS_cmem_load_float:
+                CallIO3(this, &cmem_load_float);
+                break;
+
+            case POLY_SYS_cmem_load_double:
+                CallIO3(this, &cmem_load_double);
+                break;
+
+            case POLY_SYS_cmem_store_8:
+                CallIO4(this, &cmem_store_8);
+                break;
+
+            case POLY_SYS_cmem_store_16:
+                CallIO4(this, &cmem_store_16);
+                break;
+
+            case POLY_SYS_cmem_store_32:
+                CallIO4(this, &cmem_store_32);
+                break;
+
+            case POLY_SYS_cmem_store_64:
+                CallIO4(this, &cmem_store_64);
+                break;
+
+            case POLY_SYS_cmem_store_float:
+                CallIO4(this, &cmem_store_float);
+                break;
+
+            case POLY_SYS_cmem_store_double:
+                CallIO4(this, &cmem_store_double);
+                break;
+
 //            case POLY_SYS_set_code_constant: // Not used in the interpreter
 //                CallIO4(this, &set_code_constant);
 //                break;
@@ -1971,6 +2018,18 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_get_first_long_word, TAGGED(POLY_SYS_get_first_long_word));
     add_word_to_io_area(POLY_SYS_poly_specific, TAGGED(POLY_SYS_poly_specific));
     add_word_to_io_area(POLY_SYS_bytevec_eq, TAGGED(POLY_SYS_bytevec_eq));
+    add_word_to_io_area(POLY_SYS_cmem_load_8, TAGGED(POLY_SYS_cmem_load_8));
+    add_word_to_io_area(POLY_SYS_cmem_load_16, TAGGED(POLY_SYS_cmem_load_16));
+    add_word_to_io_area(POLY_SYS_cmem_load_32, TAGGED(POLY_SYS_cmem_load_32));
+    add_word_to_io_area(POLY_SYS_cmem_load_64, TAGGED(POLY_SYS_cmem_load_64));
+    add_word_to_io_area(POLY_SYS_cmem_load_float, TAGGED(POLY_SYS_cmem_load_float));
+    add_word_to_io_area(POLY_SYS_cmem_load_double, TAGGED(POLY_SYS_cmem_load_double));
+    add_word_to_io_area(POLY_SYS_cmem_store_8, TAGGED(POLY_SYS_cmem_store_8));
+    add_word_to_io_area(POLY_SYS_cmem_store_16, TAGGED(POLY_SYS_cmem_store_16));
+    add_word_to_io_area(POLY_SYS_cmem_store_32, TAGGED(POLY_SYS_cmem_store_32));
+    add_word_to_io_area(POLY_SYS_cmem_store_64, TAGGED(POLY_SYS_cmem_store_64));
+    add_word_to_io_area(POLY_SYS_cmem_store_float, TAGGED(POLY_SYS_cmem_store_float));
+    add_word_to_io_area(POLY_SYS_cmem_store_double, TAGGED(POLY_SYS_cmem_store_double));
     add_word_to_io_area(POLY_SYS_shrink_stack,     TAGGED(POLY_SYS_shrink_stack));
     add_word_to_io_area(POLY_SYS_code_flags,        TAGGED(POLY_SYS_code_flags));
     add_word_to_io_area(POLY_SYS_shift_right_arith_word, TAGGED(POLY_SYS_shift_right_arith_word));

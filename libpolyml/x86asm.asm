@@ -628,6 +628,19 @@ POLY_SYS_exp_real            EQU 140
 POLY_SYS_ln_real             EQU 141
 POLY_SYS_process_env         EQU 150
 POLY_SYS_poly_specific       EQU 153
+;# Define these for the moment.
+POLY_SYS_cmem_load_8         EQU 160
+POLY_SYS_cmem_load_16        EQU 161
+POLY_SYS_cmem_load_32        EQU 162
+POLY_SYS_cmem_load_64        EQU 163
+POLY_SYS_cmem_load_float     EQU 164
+POLY_SYS_cmem_load_double    EQU 165
+POLY_SYS_cmem_store_8        EQU 166
+POLY_SYS_cmem_store_16       EQU 167
+POLY_SYS_cmem_store_32       EQU 168
+POLY_SYS_cmem_store_64       EQU 169
+POLY_SYS_cmem_store_float    EQU 170
+POLY_SYS_cmem_store_double   EQU 171
 POLY_SYS_io_operation        EQU 189
 POLY_SYS_ffi                 EQU 190
 POLY_SYS_set_code_constant   EQU 194
@@ -2957,6 +2970,20 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_exp_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_arctan_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_cos_real
 
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_8
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_16
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_32
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_64
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_float
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_double
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_8
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_16
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_32
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_64
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_float
+CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_double
+
+
 CALLMACRO CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOWEX
@@ -3143,18 +3170,18 @@ ENDIF
     DDQ  0                              ;# 157 is unused
     DDQ  0                              ;# 158 is unused
     DDQ  0                              ;# 159 is unused
-    DDQ  0                              ;# 160 is unused
-    DDQ  0                              ;# 161 is unused
-    DDQ  0                              ;# 162 is unused
-    DDQ  0                              ;# 163 is unused
-    DDQ  0                              ;# 164 is unused
-    DDQ  0                              ;# 165 is unused
-    DDQ  0                              ;# 166 is unused
-    DDQ  0                              ;# 167 is unused
-    DDQ  0                              ;# 168 is unused
-    DDQ  0                              ;# 169 is unused
-    DDQ  0                              ;# 170 is unused
-    DDQ  0                              ;# 171 is unused
+    DDQ  CallPOLY_SYS_cmem_load_8       ;# 160
+    DDQ  CallPOLY_SYS_cmem_load_16      ;# 161
+    DDQ  CallPOLY_SYS_cmem_load_32      ;# 162
+    DDQ  CallPOLY_SYS_cmem_load_64      ;# 163
+    DDQ  CallPOLY_SYS_cmem_load_float   ;# 164
+    DDQ  CallPOLY_SYS_cmem_load_double  ;# 165
+    DDQ  CallPOLY_SYS_cmem_store_8      ;# 166
+    DDQ  CallPOLY_SYS_cmem_store_16     ;# 167
+    DDQ  CallPOLY_SYS_cmem_store_32     ;# 168
+    DDQ  CallPOLY_SYS_cmem_store_64     ;# 169
+    DDQ  CallPOLY_SYS_cmem_store_float  ;# 170
+    DDQ  CallPOLY_SYS_cmem_store_double ;# 171
     DDQ  0                              ;# 172 is unused
     DDQ  0                              ;# 173 is unused
     DDQ  0                              ;# 174 is unused
@@ -3414,18 +3441,18 @@ ENDIF
     dd  Mask_all                 ;# 157 is unused
     dd  Mask_all                 ;# 158 is unused
     dd  Mask_all                 ;# 159 is unused
-    dd  Mask_all                 ;# 160 is unused
-    dd  Mask_all                 ;# 161 is unused
-    dd  Mask_all                 ;# 162 is unused
-    dd  Mask_all                 ;# 163 is unused
-    dd  Mask_all                 ;# 164 is unused
-    dd  Mask_all                 ;# 165 is unused
-    dd  Mask_all                 ;# 166 is unused
-    dd  Mask_all                 ;# 167 is unused
-    dd  Mask_all                 ;# 168 is unused
-    dd  Mask_all                 ;# 169 is unused
-    dd  Mask_all                 ;# 170 is unused
-    dd  Mask_all                 ;# 171 is unused
+    dd  Mask_all                 ;# 160
+    dd  Mask_all                 ;# 161
+    dd  Mask_all                 ;# 162
+    dd  Mask_all                 ;# 163
+    dd  Mask_all                 ;# 164
+    dd  Mask_all                 ;# 165
+    dd  Mask_all                 ;# 166
+    dd  Mask_all                 ;# 167
+    dd  Mask_all                 ;# 168
+    dd  Mask_all                 ;# 169
+    dd  Mask_all                 ;# 170
+    dd  Mask_all                 ;# 171
     dd  Mask_all                 ;# 172 is unused
     dd  Mask_all                 ;# 173 is unused
     dd  Mask_all                 ;# 174 is unused

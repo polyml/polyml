@@ -362,20 +362,32 @@ struct
         fun malloc (s: word): voidStar = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (0, s)
         
         fun free (s: voidStar): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (1, s)
-        
-        fun get8 (s: voidStar, i: Word.word): Word8.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (100, (s, i))
-        and get16(s: voidStar, i: Word.word): Word.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (101, (s, i))
-        and get32(s: voidStar, i: Word.word): Word32.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (102, (s, i))
-        and get64(s: voidStar, i: Word.word): SysWord.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (103, (s, i))
-        and getFloat(s: voidStar, i: Word.word): real = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (108, (s, i))
-        and getDouble(s: voidStar, i: Word.word): real = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (109, (s, i))
 
-        fun set8 (s: voidStar, i: Word.word, v: Word8.word): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (104, (s, i, v))
-        and set16 (s: voidStar, i: Word.word, v: Word.word): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (105, (s, i, v))
-        and set32 (s: voidStar, i: Word.word, v: Word32.word): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (106, (s, i, v))
-        and set64 (s: voidStar, i: Word.word, v: SysWord.word): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (107, (s, i, v))
-        and setFloat (s: voidStar, i: Word.word, v: real): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (110, (s, i, v))
-        and setDouble (s: voidStar, i: Word.word, v: real): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (111, (s, i, v))
+        fun get8 (s: voidStar, i: Word.word): Word8.word =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_8 (s, 0w0, i)
+        and get16(s: voidStar, i: Word.word): Word.word =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_16 (s, 0w0, i)
+        and get32(s: voidStar, i: Word.word): Word32.word =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_32 (s, 0w0, i)
+        and get64(s: voidStar, i: Word.word): SysWord.word =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_64 (s, 0w0, i)
+        and getFloat(s: voidStar, i: Word.word): real =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
+        and getDouble(s: voidStar, i: Word.word): real =
+            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
+
+        fun set8 (s: voidStar, i: Word.word, v: Word8.word): unit =
+            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_8 (s, 0w0, i, v)
+        and set16 (s: voidStar, i: Word.word, v: Word.word): unit =
+            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_16 (s, 0w0, i, v)
+        and set32 (s: voidStar, i: Word.word, v: Word32.word): unit =
+            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
+        and set64 (s: voidStar, i: Word.word, v: SysWord.word): unit =
+            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
+        and setFloat (s: voidStar, i: Word.word, v: real): unit =
+            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
+        and setDouble (s: voidStar, i: Word.word, v: real): unit =
+            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_double (s, 0w0, i, v)
 
         (* Get and set addresses.  This is a bit messy because it has to compile on 64-bits as well as 32-bits. *)
         val getAddress: voidStar * Word.word -> voidStar =

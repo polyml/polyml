@@ -176,6 +176,24 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_get_first_long_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_poly_specific: return 0;
     case POLY_SYS_bytevec_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_load_8: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_16: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_32: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_float: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_double: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_8: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_16: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_32: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+#if (SIZEOF_VOIDP == 8)
+    case POLY_SYS_cmem_load_64: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_64: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+#else
+        // These aren't (currently) implemented in 32-bit mode.
+    case POLY_SYS_cmem_load_64: return PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_64: return PROPWORD_NODEREF;
+#endif
+    case POLY_SYS_cmem_store_float: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_double: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_ffi: return 0;
     case POLY_SYS_set_code_constant: return 0;

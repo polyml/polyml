@@ -27,5 +27,19 @@ typedef SaveVecEntry *Handle;
 class TaskData;
 
 extern Handle poly_ffi (TaskData *taskData, Handle args, Handle code);
+
+extern Handle cmem_load_8(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_load_16(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_load_float(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_load_double(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_store_8(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_store_16(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_store_32(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_store_float(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
+extern Handle cmem_store_double(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH);
+
   
 #endif

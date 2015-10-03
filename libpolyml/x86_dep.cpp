@@ -1051,6 +1051,54 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO5(this, &testBytesEqual);
                 break;
 
+            case POLY_SYS_cmem_load_8:
+                CallIO3(this, &cmem_load_8);
+                break;
+
+            case POLY_SYS_cmem_load_16:
+                CallIO3(this, &cmem_load_16);
+                break;
+
+            case POLY_SYS_cmem_load_32:
+                CallIO3(this, &cmem_load_32);
+                break;
+
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
+            case POLY_SYS_cmem_load_float:
+                CallIO3(this, &cmem_load_float);
+                break;
+
+            case POLY_SYS_cmem_load_double:
+                CallIO3(this, &cmem_load_double);
+                break;
+
+            case POLY_SYS_cmem_store_8:
+                CallIO4(this, &cmem_store_8);
+                break;
+
+            case POLY_SYS_cmem_store_16:
+                CallIO4(this, &cmem_store_16);
+                break;
+
+            case POLY_SYS_cmem_store_32:
+                CallIO4(this, &cmem_store_32);
+                break;
+
+            case POLY_SYS_cmem_store_64:
+                CallIO4(this, &cmem_store_64);
+                break;
+
+            case POLY_SYS_cmem_store_float:
+                CallIO4(this, &cmem_store_float);
+                break;
+
+            case POLY_SYS_cmem_store_double:
+                CallIO4(this, &cmem_store_double);
+                break;
+
             case POLY_SYS_set_code_constant:
                 CallIO4(this, &set_code_constant);
                 break;

@@ -459,120 +459,6 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             raise_exception_string(taskData, EXC_foreign, "Invalid callback entry");
         }
 
-        // Load and store functions.  These should be provided with their own
-        // RTS calls so they can be in the assembly code or code-generator.
-    case 100: // Load byte
-        {
-            uint8_t **addr = (uint8_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return Make_arbitrary_precision(taskData, (*addr)[offset]);
-        }
-    case 101: // Load 16-bit int
-        {
-            uint16_t **addr = (uint16_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return Make_arbitrary_precision(taskData, (*addr)[offset]);
-        }
-#if (SIZEOF_VOIDP == 8)
-    case 102: // Load 32-bit int
-        {
-            uint32_t **addr = (uint32_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return Make_arbitrary_precision(taskData, (*addr)[offset]);
-        }
-    case 103: // Load 64-bit int
-        {
-            uint64_t **addr = (uint64_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return toSysWord(taskData, (*addr)[offset]);
-        }
-#else
-    case 102: // Load 32-bit int - In 32-bit mode this needs to be boxed
-        {
-            uint32_t **addr = (uint32_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return toSysWord(taskData, (*addr)[offset]);
-        }
-    case 103:
-        raise_exception_string(taskData, EXC_foreign, "64-bit operations not available");
-#endif
-    case 104: // Set byte
-        {
-            uint8_t **addr = (uint8_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            uint8_t value = get_C_unsigned(taskData, args->WordP()->Get(2));
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-    case 105: // Set 16-bit int
-        {
-            uint16_t **addr = (uint16_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            uint16_t value = get_C_unsigned(taskData, args->WordP()->Get(2));
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-#if (SIZEOF_VOIDP == 8)
-    case 106: // Set 32-bit int
-        {
-            uint32_t **addr = (uint32_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            uint32_t value = get_C_unsigned(taskData, args->WordP()->Get(2));
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-    case 107: // Set 64-bit int
-        {
-            uint64_t **addr = (uint64_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            uint64_t value = *(uint64_t*)(args->WordP()->Get(2).AsAddress());
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-#else
-    case 106: // Set 32-bit int - In 32-bit mode this needs to be boxed
-        {
-            uint32_t **addr = (uint32_t**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            uint32_t value = *(uint32_t*)(args->WordP()->Get(2).AsAddress());
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-    case 107:
-        raise_exception_string(taskData, EXC_foreign, "64-bit operations not available");
-#endif
-    case 108: // Load float
-        {
-            float **addr = (float**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return real_result(taskData, (*addr)[offset]);
-        }
-
-    case 109: // Load double
-        {
-            double **addr = (double**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            return real_result(taskData, (*addr)[offset]);
-        }
-
-    case 110: // Store float
-        {
-            float **addr = (float**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            float value = (float)real_arg(taskData->saveVec.push(args->WordP()->Get(2)));
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-
-    case 111: // Store double
-        {
-            double **addr = (double**)args->WordP()->Get(0).AsAddress();
-            POLYSIGNED offset = getPolySigned(taskData, args->WordP()->Get(1));
-            double value = real_arg(taskData->saveVec.push(args->WordP()->Get(2)));
-            (*addr)[offset] = value;
-            return taskData->saveVec.push(TAGGED(0));
-        }
-
     default:
         {
             char msg[100];
@@ -582,6 +468,174 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
         }
     }
 }
+
+// Load and store functions.  These are implemented in assembly code or the code-generator
+// so are only provided for the interpreter.
+// These functions all take a base address, an offset and an index.  The offset is
+// a byte addition to the base.  The index is added after multiplying by the size.
+Handle cmem_load_8(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    return Make_arbitrary_precision(taskData, baseAddr[index]);
+}
+
+Handle cmem_load_16(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    return Make_arbitrary_precision(taskData, ((uint16_t*)baseAddr)[index]);
+}
+
+#if (SIZEOF_VOIDP == 8)
+Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    // Return a tagged value in 64-bit mode.
+    return Make_arbitrary_precision(taskData, ((uint32_t*)baseAddr)[index]);
+}
+
+Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    // Box the result.
+    return toSysWord(taskData, ((uint64_t*)baseAddr)[index]);
+}
+#else
+Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    // Load 32-bit int - In 32-bit mode this needs to be boxed
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    return toSysWord(taskData, ((uint32_t*)baseAddr)[index]);
+}
+
+// Not (currently) implemented.  N.B.  The properties in "rtsProperties" are
+// different in 32- and 64-bit mode to take account of the fact that this will
+// raise an exception.  Change that if this is eventually implemented in 32-bit mode.
+Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    raise_exception_string(taskData, EXC_foreign, "64-bit operations not available");
+}
+#endif
+
+Handle cmem_load_float(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    return real_result(taskData, ((float*)baseAddr)[index]);
+}
+
+Handle cmem_load_double(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    return real_result(taskData, ((double*)baseAddr)[index]);
+}
+
+Handle cmem_store_8(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    uint8_t value = get_C_unsigned(taskData, valueH->Word());
+    baseAddr[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+Handle cmem_store_16(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    uint16_t value = get_C_unsigned(taskData, valueH->Word());
+    ((uint16_t*)baseAddr)[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+#if (SIZEOF_VOIDP == 8)
+Handle cmem_store_32(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    uint32_t value = get_C_unsigned(taskData, valueH->Word());
+    ((uint32_t*)baseAddr)[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    // This is boxed.
+    uint64_t value = *(uint64_t*)(valueH->Word().AsAddress());
+    ((uint64_t*)baseAddr)[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+#else
+Handle cmem_store_32(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    // This is boxed in 32-bit mode.
+    uint32_t value = *(uint32_t*)(valueH->Word().AsAddress());
+    ((uint32_t*)baseAddr)[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+// See note for cmem_load_64
+Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    raise_exception_string(taskData, EXC_foreign, "64-bit operations not available");
+}
+#endif
+
+Handle cmem_store_float(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    float value = (float)real_arg(taskData->saveVec.push(valueH->Word()));
+    ((float*)baseAddr)[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+
+Handle cmem_store_double(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
+{
+    uint8_t *baseAddr =
+        *((uint8_t**)baseH->Word().AsAddress()) +
+        getPolySigned(taskData, offsetH->Word());
+    POLYSIGNED index = getPolySigned(taskData, indexH->Word());
+    double value = real_arg(taskData->saveVec.push(valueH->Word()));
+    ((double*)baseAddr)[index] = value;
+    return taskData->saveVec.push(TAGGED(0));
+}
+
 
 // Construct an entry in the ABI table.
 static Handle mkAbitab(TaskData *taskData, void *arg, char *p)

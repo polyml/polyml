@@ -19,8 +19,8 @@
 *)
 
 
-(* These numbers should correspond with those in the sys.h file *)
-(* in the run-time system. SPF 17/11/94.                        *)
+(* This file should reflect the RTS entries in libpolyml/sys.h.
+   When adding entries don't forget to update the table in Boot/Address.ML. *)
 structure RuntimeCalls =
 struct  
   (* 0 not used (unusable?) *)
@@ -122,6 +122,18 @@ struct
   val POLY_SYS_get_first_long_word = 152  (* DCJM 28/2/01 *)
   val POLY_SYS_poly_specific       = 153  (* DCJM 17/6/06 *)
   val POLY_SYS_bytevec_eq          = 154  (* DCJM 13/1/10 *)
+  val POLY_SYS_cmem_load_8         = 160
+  val POLY_SYS_cmem_load_16        = 161
+  val POLY_SYS_cmem_load_32        = 162
+  val POLY_SYS_cmem_load_64        = 163
+  val POLY_SYS_cmem_load_float     = 164
+  val POLY_SYS_cmem_load_double    = 165
+  val POLY_SYS_cmem_store_8        = 166
+  val POLY_SYS_cmem_store_16       = 167
+  val POLY_SYS_cmem_store_32       = 168
+  val POLY_SYS_cmem_store_64       = 169
+  val POLY_SYS_cmem_store_float    = 170
+  val POLY_SYS_cmem_store_double   = 171
   val POLY_SYS_io_operation        = 189
   val POLY_SYS_ffi                 = 190
   val POLY_SYS_move_words_overlap  = 193
