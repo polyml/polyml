@@ -32,7 +32,7 @@ typedef struct _tree {
 
 local
     (* Start with the C structure. *)
-    val treeNode = struct3(cPointer, cPointer, cInt) 
+    val treeNode = cStruct3(cPointer, cPointer, cInt) 
     val {store=storeStruct, load=loadStruct, ctype = {size = sizeStruct, ...}, ... } = treeNode
 in
 (* The following function builds a C data structure from an ML datatype. *)
@@ -41,11 +41,11 @@ in
         let
             val mem = Memory.malloc sizeStruct
         in
-            storeStruct((treeMake left, treeMake right, valu), mem);
+            storeStruct(mem, (treeMake left, treeMake right, valu));
             mem
         end
 
-    fun treeStore(tree, addr) = Memory.setAddress(addr, 0w0, treeMake tree)
+    fun treeStore(addr, tree) = Memory.setAddress(addr, 0w0, treeMake tree)
            
     (* The inverse of treeStore. We don't actually use this in this example. *)
     fun treeGet a = 
@@ -70,13 +70,13 @@ in
             treeClear left; treeClear right; Memory.free a
         end
     
-    fun treeFree v = treeClear(Memory.getAddress(v, 0w0))
+    fun treeRelease(v, _) = treeClear(Memory.getAddress(v, 0w0))
 
 end;
 
 (* Build a conversion out of this. *)
 val cTree: intTree conversion =
-    { load = treeLoad, store = treeStore, free = treeFree, ctype = LowLevel.cTypePointer };
+    { load = treeLoad, store = treeStore, release = treeRelease, ctype = LowLevel.cTypePointer };
 
 val sumTree = call1 ( getSymbol(mylib, "SumTree") ) cTree cInt;
 
@@ -90,7 +90,7 @@ sumTree aTree;
 
 (* Example of returning a structure. *)
 val returnR2 = Foreign.call2 (Foreign.getSymbol(mylib, "ReturnR2"))
-    (Foreign.cInt, Foreign.cInt) (struct2(Foreign.cInt, Foreign.cInt));
+    (Foreign.cInt, Foreign.cInt) (cStruct2(Foreign.cInt, Foreign.cInt));
 returnR2(5,6);
 
 (* Example of passing and returning strings. *)
@@ -102,7 +102,7 @@ dupNString (4, "hi");
 (* Example of a callback function. *)
 
 fun f (i, j) = (PolyML.print(i, j); i+j);
-val doAdd = call2 (getSymbol(mylib, "MakeCallback")) (cInt, function2 (cInt, cInt) cInt) cInt;
+val doAdd = call2 (getSymbol(mylib, "MakeCallback")) (cInt, cFunction2 (cInt, cInt) cInt) cInt;
 doAdd(4, f);
 
 fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
@@ -112,20 +112,11 @@ fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
 );
 
 val returnR3 =
-    call1 (getSymbol(mylib, "MakeCallback2")) (function6(cInt, cChar, cDouble, cFloat, (*cShort*)cInt16, cPointer) cDouble) cDouble
+    call1 (getSymbol(mylib, "MakeCallback2")) (cFunction6(cInt, cChar, cDouble, cFloat, (*cShort*)cInt16, cPointer) cDouble) cDouble
         myCallback;
 
 
-
-
-(* Example of a callback function. *)
-
-fun f (i, j) = (PolyML.print(i, j); i+j);
-val doAdd = call2 (getSymbol(mylib, "MakeCallback")) (cInt, function2 (cInt, cInt) cInt) cInt;
-doAdd(4, f);
-
-
-val doit = call2(getSymbol(mylib, "MakeCallback3")) (function1 cInt cVoid, cInt) cVoid;
+val doit = call2(getSymbol(mylib, "MakeCallback3")) (cFunction1 cInt cVoid, cInt) cVoid;
 doit(fn i => print(Int.toString i), 2);
 
 (* Call-by-reference. *)
