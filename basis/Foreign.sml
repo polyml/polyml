@@ -79,7 +79,10 @@ sig
         (* Remember an address except across loads. *)
         val memoise: ('a -> voidStar) ->'a -> unit -> voidStar
         
-        (* malloc - allocate memory.  N.B. argument is the number of bytes. *)
+        exception Memory
+
+        (* malloc - allocate memory.  N.B. argument is the number of bytes.
+           Raises Memory exception if it cannot allocate. *)
         val malloc: word -> voidStar
         (* free - free allocated memory. *)
         val free: voidStar -> unit
@@ -362,7 +365,16 @@ struct
             fn () => (case getVolatileRef v of 0w0 => let val r = f a in setVolatileRef(v, r); r end | r => r)
         end
 
-        fun malloc (s: word): voidStar = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (0, s)
+        exception Memory
+
+        fun malloc (s: word): voidStar =
+        let
+            val mem = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (0, s)
+        in
+            if mem = null
+            then raise Memory
+            else mem
+        end
         
         fun free (s: voidStar): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (1, s)
 
@@ -528,16 +540,8 @@ struct
     (* This forces the symbol to be loaded.  The result is NOT memoised. *)
     fun symbolAsAddress(s: symbol): Memory.voidStar = s()
 
-    (* Internal. *)
-    local
-        open Memory
-    in
-        fun checkedMalloc w =
-            let val m = malloc w in if m = null then raise Foreign "Insufficient memory" else m end
-
-        (* Utility function. *)
-        fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
-    end
+    (* Internal utility function. *)
+    fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
 
     structure LowLevel =
     struct
@@ -627,7 +631,7 @@ struct
                 let
                     val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
                     val resultSize = alignUp(ffiMinArgSize, #align saPointer)
-                    val argResVec = checkedMalloc(resultSize + #size saPointer * Word.fromInt nArgs)
+                    val argResVec = malloc(resultSize + #size saPointer * Word.fromInt nArgs)
                     val argLocn = argResVec + SysWord.fromLargeWord(Word.toLargeWord resultSize)
                     val _ = List.foldl(fn (arg, n) => (setAddress(argLocn, n, arg); n+0w1)) 0w0 args
                 in
@@ -653,7 +657,7 @@ struct
                 let
                     val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
                     val argVec =
-                        if nArgs = 0 then null else checkedMalloc(#size saPointer * Word.fromInt nArgs)
+                        if nArgs = 0 then null else malloc(#size saPointer * Word.fromInt nArgs)
                     val _ = List.foldl(fn (arg, n) => (setAddress(argVec, n, arg); n+0w1)) 0w0 args
                 in
                     let
@@ -867,7 +871,7 @@ struct
             fun store(v: voidStar, s: string) =
             let
                 val sLen = Word.fromInt(String.size s)
-                val sMem = checkedMalloc(sLen + 0w1)
+                val sMem = malloc(sLen + 0w1)
                 val () = CharVector.appi(fn(i, ch) => set8(sMem, Word.fromInt i, Word8.fromInt(Char.ord ch))) s
                 val () = set8(sMem, sLen, 0w0)
             in
@@ -968,7 +972,7 @@ struct
         in
             fn () =>
             let
-                val rMem = checkedMalloc(#size resType)
+                val rMem = malloc(#size resType)
             in
                 let
                     val () = callF([], rMem)
@@ -994,7 +998,7 @@ struct
                    We can't use cStruct here because we only store the
                    argument before the call and load the result after. *)
                 val argOffset = alignUp(#size resType, #align argType)
-                val rMem = checkedMalloc(argOffset + #size argType)
+                val rMem = malloc(argOffset + #size argType)
                 val argAddr = rMem + SysWord.fromLargeWord(Word.toLargeWord argOffset)
                 val () = argStore (argAddr, x)
                 fun freeAll () = (argRelease (argAddr, x); free rMem)
@@ -1022,7 +1026,7 @@ struct
             let
                 val arg1Offset = alignUp(#size resType, #align arg1Type)
                 val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
-                val rMem = checkedMalloc(arg2Offset + #size arg2Type)
+                val rMem = malloc(arg2Offset + #size arg2Type)
                 val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
                 val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
                 val () = arg1Store (arg1Addr, x)
@@ -1055,7 +1059,7 @@ struct
                 val arg1Offset = alignUp(#size resType, #align arg1Type)
                 val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
                 val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
-                val rMem = checkedMalloc(arg3Offset + #size arg3Type)
+                val rMem = malloc(arg3Offset + #size arg3Type)
                 val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
                 val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
                 val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
