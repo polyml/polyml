@@ -298,6 +298,9 @@ sig
     val call1: symbol -> 'a conversion -> 'b conversion -> 'a -> 'b
     val call2withAbi: LibFFI.abi -> symbol -> 'a conversion * 'b conversion -> 'c conversion -> 'a * 'b -> 'c
     val call2: symbol -> 'a conversion * 'b conversion -> 'c conversion -> 'a * 'b -> 'c
+    val call3withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
+    val call3: symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
 end;
 
 structure Foreign:> FOREIGN =
@@ -853,15 +856,12 @@ struct
             let
                 (* The location contains the address of the string. *)
                 val sAddr = getAddress(s, 0w0)
+                fun sLen i = if get8(sAddr, i) = 0w0 then i else sLen(i+0w1)
+                val length = sLen 0w0
                 fun loadChar i =
-                let
-                    val ch = get8(sAddr, i)
-                in
-                    if ch = 0w0 then []
-                    else Char.chr(Word8.toInt ch) :: loadChar(i+0w1)
-                end
+                    Char.chr(Word8.toInt(get8(sAddr, Word.fromInt i)))
             in
-                String.implode(loadChar 0w0)
+                CharVector.tabulate(Word.toInt length, loadChar)
             end
             
             fun store(v: voidStar, s: string) =
@@ -961,9 +961,9 @@ struct
     local
         open LibFFI Memory LowLevel
     in
-        fun call0withAbi (abi: abi) (fnAddr: unit->voidStar) () (resConv: 'a conversion): unit->'a =
+        fun call0withAbi (abi: abi) (fnAddr: unit->voidStar) ()
+            ({ctype = resType, load= resLoad, ...} : 'a conversion): unit->'a =
         let
-            val resType = #ctype resConv
             val callF = callwithAbi abi fnAddr [] resType
         in
             fn () =>
@@ -972,7 +972,7 @@ struct
             in
                 let
                     val () = callF([], rMem)
-                    val result = #load resConv rMem
+                    val result = resLoad rMem
                 in
                     free rMem;
                     result
@@ -982,24 +982,26 @@ struct
 
         fun call0 x = call0withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
-        fun call1withAbi (abi: abi) (fnAddr: unit->voidStar) (argConv: 'a conversion) (resConv: 'b conversion): 'a ->'b =
+        fun call1withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = argType, store = argStore, release = argRelease, ...}: 'a conversion)
+            ({ ctype = resType, load= resLoad, ...}: 'b conversion): 'a ->'b =
         let
-            val resType = #ctype resConv
-            val callF = callwithAbi abi fnAddr [#ctype argConv] resType
+            val callF = callwithAbi abi fnAddr [argType] resType
         in
             fn x =>
             let
-                (* Allocate space for argument(s) and result. *)
-                (* TODO: Use a single allocation here. *)
-                val rMem = checkedMalloc(#size resType)
-                val argMem = checkedMalloc(#size(#ctype argConv))
-                val () = #store argConv (argMem, x)
-                fun freeAll () =
-                    (#release argConv (argMem, x); free rMem; free argMem)
+                (* Allocate space for argument(s) and result.
+                   We can't use cStruct here because we only store the
+                   argument before the call and load the result after. *)
+                val argOffset = alignUp(#size resType, #align argType)
+                val rMem = checkedMalloc(argOffset + #size argType)
+                val argAddr = rMem + SysWord.fromLargeWord(Word.toLargeWord argOffset)
+                val () = argStore (argAddr, x)
+                fun freeAll () = (argRelease (argAddr, x); free rMem)
             in
                 let
-                    val () = callF([argMem], rMem)
-                    val result = #load resConv rMem
+                    val () = callF([argAddr], rMem)
+                    val result = resLoad rMem
                 in
                     freeAll ();
                     result
@@ -1009,25 +1011,28 @@ struct
 
         fun call1 x = call1withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
-        fun call2withAbi (abi: abi) (fnAddr: unit->voidStar) (arg1Conv: 'a conversion, arg2Conv: 'b conversion)
-                          (resConv: 'c conversion): 'a * 'b -> 'c =
+        fun call2withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion)
+            ({ ctype = resType, load= resLoad, ...}: 'c conversion): 'a * 'b -> 'c =
         let
-            val resType = #ctype resConv
-            val callF = callwithAbi abi fnAddr [#ctype arg1Conv, #ctype arg2Conv] resType
+            val callF = callwithAbi abi fnAddr [arg1Type, arg2Type] resType
         in
             fn (x, y) =>
             let
-                val rMem = checkedMalloc(#size resType)
-                val arg1Mem = checkedMalloc(#size(#ctype arg1Conv))
-                val () = #store arg1Conv (arg1Mem, x)
-                val arg2Mem = checkedMalloc(#size(#ctype arg2Conv))
-                val () = #store arg2Conv (arg2Mem, y)
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val rMem = checkedMalloc(arg2Offset + #size arg2Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val () = arg1Store (arg1Addr, x)
+                val () = arg2Store (arg2Addr, y)
                 fun freeAll() =
-                    (#release arg1Conv(arg1Mem, x); #release arg2Conv (arg2Mem, y); free rMem; free arg1Mem; free arg2Mem)
+                    (arg1Release(arg1Addr, x); arg2Release (arg2Addr, y); free rMem)
             in
                 let
-                    val () = callF([arg1Mem, arg2Mem], rMem)
-                    val result = #load resConv rMem
+                    val () = callF([arg1Addr, arg2Addr], rMem)
+                    val result = resLoad rMem
                 in
                     freeAll();
                     result
@@ -1036,168 +1041,293 @@ struct
         end
 
         fun call2 x = call2withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+
+        fun call3withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion)
+            ({ ctype = resType, load= resLoad, ...}: 'd conversion): 'a * 'b *'c -> 'd =
+        let
+            val callF = callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type] resType
+        in
+            fn (x, y, z) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val rMem = checkedMalloc(arg3Offset + #size arg3Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val () = arg1Store (arg1Addr, x)
+                val () = arg2Store (arg2Addr, y)
+                val () = arg3Store (arg2Addr, z)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, x); arg2Release (arg2Addr, y); arg3Release (arg3Addr, z); free rMem)
+            in
+                let
+                    val () = callF([arg1Addr, arg2Addr, arg3Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call3 x = call3withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
     end
 
     local
         open LibFFI Memory LowLevel
+       
+        (* Release the callback *)
+        fun release(v, _) = freeCallback(getAddress(v, 0w0))
 
-        fun makeCallbackConv(
-            abi: abi, argTypes: ctype list, resType: ctype,
-            callback: ('a -> 'b) -> voidStar * voidStar -> unit): ('a -> 'b) conversion =
-        let
-            val makeCallback = cFunctionWithAbi abi argTypes resType
-            
-            (* Create the callback *)
-            fun store(v: voidStar, f: 'a -> 'b) =
-                setAddress(v, 0w0, makeCallback(callback f))
- 
-            (* Release the callback *)
-            fun release(v, _) = freeCallback(getAddress(v, 0w0))
-
-            (* load should never be called. *)
-            fun load _ = raise Foreign "Callbacks cannot be returned as results"
-       in
-            { load=load, store=store, release=release, ctype = cTypePointer }
-        end
+        (* load should never be called. *)
+        fun load _ = raise Foreign "Callbacks cannot be returned as results" 
     in
         (* Callback conversion *)
-        fun cFunction0withAbi (abi: abi) () (resConv: 'a conversion) : (unit -> 'a) conversion =
+        fun cFunction0withAbi (abi: abi) () (resConv: 'a conversion) : (unit->'a) conversion =
         let
             fun callback (f: unit -> 'a) (_: voidStar, res: voidStar): unit =
-                (* f has no arguments so just store away the result. *)
-                #store resConv (res, f())
+                #store resConv (res, f ())
+
+            val makeCallback = cFunctionWithAbi abi [] (#ctype resConv)
+
+            (* Really make the callback when we store the actual function. *)
+            fun store (v: voidStar, f) = setAddress(v, 0w0, makeCallback(callback f))
         in
-            makeCallbackConv(abi, [], #ctype resConv, callback)
+            { load=load, store=store, release=release, ctype=cTypePointer }
         end
-        
+   
         fun cFunction0 x = cFunction0withAbi abiDefault x
 
-        fun cFunction1withAbi (abi: abi) (argConv: 'a conversion) (resConv: 'b conversion) : ('a -> 'b) conversion =
+        fun cFunction1withAbi (abi: abi)
+                (argConv: 'a conversion) (resConv: 'b conversion) : ('a -> 'b) conversion =
         let
             fun callback (f: 'a -> 'b) (args: voidStar, res: voidStar): unit =
-                (* args is the address of a vector containing just one argument *)
             let
                 val result = f (#load argConv (getAddress(args, 0w0)))
             in
                 #store resConv (res, result)
             end
+
+            val makeCallback = cFunctionWithAbi abi [#ctype argConv] (#ctype resConv)
+
+            (* Really make the callback when we store the actual function. *)
+            fun store (v: voidStar, f) = setAddress(v, 0w0, makeCallback(callback f))
         in
-            makeCallbackConv(abi, [#ctype argConv], #ctype resConv, callback)
+            { load=load, store=store, release=release, ctype=cTypePointer }
         end
-        
+   
         fun cFunction1 x = cFunction1withAbi abiDefault x
 
-        fun cFunction2withAbi (abi: abi) (arg1Conv: 'a conversion, arg2Conv: 'b conversion)
-                             (resConv: 'c conversion) : ('a *'b -> 'c) conversion =
-        let
-            fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
+        (* For the cases with more arguments we take out the conversion code.
+           The reason has to do with inlining.  All callback functions have
+           ctype=cTypePointer whatever the function arguments and we REALLY
+           want that to be inlined even if the construction of the arguments
+           isn't.  Having the result record inlined enables the calling
+           function to compute the size of the argument record at compile
+           time. *)
+        local
+            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, resConv: 'c conversion) =
             let
-                val result =
-                    f (
-                        #load arg1Conv (getAddress(args, 0w0)),
-                        #load arg2Conv (getAddress(args, 0w1)))
-            in
-                #store resConv (res, result)
-            end
-        in
-            makeCallbackConv(abi, [#ctype arg1Conv, #ctype arg2Conv], #ctype resConv, callback)
-        end
-        
-        fun cFunction2 x = cFunction2withAbi abiDefault x
+                fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
+                let
+                    val result =
+                        f (
+                            #load arg1Conv (getAddress(args, 0w0)),
+                            #load arg2Conv (getAddress(args, 0w1)))
+                in
+                    #store resConv (res, result)
+                end
+            
+                val argTypes = [#ctype arg1Conv, #ctype arg2Conv]
+                and resType = #ctype resConv
 
-        fun cFunction3withAbi (abi: abi) (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion)
-                             (resConv: 'd conversion) : ('a *'b * 'c -> 'd) conversion =
-        let
-            fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
-            let
-                val result =
-                    f (
-                        #load arg1Conv (getAddress(args, 0w0)),
-                        #load arg2Conv (getAddress(args, 0w1)),
-                        #load arg3Conv (getAddress(args, 0w2)))
+                val makeCallback = cFunctionWithAbi abi argTypes resType
             in
-                #store resConv (res, result)
+                (* Really make the callback when we store the actual function. *)
+                fn f => makeCallback(callback f)
             end
         in
-            makeCallbackConv(abi,
-                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv], #ctype resConv, callback)
+            fun cFunction2withAbi (abi: abi)
+                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion) (resConv: 'c conversion) : ('a *'b -> 'c) conversion =
+            let
+                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, resConv)
+                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+            in
+                { load=load, store=store, release=release, ctype=cTypePointer }
+            end
+       
+            fun cFunction2 x = cFunction2withAbi abiDefault x
         end
-        
-        fun cFunction3 x = cFunction3withAbi abiDefault x
 
-        fun cFunction4withAbi (abi: abi)
-                (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, arg4Conv: 'd conversion)
-                (resConv: 'e conversion) : ('a *'b * 'c * 'd -> 'e) conversion =
-        let
-            fun callback (f: 'a *'b * 'c * 'd -> 'e) (args: voidStar, res: voidStar): unit =
-            let
-                val result =
-                    f (
-                        #load arg1Conv (getAddress(args, 0w0)),
-                        #load arg2Conv (getAddress(args, 0w1)),
-                        #load arg3Conv (getAddress(args, 0w2)),
-                        #load arg4Conv (getAddress(args, 0w3)))
-            in
-                #store resConv (res, result)
-            end
-        in
-            makeCallbackConv(abi,
-                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv], #ctype resConv, callback)
-        end
-        
-        fun cFunction4 x = cFunction4withAbi abiDefault x
 
-        fun cFunction5withAbi (abi: abi)
-                (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                 arg4Conv: 'd conversion, arg5Conv: 'e conversion)
-                (resConv: 'f conversion) : ('a *'b * 'c * 'd * 'e -> 'f) conversion =
-        let
-            fun callback (f: 'a *'b * 'c * 'd * 'e -> 'f) (args: voidStar, res: voidStar): unit =
+        local
+            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion, resConv: 'd conversion) =
             let
-                val result =
-                    f (
-                        #load arg1Conv (getAddress(args, 0w0)),
-                        #load arg2Conv (getAddress(args, 0w1)),
-                        #load arg3Conv (getAddress(args, 0w2)),
-                        #load arg4Conv (getAddress(args, 0w3)),
-                        #load arg5Conv (getAddress(args, 0w4)))
-            in
-                #store resConv (res, result)
-            end
-        in
-            makeCallbackConv(abi,
-                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv, #ctype arg5Conv],
-                #ctype resConv, callback)
-        end
-        
-        fun cFunction5 x = cFunction5withAbi abiDefault x
+                fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
+                let
+                    val result =
+                        f (
+                            #load arg1Conv (getAddress(args, 0w0)),
+                            #load arg2Conv (getAddress(args, 0w1)),
+                            #load arg3Conv (getAddress(args, 0w2)))
+                in
+                    #store resConv (res, result)
+                end
+            
+                val argTypes =
+                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv]
+                and resType = #ctype resConv
 
-        fun cFunction6withAbi (abi: abi)
-                (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
-                 arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion)
-                (resConv: 'g conversion) : ('a *'b * 'c * 'd * 'e * 'f -> 'g) conversion =
-        let
-            fun callback (f: 'a *'b * 'c * 'd * 'e * 'f -> 'g) (args: voidStar, res: voidStar): unit =
-            let
-                val result =
-                    f (
-                        #load arg1Conv (getAddress(args, 0w0)),
-                        #load arg2Conv (getAddress(args, 0w1)),
-                        #load arg3Conv (getAddress(args, 0w2)),
-                        #load arg4Conv (getAddress(args, 0w3)),
-                        #load arg5Conv (getAddress(args, 0w4)),
-                        #load arg6Conv (getAddress(args, 0w5)))
+                val makeCallback = cFunctionWithAbi abi argTypes resType
             in
-                #store resConv (res, result)
+                (* Really make the callback when we store the actual function. *)
+                fn f => makeCallback(callback f)
             end
         in
-            makeCallbackConv(abi,
-                [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
-                 #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv],
-                #ctype resConv, callback)
+            fun cFunction3withAbi (abi: abi)
+                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion)
+                    (resConv: 'd conversion) : ('a *'b * 'c -> 'd) conversion =
+            let
+                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv, resConv)
+                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+            in
+                { load=load, store=store, release=release, ctype=cTypePointer }
+            end
+       
+            fun cFunction3 x = cFunction3withAbi abiDefault x
         end
-        
-        fun cFunction6 x = cFunction6withAbi abiDefault x
+
+        local
+            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                 arg4Conv: 'd conversion, resConv: 'e conversion) =
+            let
+                fun callback (f: 'a *'b * 'c * 'd -> 'e) (args: voidStar, res: voidStar): unit =
+                let
+                    val result =
+                        f (
+                            #load arg1Conv (getAddress(args, 0w0)),
+                            #load arg2Conv (getAddress(args, 0w1)),
+                            #load arg3Conv (getAddress(args, 0w2)),
+                            #load arg4Conv (getAddress(args, 0w3)))
+                in
+                    #store resConv (res, result)
+                end
+            
+                val argTypes =
+                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv, #ctype arg4Conv]
+                and resType = #ctype resConv
+
+                val makeCallback = cFunctionWithAbi abi argTypes resType
+            in
+                (* Really make the callback when we store the actual function. *)
+                fn f => makeCallback(callback f)
+            end
+        in
+            fun cFunction4withAbi (abi: abi)
+                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                     arg4Conv: 'd conversion) (resConv: 'e conversion) : ('a *'b * 'c * 'd -> 'e) conversion =
+            let
+                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv, arg4Conv, resConv)
+                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+            in
+                { load=load, store=store, release=release, ctype=cTypePointer }
+            end
+       
+            fun cFunction4 x = cFunction4withAbi abiDefault x
+        end
+
+        local
+            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                 arg4Conv: 'd conversion, arg5Conv: 'e conversion, resConv: 'f conversion) =
+            let
+                fun callback (f: 'a *'b * 'c * 'd * 'e -> 'f) (args: voidStar, res: voidStar): unit =
+                let
+                    val result =
+                        f (
+                            #load arg1Conv (getAddress(args, 0w0)),
+                            #load arg2Conv (getAddress(args, 0w1)),
+                            #load arg3Conv (getAddress(args, 0w2)),
+                            #load arg4Conv (getAddress(args, 0w3)),
+                            #load arg5Conv (getAddress(args, 0w4)))
+                in
+                    #store resConv (res, result)
+                end
+            
+                val argTypes =
+                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
+                         #ctype arg4Conv, #ctype arg5Conv]
+                and resType = #ctype resConv
+
+                val makeCallback = cFunctionWithAbi abi argTypes resType
+            in
+                (* Really make the callback when we store the actual function. *)
+                fn f => makeCallback(callback f)
+            end
+        in
+            fun cFunction5withAbi (abi: abi)
+                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                     arg4Conv: 'd conversion, arg5Conv: 'e conversion)
+                    (resConv: 'f conversion) : ('a *'b * 'c * 'd * 'e -> 'f) conversion =
+            let
+                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv,
+                                      arg4Conv, arg5Conv, resConv)
+                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+            in
+                { load=load, store=store, release=release, ctype=cTypePointer }
+            end
+       
+            fun cFunction5 x = cFunction5withAbi abiDefault x
+        end
+
+        local
+            fun makeConvCallback(abi, arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                 arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion,
+                 resConv: 'g conversion) =
+            let
+                fun callback (f: 'a *'b * 'c * 'd * 'e * 'f -> 'g) (args: voidStar, res: voidStar): unit =
+                let
+                    val result =
+                        f (
+                            #load arg1Conv (getAddress(args, 0w0)),
+                            #load arg2Conv (getAddress(args, 0w1)),
+                            #load arg3Conv (getAddress(args, 0w2)),
+                            #load arg4Conv (getAddress(args, 0w3)),
+                            #load arg5Conv (getAddress(args, 0w4)),
+                            #load arg6Conv (getAddress(args, 0w5)))
+                in
+                    #store resConv (res, result)
+                end
+            
+                val argTypes =
+                    [#ctype arg1Conv, #ctype arg2Conv, #ctype arg3Conv,
+                         #ctype arg4Conv, #ctype arg5Conv, #ctype arg6Conv]
+                and resType = #ctype resConv
+
+                val makeCallback = cFunctionWithAbi abi argTypes resType
+            in
+                (* Really make the callback when we store the actual function. *)
+                fn f => makeCallback(callback f)
+            end
+        in
+            fun cFunction6withAbi (abi: abi)
+                    (arg1Conv: 'a conversion, arg2Conv: 'b conversion, arg3Conv: 'c conversion,
+                     arg4Conv: 'd conversion, arg5Conv: 'e conversion, arg6Conv: 'f conversion)
+                    (resConv: 'g conversion) : ('a *'b * 'c * 'd * 'e * 'f -> 'g) conversion =
+            let
+                val cb = makeConvCallback(abi, arg1Conv, arg2Conv, arg3Conv,
+                                      arg4Conv, arg5Conv, arg6Conv, resConv)
+                fun store (v: voidStar, f) = setAddress(v, 0w0, cb f)
+            in
+                { load=load, store=store, release=release, ctype=cTypePointer }
+            end
+       
+            fun cFunction6 x = cFunction6withAbi abiDefault x
+        end
 
     end
 end;
