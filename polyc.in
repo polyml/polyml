@@ -7,6 +7,9 @@ LIBDIR=@libdir@
 LIBS="@LIBS@"
 CFLAGS="@CFLAGS@"
 
+DEFAULT_COMPILER="${BINDIR}/poly"
+COMPILER=${DEFAULT_COMPILER}
+
 # Extra options for Windows.  config.status sets these conditionals to either "" or "#".
 
 @NATIVE_WINDOWS_FALSE@EXTRALDFLAGS=""
@@ -32,7 +35,7 @@ trap 'rm -f $TMPOBJFILE' 0
 
 compile()
 {
-    echo "use (List.nth(CommandLine.arguments(), 2)); PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${BINDIR}/poly -q --error-exit  "$1" "$2"
+    echo "use (List.nth(CommandLine.arguments(), 2)); PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${COMPILER} -q --error-exit  "$1" "$2"
 }
 
 link()
@@ -50,6 +53,7 @@ printhelp()
     echo "Usage: polyc [OPTION]... [SOURCEFILE]"
     echo Compile and link a Standard ML source file with Poly/ML.
     echo
+    echo "   -b poly      Use 'poly' as compiler instead of ${DEFAULT_COMPILER}"
     echo "   -c           Compile but do not link.  The object file is written to the source file with .$SUFFIX extension."
     echo "   -o output    Write the executable file to 'output'"
     echo "   --help       Write this text and exit"
@@ -86,6 +90,10 @@ do
     case "$1" in
         --help)
             printhelp ;;
+        -b)
+            shift
+            [ $# -eq 0 ] && usage "Expected file name after -b"
+            COMPILER="$1";;
         -c) compileonly="yes";;
         -o)
             shift
