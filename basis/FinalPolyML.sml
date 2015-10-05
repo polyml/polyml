@@ -645,53 +645,92 @@ local
     (*                  "use": compile from a file.                              *)
     (*****************************************************************************)
 
-    fun use (originalName: string): unit =
-    let
-        (* use "f" first tries to open "f" but if that fails it tries "f.ML", "f.sml" etc. *)
-        (* We use the functional layer and a reference here rather than TextIO.input1 because
-           that requires locking round every read to make it thread-safe.  We know there's
-           only one thread accessing the stream so we don't need it here. *)
-        fun trySuffixes [] =
-            (* Not found - attempt to open the original and pass back the
-               exception. *)
-            (TextIO.getInstream(TextIO.openIn originalName), originalName)
-         |  trySuffixes (s::l) =
-            (TextIO.getInstream(TextIO.openIn (originalName ^ s)), originalName ^ s)
-                handle IO.Io _ => trySuffixes l
-        (* First in list is the name with no suffix. *)
-        val (inStream, fileName) = trySuffixes("" :: ! suffixes)
-        val stream = ref inStream
-
-        val lineNo   = ref 1;
-        fun getChar () : char option =
-            case TextIO.StreamIO.input1 (! stream) of
-                NONE => NONE
-            |   SOME (eoln as #"\n", strm) =>
-                (
-                    lineNo := !lineNo + 1;
-                    stream := strm;
-                    SOME eoln
-                )
-            |   SOME(c, strm) => (stream := strm; SOME c)
+    local
+        (* Remember the path to the last use.  This simplifies nested "use". *)
+        val usePath = LibrarySupport.noOverwriteRef NONE
+        (* Reset the path on entry.  We might have called PolyML.export inside a use. *)
+        val () = PolyML.onEntry (fn () => usePath := NONE)
     in
-        while not (TextIO.StreamIO.endOfStream(!stream)) do
-        let
-            val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
-                handle exn =>
-                    ( TextIO.StreamIO.closeIn(!stream); PolyML.Exception.reraise exn )
-        in
-            code() handle exn =>
-            (
-                (* Report exceptions in running code. *)
-                TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                TextIO.StreamIO.closeIn (! stream);
-                PolyML.Exception.reraise exn
-            )
-        end;
-        (* Normal termination: close the stream. *)
-        TextIO.StreamIO.closeIn (! stream)
 
-    end (* use *)
+        fun use (originalName: string): unit =
+        let
+            (* use "f" first tries to open "f" but if that fails it tries "f.ML", "f.sml" etc. *)
+            (* We use the functional layer and a reference here rather than TextIO.input1 because
+               that requires locking round every read to make it thread-safe.  We know there's
+               only one thread accessing the stream so we don't need it here. *)
+            fun trySuffixes (_, []) = NONE
+             |  trySuffixes (name, s::l) =
+                    SOME (TextIO.getInstream(TextIO.openIn (name ^ s)), name ^ s)
+                        handle IO.Io _ => trySuffixes(name, l)
+            (* First in list is the name with no suffix. *)
+            val (inStream, fileName) =
+                case trySuffixes(originalName, "" :: ! suffixes) of
+                    SOME found => found
+                |   NONE =>
+                    (
+                        case ! usePath of
+                            NONE =>
+                                (* Try again with the original name.  This will raise
+                                   an exception but it will contain the name which is
+                                   the most helpful error. *)
+                                (TextIO.getInstream(TextIO.openIn originalName), originalName)
+                        |   SOME path =>
+                            let
+                                val relative =
+                                    OS.Path.mkAbsolute{relativeTo=path, path=originalName}
+                            in
+                                case trySuffixes(relative, "" :: ! suffixes) of
+                                    SOME found => found
+                                |   NONE =>
+                                    (TextIO.getInstream(TextIO.openIn originalName), originalName)
+                            end
+                    )
+            val oldPath = ! usePath (* Save the old path *)
+
+            local (* Set up the path. *)
+                open OS.FileSys OS.Path
+                (* Take the directory part off. *)
+                val { dir, ...} = splitDirFile fileName
+            in
+                (* Set the path based on the the current directory. *)
+                val () = usePath := SOME(mkAbsolute{path=dir, relativeTo=getDir()})
+            end
+
+            val stream = ref inStream
+
+            val lineNo   = ref 1;
+            fun getChar () : char option =
+                case TextIO.StreamIO.input1 (! stream) of
+                    NONE => NONE
+                |   SOME (eoln as #"\n", strm) =>
+                    (
+                        lineNo := !lineNo + 1;
+                        stream := strm;
+                        SOME eoln
+                    )
+                |   SOME(c, strm) => (stream := strm; SOME c)
+        in
+            while not (TextIO.StreamIO.endOfStream(!stream)) do
+            let
+                val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
+                    handle exn =>
+                        ( TextIO.StreamIO.closeIn(!stream); PolyML.Exception.reraise exn )
+            in
+                code() handle exn =>
+                (
+                    (* Report exceptions in running code. *)
+                    TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
+                    TextIO.StreamIO.closeIn (! stream);
+                    usePath := oldPath;
+                    PolyML.Exception.reraise exn
+                )
+            end;
+            (* Normal termination: close the stream. *)
+            TextIO.StreamIO.closeIn (! stream);
+            usePath := oldPath
+
+        end (* use *)
+    end
  
     local
         open Time
