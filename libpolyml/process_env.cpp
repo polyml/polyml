@@ -417,6 +417,7 @@ Handle process_env_dispatch_c(TaskData *mdTaskData, Handle args, Handle code)
         return Make_arbitrary_precision(mdTaskData, 1);
 #endif
 
+        // These are no longer used.  The code is handled entirely in ML.
     case 10: /* Are empty arcs redundant? */
         /* Unix and Windows - yes. */
         return Make_arbitrary_precision(mdTaskData, 1);
