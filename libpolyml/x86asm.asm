@@ -2908,6 +2908,175 @@ shift_right_arith_longword1:
     CALLMACRO   CALL_IO POLY_SYS_shift_right_arith_longword
 CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR Mask_all)
 
+;# C-memory operations.
+cmem_load_8:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Rebx            ;# Get the index.
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+ENDIF
+    SARL    CONST TAGSHIFT,Rebx     ;# That's also tagged
+IFDEF WINDOWS
+    movzx   Reax, byte ptr [Reax][Rebx]
+ELSE
+IFNDEF HOSTARCHITECTURE_X86_64
+    movzbl  (Reax,Rebx,1),Reax
+ELSE
+    movzbq  (Reax,Rebx,1),Reax
+ENDIF
+ENDIF
+CALLMACRO   MAKETAGGED  Reax,Reax
+    MOVL    Reax,Rebx       ;# Clobber bad value in %Rebx
+IFNDEF HOSTARCHITECTURE_X86_64
+    ret     CONST 4
+ELSE
+    ret
+ENDIF
+CALLMACRO   RegMask cmem_load_8,(M_Reax OR M_Rebx)
+
+cmem_load_16:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Rebx            ;# Get the index.
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+ENDIF
+    ;# The index is tagged but since we want to multiply by two we don't need anything here.
+IFDEF WINDOWS
+    movzx   Reax, word ptr [Reax-1][Rebx]
+ELSE
+IFNDEF HOSTARCHITECTURE_X86_64
+    movzwl  -1(Reax,Rebx,1),Reax
+ELSE
+    movzwq  -1(Reax,Rebx,1),Reax
+ENDIF
+ENDIF
+CALLMACRO   MAKETAGGED  Reax,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    ret     CONST 4
+ELSE
+    ret
+ENDIF
+CALLMACRO   RegMask cmem_load_16,(M_Reax OR M_Rebx)
+
+cmem_load_32:
+IFDEF HOSTARCHITECTURE_X86_64
+;# 64-bit mode - the result is tagged
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFDEF WINDOWS
+    mov     eax, dword ptr [Reax-2][R8*2]
+ELSE
+    movl    -2(Reax,R8,1),Reax
+ENDIF
+CALLMACRO   MAKETAGGED  Reax,Reax
+    MOVL    Reax,Rebx       ;# Clobber bad value in %Rebx
+    ret
+
+CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx)
+
+ELSE
+;# 32-bit mode - the result is boxed
+    call    mem_for_largeword
+    jb      cmem_load_32_1
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+    MOVL    4[Resp],Rebx            ;# Get the index.
+    MOVL    (-2)[Reax+Rebx*2],Reax
+    MOVL    Reax,[Recx]             ;# Save in the new memory
+    MOVL    Recx,Reax               ;# Copy the result address
+    ret     CONST 4
+
+cmem_load_32_1:
+    CALLMACRO   CALL_IO POLY_SYS_cmem_load_32
+CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx OR M_Recx OR Mask_all)
+ENDIF
+
+cmem_load_64: ;# The result is boxed in 64-bit mode. This raises an exception in 32-bit mode
+IFDEF HOSTARCHITECTURE_X86_64
+    call    mem_for_largeword
+    jb      cmem_load_64_1
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Reax,Rebx               ;# Add it in
+    MOVL    (-4)[Reax+R8*4],Reax
+    MOVL    Reax,[Recx]             ;# Save in the new memory
+    MOVL    Recx,Reax               ;# Copy the result address
+    MOVL    Reax,Rebx               ;# Clobber bad value
+    ret
+
+cmem_load_64_1:
+ENDIF
+    CALLMACRO   CALL_IO POLY_SYS_cmem_load_64
+CALLMACRO   RegMask cmem_load_64,(M_Reax OR M_Rebx OR M_Recx OR Mask_all)
+
+cmem_load_float:
+    call    mem_for_real
+    jb      cmem_load_float1
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Reax,Rebx               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Rebx            ;# Get the index.
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+ENDIF
+IFDEF WINDOWS
+    FLD     dword ptr [Reax-2][Rebx*2]
+    FSTP    qword ptr [Recx]
+ELSE
+    FLDF    -2(Reax,Rebx,2)
+    FSTPL   [Recx]
+ENDIF
+    MOVL    Recx,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    ret     CONST 4
+ELSE
+    ret
+ENDIF
+
+cmem_load_float1:
+     CALLMACRO   CALL_IO POLY_SYS_cmem_load_float
+CALLMACRO   RegMask cmem_load_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7 OR Mask_all)
+
+cmem_load_double:
+    call    mem_for_real
+    jb      cmem_load_double1
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Reax,Rebx               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    4[Resp],Rebx            ;# Get the index.
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+ENDIF
+IFDEF WINDOWS
+    FLD     qword ptr [Reax-4][Rebx*4]
+    FSTP    qword ptr [Recx]
+ELSE
+    FLDL    -4(Reax,Rebx,4)
+    FSTPL   [Recx]
+ENDIF
+    MOVL    Recx,Reax
+IFNDEF HOSTARCHITECTURE_X86_64
+    ret     CONST 4
+ELSE
+    ret
+ENDIF
+
+cmem_load_double1:
+     CALLMACRO   CALL_IO POLY_SYS_cmem_load_double
+CALLMACRO   RegMask cmem_load_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7 OR Mask_all)
+   
+
+
 IFDEF WINDOWS
 
 CREATE_IO_CALL  MACRO index
@@ -3170,12 +3339,12 @@ ENDIF
     DDQ  0                              ;# 157 is unused
     DDQ  0                              ;# 158 is unused
     DDQ  0                              ;# 159 is unused
-    DDQ  CallPOLY_SYS_cmem_load_8       ;# 160
-    DDQ  CallPOLY_SYS_cmem_load_16      ;# 161
-    DDQ  CallPOLY_SYS_cmem_load_32      ;# 162
-    DDQ  CallPOLY_SYS_cmem_load_64      ;# 163
-    DDQ  CallPOLY_SYS_cmem_load_float   ;# 164
-    DDQ  CallPOLY_SYS_cmem_load_double  ;# 165
+    DDQ  cmem_load_8                    ;# 160
+    DDQ  cmem_load_16                   ;# 161
+    DDQ  cmem_load_32                   ;# 162
+    DDQ  cmem_load_64                   ;# 163
+    DDQ  cmem_load_float                ;# 164
+    DDQ  cmem_load_double               ;# 165
     DDQ  CallPOLY_SYS_cmem_store_8      ;# 166
     DDQ  CallPOLY_SYS_cmem_store_16     ;# 167
     DDQ  CallPOLY_SYS_cmem_store_32     ;# 168
@@ -3441,12 +3610,12 @@ ENDIF
     dd  Mask_all                 ;# 157 is unused
     dd  Mask_all                 ;# 158 is unused
     dd  Mask_all                 ;# 159 is unused
-    dd  Mask_all                 ;# 160
-    dd  Mask_all                 ;# 161
-    dd  Mask_all                 ;# 162
-    dd  Mask_all                 ;# 163
-    dd  Mask_all                 ;# 164
-    dd  Mask_all                 ;# 165
+    dd  Mask_cmem_load_8         ;# 160
+    dd  Mask_cmem_load_16        ;# 161
+    dd  Mask_cmem_load_32        ;# 162
+    dd  Mask_cmem_load_64        ;# 163
+    dd  Mask_cmem_load_float     ;# 164
+    dd  Mask_cmem_load_double    ;# 165
     dd  Mask_all                 ;# 166
     dd  Mask_all                 ;# 167
     dd  Mask_all                 ;# 168

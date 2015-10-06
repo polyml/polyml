@@ -1051,14 +1051,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO5(this, &testBytesEqual);
                 break;
 
-            case POLY_SYS_cmem_load_8:
-                CallIO3(this, &cmem_load_8);
-                break;
-
-            case POLY_SYS_cmem_load_16:
-                CallIO3(this, &cmem_load_16);
-                break;
-
             case POLY_SYS_cmem_load_32:
                 CallIO3(this, &cmem_load_32);
                 break;
