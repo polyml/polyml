@@ -3005,7 +3005,7 @@ IFDEF HOSTARCHITECTURE_X86_64
     jb      cmem_load_64_1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
-    ADDL    Reax,Rebx               ;# Add it in
+    ADDL    Rebx,Reax               ;# Add it in
     MOVL    (-4)[Reax+R8*4],Reax
     MOVL    Reax,[Recx]             ;# Save in the new memory
     MOVL    Recx,Reax               ;# Copy the result address
@@ -3022,7 +3022,7 @@ cmem_load_float:
     jb      cmem_load_float1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
-    ADDL    Reax,Rebx               ;# Add it in
+    ADDL    Rebx,Reax               ;# Add it in
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Rebx            ;# Get the index.
 ELSE
@@ -3032,7 +3032,7 @@ IFDEF WINDOWS
     FLD     dword ptr [Reax-2][Rebx*2]
     FSTP    qword ptr [Recx]
 ELSE
-    FLDF    -2(Reax,Rebx,2)
+    FLDS    -2(Reax,Rebx,2)
     FSTPL   [Recx]
 ENDIF
     MOVL    Recx,Reax
@@ -3051,7 +3051,7 @@ cmem_load_double:
     jb      cmem_load_double1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
-    ADDL    Reax,Rebx               ;# Add it in
+    ADDL    Rebx,Reax               ;# Add it in
 IFNDEF HOSTARCHITECTURE_X86_64
     MOVL    4[Resp],Rebx            ;# Get the index.
 ELSE
