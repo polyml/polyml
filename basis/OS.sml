@@ -582,10 +582,19 @@ struct
             if absT then raise Path
             else if volT <> "" andalso not(equivalent(volS, volT))
             then raise Path
+            else if #root(matchVolumePrefix t)
+            (* Special case for Windows. concat("c:\\abc\\def", "\\xyz") is "c:\\xyz". *)
+            then
+            let
+                (* Because this a relative path we have an extra empty arc here. *)
+                val ArcsT' = case ArcsT of "" :: a => a | a => a
+            in
+                toString{isAbs=absS, vol=volS, arcs=ArcsT'}
+            end
             else toString{isAbs=absS, vol=volS, arcs=concatArcs ArcsS ArcsT}
         end
-
-        (* Make an absolute path by treating a relative path as relative to
+        
+       (* Make an absolute path by treating a relative path as relative to
            a given path. *)
         fun mkAbsolute {path, relativeTo} =
         let
@@ -626,13 +635,20 @@ struct
                             if equivalent(p, r)
                             then matchPaths p' r'
                             else addParents (r :: r') (p :: p')
+
+                    (* We have a special case with the root directory
+                       (/ on Unix or c:\\ on Windows).  In that case fromString returns
+                       a single empty arc and we want to remove it here otherwise
+                       we can end up with an empty arc in addParents. *) 
+                    val arcsP' = case arcsP of [""] => [] | _ => arcsP
+                    val arcsRT' = case arcsRT of [""] => [] | _ => arcsRT
                 in
                     if not absRT then raise Path
                     (* If the path contained a volume it must be the
                        same as the absolute path. *)
                     else if volP <> "" andalso not(equivalent(volP, volRT))
                     then raise Path
-                    else toString{isAbs=false, vol="", arcs=matchPaths arcsP arcsRT}
+                    else toString{isAbs=false, vol="", arcs=matchPaths arcsP' arcsRT'}
                 end
 
         (* Another badly defined function.  What is a root?  Does it have to specify

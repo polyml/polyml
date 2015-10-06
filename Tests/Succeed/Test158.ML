@@ -197,6 +197,90 @@ end;
 
 val () = List.app test testSplitFile;
 
+val testAbsolute =
+[
+    { s = "/a", p = true, w = false },
+    { s = "c:/a", p = false, w = true }
+];
+
+fun test { s, p, w } =
+let
+    val res = isAbsolute s
+in
+    case sys of
+        Posix => check s (res = p)
+    |   Windows => check s (res = w)
+end;
+
+val () = List.app test testAbsolute;
+
+case sys of
+    Posix =>
+    let
+        val testMkRelative =
+        [
+            (* These are all relative paths in Windows. *)
+            { s = { path = "a/b",   relativeTo = "/c/d" },      p = "a/b"},
+            { s = { path = "/",     relativeTo = "/a/b/c" },    p = "../../.." },
+            { s = { path = "/a/b/", relativeTo = "/a/c" },      p = "../b/" },
+            { s = { path = "/a/b",  relativeTo = "/a/c" },      p = "../b" },
+            { s = { path = "/a/b/", relativeTo = "/a/c/"},      p = "../b/" },
+            { s = { path = "/a/b",  relativeTo = "/a/c/"},      p = "../b" },
+            { s = { path = "/",     relativeTo = "/"},          p = "." },
+            { s = { path = "/",     relativeTo = "/."},         p = "." },
+            { s = { path = "/",     relativeTo = "/.."},        p = "." },
+            { s = { path = "/a/b/../c", relativeTo = "/a/d"},   p = "../b/../c" },
+            { s = { path = "/a/b",      relativeTo = "/c/d"},   p = "../../a/b" },
+            { s = { path = "/c/a/b",    relativeTo =  "/c/d"},  p = "../a/b" },
+            { s = { path = "/c/d/a/b",  relativeTo =  "/c/d"},  p = "a/b" }
+        ];
+
+        fun test { s, p } =
+        let
+            val res = mkRelative s
+        in
+            check (#path s ^ " " ^ #relativeTo s) (res = p)
+        end;
+    in
+        List.app test testMkRelative
+    end
+|   Windows =>
+    let
+        val testMkRelative =
+        [
+            { s = { path = "a/b",   relativeTo = "c:/c/d" },        w = "a/b" },
+            { s = { path = "c:/",     relativeTo = "c:/a/b/c" },    w = "../../.." },
+            { s = { path = "c:/a/b/", relativeTo = "c:/a/c" },      w = "../b/" },
+            { s = { path = "c:/a/b",  relativeTo = "c:/a/c" },      w = "../b" },
+            { s = { path = "c:/a/b/", relativeTo = "c:/a/c/"},      w = "../b/" },
+            { s = { path = "c:/a/b",  relativeTo = "c:/a/c/"},      w = "../b" },
+            { s = { path = "c:/",     relativeTo = "c:/"},          w = "." },
+            { s = { path = "c:/",     relativeTo = "c:/."},         w = "." },
+            { s = { path = "c:/",     relativeTo = "c:/.."},        w = "." },
+            { s = { path = "c:/a/b/../c", relativeTo = "c:/a/d"},   w = "../b/../c" },
+            { s = { path = "c:/a/b",      relativeTo = "c:/c/d"},   w = "../../a/b" },
+            { s = { path = "c:/c/a/b",    relativeTo =  "c:/c/d"},  w = "../a/b" },
+            { s = { path = "c:/c/d/a/b",  relativeTo =  "c:/c/d"},  w = "a/b" } 
+        ];
+
+        fun test { s, w } =
+        let
+            val res = mkRelative s
+        in
+            check (#path s ^ " " ^ #relativeTo s) (res = w orelse mapSep res = mapSep w)
+        end;
+    in
+        List.app test testMkRelative
+    end;
+
+case sys of
+    Windows =>
+    (
+        (* Special cases for the relative path \\abc.  This is relative to the current volume. *)
+        check "" (mkAbsolute{path="\\abc", relativeTo="c:\\def\\xyz"} = "c:\\abc");
+        check "" (concat("c:\\abc\\def", "\\ghi") = "c:\\ghi")
+    )
+|   Posix => ();
 
 (* OS.Path.joinDirFile should raise InvalidArc if the file name does not correspond to an arc *)
 (OS.Path.joinDirFile {dir="abc/def", file="ghi/jkl"}; raise Fail "incorrect") handle OS.Path.InvalidArc => ();
