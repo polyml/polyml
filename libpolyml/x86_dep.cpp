@@ -401,7 +401,7 @@ X86TaskData::X86TaskData(): allocReg(0), allocWords(0)
     memRegisters.stackOverflowEx = stackOverflowEx;
     memRegisters.raiseDiv = raiseDiv;
     memRegisters.arbEmulation = arbEmulation;
-    memRegisters.fullRestore = 0;
+    memRegisters.fullRestore = 1; // To force the floating point to 64-bit
 }
 
 void X86TaskData::GCStack(ScanAddress *process)
@@ -1377,7 +1377,8 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     // Floating point save area.
     ASSERT(sizeof(struct fpSaveArea) == 108);
     memset(&newStack->p_fp, 0, 108);
-    newStack->p_fp.cw = 0x037f ; // Control word
+    // Set the control word for 64-bit precision otherwise we get inconsistent results.
+    newStack->p_fp.cw = 0x027f ; // Control word
     newStack->p_fp.tw = 0xffff; // Tag registers - all unused
 
     /* We initialise the end of the stack with a sequence that will jump to
