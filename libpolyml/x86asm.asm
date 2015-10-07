@@ -2,10 +2,11 @@
 ;#  Title:  Assembly code routines for the poly system.
 ;#  Author:    David Matthews
 ;#  Copyright (c) Cambridge University Technical Services Limited 2000
+;#  Further development David C. J. Matthews 2000-2015
+;#
 ;#  This library is free software; you can redistribute it and/or
 ;#  modify it under the terms of the GNU Lesser General Public
-;#  License as published by the Free Software Foundation; either
-;#  version 2.1 of the License, or (at your option) any later version.
+;#  License version 2.1 as published by the Free Software Foundation.
 ;#  
 ;#  This library is distributed in the hope that it will be useful,
 ;#  but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -172,12 +173,28 @@ PUSHFL       TEXTEQU <pushfq>
 PUSHAL       TEXTEQU <pushaq>
 POPAL        TEXTEQU <popaq>
 FULLWORD     TEXTEQU <qword>
+
+;#  Return instructions - all in registers in x86-64
+RET0         TEXTEQU <ret>
+RET1         TEXTEQU <ret>
+RET2         TEXTEQU <ret>
+RET3         TEXTEQU <ret>
+RET4         TEXTEQU <ret>
+RET5         TEXTEQU <ret>
 ELSE
 POPFL        TEXTEQU <popfd>
 PUSHFL       TEXTEQU <pushfd>
 PUSHAL       TEXTEQU <pushad>
 POPAL        TEXTEQU <popad>
 FULLWORD     TEXTEQU <dword>
+
+;# Return instructions - First two values in registers, remainder on the stack
+RET0         TEXTEQU <ret>
+RET1         TEXTEQU <ret>
+RET2         TEXTEQU <ret>
+RET3         TEXTEQU <ret 4>
+RET4         TEXTEQU <ret 8>
+RET5         TEXTEQU <ret 12>
 ENDIF
 INCL         TEXTEQU <inc>
 
@@ -261,6 +278,14 @@ IFDEF HOSTARCHITECTURE_X86_64
 #define POPAL        popaq
 #define LOCKXADDL    lock xaddq
 
+;# Return instructions for n arguments.  All these are in registers
+#define RET0         ret
+#define RET1         ret
+#define RET2         ret
+#define RET3         ret
+#define RET4         ret
+#define RET5         ret
+
 ELSE
 #define MOVL         movl
 #define MOVB         movb
@@ -289,10 +314,17 @@ ELSE
 ;# Older versions of GCC require a semicolon here.
 #define LOCKXADDL    lock; xaddl
 
-ENDIF
+;# Return instructions for n arguments.
+#define RET0         ret
+#define RET1         ret
+#define RET2         ret
+#define RET3         ret $4
+#define RET4         ret $8
+#define RET5         ret $12
 
 ENDIF
 
+ENDIF
 
 ;# Register mask entries - must match coding used in I386CODECONS.ML
 IFDEF WINDOWS
@@ -629,14 +661,10 @@ POLY_SYS_ln_real             EQU 141
 POLY_SYS_process_env         EQU 150
 POLY_SYS_poly_specific       EQU 153
 ;# Define these for the moment.
-POLY_SYS_cmem_load_8         EQU 160
-POLY_SYS_cmem_load_16        EQU 161
 POLY_SYS_cmem_load_32        EQU 162
 POLY_SYS_cmem_load_64        EQU 163
 POLY_SYS_cmem_load_float     EQU 164
 POLY_SYS_cmem_load_double    EQU 165
-POLY_SYS_cmem_store_8        EQU 166
-POLY_SYS_cmem_store_16       EQU 167
 POLY_SYS_cmem_store_32       EQU 168
 POLY_SYS_cmem_store_64       EQU 169
 POLY_SYS_cmem_store_float    EQU 170
@@ -2930,11 +2958,7 @@ ENDIF
 ENDIF
 CALLMACRO   MAKETAGGED  Reax,Reax
     MOVL    Reax,Rebx       ;# Clobber bad value in %Rebx
-IFNDEF HOSTARCHITECTURE_X86_64
-    ret     CONST 4
-ELSE
-    ret
-ENDIF
+    RET3
 CALLMACRO   RegMask cmem_load_8,(M_Reax OR M_Rebx)
 
 cmem_load_16:
@@ -2957,11 +2981,7 @@ ELSE
 ENDIF
 ENDIF
 CALLMACRO   MAKETAGGED  Reax,Reax
-IFNDEF HOSTARCHITECTURE_X86_64
-    ret     CONST 4
-ELSE
-    ret
-ENDIF
+    RET3
 CALLMACRO   RegMask cmem_load_16,(M_Reax OR M_Rebx)
 
 cmem_load_32:
@@ -2973,11 +2993,11 @@ IFDEF HOSTARCHITECTURE_X86_64
 IFDEF WINDOWS
     mov     eax, dword ptr [Reax-2][R8*2]
 ELSE
-    movl    -2(Reax,R8,1),Reax
+    movl    -2(Reax,R8,2),Reax
 ENDIF
 CALLMACRO   MAKETAGGED  Reax,Reax
     MOVL    Reax,Rebx       ;# Clobber bad value in %Rebx
-    ret
+    RET3
 
 CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx)
 
@@ -2992,7 +3012,7 @@ ELSE
     MOVL    (-2)[Reax+Rebx*2],Reax
     MOVL    Reax,[Recx]             ;# Save in the new memory
     MOVL    Recx,Reax               ;# Copy the result address
-    ret     CONST 4
+    RET3
 
 cmem_load_32_1:
     CALLMACRO   CALL_IO POLY_SYS_cmem_load_32
@@ -3010,7 +3030,7 @@ IFDEF HOSTARCHITECTURE_X86_64
     MOVL    Reax,[Recx]             ;# Save in the new memory
     MOVL    Recx,Reax               ;# Copy the result address
     MOVL    Reax,Rebx               ;# Clobber bad value
-    ret
+    RET3
 
 cmem_load_64_1:
 ENDIF
@@ -3036,12 +3056,7 @@ ELSE
     FSTPL   [Recx]
 ENDIF
     MOVL    Recx,Reax
-IFNDEF HOSTARCHITECTURE_X86_64
-    ret     CONST 4
-ELSE
-    ret
-ENDIF
-
+    RET3
 cmem_load_float1:
      CALLMACRO   CALL_IO POLY_SYS_cmem_load_float
 CALLMACRO   RegMask cmem_load_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7 OR Mask_all)
@@ -3065,16 +3080,139 @@ ELSE
     FSTPL   [Recx]
 ENDIF
     MOVL    Recx,Reax
-IFNDEF HOSTARCHITECTURE_X86_64
-    ret     CONST 4
-ELSE
-    ret
-ENDIF
+    RET3
 
 cmem_load_double1:
      CALLMACRO   CALL_IO POLY_SYS_cmem_load_double
 CALLMACRO   RegMask cmem_load_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7 OR Mask_all)
    
+cmem_store_8:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    8[Resp],Rebx            ;# Get the index.
+    MOVL    4[Resp],Recx            ;# Get the value to store
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+    MOVL    R9,Recx
+ENDIF
+    SARL    CONST TAGSHIFT,Rebx     ;# That's also tagged
+    SARL    CONST TAGSHIFT,Recx
+    MOVB    R_cl,[Reax+Rebx]
+    MOVL    CONST UNIT,Reax             ;# The function returns unit
+    MOVL    Reax,Rebx                   ;# Clobber bad value in %Rebx
+    MOVL    Reax,Recx                   ;# and %Recx
+    RET4
+CALLMACRO   RegMask cmem_store_8,(M_Reax OR M_Rebx OR M_Recx)
+
+cmem_store_16:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    8[Resp],Rebx            ;# Get the index.
+    MOVL    4[Resp],Recx            ;# Get the value to store
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+    MOVL    R9,Recx
+ENDIF
+    SARL    CONST TAGSHIFT,Recx     ;# Untag the value to store
+IFDEF WINDOWS
+    mov     word ptr [Reax-1][Rebx],cx
+ELSE
+    movw    Recx,-1(Reax,Rebx,1)
+ENDIF
+    MOVL    CONST UNIT,Reax             ;# The function returns unit
+    MOVL    Reax,Recx                   ;# Bad value in %Recx
+    RET4
+CALLMACRO   RegMask cmem_store_16,(M_Reax OR M_Rebx OR M_Recx)
+
+cmem_store_32:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    8[Resp],Rebx            ;# Get the index.
+    MOVL    4[Resp],Recx            ;# Get the value to store
+    MOVL    [Recx],Recx
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+    MOVL    R9,Recx
+    SARL    CONST TAGSHIFT,Recx     ;# Untag the value to store
+ENDIF
+IFDEF WINDOWS
+    mov     dword ptr [Reax-2][Rebx*2],ecx
+ELSE
+    movl    ecx,-2(Reax,Rebx,2)
+ENDIF
+    MOVL    CONST UNIT,Reax             ;# The function returns unit
+    MOVL    Reax,Recx                   ;# Bad value in %Recx
+    RET4
+CALLMACRO   RegMask cmem_store_32,(M_Reax OR M_Rebx OR M_Recx)
+
+cmem_store_64: ;# The value is boxed in 64-bit mode. This raises an exception in 32-bit mode
+IFDEF HOSTARCHITECTURE_X86_64
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+    MOVL    [R9],Rebx               ;# Value to store
+    MOVL    Rebx,(-4)[Reax+R8*4]    ;# Store it
+    MOVL    CONST UNIT,Reax         ;# The function returns unit
+    MOVL    Reax,Rebx               ;# Bad value in %Rebx
+    RET4
+
+CALLMACRO   RegMask cmem_store_64,(M_Reax OR M_Rebx OR M_Recx)
+ELSE
+    CALLMACRO   CALL_IO POLY_SYS_cmem_store_64 ;# Call this to raise an exception in 32-bit mode
+CALLMACRO   RegMask cmem_store_64,(Mask_all)
+ENDIF
+
+cmem_store_float:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    8[Resp],Rebx            ;# Get the index.
+    MOVL    4[Resp],Recx            ;# Get the address of the real
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+    MOVL    R9,Recx
+ENDIF
+IFDEF WINDOWS
+    FLD     qword ptr [Recx] 
+    FSTP    dword ptr [Reax-2][Rebx*2]
+ELSE
+    FLDL    [Recx]
+    FSTPS    -2(Reax,Rebx,2)
+ENDIF
+    MOVL    CONST UNIT,Reax         ;# The function returns unit
+    MOVL    Reax,Rebx               ;# Bad value in %Rebx
+    RET4
+CALLMACRO   RegMask cmem_store_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
+
+cmem_store_double:
+    MOVL    [Reax],Reax             ;# The address is boxed.
+    SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
+    ADDL    Rebx,Reax               ;# Add it in
+IFNDEF HOSTARCHITECTURE_X86_64
+    MOVL    8[Resp],Rebx            ;# Get the index.
+    MOVL    4[Resp],Recx            ;# Get the address of the real
+ELSE
+    MOVL    R8,Rebx                 ;# Get the index.
+    MOVL    R9,Recx
+ENDIF
+IFDEF WINDOWS
+    FLD     qword ptr [Recx] 
+    FSTP    qword ptr [Reax-4][Rebx*4]
+ELSE
+    FLDL    [Recx]
+    FSTPL    -4(Reax,Rebx,4)
+ENDIF
+    MOVL    CONST UNIT,Reax         ;# The function returns unit
+    MOVL    Reax,Rebx               ;# Bad value in %Rebx
+    RET4
+CALLMACRO   RegMask cmem_store_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 
 
 IFDEF WINDOWS
@@ -3138,20 +3276,6 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_ln_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_exp_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_arctan_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_cos_real
-
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_8
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_16
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_32
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_64
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_float
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_load_double
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_8
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_16
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_32
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_64
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_float
-CALLMACRO CREATE_IO_CALL  POLY_SYS_cmem_store_double
-
 
 CALLMACRO CREATE_EXTRA_CALL RETURN_HEAP_OVERFLOW
 CALLMACRO CREATE_EXTRA_CALL RETURN_STACK_OVERFLOW
@@ -3345,12 +3469,12 @@ ENDIF
     DDQ  cmem_load_64                   ;# 163
     DDQ  cmem_load_float                ;# 164
     DDQ  cmem_load_double               ;# 165
-    DDQ  CallPOLY_SYS_cmem_store_8      ;# 166
-    DDQ  CallPOLY_SYS_cmem_store_16     ;# 167
-    DDQ  CallPOLY_SYS_cmem_store_32     ;# 168
-    DDQ  CallPOLY_SYS_cmem_store_64     ;# 169
-    DDQ  CallPOLY_SYS_cmem_store_float  ;# 170
-    DDQ  CallPOLY_SYS_cmem_store_double ;# 171
+    DDQ  cmem_store_8                   ;# 166
+    DDQ  cmem_store_16                  ;# 167
+    DDQ  cmem_store_32                  ;# 168
+    DDQ  cmem_store_64                  ;# 169
+    DDQ  cmem_store_float               ;# 170
+    DDQ  cmem_store_double              ;# 171
     DDQ  0                              ;# 172 is unused
     DDQ  0                              ;# 173 is unused
     DDQ  0                              ;# 174 is unused
@@ -3616,12 +3740,12 @@ ENDIF
     dd  Mask_cmem_load_64        ;# 163
     dd  Mask_cmem_load_float     ;# 164
     dd  Mask_cmem_load_double    ;# 165
-    dd  Mask_all                 ;# 166
-    dd  Mask_all                 ;# 167
-    dd  Mask_all                 ;# 168
-    dd  Mask_all                 ;# 169
-    dd  Mask_all                 ;# 170
-    dd  Mask_all                 ;# 171
+    dd  Mask_cmem_store_8        ;# 166
+    dd  Mask_cmem_store_16       ;# 167
+    dd  Mask_cmem_store_32       ;# 168
+    dd  Mask_cmem_store_64       ;# 169
+    dd  Mask_cmem_store_float    ;# 170
+    dd  Mask_cmem_store_double   ;# 171
     dd  Mask_all                 ;# 172 is unused
     dd  Mask_all                 ;# 173 is unused
     dd  Mask_all                 ;# 174 is unused
