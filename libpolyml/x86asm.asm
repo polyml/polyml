@@ -2993,7 +2993,7 @@ IFDEF HOSTARCHITECTURE_X86_64
 IFDEF WINDOWS
     mov     eax, dword ptr [Reax-2][R8*2]
 ELSE
-    movl    -2(Reax,R8,2),Reax
+    movl    -2(Reax,R8,2),%eax
 ENDIF
 CALLMACRO   MAKETAGGED  Reax,Reax
     MOVL    Reax,Rebx       ;# Clobber bad value in %Rebx
@@ -3121,7 +3121,7 @@ ENDIF
 IFDEF WINDOWS
     mov     word ptr [Reax-1][Rebx],cx
 ELSE
-    movw    Recx,-1(Reax,Rebx,1)
+    movw    %cx,-1(Reax,Rebx,1)
 ENDIF
     MOVL    CONST UNIT,Reax             ;# The function returns unit
     MOVL    Reax,Recx                   ;# Bad value in %Recx
@@ -3144,7 +3144,7 @@ ENDIF
 IFDEF WINDOWS
     mov     dword ptr [Reax-2][Rebx*2],ecx
 ELSE
-    movl    ecx,-2(Reax,Rebx,2)
+    movl    %ecx,-2(Reax,Rebx,2)
 ENDIF
     MOVL    CONST UNIT,Reax             ;# The function returns unit
     MOVL    Reax,Recx                   ;# Bad value in %Recx
