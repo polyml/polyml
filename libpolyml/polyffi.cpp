@@ -521,14 +521,6 @@ Handle cmem_load_32(TaskData *taskData, Handle indexH, Handle offsetH, Handle ba
     POLYSIGNED index = getPolySigned(taskData, indexH->Word());
     return toSysWord(taskData, ((uint32_t*)baseAddr)[index]);
 }
-
-// Not (currently) implemented.  N.B.  The properties in "rtsProperties" are
-// different in 32- and 64-bit mode to take account of the fact that this will
-// raise an exception.  Change that if this is eventually implemented in 32-bit mode.
-Handle cmem_load_64(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
-{
-    raise_exception_string(taskData, EXC_foreign, "64-bit operations not available");
-}
 #endif
 
 Handle cmem_load_float(TaskData *taskData, Handle indexH, Handle offsetH, Handle baseH)
@@ -605,12 +597,6 @@ Handle cmem_store_32(TaskData *taskData, Handle valueH, Handle indexH, Handle of
     uint32_t value = *(uint32_t*)(valueH->Word().AsAddress());
     ((uint32_t*)baseAddr)[index] = value;
     return taskData->saveVec.push(TAGGED(0));
-}
-
-// See note for cmem_load_64
-Handle cmem_store_64(TaskData *taskData, Handle valueH, Handle indexH, Handle offsetH, Handle baseH)
-{
-    raise_exception_string(taskData, EXC_foreign, "64-bit operations not available");
 }
 #endif
 

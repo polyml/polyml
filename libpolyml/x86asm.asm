@@ -3019,7 +3019,7 @@ cmem_load_32_1:
 CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx OR M_Recx OR Mask_all)
 ENDIF
 
-cmem_load_64: ;# The result is boxed in 64-bit mode. This raises an exception in 32-bit mode
+cmem_load_64: ;# The result is boxed in 64-bit mode. Not implemented in 32-bit mode
 IFDEF HOSTARCHITECTURE_X86_64
     call    mem_for_largeword
     jb      cmem_load_64_1
@@ -3033,9 +3033,9 @@ IFDEF HOSTARCHITECTURE_X86_64
     RET3
 
 cmem_load_64_1:
-ENDIF
     CALLMACRO   CALL_IO POLY_SYS_cmem_load_64
 CALLMACRO   RegMask cmem_load_64,(M_Reax OR M_Rebx OR M_Recx OR Mask_all)
+ENDIF
 
 cmem_load_float:
     call    mem_for_real
@@ -3151,7 +3151,7 @@ ENDIF
     RET4
 CALLMACRO   RegMask cmem_store_32,(M_Reax OR M_Rebx OR M_Recx)
 
-cmem_store_64: ;# The value is boxed in 64-bit mode. This raises an exception in 32-bit mode
+cmem_store_64: ;# The value is boxed in 64-bit mode. Not implemented in 32-bit mode
 IFDEF HOSTARCHITECTURE_X86_64
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
@@ -3163,9 +3163,6 @@ IFDEF HOSTARCHITECTURE_X86_64
     RET4
 
 CALLMACRO   RegMask cmem_store_64,(M_Reax OR M_Rebx OR M_Recx)
-ELSE
-    CALLMACRO   CALL_IO POLY_SYS_cmem_store_64 ;# Call this to raise an exception in 32-bit mode
-CALLMACRO   RegMask cmem_store_64,(Mask_all)
 ENDIF
 
 cmem_store_float:
@@ -3466,13 +3463,21 @@ ENDIF
     DDQ  cmem_load_8                    ;# 160
     DDQ  cmem_load_16                   ;# 161
     DDQ  cmem_load_32                   ;# 162
+IFDEF HOSTARCHITECTURE_X86_64
     DDQ  cmem_load_64                   ;# 163
+ELSE
+    DDQ  0                              ;# 163
+ENDIF
     DDQ  cmem_load_float                ;# 164
     DDQ  cmem_load_double               ;# 165
     DDQ  cmem_store_8                   ;# 166
     DDQ  cmem_store_16                  ;# 167
     DDQ  cmem_store_32                  ;# 168
+IFDEF HOSTARCHITECTURE_X86_64
     DDQ  cmem_store_64                  ;# 169
+ELSE
+    DDQ  0                              ;# 169
+ENDIF
     DDQ  cmem_store_float               ;# 170
     DDQ  cmem_store_double              ;# 171
     DDQ  0                              ;# 172 is unused
@@ -3737,13 +3742,21 @@ ENDIF
     dd  Mask_cmem_load_8         ;# 160
     dd  Mask_cmem_load_16        ;# 161
     dd  Mask_cmem_load_32        ;# 162
+IFDEF HOSTARCHITECTURE_X86_64
     dd  Mask_cmem_load_64        ;# 163
+ELSE
+    dd  Mask_all                 ;# 169
+ENDIF
     dd  Mask_cmem_load_float     ;# 164
     dd  Mask_cmem_load_double    ;# 165
     dd  Mask_cmem_store_8        ;# 166
     dd  Mask_cmem_store_16       ;# 167
     dd  Mask_cmem_store_32       ;# 168
+IFDEF HOSTARCHITECTURE_X86_64
     dd  Mask_cmem_store_64       ;# 169
+ELSE
+    dd  Mask_all                 ;# 169
+ENDIF
     dd  Mask_cmem_store_float    ;# 170
     dd  Mask_cmem_store_double   ;# 171
     dd  Mask_all                 ;# 172 is unused

@@ -1055,10 +1055,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO3(this, &cmem_load_32);
                 break;
 
-            case POLY_SYS_cmem_load_64:
-                CallIO3(this, &cmem_load_64);
-                break;
-
             case POLY_SYS_cmem_load_float:
                 CallIO3(this, &cmem_load_float);
                 break;
@@ -1079,9 +1075,15 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO4(this, &cmem_store_32);
                 break;
 
+#if (SIZEOF_VOIDP == 8)
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
             case POLY_SYS_cmem_store_64:
                 CallIO4(this, &cmem_store_64);
                 break;
+#endif
 
             case POLY_SYS_cmem_store_float:
                 CallIO4(this, &cmem_store_float);

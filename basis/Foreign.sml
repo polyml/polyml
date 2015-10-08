@@ -385,7 +385,9 @@ struct
         and get32(s: voidStar, i: Word.word): Word32.word =
             RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_32 (s, 0w0, i)
         and get64(s: voidStar, i: Word.word): SysWord.word =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_64 (s, 0w0, i)
+            if wordSize = 0w4
+            then raise Foreign "64-bit operations not available"
+            else RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_64 (s, 0w0, i)
         and getFloat(s: voidStar, i: Word.word): real =
             RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
         and getDouble(s: voidStar, i: Word.word): real =
@@ -398,7 +400,9 @@ struct
         and set32 (s: voidStar, i: Word.word, v: Word32.word): unit =
             RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
         and set64 (s: voidStar, i: Word.word, v: SysWord.word): unit =
-            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
+            if wordSize = 0w4
+            then raise Foreign "64-bit operations not available"
+            else RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
         and setFloat (s: voidStar, i: Word.word, v: real): unit =
             RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
         and setDouble (s: voidStar, i: Word.word, v: real): unit =
@@ -786,20 +790,64 @@ struct
         end
 
         local
-            fun load(m: voidStar): int = SysWord.toIntX(get64(m, 0w0))
+            fun load(m: voidStar): int =
+                if wordSize = 0w4
+                then
+                let
+                    val v1 = get32(m, 0w0) and v2 = get32(m, 0w1)
+                in
+                    if bigEndian
+                    then IntInf.<<(Word32.toIntX v1, 0w32) + Word32.toInt v2
+                    else IntInf.<<(Word32.toIntX v2, 0w32) + Word32.toInt v1
+                end
+                else SysWord.toIntX(get64(m, 0w0))
+
             val max = IntInf.<<(1, 0w63) - 1 and min = ~ (IntInf.<<(1, 0w63))
+
             fun store(m: voidStar, i: int) =
-                set64(m, 0w0, SysWord.fromInt(checkRange(i, min, max)))
+                if wordSize = 0w4
+                then
+                let
+                    val _ = checkRange(i, min, max)
+                    val lo = Word32.fromInt i and hi = Word32.fromInt (IntInf.~>>(i, 0w32))
+                in
+                    if bigEndian
+                    then (set32(m, 0w0, hi); set32(m, 0w1, lo))
+                    else (set32(m, 0w0, lo); set32(m, 0w1, hi))
+                end
+                else set64(m, 0w0, SysWord.fromInt(checkRange(i, min, max)))
         in
             val cInt64: int conversion =
                 { load=load, store=store, release = noFree, ctype = cTypeInt64 }
         end
 
         local
-            fun load(m: voidStar): int = SysWord.toInt(get64(m, 0w0))
+            fun load(m: voidStar): int =
+                if wordSize = 0w4
+                then
+                let
+                    val v1 = get32(m, 0w0) and v2 = get32(m, 0w1)
+                in
+                    if bigEndian
+                    then IntInf.<<(Word32.toInt v1, 0w32) + Word32.toInt v2
+                    else IntInf.<<(Word32.toInt v2, 0w32) + Word32.toInt v1
+                end
+                else SysWord.toInt(get64(m, 0w0))
+
             val max = IntInf.<<(1, 0w64) - 1
+
             fun store(m: voidStar, i: int) =
-                set64(m, 0w0, SysWord.fromInt(checkRange(i, 0, max)))
+                if wordSize = 0w4
+                then
+                let
+                    val _ = checkRange(i, 0, max)
+                    val lo = Word32.fromInt i and hi = Word32.fromInt (IntInf.~>>(i, 0w32))
+                in
+                    if bigEndian
+                    then (set32(m, 0w0, hi); set32(m, 0w1, lo))
+                    else (set32(m, 0w0, lo); set32(m, 0w1, hi))
+                end
+                else set64(m, 0w0, SysWord.fromInt(checkRange(i, 0, max)))
         in
             val cUint64: int conversion =
                 { load=load, store=store, release = noFree, ctype = cTypeUint64 }
