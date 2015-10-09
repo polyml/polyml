@@ -223,7 +223,7 @@ struct
         
         fun allocMem s =
         let
-            val space = s + overhead
+            val space = alignUp(s + overhead, maxAlign)
             val (found, newList) = findFree(space, !freeList)
         in
             case found of
