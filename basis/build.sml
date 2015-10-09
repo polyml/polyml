@@ -128,6 +128,8 @@ val () = Bootstrap.use "basis/UniversalArray.ML";
 val () = Bootstrap.use "basis/PrettyPrinter.sml"; (* Add PrettyPrinter to PolyML structure. *)
 val () = Bootstrap.use "basis/ASN1.sml";
 val () = Bootstrap.use "basis/Statistics.ML"; (* Add Statistics to PolyML structure. *)
+val () = Bootstrap.use "basis/ForeignConstants.sml";
+val () = Bootstrap.use "basis/ForeignMemory.sml";
 val () = Bootstrap.use "basis/Foreign.sml";
 val () = Bootstrap.use "basis/FinalPolyML.sml";
 val () = Bootstrap.use "basis/TopLevelPolyML.sml"; (* Add rootFunction to Poly/ML. *)
@@ -152,7 +154,8 @@ PolyML.Compiler.forgetValue "it";
 PolyML.Compiler.forgetStructure "LibrarySupport";
 PolyML.Compiler.forgetStructure "LibraryIOSupport";
 PolyML.Compiler.forgetStructure "MachineConstants";
-PolyML.Compiler.forgetStructure "ForeignPrivate";
+PolyML.Compiler.forgetStructure "ForeignConstants";
+PolyML.Compiler.forgetStructure "ForeignMemory";
 PolyML.Compiler.forgetFunctor "BasicStreamIO";
 PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";

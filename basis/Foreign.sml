@@ -1,64 +1,3 @@
-(*
-    Title:      Foreign Function Interface
-    Author:     David Matthews
-    Copyright   David Matthews 2015
-
-    This library is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License version 2.1 as published by the Free Software Foundation.
-    
-    This library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.
-    
-    You should have received a copy of the GNU Lesser General Public
-    License along with this library; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-*)
-
-(* This is defined separately so that the values are computed and
-   available as constants for the Foreign structure. *)
-structure ForeignPrivate =
-struct
-    local
-        fun getSizeAndAlign (n: int) =
-        let
-            val ffiType = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (52, n)
-            val (size: word, align: word, _, _) = (* Just get the first two fields. *)
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (53, ffiType)
-        in
-            {size=size, align=align}
-        end
-    in
-        val saVoid      = getSizeAndAlign 0
-        and saUint8     = getSizeAndAlign 1
-        and saSint8     = getSizeAndAlign 2
-        and saUint16    = getSizeAndAlign 3
-        and saSint16    = getSizeAndAlign 4
-        and saUint32    = getSizeAndAlign 5
-        and saSint32    = getSizeAndAlign 6
-        and saUint64    = getSizeAndAlign 7
-        and saSint64    = getSizeAndAlign 8
-        and saFloat     = getSizeAndAlign 9
-        and saDouble    = getSizeAndAlign 10
-        and saPointer   = getSizeAndAlign 11
-        and saUChar     = getSizeAndAlign 12
-        and saSChar     = getSizeAndAlign 13
-        and saUShort    = getSizeAndAlign 14
-        and saSShort    = getSizeAndAlign 15
-        and saUint      = getSizeAndAlign 16
-        and saSint      = getSizeAndAlign 17
-        and saUlong     = getSizeAndAlign 18
-        and saSlong     = getSizeAndAlign 19
-    end
-    
-    val bigEndian : bool = RunCall.run_call0 RuntimeCalls.POLY_SYS_is_big_endian ()
-    val wordSize : word = RunCall.run_call0 RuntimeCalls.POLY_SYS_bytes_per_word ()
-    
-    (* Minimum argument size. *)
-    val ffiMinArgSize: Word.word = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (51, 15)
-end;
 
 signature FOREIGN =
 sig
@@ -75,6 +14,9 @@ sig
         val voidStar2Sysword: voidStar -> SysWord.word
         val sysWord2VoidStar: SysWord.word -> voidStar
         val null: voidStar
+
+        val ++ : voidStar * word -> voidStar
+        val -- : voidStar * word -> voidStar
         
         (* Remember an address except across loads. *)
         val memoise: ('a -> voidStar) ->'a -> unit -> voidStar
@@ -411,109 +353,13 @@ struct
     fun id x = x
     exception Foreign = RunCall.Foreign
 
-    open ForeignPrivate
+    open ForeignConstants
+    
+    structure Memory = ForeignMemory
+    infix 6 ++ --
 
-    structure Memory =
-    struct
-        (* Both volatileRef and SysWord.word are the ADDRESSes of the actual value. *)
-        type volatileRef = word ref
-
-        val memMove: SysWord.word * word * SysWord.word * word* word -> unit =
-            RunCall.run_call5 RuntimeCalls.POLY_SYS_move_bytes
-       
-        fun volatileRef init =
-        let
-            (* Allocate a single word marked as mutable, weak, no-overwrite, byte. *)
-            (* A weak byte cell is cleared to zero when it is read in either from the
-               executable or from a saved state.  Using the no-overwrite bit ensures
-               that if it is contained in the executable it won't be changed by loading
-               a saved state but there's a problem if it is contained in a parent state.
-               Then loading a child state will clear it because we reload all the parents
-               when we load a child. *)
-            val v = RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(0w1, 0wx69, 0w0)
-            (* Copy the SysWord into it. *)
-            val () = memMove(init, 0w0, RunCall.unsafeCast v, 0w0, wordSize)
-        in
-            v
-        end
-
-        fun setVolatileRef(v, i) =
-            memMove(i, 0w0, RunCall.unsafeCast v, 0w0, wordSize)
-
-        fun getVolatileRef var =
-        let
-            (* Allocate a single word marked as mutable, byte. *)
-            val v = RunCall.run_call3 RuntimeCalls.POLY_SYS_alloc_store(0w1, 0wx41, 0w0)
-            val () = memMove(RunCall.unsafeCast var, 0w0, v, 0w0, wordSize)
-            val () = RunCall.run_call1 RuntimeCalls.POLY_SYS_lockseg v
-        in
-            v
-        end
-
-        type voidStar = SysWord.word
-        val voidStar2Sysword = id and sysWord2VoidStar = id (* Exported conversions *)
-        val null: voidStar = 0w0
-        
-        fun 'a memoise(f: 'a -> voidStar) (a: 'a) : unit -> voidStar =
-        let
-            (* Initialise to zero.  That means the function won't be
-               executed until we actually want the result. *)
-            val v = volatileRef 0w0
-        in
-            (* If we've reloaded the volatile ref it will have been reset to zero.
-               We need to execute the function and set it. *)
-            fn () => (case getVolatileRef v of 0w0 => let val r = f a in setVolatileRef(v, r); r end | r => r)
-        end
-
-        exception Memory
-
-        fun malloc (s: word): voidStar =
-        let
-            val mem = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (0, s)
-        in
-            if mem = null
-            then raise Memory
-            else mem
-        end
-        
-        fun free (s: voidStar): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_ffi (1, s)
-
-        fun get8 (s: voidStar, i: Word.word): Word8.word =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_8 (s, 0w0, i)
-        and get16(s: voidStar, i: Word.word): Word.word =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_16 (s, 0w0, i)
-        and get32(s: voidStar, i: Word.word): Word32.word =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_32 (s, 0w0, i)
-        and get64(s: voidStar, i: Word.word): SysWord.word =
-            if wordSize = 0w4
-            then raise Foreign "64-bit operations not available"
-            else RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_64 (s, 0w0, i)
-        and getFloat(s: voidStar, i: Word.word): real =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_float (s, 0w0, i)
-        and getDouble(s: voidStar, i: Word.word): real =
-            RunCall.run_call3 RuntimeCalls.POLY_SYS_cmem_load_double (s, 0w0, i)
-
-        fun set8 (s: voidStar, i: Word.word, v: Word8.word): unit =
-            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_8 (s, 0w0, i, v)
-        and set16 (s: voidStar, i: Word.word, v: Word.word): unit =
-            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_16 (s, 0w0, i, v)
-        and set32 (s: voidStar, i: Word.word, v: Word32.word): unit =
-            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_32 (s, 0w0, i, v)
-        and set64 (s: voidStar, i: Word.word, v: SysWord.word): unit =
-            if wordSize = 0w4
-            then raise Foreign "64-bit operations not available"
-            else RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_64 (s, 0w0, i, v)
-        and setFloat (s: voidStar, i: Word.word, v: real): unit =
-            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_float (s, 0w0, i, v)
-        and setDouble (s: voidStar, i: Word.word, v: real): unit =
-            RunCall.run_call4 RuntimeCalls.POLY_SYS_cmem_store_double (s, 0w0, i, v)
-
-        (* Get and set addresses.  This is a bit messy because it has to compile on 64-bits as well as 32-bits. *)
-        val getAddress: voidStar * Word.word -> voidStar =
-            if wordSize = 0w4 then Word32.toLargeWord o get32 else get64
-        val setAddress: voidStar * Word.word * voidStar -> unit =
-            if wordSize = 0w4 then fn (s, i, v) => set32(s, i, Word32.fromLargeWord v) else set64
-    end
+    (* Internal utility function. *)
+    fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
     
     structure System =
     struct
@@ -589,7 +435,7 @@ struct
             let
                 val a = getAddress(elem, i)
             in
-                if a = 0w0
+                if a = null
                 then []
                 else a :: loadElements(i+0w1)
             end
@@ -643,9 +489,6 @@ struct
 
     (* This forces the symbol to be loaded.  The result is NOT memoised. *)
     fun symbolAsAddress(s: symbol): Memory.voidStar = s()
-
-    (* Internal utility function. *)
-    fun alignUp(s, align) = Word.andb(s + align-0w1, ~ align)
 
     structure LowLevel =
     struct
@@ -736,7 +579,7 @@ struct
                     val _ = List.length args = nArgs orelse raise Foreign "Incorrect number of arguments"
                     val resultSize = alignUp(ffiMinArgSize, #align saPointer)
                     val argResVec = malloc(resultSize + #size saPointer * Word.fromInt nArgs)
-                    val argLocn = argResVec + SysWord.fromLargeWord(Word.toLargeWord resultSize)
+                    val argLocn = argResVec ++ resultSize
                     val _ = List.foldl(fn (arg, n) => (setAddress(argLocn, n, arg); n+0w1)) 0w0 args
                 in
                     let
@@ -1039,8 +882,8 @@ struct
        This also prevents copying of the result if necessary. *)
     fun permanent({load, store, ctype, ...}: 'a conversion): 'a conversion =
         { release=fn _ => (), load=load, store=store, ctype=ctype }
-    
-    val toSysWord = SysWord.fromLarge o Word.toLarge
+ 
+    val op ++ = Memory.++
 
     fun cStruct2(a: 'a conversion, b: 'b conversion): ('a*'b)conversion =
     let
@@ -1048,9 +891,9 @@ struct
         and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {align=alignb, ... }} = b
         
         val offsetb = alignUp(sizea, alignb)
-        fun load s = (loada s, loadb(s + toSysWord offsetb))
-        and store (s, (a, b)) = (storea(s, a); storeb(s + toSysWord offsetb, b))
-        and release(s, (a, b)) = (releasea(s, a); releaseb(s + toSysWord offsetb, b))
+        fun load s = (loada s, loadb(s ++ offsetb))
+        and store (s, (a, b)) = (storea(s, a); storeb(s ++ offsetb, b))
+        and release(s, (a, b)) = (releasea(s, a); releaseb(s ++ offsetb, b))
 
     in
         {load=load, store=store, release = release, ctype = LowLevel.cStruct[ctypea, ctypeb]}
@@ -1065,10 +908,10 @@ struct
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
 
-        fun load s = (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc))
+        fun load s = (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc))
         and store (s, (a, b, c)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c))
-        and release(s, (a, b, c)) = (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c))
+        and release(s, (a, b, c)) = (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c))
     in
         {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
     end
@@ -1084,11 +927,11 @@ struct
         val offsetc = alignUp(offsetb + sizeb, alignc)
         val offsetd = alignUp(offsetc + sizec, alignd)
 
-        fun load s = (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd))
+        fun load s = (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd))
         and store (s, (a, b, c, d)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d))
         and release(s, (a, b, c, d)) =
-            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d))
+            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d))
     in
         {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
     end
@@ -1108,12 +951,12 @@ struct
         val offsete = alignUp(offsetd + sized, aligne)
 
         fun load s =
-            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd), loade(s + toSysWord offsete))
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd), loade(s ++ offsete))
         and store (s, (a, b, c, d, e)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d); storee(s + toSysWord offsete, e))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d); storee(s ++ offsete, e))
         and release(s, (a, b, c, d, e)) =
-            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c);
-             released(s + toSysWord offsetd, d); releasee(s + toSysWord offsete, e))
+            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c);
+             released(s ++ offsetd, d); releasee(s ++ offsete, e))
     in
         {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
     end
@@ -1135,14 +978,14 @@ struct
         val offsetf = alignUp(offsete + sizee, alignf)
 
         fun load s =
-            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
-             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf))
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf))
         and store (s, (a, b, c, d, e, f)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
-             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
+             storee(s ++ offsete, e); storef(s ++ offsetf, f))
         and release(s, (a, b, c, d, e, f)) =
-            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
-             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f))
+            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
+             releasee(s ++ offsete, e); releasef(s ++ offsetf, f))
     in
         {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
     end
@@ -1166,14 +1009,14 @@ struct
         val offsetg = alignUp(offsetf + sizef, aligng)
 
         fun load s =
-            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
-             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf), loadg(s + toSysWord offsetg))
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg))
         and store (s, (a, b, c, d, e, f, g)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
-             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f); storeg(s + toSysWord offsetg, g))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
+             storee(s ++ offsete, e); storef(s ++ offsetf, f); storeg(s ++ offsetg, g))
         and release(s, (a, b, c, d, e, f, g)) =
-            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
-             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f); releaseg(s + toSysWord offsetg, g))
+            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
+             releasee(s ++ offsete, e); releasef(s ++ offsetf, f); releaseg(s ++ offsetg, g))
     in
         {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
     end
@@ -1200,15 +1043,15 @@ struct
         val offseth = alignUp(offsetg + sizeg, alignh)
 
         fun load s =
-            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
-             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf), loadg(s + toSysWord offsetg), loadh(s + toSysWord offseth))
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg), loadh(s ++ offseth))
         and store (s, (a, b, c, d, e, f, g, h)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
-             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f); storeg(s + toSysWord offsetg, g); storeh(s + toSysWord offseth, h))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
+             storee(s ++ offsete, e); storef(s ++ offsetf, f); storeg(s ++ offsetg, g); storeh(s ++ offseth, h))
         and release(s, (a, b, c, d, e, f, g, h)) =
-            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
-             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f); releaseg(s + toSysWord offsetg, g);
-             releaseh(s + toSysWord offseth, h))
+            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
+             releasee(s ++ offsete, e); releasef(s ++ offsetf, f); releaseg(s ++ offsetg, g);
+             releaseh(s ++ offseth, h))
     in
         {load=load, store=store, release=release,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh]}
@@ -1238,17 +1081,17 @@ struct
         val offseti = alignUp(offseth + sizeh, aligni)
 
         fun load s =
-            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
-             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf), loadg(s + toSysWord offsetg),
-             loadh(s + toSysWord offseth), loadi(s + toSysWord offseti))
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti))
         and store (s, (a, b, c, d, e, f, g, h, i)) =
-            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
-             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f); storeg(s + toSysWord offsetg, g);
-             storeh(s + toSysWord offseth, h); storei(s + toSysWord offseti, i))
+            (storea(s, a); storeb(s ++ offsetb, b); storec(s ++ offsetc, c); stored(s ++ offsetd, d);
+             storee(s ++ offsete, e); storef(s ++ offsetf, f); storeg(s ++ offsetg, g);
+             storeh(s ++ offseth, h); storei(s ++ offseti, i))
         and release(s, (a, b, c, d, e, f, g, h, i)) =
-            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
-             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f); releaseg(s + toSysWord offsetg, g);
-             releaseh(s + toSysWord offseth, h); releasei(s + toSysWord offseti, i))
+            (releasea(s, a); releaseb(s ++ offsetb, b); releasec(s ++ offsetc, c); released(s ++ offsetd, d);
+             releasee(s ++ offsete, e); releasef(s ++ offsetf, f); releaseg(s ++ offsetg, g);
+             releaseh(s ++ offseth, h); releasei(s ++ offseti, i))
     in
         {load=load, store=store, release=release,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei]}
@@ -1331,7 +1174,7 @@ struct
                    argument before the call and load the result after. *)
                 val argOffset = alignUp(#size resType, #align argType)
                 val rMem = malloc(argOffset + #size argType)
-                val argAddr = rMem + SysWord.fromLargeWord(Word.toLargeWord argOffset)
+                val argAddr = rMem ++ argOffset
                 val () = argStore (argAddr, x)
                 fun freeAll () = (argRelease (argAddr, x); free rMem)
             in
@@ -1359,8 +1202,8 @@ struct
                 val arg1Offset = alignUp(#size resType, #align arg1Type)
                 val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
                 val rMem = malloc(arg2Offset + #size arg2Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
                 val () = arg1Store (arg1Addr, x)
                 val () = arg2Store (arg2Addr, y)
                 fun freeAll() =
@@ -1392,9 +1235,9 @@ struct
                 val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
                 val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
                 val rMem = malloc(arg3Offset + #size arg3Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
                 val () = arg1Store (arg1Addr, x)
                 val () = arg2Store (arg2Addr, y)
                 val () = arg3Store (arg3Addr, z)
@@ -1429,10 +1272,10 @@ struct
                 val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
                 val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
                 val rMem = malloc(arg4Offset + #size arg4Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1471,11 +1314,11 @@ struct
                 val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
                 val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
                 val rMem = malloc(arg5Offset + #size arg5Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1518,12 +1361,12 @@ struct
                 val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
                 val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
                 val rMem = malloc(arg6Offset + #size arg6Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1569,13 +1412,13 @@ struct
                 val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
                 val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
                 val rMem = malloc(arg7Offset + #size arg7Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1627,14 +1470,14 @@ struct
                 val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
                 val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
                 val rMem = malloc(arg8Offset + #size arg8Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1689,15 +1532,15 @@ struct
                 val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
                 val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
                 val rMem = malloc(arg9Offset + #size arg9Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
-                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
+                val arg9Addr = rMem ++ arg9Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1757,16 +1600,16 @@ struct
                 val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
                 val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
                 val rMem = malloc(arg10Offset + #size arg10Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
-                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
-                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
+                val arg9Addr = rMem ++ arg9Offset
+                val arg10Addr = rMem ++ arg10Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1831,17 +1674,17 @@ struct
                 val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
                 val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
                 val rMem = malloc(arg11Offset + #size arg11Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
-                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
-                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
-                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
+                val arg9Addr = rMem ++ arg9Offset
+                val arg10Addr = rMem ++ arg10Offset
+                val arg11Addr = rMem ++ arg11Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1909,18 +1752,18 @@ struct
                 val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
                 val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
                 val rMem = malloc(arg12Offset + #size arg12Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
-                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
-                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
-                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
-                val arg12Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg12Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
+                val arg9Addr = rMem ++ arg9Offset
+                val arg10Addr = rMem ++ arg10Offset
+                val arg11Addr = rMem ++ arg11Offset
+                val arg12Addr = rMem ++ arg12Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -1991,19 +1834,19 @@ struct
                 val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
                 val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
                 val rMem = malloc(arg13Offset + #size arg13Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
-                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
-                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
-                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
-                val arg12Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg12Offset)
-                val arg13Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg13Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
+                val arg9Addr = rMem ++ arg9Offset
+                val arg10Addr = rMem ++ arg10Offset
+                val arg11Addr = rMem ++ arg11Offset
+                val arg12Addr = rMem ++ arg12Offset
+                val arg13Addr = rMem ++ arg13Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
@@ -2079,20 +1922,20 @@ struct
                 val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
                 val arg14Offset = alignUp(arg13Offset + #size arg13Type, #align arg14Type)
                 val rMem = malloc(arg14Offset + #size arg14Type)
-                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
-                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
-                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
-                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
-                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
-                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
-                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
-                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
-                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
-                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
-                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
-                val arg12Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg12Offset)
-                val arg13Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg13Offset)
-                val arg14Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg14Offset)
+                val arg1Addr = rMem ++ arg1Offset
+                val arg2Addr = rMem ++ arg2Offset
+                val arg3Addr = rMem ++ arg3Offset
+                val arg4Addr = rMem ++ arg4Offset
+                val arg5Addr = rMem ++ arg5Offset
+                val arg6Addr = rMem ++ arg6Offset
+                val arg7Addr = rMem ++ arg7Offset
+                val arg8Addr = rMem ++ arg8Offset
+                val arg9Addr = rMem ++ arg9Offset
+                val arg10Addr = rMem ++ arg10Offset
+                val arg11Addr = rMem ++ arg11Offset
+                val arg12Addr = rMem ++ arg12Offset
+                val arg13Addr = rMem ++ arg13Offset
+                val arg14Addr = rMem ++ arg14Offset
                 val () = arg1Store (arg1Addr, a)
                 val () = arg2Store (arg2Addr, b)
                 val () = arg3Store (arg3Addr, c)
