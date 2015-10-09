@@ -78,7 +78,7 @@ end;
 val cTree: intTree conversion =
     { load = treeLoad, store = treeStore, release = treeRelease, ctype = LowLevel.cTypePointer };
 
-val sumTree = call1 ( getSymbol(mylib, "SumTree") ) cTree cInt;
+val sumTree = call1 ( getSymbol mylib "SumTree" ) cTree cInt;
 
 val aTree = Node{left=Node{left=NullTree, right=NullTree, valu=4},
                right=Node{
@@ -89,20 +89,18 @@ sumTree aTree;
 
 
 (* Example of returning a structure. *)
-val returnR2 = Foreign.call2 (Foreign.getSymbol(mylib, "ReturnR2"))
-    (Foreign.cInt, Foreign.cInt) (cStruct2(Foreign.cInt, Foreign.cInt));
+val returnR2 = call2 (getSymbol mylib "ReturnR2") (cInt, cInt) (cStruct2(cInt, cInt));
 returnR2(5,6);
 
 (* Example of passing and returning strings. *)
-val dupNString = Foreign.call2 (Foreign.getSymbol(mylib, "DupNString")) (Foreign.cInt, Foreign.cString)
-    Foreign.cString;
+val dupNString = call2 (getSymbol mylib "DupNString") (cInt, cString) cString;
 
 dupNString (4, "hi");
 
 (* Example of a callback function. *)
 
 fun f (i, j) = (PolyML.print(i, j); i+j);
-val doAdd = call2 (getSymbol(mylib, "MakeCallback")) (cInt, cFunction2 (cInt, cInt) cInt) cInt;
+val doAdd = call2 (getSymbol mylib "MakeCallback") (cInt, cFunction2 (cInt, cInt) cInt) cInt;
 doAdd(4, f);
 
 fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
@@ -112,11 +110,11 @@ fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
 );
 
 val returnR3 =
-    call1 (getSymbol(mylib, "MakeCallback2")) (cFunction6(cInt, cChar, cDouble, cFloat, (*cShort*)cInt16, cPointer) cDouble) cDouble
+    call1 (getSymbol mylib "MakeCallback2") (cFunction6(cInt, cChar, cDouble, cFloat, cShort, cPointer) cDouble) cDouble
         myCallback;
 
 
-val doit = call2(getSymbol(mylib, "MakeCallback3")) (cFunction1 cInt cVoid, cInt) cVoid;
+val doit = call2(getSymbol mylib "MakeCallback3") (cFunction1 cInt cVoid, cInt) cVoid;
 doit(fn i => print(Int.toString i), 2);
 
 (* Call-by-reference. *)
@@ -124,7 +122,7 @@ doit(fn i => print(Int.toString i), 2);
 val r = ref 6;
 
 val updateArg =
-    call2 (getSymbol(mylib, "UpdateArg")) (cInt, cStar cInt) cVoid;
+    call2 (getSymbol mylib "UpdateArg") (cInt, cStar cInt) cVoid;
 
 updateArg(5, r); (* Adds its first argument to the ref. *)
 

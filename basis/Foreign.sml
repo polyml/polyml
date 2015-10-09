@@ -186,7 +186,7 @@ sig
     type symbol
     val loadLibrary: string -> library
     val loadExecutable: unit -> library
-    val getSymbol: library * string -> symbol
+    val getSymbol: library -> string  -> symbol
     val symbolAsAddress: symbol -> Memory.voidStar
 
     structure LowLevel:
@@ -638,7 +638,7 @@ struct
     
     (* To get a symbol we memoise a function that forces a library load if necessary
        and then gets the symbol. *)
-    fun getSymbol(lib: library, name: string): symbol =
+    fun getSymbol(lib: library) (name: string): symbol =
         Memory.memoise (fn s => System.getSymbol(lib(), s)) name
 
     (* This forces the symbol to be loaded.  The result is NOT memoised. *)
