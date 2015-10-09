@@ -291,10 +291,23 @@ sig
 
     (* Call by reference.  *)
     val cStar: 'a conversion -> 'a ref conversion
-    
+
+    (* structs. *)
     val cStruct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
     val cStruct3: 'a conversion * 'b conversion * 'c conversion -> ('a*'b*'c)conversion
-    
+    val cStruct4: 'a conversion * 'b conversion * 'c conversion * 'd conversion -> ('a*'b*'c*'d)conversion
+    val cStruct5: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion -> ('a*'b*'c*'d*'e)conversion
+    val cStruct6: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion * 'f conversion -> ('a*'b*'c*'d*'e*'f)conversion
+    val cStruct7: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion * 'f conversion * 'g conversion -> ('a*'b*'c*'d*'e*'f*'g)conversion
+    val cStruct8: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                      'e conversion * 'f conversion * 'g conversion * 'h conversion -> ('a*'b*'c*'d*'e*'f*'g*'h)conversion
+    val cStruct9: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
+                       'e conversion * 'f conversion * 'g conversion * 'h conversion * 'i conversion ->
+                       ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion
+
     val call0withAbi: LibFFI.abi -> symbol -> unit -> 'a conversion -> unit -> 'a
     val call0: symbol -> unit -> 'a conversion -> unit -> 'a
     val call1withAbi: LibFFI.abi -> symbol -> 'a conversion -> 'b conversion -> 'a -> 'b
@@ -304,6 +317,93 @@ sig
     val call3withAbi:
         LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
     val call3: symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
+    val call4withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+            'a * 'b * 'c * 'd -> 'e
+    val call4: symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+            'a * 'b * 'c * 'd -> 'e
+    val call5withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion ->
+            'f conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
+    val call5:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion *  'e conversion ->
+            'f conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
+    val call6withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion -> 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val call6:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion -> 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+    val call7withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion -> 'h conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val call7:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion -> 'h conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+    val call8withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion -> 'i conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val call8:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion -> 'i conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+    val call9withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion ->
+             'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val call9:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion ->
+             'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+    val call10withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion ->
+             'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val call10:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion ->
+             'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+    val call11withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion ->
+             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+    val call11:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion ->
+             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+    val call12withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion -> 'm conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+    val call12:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion -> 'm conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+    val call13withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion -> 'n conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val call13:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion -> 'n conversion ->
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+    val call14withAbi:
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion * 'n conversion ->
+            'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
+    val call14:
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
+             'l conversion * 'm conversion * 'n conversion ->
+            'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
 end;
 
 structure Foreign:> FOREIGN =
@@ -973,6 +1073,187 @@ struct
         {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
     end
 
+    fun cStruct4(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion): ('a*'b*'c*'d)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {align=alignd, ...} } = d
+ 
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+
+        fun load s = (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd))
+        and store (s, (a, b, c, d)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d))
+        and release(s, (a, b, c, d)) =
+            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d))
+    in
+        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
+    end
+
+    fun cStruct5(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                 e: 'e conversion): ('a*'b*'c*'d*'e)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {align=aligne, ...} } = e
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+
+        fun load s =
+            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd), loade(s + toSysWord offsete))
+        and store (s, (a, b, c, d, e)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d); storee(s + toSysWord offsete, e))
+        and release(s, (a, b, c, d, e)) =
+            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c);
+             released(s + toSysWord offsetd, d); releasee(s + toSysWord offsete, e))
+    in
+        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
+    end
+
+    fun cStruct6(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                 e: 'e conversion, f: 'f conversion): ('a*'b*'c*'d*'e*'f)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {align=alignf, ...} } = f
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+
+        fun load s =
+            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
+             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf))
+        and store (s, (a, b, c, d, e, f)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
+             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f))
+        and release(s, (a, b, c, d, e, f)) =
+            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
+             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f))
+    in
+        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
+    end
+
+    fun cStruct7(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                 e: 'e conversion, f: 'f conversion, g: 'g conversion): ('a*'b*'c*'d*'e*'f*'g)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {align=aligng, ...} } = g
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+
+        fun load s =
+            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
+             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf), loadg(s + toSysWord offsetg))
+        and store (s, (a, b, c, d, e, f, g)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
+             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f); storeg(s + toSysWord offsetg, g))
+        and release(s, (a, b, c, d, e, f, g)) =
+            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
+             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f); releaseg(s + toSysWord offsetg, g))
+    in
+        {load=load, store=store, release=release, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
+    end
+
+    fun cStruct8(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                 e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion):
+                    ('a*'b*'c*'d*'e*'f*'g*'h)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {align=alignh, ...} } = h
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+
+        fun load s =
+            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
+             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf), loadg(s + toSysWord offsetg), loadh(s + toSysWord offseth))
+        and store (s, (a, b, c, d, e, f, g, h)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
+             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f); storeg(s + toSysWord offsetg, g); storeh(s + toSysWord offseth, h))
+        and release(s, (a, b, c, d, e, f, g, h)) =
+            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
+             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f); releaseg(s + toSysWord offsetg, g);
+             releaseh(s + toSysWord offseth, h))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh]}
+    end
+
+    fun cStruct9(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                 e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                 i: 'i conversion): ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {align=aligni, ...} } = i
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+
+        fun load s =
+            (loada s, loadb(s + toSysWord offsetb), loadc(s + toSysWord offsetc), loadd(s + toSysWord offsetd),
+             loade(s + toSysWord offsete), loadf(s + toSysWord offsetf), loadg(s + toSysWord offsetg),
+             loadh(s + toSysWord offseth), loadi(s + toSysWord offseti))
+        and store (s, (a, b, c, d, e, f, g, h, i)) =
+            (storea(s, a); storeb(s + toSysWord offsetb, b); storec(s + toSysWord offsetc, c); stored(s + toSysWord offsetd, d);
+             storee(s + toSysWord offsete, e); storef(s + toSysWord offsetf, f); storeg(s + toSysWord offsetg, g);
+             storeh(s + toSysWord offseth, h); storei(s + toSysWord offseti, i))
+        and release(s, (a, b, c, d, e, f, g, h, i)) =
+            (releasea(s, a); releaseb(s + toSysWord offsetb, b); releasec(s + toSysWord offsetc, c); released(s + toSysWord offsetd, d);
+             releasee(s + toSysWord offsete, e); releasef(s + toSysWord offsetf, f); releaseg(s + toSysWord offsetg, g);
+             releaseh(s + toSysWord offseth, h); releasei(s + toSysWord offseti, i))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei]}
+    end
+
     (* Conversion for call-by-reference. *)
     local
         open Memory LowLevel
@@ -1010,6 +1291,9 @@ struct
     end
 
     (* Calls with conversion. *)
+    (* Note: it may be possible to have general functions to compute offsets
+       but we don't do that because this way the compiler can compute the offsets
+       as constants during inline expansion. *)
     local
         open LibFFI Memory LowLevel
     in
@@ -1113,7 +1397,7 @@ struct
                 val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
                 val () = arg1Store (arg1Addr, x)
                 val () = arg2Store (arg2Addr, y)
-                val () = arg3Store (arg2Addr, z)
+                val () = arg3Store (arg3Addr, z)
                 fun freeAll() =
                     (arg1Release(arg1Addr, x); arg2Release (arg2Addr, y); arg3Release (arg3Addr, z); free rMem)
             in
@@ -1128,6 +1412,722 @@ struct
         end
 
         fun call3 x = call3withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
+
+        fun call4withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'e conversion): 'a * 'b *'c * 'd -> 'e =
+        let
+            val callF = callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type] resType
+        in
+            fn (a, b, c, d) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val rMem = malloc(arg4Offset + #size arg4Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c); arg4Release (arg4Addr, d); free rMem)
+            in
+                let
+                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call4 x = call4withAbi abiDefault x
+
+        fun call5withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'f conversion): 'a * 'b *'c * 'd * 'e -> 'f =
+        let
+            val callF =
+                callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type] resType
+        in
+            fn (a, b, c, d, e) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val rMem = malloc(arg5Offset + #size arg5Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); free rMem)
+            in
+                let
+                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call5 x = call5withAbi abiDefault x
+
+        fun call6withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'g conversion): 'a * 'b *'c * 'd * 'e * 'f -> 'g =
+        let
+            val callF =
+                callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type] resType
+        in
+            fn (a, b, c, d, e, f) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val rMem = malloc(arg6Offset + #size arg6Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f); free rMem)
+            in
+                let
+                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr , arg6Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call6 x = call6withAbi abiDefault x
+
+        fun call7withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'h conversion): 'a * 'b *'c * 'd * 'e * 'f * 'g -> 'h =
+        let
+            val callF =
+                callwithAbi abi fnAddr [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type] resType
+        in
+            fn (a, b, c, d, e, f, g) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val rMem = malloc(arg7Offset + #size arg7Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g);free rMem)
+            in
+                let
+                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call7 x = call7withAbi abiDefault x
+
+        fun call8withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'i conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h -> 'i =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val rMem = malloc(arg8Offset + #size arg8Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); free rMem)
+            in
+                let
+                    val () = callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr, arg8Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call8 x = call8withAbi abiDefault x
+
+        fun call9withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'j conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type, arg8Type, arg9Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h, i) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+                val rMem = malloc(arg9Offset + #size arg9Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                val () = arg9Store (arg9Addr, i)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i); free rMem)
+            in
+                let
+                    val () =
+                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr, arg8Addr, arg9Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call9 x = call9withAbi abiDefault x
+
+        fun call10withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'k conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
+                     arg8Type, arg9Type, arg10Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h, i, j) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+                val rMem = malloc(arg10Offset + #size arg10Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                val () = arg9Store (arg9Addr, i)
+                val () = arg10Store (arg10Addr, j)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
+                     arg10Release (arg10Addr, j); free rMem)
+            in
+                let
+                    val () =
+                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
+                               arg8Addr, arg9Addr, arg10Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call10 x = call10withAbi abiDefault x
+
+        fun call11withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'l conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
+                     arg8Type, arg9Type, arg10Type, arg11Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h, i, j, k) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+                val rMem = malloc(arg11Offset + #size arg11Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
+                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                val () = arg9Store (arg9Addr, i)
+                val () = arg10Store (arg10Addr, j)
+                val () = arg11Store (arg11Addr, k)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
+                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); free rMem)
+            in
+                let
+                    val () =
+                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
+                               arg8Addr, arg9Addr, arg10Addr, arg11Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call11 x = call11withAbi abiDefault x
+
+        fun call12withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion,             
+             { ctype = arg12Type, store = arg12Store, release = arg12Release, ...}: 'l conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'm conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
+                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h, i, j, k, l) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+                val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
+                val rMem = malloc(arg12Offset + #size arg12Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
+                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
+                val arg12Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg12Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                val () = arg9Store (arg9Addr, i)
+                val () = arg10Store (arg10Addr, j)
+                val () = arg11Store (arg11Addr, k)
+                val () = arg12Store (arg12Addr, l)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
+                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); arg12Release (arg12Addr, l); free rMem)
+            in
+                let
+                    val () =
+                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
+                               arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call12 x = call12withAbi abiDefault x
+
+        fun call13withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion,             
+             { ctype = arg12Type, store = arg12Store, release = arg12Release, ...}: 'l conversion,             
+             { ctype = arg13Type, store = arg13Store, release = arg13Release, ...}: 'm conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'n conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
+                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h, i, j, k, l, m) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+                val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
+                val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
+                val rMem = malloc(arg13Offset + #size arg13Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
+                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
+                val arg12Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg12Offset)
+                val arg13Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg13Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                val () = arg9Store (arg9Addr, i)
+                val () = arg10Store (arg10Addr, j)
+                val () = arg11Store (arg11Addr, k)
+                val () = arg12Store (arg12Addr, l)
+                val () = arg13Store (arg13Addr, m)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
+                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); arg12Release (arg12Addr, l);
+                     arg13Release (arg13Addr, m); free rMem)
+            in
+                let
+                    val () =
+                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
+                               arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr, arg13Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call13 x = call13withAbi abiDefault x
+
+        fun call14withAbi (abi: abi) (fnAddr: unit->voidStar)
+            ({ ctype = arg1Type, store = arg1Store, release = arg1Release, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, release = arg2Release, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, release = arg3Release, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, release = arg4Release, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, release = arg5Release, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, release = arg6Release, ...}: 'f conversion,
+             { ctype = arg7Type, store = arg7Store, release = arg7Release, ...}: 'g conversion,
+             { ctype = arg8Type, store = arg8Store, release = arg8Release, ...}: 'h conversion,
+             { ctype = arg9Type, store = arg9Store, release = arg9Release, ...}: 'i conversion,
+             { ctype = arg10Type, store = arg10Store, release = arg10Release, ...}: 'j conversion,
+             { ctype = arg11Type, store = arg11Store, release = arg11Release, ...}: 'k conversion,
+             { ctype = arg12Type, store = arg12Store, release = arg12Release, ...}: 'l conversion,
+             { ctype = arg13Type, store = arg13Store, release = arg13Release, ...}: 'm conversion,           
+             { ctype = arg14Type, store = arg14Store, release = arg14Release, ...}: 'n conversion)             
+            ({ ctype = resType, load= resLoad, ...}: 'o conversion):
+                'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o =
+        let
+            val callF =
+                callwithAbi abi fnAddr
+                    [arg1Type, arg2Type, arg3Type, arg4Type, arg5Type, arg6Type, arg7Type,
+                     arg8Type, arg9Type, arg10Type, arg11Type, arg12Type, arg13Type,
+                     arg14Type] resType
+        in
+            fn (a, b, c, d, e, f, g, h, i, j, k, l, m, n) =>
+            let
+                val arg1Offset = alignUp(#size resType, #align arg1Type)
+                val arg2Offset = alignUp(arg1Offset + #size arg1Type, #align arg2Type)
+                val arg3Offset = alignUp(arg2Offset + #size arg2Type, #align arg3Type)
+                val arg4Offset = alignUp(arg3Offset + #size arg3Type, #align arg4Type)
+                val arg5Offset = alignUp(arg4Offset + #size arg4Type, #align arg5Type)
+                val arg6Offset = alignUp(arg5Offset + #size arg5Type, #align arg6Type)
+                val arg7Offset = alignUp(arg6Offset + #size arg6Type, #align arg7Type)
+                val arg8Offset = alignUp(arg7Offset + #size arg7Type, #align arg8Type)
+                val arg9Offset = alignUp(arg8Offset + #size arg8Type, #align arg9Type)
+                val arg10Offset = alignUp(arg9Offset + #size arg9Type, #align arg10Type)
+                val arg11Offset = alignUp(arg10Offset + #size arg10Type, #align arg11Type)
+                val arg12Offset = alignUp(arg11Offset + #size arg11Type, #align arg12Type)
+                val arg13Offset = alignUp(arg12Offset + #size arg12Type, #align arg13Type)
+                val arg14Offset = alignUp(arg13Offset + #size arg13Type, #align arg14Type)
+                val rMem = malloc(arg14Offset + #size arg14Type)
+                val arg1Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg1Offset)
+                val arg2Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg2Offset)
+                val arg3Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg3Offset)
+                val arg4Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg4Offset)
+                val arg5Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg5Offset)
+                val arg6Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg6Offset)
+                val arg7Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg7Offset)
+                val arg8Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg8Offset)
+                val arg9Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg9Offset)
+                val arg10Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg10Offset)
+                val arg11Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg11Offset)
+                val arg12Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg12Offset)
+                val arg13Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg13Offset)
+                val arg14Addr = rMem + SysWord.fromLargeWord(Word.toLargeWord arg14Offset)
+                val () = arg1Store (arg1Addr, a)
+                val () = arg2Store (arg2Addr, b)
+                val () = arg3Store (arg3Addr, c)
+                val () = arg4Store (arg4Addr, d)
+                val () = arg5Store (arg5Addr, e)
+                val () = arg6Store (arg6Addr, f)
+                val () = arg7Store (arg7Addr, g)
+                val () = arg8Store (arg8Addr, h)
+                val () = arg9Store (arg9Addr, i)
+                val () = arg10Store (arg10Addr, j)
+                val () = arg11Store (arg11Addr, k)
+                val () = arg12Store (arg12Addr, l)
+                val () = arg13Store (arg13Addr, m)
+                val () = arg14Store (arg14Addr, n)
+                fun freeAll() =
+                    (arg1Release(arg1Addr, a); arg2Release (arg2Addr, b); arg3Release (arg3Addr, c);
+                     arg4Release (arg4Addr, d); arg5Release (arg5Addr, e); arg6Release (arg6Addr, f);
+                     arg7Release (arg7Addr, g); arg8Release (arg8Addr, h); arg9Release (arg9Addr, i);
+                     arg10Release (arg10Addr, j); arg11Release (arg11Addr, k); arg12Release (arg12Addr, l);
+                     arg13Release (arg13Addr, m); arg14Release (arg14Addr, n); free rMem)
+            in
+                let
+                    val () =
+                        callF([arg1Addr, arg2Addr, arg3Addr, arg4Addr, arg5Addr, arg6Addr, arg7Addr,
+                               arg8Addr, arg9Addr, arg10Addr, arg11Addr, arg12Addr, arg13Addr, arg14Addr], rMem)
+                    val result = resLoad rMem
+                in
+                    freeAll();
+                    result
+                end handle exn => (freeAll(); raise exn)
+            end
+        end
+
+        fun call14 x = call14withAbi abiDefault x
+
     end
 
     local
