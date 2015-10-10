@@ -68,8 +68,7 @@
 #include "memmgr.h"
 #include "poly_specific.h"
 #include "scanaddrs.h"
-
-#define VERSION_NUMBER  POLY_version_number
+#include "polyffi.h"
 
 #define arg1    (pc[0] + pc[1]*256)
 #define arg2    (pc[2] + pc[3]*256)
@@ -128,8 +127,10 @@ public:
 
     virtual void InitStackFrame(TaskData *newTask, Handle proc, Handle arg);
 
-    virtual Handle CallBackResult();
-    virtual int  GetIOFunctionRegisterMask(int ioCall) { return 0; }
+    // These aren't implemented in the interpreted version.
+    virtual Handle EnterCallbackFunction(Handle func, Handle args) { ASSERT(0); return 0; }
+
+    virtual int GetIOFunctionRegisterMask(int ioCall) { return 0; }
 
     // Increment or decrement the first word of the object pointed to by the
     // mutex argument and return the new value.
@@ -1389,7 +1390,6 @@ static void CallIO3(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_lastInstr = 256; /* Take next instruction. */
 }
 
-/*
 static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle))
 {
     Handle funarg1 = taskData->saveVec.push(taskData->p_sp[1]);
@@ -1400,7 +1400,7 @@ static void CallIO4(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Ha
     taskData->p_sp += 4;
     *(taskData->p_sp) = DEREFWORD(result);
     taskData->p_lastInstr = 256;
-} */
+}
 
 static void CallIO5(IntTaskData *taskData, Handle(*ioFun)(TaskData *, Handle, Handle, Handle, Handle, Handle))
 {
@@ -1450,7 +1450,7 @@ Handle IntTaskData::EnterPolyCode()
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult();
+                ASSERT(0); // Callbacks aren't implemented
 
             case POLY_SYS_exit:
                 CallIO1(this, &finishc);
@@ -1702,6 +1702,10 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO2(this, &foreign_dispatch_c);
                 break;
 
+            case POLY_SYS_ffi:
+                CallIO2(this, &poly_ffi);
+                break;
+
             case POLY_SYS_process_env: CallIO2(this, &process_env_dispatch_c); break;
 
             case POLY_SYS_shrink_stack:
@@ -1728,6 +1732,56 @@ Handle IntTaskData::EnterPolyCode()
 
             case POLY_SYS_bytevec_eq:
                 CallIO5(this, &testBytesEqual);
+                break;
+
+            case POLY_SYS_cmem_load_8:
+                CallIO3(this, &cmem_load_8);
+                break;
+
+            case POLY_SYS_cmem_load_16:
+                CallIO3(this, &cmem_load_16);
+                break;
+
+            case POLY_SYS_cmem_load_32:
+                CallIO3(this, &cmem_load_32);
+                break;
+
+            case POLY_SYS_cmem_load_float:
+                CallIO3(this, &cmem_load_float);
+                break;
+
+            case POLY_SYS_cmem_load_double:
+                CallIO3(this, &cmem_load_double);
+                break;
+
+            case POLY_SYS_cmem_store_8:
+                CallIO4(this, &cmem_store_8);
+                break;
+
+            case POLY_SYS_cmem_store_16:
+                CallIO4(this, &cmem_store_16);
+                break;
+
+            case POLY_SYS_cmem_store_32:
+                CallIO4(this, &cmem_store_32);
+                break;
+
+#if (SIZEOF_VOIDP == 8)
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
+            case POLY_SYS_cmem_store_64:
+                CallIO4(this, &cmem_store_64);
+                break;
+#endif
+
+            case POLY_SYS_cmem_store_float:
+                CallIO4(this, &cmem_store_float);
+                break;
+
+            case POLY_SYS_cmem_store_double:
+                CallIO4(this, &cmem_store_double);
                 break;
 
 //            case POLY_SYS_set_code_constant: // Not used in the interpreter
@@ -1858,12 +1912,6 @@ Handle IntTaskData::EnterPolyCode()
     }
 }
 
-// Return the callback result.  The current ML process (thread) terminates.
-Handle IntTaskData::CallBackResult()
-{
-    return this->saveVec.push(this->p_sp[1]);
-}
-
 void Interpreter::InitInterfaceVector(void)
 {
     add_word_to_io_area(POLY_SYS_exit, TAGGED(POLY_SYS_exit));
@@ -1965,12 +2013,25 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_full_gc,     TAGGED(POLY_SYS_full_gc));
     add_word_to_io_area(POLY_SYS_stack_trace, TAGGED(POLY_SYS_stack_trace));
     add_word_to_io_area(POLY_SYS_foreign_dispatch, TAGGED(POLY_SYS_foreign_dispatch));
+    add_word_to_io_area(POLY_SYS_ffi,               TAGGED(POLY_SYS_ffi));
     add_word_to_io_area(POLY_SYS_callcode_tupled,  TAGGED(POLY_SYS_callcode_tupled));
     add_word_to_io_area(POLY_SYS_process_env,      TAGGED(POLY_SYS_process_env));
     add_word_to_io_area(POLY_SYS_set_string_length, TAGGED(POLY_SYS_set_string_length));
     add_word_to_io_area(POLY_SYS_get_first_long_word, TAGGED(POLY_SYS_get_first_long_word));
     add_word_to_io_area(POLY_SYS_poly_specific, TAGGED(POLY_SYS_poly_specific));
     add_word_to_io_area(POLY_SYS_bytevec_eq, TAGGED(POLY_SYS_bytevec_eq));
+    add_word_to_io_area(POLY_SYS_cmem_load_8, TAGGED(POLY_SYS_cmem_load_8));
+    add_word_to_io_area(POLY_SYS_cmem_load_16, TAGGED(POLY_SYS_cmem_load_16));
+    add_word_to_io_area(POLY_SYS_cmem_load_32, TAGGED(POLY_SYS_cmem_load_32));
+    add_word_to_io_area(POLY_SYS_cmem_load_64, TAGGED(POLY_SYS_cmem_load_64));
+    add_word_to_io_area(POLY_SYS_cmem_load_float, TAGGED(POLY_SYS_cmem_load_float));
+    add_word_to_io_area(POLY_SYS_cmem_load_double, TAGGED(POLY_SYS_cmem_load_double));
+    add_word_to_io_area(POLY_SYS_cmem_store_8, TAGGED(POLY_SYS_cmem_store_8));
+    add_word_to_io_area(POLY_SYS_cmem_store_16, TAGGED(POLY_SYS_cmem_store_16));
+    add_word_to_io_area(POLY_SYS_cmem_store_32, TAGGED(POLY_SYS_cmem_store_32));
+    add_word_to_io_area(POLY_SYS_cmem_store_64, TAGGED(POLY_SYS_cmem_store_64));
+    add_word_to_io_area(POLY_SYS_cmem_store_float, TAGGED(POLY_SYS_cmem_store_float));
+    add_word_to_io_area(POLY_SYS_cmem_store_double, TAGGED(POLY_SYS_cmem_store_double));
     add_word_to_io_area(POLY_SYS_shrink_stack,     TAGGED(POLY_SYS_shrink_stack));
     add_word_to_io_area(POLY_SYS_code_flags,        TAGGED(POLY_SYS_code_flags));
     add_word_to_io_area(POLY_SYS_shift_right_arith_word, TAGGED(POLY_SYS_shift_right_arith_word));

@@ -131,7 +131,20 @@
 #define POLY_SYS_get_first_long_word 152  /* DCJM 28/2/01 */
 #define POLY_SYS_poly_specific       153  /* DCJM 17/6/06 */
 #define POLY_SYS_bytevec_eq          154  /* DCJM 13/1/10 */
+#define POLY_SYS_cmem_load_8         160
+#define POLY_SYS_cmem_load_16        161
+#define POLY_SYS_cmem_load_32        162
+#define POLY_SYS_cmem_load_64        163
+#define POLY_SYS_cmem_load_float     164
+#define POLY_SYS_cmem_load_double    165
+#define POLY_SYS_cmem_store_8        166
+#define POLY_SYS_cmem_store_16       167
+#define POLY_SYS_cmem_store_32       168
+#define POLY_SYS_cmem_store_64       169
+#define POLY_SYS_cmem_store_float    170
+#define POLY_SYS_cmem_store_double   171
 #define POLY_SYS_io_operation        189
+#define POLY_SYS_ffi                 190
 #define POLY_SYS_move_words_overlap  193
 #define POLY_SYS_set_code_constant   194  /* DCJM 2/1/01 */
 #define POLY_SYS_move_words          195  /* DCJM 9/10/99 */

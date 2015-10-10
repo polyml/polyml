@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=199
+NFiles=202
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -202,3 +202,6 @@ File195=mlsource\MLCompiler\CodeTree\CODETREE_LAMBDA_LIFT.sml
 File196=basis\ASN1.sml
 File197=basis\Finalizable.sml
 File198=basis\PolyMLException.sml
+File199=basis\Foreign.sml
+File200=basis\ForeignConstants.sml
+File201=basis\ForeignMemory.sml

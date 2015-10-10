@@ -2,15 +2,14 @@
     Title:      Run-time system.
     Author:     Dave Matthews, Cambridge University Computer Laboratory
 
-    Copyright (c) 2000, 2009
+    Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2012
+    Further work copyright David C. J. Matthews 2009, 2012, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -366,6 +365,31 @@ void raise_syscall(TaskData *taskData, const char *errmsg, int err)
 void raise_fail(TaskData *taskData, const char *errmsg)
 {
     raise_exception_string(taskData, EXC_Fail, errmsg);
+}
+
+/* "Polymorphic" function to generate a list. */
+Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
+                       Handle (mkEntry)(TaskData *, void*, char*))
+{
+    Handle saved = taskData->saveVec.mark();
+    Handle list = SAVE(ListNull);
+    /* Start from the end of the list. */
+    p += count*size;
+    while (count > 0)
+    {
+        Handle value, next;
+        p -= size; /* Back up to the last entry. */
+        value = mkEntry(taskData, arg, p);
+        next  = alloc_and_save(taskData, SIZEOF(ML_Cons_Cell));
+
+        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
+        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
+
+        taskData->saveVec.reset(saved);
+        list = SAVE(DEREFHANDLE(next));
+        count--;
+    }
+    return list;
 }
 
 // Build a list of the function names on the stack.

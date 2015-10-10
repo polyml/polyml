@@ -82,6 +82,7 @@
 #include "os_specific.h"
 #include "poly_specific.h"
 #include "timing.h"
+#include "polyffi.h"
 
 #ifndef HAVE_SIGALTSTACK
 // If we can't handle signals on a separate stack make sure there's space
@@ -241,7 +242,6 @@ public:
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
     virtual void InitStackFrame(TaskData *parentTask, Handle proc, Handle arg);
     virtual void SetException(poly_exn *exc);
-    virtual Handle CallBackResult() { return callBackResult; } 
     virtual int  GetIOFunctionRegisterMask(int ioCall);
 
     // Increment or decrement the first word of the object pointed to by the
@@ -263,7 +263,7 @@ public:
 
     void SetExceptionTrace(void);
     void CallCodeTupled();
-    virtual void SetCallbackFunction(Handle func, Handle args);
+    virtual Handle EnterCallbackFunction(Handle func, Handle args);
 
     int SwitchToPoly();
 
@@ -682,7 +682,7 @@ Handle X86TaskData::EnterPolyCode()
                 break;
 
             case -2: // A callback has returned.
-                return CallBackResult();
+                return callBackResult; // Return the saved value. Not used in the new interface.
 
             case POLY_SYS_exit:
                 CallIO1(this, &finishc);
@@ -1009,6 +1009,10 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO2(this, &foreign_dispatch_c);
                 break;
 
+            case POLY_SYS_ffi:
+                CallIO2(this, &poly_ffi);
+                break;
+
             case POLY_SYS_callcode_tupled:
                 CallCodeTupled();
                 break;
@@ -1045,6 +1049,48 @@ Handle X86TaskData::EnterPolyCode()
 
             case POLY_SYS_bytevec_eq:
                 CallIO5(this, &testBytesEqual);
+                break;
+
+            case POLY_SYS_cmem_load_32:
+                CallIO3(this, &cmem_load_32);
+                break;
+
+            case POLY_SYS_cmem_load_float:
+                CallIO3(this, &cmem_load_float);
+                break;
+
+            case POLY_SYS_cmem_load_double:
+                CallIO3(this, &cmem_load_double);
+                break;
+
+            case POLY_SYS_cmem_store_8:
+                CallIO4(this, &cmem_store_8);
+                break;
+
+            case POLY_SYS_cmem_store_16:
+                CallIO4(this, &cmem_store_16);
+                break;
+
+            case POLY_SYS_cmem_store_32:
+                CallIO4(this, &cmem_store_32);
+                break;
+
+#if (SIZEOF_VOIDP == 8)
+            case POLY_SYS_cmem_load_64:
+                CallIO3(this, &cmem_load_64);
+                break;
+
+            case POLY_SYS_cmem_store_64:
+                CallIO4(this, &cmem_store_64);
+                break;
+#endif
+
+            case POLY_SYS_cmem_store_float:
+                CallIO4(this, &cmem_store_float);
+                break;
+
+            case POLY_SYS_cmem_store_double:
+                CallIO4(this, &cmem_store_double);
                 break;
 
             case POLY_SYS_set_code_constant:
@@ -1308,7 +1354,7 @@ int X86TaskData::SwitchToPoly()
             break;
 
         case RETURN_CALLBACK_RETURN:
-            // Remove the extra exception handler we created in SetCallbackFunction
+            // Remove the extra exception handler we created in EnterCallbackFunction
             ASSERT(PSP_HR(this) == PSP_SP(this));
             PSP_SP(this) += 2;
             PSP_HR(this) = (*(PSP_SP(this)++)).AsStackAddr(); // Restore the previous handler.
@@ -1356,9 +1402,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     else newStack->p_eax = DEREFWORD(arg);
     newStack->p_ebx = TAGGED(0);
     newStack->p_ecx = TAGGED(0);
-    // We may set the function in SetCallbackFunction
-    if (proc == 0) newStack->p_edx = TAGGED(0);
-    else newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
+    newStack->p_edx = DEREFWORDHANDLE(proc); /* rdx - closure pointer */
     newStack->p_esi = TAGGED(0);
     newStack->p_edi = TAGGED(0);
 #ifdef HOSTARCHITECTURE_X86_64
@@ -2332,14 +2376,21 @@ void X86TaskData::CallCodeTupled()
 // the ML code has made a call in to foreign_dispatch.  We need to set the stack
 // up so that we will enter the callback (as with CallCodeTupled) but when we return
 // the result we enter callback_return. 
-void X86TaskData::SetCallbackFunction(Handle func, Handle args)
+Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 {
+    // If we ever implement a light version of the FFI that allows a call to C
+    // code without saving enough to allow allocation in C code we need to ensure
+    // that this code doesn't do any allocation.  Essentially we need the values
+    // in localMpointer and localMbottom to be valid across a call to C.  If we do
+    // a callback the ML callback function would pick up the values saved in the
+    // originating call 
     byte *codeAddr1 = (byte*)&X86AsmCallbackReturnTemplate;
     byte *codeAddr2 = (byte*)&X86AsmCallbackExceptionTemplate;
     Handle callBackReturn = this->BuildCodeSegment(codeAddr1, MAKE_CALL_SEQUENCE_BYTES, 'C');
     Handle callBackException = this->BuildCodeSegment(codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
     // Save the closure pointer and argument registers to the stack.  If we have to
     // retry the current RTS call we need these to have their original values.
+    // TODO: Is that really required any longer?  We don't retry RTS calls now.
     *(--PSP_SP(this)) = PSP_EDX(this);
     *(--PSP_SP(this)) = PSP_EAX(this);
     *(--PSP_SP(this)) = PSP_EBX(this);
@@ -2360,6 +2411,8 @@ void X86TaskData::SetCallbackFunction(Handle func, Handle args)
     PSP_EDX(this) = functToCall; // Closure address
     PSP_EAX(this) = args->Word();
     PSP_IC(this) = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
+
+    return EnterPolyCode();
 }
 
 // Decode and process an effective address.  There may

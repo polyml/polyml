@@ -5,8 +5,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -291,8 +290,6 @@ struct sk_tab_struct {
 static Handle makeHostEntry(TaskData *taskData, struct hostent *host);
 static Handle makeProtoEntry(TaskData *taskData, struct protoent *proto);
 static Handle makeServEntry(TaskData *taskData, struct servent *proto);
-static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
-                       Handle (mkEntry)(TaskData *, void*, char*));
 static Handle mkAftab(TaskData *taskData, void*, char *p);
 static Handle mkSktab(TaskData *taskData, void*, char *p);
 static Handle setSocketOption(TaskData *taskData, Handle args, int level, int opt);
@@ -1292,31 +1289,6 @@ TryAgain: // Used for various retries.
             return 0;
         }
     }
-}
-
-/* "Polymorphic" function to generate a list. */
-static Handle makeList(TaskData *taskData, int count, char *p, int size, void *arg,
-                       Handle (mkEntry)(TaskData *, void*, char*))
-{
-    Handle saved = taskData->saveVec.mark();
-    Handle list = SAVE(ListNull);
-    /* Start from the end of the list. */
-    p += count*size;
-    while (count > 0)
-    {
-        Handle value, next;
-        p -= size; /* Back up to the last entry. */
-        value = mkEntry(taskData, arg, p);
-        next  = ALLOC(SIZEOF(ML_Cons_Cell));
-
-        DEREFLISTHANDLE(next)->h = DEREFWORDHANDLE(value); 
-        DEREFLISTHANDLE(next)->t = DEREFLISTHANDLE(list);
-
-        taskData->saveVec.reset(saved);
-        list = SAVE(DEREFHANDLE(next));
-        count--;
-    }
-    return list;
 }
 
 static Handle mkAddr(TaskData *taskData, void *arg, char *p)
