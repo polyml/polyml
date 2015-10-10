@@ -984,17 +984,17 @@ struct
                         let
                             val description = { location = nameLoc, name = name, description = "" }
                         in
-                            makeTypeConstructor (name, typeVars,
-                                makeTypeId(isEqtype, false, ([], EmptyType), description), [DeclaredAt nameLoc])
+                            makeTypeConstructor (name,
+                                makeTypeId(isEqtype, false, (typeVars, EmptyType), description), [DeclaredAt nameLoc])
                         end
                         else case typeNameRebinding(typeVars, decType) of
                             SOME typeId =>
-                                makeTypeConstructor (name, typeVars, typeId, [DeclaredAt nameLoc])
+                                makeTypeConstructor (name, typeId, [DeclaredAt nameLoc])
                         |   NONE =>
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
-                                makeTypeConstructor (name, typeVars,
+                                makeTypeConstructor (name,
                                     makeTypeId(isEqtype, false, (typeVars, decType), description), [DeclaredAt nameLoc])
                             end
                 in
@@ -1037,8 +1037,7 @@ struct
                     val locations = [DeclaredAt newLoc]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
-                    val newTypeCons =
-                        makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
+                    val newTypeCons = makeTypeConstructor(newName, typeID, locations)
     
                     (* Copy the value constructors. *)
                     fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
@@ -1906,12 +1905,13 @@ struct
                 (* Make a new ID.  If this is within a let declaration we always make
                    a free ID because it is purely local and can't be exported. *)
                 val description = { location = nameLoc, name = name, description = "" }
+                val arity = length typeVars
             
                 val newId =
                     if letDepth = 0
-                    then makeTypeId(false, true, ([], EmptyType), description)
-                    else makeFreeIdEqUpdate (Local{addr = ref ~1, level = ref baseLevel}, false, description)
-                val tc = makeTypeConstructor(name, typeVars, newId, [DeclaredAt nameLoc])
+                    then makeTypeId(false, true, (typeVars, EmptyType), description)
+                    else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
+                val tc = makeTypeConstructor(name, newId, [DeclaredAt nameLoc])
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -1946,7 +1946,7 @@ struct
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
                 val tcon =
-                    makeTypeConstructor (name, typeVars,
+                    makeTypeConstructor (name,
                         makeTypeId(false, false, (typeVars, decType), description), [DeclaredAt nameLoc])
                 val tset = TypeConstrSet(tcon, [])
             in
