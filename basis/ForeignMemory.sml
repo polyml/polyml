@@ -190,7 +190,7 @@ struct
             (
                 if #address entry ++ #size entry = #address this
                 then (* New entry is immediately before old one - merge. *)
-                    {address= #address this, size = #size entry + #size this } :: rest
+                    {address= #address entry, size = #size entry + #size this } :: rest
                 else entry :: this :: rest
             )
             else if #address this ++ #size this = #address entry
@@ -250,6 +250,6 @@ struct
    in
         val malloc: word -> voidStar = ThreadLib.protect lock allocMem
         val free: voidStar -> unit = ThreadLib.protect lock freeMem
-    end
+   end
 end;
 
