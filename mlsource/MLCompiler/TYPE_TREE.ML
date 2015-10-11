@@ -592,7 +592,7 @@ struct
         fun equalTypes (TypeConstruction{constr=xVal, args=xArgs, ...},
                         TypeConstruction{constr=yVal, args=yArgs, ...}) =
             (* The equivalents are as the result of mapping so we mustn't remap them. *)
-            sameTypeId(tcIdentifier xVal, tcIdentifier yVal)
+            equalTypeIds(tcIdentifier xVal, NONE, tcIdentifier yVal, NONE)
                 andalso equalTypeLists (xArgs, yArgs)
     
         | equalTypes (FunctionType x, FunctionType y) = 
