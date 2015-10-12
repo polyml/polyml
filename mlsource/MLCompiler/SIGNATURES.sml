@@ -1036,7 +1036,8 @@ struct
                          the structure. *)
                       val result = pStruct t (offset + 1);
                       (* Make a structure. *)
-                      val resStruct = makeFormalStruct (name, resSig, offset, [DeclaredAt lno]);
+                        val locations = [DeclaredAt lno, SequenceNo (newBindingId lex)]
+                      val resStruct = makeFormalStruct (name, resSig, offset, locations)
                       val () = #enterStruct structEnv (name, resStruct);
                     in
                       result (* One slot for each structure. *)
@@ -1064,14 +1065,16 @@ struct
                             orelse name = "::" orelse name = "ref"
                         then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                         else ();
-                  val typeof = assignTypes (typeof, lookup, lex);
+                  val typeof = assignTypes (typeof, lookup, lex)
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+
                 in  (* If the type is not found give an error. *)
                   (* The type is copied before being entered in the environment.
                      This isn't logically necessary but has the effect of removing
                      ref we put in for type constructions. *)
                   #enterVal structEnv (name,
                     mkFormal (name, ValBound,
-                        copyType (typeof, fn x => x, fn x => x), offset, [DeclaredAt nameLoc]));
+                        copyType (typeof, fn x => x, fn x => x), offset, locations));
                   (offset + 1)
                 end
                
@@ -1090,17 +1093,18 @@ struct
                      s,
                      errorFn);
 
-                  val exType =
-                    case typeof of
-                        NONE => exnType
-                    |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
+                    val exType =
+                        case typeof of
+                            NONE => exnType
+                        |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
+                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins. "it" is not allowed. *)
                     if name = "true" orelse name = "false" orelse name = "nil"
                   orelse name = "::" orelse name = "ref" orelse name = "it"
                   then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                   else ();
-                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, [DeclaredAt nameLoc]));
+                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, locations));
                   (offset + 1)
                 end
                
@@ -1278,8 +1282,9 @@ struct
             val _ =
                 List.foldl (fn (signat, offset) => processSig (signat, offset, lno))
                     offset sigsList
+            val locations = [DeclaredAt lno, SequenceNo (newBindingId lex)]
         in
-            makeSignature("", newTable, ! idCount, [DeclaredAt lno], typeIdEnv (), [])
+            makeSignature("", newTable, ! idCount, locations, typeIdEnv (), [])
         end
 
         (* Process the contents of the signature. *)

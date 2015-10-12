@@ -1682,8 +1682,9 @@ struct
                 else (addrs, matches)
             
             val () = matchToResult := #2(univFold(structTable, enterItem, (0, [])))
+            val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
             val resSig =
-                makeSignature("", finalTable, currentTypeCount(), [DeclaredAt location], newTypeIdEnv(), [])
+                makeSignature("", finalTable, currentTypeCount(), locations, newTypeIdEnv(), [])
           in
             resSig
           end
@@ -1843,7 +1844,8 @@ struct
                 (* Any values in the signature are counted as exported. *)
                 val () = markValsAsExported resSig;
                 (* Now make a local structure variable using this signature. *)
-                val var = makeLocalStruct (name, resSig, [DeclaredAt line])
+                val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                val var = makeLocalStruct (name, resSig, locations)
             in
                 #enter sEnv (name, var);
                 valRef := SOME var
@@ -2168,7 +2170,8 @@ struct
                     val argumentSignature =
                         sigVal (argSig, startTopLevelIDs, topLevelEnv, Env env, lex, line)
 
-                    val resArg = makeLocalStruct (argName, argumentSignature, [DeclaredAt line]);
+                    val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                    val resArg = makeLocalStruct (argName, argumentSignature, locations)
 
                     (* sigVal will have numbered the bound IDs to start at startTopLevelIDs.  We
                        need to enter these bound IDs into the local environment but as Selected entries. *)
@@ -2354,7 +2357,8 @@ struct
                         between them. They will then be taken as a single
                         declaration and F will be picked up as a local. *)
                       (* Set the size of the type map. *)
-                    val var = makeFunctor (name, resArg, functorSig, makeLocal (), [DeclaredAt line])
+                    val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
+                    val var = makeFunctor (name, resArg, functorSig, makeLocal (), locations)
                 in
                     #enter sEnv (name, var);
                     valRef := SOME var
@@ -2388,8 +2392,9 @@ struct
                 let (* Each element in the list is a signature binding. *)
                     val Signatures { tab, typeIdMap, firstBoundIndex, boundIds, ...} =
                        sigVal (sigStruct, startTopLevelIDs, topLevelEnv, Env env, lex, line)
+                    val locations = [DeclaredAt line, SequenceNo (newBindingId lex)]
                     val namedSig = (* Put in the signature name. *)
-                        makeSignature(name, tab, firstBoundIndex, [DeclaredAt line], typeIdMap, boundIds)
+                        makeSignature(name, tab, firstBoundIndex, locations, typeIdMap, boundIds)
                 in
                     sigRef := namedSig; (* Remember for pass4. *)
                     #enter sEnv (name, namedSig)
@@ -3048,7 +3053,7 @@ struct
             let
                 fun extractStructureBind ({name, valRef, line, ...}: structBind, (addr, structures)) =
                 let
-                    val structCode = mkInd (addr, results);
+                    val structCode = mkInd (addr, results)
                     (* We need to replace type IDs with their Global versions. *)
                     
                     local
