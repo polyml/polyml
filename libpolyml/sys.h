@@ -23,6 +23,10 @@
 /* This file is included in some of the assembly code files so it must only
    contain preprocessor directives and not C code. */
 
+/* N.B.  This must be kept consistent with the ML version in basis/RuntimeCalls.ML.
+   There are tables of RTS call properties in poly_specific.cpp and of RTS function
+   names in run_time.cpp. */
+
 #ifndef _SYS_H
 #define _SYS_H
 
