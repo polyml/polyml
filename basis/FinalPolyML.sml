@@ -171,17 +171,17 @@ local
         (* Whether to sort the results by alphabetical order before printing them.  Applies
            only to the default CPResultFun.  Default value of printInAlphabeticalOrder. *)
     |   CPResultFun of {
-            fixes: (string * fixityVal) list, values: (string * valueVal) list,
-            structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-            functors: (string * functorVal) list, types: (string * typeVal) list} -> unit
+            fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+            structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+            functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list} -> unit
         (* Function to apply to the result of compiling and running the code.
            Default: print and enter the values into CPNameSpace. *)
     |   CPCompilerResultFun of
             PolyML.parseTree option *
             ( unit -> {
-                fixes: (string * fixityVal) list, values: (string * valueVal) list,
-                structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-                functors: (string * functorVal) list, types: (string * typeVal) list}) option -> unit -> unit
+                fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+                structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+                functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list}) option -> unit -> unit
         (* Function to process the result of compilation.  This can be used to capture the
            parse tree even if type-checking fails.
            Default: Execute the code and call the result function if the compilation
@@ -223,7 +223,7 @@ local
         (* Controls whether to add profiling information to each allocation.  Currently
            zero means no profiling and one means add the allocating function. *)
 
-    |   CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -> unit
+    |   CPDebuggerFunction of int * Values.value * int * string * string * nameSpace -> unit
         (* This is no longer used and is just left for backwards compatibility. *)
 
     |   CPBindingSeq of unit -> int
@@ -379,18 +379,18 @@ local
         (* Default function to print and enter a value. *)
         fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
                            stream: string->unit, depth: int)
-            { fixes: (string * fixityVal) list, values: (string * valueVal) list,
-              structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-              functors: (string * functorVal) list, types: (string * typeVal) list}: unit =
+            { fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+              structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+              functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list}: unit =
         let
             (* We need to merge the lists to sort them alphabetically. *)
             datatype decKind =
-                FixStatusKind of fixityVal
-            |   TypeConstrKind of typeVal
-            |   SignatureKind of signatureVal
-            |   StructureKind of structureVal
-            |   FunctorKind of functorVal
-            |   ValueKind of valueVal
+                FixStatusKind of Infixes.fixity
+            |   TypeConstrKind of TypeConstrs.typeConstr
+            |   SignatureKind of Signatures.signatureVal
+            |   StructureKind of Structures.structureVal
+            |   FunctorKind of Functors.functorVal
+            |   ValueKind of Values.value
 
             val decList =
                 map (fn (s, f) => (s, FixStatusKind f)) fixes @
@@ -431,23 +431,23 @@ local
             |   enterDec(n, FunctorKind f) = #enterFunct space (n,f)
             |   enterDec(n, ValueKind v) = #enterVal space (n,v)
 
-            fun printDec(n, FixStatusKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix f)
+            fun printDec(_, FixStatusKind f) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Infixes.print f)
 
             |   printDec(_, TypeConstrKind t) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayType(t, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (TypeConstrs.print(t, depth, SOME space))
 
             |   printDec(_, SignatureKind s) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displaySig(s, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Signatures.print(s, depth, SOME space))
 
             |   printDec(_, StructureKind s) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayStruct(s, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Structures.print(s, depth, SOME space))
 
             |   printDec(_, FunctorKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFunct(f, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, depth, SOME space))
 
             |   printDec(_, ValueKind v) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayVal(v, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
 
         in
             (* First add the declarations to the name space and then print them.  Doing it this way
@@ -1333,7 +1333,7 @@ in
 
                 fun getArgResult stack get =
                     case stack of
-                        hd :: _ => Bootstrap.printValue(get hd, !printDepth, globalNameSpace)
+                        hd :: _ => Values.print(get hd, !printDepth)
                     |   _ => PrettyString "?"
 
                 fun printTrace (funName, location, stack, argsAndResult) =
@@ -1640,7 +1640,7 @@ in
                 local
                     fun printVal v =
                         prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
-                            (NameSpace.displayVal(v, !printDepth, globalNameSpace))
+                            (NameSpace.Values.printWithType(v, !printDepth, SOME globalNameSpace))
                     fun printStack (stack: debugState) =
                         List.app (fn (_,v) => printVal v) (#allVal (debugNameSpace stack) ())
                 in

@@ -483,13 +483,13 @@ struct
             PrettyBlock (3, false, [],
                 [ valPart("constructor", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
      
-        | PattBound => (* Can this every occur? *)
+        | PattBound => (* Can this ever occur? *)
             PrettyBlock (3, false, [],
                 [ valPart("val", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
     end
 
-  (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-  fun printValues (Value{typeOf, class, access, ...}, depth, _) =
+    (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
+    fun printValues (Value{typeOf, class, access, ...}, depth) =
         case (class, access) of
             (ValBound, Global code) => printValueForType (valOf(evalue code), typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
