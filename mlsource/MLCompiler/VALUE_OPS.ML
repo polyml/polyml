@@ -389,13 +389,24 @@ struct
         pretty
     end
 
-    fun displayFixStatus Nonfix = PrettyString "nonfix"
-    | displayFixStatus (Infix prec) =
-        PrettyBlock(0, false, [],
-            [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
-    | displayFixStatus (InfixR prec) =
-        PrettyBlock(0, false, [],
-            [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+    (* These are used to display the declarations made. *)
+    fun displayFixStatus(FixStatus(name, f)): pretty =
+    let
+        open PRETTY
+        
+        val status =
+            case f of
+                Nonfix => PrettyString "nonfix"
+            |   Infix prec =>
+                    PrettyBlock(0, false, [],
+                        [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+            |   InfixR prec =>
+                    PrettyBlock(0, false, [],
+                        [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+    in
+        PrettyBlock (0, false, [],
+            [status, PrettyBreak (1, 0), PrettyString name])
+    end
 
     (* Returns the declaration location as the location for the context. *)
     fun getLocation locations =

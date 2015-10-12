@@ -1382,7 +1382,7 @@ struct
                   (
                 (* Infix declarations have already been processed by the parser.  We include
                    them here merely so that we get all declarations in the correct order. *)
-                List.app (fn name => #enterFix env (name, fix)) tlist;
+                List.app (fn name => #enterFix env (name, FixStatus(name, fix))) tlist;
                 badType
                 )
 

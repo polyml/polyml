@@ -432,7 +432,7 @@ local
             |   enterDec(n, ValueKind v) = #enterVal space (n,v)
 
             fun printDec(n, FixStatusKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix(n,f))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix f)
 
             |   printDec(_, TypeConstrKind t) =
                     prettyPrintWithOptionalMarkup (stream, !lineLength) (displayType(t, depth, space))

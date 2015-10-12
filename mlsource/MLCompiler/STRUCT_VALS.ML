@@ -491,13 +491,15 @@ struct
     val inBasis =
         { file = "Standard Basis", startLine = 0, startPosition = 0, endLine = 0, endPosition = 0}
     fun basisDescription name = { location = inBasis, description = "In Basis", name = name }
-    (* Infix status. *) 
- 
-    datatype fixStatus = 
+
+
+    (* Infix status. *)
+    datatype infixity = 
         Infix of int
     |   InfixR of int
-    |   Nonfix;
-  
+    |   Nonfix
+
+    datatype fixStatus = FixStatus of string * infixity
       
     fun isGlobal   (Global   _) = true | isGlobal   _ = false;
     fun isLocal    (Local    _) = true | isLocal    _ = false;
@@ -645,6 +647,7 @@ struct
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm

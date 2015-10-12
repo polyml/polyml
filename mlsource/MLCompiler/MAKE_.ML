@@ -2,12 +2,11 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C.J. Matthews 2008-9.
+    Modified David C.J. Matthews 2008-9, 2015.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -32,62 +31,8 @@
 
 functor MAKE_ (
 
-(*****************************************************************************)
-(*                  COMPILERBODY                                             *)
-(*****************************************************************************)
+structure COMPILERBODY : COMPILERBODYSIG
 
-structure COMPILERBODY :
-sig
-    type values;
-    type typeConstrSet;
-    type fixStatus;
-    type structVals;
-    type signatures;
-    type functors;
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    (* Export tree. *)
-    type exportTree
-
-    (* The completed compiler. *)
-    val compiler :
-        nameSpace * (unit->char option) * Universal.universal list ->
-        exportTree option * ( unit ->
-           { fixes: (string * fixStatus) list, values: (string * values) list,
-             structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrSet) list }) option
-
-end;
-
-(*****************************************************************************)
-(*                  UNIVERSALTABLE                                           *)
-(*****************************************************************************)
 structure UNIVERSALTABLE :
 sig
   type 'a tag = 'a Universal.tag;
@@ -101,9 +46,6 @@ sig
     val fold: (string * universal * 'a -> 'a) -> 'a -> univTable -> 'a
 end;
 
-(*****************************************************************************)
-(*                  STRUCTVALS                                               *)
-(*****************************************************************************)
 structure STRUCTVALS : STRUCTVALSIG;
 
 structure DEBUG:
@@ -131,44 +73,13 @@ structure VERSION:
         val versionSuffix: string
     end
 
-(*****************************************************************************)
-(*                  MAKE sharing constraints                                 *)
-(*****************************************************************************)
+sharing STRUCTVALS.Sharing = COMPILERBODY.Sharing
 
-sharing type
-  STRUCTVALS.values
-= COMPILERBODY.values
-
-sharing type
-  STRUCTVALS.structVals
-= COMPILERBODY.structVals
-
-sharing type
-  STRUCTVALS.typeConstrSet
-= COMPILERBODY.typeConstrSet
-
-sharing type
-  STRUCTVALS.fixStatus
-= COMPILERBODY.fixStatus
-
-sharing type
-  STRUCTVALS.signatures
-= COMPILERBODY.signatures
-
-sharing type
-  STRUCTVALS.functors
-= COMPILERBODY.functors
-
-sharing type
-    LEX.pretty
-=   PRETTY.pretty
+sharing LEX.Sharing = PRETTY.Sharing
 
 )
  :
 
-(*****************************************************************************)
-(*                  MAKE export signature                                    *)
-(*****************************************************************************)
 sig
   type env
   type gEnv

@@ -1394,14 +1394,6 @@ struct
 (*****************************************************************************)
         local
             open TYPETREE
-            (* These are used to display the declarations made. *)
-            fun displayFix((name: string, f: fixStatus)): pretty =
-            let
-                open PRETTY
-            in
-                PrettyBlock (0, false, [],
-                    [displayFixStatus f, PrettyBreak (1, 0), PrettyString name])
-            end
 
             (* getValue can now be written in terms of codeForValue so it can probably be removed. *)
             fun getValue (Value{access = Global code, class = ValBound, ...}) = valOf(evalue code)
@@ -1449,8 +1441,8 @@ struct
             val () = applyList (fn (name, v, t) =>
                                 #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
-                ("displayFix",             toMachineWord (displayFix: string * fixStatus -> pretty),
-                    String ** fixityVal ->> PrettyType),
+                ("displayFix",             toMachineWord (displayFixStatus: fixStatus -> pretty),
+                    fixityVal ->> PrettyType),
                 ("displaySig",             toMachineWord (exportedDisplaySigs: signatures * int * nameSpace -> pretty),
                     mkProductType[signatureVal, Int, nameSpaceType] ->> PrettyType),
                 ("displayStruct",             toMachineWord (exportedDisplayStructs: structVals * int * nameSpace -> pretty),

@@ -280,10 +280,12 @@ sig
     val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values
 
     (* Infix status *)
-    datatype fixStatus = 
+    datatype infixity = 
         Infix of int
     |   InfixR of int
     |   Nonfix
+
+    datatype fixStatus = FixStatus of string * infixity
 
     datatype env =
         Env of
@@ -327,6 +329,7 @@ sig
         and  env        = env
         and  univTable  = univTable
         and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
         and  typeVarForm = typeVarForm

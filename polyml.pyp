@@ -1,7 +1,7 @@
 [General]
 RootFile=test
 [Files]
-NFiles=201
+NFiles=202
 File0=mlsource\MLCompiler\COMPILER_BODY.ML
 File1=mlsource\MLCompiler\DEBUGGER_.sml
 Root=Root.ML
@@ -204,4 +204,4 @@ File197=basis\PolyMLException.sml
 File198=basis\Foreign.sml
 File199=basis\ForeignConstants.sml
 File200=basis\ForeignMemory.sml
-File201=basis\ForeignMemory.sml
+File201=mlsource\MLCompiler\COMPILERBODYSIG.sml

@@ -90,58 +90,9 @@ end;
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = EXPORTTREE.Sharing = SYMSET = PARSEDEC = CODETREE
 
-(*****************************************************************************)
-(*                  COMPILERBODY export signature                            *)
-(*****************************************************************************)
+ ) : COMPILERBODYSIG
 
- ) : 
- 
-sig
-    type values;
-    type typeConstrSet;
-    type fixStatus;
-    type structVals;
-    type signatures;
-    type functors;
-    type exportTree
-
-    type nameSpace =
-      { 
-        lookupVal:    string -> values option,
-        lookupType:   string -> typeConstrSet option,
-        lookupFix:    string -> fixStatus option,
-        lookupStruct: string -> structVals option,
-        lookupSig:    string -> signatures option,
-        lookupFunct:  string -> functors option,
-
-        enterVal:     string * values      -> unit,
-        enterType:    string * typeConstrSet -> unit,
-        enterFix:     string * fixStatus   -> unit,
-        enterStruct:  string * structVals  -> unit,
-        enterSig:     string * signatures  -> unit,
-        enterFunct:   string * functors    -> unit,
-
-        allVal:       unit -> (string*values) list,
-        allType:      unit -> (string*typeConstrSet) list,
-        allFix:       unit -> (string*fixStatus) list,
-        allStruct:    unit -> (string*structVals) list,
-        allSig:       unit -> (string*signatures) list,
-        allFunct:     unit -> (string*functors) list
-      };
-
-    type location =
-        { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-
-    (* The completed compiler.
-       Returns the parse tree and, if successful, a function that executes the
-       compiled code.  *)
-    val compiler :
-        nameSpace * (unit->char option) * Universal.universal list ->
-        exportTree option * (unit ->
-           { fixes: (string * fixStatus) list, values: (string * values) list,
-             structures: (string * structVals) list, signatures: (string * signatures) list,
-             functors: (string * functors) list, types: (string * typeConstrSet) list }) option;
-end =
+=
 
 (*****************************************************************************)
 (*                  COMPILERBODY functor body                                *)
@@ -431,6 +382,17 @@ struct
           printReport (s' ^ "\n");
           raise Fail s'
         end
+    end
+
+    structure Sharing =
+    struct
+        type values = values
+        and  typeConstrSet = typeConstrSet
+        and  fixStatus = fixStatus
+        and  structVals = structVals
+        and  signatures = signatures
+        and  functors = functors
+        and  exportTree = exportTree
     end
 
 end; (* struct *)
