@@ -1,7 +1,7 @@
 /*
     Title:      Multi-Threaded Garbage Collector - Check for weak references
 
-    Copyright (c) 2010, 2012 David C. J. Matthews
+    Copyright (c) 2010, 2012, 2015 David C. J. Matthews
 
     Based on the original garbage collector code
         Copyright 2000-2008
@@ -9,8 +9,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -81,9 +80,8 @@ void MTGCCheckWeakRef::ScanRuntimeAddress(PolyObject **pt, RtsStrength weak)
 // Deal with weak objects
 void MTGCCheckWeakRef::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED L)
 {
-    if (! OBJ_IS_WEAKREF_OBJECT(L)) return;
+    if (! OBJ_IS_WEAKREF_OBJECT(L) || OBJ_IS_BYTE_OBJECT(L)) return; // Ignore Weak-Byte cells.
     ASSERT(OBJ_IS_MUTABLE_OBJECT(L)); // Should be a mutable.
-    ASSERT(OBJ_IS_WORD_OBJECT(L)); // Should be a plain object.
     // See if any of the SOME objects contain unreferenced refs.
     POLYUNSIGNED length = OBJ_OBJECT_LENGTH(L);
     PolyWord *baseAddr = (PolyWord*)obj;

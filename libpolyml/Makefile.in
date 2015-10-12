@@ -135,13 +135,14 @@ am__libpolyml_la_SOURCES_DIST = arb.cpp basicio.cpp bitmap.cpp \
 	gc_mark_phase.cpp gc_share_phase.cpp gc_update_phase.cpp \
 	gctaskfarm.cpp heapsizing.cpp locking.cpp memmgr.cpp mpoly.cpp \
 	network.cpp objsize.cpp osmem.cpp pexport.cpp \
-	poly_specific.cpp polystring.cpp process_env.cpp processes.cpp \
-	profiling.cpp quick_gc.cpp realconv.cpp reals.cpp \
-	rts_module.cpp run_time.cpp save_vec.cpp savestate.cpp \
-	scanaddrs.cpp sharedata.cpp sighandler.cpp statistics.cpp \
-	timing.cpp xwindows.cpp x86_dep.cpp x86asmtemp.S interpret.cpp \
-	machoexport.cpp elfexport.cpp pecoffexport.cpp \
-	unix_specific.cpp Console.cpp windows_specific.cpp
+	poly_specific.cpp polyffi.cpp polystring.cpp process_env.cpp \
+	processes.cpp profiling.cpp quick_gc.cpp realconv.cpp \
+	reals.cpp rts_module.cpp run_time.cpp save_vec.cpp \
+	savestate.cpp scanaddrs.cpp sharedata.cpp sighandler.cpp \
+	statistics.cpp timing.cpp xwindows.cpp x86_dep.cpp \
+	x86asmtemp.S interpret.cpp machoexport.cpp elfexport.cpp \
+	pecoffexport.cpp unix_specific.cpp Console.cpp \
+	windows_specific.cpp
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@am__objects_1 = x86_dep.lo \
 @ARCHI386_FALSE@@ARCHINTERPRET64_FALSE@@ARCHINTERPRET_FALSE@@ARCHX86_64_TRUE@	x86asmtemp.lo
 @ARCHI386_FALSE@@ARCHINTERPRET64_TRUE@@ARCHINTERPRET_FALSE@am__objects_1 = interpret.lo
@@ -158,12 +159,12 @@ am_libpolyml_la_OBJECTS = arb.lo basicio.lo bitmap.lo check_objects.lo \
 	gc_check_weak_ref.lo gc_copy_phase.lo gc_mark_phase.lo \
 	gc_share_phase.lo gc_update_phase.lo gctaskfarm.lo \
 	heapsizing.lo locking.lo memmgr.lo mpoly.lo network.lo \
-	objsize.lo osmem.lo pexport.lo poly_specific.lo polystring.lo \
-	process_env.lo processes.lo profiling.lo quick_gc.lo \
-	realconv.lo reals.lo rts_module.lo run_time.lo save_vec.lo \
-	savestate.lo scanaddrs.lo sharedata.lo sighandler.lo \
-	statistics.lo timing.lo xwindows.lo $(am__objects_1) \
-	$(am__objects_2) $(am__objects_3)
+	objsize.lo osmem.lo pexport.lo poly_specific.lo polyffi.lo \
+	polystring.lo process_env.lo processes.lo profiling.lo \
+	quick_gc.lo realconv.lo reals.lo rts_module.lo run_time.lo \
+	save_vec.lo savestate.lo scanaddrs.lo sharedata.lo \
+	sighandler.lo statistics.lo timing.lo xwindows.lo \
+	$(am__objects_1) $(am__objects_2) $(am__objects_3)
 libpolyml_la_OBJECTS = $(am_libpolyml_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -451,6 +452,7 @@ noinst_HEADERS = \
 	pexport.h \
 	PolyControl.h \
 	poly_specific.h \
+	polyffi.h \
 	polystring.h \
 	process_env.h \
 	processes.h \
@@ -496,6 +498,7 @@ libpolyml_la_SOURCES = \
     osmem.cpp \
     pexport.cpp \
     poly_specific.cpp \
+    polyffi.cpp \
     polystring.cpp \
     process_env.cpp \
     processes.cpp \
@@ -627,6 +630,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pecoffexport.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pexport.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/poly_specific.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polyffi.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/polystring.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/process_env.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/processes.Plo@am__quote@

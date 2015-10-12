@@ -1539,9 +1539,7 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
 
     // Callbacks previously involved forking a new ML process.  They are
     // now handled on the caller's stack.
-    taskData->SetCallbackFunction(h, mlArgs);
-
-    Handle resultHandle = taskData->EnterPolyCode();
+    Handle resultHandle = taskData->EnterCallbackFunction(h, mlArgs);
 
     PolyWord resultWord = UNHANDLE(resultHandle);
     taskData->saveVec.reset(mark);

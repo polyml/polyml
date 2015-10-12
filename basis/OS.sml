@@ -1,12 +1,11 @@
 (*
     Title:      Standard Basis Library: OS Structures and Signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2005
+    Copyright   David Matthews 2000, 2005, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,10 +16,6 @@
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
-
-(* G&R 2004 status: in progress. Signatures checked.  Minor change to OS_IO.  Structures unchecked.
-   OS.Path in particular may have to be checked. It wasn't clearly specified before and I may
-   have made assumptions that conflict with the G&R. *)
 
 signature OS_FILE_SYS =
   sig
@@ -212,112 +207,116 @@ struct
            absolute path with an empty arc. *)
         exception Path
         exception InvalidArc
-
+        
         local
-            val doCall: int*int -> string
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
+            val getOS: int =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
+
         in
-            val parentArc = doCall (6, 0)
-            and currentArc = doCall (5, 0)
-            and separator = doCall (7, 0)
+            val isWindows =
+                case getOS of
+                    0 => false (* Posix *)
+                |   1 => true
+                |   _ => raise Fail "Unknown operating system"
         end
+        
+        val isCaseSensitive = isWindows
 
-        local
-            val doCall: int*Char.char -> bool
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-        in
-            (* Assume for the moment that separators are always single chars. *)
-            fun isSeparator ch = doCall (8, ch)
+        val isSeparator =
+            if isWindows then fn #"/" => true | #"\\" => true | _ => false
+            else fn #"/" => true | _ => false
 
-            (* Internal - are names case sensitive? Yes in Unix, no in Windows. *)
-            val isCaseSensitive = doCall (9, #" ")
+        val separator =
+            if isWindows then "\\" else "/"
+        
+        
+        val parentArc = ".." and currentArc = "."
 
-            (* Internal - is an empty arc redundant? i.e. is // equivalent to / ?
-               In Windows it isn't at the start of a path but we will already have
-               removed anything that looks like a volume by the time we come to
-               canonicalise it. *)
-            val emptyArcIsRedundant = doCall (10, #" ")
-        end
-
-        local
-            val doCall: int*(string*bool) -> string
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-        in
-            (* Internal function - construct the prefix for a volume. *)
-            (* Same for Unix and Windows. *)
-            fun makePrefix(vol: string, isAbs: bool) = doCall(12, (vol, isAbs))
-        end
-
-        local
-            val doCall: int*string -> bool
-                 = RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-        in
-            (* Internal function - returns false if the string contains
-               an invalid character.  Arc separators are allowed. *)
-            fun isValidArc s = doCall(13, s)
-        end
-
-        local
-            val doCall: int*string -> int*string*bool =
-                RunCall.run_call2 RuntimeCalls.POLY_SYS_process_env
-        in
-            fun matchVolumePrefix s = doCall(11, s)
-        end
-
-        (* (* Windows *)
-        fun matchVolumePrefix (s: string): int*string*bool =
-        (* Given a string it examines the prefix and extracts the volume
-           name if there is one.  It returns the volume and also whether
-           the name is absolute.  It also returns the number of characters
-           which matched so that this can be removed before treating
-           the rest as a relative path. *)
-        let
-            val slen = String.size s
-        in
-            if slen = 0 then (0, "", false)
-            else if slen >= 2 andalso String.sub(s, 1) = #":" andalso
-                    Char.isAlpha(String.sub(s, 0))
+        val isValidArc =
+            if isWindows
             then
-                if slen > 2 andalso isSeparator(String.sub(s, 2))
-                then (3, String.substring(s, 0, 2), true) (* e.g. C:\ or C:\fred *)
-                else (2, String.substring(s, 0, 2), false) (* e.g. C: or C:fred *)
-
-            else if slen > 2 andalso isSeparator(String.sub(s, 0))
-                    andalso isSeparator(String.sub(s, 1))
-            then (* Looks like a UNC server name. See how big it is. *)
             let
-                val (server, rest) =
-                    Substring.splitl(fn c => not (isSeparator c))
-                        (Substring.extract(s, 2, NONE))
-                (* TODO: Is the server name actually valid?  Assume yes. *)
+                fun invalidChars #"\000" = true
+                |   invalidChars #"<"    = true
+                |   invalidChars #">"    = true
+                |   invalidChars #":"    = true
+                |   invalidChars #"\""   = true
+                |   invalidChars #"\\"   = true
+                |   invalidChars #"/"    = true
+                |   invalidChars #"|"    = true
+                |   invalidChars #"?"    = true
+                |   invalidChars #"*"    = true
+                |   invalidChars _       = false
             in
-                if Substring.size rest = 0
-                then (0, "", false)
-                else (* Must be room for a share name as well. *)
-                let
-                    val shareName =
-                        Substring.takel(fn c => not (isSeparator c))
-                                (Substring.triml 1 rest)
-                in
-                    (Substring.size server + Substring.size shareName + 4,
-                        separator ^ separator ^ 
-                            Substring.string server ^ separator ^
-                            Substring.string shareName, true)
-                end
+                not o (CharVector.exists invalidChars)
             end
-            else if isSeparator(String.sub(s, 0))
-            then (* Treat it as absolute even though it really isn't *)
-                (1, "", true)
+            else
+            let
+                (* Posix - only null and / are invalid. *)
+                fun invalidChars #"\000" = true
+                |   invalidChars #"/"    = true
+                |   invalidChars _       = false
+            in
+                not o (CharVector.exists invalidChars)
+            end
 
-            else (0, "", false)
+        local
+            (* Given a string it examines the prefix and extracts the volume
+               name if there is one.  It returns the volume and also whether
+               the name is absolute.  It also returns the number of characters
+               which matched so that this can be removed before treating
+               the rest as a relative path. *)
+            fun matchVolumePrefixPosix s =
+                if String.size s > 0 andalso String.sub(s, 0) = #"/"
+                then {volLen = 1, vol = "", abs = true, root = true }
+                else {volLen = 0, vol = "", abs = false, root = false } 
+            
+            fun matchVolumePrefixWindows s =
+            let
+                val slen = String.size s
+            in
+                if slen = 0 then { volLen = 0, vol = "", abs = false, root = false }
+                else if slen >= 2 andalso String.sub(s, 1) = #":" andalso
+                        Char.isAlpha(String.sub(s, 0))
+                then
+                    if slen > 2 andalso isSeparator(String.sub(s, 2))
+                    then { volLen = 3, vol = String.substring(s, 0, 2), abs = true, root = true } (* e.g. C:\ or C:\fred *)
+                    else { volLen = 2, vol = String.substring(s, 0, 2), abs = false, root = false } (* e.g. C: or C:fred *)
+                else if slen > 2 andalso isSeparator(String.sub(s, 0))
+                        andalso isSeparator(String.sub(s, 1))
+                then (* Looks like a UNC server name. See how big it is. *)
+                let
+                    val (server, rest) =
+                        Substring.splitl(fn c => not (isSeparator c))
+                            (Substring.extract(s, 2, NONE))
+                    (* TODO: Is the server name actually valid?  Assume yes. *)
+                in
+                    if Substring.size rest = 0
+                    then { volLen = 0, vol = "", abs = false, root = false }
+                    else (* Must be room for a share name as well. *)
+                    let
+                        val shareName =
+                            Substring.takel(fn c => not (isSeparator c))
+                                    (Substring.triml 1 rest)
+                    in
+                        { volLen = Substring.size server + Substring.size shareName + 4,
+                          vol =
+                            separator ^ separator ^ 
+                                Substring.string server ^ separator ^
+                                Substring.string shareName,
+                          abs = true, root = true }
+                    end
+                end
+                (* Leading \ in Windows means the "root" directory on the current drive.  *)
+                else if isSeparator(String.sub(s, 0))
+                then { volLen = 1, vol = "", abs = false, root = true }
+
+                else { volLen = 0, vol = "", abs = false, root = false }
+            end
+        in
+            val matchVolumePrefix =
+                if isWindows then matchVolumePrefixWindows else matchVolumePrefixPosix
         end
-        *)
-        (* (* Unix: *)
-        fun matchVolumePrefix (s: string): int*string*bool =
-            if String.size s > 0 andalso String.sub(s, 0) = "/"
-            then (1, "", true)
-            else (0, "", false) 
-        *)
 
         (* Internal - map the strings to the canonical case if they
            are not case sensitive. *)
@@ -328,37 +327,47 @@ struct
         (* Internal - are the arcs equivalent? *)
         fun equivalent (s, t) = toCanonicalCase s = toCanonicalCase t
 
-        (* See if the volume name is valid. *)
-        fun validVolume {isAbs, vol} =
-        let
-            (* Convert it to full volume prefix form then try to
-               match that. *)
-            val fullVol = makePrefix(vol, isAbs)
-            val (nLen, _, abs) = matchVolumePrefix fullVol
-        in
-            (* If we matched the whole name and it had the same
-               absolute/relative status then we can assume that it
-               was a valid volume name. *)
-            nLen = String.size fullVol andalso abs = isAbs
-        end
+        (* See if the volume name is valid for either an absolute or
+           relative path.  Windows relative paths may or may not
+           have a volume but if they have the volume must look right.
+           On Unix relative paths may not specify a volume and
+           the only volume for absolute paths is the empty string. *)
+        val validVolume =
+            if isWindows
+            then
+                fn  {isAbs, vol = ""} =>
+                    not isAbs (* Empty volume is only valid for relative paths. *)
+                    
+                |   {vol, ...} =>
+                    if size vol = 2 andalso String.sub(vol, 1) = #":"
+                            andalso Char.isAlpha(String.sub(vol, 0))
+                    then true (* Drive letter e.g. C: *)
+                    else if size vol > 2 andalso isSeparator(String.sub(vol, 0))
+                    then (* UNC name?  \\server\share *)
+                        case String.fields isSeparator vol of
+                            ["", "", server, share] => server <> "" andalso share <> ""
+                        |   _ => false
+                    else false
 
-        (* Note: The examples for Unix paths are a mess.  There is considerable
-           confusion in the examples between "/" meaning the root directory
-           and its use as a path separator.  *)
-        fun fromString (s: string) =
+            else (* Posix.  The volume must always be empty. *)
+                fn {vol = "", ...} => true | _ => false
+
+        (* We only return an empty arcs list if the argument is the empty string.  *)
+        fun fromString "" = {isAbs = false, vol = "", arcs=[]}
+        |   fromString (s: string) =
         let
             (* Do we have a volume name? *)
-            val (volLen, vol, abs) = matchVolumePrefix  s
+            val {volLen, vol, abs, root, ...} = matchVolumePrefix  s
             (* The remainder forms a set of arcs. *)
             val rest = String.extract(s, volLen, NONE)
-            (* String.fields returns a single empty string when given
-               the empty string.  I'm not sure whether that's right or not
-               but it's not what we want. *)
-            val arcs =
-                if rest = "" then []
-                else String.fields isSeparator rest
+            val arcs = String.fields isSeparator rest
+            (* If it begins with the Windows \ without a drive we
+               need to add an extra empty arc.  Otherwise we can't
+               distinguish \a from a. *)
+            val allArcs =
+                if root andalso not abs then "" :: arcs else arcs
         in
-            {isAbs = abs, vol = vol, arcs=arcs}
+            {isAbs = abs, vol = vol, arcs=allArcs}
         end
 
         (* Note: This is a mess as well.  For example it says that it should
@@ -367,7 +376,7 @@ struct
            that it if isAbs is false then it should raise Path if the
            resulting path has the form of an absolute path. In Windows
            we should raise path if given (e.g.)
-           {isAbs=false, vol="", arcs=["", "", "a", "b"]} because that
+          {isAbs=false, vol="", arcs=["", "", "a", "b"]} because that
            looks like a UNC name. *)
         fun toString {isAbs : bool, vol : string, arcs : string list} =
             (* Check we have a valid volume. *)
@@ -383,36 +392,40 @@ struct
                   | arcsToLinks [a] = [a]
                   | arcsToLinks (a::b) =
                     a :: separator :: arcsToLinks b
+                fun makePrefix(vol, false) = vol | makePrefix(vol, true) = vol ^ separator
                 val r = String.concat(makePrefix(vol, isAbs) :: arcsToLinks arcs)
                 (* Check to see whether we have turned a relative path into
                    an absolute one by including empty arcs in the wrong places. *)
-                val (_, _, nowAbs) = matchVolumePrefix r
+                val {abs = nowAbs, ...} = matchVolumePrefix r
             in
                 if nowAbs <> isAbs
                 then raise Path
                 else r
             end
-
         (* Note: this is just defined to "return the volume portion" but
            doesn't say what to do if there isn't a volume.  Seems simplest
            to define it as below. *)
         fun getVolume s = #vol(fromString s)
 
         (* Note: Once again this has very much a Unix view of the world,
-           most of which almost works in Windows.  I don't think MacOS actually
-           has the concept of a parent directory. *)
+           most of which almost works in Windows.
+           I think the idea is that if possible it replaces the path
+           with the path to the containing directory.
+           If we're in the root directory we get the root directory.
+           If we're in a path that ends with a component
+           *)
         fun getParent "" = parentArc
          |  getParent s =
             let
                 val len = String.size s
-                val (volLen, _, _) = matchVolumePrefix s
+                val {volLen, ...} = matchVolumePrefix s
                 (* Split it at the last separator. *)
                 val (prefix, suffix) =
                     Substring.splitr (fn c => not (isSeparator c))
                         (Substring.full s) 
             in
                 if volLen = len
-                then s (* We have a root. *)
+                then s (* We have a root.  *)
                 else if Substring.size suffix = 0
                 then
                     (* If the last character is a separator just add on
@@ -451,11 +464,12 @@ struct
             val (prefix, suffix) =
                 Substring.splitr (fn c => not (isSeparator c))
                     (Substring.full s) 
-            val (volLen, vol, _) = matchVolumePrefix s
+            val {volLen, vol, ...} = matchVolumePrefix s
             val dirName =
-                if Substring.size prefix = 0
-                then ""
-                else Substring.string(Substring.trimr 1 prefix)
+                case Substring.size prefix of
+                    0 => ""
+                |   1 => Substring.string prefix (* Special case of Windows \a. *)
+                |   _ => Substring.string(Substring.trimr 1 prefix)
             and fileName = Substring.string suffix
         in
             if volLen <> 0 andalso vol = dirName
@@ -508,6 +522,8 @@ struct
     
         fun base s = #base(splitBaseExt s)
         and ext s = #ext(splitBaseExt s)
+
+        val emptyArcIsRedundant = true
 
         fun mkCanonical s =
         let
@@ -566,10 +582,19 @@ struct
             if absT then raise Path
             else if volT <> "" andalso not(equivalent(volS, volT))
             then raise Path
+            else if #root(matchVolumePrefix t)
+            (* Special case for Windows. concat("c:\\abc\\def", "\\xyz") is "c:\\xyz". *)
+            then
+            let
+                (* Because this a relative path we have an extra empty arc here. *)
+                val ArcsT' = case ArcsT of "" :: a => a | a => a
+            in
+                toString{isAbs=absS, vol=volS, arcs=ArcsT'}
+            end
             else toString{isAbs=absS, vol=volS, arcs=concatArcs ArcsS ArcsT}
         end
-
-        (* Make an absolute path by treating a relative path as relative to
+        
+       (* Make an absolute path by treating a relative path as relative to
            a given path. *)
         fun mkAbsolute {path, relativeTo} =
         let
@@ -610,23 +635,29 @@ struct
                             if equivalent(p, r)
                             then matchPaths p' r'
                             else addParents (r :: r') (p :: p')
+
+                    (* We have a special case with the root directory
+                       (/ on Unix or c:\\ on Windows).  In that case fromString returns
+                       a single empty arc and we want to remove it here otherwise
+                       we can end up with an empty arc in addParents. *) 
+                    val arcsP' = case arcsP of [""] => [] | _ => arcsP
+                    val arcsRT' = case arcsRT of [""] => [] | _ => arcsRT
                 in
                     if not absRT then raise Path
                     (* If the path contained a volume it must be the
                        same as the absolute path. *)
                     else if volP <> "" andalso not(equivalent(volP, volRT))
                     then raise Path
-                    else toString{isAbs=false, vol="", arcs=matchPaths arcsP arcsRT}
+                    else toString{isAbs=false, vol="", arcs=matchPaths arcsP' arcsRT'}
                 end
 
-        (* Note: assume that "a root directory" is one which satisfies
-           the property that it has no parent. Hence the volume name
-           must match the whole string. *)
+        (* Another badly defined function.  What is a root?  Does it have to specify
+           a volume or is \ a root in Windows?  Assume that it must be absolute. *)
         fun isRoot s =
         let
-            val (volLen, _, isAbs) = matchVolumePrefix  s
+            val {volLen, abs, ...} = matchVolumePrefix  s
         in
-            isAbs andalso volLen = String.size s andalso isCanonical s
+            abs andalso volLen = String.size s andalso isCanonical s
         end
 
         (* Question: there's no definition of what these functions mean.  The crucial
@@ -671,7 +702,7 @@ struct
                 [] => ""
             |   ("" :: a :: rest) =>
                 let (* We had a leading / : is the first arc a volume name? *)
-                    val (n, vol, _) = matchVolumePrefix a
+                    val {volLen = n, vol, ...} = matchVolumePrefix a
                 in
                     if n = String.size a
                     then (* We have a volume name. *)
@@ -680,7 +711,7 @@ struct
                 end
             |   (a :: rest) =>
                 let (* May be a relative volume name. *)
-                    val (n, vol, _) = matchVolumePrefix a
+                    val {volLen = n, vol, ...} = matchVolumePrefix a
                 in
                     if n = String.size a
                     then toString{isAbs=false, vol=vol, arcs=rest}

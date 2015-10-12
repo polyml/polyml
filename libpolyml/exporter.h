@@ -1,12 +1,11 @@
 /*
     Title:  exporter.h - Export a function as an object or C file
 
-    Copyright (c) 2006 David C.J. Matthews
+    Copyright (c) 2006, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -108,6 +107,14 @@ public:
 
     GraveYard *graveYard;
     unsigned tombs;
+};
+
+class ClearWeakByteRef: public ScanAddress
+{
+public:
+    ClearWeakByteRef() {}
+    virtual PolyObject *ScanObjectAddress(PolyObject *base) { return base; }
+    virtual void ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord);
 };
 
 #endif

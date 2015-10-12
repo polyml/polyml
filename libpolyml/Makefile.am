@@ -85,6 +85,7 @@ noinst_HEADERS = \
 	pexport.h \
 	PolyControl.h \
 	poly_specific.h \
+	polyffi.h \
 	polystring.h \
 	process_env.h \
 	processes.h \
@@ -130,6 +131,7 @@ libpolyml_la_SOURCES = \
     osmem.cpp \
     pexport.cpp \
     poly_specific.cpp \
+    polyffi.cpp \
     polystring.cpp \
     process_env.cpp \
     processes.cpp \

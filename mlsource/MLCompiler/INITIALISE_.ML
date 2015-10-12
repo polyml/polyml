@@ -194,9 +194,6 @@ struct
             fun makeEqTV  () = mkTypeVar (generalisable, true,  false, false)
             fun makeTV    () = mkTypeVar (generalisable, false, false, false)
             fun makePrintTV() = mkTypeVar (generalisable, false,  false, true)
-            fun makeTypeVariable() =
-                makeTv {value=emptyType, level=generalisable, equality=false,
-                        nonunifiable=false, printable=false}
             
             (* Make some functions *)
             infixr 5 ->>
@@ -245,7 +242,7 @@ struct
         
        fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
             makeTypeConstructor(
-                name, typeVars, makeTypeFunction(basisDescription name, (typeVars, typeResult)),
+                name, makeTypeFunction(basisDescription name, (typeVars, typeResult)),
                 locations)
   
         (* List of something *)
@@ -342,7 +339,7 @@ struct
         local
             val refCons =
                 let
-                    val a = TypeVar(hd(tcTypeVars refConstr))
+                    val a = mkTypeVar(generalisable, false, false, false)
                 in
                     mkGconstr ("ref", a ->> Ref a,
                         createUnaryConstructor(RefForm, [a], "ref"), false, 1, declInBasis)
@@ -722,8 +719,8 @@ struct
                 end
         in
             val vectorType =
-                makeTypeConstructor("vector", [makeTypeVariable()],
-                    makeFreeId(idCode, true, basisDescription "vector"), declInBasis);
+                makeTypeConstructor("vector",
+                    makeFreeId(1, idCode, true, basisDescription "vector"), declInBasis);
             val () = enterGlobalType  ("vector", TypeConstrSet(vectorType, []));
         end
 
@@ -771,8 +768,8 @@ struct
                 end
         in
             val byteVectorType =
-                makeTypeConstructor("byteVector", [],
-                    makeFreeId(idCode, true, basisDescription "byteVector"), declInBasis);
+                makeTypeConstructor("byteVector",
+                    makeFreeId(0, idCode, true, basisDescription "byteVector"), declInBasis);
             val () = #enterType bootstrapEnv ("byteVector", TypeConstrSet(byteVectorType, []));
         end
 
@@ -795,8 +792,8 @@ struct
                 end
         in
             val largeWordType =
-                makeTypeConstructor("word", [],
-                    makeFreeId(idCode, true, basisDescription "word"), declInBasis);
+                makeTypeConstructor("word",
+                    makeFreeId(0, idCode, true, basisDescription "word"), declInBasis);
             (* This is put in Bootstrap so it can be picked out in the basis library.
                The default "word" type (Word.word) is in the global namespace. *)
             val () = #enterType bootstrapEnv ("word", TypeConstrSet(largeWordType, []));
@@ -863,8 +860,8 @@ struct
             fun createType typeName =
             let
                 val typeconstr =
-                    makeTypeConstructor(typeName, [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)),
+                    makeTypeConstructor(typeName,
+                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)),
                         declInBasis);
             in
                 #enterType nameSpaceEnv (typeName, TypeConstrSet(typeconstr, []));
@@ -946,8 +943,8 @@ struct
             val () = #enterStruct polyMLEnv ("DebuggerInterface", debuggerInterface)
             val (Env debuggerEnv) = makeEnv tab
             val typeconstr = 
-                makeTypeConstructor("debugState", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.DebuggerInterface.debugState")),
+                makeTypeConstructor("debugState",
+                    makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.DebuggerInterface.debugState")),
                     declInBasis)
             val () = #enterType debuggerEnv ("debugState", TypeConstrSet(typeconstr, []))
             val debugStateType = mkTypeConstruction ("debugState", typeconstr, [], declInBasis)
@@ -1099,15 +1096,15 @@ struct
             in
                 (* type 'a tag *)
                 val tagConstr =
-                    makeTypeConstructor("tag", [makeTypeVariable()],
-                        makeFreeId(idCode, false, basisDescription "tag"), declInBasis);
+                    makeTypeConstructor("tag",
+                        makeFreeId(1, idCode, false, basisDescription "tag"), declInBasis);
                 val () = #enterType uniStructEnv ("tag", TypeConstrSet(tagConstr, []))
             end
 
             (* type universal *)
             val univConstr =
-                makeTypeConstructor("universal", [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription "universal"), declInBasis);
+                makeTypeConstructor("universal",
+                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription "universal"), declInBasis);
             val () = #enterType uniStructEnv ("universal",  TypeConstrSet(univConstr, []));
 
             fun Tag base = mkTypeConstruction ("tag", tagConstr, [base], declInBasis)
@@ -1143,8 +1140,8 @@ struct
             open TYPETREE
             (* Parsetree properties datatype. *)
             val propConstr =
-                makeTypeConstructor("ptProperties", [],
-                    makeFreeId(defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), declInBasis);
+                makeTypeConstructor("ptProperties",
+                    makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription "PolyML.ptProperties"), declInBasis);
             val PtProperties = mkTypeConstruction ("ptProperties", propConstr, [], declInBasis)
 
             (* Parsetree type. *)
@@ -1308,8 +1305,8 @@ struct
             fun createType typeName =
             let
                 val typeconstr =
-                    makeTypeConstructor(typeName, [],
-                        makeFreeId(defaultEqAndPrintCode(), false, basisDescription("PolyML.CodeTree." ^ typeName)),
+                    makeTypeConstructor(typeName,
+                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.CodeTree." ^ typeName)),
                         declInBasis);
             in
                 #enterType codetreeEnv (typeName, TypeConstrSet(typeconstr, []));
