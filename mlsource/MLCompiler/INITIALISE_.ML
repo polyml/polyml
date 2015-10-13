@@ -141,17 +141,11 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sh
 
 ) : 
 
-(*****************************************************************************)
-(*                  INITIALISE export signature                              *)
-(*****************************************************************************)
 sig
   type gEnv
   val initGlobalEnv : gEnv -> unit
 end =
 
-(*****************************************************************************)
-(*                  INITIALISE functor body                                  *)
-(*****************************************************************************)
 struct
     open STRUCTVALS;
     open TYPETREE
@@ -282,20 +276,8 @@ struct
             val () = enterGlobalValue ("false", falseCons);
         end;
         
-
-(*****************************************************************************)
-(*                  int                                                      *)
-(*****************************************************************************)
         val () = enterGlobalType ("int", TypeConstrSet(intConstr, []));
-   
-(*****************************************************************************)
-(*                  char                                                     *)
-(*****************************************************************************)
         val () = enterGlobalType ("char", TypeConstrSet(charConstr, []));
-   
-(*****************************************************************************)
-(*                  string                                                   *)
-(*****************************************************************************)
         val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []));
 
         (* chr - define it as an identity function for now. It is redefined in
@@ -306,32 +288,20 @@ struct
             val chrVal  = mkGvar ("chr", chrType, chrCode, declInBasis);
         in
             val () = enterGlobalValue ("chr", chrVal);
-        end;        
-    
-(*****************************************************************************)
-(*                  real                                                     *)
-(*****************************************************************************)
+        end
+
         val () = enterGlobalType ("real", TypeConstrSet(realConstr, []));
 
-(*****************************************************************************)
-(*                  'a list                                                  *)
-(*****************************************************************************)
         val () = (* Enter :: and nil. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
                 (tsConstructors listConstr)
         val () = enterGlobalType  ("list", listConstr);
 
-(*****************************************************************************)
-(*                  'a option                                                  *)
-(*****************************************************************************)
         val () = (* Enter NONE and SOME. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
                 (tsConstructors optionConstr)
         val () = enterGlobalType  ("option", optionConstr);
 
-(*****************************************************************************)
-(*                  ref                                                      *)
-(*****************************************************************************)
         local
             val refCons =
                 let
@@ -345,14 +315,8 @@ struct
             val () = enterGlobalValue ("ref", refCons);
         end
 
-(*****************************************************************************)
-(*                  exn                                                      *)
-(*****************************************************************************)
         val () = enterGlobalType ("exn", TypeConstrSet(exnConstr, []));
 
-(*****************************************************************************)
-(*                  word                                                      *)
-(*****************************************************************************)
         val () = enterGlobalType ("word", TypeConstrSet(wordConstr, []));
 
         val runCallEnv = makeStructure(globalEnv, "RunCall")
@@ -362,12 +326,7 @@ struct
             val value = mkGvar (name, typ, entry, declInBasis);
         in
             #enterVal runCallEnv (name, value)
-        end;
-
-
-(*****************************************************************************)
-(*                  RunCall.unsafeCast                                        *)
-(*****************************************************************************)
+        end
   
         local
             val a = makeTV ();
@@ -385,12 +344,7 @@ struct
         in
             val () =
                 enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), unsafeCastType);
-        end;
-        
-
-(*****************************************************************************)
-(*                  RunCall.run_call*                                         *)
-(*****************************************************************************)
+        end
 
         local
             val a = makeTV ();
@@ -524,12 +478,8 @@ struct
             val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type);
             val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type);
             val () = enterRunCall ("run_call2C2", runCall2C2Entry, runCall2C2Type);
-        end;
-        
-(*****************************************************************************)
-(*                  Run-time exceptions in RunCall                           *)
-(*****************************************************************************)
-        
+        end
+
         local
             (* Create nullary exception. *)
             fun makeException0(name, id) =
@@ -624,11 +574,8 @@ struct
             (* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String);
 
-        end;
+        end
 
-(*****************************************************************************)
-(*                  eqtypes                                                  *)
-(*****************************************************************************)
     (* The only reason we have vector here is to get equality right.  We need
        vector to be an equality type and to have a specific equality function. *)
         local
@@ -783,9 +730,7 @@ struct
         val () = #enterType bootstrapEnv ("array", TypeConstrSet(array2Constr, []))
         val () = #enterType bootstrapEnv ("byteArray", TypeConstrSet(byteArrayConstr, []));
 
-(*****************************************************************************)
-(*                  Polymorphic functions                                    *)
-(*****************************************************************************)
+
 (* "=', '<>', PolyML.print etc are type-specific function which appear
    to be polymorphic.  The compiler recognises these and treats them specially.
    For (in)equality that means generating type-specific versions of the equality
@@ -944,9 +889,6 @@ struct
                 ]
         end
 
-(*****************************************************************************)
-(*                  context type                                           *)
-(*****************************************************************************)
         local
             val typeconstr = contextConstr
         in
@@ -955,9 +897,6 @@ struct
                         (tsConstructors typeconstr)
         end
 
-(*****************************************************************************)
-(*                  pretty datatype (for printing)                           *)
-(*****************************************************************************)
         local
             val typeconstr = prettyConstr
         in
@@ -967,10 +906,6 @@ struct
             val PrettyType = mkTypeConstruction ("pretty", tsConstr typeconstr, [], declInBasis)
         end
 
-
-(*****************************************************************************)
-(*              Funny polymorphic functions (in structure PolyML)            *)
-(*****************************************************************************)
         local
             val printType = let val a = makePrintTV () in a ->> a end;
             val printVal  = mkSpecialFun("print", printType, Print);
@@ -1037,9 +972,6 @@ struct
             val () = enterPolyMLVal ("sourceLocation", sourceLocVal);
         end;
 
-(*****************************************************************************)
-(*                  Bootstrap.Universal                                      *)
-(*****************************************************************************)
         local
             (* This is used as one of the arguments to the compiler function. *)
             open TYPETREE
@@ -1106,9 +1038,6 @@ struct
             val Tag = Tag and Universal = Universal
         end
         
-(*****************************************************************************)
-(*                  parseTree type                                           *)
-(*****************************************************************************)
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
@@ -1155,10 +1084,6 @@ struct
             and PtProperties = PtProperties
         end
 
-(*****************************************************************************)
-(*        PolyML.compiler etc                                                *)
-(*****************************************************************************)
-
         local
             open TYPETREE
  
@@ -1172,10 +1097,6 @@ struct
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
         end;
-
-(*****************************************************************************)
-(*                  Overloaded functions.                                    *)
-(*****************************************************************************)
         
         local
             val ty      = TYPETREE.mkOverloadSet[]
@@ -1379,6 +1300,14 @@ struct
                 and exportedDisplayValues(valu, depth, nameSpace: nameSpace option) =
                         displayValues(valu, depth, makeTypeEnv nameSpace)
                 and propsForValue (Value {locations, typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
+
+                fun isConstructor (Value{class = Exception, ...}) = true
+                |   isConstructor (Value{class = Constructor _, ...}) = true
+                |   isConstructor _ = false
+                
+                fun isException (Value{class = Exception, ...}) = true
+                |   isException _ = false
+                
             in
                 val () = applyList (fn (name, v, t) =>
                                     #enterVal valuesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
@@ -1393,7 +1322,9 @@ struct
                         ("typeof",  toMachineWord (valTypeOf: values -> types), valueVal ->> Types),
                         ("code",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
                         ("properties",   toMachineWord (propsForValue: values ->ptProperties list),
-                            valueVal ->> List PtProperties)
+                            valueVal ->> List PtProperties),
+                        ("isConstructor", toMachineWord(isConstructor: values -> bool), valueVal ->> Bool),
+                        ("isException", toMachineWord(isException: values -> bool), valueVal ->> Bool)
                     ]
             end
 

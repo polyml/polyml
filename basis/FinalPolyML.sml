@@ -447,7 +447,9 @@ local
                     prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, depth, SOME space))
 
             |   printDec(_, ValueKind v) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
+                    if Values.isConstructor v andalso not (Values.isException v)
+                    then () (* Value constructors are printed with the datatype. *)
+                    else prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
 
         in
             (* First add the declarations to the name space and then print them.  Doing it this way
