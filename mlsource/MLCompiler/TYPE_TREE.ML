@@ -586,13 +586,12 @@ struct
         else NONE
 
 
-    fun equalTypeIds(x, xMap, y, yMap) =
+    fun equalTypeIds(x, y) =
     let
         (* True if two types are equal. *)
         fun equalTypes (TypeConstruction{constr=xVal, args=xArgs, ...},
                         TypeConstruction{constr=yVal, args=yArgs, ...}) =
-            (* The equivalents are as the result of mapping so we mustn't remap them. *)
-            equalTypeIds(tcIdentifier xVal, NONE, tcIdentifier yVal, NONE)
+            equalTypeIds(tcIdentifier xVal, tcIdentifier yVal)
                 andalso equalTypeLists (xArgs, yArgs)
     
         | equalTypes (FunctionType x, FunctionType y) = 
@@ -619,22 +618,12 @@ struct
                #name x = #name y andalso 
                equalTypes(#typeof x, #typeof y) andalso equalRecordLists (xs, ys)
         |   equalRecordLists _             = false
-
-        val mappedX =
-            case (xMap, x) of
-                (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
-            |   (_, id) => id
-        val mappedY =
-            case (yMap, y) of
-                (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
-            |   (_, id) => id
     in
-        case (mappedX, mappedY) of
+        case (x, y) of
             (TypeId{idKind=TypeFn(_, xEquiv), ...}, TypeId{idKind=TypeFn(_, yEquiv), ...}) =>
                 equalTypes(xEquiv, yEquiv)
-        |   _ => sameTypeId(mappedX, mappedY) 
+        |   _ => sameTypeId(x, y) 
     end
-
 
     (* See if the types are the same. This is a bit of a fudge, but saves carrying
        around a flag saying whether the structures were copied. This is only an
@@ -760,7 +749,7 @@ struct
                         val name = #second(splitString (tcName tcon))
                         (* We must only match here if they're really the same. *)
                         fun cacheMatch tc =
-                            equalTypeIds(tcIdentifier tc, NONE, newId, NONE)
+                            equalTypeIds(tcIdentifier tc, newId)
                                 andalso #second(splitString(tcName tc)) = name
                     in
                         case List.find cacheMatch cache of
@@ -820,7 +809,21 @@ struct
           lookupStruct: string -> (structVals * (int->typeId) option) option}
 
     val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
-  
+
+    (* Test whether two type constructors are the same after mapping.
+       This is used to try to find the correct "path" to a type constructor
+       when printing. *)
+    fun eqTypeConstrs(xTypeCons, xMap, yTypeCons, yMap) =
+    let
+        fun id x = x
+        fun copyId (SOME mapTypeId) (TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
+        |   copyId _ _ = NONE
+        val mappedX = copyTypeConstr(xTypeCons, copyId xMap, id, id)
+        and mappedY = copyTypeConstr(yTypeCons, copyId yMap, id, id)
+    in
+        equalTypeIds(tcIdentifier mappedX, tcIdentifier mappedY)
+    end
+
     (* prints a block of items *)
     fun tDisp (t : types, depth : int, typeVarName : typeVarForm -> string, env: printTypeEnv,
                sigMap: (int->typeId)option) : pretty =
@@ -904,7 +907,7 @@ struct
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME (t, map) =>
-                                    if equalTypeIds(tcIdentifier typeConstructor, sigMap, tcIdentifier(tsConstr t), map)
+                                    if eqTypeConstrs(typeConstructor, sigMap, tsConstr t, map)
                                     then FoundMatch else FoundNotMatch
                             |   NONE => NotFound
                         )
