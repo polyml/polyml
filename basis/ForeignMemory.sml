@@ -249,7 +249,7 @@ struct
         end
    in
         val malloc: word -> voidStar = ThreadLib.protect lock allocMem
-        val free: voidStar -> unit = ThreadLib.protect lock freeMem
+        fun free v = if v = null then () else ThreadLib.protect lock freeMem v
    end
 end;
 
