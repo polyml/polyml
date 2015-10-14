@@ -980,7 +980,9 @@ struct
     let
         val candidName : string = tcName candid;
         val targetName : string = tcName target;
-        val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
+        val tvars =
+            List.tabulate(tcArity target  (* either will do *),
+                fn _ => mkTypeVar(generalisable, false, false, false))
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
@@ -1416,7 +1418,7 @@ struct
  
       (* Process structure-returning expressions i.e. structure names,
          struct..end values and functor applications. *)
-    fun structValue(str: structValue, newTypeId: (bool*bool*bool*typeIdDescription)->typeId, currentTypeCount,
+    fun structValue(str: structValue, newTypeId: (int*bool*bool*bool*typeIdDescription)->typeId, currentTypeCount,
                     newTypeIdEnv: unit -> int->typeId, Env env, lex, lno, structPath) =
     let
         val typeEnv =
@@ -1503,11 +1505,11 @@ struct
                            values less than sigMinTypes functorResSig. *)
                         local
                             fun makeNewTypeId(
-                                oldId as TypeId{idKind=Bound{isDatatype, ...}, description = { name=oldName, ...}, ...}) =
+                                oldId as TypeId{idKind=Bound{isDatatype, arity, ...}, description = { name=oldName, ...}, ...}) =
                             let
                                 val description =
                                     { location = fullLoc, name = oldName, description = "Created from applying functor " ^ name }
-                                val newId = newTypeId(false, isEquality oldId, isDatatype, description)
+                                val newId = newTypeId(arity, false, isEquality oldId, isDatatype, description)
                             in
                                 { source = oldId, dest = newId }
                             end
@@ -1631,7 +1633,7 @@ struct
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
                         val newConstructor =
                             makeTypeConstructor(
-                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
+                                tcName typConstr, tcIdentifier typConstr, tcLocations typConstr)
                     in
                         #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch
@@ -1730,9 +1732,9 @@ struct
                 val bodyIds = ref []
                 val startTypes = currentTypeCount()
                 val startTypeEnv = newTypeIdEnv()
-                fun sconstraintMakeTypeId (isVar, eq, isdt, desc) =
+                fun sconstraintMakeTypeId (arity, isVar, eq, isdt, desc) =
                 let
-                    val newId = newTypeId(isVar, eq, isdt, desc)
+                    val newId = newTypeId(arity, isVar, eq, isdt, desc)
                 in
                     bodyIds := newId :: ! bodyIds;
                     newId
@@ -1760,12 +1762,12 @@ struct
                     let
                         (* Construct new IDs for the generic IDs.  For each ID in the signature
                            we need to make a new Local ID. *)
-                        fun makeNewId(oldId as TypeId{idKind=Bound{ isDatatype, ...}, description = { name, ...}, ...}) =
+                        fun makeNewId(oldId as TypeId{idKind=Bound{ isDatatype, arity, ...}, description = { name, ...}, ...}) =
                         let
                             val description =
                                 { location = sigLoc, name = name, description = "Created from opaque signature" }
                         in
-                            newTypeId(false, isEquality oldId, isDatatype, description)
+                            newTypeId(arity, false, isEquality oldId, isDatatype, description)
                         end
                         |   makeNewId _ = raise InternalError "Not Bound"
 
@@ -1805,7 +1807,7 @@ struct
 
     and pass2Struct 
         (strs     : structDec list,
-         makeLocalTypeId : (bool * bool * bool * typeIdDescription) -> typeId,
+         makeLocalTypeId : (int * bool * bool * bool * typeIdDescription) -> typeId,
          makeCurrentTypeCount: unit -> int,
          makeTypeIdEnv: unit -> int -> typeId,
          Env env  : env,
@@ -1975,10 +1977,8 @@ struct
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
                name. *)
-            (* Temporarily, if this is a type abbreviation always make a free ID and don't include
-               it in any lists. *)
-            fun makeId (eq, isdt, (_, EmptyType), { location, name, description }) =
-                    makeLocalTypeId(true, eq, isdt,
+            fun makeId (eq, isdt, (args, EmptyType), { location, name, description }) =
+                    makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
             |   makeId (_, _, (typeVars, decType), { location, name, description }) =
                     makeTypeFunction(
@@ -1989,7 +1989,7 @@ struct
             val _ : types = pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
        in
          ()
-       end; (* pass2Singleton *)
+       end (* pass2Singleton *)
 
         fun pass2Dec (str as StructureDec { bindings, typeIdsForDebug, ... }) =
                 pass2StructureDec (str, bindings, typeIdsForDebug)
@@ -2057,12 +2057,12 @@ struct
         local
             val typeIds = ref []
         in
-            fun topLevelId(isVar, eq, isdt, description) =
+            fun topLevelId(arity, isVar, eq, isdt, description) =
             let
                 val idNumber = topLevelIdNumber()
                 val newId =
                     (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                        (Local{addr = ref ~1, level = ref baseLevel}, idNumber, eq, isdt, description)
+                        (arity, Local{addr = ref ~1, level = ref baseLevel}, idNumber, eq, isdt, description)
             in
                 typeIds := newId :: ! typeIds;
                 newId
@@ -2117,9 +2117,9 @@ struct
         |   pass2TopDec (StrDec(str, typeIds)::rest, envs) =
             let
                 (* Remember the top-level Ids created in this strdec. *)
-                fun makeId(isVar, eq, isdt, desc) =
+                fun makeId(arity, isVar, eq, isdt, desc) =
                 let
-                    val newId = topLevelId(isVar, eq, isdt, desc)
+                    val newId = topLevelId(arity, isVar, eq, isdt, desc)
                 in
                     typeIds := newId :: ! typeIds;
                     newId
@@ -2173,9 +2173,9 @@ struct
                     (* sigVal will have numbered the bound IDs to start at startTopLevelIDs.  We
                        need to enter these bound IDs into the local environment but as Selected entries. *)
                     local
-                        fun mkId(TypeId{idKind=Bound{ eqType, isDatatype, offset, ...},
-                                        description={ location, name, description}, access = Formal addr, typeFn, ...}) =
-                            TypeId{idKind=Bound { offset = offset, eqType = eqType, isDatatype = isDatatype },
+                        fun mkId(TypeId{idKind=Bound{ arity, eqType, isDatatype, offset, ...},
+                                        description={ location, name, description}, access = Formal addr, ...}) =
+                            TypeId{idKind=Bound { arity = arity, offset = offset, eqType = eqType, isDatatype = isDatatype },
                                     description =
                                     {
                                         location=location,
@@ -2183,8 +2183,7 @@ struct
                                         name=if argName = "" then name else argName^"."^name,
                                         description=description
                                     },
-                                    access = makeSelected(addr, resArg),
-                                    typeFn = typeFn }
+                                    access = makeSelected(addr, resArg)}
                         |   mkId _ = raise InternalError "mkId: Not Bound or not Formal"                            
                     in
                         (* argIDVector is part of the environment now. *)
@@ -2279,13 +2278,13 @@ struct
                     local
                         (* Create local IDs for any datatypes declared in the body or any generative
                            functor applications. *)
-                        fun newTypeId(isVar, eq, isdt, desc) =
+                        fun newTypeId(arity, isVar, eq, isdt, desc) =
                         let
                             val n = !typeStamps
                             val () = typeStamps := n + 1;
                             val newId =
                                 (if isVar then makeBoundIdWithEqUpdate else makeBoundId)
-                                    (Local{addr = ref ~1, level = ref baseLevel}, n, eq, isdt, desc)
+                                    (arity, Local{addr = ref ~1, level = ref baseLevel}, n, eq, isdt, desc)
                         in
                             localStamps := newId :: !localStamps;
                             newId
@@ -2316,9 +2315,9 @@ struct
                     local
                         val startRunTimeOffsets = getNextRuntimeOffset resSig
 
-                        fun convertId(n, id as TypeId{idKind=Bound { offset, isDatatype, ...}, description, ...}) =
+                        fun convertId(n, id as TypeId{idKind=Bound { offset, isDatatype, arity, ...}, description, ...}) =
                                 (* Either inherited from the argument or a new type ID. *)
-                                makeBoundId (Formal(n + startRunTimeOffsets), offset, isEquality id, isDatatype, description)
+                                makeBoundId (arity, Formal(n + startRunTimeOffsets), offset, isEquality id, isDatatype, description)
                         |   convertId (_, id) = id (* Free or TypeFunction. *)
 
                         val localVector = Vector.fromList(List.rev(!localStamps))
@@ -2696,14 +2695,11 @@ struct
                 structureCode (arg, strName, debugEnv, mkAddr, level)
             (* Match the actual argument to the required arguments. *)
             fun getMatchedId(n, isEq) =
-            let
-                val id = #source(List.nth (argIds, n))
-            in
-                case id of
-                    TypeId{typeFn=(_, EmptyType), ...} => idAccess id
-                |   _ => (* Have to generate a function here. *)
+                case #source(List.nth (argIds, n)) of
+                    id as TypeId{idKind=TypeFn _, ...} => (* Have to generate a function here. *)
                         Global(codeGenerativeId(id, isEq, mkAddr, level))
-            end
+                |   id => idAccess id
+
             val argCode = applyMatchActions(argLoadSource, matchToArgument, getMatchedId, mkAddr, level)
 
             (* To produce the generative type IDs we need to save the result vector returned by the
@@ -2716,8 +2712,8 @@ struct
                 val () = #addr  resl := resAddr; 
                 val () = #level resl := level
                 fun mkSelected {
-                        source = TypeId{idKind, access = Formal addr, description, typeFn}, dest } =
-                    { source = TypeId{idKind=idKind, access = makeSelected(addr, dummyResStruct), description = description, typeFn=typeFn },
+                        source = TypeId{idKind, access = Formal addr, description}, dest } =
+                    { source = TypeId{idKind=idKind, access = makeSelected(addr, dummyResStruct), description = description },
                       dest = dest }
                 |   mkSelected _ = raise InternalError "makeSelected: Not Bound or not Formal"
                 val resultIds = List.map mkSelected resIds
@@ -2957,14 +2953,11 @@ struct
                         val {code = strCode, load = strLoad, ...} =
                             structureCode (body, name ^ "().", fBindDebugEnv, mkAddr, level)
                         fun getIds(n, isEq) =
-                        let
-                            val id = #source(List.nth(resIds, n))
-                        in
-                            case id of
-                                TypeId{typeFn=(_, EmptyType), ...} => idAccess id
-                            |   _ => (* Have to generate a function here. *)
+                            case #source(List.nth(resIds, n)) of
+                                id as TypeId{idKind=TypeFn _, ...} => (* Have to generate a function here. *)
                                     Global(codeGenerativeId(id, isEq, mkAddr, level))
-                        end
+                            |   id => idAccess id
+
                         val matchedCode = applyMatchActions(strLoad, matchToResult, getIds, mkAddr, level)
                     in
                         val functorCode = (* The function that implements the functor. *)
@@ -3161,9 +3154,9 @@ struct
         StrDec(str, ref typeIds) =>
         let
             (* Create new Free IDs for top-level IDs. *)            
-            fun loadId(TypeId{idKind=Bound{eqType, ...}, description, ...}, (n, ids)) =
+            fun loadId(TypeId{idKind=Bound{eqType, arity, ...}, description, ...}, (n, ids)) =
             let
-                val newId = makeFreeId(Global(mkInd(n, results)), pling eqType, description)
+                val newId = makeFreeId(arity, Global(mkInd(n, results)), pling eqType, description)
             in
                 (n+1, newId :: ids)
             end
@@ -3215,8 +3208,8 @@ struct
                     else if n >= argMinTypes
                     then case List.nth(argBoundIds, n-argMinTypes) of
                         (* Add the argument structure name onto the name of type IDs in the argument. *)
-                        TypeId{ access, idKind, typeFn, description={location, name, description}} =>
-                            TypeId { access=access, idKind=idKind, typeFn=typeFn,
+                        TypeId{ access, idKind, description={location, name, description}} =>
+                            TypeId { access=access, idKind=idKind,
                                     description=
                                         {
                                             location=location, description=description,

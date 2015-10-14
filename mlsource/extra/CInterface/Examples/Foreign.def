@@ -12,3 +12,4 @@ EXPORTS
 	MakeCallback3
 	AllocateIt
 	FreeIt
+    UpdateArg

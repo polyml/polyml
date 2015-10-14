@@ -3,12 +3,11 @@
 
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
-    Further development Copyright David C.J. Matthews 2007-12
+    Further development Copyright David C.J. Matthews 2007-12, 2015
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,6 +22,10 @@
 
 /* This file is included in some of the assembly code files so it must only
    contain preprocessor directives and not C code. */
+
+/* N.B.  This must be kept consistent with the ML version in basis/RuntimeCalls.ML.
+   There are tables of RTS call properties in poly_specific.cpp and of RTS function
+   names in run_time.cpp. */
 
 #ifndef _SYS_H
 #define _SYS_H
@@ -132,7 +135,20 @@
 #define POLY_SYS_get_first_long_word 152  /* DCJM 28/2/01 */
 #define POLY_SYS_poly_specific       153  /* DCJM 17/6/06 */
 #define POLY_SYS_bytevec_eq          154  /* DCJM 13/1/10 */
+#define POLY_SYS_cmem_load_8         160
+#define POLY_SYS_cmem_load_16        161
+#define POLY_SYS_cmem_load_32        162
+#define POLY_SYS_cmem_load_64        163
+#define POLY_SYS_cmem_load_float     164
+#define POLY_SYS_cmem_load_double    165
+#define POLY_SYS_cmem_store_8        166
+#define POLY_SYS_cmem_store_16       167
+#define POLY_SYS_cmem_store_32       168
+#define POLY_SYS_cmem_store_64       169
+#define POLY_SYS_cmem_store_float    170
+#define POLY_SYS_cmem_store_double   171
 #define POLY_SYS_io_operation        189
+#define POLY_SYS_ffi                 190
 #define POLY_SYS_move_words_overlap  193
 #define POLY_SYS_set_code_constant   194  /* DCJM 2/1/01 */
 #define POLY_SYS_move_words          195  /* DCJM 9/10/99 */
@@ -154,8 +170,7 @@
 #define POLY_SYS_word_neq            217
 #define POLY_SYS_not_bool            218
 #define POLY_SYS_string_length       223
-#define POLY_SYS_int_eq              229  // Deprecated - identical to word_eq
-#define POLY_SYS_int_neq             230  // Deprecated - identical to word_ne
+#define POLY_SYS_touch_final         228
 #define POLY_SYS_int_geq             231
 #define POLY_SYS_int_leq             232
 #define POLY_SYS_int_gtr             233

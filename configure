@@ -722,6 +722,8 @@ LIBTOOL
 OBJDUMP
 DLLTOOL
 AS
+WINDOWSGUI_FALSE
+WINDOWSGUI_TRUE
 WINDRES
 OSFLAG
 host_os
@@ -802,6 +804,7 @@ ac_user_opts='
 enable_option_checking
 enable_silent_rules
 enable_debug
+enable_windows_gui
 enable_shared
 enable_static
 with_pic
@@ -1464,6 +1467,8 @@ Optional Features:
   --enable-silent-rules   less verbose build output (undo: "make V=1")
   --disable-silent-rules  verbose build output (undo: "make V=0")
   --enable-debug          Compiles without optimisation for debugging
+  --enable-windows-gui    create a GUI in Windows. If this is disabled use a
+                          Windows console. [default=yes]
   --enable-shared[=PKGS]  build shared libraries [default=no]
   --enable-static[=PKGS]  build static libraries [default=yes]
   --enable-fast-install[=PKGS]
@@ -3607,6 +3612,7 @@ poly_native_windows=no
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
+# When building native Windows set the flag to build the Unicode version.
 poly_no_undefined=no
 case "${host_os}" in
     darwin*)
@@ -3618,7 +3624,7 @@ case "${host_os}" in
 
         ;;
     *mingw*)
-        OSFLAG=-DWINDOWS_PC
+        OSFLAG="-DUNICODE -D_UNICODE"
 
         if test -n "$ac_tool_prefix"; then
   # Extract the first word of "${ac_tool_prefix}windres", so it can be a program name with args.
@@ -3721,7 +3727,7 @@ fi
         poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                OSFLAG=-DWINDOWS_PC
+                OSFLAG="-DUNICODE -D_UNICODE"
 
                 poly_native_windows=yes
                 CFLAGS="$CFLAGS -mthreads"
@@ -3731,7 +3737,29 @@ fi
         ;;
 esac
 
- # libpolyml can be a DLL but libpolymain can't.
+# Enable/Disable the GUI in Windows.  Should this only be present if
+# building on mingw?
+# Check whether --enable-windows-gui was given.
+if test "${enable_windows_gui+set}" = set; then :
+  enableval=$enable_windows_gui; case "${enableval}" in
+           yes) enablegui=true ;;
+           no)  enablegui=false ;;
+           *) as_fn_error $? "bad value ${enableval} for --enable-windows-gui" "$LINENO" 5 ;;
+        esac
+else
+  enablegui=true
+fi
+
+ if test x$enablegui = xtrue; then
+  WINDOWSGUI_TRUE=
+  WINDOWSGUI_FALSE='#'
+else
+  WINDOWSGUI_TRUE='#'
+  WINDOWSGUI_FALSE=
+fi
+
+
+# libpolyml can be a DLL but libpolymain can't.
 # Disable shared libraries by default.  It complicates installation to "non-standard" places.
 case `pwd` in
   *\ * | *\	*)
@@ -21962,6 +21990,10 @@ else
   am__EXEEXT_FALSE=
 fi
 
+if test -z "${WINDOWSGUI_TRUE}" && test -z "${WINDOWSGUI_FALSE}"; then
+  as_fn_error $? "conditional \"WINDOWSGUI\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${AMDEP_TRUE}" && test -z "${AMDEP_FALSE}"; then
   as_fn_error $? "conditional \"AMDEP\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5

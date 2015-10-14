@@ -2,44 +2,50 @@
 prefix=@prefix@
 exec_prefix=@exec_prefix@
 BINDIR=@bindir@
-LINK=@CC@
+LINK=@CXX@
 LIBDIR=@libdir@
 LIBS="@LIBS@"
 CFLAGS="@CFLAGS@"
 
+DEFAULT_COMPILER="${BINDIR}/poly"
+COMPILER=${DEFAULT_COMPILER}
+
 # Extra options for Windows.  config.status sets these conditionals to either "" or "#".
 
 @NATIVE_WINDOWS_FALSE@EXTRALDFLAGS=""
-@NATIVE_WINDOWS_TRUE@@ARCHX86_64_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,WinMain"
-@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET64_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,WinMain"
-@NATIVE_WINDOWS_TRUE@@ARCHI386_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,_WinMain@16 -Wl,--large-address-aware"
-@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET_TRUE@EXTRALDFLAGS="-mwindows -Wl,-u,_WinMain@16 -Wl,--large-address-aware"
+@NATIVE_WINDOWS_TRUE@@ARCHX86_64_TRUE@EXTRALDFLAGS="-Wl,-u,WinMain"
+@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET64_TRUE@EXTRALDFLAGS="-Wl,-u,WinMain"
+@NATIVE_WINDOWS_TRUE@@ARCHI386_TRUE@EXTRALDFLAGS="-Wl,-u,_WinMain@16 -Wl,--large-address-aware"
+@NATIVE_WINDOWS_TRUE@@ARCHINTERPRET_TRUE@EXTRALDFLAGS="-Wl,-u,_WinMain@16 -Wl,--large-address-aware"
+@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_TRUE@EXTRALDFLAGS+="-mwindows"
+@NATIVE_WINDOWS_TRUE@@WINDOWSGUI_FALSE@EXTRALDFLAGS+="-mconsole"
 
 @NATIVE_WINDOWS_TRUE@SUFFIX="obj"
 @NATIVE_WINDOWS_FALSE@SUFFIX="o"
 
 # Msys passes the Windows TEMP in temp (lower case)
+# On other systems allow TMPDIR to override /tmp.
 @NATIVE_WINDOWS_TRUE@TEMPORARYDIR=${temp:-/tmp}
-@NATIVE_WINDOWS_FALSE@TEMPORARYDIR=/tmp
+@NATIVE_WINDOWS_FALSE@TEMPORARYDIR=${TMPDIR:-/tmp}
 
 # Extra options for Mac OS X
 @EXPMACHO_TRUE@EXTRALDFLAGS="-Wl,-no_pie"
 
 TMPOBJFILE=${TEMPORARYDIR}/polyobj.$$.$SUFFIX
-trap 'rm -f $TMPOBJFILE' 0
+trap 'rm -f "$TMPOBJFILE"' 0
 
 compile()
 {
-    echo "use (List.nth(CommandLine.arguments(), 2)); PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${BINDIR}/poly -q --error-exit  "$1" "$2"
+    echo "use (List.nth(CommandLine.arguments(), 2)); PolyML.export(List.nth(CommandLine.arguments(), 3), main);" | ${COMPILER} -q --error-exit  "$1" "$2"
 }
 
 link()
 {
     if [ X"$2" = "X" ]
     then
-        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} $1 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -L${LIBDIR} -Wl,-R${LIBDIR} -lpolymain -lpolyml ${LIBS}
     else
-        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} $1 -o $2 -L${LIBDIR} -lpolymain -lpolyml ${LIBS}
+        ${LINK} ${EXTRALDFLAGS} ${CFLAGS} "$1" -o "$2" -L${LIBDIR} -Wl,-R${LIBDIR} -lpolymain -lpolyml ${LIBS}
     fi
 }
 
@@ -48,6 +54,7 @@ printhelp()
     echo "Usage: polyc [OPTION]... [SOURCEFILE]"
     echo Compile and link a Standard ML source file with Poly/ML.
     echo
+    echo "   -b poly      Use 'poly' as compiler instead of ${DEFAULT_COMPILER}"
     echo "   -c           Compile but do not link.  The object file is written to the source file with .$SUFFIX extension."
     echo "   -o output    Write the executable file to 'output'"
     echo "   --help       Write this text and exit"
@@ -56,7 +63,7 @@ printhelp()
 
 usage()
 {
-    echo $1
+    echo "$1"
     echo "Usage: polyc [OPTION]... [SOURCEFILE]"
     exit 1
 }
@@ -70,13 +77,12 @@ checkml()
         o|obj)
              return 1;;
         *)
-             test -r $1 && file -b $1 | grep -q text ;;
+             test -r "$1" && file -b "$1" | grep -q text ;;
     esac
 }
 
 sourcefile=""
-objectfile=""
-execfile=""
+outputfile=""
 compileonly="no"
 
 while [ $# -gt 0 ]
@@ -84,11 +90,15 @@ do
     case "$1" in
         --help)
             printhelp ;;
+        -b)
+            shift
+            [ $# -eq 0 ] && usage "Expected file name after -b"
+            COMPILER="$1";;
         -c) compileonly="yes";;
         -o)
             shift
             [ $# -eq 0 ] && usage "Expected file name after -o"
-            execfile="$1";;
+            outputfile="$1";;
         *)
             [ X"$sourcefile" = "X" ] || usage "Only one source file name allowed"
             sourcefile="$1";;
@@ -101,15 +111,18 @@ done
 
 case "$compileonly" in
      yes)
-         objectfile=${sourcefile%%.*}
-         compile $sourcefile $objectfile
+	 if [ "x$outputfile" = "x" ]; then
+	     basename=${sourcefile##*/}
+             outputfile=${basename%.*}.o
+	 fi
+         compile "$sourcefile" "$outputfile"
          ;;
      no)
-         if checkml $sourcefile
+         if checkml "$sourcefile"
          then
-             compile $sourcefile $TMPOBJFILE && link $TMPOBJFILE $execfile
+             compile "$sourcefile" "$TMPOBJFILE" && link "$TMPOBJFILE" "$outputfile"
          else
-             link $sourcefile $execfile
+             link "$sourcefile" "$outputfile"
          fi
          ;;
 esac

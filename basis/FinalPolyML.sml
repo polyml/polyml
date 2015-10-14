@@ -637,7 +637,7 @@ local
                                         PrettyBreak(1, 3),
                                         PrettyString "raised"
                                     ]));
-                            reraise exn
+                            PolyML.Exception.reraise exn
                         end
                 end
             end; (* readEvalPrint *)
@@ -728,14 +728,14 @@ local
         let
             val code = polyCompiler(getChar, [CPFileName fileName, CPLineNo(fn () => !lineNo)])
                 handle exn =>
-                    ( TextIO.StreamIO.closeIn(!stream); LibrarySupport.reraise exn )
+                    ( TextIO.StreamIO.closeIn(!stream); PolyML.Exception.reraise exn )
         in
             code() handle exn =>
             (
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                 TextIO.StreamIO.closeIn (! stream);
-                LibrarySupport.reraise exn
+                PolyML.Exception.reraise exn
             )
         end;
         (* Normal termination: close the stream. *)
@@ -1042,18 +1042,18 @@ local
                             [CPNameSpace makeEnv, CPFileName fileName, CPLineNo(fn () => !lineNo)])
                     in
                         code ()
-                            handle exn as Fail _ => LibrarySupport.reraise exn
+                            handle exn as Fail _ => PolyML.Exception.reraise exn
                             |  exn =>
                             (
                                 print ("Exception- " ^ exnMessage exn ^ " raised\n");
-                                LibrarySupport.reraise exn
+                                PolyML.Exception.reraise exn
                             )
                     end
                 end (* body of scope of inStream *)
                     handle exn => (* close inStream if an error occurs *)
                     (
                         TextIO.closeIn inStream;
-                        LibrarySupport.reraise exn
+                        PolyML.Exception.reraise exn
                     )
             in (* remake normal termination *)
                 TextIO.closeIn inStream 
@@ -1160,7 +1160,7 @@ local
                 handle exn  => 
                 (
                     print (targetName ^ " was not declared\n");
-                    LibrarySupport.reraise exn
+                    PolyML.Exception.reraise exn
                 )
         end
     end (* make *)
@@ -1781,7 +1781,7 @@ in
                 
                     TextIO.flushOut TextIO.stdOut;
                     (* Reraise the exception. *)
-                    LibrarySupport.reraise exn
+                    PolyML.Exception.reraise exn
                 end
             in
                 fun exception_trace f = traceException(f, printTrace)

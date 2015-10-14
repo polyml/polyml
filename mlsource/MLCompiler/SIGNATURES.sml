@@ -476,7 +476,7 @@ struct
         val mapArray = StretchArray.stretchArray(10 (* Guess initial size. *), Unset)
         val sourceArray = StretchArray.stretchArray(10 (* Guess initial size. *), NONE)
 
-        fun makeVariableId(isEq, isDt, requireUpdate, { location, name, description }, typeFn, structPath) =
+        fun makeVariableId(arity, isEq, isDt, requireUpdate, { location, name, description }, structPath) =
         let
             val fullName = structPath^name
             val descr = { location=location, name=fullName, description=description}
@@ -484,14 +484,9 @@ struct
             val newIdNumber = !idCount before (idCount := !idCount+1)
             val newId =
                 (if requireUpdate then makeBoundIdWithEqUpdate else makeBoundId)
-                    (Formal 0 (* Not used. *), newIdNumber, isEq, isDt, descr)
-            (* Enter a variable entry in the array except that if this is a type
-               function use a FreeSlot entry. *)
-            val arrayEntry =
-                case typeFn of
-                    (_, EmptyType) => VariableSlot{ boundId=newId, descriptions = [fullName] }
-               |    (typeVars, realisation) => (* Treat this just like a "where type"*)
-                        FreeSlot(makeTypeFunction(descr, (typeVars, realisation)))
+                    (arity, Formal 0 (* Not used. *), newIdNumber, isEq, isDt, descr)
+            (* Enter a variable entry in the array. *)
+            val arrayEntry = VariableSlot{ boundId=newId, descriptions = [fullName] }
             val () = StretchArray.update(mapArray, newIdNumber-initTypeId, arrayEntry)
             val () = StretchArray.update(sourceArray, newIdNumber-initTypeId, SOME newId)
         in
@@ -539,9 +534,11 @@ struct
         (
             case (realId(offset1-initTypeId), realId(offset2-initTypeId)) of
                 (VariableSlot{descriptions = desc1,
-                              boundId=TypeId{idKind=Bound{eqType=eqType1, offset=off1, isDatatype=isDatatype1, ...}, description, ...}},
+                              boundId=TypeId{
+                                idKind=Bound{eqType=eqType1, offset=off1, isDatatype=isDatatype1, arity=arity1, ...}, description, ...}},
                  VariableSlot{descriptions = desc2,
-                              boundId=TypeId{idKind=Bound{eqType=eqType2, offset=off2, isDatatype=isDatatype2, ...}, ...}}) =>
+                              boundId=TypeId{
+                                idKind=Bound{eqType=eqType2, offset=off2, isDatatype=isDatatype2, arity=arity2, ...}, ...}}) =>
             if off1 = off2
             then () (* They may already share. *)
             else
@@ -549,8 +546,9 @@ struct
                 val resOffset = Int.min(off1, off2)
                 val setOffset = Int.max(off1, off2)
                 val isDatatype = isDatatype1 orelse isDatatype2
+                val _ = arity1 = arity2 orelse raise InternalError "linkFlexibleTypeIds: different arities"
                 val newId =
-                    makeBoundId(Formal 0, resOffset, pling eqType1 orelse pling eqType2,
+                    makeBoundId(arity1, Formal 0, resOffset, pling eqType1 orelse pling eqType2,
                                 isDatatype, description (* Not used *))
                 val newEntry =
                     VariableSlot{ boundId=newId, descriptions = desc1 @ desc2 }
@@ -771,16 +769,14 @@ struct
             (* Create a new variable ID for each bound ID.  Type functions have to be copied to
                replace references to other bound IDs.  These must be earlier in the list. *)
             fun makeNewIds([], _) = []
+
             |   makeNewIds(
-                    (oldId as TypeId{description, idKind=Bound { isDatatype, offset, ...}, typeFn=(args, equiv), ...}) :: rest,
+                    (oldId as TypeId{description, idKind=Bound { isDatatype, offset, arity, ...}, ...}) :: rest,
                     typeMap
                     ) =
                 let
-                    val copiedEquiv =
-                        copyType(equiv, fn x => x,
-                            fn tcon => copyTypeConstr (tcon, typeMap, fn x => x, fn s => s))
                     val newId =
-                        makeVariableId(isEquality oldId, isDatatype, false, description, (args, copiedEquiv), structPath)
+                        makeVariableId(arity, isEquality oldId, isDatatype, false, description, structPath)
                     fun newMap(id as TypeId{idKind=Bound{offset=n, ...}, ...}) =
                         if n = offset then SOME newId else typeMap id
                     |   newMap _ = NONE
@@ -1166,8 +1162,7 @@ struct
                                 |   constrs =>
                                     let
                                         val newTy =
-                                        makeTypeConstructor(tcName ty, tcTypeVars ty, tcIdentifier ty,
-                                            tcLocations ty)
+                                            makeTypeConstructor(tcName ty, tcIdentifier ty, tcLocations ty)
                                     in
                                         TypeConstrSet(newTy, List.map copyConstructor constrs)
                                     end;
@@ -1247,15 +1242,20 @@ struct
                   allValNames   = #allValNames structEnv
                  };
 
-                fun makeId (eq, isdt, typeFn, loc) =
-                    makeVariableId(eq, isdt, true, loc, typeFn, structPath)
+                fun makeId (eq, isdt, (args, EmptyType), loc) =
+                    makeVariableId(length args, eq, isdt, true, loc, structPath)
+
+                |   makeId (_, _, (typeVars, decType), { location, name, description }) =
+                        makeTypeFunction(
+                            { location = location, name = structPath ^ name, description = description },
+                            (typeVars, decType))
 
                 (* We need a map to look up types.  This is only used in one place:
                    if the item we're processing is a datatype then we need to look
                    at the bindings of type identifiers to compute equality correctly.
                    e.g. type t = int*int datatype s = X of t . *)
-                fun equalityForId(id as TypeId {typeFn=(_, EmptyType), ...}) = isEquality id
-                |   equalityForId(TypeId{typeFn=(_, equiv), ...}) = typePermitsEquality equiv
+                fun equalityForId(TypeId{idKind=TypeFn(_, equiv), ...}) = typePermitsEquality equiv
+                |   equalityForId id = isEquality id
 
                 fun findEquality n =
                     if n < initTypeId
@@ -1309,9 +1309,8 @@ struct
                     VariableSlot {
                         boundId =
                             TypeId{
-                                idKind=Bound{eqType, isDatatype, ... },
-                                description = { name, location, description},
-                                typeFn=(_, EmptyType), (* Included as a check. *) ...},
+                                idKind=Bound{eqType, isDatatype, arity, ... },
+                                description = { name, location, description}, ...},
                         descriptions, ...} =>
                     let (* Need to make a new ID. *)
                         (* If we have sharing we want to produce a description that expresses that. *)
@@ -1331,7 +1330,7 @@ struct
                             val description =
                                 { name = name, location = location, description = descript }
                         in
-                            makeBoundId(Formal addr, n, pling eqType, isDatatype, description)
+                            makeBoundId(arity, Formal addr, n, pling eqType, isDatatype, description)
                         end
                         (* Update the entry for any sharing. *)
                         val () = StretchArray.update(mapArray, n, FreeSlot newId)
@@ -1340,14 +1339,7 @@ struct
                         (newId :: distinctIds, newId :: mappedIds)
                     end
 
-                |   FreeSlot(id as TypeId{typeFn=(_, EmptyType), ...}) => (* Free or shares with existing type ID. *)
-                    let
-                        val (distinctIds, mappedIds) = mapIds (n+1)
-                    in
-                        (distinctIds, id :: mappedIds)
-                    end
-
-                |   FreeSlot (TypeId{typeFn=(args, equiv), description, ...}) =>
+                |   FreeSlot (TypeId{idKind=TypeFn(args, equiv), description, ...}) =>
                     let
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but
                            they could be TypeFunctions as a result of a "where type" and
@@ -1376,6 +1368,13 @@ struct
                         val (distinctIds, mappedIds) = mapIds (n+1)
                     in
                         (distinctIds, copiedId :: mappedIds)
+                    end
+
+                |   FreeSlot id => (* Free or shares with existing type ID. *)
+                    let
+                        val (distinctIds, mappedIds) = mapIds (n+1)
+                    in
+                        (distinctIds, id :: mappedIds)
                     end
 
                 |   _ => raise InternalError "mapIds"

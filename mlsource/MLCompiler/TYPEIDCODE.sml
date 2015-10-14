@@ -742,8 +742,11 @@ struct
         if eqStatus
         then
         let
-            val argTypes = tcTypeVars tyConstr
-            val nTypeVars = List.length argTypes
+            val nTypeVars = tcArity tyConstr
+            val argTypes =
+                List.tabulate(tcArity tyConstr,
+                    fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
+                                 equality=false, printable=false})
             val baseEqLevelP1 = newLevel baseEqLevel
 
             (* Argument type variables. *)
@@ -882,17 +885,22 @@ struct
     (* Create a printer function for a datatype when the datatype is declared.
        We don't have to treat mutually recursive datatypes specially because
        this is called after the type IDs have been created. *)
-    fun printerForDatatype(TypeConstrSet(TypeConstrs{name, typeVars=argTypes, ...}, vConstrs), level, typeVarMap) =
+    fun printerForDatatype(TypeConstrSet(typeCons as TypeConstrs{name, ...}, vConstrs), level, typeVarMap) =
     let
         val argCode = mkInd(0, arg1)
         and depthCode = mkInd(1, arg1)
         val nLevel = newLevel level
+        val constrArity = tcArity typeCons
 
         val (localArgList, innerLevel, newTypeVarMap) =
-            case argTypes of
-                [] => ([], nLevel, typeVarMap)
-            |   _ =>
+            case constrArity of
+                0 => ([], nLevel, typeVarMap)
+            |   arity =>
                 let
+                    val argTypes = 
+                        List.tabulate(arity,
+                            fn _ => makeTv{value=EmptyType, level=generalisable, nonunifiable=false,
+                                         equality=false, printable=false})
                     val nnLevel = newLevel nLevel
                     fun mkTcArgMap (argTypes, level, oldLevel) =
                         let
@@ -1012,7 +1020,7 @@ struct
                    functions.  For monotypes the fields contain the injection/test/projection
                    functions directly. *)
                 fun addPolymorphism c =
-                   if null argTypes  orelse justForEqualityTypes then c else mkEval(c, localArgList)
+                   if constrArity = 0 orelse justForEqualityTypes then c else mkEval(c, localArgList)
 
                 open ValueConstructor
 
@@ -1069,51 +1077,26 @@ struct
         val printerCode = printerForConstructors vConstrs
     in
         (* Wrap this in the functions for the base types. *)
-        if null argTypes
+        if constrArity = 0
         then mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)
         else mkProc(mkEnv(getCachedTypeValues newTypeVarMap,
                             mkProc(printerCode, 1, "print-"^name, getClosure innerLevel, 0)),
-                    List.length argTypes, "print"^name^"()", getClosure nLevel, 0)
+                    constrArity, "print"^name^"()", getClosure nLevel, 0)
     end    
 
     (* Opaque matching and functor application create new type IDs using an existing
        type as implementation.  The equality function is inherited whether the type
-       was specified as an eqtype or not.  The print function is inherited but a new
-       ref is created so that if a pretty printer is installed for the new type it
-       does not affect the old type. *)
+       was specified as an eqtype or not.  The print function is no longer inherited.
+       Instead a new reference is installed with a default print function.  This hides
+       the implementation. *)
     (* If this is a type function we're going to generate a new ref anyway so we
        don't need to copy it. *)
-    fun codeGenerativeId(sourceId as TypeId{typeFn=(_, EmptyType), ...}, _, mkAddr, level: level) =
-        let (* Datatype. *)
-            open TypeValue
-            val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
-            val loadLocal = load level
-            val printCode =
-                    mkEval
-                        (rtsFunction POLY_SYS_alloc_store,
-                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         mkEval(rtsFunction POLY_SYS_load_word,
-                            [extractPrinter loadLocal, CodeZero])
-                          ])
-        in
-            mkEnv(
-                dec,
-                createTypeValue {
-                    eqCode = extractEquality loadLocal, printCode = printCode,
-                    boxedCode = extractBoxed loadLocal, sizeCode = extractSize loadLocal
-                }
-             )
-        end
-
-    |   codeGenerativeId(TypeId{typeFn=([], resType), ...}, isEq, mkAddr, level) =
+    fun codeGenerativeId(TypeId{idKind=TypeFn([], resType), ...}, isEq, mkAddr, level) =
         let (* Monotype abbreviation. *)
             (* Create a new type value cache. *)
             val typeVarMap = defaultTypeVarMap(mkAddr, level)
 
             open TypeValue
-            (* Create a printer for a type function.  This is used to create the general
-               print function for any type. *)
-            val printCode = printerForType(resType, level, typeVarMap)
 
             val eqCode =
                 if not isEq then CodeZero
@@ -1132,11 +1115,11 @@ struct
                     mkEval
                         (rtsFunction POLY_SYS_alloc_store,
                         [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags),
-                         printCode])
+                         codePrintDefault])
                 })
         end
 
-    |   codeGenerativeId(TypeId{typeFn=(argTypes, resType), ...}, isEq, mkAddr, level) =
+    |   codeGenerativeId(TypeId{idKind=TypeFn(argTypes, resType), ...}, isEq, mkAddr, level) =
         let (* Polytype abbreviation: All the entries in the tuple are functions that must
                be applied to the base type values when the type constructor is used. *)
             (* Create a new type value cache. *)
@@ -1163,10 +1146,8 @@ struct
                 end
 
             open TypeValue
-            (* Create a printer for a type function.  This is used to create the general
-               print function for any type. *)
-            val printCode =
-                createCode(fn(nLevel, argTypeMap) => printerForType(resType, nLevel, argTypeMap), "print-helper()")
+            (* Create a print function.*)
+            val printCode = createCode(fn _ => codePrintDefault, "print-helper()")
             and eqCode =
                 if not isEq then CodeZero
                 else createCode(fn(nLevel, argTypeMap) =>
@@ -1191,6 +1172,36 @@ struct
                 })
         end
 
+    |   codeGenerativeId(sourceId, _, mkAddr, level: level) =
+        let (* Datatype.  This is the same for monotype and polytypes except for the print fn. *)
+            open TypeValue
+            val { dec, load } = multipleUses (codeId(sourceId, level), fn () => mkAddr 1, level)
+            val loadLocal = load level
+            val arity =
+                case sourceId of
+                    TypeId{idKind=Bound{arity, ...},...} => arity
+                |   TypeId{idKind=Free{arity, ...},...} => arity
+                |   TypeId{idKind=TypeFn _,...} => raise InternalError "Already checked"
+
+            val printFn =
+                if arity = 0 then codePrintDefault
+                else mkProc(codePrintDefault, arity, "print-helper()", [], 0)
+
+            val printCode =
+                    mkEval
+                        (rtsFunction POLY_SYS_alloc_store,
+                        [mkConst (toMachineWord 1), mkConst (toMachineWord mutableFlags), printFn ]
+                        )
+        in
+            mkEnv(
+                dec,
+                createTypeValue {
+                    eqCode = extractEquality loadLocal, printCode = printCode,
+                    boxedCode = extractBoxed loadLocal, sizeCode = extractSize loadLocal
+                }
+             )
+        end
+
 
     (* Create the equality and type functions for a set of mutually recursive datatypes. *)
     fun createDatatypeFunctions(
@@ -1208,7 +1219,7 @@ struct
             (* If this is polymorphic make two addresses, one for the returned equality function and
                one for the inner function. *)
             fun makeEqAddr{typeConstr=TypeConstrSet(tyConstr, _), ...} =
-                mkAddr(if null (tcTypeVars tyConstr) then 1 else 2)
+                mkAddr(if tcArity tyConstr = 0 then 1 else 2)
         in
             val eqAddresses = List.map makeEqAddr typeDatalist (* Make addresses for the equalities. *)
         end
@@ -1248,14 +1259,15 @@ struct
         (* Create the print functions and set the printer code for each typeId. *)
         local
 
-            fun setPrinter{typeConstr as TypeConstrSet(TypeConstrs{identifier, typeVars, ...}, _), ...} =
+            fun setPrinter{typeConstr as TypeConstrSet(tCons as TypeConstrs{identifier, ...}, _), ...} =
             let
+                val arity = tcArity tCons
                 val printCode =
                     if makePrintFunction
                     then printerForDatatype(typeConstr, level, typeVarMap)
-                    else if null typeVars
+                    else if arity = 0
                     then codePrintDefault
-                    else mkProc(codePrintDefault, List.length typeVars, "print-printdefault", [], 0)
+                    else mkProc(codePrintDefault, arity, "print-printdefault", [], 0)
             in
                 mkNullDec(
                     mkEval(

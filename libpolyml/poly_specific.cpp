@@ -1,12 +1,11 @@
 /*
     Title:  poly_specific.cpp - Poly/ML specific RTS calls.
 
-    Copyright (c) 2006 David C. J. Matthews
+    Copyright (c) 2006, 2015 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -176,7 +175,26 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_get_first_long_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_poly_specific: return 0;
     case POLY_SYS_bytevec_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_load_8: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_16: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_32: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_float: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_load_double: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_8: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_16: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_32: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+#if (SIZEOF_VOIDP == 8)
+    case POLY_SYS_cmem_load_64: return PROPWORD_NORAISE|PROPWORD_NOUPDATE;
+    case POLY_SYS_cmem_store_64: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+#else
+        // These aren't implemented in 32-bit mode.
+    case POLY_SYS_cmem_load_64: return 0;
+    case POLY_SYS_cmem_store_64: return 0;
+#endif
+    case POLY_SYS_cmem_store_float: return PROPWORD_NORAISE|PROPWORD_NODEREF;
+    case POLY_SYS_cmem_store_double: return PROPWORD_NORAISE|PROPWORD_NODEREF;
     case POLY_SYS_io_operation: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_ffi: return 0;
     case POLY_SYS_set_code_constant: return 0;
     case POLY_SYS_move_words: return PROPWORD_NORAISE;
     case POLY_SYS_move_words_overlap: return PROPWORD_NORAISE;
@@ -196,9 +214,8 @@ static POLYUNSIGNED rtsProperties(TaskData *taskData, int i)
     case POLY_SYS_shift_right_word: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_word_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_not_bool: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
+    case POLY_SYS_touch_final: return PROPWORD_NORAISE; // We need to treat this as though it had side-effects.
     case POLY_SYS_string_length: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_int_eq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
-    case POLY_SYS_int_neq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_geq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_leq: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
     case POLY_SYS_int_gtr: return PROPWORD_NORAISE|PROPWORD_NOUPDATE|PROPWORD_NODEREF;
