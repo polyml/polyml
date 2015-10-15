@@ -2568,21 +2568,15 @@ CALLMACRO   RegMask real_from_int,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_a
 
 ;# Additional assembly code routines
 
-;# This template code is copied into a newly allocated piece of memory which
-;# is set up to look like an ML function.
-;# The code itself is called if a function set up with exception_trace
+;# This code is called if a function set up with exception_trace
 ;# returns normally.  It removes the handler.
-CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTraceTemplate
+CALLMACRO INLINE_ROUTINE X86AsmRestoreHandlerAfterExceptionTrace
     ADDL    CONST POLYWORDSIZE,Resp       ;# Remove handler
     POPL    HandlerRegister[Rebp]
     RET
     NOP                         ;# Add an extra byte so we have 8 bytes on both X86 and X86_64
 
-;# This is template code and must be position independent.
-;# The length of this code (9 bytes) is built into X86Dependent::BuildExceptionTrace.
-CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFnTemplate
-    NOP                                 ;# Two NOPs - for alignment
-    NOP
+CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFn
     ;# The exception packet is the first argument.
 IFDEF WINDOWS
         mov     byte ptr [RequestCode+Rebp],POLY_SYS_give_ex_trace_fn
@@ -2592,8 +2586,8 @@ ELSE
         jmp     *IOEntryPoint[Rebp]
 ENDIF
 
-;# This is template code for an RTS call to kill the current thread. 
-CALLMACRO INLINE_ROUTINE X86AsmKillSelfTemplate
+;# RTS call to kill the current thread. 
+CALLMACRO INLINE_ROUTINE X86AsmKillSelf
 IFDEF WINDOWS
         mov     byte ptr [RequestCode+Rebp],POLY_SYS_kill_self
         jmp     FULLWORD ptr [IOEntryPoint+Rebp]
@@ -2602,7 +2596,7 @@ ELSE
         jmp     *IOEntryPoint[Rebp]
 ENDIF
 
-CALLMACRO INLINE_ROUTINE X86AsmCallbackReturnTemplate
+CALLMACRO INLINE_ROUTINE X86AsmCallbackReturn
 IFDEF WINDOWS
         mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_RETURN
         jmp     FULLWORD ptr [IOEntryPoint+Rebp]
@@ -2611,7 +2605,7 @@ ELSE
         jmp     *IOEntryPoint[Rebp]
 ENDIF
 
-CALLMACRO INLINE_ROUTINE X86AsmCallbackExceptionTemplate
+CALLMACRO INLINE_ROUTINE X86AsmCallbackException
 IFDEF WINDOWS
         mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_EXCEPTION
         jmp     FULLWORD ptr [IOEntryPoint+Rebp]

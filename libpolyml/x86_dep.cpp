@@ -278,9 +278,6 @@ public:
     void do_compare(PolyWord v1, PolyWord v2);
     void do_op(int dest, PolyWord v1, PolyWord v2, Handle (*op)(TaskData *, Handle, Handle));
     bool emulate_instrs();
-    Handle BuildCodeSegment(const byte *code, unsigned bytes, char functionName);
-    Handle BuildKillSelf();
-    Handle BuildExceptionTrace();
 };
 
 class X86Dependent: public MachineDependent {
@@ -365,11 +362,11 @@ extern "C" {
     void X86AsmSwitchToPoly(MemRegisters *);
     void X86AsmSaveStateAndReturn(void);
 
-    extern int X86AsmRestoreHandlerAfterExceptionTraceTemplate(void);
-    extern int X86AsmGiveExceptionTraceFnTemplate(void);
-    extern int X86AsmKillSelfTemplate(void);
-    extern int X86AsmCallbackReturnTemplate(void);
-    extern int X86AsmCallbackExceptionTemplate(void);
+    extern int X86AsmRestoreHandlerAfterExceptionTrace(void);
+    extern int X86AsmGiveExceptionTraceFn(void);
+    extern int X86AsmKillSelf(void);
+    extern int X86AsmCallbackReturn(void);
+    extern int X86AsmCallbackException(void);
 
     POLYUNSIGNED X86AsmAtomicIncrement(PolyObject*);
     POLYUNSIGNED X86AsmAtomicDecrement(PolyObject*);
@@ -1473,8 +1470,7 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     // Set the default handler and return address to point to this code.
 
     X86TaskData *mdParentTask = (X86TaskData*)parentTaskData;
-    Handle killCode = mdParentTask->BuildKillSelf();
-    PolyWord killJump = killCode->Word();
+    PolyWord killJump(PolyWord::FromCodePtr((byte*)&X86AsmKillSelf));
     // Exception handler.
     ((PolyWord*)newStack)[topStack+1] = killJump;
     // Normal return address.  We need a separate entry on the stack from
@@ -1482,27 +1478,6 @@ void X86TaskData::InitStackFrame(TaskData *parentTaskData, Handle proc, Handle a
     // may replace this entry with an argument.  The code-generator optimises tail-recursive
     // calls to functions with more args than the called function.
     ((PolyWord*)newStack)[topStack] = killJump;
-}
-
-// Build an ML code segment to hold a copy of a piece of code
-Handle X86TaskData::BuildCodeSegment(const byte *code, unsigned bytes, char functionName)
-{
-    POLYUNSIGNED codeWords = (bytes + sizeof(PolyWord)-1) / sizeof(PolyWord);
-    POLYUNSIGNED words = codeWords + 6;
-    Handle codeHandle = alloc_and_save(this, words, F_BYTE_OBJ|F_MUTABLE_BIT);
-    byte *cp = codeHandle->Word().AsCodePtr();
-    memcpy(cp, code, bytes);
-    if (bytes % sizeof(PolyWord) != 0) // Fill unused bytes with NOPs
-        memset(cp+bytes, 0x90, sizeof(PolyWord)- bytes % sizeof(PolyWord));
-    codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(0)); // Marker word
-    codeHandle->WordP()->Set(codeWords, PolyWord::FromUnsigned(codeWords*sizeof(PolyWord))); // Bytes to the start
-    codeWords++;
-    codeHandle->WordP()->Set(codeWords++, TAGGED(functionName)); // Name of function 
-    codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // Register set
-    codeHandle->WordP()->Set(codeWords++, TAGGED(0)); // No profile counter
-    codeHandle->WordP()->Set(codeWords++, PolyWord::FromUnsigned(3)); // Number of constants
-    CodeSegmentFlags(this, this->saveVec.push(TAGGED(F_CODE_OBJ)), codeHandle);
-    return codeHandle;
 }
 
 // Set up a handler that, if it's called, will print an exception trace.
@@ -1513,19 +1488,14 @@ void X86TaskData::SetExceptionTrace()
 {
     PSP_IC(this) = (*PSP_SP(this)).AsCodePtr();
     Handle fun = this->saveVec.push(PSP_EAX(this));
-    Handle extrace = BuildExceptionTrace();
     PolyObject *functToCall = fun->WordP();
     PSP_EDX(this) = functToCall; // Closure address
     // Leave the return address where it is on the stack.
     PSP_IC(this) = functToCall->Get(0).AsCodePtr(); // First word of closure is entry pt.
     *(--PSP_SP(this)) = PolyWord::FromStackAddr(PSP_HR(this));
-    // Handler addresses must be word + 2 byte aligned.
-    // Is that still true or only for the old exception mechanism?
-    *(--PSP_SP(this)) = PolyWord::FromCodePtr(extrace->WordP()->AsBytePtr()+2);
+    *(--PSP_SP(this)) = PolyWord::FromCodePtr((byte*)&X86AsmGiveExceptionTraceFn);
     PSP_HR(this) = PSP_SP(this);
-    byte *codeAddr = (byte*)&X86AsmRestoreHandlerAfterExceptionTraceTemplate;
-    Handle retCode = BuildCodeSegment(codeAddr, 8 /* Code is 8 bytes */, 'R');
-    *(--PSP_SP(this)) = retCode->WordP(); // Code for normal return.
+    *(--PSP_SP(this)) = PolyWord::FromCodePtr((byte*)&X86AsmRestoreHandlerAfterExceptionTrace); // Code for normal return.
     PSP_EAX(this) = TAGGED(0); // Set the argument of the function to "unit".
 }
 
@@ -2334,24 +2304,6 @@ void X86Dependent::InitInterfaceVector(void)
     arbEmulation = (byte*)X86AsmCallExtraRETURN_ARB_EMULATION;
 }
 
-// We need the kill-self code in a little function.
-Handle X86TaskData::BuildKillSelf()
-{
-    byte *codeAddr = (byte*)&X86AsmKillSelfTemplate;
-    return saveVec.push(PolyWord::FromCodePtr(codeAddr));
-//    return BuildCodeSegment(codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
-}
-
-// Similarly for the exception trace code.  This is more complicated.
-// For backwards compatibility we need the address to be on a word + 2 byte
-// boundary.
-Handle X86TaskData::BuildExceptionTrace()
-{
-    byte *codeAddr = (byte*)&X86AsmGiveExceptionTraceFnTemplate;
-    return saveVec.push(PolyWord::FromCodePtr(codeAddr));
-//    return BuildCodeSegment(codeAddr, 9, 'E');
-}
-
 void X86TaskData::SetException(poly_exn *exc)
 // Set up the stack of a process to raise an exception.
 {
@@ -2425,11 +2377,8 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
     // that this code doesn't do any allocation.  Essentially we need the values
     // in localMpointer and localMbottom to be valid across a call to C.  If we do
     // a callback the ML callback function would pick up the values saved in the
-    // originating call 
-    byte *codeAddr1 = (byte*)&X86AsmCallbackReturnTemplate;
-    byte *codeAddr2 = (byte*)&X86AsmCallbackExceptionTemplate;
-    Handle callBackReturn = this->BuildCodeSegment(codeAddr1, MAKE_CALL_SEQUENCE_BYTES, 'C');
-    Handle callBackException = this->BuildCodeSegment(codeAddr2, MAKE_CALL_SEQUENCE_BYTES, 'X');
+    // originating call.
+
     // Save the closure pointer and argument registers to the stack.  If we have to
     // retry the current RTS call we need these to have their original values.
     // TODO: Is that really required any longer?  We don't retry RTS calls now.
@@ -2443,11 +2392,11 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
 #endif
     // Set up an exception handler so we will enter callBackException if there is an exception.
     *(--PSP_SP(this)) = PolyWord::FromStackAddr(PSP_HR(this)); // Create a special handler entry
-    *(--PSP_SP(this)) = callBackException->Word();
+    *(--PSP_SP(this)) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackException);
     *(--PSP_SP(this)) = TAGGED(0);
     PSP_HR(this) = PSP_SP(this);
     // Push the call to callBackReturn onto the stack as the return address.
-    *(--PSP_SP(this)) = callBackReturn->Word();
+    *(--PSP_SP(this)) = PolyWord::FromCodePtr((byte*)&X86AsmCallbackReturn);
     // Set up the entry point of the callback.
     PolyObject *functToCall = func->WordP();
     PSP_EDX(this) = functToCall; // Closure address
