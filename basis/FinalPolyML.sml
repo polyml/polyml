@@ -61,6 +61,15 @@ local
         and delete(tab, mutx) = protect mutx (fn s => HashArray.delete (tab, s))
     end
 
+    fun quickSort _                      ([]:'a list)      = []
+    |   quickSort _                      ([h]:'a list)     = [h]
+    |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
+    let
+        val (after, befor) = List.partition (leq h) t
+    in
+        quickSort leq befor @ (h :: quickSort leq after)
+    end
+
     open PolyML.NameSpace
  
     local
@@ -148,10 +157,9 @@ local
            Default: Execute the code and call the result function if the compilation
            succeeds.  Raise an exception if the compilation failed. *)
     |   CPProfiling of int
-        (* Control profiling.  0 is no profiling, 1 is time etc.  Default is value of PolyML.profiling. *)
+        (* Deprecated: No longer used. *)
     |   CPTiming of bool
-        (* Control whether the compiler should time various phases of the
-           compilation and also the run time. Default: value of PolyML.timing. *)
+        (* Deprecated: No longer used.  *)
     |   CPDebug of bool
         (* Control whether calls to the debugger should be inserted into the compiled
            code.  This allows breakpoints to be set, values to be examined and printed
@@ -185,15 +193,14 @@ local
            zero means no profiling and one means add the allocating function. *)
 
     |   CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -> unit
-        (* This is no longer used and is just left for backwards compatibility. *)
+        (* Deprecated: No longer used. *)
 
     (* References for control and debugging. *)
-    val profiling = ref 0
-    and timing = ref false
+    val timing = ref false
     and printDepth = ref 0
     and errorDepth = ref 6
     and lineLength = ref 77
-    and allocationProfiling = ref 0
+    and allocationProfiling = ref false
     
     val assemblyCode = ref false
     and codetree = ref false
@@ -368,15 +375,6 @@ local
                     if s1 = s2 then kindToInt k1 <= kindToInt k2
                     else s1 <= s2
 
-            fun quickSort _                      ([]:'a list)      = []
-            |   quickSort _                      ([h]:'a list)     = [h]
-            |   quickSort (leq:'a -> 'a -> bool) ((h::t) :'a list) =
-            let
-                val (after, befor) = List.partition (leq h) t
-            in
-                quickSort leq befor @ (h :: quickSort leq after)
-            end;
-
             (* Don't sort the declarations if we want them in declaration order. *)
             val sortedDecs =
                 if inOrder then quickSort order decList else decList
@@ -416,6 +414,7 @@ local
             if depth > 0 then List.app printDec sortedDecs else ()
         end
     in
+        (* This function ends up as PolyML.compiler.  *)
         fun polyCompiler (getChar: unit->char option, parameters: compilerParameters list) =
         let
             (* Find the first item that matches or return the default. *)
@@ -432,15 +431,13 @@ local
             val fileName = find (fn CPFileName s => SOME s | _ => NONE) "" parameters
             val printInOrder = find (fn CPPrintInAlphabeticalOrder t => SOME t | _ => NONE)
                                 (! printInAlphabeticalOrder) parameters
-            val profiling = find (fn CPProfiling i => SOME i | _ => NONE) (!profiling) parameters
-            val timing = find  (fn CPTiming b => SOME b | _ => NONE) (!timing) parameters
             val printDepth = find (fn CPPrintDepth f => SOME f | _ => NONE) (fn () => !printDepth) parameters
             val resultFun = find (fn CPResultFun f => SOME f | _ => NONE)
                (printAndEnter(printInOrder, nameSpace, outstream, printDepth())) parameters
             val printString = find (fn CPPrintStream s => SOME s | _ => NONE) outstream parameters
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
-            val allocProfiling = find(fn CPAllocationProfiling l  => SOME l | _ => NONE) (!allocationProfiling) parameters
+            val allocProfiling = find(fn CPAllocationProfiling l  => SOME l | _ => NONE) (if !allocationProfiling then 1 else 0) parameters
             local
                 (* Default is to filter the parse tree argument. *)
                 fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
@@ -477,8 +474,6 @@ local
                     tagInject lowlevelOptimiseTag (! lowlevelOptimise),
                     tagInject assemblyCodeTag (! assemblyCode),
                     tagInject codetreeAfterOptTag (! codetreeAfterOpt),
-                    tagInject timingTag timing,
-                    tagInject profilingTag profiling,
                     tagInject profileAllocationTag allocProfiling,
                     tagInject errorDepthTag (! errorDepth),
                     tagInject printDepthFunTag printDepth,
@@ -495,7 +490,7 @@ local
         in
             compilerResultFun treeAndCode
         end
- 
+
         (* Top-level read-eval-print loop.  This is the normal top-level loop and is
            also used for the debugger. *)
         fun topLevel {isDebug, nameSpace, exitLoop, exitOnError, isInteractive } =
@@ -558,19 +553,39 @@ local
                 realDataRead := false;
                 (* Compile and then run the code. *)
                 let
+                    val startCompile = Timer.startCPUTimer()
+
+                    (* Compile a top-level declaration/expression. *)
                     val code =
-                        polyCompiler(readin, [CPNameSpace nameSpace, CPOutStream printOut])
-                        handle Fail s => 
+                        polyCompiler (readin, [CPNameSpace nameSpace, CPOutStream printOut])
+                            (* Don't print any times if this raises an exception. *)
+                        handle exn as Fail s =>
                         (
                             printOut(s ^ "\n");
                             flushInput();
                             lastWasEol := true;
-                            raise Fail s
+                            PolyML.Exception.reraise exn
                         )
+                        
+                    val endCompile = Timer.checkCPUTimer startCompile
+            
+                    val startRun = Timer.startCPUTimer()
+
+                    (* Run the code and capture any exception (temporarily). *)
+                    val finalResult = (code(); NONE) handle exn => SOME exn
+
+                    (* Print the times if required. *)
+                    val endRun = Timer.checkCPUTimer startRun
+                    val () =
+                        if !timing
+                        then printOut(
+                                concat["Timing - compile: ", Time.fmt 1 (#usr endCompile + #sys endCompile),
+                                       " run: ", Time.fmt 1 (#usr endRun + #sys endRun), "\n"])
+                        else ()
                 in
-                    code ()
-                    (* Report exceptions in running code. *)
-                        handle exn =>
+                    case finalResult of
+                        NONE => () (* No exceptions raised. *)
+                    |   SOME exn => (* Report exceptions in running code. *)
                         let
                             open PolyML PolyML.Exception
                             val exLoc =
@@ -1151,7 +1166,7 @@ in
             and typeNames (): string list = #1(ListPair.unzip (#allType globalNameSpace ()))
             and fixityNames (): string list = #1(ListPair.unzip (#allFix globalNameSpace ()))
 
-            val prompt1 = prompt1 and prompt2 = prompt2 and profiling = profiling
+            val prompt1 = prompt1 and prompt2 = prompt2
             and timing = timing and printDepth = printDepth
             and errorDepth = errorDepth and lineLength = lineLength
             and allocationProfiling = allocationProfiling
@@ -1697,8 +1712,7 @@ in
         end
 
         (* Original print_depth etc functions. *)
-        fun profiling   i = Compiler.profiling := i
-        and timing      b = Compiler.timing := b
+        fun timing      b = Compiler.timing := b
         and print_depth i = Compiler.printDepth := i
         and error_depth i = Compiler.errorDepth := i
         and line_length i = Compiler.lineLength := i
@@ -1740,5 +1754,82 @@ in
         
         (* Include it in the PolyML structure for backwards compatibility. *)
         val exception_trace = Exception.exception_trace
+
+        local
+            val systemProfile : int -> (int * string) list =
+                    RunCall.run_call1 RuntimeCalls.POLY_SYS_profiler
+
+            fun printProfile profRes =
+            let
+                (* Sort in ascending order. *)
+                val sorted = quickSort (fn (a, _) => fn (b, _) => a <= b) profRes
+
+                fun doPrint (count, name) =
+                let
+                    val cPrint = Int.toString count
+                    val prefix =
+                        CharVector.tabulate(Int.max(0, 10-size cPrint), fn _ => #" ")
+                in
+                    TextIO.output(TextIO.stdOut, concat[prefix, cPrint, " ", name, "\n"])
+                end
+
+                val total = List.foldl (fn ((c,_),s) => c+s) 0 profRes
+            in
+                List.app doPrint sorted;
+                if total = 0 then ()
+                else TextIO.print(concat["Total ", Int.toString total, "\n"])
+            end
+        in
+
+            structure Profiling =
+            struct
+                datatype profileMode =
+                    ProfileTime             (* old mode 1 *)
+                |   ProfileAllocations      (* old mode 2 *)
+                |   ProfileLongIntEmulation (* old mode 3 *)
+                |   ProfileTimeThisThread   (* old mode 6 *)
+            
+                fun profileStream (stream: (int * string) list -> unit) mode f arg =
+                let
+                    (* Control profiling.  This may raise Fail if profiling is turned on when it
+                       is already on or if there is insufficient memory. *)
+                    val code =
+                        case mode of
+                            ProfileTime =>              1
+                        |   ProfileAllocations =>       2
+                        |   ProfileLongIntEmulation =>  3
+                        |   ProfileTimeThisThread =>    6
+                    val _ = systemProfile code (* Discard the result *)
+                    val result =
+                        f arg handle exn => (stream(systemProfile 0); PolyML.Exception.reraise exn)
+                in
+                    stream(systemProfile 0);
+                    result
+                end
+            
+                fun profile mode f arg = profileStream printProfile mode f arg
+
+                (* Live data profiles show the current state.  We need to run the
+                   GC to produce the counts. *)
+                datatype profileDataMode =
+                    ProfileLiveData
+                |   ProfileLiveMutableData
+
+                fun profileDataStream(stream: (int * string) list -> unit) mode =
+                let
+                    val code =
+                        case mode of
+                            ProfileLiveData => 4
+                        |   ProfileLiveMutableData => 5
+                    val _ = systemProfile code (* Discard the result *)
+                    val () = PolyML.fullGC()
+                in
+                    stream(systemProfile 0)
+                end
+                
+                val profileData = profileDataStream printProfile
+            end
+        end
+
     end
 end (* PolyML. *);

@@ -35,10 +35,6 @@ struct
         (* File name. *)
         val fileNameTag: string tag                  = tag()
 
-        (* Print times for compilation and execution: default false. *)
-        val timingTag: bool tag                      = tag()
-        (* Profile executed code?  default 0. *)
-        val profilingTag: int tag                    = tag()
         (* How much to print in error messages?  default 6 *)
         val errorDepthTag: int tag                   = tag()
         (* Control print depth in PolyML.print. *)
@@ -106,8 +102,6 @@ struct
             tagInject lowlevelOptimiseTag true,
             tagInject assemblyCodeTag false,
             tagInject codetreeAfterOptTag false,
-            tagInject timingTag false,
-            tagInject profilingTag 0,
             tagInject errorDepthTag 6,
             tagInject printDepthFunTag (fn () => 0),
             tagInject lineLengthTag 77,
