@@ -86,13 +86,6 @@ protected:
     void ScanAddressesInObject(PolyObject *base) { ScanAddressesInObject(base, base->LengthWord()); }
 
 public:
-    // Process a word found on the stack and return the (updated) value.  Stacks may contain
-    // code addresses and addresses within the current stack.  "isCode" is set to true for
-    // the program counter which may be a code address but not satisfy IsCodeObject.
-    // The default action is to ignore integers and addresses within the stack and to call
-    // ScanObjectAddress for the base addresses of all other addresses.
-    PolyWord ScanStackAddress(PolyWord val, StackSpace *base, bool isCode);
-
     // Extract a constant from the code.
     static PolyWord GetConstantValue(byte *addressOfConstant, ScanRelocationKind code);
     // Store a constant in the code.

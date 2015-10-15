@@ -79,40 +79,6 @@ POLYUNSIGNED ScanAddress::ScanAddressAt(PolyWord *pt)
     return 0;
 }
 
-// Process a value within the stack.
-PolyWord ScanAddress::ScanStackAddress(PolyWord val, StackSpace *stack, bool isCode)
-{
-    PolyWord *base = stack->bottom;
-    PolyWord *end = stack->top;
-
-    // If isCode is set we definitely have a code address.  It may have the
-    // bottom bit set or it may be word aligned.
-    if (isCode || val.IsCodePtr())
-    {
-        /* Find the start of the code segment */
-        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
-        // Calculate the byte offset of this value within the code object.
-        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
-        PolyObject *newObject = ScanObjectAddress(oldObject);
-        return PolyWord::FromCodePtr((byte*)newObject + offset);
-    }
-
-    else if (val.IsTagged() || val == PolyWord::FromUnsigned(0) || 
-                 (val.AsAddress() > base && val.AsAddress() <= end))
-            /* We don't need to process tagged integers (now we've checked it isn't
-               a code address) and we don't need to process addresses within the
-               current stack. */
-            /* N.B. We have "<= end" rather than "< end" because it is possible for
-               the stack to be completely empty on a terminated thread. */
-           return val;
-
-    else
-    {
-        ASSERT(val.IsDataPtr());
-        return ScanObjectAddress(val.AsObjPtr());
-    }
-}
-
 // General purpose object processor,  Processes all the addresses in an object.
 // Handles the various kinds of object that may contain addresses.
 void ScanAddress::ScanAddressesInObject(PolyObject *obj, POLYUNSIGNED lengthWord)

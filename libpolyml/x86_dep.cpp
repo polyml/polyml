@@ -4,12 +4,11 @@
     Copyright (c) 2000-7
         Cambridge University Technical Services Limited
 
-    Further work copyright David C. J. Matthews 2011-14
+    Further work copyright David C. J. Matthews 2011-15
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
 
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -237,6 +236,7 @@ public:
     MemRegisters memRegisters;
 
     virtual void GCStack(ScanAddress *process);
+    void ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode);
     virtual Handle EnterPolyCode(); // Start running ML
     virtual void InterruptCode();
     virtual bool GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord *&sp, POLYCODEPTR &pc);
@@ -415,26 +415,30 @@ void X86TaskData::GCStack(ScanAddress *process)
 
         // Either this is TAGGED(0) indicating a retry or it's a code pointer.
         if (stack->p_pc != TAGGED(0).AsCodePtr())
-            stack->p_pc = process->ScanStackAddress (PolyWord::FromCodePtr(stack->p_pc), stackSpace, true).AsCodePtr();
+        {
+            PolyWord ppc = PolyWord::FromCodePtr(stack->p_pc);
+            ScanStackAddress(process, ppc, stackSpace, true);
+            stack->p_pc = ppc.AsCodePtr();
+        }
 
-        stack->p_eax = process->ScanStackAddress(stack->p_eax, stackSpace, false);
-        stack->p_edx = process->ScanStackAddress(stack->p_edx, stackSpace, false);
+        ScanStackAddress(process, stack->p_eax, stackSpace, false);
+        ScanStackAddress(process, stack->p_edx, stackSpace, false);
 
         // Process the registers if they have been saved otherwise clear them
         if (this->memRegisters.fullRestore)
         {
-            stack->p_ebx = process->ScanStackAddress(stack->p_ebx, stackSpace, false);
-            stack->p_ecx = process->ScanStackAddress(stack->p_ecx, stackSpace, false);
-            stack->p_esi = process->ScanStackAddress(stack->p_esi, stackSpace, false);
-            stack->p_edi = process->ScanStackAddress(stack->p_edi, stackSpace, false);
+            ScanStackAddress(process, stack->p_ebx, stackSpace, false);
+            ScanStackAddress(process, stack->p_ecx, stackSpace, false);
+            ScanStackAddress(process, stack->p_esi, stackSpace, false);
+            ScanStackAddress(process, stack->p_edi, stackSpace, false);
 #ifdef HOSTARCHITECTURE_X86_64
-            stack->p_r8 = process->ScanStackAddress(stack->p_r8, stackSpace, false);
-            stack->p_r9 = process->ScanStackAddress(stack->p_r9, stackSpace, false);
-            stack->p_r10 = process->ScanStackAddress(stack->p_r10, stackSpace, false);
-            stack->p_r11 = process->ScanStackAddress(stack->p_r11, stackSpace, false);
-            stack->p_r12 = process->ScanStackAddress(stack->p_r12, stackSpace, false);
-            stack->p_r13 = process->ScanStackAddress(stack->p_r13, stackSpace, false);
-            stack->p_r14 = process->ScanStackAddress(stack->p_r14, stackSpace, false);
+            ScanStackAddress(process, stack->p_r8, stackSpace, false);
+            ScanStackAddress(process, stack->p_r9, stackSpace, false);
+            ScanStackAddress(process, stack->p_r10, stackSpace, false);
+            ScanStackAddress(process, stack->p_r11, stackSpace, false);
+            ScanStackAddress(process, stack->p_r12, stackSpace, false);
+            ScanStackAddress(process, stack->p_r13, stackSpace, false);
+            ScanStackAddress(process, stack->p_r14, stackSpace, false);
 #endif
         }
         else
@@ -456,9 +460,45 @@ void X86TaskData::GCStack(ScanAddress *process)
 
         // Now the values on the stack.
         for (PolyWord *q = stackPtr; q < stackEnd; q++)
-            *q = process->ScanStackAddress(*q, stackSpace, false);
+            ScanStackAddress(process, *q, stackSpace, false);
      }
 }
+
+
+// Process a value within the stack.
+void X86TaskData::ScanStackAddress(ScanAddress *process, PolyWord &val, StackSpace *stack, bool isCode)
+{
+    // The value in the pc may look like a tagged integer but isn't.
+    if (val.IsTagged() && ! isCode) return;
+
+    // We have an address.  Check it's in our memory.  We may have pointers into
+    // the code and we MUSTN'T try to follow them.  We may also have pointers
+    // within the stack.
+    MemSpace *space = gMem.SpaceForAddress(val.AsAddress());
+    if (space == 0)
+        return;
+    if (space->spaceType == ST_STACK)
+        return;
+
+    // If isCode is set we definitely have a code address.  It may have the
+    // bottom bit set or it may be word aligned.
+    if (isCode || val.IsCodePtr())
+    {
+        /* Find the start of the code segment */
+        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
+        // Calculate the byte offset of this value within the code object.
+        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
+        PolyObject *newObject = process->ScanObjectAddress(oldObject);
+        val = PolyWord::FromCodePtr((byte*)newObject + offset);
+    }
+
+    else
+    {
+        ASSERT(val.IsDataPtr());
+        val = process->ScanObjectAddress(val.AsObjPtr());
+    }
+}
+
 
 // Copy a stack
 void X86TaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
@@ -2298,7 +2338,8 @@ void X86Dependent::InitInterfaceVector(void)
 Handle X86TaskData::BuildKillSelf()
 {
     byte *codeAddr = (byte*)&X86AsmKillSelfTemplate;
-    return BuildCodeSegment(codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
+    return saveVec.push(PolyWord::FromCodePtr(codeAddr));
+//    return BuildCodeSegment(codeAddr, MAKE_CALL_SEQUENCE_BYTES, 'K');
 }
 
 // Similarly for the exception trace code.  This is more complicated.
@@ -2307,7 +2348,8 @@ Handle X86TaskData::BuildKillSelf()
 Handle X86TaskData::BuildExceptionTrace()
 {
     byte *codeAddr = (byte*)&X86AsmGiveExceptionTraceFnTemplate;
-    return BuildCodeSegment(codeAddr, 9, 'E');
+    return saveVec.push(PolyWord::FromCodePtr(codeAddr));
+//    return BuildCodeSegment(codeAddr, 9, 'E');
 }
 
 void X86TaskData::SetException(poly_exn *exc)

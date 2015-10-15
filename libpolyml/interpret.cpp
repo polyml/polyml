@@ -114,6 +114,7 @@ public:
     IntTaskData(): interrupt_requested(false) {}
 
     virtual void GCStack(ScanAddress *process);
+    PolyWord ScanStackAddress(ScanAddress *process, PolyWord val, StackSpace *stack, bool isCode);
     virtual Handle EnterPolyCode(); // Start running ML
 
     // Switch to Poly and return with the io function to call.
@@ -1289,27 +1290,61 @@ void IntTaskData::GCStack(ScanAddress *process)
     if (stack != 0)
     {
         StackSpace *stackSpace = stack;
-        PolyWord *stackPtr = this->p_sp; // Save this BEFORE we update
+        PolyWord *stackPtr = this->p_sp;
         PolyWord *stackEnd = stackSpace->top;
 
         // Either this is TAGGED(0) indicating a retry or it's a code pointer.
         if (this->p_pc != TAGGED(0).AsCodePtr())
-            this->p_pc = process->ScanStackAddress (PolyWord::FromCodePtr(this->p_pc), stackSpace, true).AsCodePtr();
+            this->p_pc = ScanStackAddress (process, PolyWord::FromCodePtr(this->p_pc), stackSpace, true).AsCodePtr();
 
         // Stack pointer and handler pointers
-        this->p_sp =
-            process->ScanStackAddress (PolyWord::FromStackAddr(this->p_sp), stackSpace, false).AsStackAddr();
-        this->p_hr =
-            process->ScanStackAddress (PolyWord::FromStackAddr(this->p_hr), stackSpace, false).AsStackAddr();
+        this->p_sp = ScanStackAddress (process, PolyWord::FromStackAddr(this->p_sp), stackSpace, false).AsStackAddr();
+        this->p_hr = ScanStackAddress (process, PolyWord::FromStackAddr(this->p_hr), stackSpace, false).AsStackAddr();
 
         // The exception arg if any
-        this->p_exception_arg = process->ScanStackAddress(this->p_exception_arg, stackSpace, false);
+        this->p_exception_arg = ScanStackAddress(process, this->p_exception_arg, stackSpace, false);
 
         // Now the values on the stack.
         for (PolyWord *q = stackPtr; q < stackEnd; q++)
-            *q = process->ScanStackAddress(*q, stackSpace, false);
+            *q = ScanStackAddress(process, *q, stackSpace, false);
      }
 }
+
+
+// Process a value within the stack.
+PolyWord IntTaskData::ScanStackAddress(ScanAddress *process, PolyWord val, StackSpace *stack, bool isCode)
+{
+    PolyWord *base = stack->bottom;
+    PolyWord *end = stack->top;
+
+    // If isCode is set we definitely have a code address.  It may have the
+    // bottom bit set or it may be word aligned.
+    if (isCode || val.IsCodePtr())
+    {
+        /* Find the start of the code segment */
+        PolyObject *oldObject = ObjCodePtrToPtr(val.AsCodePtr());
+        // Calculate the byte offset of this value within the code object.
+        POLYUNSIGNED offset = val.AsCodePtr() - (byte*)oldObject;
+        PolyObject *newObject = process->ScanObjectAddress(oldObject);
+        return PolyWord::FromCodePtr((byte*)newObject + offset);
+    }
+
+    else if (val.IsTagged() || val == PolyWord::FromUnsigned(0) || 
+                 (val.AsAddress() > base && val.AsAddress() <= end))
+            /* We don't need to process tagged integers (now we've checked it isn't
+               a code address) and we don't need to process addresses within the
+               current stack. */
+            /* N.B. We have "<= end" rather than "< end" because it is possible for
+               the stack to be completely empty on a terminated thread. */
+           return val;
+
+    else
+    {
+        ASSERT(val.IsDataPtr());
+        return process->ScanObjectAddress(val.AsObjPtr());
+    }
+}
+
 
 // Copy a stack
 void IntTaskData::CopyStackFrame(StackObject *old_stack, POLYUNSIGNED old_length, StackObject *new_stack, POLYUNSIGNED new_length)
