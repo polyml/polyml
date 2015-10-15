@@ -1552,18 +1552,22 @@ in
             val argList = CommandLine.arguments()
             fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
             fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
+            val gitVersion =
+                case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (9, ()) of
+                   "" => ""
+                |   s => " (Git version " ^ s ^ ")"
             
             fun switchOption option = List.exists(fn s => s = option) argList
         in
             if switchOption "-v"
             then (* -v option : Print version information and exit *)
                 print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, 
-                                     "    RTS version: ", rtsRelease(), "\n"])
+                                     "    RTS version: ", rtsRelease(), gitVersion, "\n"])
 
             else if switchOption "--help"
             then (* --help option: Print argument information and exit. *)
                (
-                print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+                print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, gitVersion, "\n"]);
                 print "Compiler arguments:\n";
                 print "\n";
                 print "-v                   Print the version of Poly/ML and exit\n";
@@ -1638,7 +1642,7 @@ in
                 val () =
                     if switchOption "-q"
                     then PolyML.print_depth 0
-                    else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
+                    else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, gitVersion, "\n"]);
                 (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
                    If a handler has been set up by an initialisation function don't replace it. *)
                 val () =

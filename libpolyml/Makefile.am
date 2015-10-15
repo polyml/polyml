@@ -1,7 +1,7 @@
 AUTOMAKE_OPTIONS=foreign
 
-AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) -Wall
-AM_CFLAGS = $(CFLAGS) $(OSFLAG) -Wall -fno-strict-aliasing
+AM_CPPFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall
+AM_CFLAGS = $(CFLAGS) $(OSFLAG) $(GIT_VERSION) -Wall -fno-strict-aliasing
 AM_ASFLAGS = $(OSFLAG)
 AM_CCASFLAGS = $(OSFLAG)
 

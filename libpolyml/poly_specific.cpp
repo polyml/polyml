@@ -56,7 +56,15 @@
 #define SAVE(x) taskData->saveVec.push(x)
 
 static const char *poly_runtime_system_copyright =
-"Copyright (c) 2002-12 CUTS, David C.J. Matthews and contributors.";
+"Copyright (c) 2002-15 CUTS, David C.J. Matthews and contributors.";
+
+#ifdef GIT_VERSION
+#define Str(x) #x
+#define Xstr(x) Str(x)
+#define GitVersion             Xstr(GIT_VERSION)
+#else
+#define GitVersion             ""
+#endif
 
 // Property bits for functions.  For compiled functions these are
 // stored in the register mask word.  None of the architectures has
@@ -322,6 +330,11 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return 0;
     case 3:
         return exportPortable(taskData, args); // Export as portable format
+
+    case 9: // Return the GIT version if appropriate
+        {
+             return SAVE(C_string_to_Poly(taskData, GitVersion));
+        }
 
     case 10: // Return the RTS version string.
         {

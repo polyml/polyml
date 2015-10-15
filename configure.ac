@@ -482,6 +482,13 @@ AM_CONDITIONAL([ARCHINTERPRET64], [test "$polyarch" = interpret -a X"$ac_cv_size
 AM_CONDITIONAL([NATIVE_WINDOWS], [test "$poly_native_windows" = yes])
 AM_CONDITIONAL([NO_UNDEFINED], [test "$poly_no_undefined" = yes])
 
+# Test whether this is a git directory and set the version if possible
+AC_CHECK_PROG([gitinstalled], [git], [yes], [no])
+if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
+    GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
+    AC_SUBST(GIT_VERSION)
+fi
+
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.
 AC_CONFIG_COMMANDS([basis], [test -e basis || ln -sf ${ac_top_srcdir}/basis .])
