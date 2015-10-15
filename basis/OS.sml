@@ -220,7 +220,7 @@ struct
                 |   _ => raise Fail "Unknown operating system"
         end
         
-        val isCaseSensitive = isWindows
+        val isCaseSensitive = not isWindows
 
         val isSeparator =
             if isWindows then fn #"/" => true | #"\\" => true | _ => false
