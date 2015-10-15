@@ -522,7 +522,6 @@ ReturnReason        EQU     22  ;# Byte: Reason for returning from ML.
 FullRestore         EQU     23  ;# Byte: Full/partial restore
 PolyStack           EQU     24  ;# Current stack base
 SavedSp             EQU     28  ;# Saved stack pointer
-IOEntryPoint        EQU     48  ;# IO call
 RaiseDiv            EQU     52  ;# Call to raise the Div exception
 ArbEmulation        EQU     56  ;# Arbitrary precision emulation
 ThreadId            EQU     60  ;# My thread id
@@ -538,11 +537,7 @@ ReturnReason        EQU     42  ;# Byte: Reason for returning from ML.
 FullRestore         EQU     43  ;# Byte: Full/partial restore
 PolyStack           EQU     48  ;# Current stack base
 SavedSp             EQU     56  ;# Saved stack pointer
-HeapOverflow        EQU     64  ;# Heap overflow code
-StackOverflow       EQU     72  ;# Stack overflow code
-StackOverflowEx     EQU     80  ;# Stack overflow code (for EDI)
 RaiseExEntry        EQU     88  ;# Raise exception
-IOEntryPoint        EQU     96  ;# IO call
 RaiseDiv            EQU     104  ;# Exception trace
 ArbEmulation        EQU     112  ;# Arbitrary precision emulation
 ThreadId            EQU     120 ;# My thread id
@@ -560,7 +555,6 @@ IFNDEF HOSTARCHITECTURE_X86_64
 .set    FullRestore,23
 .set    PolyStack,24
 .set    SavedSp,28
-.set    IOEntryPoint,48
 .set    RaiseDiv,52
 .set    ArbEmulation,56
 .set    ThreadId,60
@@ -579,7 +573,6 @@ ELSE
 .set    StackOverflow,72
 .set    StackOverflowEx,80
 .set    RaiseExEntry,88
-.set    IOEntryPoint,96
 .set    RaiseDiv,104
 .set    ArbEmulation,112
 .set    ThreadId,120
@@ -2225,7 +2218,9 @@ IFDEF TEST_ALLOC
 ELSE
         CMPL    LocalMbottom[Rebp],Recx
 ENDIF
-        jb      mem_for_real1
+        jnb      mem_for_largeword1
+        call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+mem_for_largeword1:
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
 IFDEF WINDOWS
         mov     FULLWORD ptr (-4)[Recx],01000001h  ;# Length word:
@@ -2237,13 +2232,6 @@ ENDIF
 ;# Else if it is 64-bits just drop through
 
 ;# FLOATING POINT
-;# If we have insufficient space for the result we call in to
-;# main RTS to do the work.  The reason for this is that it is
-;# not safe to make a call into memory allocator and then
-;# continue with the rest of the floating point operation
-;# because that would produce a return address pointing into the
-;# assembly code itself.  It's possible that this is no longer
-;# a problem.
 
 mem_for_real:
 ;# Allocate memory for the result.
@@ -2260,7 +2248,9 @@ IFDEF TEST_ALLOC
 ELSE
         CMPL    LocalMbottom[Rebp],Recx
 ENDIF
-        jb      mem_for_real1
+        jnb      mem_for_real1
+        call	 X86AsmCallExtraRETURN_HEAP_OVERFLOW
+mem_for_real1:
 IFNDEF HOSTARCHITECTURE_X86_64
         MOVL    Recx,LocalMpointer[Rebp] ;# Updated allocation pointer
 IFDEF WINDOWS
@@ -2279,14 +2269,10 @@ ELSE
 ENDIF
 ENDIF
         ret
-mem_for_real1:  ;# Not enough store: clobber bad value in ecx.
-        MOVL   CONST 1,Recx
-    ret
 
 
 real_add:
         call    mem_for_real
-    jb      real_add_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
@@ -2301,17 +2287,14 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-real_add_1:
-    CALLMACRO   CALL_IO    POLY_SYS_Add_real
 ;# The mask includes FP7 rather than FP0 because this pushes a value which
 ;# overwrites the bottom of the stack.
-CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask real_add,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 
 real_sub:
         call    mem_for_real
-    jb      real_sub_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
@@ -2326,15 +2309,11 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-real_sub_1:
-    CALLMACRO   CALL_IO    POLY_SYS_Sub_real
-
-CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask real_sub,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 real_mul:
         call    mem_for_real
-    jb      real_mul_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
@@ -2349,15 +2328,11 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-real_mul_1:
-    CALLMACRO   CALL_IO    POLY_SYS_Mul_real
-
-CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask real_mul,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 real_div:
         call    mem_for_real
-    jb      real_div_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 IFDEF WINDOWS
@@ -2372,10 +2347,7 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-real_div_1:
-    CALLMACRO   CALL_IO    POLY_SYS_Div_real
-
-CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 ;# For all values except NaN it's possible to do this by a test such as
@@ -2383,7 +2355,6 @@ CALLMACRO   RegMask real_div,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
 
 real_abs:
     call    mem_for_real
-    jb      real_abs_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 ;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
@@ -2399,15 +2370,11 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-real_abs_1:
-    CALLMACRO   CALL_IO    POLY_SYS_Abs_real
-
-CALLMACRO   RegMask real_abs,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask real_abs,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 real_neg:
         call    mem_for_real
-    jb      real_neg_1     ;# Not enough space - call RTS.
 ;# Do the operation and put the result in the allocated
 ;# space.
 ;# N.B. Real.~ X is not the same as 0.0 - X.  Real.~ 0.0 is ~0.0;
@@ -2423,10 +2390,7 @@ ENDIF
     MOVL    Recx,Reax
     ret
 
-real_neg_1:
-    CALLMACRO   CALL_IO    POLY_SYS_Neg_real
-
-CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask real_neg,(M_Reax OR M_Recx OR M_Redx OR M_FP7)
 
 
 
@@ -2544,7 +2508,6 @@ real_from_int:
     TESTL   CONST TAG,Reax   ;# Is it long ?
     jz      real_float_1
     call    mem_for_real
-    jb      real_float_1     ;# Not enough space - call RTS.
     SARL    CONST TAGSHIFT,Reax ;# Untag the value
     MOVL    Reax,RealTemp[Rebp] ;# Save it in a temporary (N.B. It's now untagged)
 IFDEF WINDOWS
@@ -2580,38 +2543,38 @@ CALLMACRO INLINE_ROUTINE X86AsmGiveExceptionTraceFn
     ;# The exception packet is the first argument.
 IFDEF WINDOWS
         mov     byte ptr [RequestCode+Rebp],POLY_SYS_give_ex_trace_fn
-        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ELSE
         MOVB    CONST POLY_SYS_give_ex_trace_fn,RequestCode[Rebp]
-        jmp     *IOEntryPoint[Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ENDIF
 
 ;# RTS call to kill the current thread. 
 CALLMACRO INLINE_ROUTINE X86AsmKillSelf
 IFDEF WINDOWS
         mov     byte ptr [RequestCode+Rebp],POLY_SYS_kill_self
-        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ELSE
         MOVB    CONST POLY_SYS_kill_self,RequestCode[Rebp]
-        jmp     *IOEntryPoint[Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ENDIF
 
 CALLMACRO INLINE_ROUTINE X86AsmCallbackReturn
 IFDEF WINDOWS
         mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_RETURN
-        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ELSE
         MOVB    CONST RETURN_CALLBACK_RETURN,ReturnReason[Rebp]
-        jmp     *IOEntryPoint[Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ENDIF
 
 CALLMACRO INLINE_ROUTINE X86AsmCallbackException
 IFDEF WINDOWS
         mov     byte ptr [ReturnReason+Rebp],RETURN_CALLBACK_EXCEPTION
-        jmp     FULLWORD ptr [IOEntryPoint+Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ELSE
         MOVB    CONST RETURN_CALLBACK_EXCEPTION,ReturnReason[Rebp]
-        jmp     *IOEntryPoint[Rebp]
+        jmp     X86AsmSaveStateAndReturn
 ENDIF
 
 ;# This implements atomic addition in the same way as atomic_increment
@@ -2704,42 +2667,32 @@ CALLMACRO   RegMask longword_to_tagged,(M_Reax)
 signed_to_longword:
 ;# Shift the value to remove the tag and store it.
     call    mem_for_largeword
-    jb      signed_to_longword1
     SARL    CONST TAGSHIFT,Reax         ;# Arithmetic shift, preserve sign
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-signed_to_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_signed_to_longword
-CALLMACRO   RegMask signed_to_longword,(M_Reax OR M_Recx OR Mask_all)
+CALLMACRO   RegMask signed_to_longword,(M_Reax OR M_Recx)
 
 unsigned_to_longword:
 ;# Shift the value to remove the tag and store it.
     call    mem_for_largeword
-    jb      unsigned_to_longword1
     SHRL    CONST TAGSHIFT,Reax         ;# Logical shift, zero top bit
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-unsigned_to_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_unsigned_to_longword
-CALLMACRO   RegMask unsigned_to_longword,(M_Reax OR M_Recx OR Mask_all)
+CALLMACRO   RegMask unsigned_to_longword,(M_Reax OR M_Recx)
 
 plus_longword:
     call    mem_for_largeword
-    jb      plus_longword1
     MOVL    [Reax],Reax
     ADDL    [Rebx],Reax
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-plus_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_plus_longword
-CALLMACRO   RegMask plus_longword,(M_Reax OR M_Recx OR Mask_all)
+CALLMACRO   RegMask plus_longword,(M_Reax OR M_Recx)
 
 minus_longword:
     call    mem_for_largeword
-    jb      minus_longword1
     MOVL    [Reax],Reax
     SUBL    [Rebx],Reax
     MOVL    Reax,[Recx]
@@ -2747,11 +2700,10 @@ minus_longword:
     ret
 minus_longword1:
     CALLMACRO   CALL_IO POLY_SYS_minus_longword
-CALLMACRO   RegMask minus_longword,(M_Reax OR M_Recx OR Mask_all)
+CALLMACRO   RegMask minus_longword,(M_Reax OR M_Recx)
 
 mul_longword:
     call    mem_for_largeword
-    jb      mul_longword1
     MOVL    [Reax],Reax
 IFDEF WINDOWS
     mul     FULLWORD ptr [Rebx]
@@ -2762,9 +2714,7 @@ ENDIF
     MOVL    Recx,Reax
     MOVL    Reax,Redx           ;# clobber this which has the high-end result
     ret
-mul_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_mul_longword
-CALLMACRO   RegMask mul_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask mul_longword,(M_Reax OR M_Recx OR M_Redx)
 
 div_longword:
 IFDEF WINDOWS
@@ -2774,7 +2724,6 @@ ELSE
 ENDIF
     jz      raise_div_ex
     call    mem_for_largeword
-    jb      div_longword1
     MOVL    [Reax],Reax
     MOVL    CONST 0,Redx
 IFDEF WINDOWS
@@ -2786,9 +2735,8 @@ ENDIF
     MOVL    Recx,Reax
     MOVL    Reax,Redx           ;# clobber this which has the remainder
     ret
-div_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_div_longword
-CALLMACRO   RegMask div_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   RegMask div_longword,(M_Reax OR M_Recx OR M_Redx)
 
 mod_longword:
 IFDEF WINDOWS
@@ -2798,7 +2746,6 @@ ELSE
 ENDIF
     jz      raise_div_ex
     call    mem_for_largeword
-    jb      mod_longword1
     MOVL    [Reax],Reax
     MOVL    CONST 0,Redx
 IFDEF WINDOWS
@@ -2810,49 +2757,41 @@ ENDIF
     MOVL    Recx,Reax
     MOVL    Reax,Redx           ;# clobber this which has the remainder
     ret
-mod_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_mod_longword
-CALLMACRO   RegMask mod_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+
+CALLMACRO   RegMask mod_longword,(M_Reax OR M_Recx OR M_Redx)
 
 andb_longword:
     call    mem_for_largeword
-    jb      andb_longword1
     MOVL    [Reax],Reax
     ANDL    [Rebx],Reax
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-andb_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_andb_longword
-CALLMACRO   RegMask andb_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   RegMask andb_longword,(M_Reax OR M_Recx)
 
 orb_longword:
     call    mem_for_largeword
-    jb      orb_longword1
     MOVL    [Reax],Reax
     ORL     [Rebx],Reax
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-orb_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_orb_longword
-CALLMACRO   RegMask orb_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   RegMask orb_longword,(M_Reax OR M_Recx)
 
 xorb_longword:
     call    mem_for_largeword
-    jb      xorb_longword1
     MOVL    [Reax],Reax
     XORL    [Rebx],Reax
     MOVL    Reax,[Recx]
     MOVL    Recx,Reax
     ret
-xorb_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_xorb_longword
-CALLMACRO   RegMask xorb_longword,(M_Reax OR M_Recx OR Mask_all)
+
+CALLMACRO   RegMask xorb_longword,(M_Reax OR M_Recx)
 
 shift_left_longword:
     call    mem_for_largeword
-    jb      shift_left_longword1
     MOVL    Recx,Redx           ;# We need Recx for the shift
  ;# The shift value is always a Word.word value i.e. tagged
  ;# LargeWord.<<(a,b) is defined to return 0 if b > LargeWord.wordSize
@@ -2874,13 +2813,10 @@ sllw2:
     MOVL    Redx,Reax
     MOVL    Reax,Recx           ;# Clobber Recx
     ret
-shift_left_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_shift_left_longword
-CALLMACRO   RegMask shift_left_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask shift_left_longword,(M_Reax OR M_Recx OR M_Redx)
 
 shift_right_longword:
     call    mem_for_largeword
-    jb      shift_right_longword1
     MOVL    Recx,Redx           ;# We need Recx for the shift
  ;# The shift value is always a Word.word value i.e. tagged
  ;# LargeWord.>>(a,b) is defined to return 0 if b > LargeWord.wordSize
@@ -2902,13 +2838,10 @@ srlw2:
     MOVL    Redx,Reax
     MOVL    Reax,Recx           ;# Clobber Recx
     ret
-shift_right_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_shift_right_longword
-CALLMACRO   RegMask shift_right_longword,(M_Reax OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask shift_right_longword,(M_Reax OR M_Recx OR M_Redx)
 
 shift_right_arith_longword:
     call    mem_for_largeword
-    jb      shift_right_arith_longword1
     MOVL    Recx,Redx           ;# We need Recx for the shift
  ;# The shift value is always a Word.word value i.e. tagged
  ;# LargeWord.~>>(a,b) is defined to return 0 or ~1 if b > LargeWord.wordSize
@@ -2933,9 +2866,7 @@ sralw1:
     MOVL    Redx,Reax
     MOVL    Reax,Recx           ;# Clobber Recx
     ret
-shift_right_arith_longword1:
-    CALLMACRO   CALL_IO POLY_SYS_shift_right_arith_longword
-CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx OR Mask_all)
+CALLMACRO   RegMask shift_right_arith_longword,(M_Reax OR M_Rebx OR M_Recx OR M_Redx)
 
 ;# C-memory operations.
 cmem_load_8:
@@ -3005,7 +2936,6 @@ CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx)
 ELSE
 ;# 32-bit mode - the result is boxed
     call    mem_for_largeword
-    jb      cmem_load_32_1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3015,15 +2945,12 @@ ELSE
     MOVL    Recx,Reax               ;# Copy the result address
     RET3
 
-cmem_load_32_1:
-    CALLMACRO   CALL_IO POLY_SYS_cmem_load_32
-CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx OR M_Recx OR Mask_all)
+CALLMACRO   RegMask cmem_load_32,(M_Reax OR M_Rebx OR M_Recx)
 ENDIF
 
 cmem_load_64: ;# The result is boxed in 64-bit mode. Not implemented in 32-bit mode
 IFDEF HOSTARCHITECTURE_X86_64
     call    mem_for_largeword
-    jb      cmem_load_64_1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3033,14 +2960,11 @@ IFDEF HOSTARCHITECTURE_X86_64
     MOVL    Reax,Rebx               ;# Clobber bad value
     RET3
 
-cmem_load_64_1:
-    CALLMACRO   CALL_IO POLY_SYS_cmem_load_64
-CALLMACRO   RegMask cmem_load_64,(M_Reax OR M_Rebx OR M_Recx OR Mask_all)
+CALLMACRO   RegMask cmem_load_64,(M_Reax OR M_Rebx OR M_Recx)
 ENDIF
 
 cmem_load_float:
     call    mem_for_real
-    jb      cmem_load_float1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3058,13 +2982,11 @@ ELSE
 ENDIF
     MOVL    Recx,Reax
     RET3
-cmem_load_float1:
-     CALLMACRO   CALL_IO POLY_SYS_cmem_load_float
-CALLMACRO   RegMask cmem_load_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7 OR Mask_all)
+
+CALLMACRO   RegMask cmem_load_float,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
 
 cmem_load_double:
     call    mem_for_real
-    jb      cmem_load_double1
     MOVL    [Reax],Reax             ;# The address is boxed.
     SARL    CONST TAGSHIFT,Rebx     ;# The offset is a signed tagged value
     ADDL    Rebx,Reax               ;# Add it in
@@ -3085,7 +3007,7 @@ ENDIF
 
 cmem_load_double1:
      CALLMACRO   CALL_IO POLY_SYS_cmem_load_double
-CALLMACRO   RegMask cmem_load_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7 OR Mask_all)
+CALLMACRO   RegMask cmem_load_double,(M_Reax OR M_Rebx OR M_Recx OR M_FP7)
    
 cmem_store_8:
     MOVL    [Reax],Reax             ;# The address is boxed.

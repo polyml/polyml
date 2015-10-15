@@ -207,19 +207,15 @@ typedef struct _MemRegisters {
     PolyWord    *unusedNow;         // Previously: Upper limit of stack
     // These offsets are built into the assembly code section
     byte        requestCode;        // IO function to call.
-        // The offset (20/40) of requestCode is built into the MAKE_IO_CALL_SEQUENCE macro
     byte        inRTS;              // Flag indicating we're not in ML
     byte        returnReason;       // Reason for returning from ML.
     byte        fullRestore;        // 0 => clear registers, 1 => reload registers
-        // The offset (22/42) of returnReason is built into the MAKE_IO_CALL_SEQUENCE macro
     StackObject *polyStack;         // Current stack base
     PolyWord    *savedSp;           // Saved C stack pointer
-
     byte        *heapOverflow;      // Called when the heap limit is reached
     byte        *stackOverflow;     // Called when the stack limit is reached
     byte        *stackOverflowEx;   // Called when the stack limit is reached (alternate)
     byte        *raiseException;    // Called to raise an exception.  The packet is passed in eax.
-    // The offset (48/96) of ioEntry is built into the MAKE_IO_CALL_SEQUENCE macro
     byte        *ioEntry;           // Called for an IO function
     byte        *raiseDiv;          // Called to raise the Div exception.
     byte        *arbEmulation;      // This address is called to emulate an arbitrary precision op
@@ -1837,33 +1833,26 @@ void X86TaskData::HeapOverflowTrap()
 
     ASSERT (wordsNeeded <= (1<<24)); /* Max object size including length/flag word is 2^24 words.  */
 #else /* HOSTARCHITECTURE_X86_64 */
+    ASSERT(stack->p_pc[1] == 0x89 || stack->p_pc[1] == 0x8b);
     if (stack->p_pc[1] == 0x89)
     {
         // New (5.4) format.  This should be movq REG,%r15
         ASSERT(stack->p_pc[0] == 0x49 || stack->p_pc[0] == 0x4d);
         mdTask->allocReg = (stack->p_pc[2] >> 3) & 7; // Remember this until we allocate the memory
         if (stack->p_pc[0] & 0x4) mdTask->allocReg += 8;
-        PolyWord *reg = get_reg(this->allocReg);
-        PolyWord reg_val = *reg;
-        wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
-        *reg = TAGGED(0); // Clear this - it's not a valid address.
     }
     else
     {
-        // Old (pre-5.4) format.
-        // This should be movq Length,-8(%r15)
-        ASSERT(stack->p_pc[0] == 0x49 && stack->p_pc[1] == 0xc7 && stack->p_pc[2] == 0x47 && stack->p_pc[3] == 0xf8);
-        // The Length field should be in the next word.  N.B.  This assumes that
-        // the length word < 2^31.
-        ASSERT((stack->p_pc[7] & 0x80) == 0); // Should not be negative
-        for (unsigned i = 7; i >= 4; i--) wordsNeeded = (wordsNeeded << 8) | stack->p_pc[i];
-        wordsNeeded += 1; // That was the object size. We need to add one for the length word.
-        mdTask->allocReg = 15; // Don't put it in a register
-        // The value that ends up in allocSpace->pointer includes the
-        // attempted allocation.  Add back the space we tried to allocate
-        this->allocPointer += wordsNeeded;
+        // Alternative form of movq REG,%r15
+        ASSERT(stack->p_pc[0] == 0x4c || stack->p_pc[0] == 0x4d);
+        mdTask->allocReg = stack->p_pc[2] & 7; // Remember this until we allocate the memory
+        if (stack->p_pc[0] & 0x1) mdTask->allocReg += 8;
     }
-#endif /* HOSTARCHITECTURE_X86_64 */
+    PolyWord *reg = get_reg(this->allocReg);
+    PolyWord reg_val = *reg;
+    wordsNeeded = (this->allocPointer - (PolyWord*)reg_val.AsAddress()) + 1;
+    *reg = TAGGED(0); // Clear this - it's not a valid address.
+ #endif /* HOSTARCHITECTURE_X86_64 */
     if (profileMode == kProfileStoreAllocation)
         add_count(this, stack->p_pc, stack->p_sp, wordsNeeded);
 
