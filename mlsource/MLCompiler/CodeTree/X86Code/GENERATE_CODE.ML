@@ -52,34 +52,300 @@ end =
 (*                  GCODE functor body                                       *)
 (*****************************************************************************)
 struct
-    open CODECONS;
-    open CODEGEN_TABLE;
-    open Address;
-    open Misc; (* after address, so we get Misc.length, not Address.length *)
+    structure LowerLevelsUsed:
+        sig
+            type code
+            type reg
+            val regClosure:  reg
+            val regStackPtr: reg
+            datatype argType = ArgGeneral | ArgFP
+            val argRegs: argType list -> reg option list
+            val resultReg: argType -> reg
+
+            structure RegSet:
+            sig
+                eqtype regSet
+                val singleton: reg -> regSet
+                val allRegisters: regSet
+                val generalRegisters: regSet
+                val floatingPtRegisters: regSet
+                val noRegisters: regSet
+                val regSetUnion: regSet * regSet -> regSet
+                val inSet: reg * regSet -> bool
+                val listToSet: reg list -> regSet
+            end
+
+            datatype regHint = UseReg of RegSet.regSet | NoHint | NoResult
+            type operation
+            type operations = operation list
+            type forwardLabel
+            type backwardLabel
+        
+            val activeRegister: reg -> operations
+            val returnFromFunction: int -> operations
+            val resetStack: int -> operations
+            val raiseException: operations
+            val pushRegisterToStack: reg -> operations
+            val pushCurrentHandler: operations
+            val storeToHandler: reg -> operations
+            val allocStore: { size: int, flags: Word8.word, output: reg } -> operations
+            val allocationComplete: operations
+            val backJumpLabel: unit -> operations * backwardLabel
+            val forwardJumpLabel: forwardLabel -> operations
+            val indexedCase:
+                    { testReg: reg, workReg: reg, minCase: word, maxCase: word,
+                      isArbitrary: bool, isExhaustive: bool } -> operations * forwardLabel list * forwardLabel
+            
+            datatype callKinds =
+                Recursive
+            |   ConstantClosure of Address.machineWord
+            |   ConstantCode of Address.machineWord
+            |   CodeFun of code
+            |   FullCall
+            
+            val callFunction: callKinds -> operations
+            val jumpToFunction: callKinds  -> operations
+
+
+            val codeCreate: bool * string * Address.machineWord * Universal.universal list -> code  (* makes the initial segment. *)
+            val copyCode: code * operations * int * RegSet.regSet * bool -> Address.address
+
+            (*val codeAddress: code -> address option*)
+            val addCompletionHook: code * (code * Address.machineWord -> unit) -> unit
+
+            type negotiateTests
+            type 'a tests
+            val testNeqW:  'a tests
+            val testEqW:   'a tests
+            val testGeqW:  'a tests
+            val testGtW:   'a tests
+            val testLeqW:  'a tests
+            val testLtW:   'a tests
+            val testNeqA:  'a tests
+            val testEqA:   'a tests
+            val testGeqA:  'a tests
+            val testGtA:   'a tests
+            val testLeqA:  'a tests
+            val testLtA:   'a tests
+            val Short:     'a tests
+            val Long:      'a tests
+            val testNeqFP: 'a tests
+            val testEqFP:  'a tests
+            val testGeqFP: 'a tests
+            val testGtFP:  'a tests
+            val testLeqFP: 'a tests
+            val testLtFP:  'a tests
+            val byteVecEq: 'a tests
+            and byteVecNe: 'a tests
+
+            type negotiation
+            type 'a instrs
+            val instrVeclen: 'a instrs
+            val instrVecflags: 'a instrs
+            val instrGetFirstLong: 'a instrs
+            val instrStringLength: 'a instrs
+
+            val instrAddA: 'a instrs
+            and instrSubA: 'a instrs
+            and instrMulA: 'a instrs
+            and instrAddW: 'a instrs
+            and instrSubW: 'a instrs
+            and instrMulW: 'a instrs
+            and instrDivW: 'a instrs
+            and instrModW: 'a instrs
+            and instrOrW: 'a instrs
+            and instrAndW: 'a instrs
+            and instrXorW: 'a instrs
+            and instrLoad: 'a instrs
+            and instrLoadB: 'a instrs
+            and instrUpshiftW: 'a instrs    (* logical shift left *)
+            and instrDownshiftW: 'a instrs  (* logical shift right *)
+            and instrDownshiftArithW: 'a instrs  (* arithmetic shift right *)
+            and instrSetStringLength: 'a instrs
+            and instrThreadSelf: 'a instrs
+            and instrAtomicIncr: 'a instrs
+            and instrAtomicDecr: 'a instrs
+            and instrStoreW: 'a instrs
+            and instrStoreB: 'a instrs
+            and instrLockSeg: 'a instrs
+            and instrAddFP: 'a instrs
+            and instrSubFP: 'a instrs
+            and instrMulFP: 'a instrs
+            and instrDivFP: 'a instrs
+            and instrAbsFP: 'a instrs
+            and instrNegFP: 'a instrs
+            and instrIntToRealFP: 'a instrs
+            and instrRealToIntFP: 'a instrs
+            and instrSqrtFP: 'a instrs
+            and instrSinFP: 'a instrs
+            and instrCosFP: 'a instrs
+            and instrAtanFP: 'a instrs
+            and instrExpFP: 'a instrs
+            and instrLnFP: 'a instrs
+            and instrAllocStore: 'a instrs
+            and instrMoveBytes: 'a instrs
+            and instrMoveWords: 'a instrs
+
+            val checkAndReduce: 'a instrs * 'a list * ('a -> Address.machineWord option) -> (negotiation * 'a list) option
+
+            val checkAndReduceBranches: 'a tests * 'a list * ('a -> Address.machineWord option) -> (negotiateTests * 'a list) option
+
+            type regSet = RegSet.regSet
+            type machineWord = Address.machineWord
+            type ttab
+            type loopPush
+
+
+            type addrs
+            type savedState
+
+
+            val ttabCreate: int * Universal.universal list -> ttab
+
+            (* Register allocation *)
+            val getRegister:    ttab * reg -> operation list
+            val getRegisterInSet: ttab * regSet -> reg * operation list
+            val freeRegister:   ttab * reg -> operation list
+            val addRegUse:      ttab * reg -> operation list
+            val removeRegistersFromCache: ttab * regSet -> operation list
+
+            (* Stack handling *)
+            eqtype stackIndex
+
+            val noIndex: stackIndex
+
+            (* Push entries *)
+            val pushReg:      ttab * reg  -> stackIndex;
+            val pushStack:    ttab * int  -> stackIndex
+            val pushConst:    ttab * machineWord -> stackIndex
+            val pushCodeRef:  ttab * code -> stackIndex;
+            val pushAllBut:   ttab * ((stackIndex -> unit) -> unit) * regSet -> operation list
+            val pushNonArguments: ttab * stackIndex list * regSet -> reg list * operation list
+            val pushSpecificEntry: ttab * stackIndex -> operation list
+            val incsp:        ttab -> stackIndex;
+            val decsp:        ttab*int -> unit;
+            val reserveStackSpace: ttab * int -> stackIndex * operation list
+
+            (* Code entries *)
+            val loadEntryToSet:    ttab * stackIndex * regSet * bool -> reg * stackIndex * operation list
+            val loadToSpecificReg: ttab * reg * stackIndex * bool -> stackIndex * operation list
+            val lockRegister:      ttab * reg -> unit
+            val unlockRegister:    ttab * reg -> operation list
+            val loadIfArg:         ttab * stackIndex -> stackIndex * operation list
+            val indirect:          int * stackIndex * ttab -> stackIndex * operation list
+            val moveToVec:         stackIndex * stackIndex * int * ttab -> operation list
+            val ensureNoAllocation: ttab * stackIndex -> stackIndex * operation list
+
+            val removeStackEntry: ttab*stackIndex -> operation list
+
+            val resetButReload:   ttab * int -> operation list
+            val pushValueToStack: ttab * stackIndex * int -> stackIndex * operation list
+            val storeInStack:     ttab * stackIndex * int -> stackIndex * operation list
+            val realstackptr:     ttab -> int
+            val maxstack:         ttab -> int
+            val parameterInRegister: reg * int * ttab -> stackIndex
+            val incrUseCount:     ttab * stackIndex * int -> operation list
+    
+            val setLifetime:      ttab * stackIndex * int -> unit
+
+            type stackMark
+            val markStack: ttab -> stackMark
+            val unmarkStack: ttab * stackMark -> unit
+
+            type labels;
+
+            val noJump: labels
+            val isEmptyLabel: labels -> bool
+
+            datatype mergeResult = NoMerge | MergeIndex of stackIndex;
+
+            val unconditionalBranch: mergeResult * ttab -> labels * operation list
+            val makeLabels: mergeResult * forwardLabel * savedState -> labels
+            val jumpBack: backwardLabel * ttab -> operation list
+
+            val fixup: labels * ttab -> operation list
+            val merge: labels * ttab * mergeResult * stackMark -> mergeResult * operation list
+
+            type handler;
+
+            val pushAddress: ttab * int -> stackIndex * handler * operation list
+            val fixupH:      handler * int * ttab -> operation list
+            val reloadHandler: ttab * stackIndex -> operation list
+
+            val exiting: ttab -> unit
+            val haveExited: ttab -> bool
+
+            val dataOp: stackIndex list * negotiation * ttab * regHint -> stackIndex * operation list
+
+            val compareAndBranch: stackIndex list * negotiateTests * ttab -> labels * operation list
+
+            val saveState : ttab -> savedState
+            val compareLoopStates: ttab * savedState * stackIndex list -> regSet * loopPush list
+            val restoreLoopState: ttab * savedState * regSet * loopPush list -> operation list
+
+            (* Temporary checking that the stack has been emptied. *)
+            val checkBlockResult: ttab * mergeResult -> unit
+
+            val chooseRegister : ttab -> reg option
+
+            val getRegisterSetForFunction: machineWord -> regSet
+            val addModifiedRegSet: ttab * regSet -> unit
+
+            val getModifedRegSet: ttab -> regSet
+
+            datatype argdest = ArgToRegister of reg | ArgToStack of int | ArgDiscard
+            val getLoopDestinations: stackIndex list * ttab -> argdest list * operation list
+
+            val callCode: stackIndex * bool * ttab -> operation list
+            val jumpToCode: stackIndex * bool * ttab -> operation list
+
+            (* Get constants or code refs, which are really constants. *)
+            datatype constEntry = ConstLit of machineWord | ConstCode of code | NotConst
+
+            val isConstant: stackIndex * ttab -> constEntry
+            val isRegister: stackIndex * ttab -> reg option
+            val isContainer: stackIndex * ttab -> bool
+
+            val createStackClosure: ttab * stackIndex list -> stackIndex * operation list
+            val setRecursiveClosureEntry: stackIndex * stackIndex * int * ttab -> operation list
+
+        end =
+    struct
+        open CODEGEN_TABLE
+        open CODECONS (* Need this afterwards because regHint is just an eqtype in CODEGEN_TABLE *)
+        val jumpBack = CODEGEN_TABLE.jumpBack
+        and freeRegister = CODEGEN_TABLE.freeRegister
+    end
+
+    open LowerLevelsUsed
+
+    (*open Address;*)
+    (*open Misc;*) (* after address, so we get Misc.length, not Address.length *)
+    exception InternalError = Misc.InternalError
+    val wordEq = Address.wordEq
     open RuntimeCalls; (* for POLY_SYS numbers *)
     open BACKENDTREE;
     
     open RegSet
 
-    val F_mutable_words = Word8.orb (F_mutable, F_words);
-
-    val objLength = Address.length;
-
-    infix 7 regEq regNeq;
-
-(*************************** end of copied code *****************************)  
+    local
+        open Address
+    in
+        val F_mutable_words = Word8.orb (F_mutable, F_words)
+        val F_words = Address.F_words
    
+        val word0 = toMachineWord 0
+        val word1 = toMachineWord 1
+
+        val DummyValue : machineWord = word0 (* used as result of "raise e" etc. *)
+        val False : machineWord = word0     (* false *)
+        val True  : machineWord = word1     (* true *)
+        val Zero  : machineWord = word0     (* 0 *)
+    end
+
     (* gets a value from the run-time system; 
        usually this is a closure, but sometimes it's an int.  *)
     val ioOp : int -> machineWord = RunCall.run_call1 POLY_SYS_io_operation;
-   
-    val word0 = toMachineWord 0;
-    val word1 = toMachineWord 1;
-
-    val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
-    val False : machineWord = word0;     (* false *)
-    val True  : machineWord = word1;     (* true *)
-    val Zero  : machineWord = word0;     (* 0 *)
 
     val constntTrue  = BICConstnt(True, [])
     val constntFalse = BICConstnt(False, [])
@@ -223,7 +489,7 @@ struct
                val moveCode = moveToVec (resAddr, pushConst(transtable, profileObject), csize, transtable)
             in
                 (resAddr, moveCode @
-                             allocStore {size=csize+1, flags=Word8.orb(flag, F_profile), output=resultReg} @ regCode)
+                             allocStore {size=csize+1, flags=Word8.orb(flag, Address.F_profile), output=resultReg} @ regCode)
             end
             else (resAddr, allocStore {size=csize, flags=flag, output=resultReg} @ regCode)
         end;
@@ -912,7 +1178,7 @@ struct
                 if List.exists(fn NotConst => true | _ => false) asConstants
                 then
                 let
-                    fun loadSmallVector ([], _) = callgetvec (vecsize, F_words, whereto, transtable)
+                    fun loadSmallVector ([], _) = callgetvec (vecsize, Address.F_words, whereto, transtable)
 
                     |   loadSmallVector (v::t, wordOffset) =
                         let
@@ -935,6 +1201,7 @@ struct
                        recursive reference.  That does occur with equality functions. *)
                     (* Construct a mutable object and fill it in. *)
                     val toFill = ref vecsize
+                    open Address
                     val vec : address = alloc(toShort(toMachineWord vecsize), F_mutable_words, toMachineWord 0)
 
                     (* Set the element in the address.  If this is a forward reference to a
@@ -1041,7 +1308,7 @@ struct
                 val code =
                     BICEval {
                         function = BICConstnt(ioOp POLY_SYS_word_eq, []),
-                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag, []), GeneralType)],
+                        argList=[(test, GeneralType), (BICConstnt(Address.toMachineWord tag, []), GeneralType)],
                         resultType=GeneralType }
             in
                 gencde (code, true(* Try to put in-line *), whereto, tailKind, loopAddr)
@@ -1216,7 +1483,7 @@ struct
                             localCount, profileObject, debugSwitches)
                 
                 val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
-                val result = pushConst (transtable, toMachineWord closureAddr);
+                val result = pushConst (transtable, Address.toMachineWord closureAddr);
                 (* Clear off the constant entries. *)
                 val () = List.app(fn n => codeGenerate(incrUseCount(transtable, n, ~1), cvec)) initialLocs
                 (* Handle any other recursive functions. *)
@@ -1265,7 +1532,7 @@ struct
 
                 val codeAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         
-                val res = toMachineWord codeAddr
+                val res = Address.toMachineWord codeAddr
 
                 (* Build the closure.  If there are outstanding entries it has to be mutable and we
                    can't complete it until we've done the other mutually recursive entries.  *)
@@ -1506,7 +1773,7 @@ struct
       | BICCase {cases = [(result, tag)], test, default, ...} =>
         let
           val equalFun  : backendIC = BICConstnt (ioOp POLY_SYS_equala, [])
-          val arguments = [(test, GeneralType), (BICConstnt (toMachineWord tag, []), GeneralType)]
+          val arguments = [(test, GeneralType), (BICConstnt (Address.toMachineWord tag, []), GeneralType)]
           val eqTest    : backendIC = 
              BICEval {function = equalFun, argList = arguments, resultType=GeneralType};
         in
@@ -1539,7 +1806,7 @@ struct
                 val code =
                     BICEval {
                         function = BICConstnt(ioOp POLY_SYS_word_eq, []),
-                        argList=[(test, GeneralType), (BICConstnt(toMachineWord tag, []), GeneralType)],
+                        argList=[(test, GeneralType), (BICConstnt(Address.toMachineWord tag, []), GeneralType)],
                         resultType=GeneralType }
             in
                 genTest(code, jumpOn)
@@ -1583,7 +1850,7 @@ struct
             (
               case arg of
                 BICConstnt (w, _) =>
-                  if isShort w
+                  if Address.isShort w
                   then genTest (constntTrue,  jumpOn)
                   else genTest (constntFalse, jumpOn)
         
@@ -1893,9 +2160,9 @@ struct
                          SOME(BICConstnt(w, _)) =>
                             (* Do we need to load the closure register? *)
                             let
-                                val addr = toAddress w;
+                                val addr = Address.toAddress w;
                             in
-                                if isIoAddress addr
+                                if Address.isIoAddress addr
                                 then (* We don't need the closure register but we can't
                                         do the indirection here.  That's because the
                                         code address isn't valid.  We have to do the
@@ -1903,10 +2170,10 @@ struct
                                     (SOME(pushConst(transtable, w)), true, [], [])
                                 else
                                 let
-                                    val code : machineWord = loadWord (addr, 0w0)
+                                    val code : machineWord = Address.loadWord (addr, 0w0)
                                     val codeLocn = pushConst(transtable, code)
                                 in
-                                    if objLength addr = 0w1
+                                    if Address.length addr = 0w1
                                     then (* The closure is just one word - we don't need to
                                             put it in the closure register since the function
                                             won't need it.  Do the indirection now. *)
@@ -2159,9 +2426,9 @@ struct
                 BICConstnt (oper, _) =>
                 let
                     val args = List.map #1 argList
-                    val addr = toAddress oper
+                    val addr = Address.toAddress oper
                 in
-                    if isIoAddress addr
+                    if Address.isIoAddress addr
                     then
                     (
                         if wordEq (oper,ioOp POLY_SYS_thread_self)
@@ -2253,6 +2520,7 @@ struct
                             (* This is used to allocate all memory apart from tuples and
                                closures.  We particularly want to be able to profile the
                                allocation of refs so we consider them specially. *)
+                            open Address
                         in
                             case args of
                                 [BICConstnt(len, _), BICConstnt(flag, _), initValArg] =>
@@ -2515,7 +2783,7 @@ struct
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in
             (* Result is a function which returns the address of the function. *)
-            (fn () => (toMachineWord closureAddr), [])
+            (fn () => (Address.toMachineWord closureAddr), [])
         end
  
     |   gencode (pt, debugSwitches, localCount) =
@@ -2535,7 +2803,7 @@ struct
                     debugSwitches)
             val closureAddr = copyCode (newCode, ops, maxStack, regList, callsAFunction)
         in (* Result is a function to execute the code. *)
-            (fn () => call (closureAddr, toMachineWord ()), [])
+            (fn () => Address.call (closureAddr, Address.toMachineWord ()), [])
         end (* gencode *)
 
 end; (* GCODE functor body *)
