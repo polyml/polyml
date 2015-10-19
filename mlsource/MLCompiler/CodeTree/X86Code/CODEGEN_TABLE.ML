@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 1991, 2000-2001, 2009-10, 2012-13
+    Copyright David C. J. Matthews 1991, 2000-2001, 2009-15
 
     Derived from code
 
@@ -8,8 +8,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1856,28 +1855,6 @@ struct
         getRegisterSet rSet
     end
 
-    fun getRegisterSetForCode (cvec: code) : regSet =
-    (* Get the register set for a forward reference which may or may not
-     have already been compiled. *)
-    case codeAddress cvec of
-        SOME addr => (* Now compiled - return the register set. *)
-            getRegisterSetForFunction (toMachineWord addr)
-    |   NONE =>
-         (* We haven't compiled this yet: assume worst case. *) allRegisters
-
-    (* Get the register set for an entry on the stack which will be the entry
-       point of a function.  If it's not a constant we have to assume it
-       modifies any of the registers. *)
-    fun getFunctionRegSet(index: stackIndex, transtab: ttab) : regSet =
-    let
-        val {ent = stacken, ...} = pstackRealEntry(transtab, index)
-    in    
-        case stacken of
-            Literal lit => getRegisterSetForFunction lit
-        |   CodeRef code => getRegisterSetForCode code
-        |   _ => allRegisters
-    end
-
     (* An optional result. i.e. if the code before the jump has returned a result
        this is the offset in the table of the result. *)
     datatype mergeResult = NoMerge | MergeIndex of stackIndex;
@@ -2725,22 +2702,6 @@ struct
         let
             val resCode = mergeLab (lab, table, carry, mark);
         in (* Reset the marker even if we have not actually done any merging. *)
-            unmarkStack(table, mark);
-            resCode
-        end;
-
-        (* Fix up a list of labels, using the same stack mark *)
-        fun mergeList (labs, table, carry, mark) =
-        let
-            fun mergeLabs (l, (carry, otherCode)) =
-            let
-                val (newCarry, code) = mergeLab (l, table, carry, mark)
-            in
-                (newCarry, code @ otherCode)
-            end
-  
-            val resCode = List.foldl mergeLabs (carry, []) labs
-        in
             unmarkStack(table, mark);
             resCode
         end;

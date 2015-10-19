@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2009, 2012-13
+    Copyright David C. J. Matthews 2009, 2012-15
     
     Derived from code
     Copyright (c) 2000
@@ -7,8 +7,7 @@
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -103,7 +102,6 @@ sig
 
     val fixup: labels * ttab -> operation list
     val merge: labels * ttab * mergeResult * stackMark -> mergeResult * operation list
-    val mergeList: labels list * ttab * mergeResult * stackMark -> mergeResult * operation list
 
     type handler;
 
@@ -129,9 +127,7 @@ sig
     val chooseRegister : ttab -> reg option
 
     val getRegisterSetForFunction: machineWord -> regSet
-    val getRegisterSetForCode: code -> regSet
 
-    val getFunctionRegSet: stackIndex * ttab -> regSet
     val addModifiedRegSet: ttab * regSet -> unit
 
     val getModifedRegSet: ttab -> regSet
