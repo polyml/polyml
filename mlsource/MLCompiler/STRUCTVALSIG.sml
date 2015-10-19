@@ -138,7 +138,6 @@ sig
         Print
     |   GetPretty
     |   MakeString
-    |   InstallPP
     |   AddPretty
     |   Equal
     |   NotEqual

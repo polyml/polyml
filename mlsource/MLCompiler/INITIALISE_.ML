@@ -1025,25 +1025,6 @@ struct
             val () = enterPolyMLVal ("addPrettyPrinter", addPrettyVal);
         end;
 
-        local
-            (* Old install_pp function to install a pretty-printer. *)
-            val a = makeTV ()
-            val b = makeTV ()
-        
-            val printTupleType =
-                TYPETREE.mkProductType
-                 [
-                   String ->> Unit,      (* addString *)
-                   Int ** Bool ->> Unit, (* beginBracket *)
-                   Int ** Int ->> Unit,  (* space *)
-                   Unit ->> Unit         (* endBracket *)
-                 ];
-            val installPPType = (printTupleType ->> Int ->> b ->> a ->> Unit) ->> Unit;
-            val installPPVal  = mkSpecialFun("install_pp", installPPType, InstallPP);
-        in
-            val () = enterPolyMLVal ("install_pp", installPPVal);
-        end;
-
         (* This goes in RunCall since it's only for the basis library. *)
         local
             val addOverloadType =
