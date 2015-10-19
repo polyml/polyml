@@ -160,6 +160,8 @@ PolyML.Compiler.forgetFunctor "VectorOperations";
 PolyML.Compiler.forgetFunctor "PolyVectorOperations";
 PolyML.Compiler.forgetFunctor "VectorSliceOperations";
 PolyML.Compiler.forgetFunctor "BasicImperativeIO";
+PolyML.Compiler.forgetFunctor "ASN1";
+PolyML.Compiler.forgetSignature "ASN1";
 
 (* Now we've created the new name space we must use PolyML.make/use. N.B. Unlike Bootstrap.use
    these don't automatically look at the -I option. *)

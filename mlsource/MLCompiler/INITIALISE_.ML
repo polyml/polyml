@@ -1299,22 +1299,6 @@ struct
             and simpleCall(func, args) =
                 mkCall(func, List.map (fn c => (c, GeneralType)) args, GeneralType)
 
-            fun unsafeMakeFunctor(functorName, argsig, result, code) =
-            let
-                val location = { file = "Imported", startLine=0, startPosition=0, endLine=0, endPosition=0 }
-                val Signatures { name, tab, typeIdMap, boundIds, firstBoundIndex, declaredAt, ... } = argsig
-                val _ = firstBoundIndex = 0 orelse raise Fail "unsafeMakeFunctor: firstBoundIndex"
-                fun newMap n = List.nth(boundIds, n)
-                val functorArgSig =
-                    makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, newMap), boundIds)
-                val argStruct = makeLocalStruct ("", functorArgSig, [])
-
-                (* The code should be a function.  Wrap it up as a constant with the code as "inline". *)
-                val gcode = importFunctor code
-            in
-                makeFunctor(functorName, argStruct, result, Global gcode, location)
-            end
-
         in
             val CodeTree = CodeTree
 
@@ -1351,13 +1335,7 @@ struct
                 ("mkHandle", toMachineWord (mkHandle: codetree * codetree -> codetree), CodeTree ** CodeTree ->> CodeTree),
                 ("mkNullDec", toMachineWord (mkNullDec: codetree -> codeBinding), CodeTree ->> CodeBinding),
                 ("Ldexc", toMachineWord (Ldexc: codetree), CodeTree),
-                ("rtsFunction", toMachineWord (rtsFunction: int->codetree), Int ->> CodeTree),
-                (* To save having to export the WordVector.vector we use string here.  They have
-                   the same representation and the bootstrap library just wraps the args and results. *)
-                ("encodeBinary", toMachineWord CODETREE.encodeBinary, CodeTree ->> String),
-                ("decodeBinary", toMachineWord CODETREE.decodeBinary, String ->> CodeTree),
-                ("unsafeMakeFunctor", toMachineWord unsafeMakeFunctor,
-                    mkProductType[String, signatureVal, signatureVal, CodeTree] ->> functorVal)
+                ("rtsFunction", toMachineWord (rtsFunction: int->codetree), Int ->> CodeTree)
                 ]
         end
 

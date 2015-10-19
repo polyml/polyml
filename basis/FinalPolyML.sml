@@ -1704,11 +1704,6 @@ in
                             tagInject codetreeAfterOptTag (! codetreeAfterOpt)
                         ], numLocals)
                 end
-
-            (* For simplicity these are given types with string rather than
-               Word8Vector.vector in INITIALISE. *)
-            val decodeBinary = decodeBinary o Byte.bytesToString
-            and encodeBinary = Byte.stringToBytes o encodeBinary
         end
 
         (* Original print_depth etc functions. *)
