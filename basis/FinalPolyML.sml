@@ -1826,5 +1826,77 @@ in
             end
         end
 
+        (* Saving and loading state. *)
+        structure SaveState =
+        struct
+            fun saveChild(f: string, depth: int): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
+            fun saveState f = saveChild (f, 0);
+            fun showHierarchy(): string list =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
+            fun renameParent{ child: string, newParent: string }: unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
+            fun showParent(child: string): string option =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+
+            fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
+            
+            (* Module loading and storing. *)
+            structure Tags =
+            struct
+                val structureTag: PolyML.NameSpace.structureVal Universal.tag = Universal.tag()
+                val functorTag: PolyML.NameSpace.functorVal Universal.tag = Universal.tag()
+                val signatureTag: PolyML.NameSpace.signatureVal Universal.tag = Universal.tag()
+                val valueTag: PolyML.NameSpace.valueVal Universal.tag = Universal.tag()
+                val typeTag: PolyML.NameSpace.typeVal Universal.tag = Universal.tag()
+                val fixityTag: PolyML.NameSpace.fixityVal Universal.tag = Universal.tag()
+                val startupTag: (unit -> unit) Universal.tag = Universal.tag()
+            end
+            
+            val saveModuleBasic: string * Universal.universal list -> unit =
+                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
+            and loadModuleBasic: string -> Universal.universal list =
+                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (32, args)
+
+            fun saveModule(s, {structs, functors, sigs, onStartup}) =
+            let
+                fun dolookup (look, tag, kind) s =
+                    case look globalNameSpace s of
+                        SOME v => Universal.tagInject tag v
+                    |   NONE => raise Fail (concat[kind, " ", s, " has not been declared"])
+                val structVals = map (dolookup(#lookupStruct, Tags.structureTag, "Structure")) structs
+                val functorVals = map (dolookup(#lookupFunct, Tags.functorTag, "Functor")) functors
+                val sigVals = map (dolookup(#lookupSig, Tags.signatureTag, "Signature")) sigs
+                val startVal =
+                    case onStartup of
+                        SOME f => [Universal.tagInject Tags.startupTag f]
+                    |   NONE => []
+            in
+                saveModuleBasic(s, structVals @ functorVals @ sigVals @ startVal)
+            end
+            
+            fun loadModule s =
+            let
+                val ulist = loadModuleBasic s
+                (* Find and run the start-up function.  If it raises an exception we
+                   don't go further. *)
+                val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
+                val () =
+                    case startFn of SOME f => (Universal.tagProject Tags.startupTag f) () | NONE => ()
+                (* Enter the items into the name space. *)
+                fun addItems (tag, enter) (hd :: tl) =
+                    (if Universal.tagIs tag hd
+                    then enter globalNameSpace (Universal.tagProject tag hd) else (); addItems (tag, enter)  tl)
+                |   addItems _ _ = ()
+            in
+                addItems(Tags.structureTag, #enterStruct) ulist;
+                addItems(Tags.signatureTag, #enterSig) ulist;
+                addItems(Tags.functorTag, #enterFunct) ulist;
+                addItems(Tags.valueTag, #enterVal) ulist;
+                addItems(Tags.typeTag, #enterType) ulist;
+                addItems(Tags.fixityTag, #enterFix) ulist
+            end
+        end
+
     end
 end (* PolyML. *);

@@ -425,6 +425,12 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
         return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, DEREFHANDLE(args)));
 
+    case 31: // Store a module
+        return StoreModule(taskData, args);
+
+    case 32: // Load a module
+        return LoadModule(taskData, args);
+
     case 50: // GCD
         return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));
     case 51: // LCM
