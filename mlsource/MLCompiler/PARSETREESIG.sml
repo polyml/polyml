@@ -22,7 +22,7 @@
 signature PARSETREESIG =
 sig
     type types;
-    type fixStatus;
+    type infixity;
     type lexan;
     type pretty;
     type typeId;
@@ -129,7 +129,7 @@ sig
   val mkCase : parsetree * matchtree list * location * location -> parsetree;
   val mkAndalso : parsetree * parsetree * location -> parsetree;
   val mkOrelse : parsetree * parsetree * location -> parsetree;
-  val mkDirective : string list * fixStatus * location -> parsetree; 
+  val mkDirective : string list * infixity * location -> parsetree; 
   val mkExpseq : parsetree list * location -> parsetree;
   val mkExDeclaration  : exbind list * location -> parsetree;
   val mkParenthesised: parsetree * location -> parsetree
@@ -169,7 +169,7 @@ sig
         and  typeConstrs= typeConstrs
         and  typeVarForm=typeVarForm
         and  env        = env
-        and  fixStatus  = fixStatus
+        and  infixity   = infixity
         and  structureIdentForm = structureIdentForm
         and  typeParsetree = typeParsetree
         and  parsetree  = parsetree

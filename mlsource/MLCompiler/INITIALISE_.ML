@@ -99,8 +99,8 @@ sig
     val printDepthFunTag : (unit->int) Universal.tag;
     val errorDepthTag : int Universal.tag;
     val lineLengthTag : int Universal.tag;
+    val bindingCounterTag:      (unit->int) Universal.tag
     val profileAllocationTag : int Universal.tag
-
     val assemblyCodeTag        : bool Universal.tag;
     val parsetreeTag           : bool Universal.tag;
     val codetreeTag            : bool Universal.tag;
@@ -138,17 +138,11 @@ sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = EXPORTTREE.Sh
 
 ) : 
 
-(*****************************************************************************)
-(*                  INITIALISE export signature                              *)
-(*****************************************************************************)
 sig
   type gEnv
   val initGlobalEnv : gEnv -> unit
 end =
 
-(*****************************************************************************)
-(*                  INITIALISE functor body                                  *)
-(*****************************************************************************)
 struct
     open STRUCTVALS;
     open TYPETREE
@@ -163,22 +157,13 @@ struct
     
     val declInBasis = [DeclaredAt inBasis]
 
-(*****************************************************************************)
-(*                  Untility functions                                       *)
-(*****************************************************************************)
     fun applyList _ []       = ()
     |   applyList f (h :: t) = (f h : unit; applyList f t);
 
-(*****************************************************************************)
-(*                  initGlobalEnv                                            *)
-(*****************************************************************************)
     fun initGlobalEnv(globalTable  : gEnv) =
     let
         val Env globalEnv = MAKE.gEnvAsEnv globalTable
    
-(*****************************************************************************)
-(*                  Utilities                                                *)
-(*****************************************************************************)        
         val enterGlobalValue  = #enterVal  globalEnv;
         val enterGlobalType   = #enterType globalEnv;
 
@@ -260,16 +245,21 @@ struct
         
         (* Overloaded functions. *)
         fun mkOverloaded (name:string) (typeof: types)
-            : values = mkSpecialFun(name, typeof, TypeDep);
-         
-(*****************************************************************************)
-(*                  unit                                                     *)
-(*****************************************************************************)
+            : values = mkSpecialFun(name, typeof, TypeDep)
+
+        (* Make a structure.  Returns the table as an
+           environment so that entries can be added to the structure. *)
+        fun makeStructure(parentEnv, name) =
+        let
+            val str as  Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal name
+            val () = #enterStruct parentEnv (name, str)
+            val Env env = makeEnv tab
+        in
+            env
+        end
+
         val () = enterGlobalType ("unit", TypeConstrSet(unitConstr, []));
 
-(*****************************************************************************)
-(*                  bool                                                     *)
-(*****************************************************************************)
         local
             val falseCons =
                 mkGconstr ("false", Bool,
@@ -283,20 +273,8 @@ struct
             val () = enterGlobalValue ("false", falseCons);
         end;
         
-
-(*****************************************************************************)
-(*                  int                                                      *)
-(*****************************************************************************)
         val () = enterGlobalType ("int", TypeConstrSet(intConstr, []));
-   
-(*****************************************************************************)
-(*                  char                                                     *)
-(*****************************************************************************)
         val () = enterGlobalType ("char", TypeConstrSet(charConstr, []));
-   
-(*****************************************************************************)
-(*                  string                                                   *)
-(*****************************************************************************)
         val () = enterGlobalType ("string", TypeConstrSet(stringConstr, []));
 
         (* chr - define it as an identity function for now. It is redefined in
@@ -307,32 +285,20 @@ struct
             val chrVal  = mkGvar ("chr", chrType, chrCode, declInBasis);
         in
             val () = enterGlobalValue ("chr", chrVal);
-        end;        
-    
-(*****************************************************************************)
-(*                  real                                                     *)
-(*****************************************************************************)
+        end
+
         val () = enterGlobalType ("real", TypeConstrSet(realConstr, []));
 
-(*****************************************************************************)
-(*                  'a list                                                  *)
-(*****************************************************************************)
         val () = (* Enter :: and nil. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
                 (tsConstructors listConstr)
         val () = enterGlobalType  ("list", listConstr);
 
-(*****************************************************************************)
-(*                  'a option                                                  *)
-(*****************************************************************************)
         val () = (* Enter NONE and SOME. *)
             List.app(fn(tv as Value{name, ...}) => enterGlobalValue(name, tv))
                 (tsConstructors optionConstr)
         val () = enterGlobalType  ("option", optionConstr);
 
-(*****************************************************************************)
-(*                  ref                                                      *)
-(*****************************************************************************)
         local
             val refCons =
                 let
@@ -346,38 +312,18 @@ struct
             val () = enterGlobalValue ("ref", refCons);
         end
 
-(*****************************************************************************)
-(*                  exn                                                      *)
-(*****************************************************************************)
         val () = enterGlobalType ("exn", TypeConstrSet(exnConstr, []));
 
-(*****************************************************************************)
-(*                  word                                                      *)
-(*****************************************************************************)
         val () = enterGlobalType ("word", TypeConstrSet(wordConstr, []));
 
-
-(*****************************************************************************)
-(*                  System functions (in structure RunCall)                  *)
-(*****************************************************************************)
-        local
-            val runCall as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "RunCall";
-        in
-            val ()        = #enterStruct globalEnv ("RunCall", runCall)
-            val (Env runCallEnv) = makeEnv tab
-        end;
+        val runCallEnv = makeStructure(globalEnv, "RunCall")
         
         fun enterRunCall (name : string, entry : codetree, typ : types) : unit =
         let
             val value = mkGvar (name, typ, entry, declInBasis);
         in
             #enterVal runCallEnv (name, value)
-        end;
-
-
-(*****************************************************************************)
-(*                  RunCall.unsafeCast                                        *)
-(*****************************************************************************)
+        end
   
         local
             val a = makeTV ();
@@ -395,12 +341,7 @@ struct
         in
             val () =
                 enterRunCall ("unsafeCast", makePolymorphic([a, b], unsafeCastEntry), unsafeCastType);
-        end;
-        
-
-(*****************************************************************************)
-(*                  RunCall.run_call*                                         *)
-(*****************************************************************************)
+        end
 
         local
             val a = makeTV ();
@@ -534,12 +475,8 @@ struct
             val () = enterRunCall ("run_call4", runCall4Entry, runCall4Type);
             val () = enterRunCall ("run_call5", runCall5Entry, runCall5Type);
             val () = enterRunCall ("run_call2C2", runCall2C2Entry, runCall2C2Type);
-        end;
-        
-(*****************************************************************************)
-(*                  Run-time exceptions in RunCall                           *)
-(*****************************************************************************)
-        
+        end
+
         local
             (* Create nullary exception. *)
             fun makeException0(name, id) =
@@ -586,15 +523,8 @@ struct
                 ]
         end
 
-(*****************************************************************************)
-(*                  Bootstrapping functions (in structure Bootstrap)         *)
-(*****************************************************************************)
-        local
-            val bootstrap  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "Bootstrap";
-        in
-            val ()        = #enterStruct globalEnv ("Bootstrap", bootstrap)
-            val (Env bootstrapEnv) = makeEnv tab
-        end;
+
+        val bootstrapEnv = makeStructure(globalEnv, "Bootstrap")
         
         fun enterBootstrap (name : string, entry : codetree, typ : types) : unit =
         let
@@ -603,9 +533,6 @@ struct
             #enterVal bootstrapEnv (name, value)
         end;
 
-(*****************************************************************************)
-(*                  Initialisation and bootstrapping functions               *)
-(*****************************************************************************)
         local
             fun addVal (name : string, value : 'a, typ : types) : unit =
                 enterBootstrap (name, mkConst (toMachineWord value), typ)
@@ -644,11 +571,8 @@ struct
             (* Convert a string, recognising and converting the escape codes. *)
             val () = addVal ("convString", unescapeString: string -> string, String ->> String);
 
-        end;
+        end
 
-(*****************************************************************************)
-(*                  eqtypes                                                  *)
-(*****************************************************************************)
     (* The only reason we have vector here is to get equality right.  We need
        vector to be an equality type and to have a specific equality function. *)
         local
@@ -803,9 +727,7 @@ struct
         val () = #enterType bootstrapEnv ("array", TypeConstrSet(array2Constr, []))
         val () = #enterType bootstrapEnv ("byteArray", TypeConstrSet(byteArrayConstr, []));
 
-(*****************************************************************************)
-(*                  Polymorphic functions                                    *)
-(*****************************************************************************)
+
 (* "=', '<>', PolyML.print etc are type-specific function which appear
    to be polymorphic.  The compiler recognises these and treats them specially.
    For (in)equality that means generating type-specific versions of the equality
@@ -830,49 +752,43 @@ struct
             val () = enterGlobalValue ("<>", neqVal);
         end;        
 
-(*****************************************************************************)
-(*                  PolyML structure                                         *)
-(*****************************************************************************)
-        local
-            val polyml  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "PolyML";
-        in
-            val ()             = #enterStruct globalEnv ("PolyML", polyml)
-            val (Env polyMLEnv) = makeEnv tab
-            val enterPolyMLVal  = #enterVal polyMLEnv;
-        end;
+        val polyMLEnv = makeStructure(globalEnv, "PolyML")
+        val enterPolyMLVal  = #enterVal polyMLEnv
 
-(*****************************************************************************)
-(*                  Namespace functions                                      *)
-(*****************************************************************************)
         local
         (* This version of the environment must match that used in the NameSpace
            structure. *)
             open TYPETREE
             (* Create a new structure for them. *)
-            val nameSpace  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "NameSpace";
-            val _ = #enterStruct polyMLEnv ("NameSpace", nameSpace)
-            val (Env nameSpaceEnv) = makeEnv tab
-    
+            val nameSpaceEnv = makeStructure(polyMLEnv, "NameSpace")
+            (* Substructures. *)
+            val valuesEnv = makeStructure(nameSpaceEnv, "Values")
+            and typesEnv = makeStructure(nameSpaceEnv, "TypeConstrs")
+            and fixesEnv = makeStructure(nameSpaceEnv, "Infixes")
+            and structsEnv = makeStructure(nameSpaceEnv, "Structures")
+            and sigsEnv = makeStructure(nameSpaceEnv, "Signatures")
+            and functsEnv = makeStructure(nameSpaceEnv, "Functors")
+
             (* Types for the basic values.  These are opaque. *)
-            fun createType typeName =
+            fun createType(typeName, fullName, env) =
             let
                 val typeconstr =
                     makeTypeConstructor(typeName,
-                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.NameSpace." ^ typeName)),
+                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription fullName),
                         declInBasis);
             in
-                #enterType nameSpaceEnv (typeName, TypeConstrSet(typeconstr, []));
+                #enterType env (typeName, TypeConstrSet(typeconstr, []));
                 mkTypeConstruction (typeName, typeconstr, [], declInBasis)
             end;
     
-            val valueVal = createType "valueVal"
-            val typeVal = createType "typeVal"
-            val fixityVal = createType "fixityVal"
-            val signatureVal = createType "signatureVal"
-            val structureVal = createType "structureVal"
-            val functorVal = createType "functorVal"
+            val valueVal = createType("value", "PolyML.NameSpace.Values.value", valuesEnv)
             (* Representation of the type of a value. *)
-            val Types = createType "typeExpression"
+            val Types = createType("typeExpression", "PolyML.NameSpace.Values.typeExpression", valuesEnv)
+            val typeVal = createType("typeConstr", "PolyML.NameSpace.TypeConstrs.typeConstr", typesEnv)
+            val fixityVal = createType("fixity", "PolyML.NameSpace.Infixes.fixity", fixesEnv)
+            val signatureVal = createType("signatureVal", "PolyML.NameSpace.Signatures.signatureVal", sigsEnv)
+            val structureVal = createType("structureVal", "PolyML.NameSpace.Structures.structureVal", structsEnv)
+            val functorVal = createType("functorVal", "PolyML.NameSpace.Functors.functorVal", functsEnv)
 
             (* nameSpace type.  Labelled record. *)
             fun createFields(name, vType): { name: string, typeof: types} list =
@@ -923,7 +839,13 @@ struct
             
             val Types = Types
             
-            val nameSpaceEnv = nameSpaceEnv
+            val valuesEnv = valuesEnv
+            and typesEnv = typesEnv
+            and fixesEnv = fixesEnv
+            and structsEnv = structsEnv
+            and sigsEnv = sigsEnv
+            and functsEnv = functsEnv
+
          end
          
         local
@@ -936,9 +858,7 @@ struct
         (* Interface to the debugger. *)
         local
             open TYPETREE
-            val debuggerInterface as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "DebuggerInterface"
-            val () = #enterStruct polyMLEnv ("DebuggerInterface", debuggerInterface)
-            val (Env debuggerEnv) = makeEnv tab
+            val debuggerEnv = makeStructure(polyMLEnv, "DebuggerInterface")
             val typeconstr = 
                 makeTypeConstructor("debugState",
                     makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.DebuggerInterface.debugState")),
@@ -966,9 +886,6 @@ struct
                 ]
         end
 
-(*****************************************************************************)
-(*                  context type                                           *)
-(*****************************************************************************)
         local
             val typeconstr = contextConstr
         in
@@ -977,9 +894,6 @@ struct
                         (tsConstructors typeconstr)
         end
 
-(*****************************************************************************)
-(*                  pretty datatype (for printing)                           *)
-(*****************************************************************************)
         local
             val typeconstr = prettyConstr
         in
@@ -989,10 +903,6 @@ struct
             val PrettyType = mkTypeConstruction ("pretty", tsConstr typeconstr, [], declInBasis)
         end
 
-
-(*****************************************************************************)
-(*              Funny polymorphic functions (in structure PolyML)            *)
-(*****************************************************************************)
         local
             val printType = let val a = makePrintTV () in a ->> a end;
             val printVal  = mkSpecialFun("print", printType, Print);
@@ -1040,15 +950,10 @@ struct
             val () = enterPolyMLVal ("sourceLocation", sourceLocVal);
         end;
 
-(*****************************************************************************)
-(*                  Bootstrap.Universal                                      *)
-(*****************************************************************************)
         local
             (* This is used as one of the arguments to the compiler function. *)
             open TYPETREE
-            val uniStruct  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "Universal";
-            val _ = #enterStruct bootstrapEnv ("Universal", uniStruct)
-            val (Env uniStructEnv) = makeEnv tab
+            val uniStructEnv = makeStructure(bootstrapEnv, "Universal")
 
             fun enterUniversal (name : string, entry : codetree, typ : types) : unit =
             let
@@ -1111,9 +1016,6 @@ struct
             val Tag = Tag and Universal = Universal
         end
         
-(*****************************************************************************)
-(*                  parseTree type                                           *)
-(*****************************************************************************)
         local
             open TYPETREE
             (* Parsetree properties datatype. *)
@@ -1132,6 +1034,7 @@ struct
                [ ("PTbreakPoint",       Ref Bool),
                  ("PTcompletions",      List String),
                  ("PTdeclaredAt",       Location),
+                 ("PTdefId",            Int),
                  ("PTfirstChild",       Unit ->> ParseTree),
                  ("PTnextSibling",      Unit ->> ParseTree),
                  ("PTopenedAt",         Location),
@@ -1139,6 +1042,7 @@ struct
                  ("PTpreviousSibling",  Unit ->> ParseTree),
                  ("PTprint",            Int ->> PrettyType),
                  ("PTreferences",       Bool ** List Location),
+                 ("PTrefId",            Int),
                  ("PTstructureAt",      Location),
                  ("PTtype",             Types)
                  ];
@@ -1155,11 +1059,8 @@ struct
 
         in
             val ParseTree = ParseTree
+            and PtProperties = PtProperties
         end
-
-(*****************************************************************************)
-(*        PolyML.compiler etc                                                *)
-(*****************************************************************************)
 
         local
             open TYPETREE
@@ -1174,10 +1075,6 @@ struct
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
         end;
-
-(*****************************************************************************)
-(*                  Overloaded functions.                                    *)
-(*****************************************************************************)
         
         local
             val ty      = TYPETREE.mkOverloadSet[]
@@ -1199,10 +1096,7 @@ struct
             val () = enterGlobalValue ("mod", mkOverloaded "mod"   addType);
             val () = enterGlobalValue ("/", mkOverloaded "/"   addType);
         end;
-   
-(*****************************************************************************)
-(*                  Bootstrap entries copied from DEBUG                *)
-(*****************************************************************************)
+
         local
             open DEBUG;
             local
@@ -1241,6 +1135,7 @@ struct
                 ("lineNumberTag",          toMachineWord (lineNumberTag : (unit->int) tag),     Tag (Unit->>Int)),
                 ("offsetTag",              toMachineWord (offsetTag: (unit->int) tag),          Tag (Unit->>Int)),
                 ("fileNameTag",            toMachineWord (fileNameTag: string tag),             Tag String),
+                ("bindingCounterTag",      toMachineWord (bindingCounterTag: (unit->int) tag),  Tag (Unit->>Int)),
                 ("maxInlineSizeTag",       toMachineWord (maxInlineSizeTag: int tag),           Tag Int),
                 ("assemblyCodeTag",        toMachineWord (assemblyCodeTag: bool tag),           Tag Bool),
                 ("parsetreeTag",           toMachineWord (parsetreeTag: bool tag),              Tag Bool),
@@ -1270,9 +1165,7 @@ struct
     (* PolyML.CodeTree structure.  This exports the CodeTree structure into the ML space. *)
         local
             open CODETREE
-            val codetreeStr  as Struct{signat=Signatures{tab, ...}, ...} = makeEmptyGlobal "CodeTree"
-            val _ = #enterStruct polyMLEnv ("CodeTree", codetreeStr)
-            val (Env codetreeEnv) = makeEnv tab
+            val codetreeEnv = makeStructure(polyMLEnv, "CodeTree")
 
             fun createType typeName =
             let
@@ -1339,91 +1232,157 @@ struct
                 ]
         end
 
-(*****************************************************************************)
-(*                  Entries for printing                                     *)
-(*****************************************************************************)
-        local
+        local (* Finish off the NameSpace structure now we have types such as pretty. *)
             open TYPETREE
-            (* These are used to display the declarations made. *)
-            fun displayFix((name: string, f: fixStatus)): pretty =
-            let
-                open PRETTY
-            in
-                PrettyBlock (0, false, [],
-                    [displayFixStatus f, PrettyBreak (1, 0), PrettyString name])
-            end
-
-            (* getValue can now be written in terms of codeForValue so it can probably be removed. *)
-            fun getValue (Value{access = Global code, class = ValBound, ...}) = valOf(evalue code)
-            |   getValue _ = raise Fail "Not a global value"
-
+ 
             (* The exported versions expect full name spaces as arguments.  Because we convert
                the exported versions to machineWord and give them types as data structures the
                compiler can't actually check that the type we give matched the internal type. *)
-            fun makeTypeEnv(nameSpace: nameSpace): printTypeEnv =
-            {
-                lookupType = fn s => case #lookupType nameSpace s of NONE => NONE | SOME t => SOME(t, NONE),
-                lookupStruct = fn s => case #lookupStruct nameSpace s of NONE => NONE | SOME t => SOME(t, NONE)
-            }
-            fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace) =
-                TYPETREE.displayTypeConstrs(tyCons, depth, makeTypeEnv nameSpace)
-            and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace) =
-                TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
-            and exportedDisplaySigs(sign, depth, nameSpace: nameSpace) =
-                    displaySignatures(sign, depth, makeTypeEnv nameSpace)
-            and exportedDisplayFunctors(funct, depth, nameSpace: nameSpace) =
-                    displayFunctors(funct, depth, makeTypeEnv nameSpace)
-            and exportedDisplayValues(valu, depth, nameSpace: nameSpace) =
-                    displayValues(valu, depth, makeTypeEnv nameSpace)
-            and exportedDisplayStructs(str, depth, nameSpace: nameSpace) =
+            fun makeTypeEnv NONE =
+                { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
+            |   makeTypeEnv(SOME(nameSpace: nameSpace)): printTypeEnv =
+                {
+                    lookupType = fn s => case #lookupType nameSpace s of NONE => NONE | SOME t => SOME(t, NONE),
+                    lookupStruct = fn s => case #lookupStruct nameSpace s of NONE => NONE | SOME t => SOME(t, NONE)
+                }
+
+            local (* Values substructure.  This also has operations related to type expressions. *)
+                fun codeForValue (Value{access = Global code, class = ValBound, ...}) = code
+                |   codeForValue _ = raise Fail "Not a global value"
+                and exportedDisplayTypeExp(ty, depth, nameSpace: nameSpace option) =
+                    TYPETREE.display(ty, depth, makeTypeEnv nameSpace)
+                and exportedDisplayValues(valu, depth, nameSpace: nameSpace option) =
+                        displayValues(valu, depth, makeTypeEnv nameSpace)
+                and propsForValue (Value {locations, typeOf, ...}) = PTtype typeOf :: mapLocationProps locations
+
+                fun isConstructor (Value{class = Exception, ...}) = true
+                |   isConstructor (Value{class = Constructor _, ...}) = true
+                |   isConstructor _ = false
+                
+                fun isException (Value{class = Exception, ...}) = true
+                |   isException _ = false
+                
+            in
+                val () = applyList (fn (name, v, t) =>
+                                    #enterVal valuesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                    [
+                        ("name",    toMachineWord (valName: values -> string), valueVal ->> String),
+                        ("print",   toMachineWord (printValues: values * int -> pretty),
+                                        mkProductType[valueVal, Int] ->> PrettyType),
+                        ("printWithType", toMachineWord (exportedDisplayValues: values * int * nameSpace option -> pretty),
+                                        mkProductType[valueVal, Int, Option nameSpaceType] ->> PrettyType),
+                        ("printType",    toMachineWord(exportedDisplayTypeExp: types * int * nameSpace option -> pretty),
+                            mkProductType[Types, Int, Option nameSpaceType] ->> PrettyType),
+                        ("typeof",  toMachineWord (valTypeOf: values -> types), valueVal ->> Types),
+                        ("code",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
+                        ("properties",   toMachineWord (propsForValue: values ->ptProperties list),
+                            valueVal ->> List PtProperties),
+                        ("isConstructor", toMachineWord(isConstructor: values -> bool), valueVal ->> Bool),
+                        ("isException", toMachineWord(isException: values -> bool), valueVal ->> Bool)
+                    ]
+            end
+
+            local (* TypeConstrs substructure. *)
+                fun exportedDisplayTypeConstr(tyCons, depth, nameSpace: nameSpace option) =
+                    TYPETREE.displayTypeConstrs(tyCons, depth, makeTypeEnv nameSpace)
+                and propsForTypeConstr (TypeConstrSet(TypeConstrs {locations, ...}, _)) = mapLocationProps locations
+
+                and nameForType (TypeConstrSet(TypeConstrs{name, ...}, _)) = name
+            in
+                val () = applyList (fn (name, v, t) =>
+                                    #enterVal typesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                    [
+                    ("name", toMachineWord(nameForType: typeConstrSet -> string), typeVal ->> String),
+                    ("print",
+                        toMachineWord (exportedDisplayTypeConstr: typeConstrSet * int * nameSpace option -> pretty),
+                        mkProductType[typeVal, Int, Option nameSpaceType] ->> PrettyType),
+                    ("properties",   toMachineWord (propsForTypeConstr: typeConstrSet ->ptProperties list),
+                        typeVal ->> List PtProperties)
+                    ]
+            end
+
+            local (* Structures substructure *)
+                fun exportedDisplayStructs(str, depth, nameSpace: nameSpace option) =
                     displayStructures(str, depth, makeTypeEnv nameSpace)
-            and exportedPrintValue(v, depth, nameSpace: nameSpace) =
-                    printValues(v, depth, makeTypeEnv nameSpace)
 
-            fun codeForValue (Value{access = Global code, class = ValBound, ...}) = code
-            |   codeForValue _ = raise Fail "Not a global value"
+                and codeForStruct (Struct{access = Global code, ...}) = code
+                |   codeForStruct _ = raise Fail "Not a global structure"
 
-            and codeForStruct (Struct{access = Global code, ...}) = code
-            |   codeForStruct _ = raise Fail "Not a global structure"
+                and propsForStruct (Struct {locations, ...}) = mapLocationProps locations
 
-            and codeForFunct (Functor{access = Global code, ...}) = code
-            |   codeForFunct _ = raise Fail "Not a global functor"
+                and nameForStruct (Struct{name, ...}) = name
+            in
+                val () = applyList (fn (name, v, t) =>
+                                #enterVal structsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                    [
+                    ("name", toMachineWord(nameForStruct: structVals -> string), structureVal ->> String),
+                    ("print",
+                        toMachineWord (exportedDisplayStructs: structVals * int * nameSpace option -> pretty),
+                        mkProductType[structureVal, Int, Option nameSpaceType] ->> PrettyType),
+                    ("code",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
+                    ("properties",   toMachineWord (propsForStruct: structVals ->ptProperties list),
+                        structureVal ->> List PtProperties)
+                    ]
+            end
+            
+            local (* Signatures substructure *)
+                fun exportedDisplaySigs(sign, depth, nameSpace: nameSpace option) =
+                        displaySignatures(sign, depth, makeTypeEnv nameSpace)
+
+                and propsForSig (Signatures {locations, ...}) = mapLocationProps locations
+
+                and nameForSig (Signatures{name, ...}) = name
+            in
+                val () = applyList (fn (name, v, t) =>
+                                    #enterVal sigsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                    [
+                    ("name", toMachineWord(nameForSig: signatures -> string), signatureVal ->> String),
+                    ("print",
+                        toMachineWord (exportedDisplaySigs: signatures * int * nameSpace option -> pretty),
+                        mkProductType[signatureVal, Int, Option nameSpaceType] ->> PrettyType),
+                    ("properties",   toMachineWord (propsForSig: signatures ->ptProperties list),
+                        signatureVal ->> List PtProperties)
+                   ]
+            end
+
+            local (* Functors substructure *)
+                fun exportedDisplayFunctors(funct, depth, nameSpace: nameSpace option) =
+                        displayFunctors(funct, depth, makeTypeEnv nameSpace)
+
+                and codeForFunct (Functor{access = Global code, ...}) = code
+                |   codeForFunct _ = raise Fail "Not a global functor"
+            
+                and propsForFunctor (Functor {locations, ...}) = mapLocationProps locations
+
+                and nameForFunctor (Functor{name, ...}) = name
+            in
+                val () = applyList (fn (name, v, t) =>
+                                    #enterVal functsEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                    [
+                    ("name", toMachineWord(nameForFunctor: functors -> string), functorVal ->> String),
+                    ("print",
+                        toMachineWord (exportedDisplayFunctors: functors * int * nameSpace option -> pretty),
+                        mkProductType[functorVal, Int, Option nameSpaceType] ->> PrettyType),
+                    ("code",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree),
+                    ("properties",   toMachineWord (propsForFunctor: functors ->ptProperties list),
+                        functorVal ->> List PtProperties)
+                   ]
+            end
+
+            local (* Infixes substructure *)
+                fun nameForFix(FixStatus(s, _)) = s
+            in
+                val () = applyList (fn (name, v, t) =>
+                                    #enterVal fixesEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
+                    [
+                    ("name", toMachineWord(nameForFix: fixStatus -> string), fixityVal ->> String),
+                    ("print",
+                        toMachineWord (displayFixStatus: fixStatus -> pretty),
+                        fixityVal ->> PrettyType)
+                   ]
+            end
         in
-            (* Add these to the PolyML.NameSpace structure. *)
-            val () = applyList (fn (name, v, t) =>
-                                #enterVal nameSpaceEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
-                [
-                ("displayFix",             toMachineWord (displayFix: string * fixStatus -> pretty),
-                    String ** fixityVal ->> PrettyType),
-                ("displaySig",             toMachineWord (exportedDisplaySigs: signatures * int * nameSpace -> pretty),
-                    mkProductType[signatureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayStruct",             toMachineWord (exportedDisplayStructs: structVals * int * nameSpace -> pretty),
-                    mkProductType[structureVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayFunct",             toMachineWord (exportedDisplayFunctors: functors * int * nameSpace -> pretty),
-                    mkProductType[functorVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayVal",             toMachineWord (exportedDisplayValues: values * int * nameSpace -> pretty),
-                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                ("displayType",             toMachineWord (exportedDisplayTypeConstr: typeConstrSet * int * nameSpace -> pretty),
-                    mkProductType[typeVal, Int, nameSpaceType] ->> PrettyType),
-                (* displayTypeExpression doesn't really belong here since it's used
-                   as part of the parse tree rather the name space. *)
-                ("displayTypeExpression",    toMachineWord(exportedDisplayTypeExp: types * int * nameSpace -> pretty),
-                    mkProductType[Types, Int, nameSpaceType] ->> PrettyType),
-                (* Code functions *)
-                ("codeForValue",    toMachineWord (codeForValue: values -> codetree), valueVal ->> CodeTree),
-                ("codeForStruct",   toMachineWord (codeForStruct: structVals -> codetree), structureVal ->> CodeTree),
-                ("codeForFunct",    toMachineWord (codeForFunct: functors -> codetree), functorVal ->> CodeTree)
-               ]
-            (* Put this in Bootstrap, at least for the moment.
-               Used to print values in the debugger without the "val", "=" and the type. *)
-           val () = applyList (fn (name, v, t) => enterBootstrap(name, mkConst v, t))
-                [("printValue",             toMachineWord (exportedPrintValue: values * int * nameSpace -> pretty),
-                    mkProductType[valueVal, Int, nameSpaceType] ->> PrettyType),
-                 (* This is used to get the actual value out of a global "value".
-                    It's currently used only in the debugger to get the exception
-                    packet out of a global exception value. *)
-                 ("getValue",               toMachineWord (getValue: values -> machineWord), valueVal ->> TYPETREE.exnType)]
-        end;
+        end
 
     in
         ()

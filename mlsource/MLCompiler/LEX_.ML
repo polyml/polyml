@@ -9,12 +9,11 @@
         Cambridge University Technical Services Limited
         
     Further development:
-    Copyright (c) 2000-7 David C.J. Matthews
+    Copyright (c) 2000-7, 2015 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -37,6 +36,7 @@ sig
     val offsetTag: (unit->int) Universal.tag
     val fileNameTag: string Universal.tag
     val errorDepthTag : int Universal.tag
+    val bindingCounterTag: (unit->int) Universal.tag
     val getParameter :
        'a Universal.tag -> Universal.universal list -> 'a
 end
@@ -73,7 +73,8 @@ struct
       startLine:   int ref,
       endLine:     int ref,
       startPosition: int ref,
-      endPosition:   int ref
+      endPosition:   int ref,
+      bindingCounter: unit -> int
     };
     
   (* The lexical analyser reads characters from the stream and updates the
@@ -112,6 +113,7 @@ struct
         val filename = getParameter fileNameTag parameters
         val initialLine = lineno() (* Before the first char. *)
         and initialOffset = offset()
+        val bindingCounter = getParameter bindingCounterTag parameters
     in
         {
           stream      = stream,
@@ -129,7 +131,8 @@ struct
           startLine   = ref initialLine,
           endLine     = ref initialLine,
           startPosition = ref initialOffset,
-          endPosition   = ref initialOffset
+          endPosition   = ref initialOffset,
+          bindingCounter = bindingCounter
         }
     end
 
@@ -627,6 +630,8 @@ struct
    fun id ({id=ref id,...}:lexan) = id;
    
    val debugParams = #debugParams
+   
+   fun newBindingId({bindingCounter, ...}: lexan) = bindingCounter()
    
    val nullLocation: location =
         { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }

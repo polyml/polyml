@@ -107,6 +107,45 @@ local
         and forgetStruct = delete strTable
     end
 
+    local
+        open PolyML (* For prettyprint datatype *)
+
+        (* Install a pretty printer for parsetree properties.  This isn't done in
+           the compiler. *)
+        fun prettyProps depth _ l =
+            if depth <= 0 then PrettyString "..."
+            else prettyProp(l, depth-1)
+        
+        (* Use prettyRepresentation to print most of the arguments *)
+        and prettyProp(PTbreakPoint b, d) =     blockArg("PTbreakPoint", prettyRepresentation(b, d))
+        |   prettyProp(PTcompletions s, d) =    blockArg("PTcompletions", prettyRepresentation(s, d))
+        |   prettyProp(PTdeclaredAt l, d) =     blockArg("PTdeclaredAt", prettyRepresentation(l, d))
+        |   prettyProp(PTdefId i, d) =          blockArg("PTdefId", prettyRepresentation(i, d))
+        |   prettyProp(PTfirstChild _, _) =     blockArg("PTfirstChild", PrettyString "fn")
+        |   prettyProp(PTnextSibling _, _) =    blockArg("PTnextSibling", PrettyString "fn")
+        |   prettyProp(PTopenedAt f, d) =       blockArg("PTopenedAt", prettyRepresentation(f, d))
+        |   prettyProp(PTparent _, _) =         blockArg("PTparent", PrettyString "fn")
+        |   prettyProp(PTpreviousSibling _, _)= blockArg("PTpreviousSibling", PrettyString "fn")
+        |   prettyProp(PTprint _, _) =          blockArg("PTprint", PrettyString "fn")
+        |   prettyProp(PTreferences f, d) =     blockArg("PTreferences", prettyRepresentation(f, d))
+        |   prettyProp(PTrefId f, d) =          blockArg("PTrefId", prettyRepresentation(f, d))
+        |   prettyProp(PTstructureAt f, d) =    blockArg("PTstructureAt", prettyRepresentation(f, d))
+        |   prettyProp(PTtype f, d) =           blockArg("PTtype", prettyRepresentation(f, d))
+        
+        and blockArg (s, arg) =
+            PrettyBlock(3, true, [], [PrettyString s, PrettyBreak(1, 1), parenthesise arg])
+        
+        and parenthesise(p as PrettyBlock(_, _, _, PrettyString "(" :: _)) = p
+        |   parenthesise(p as PrettyBlock(_, _, _, PrettyString "{" :: _)) = p
+        |   parenthesise(p as PrettyBlock(_, _, _, PrettyString "[" :: _)) = p
+        |   parenthesise(p as PrettyBlock(_, _, _, _ :: _)) =
+                PrettyBlock(3, true, [], [ PrettyString "(", PrettyBreak(0, 0), p, PrettyBreak(0, 0), PrettyString ")" ])
+        |   parenthesise p = p
+
+    in
+        val () = addPrettyPrinter prettyProps
+    end
+
     (* PolyML.compiler takes a list of these parameter values.  They all
        default so it's possible to pass only those that are actually
        needed. *)
@@ -141,17 +180,17 @@ local
         (* Whether to sort the results by alphabetical order before printing them.  Applies
            only to the default CPResultFun.  Default value of printInAlphabeticalOrder. *)
     |   CPResultFun of {
-            fixes: (string * fixityVal) list, values: (string * valueVal) list,
-            structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-            functors: (string * functorVal) list, types: (string * typeVal) list} -> unit
+            fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+            structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+            functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list} -> unit
         (* Function to apply to the result of compiling and running the code.
            Default: print and enter the values into CPNameSpace. *)
     |   CPCompilerResultFun of
             PolyML.parseTree option *
             ( unit -> {
-                fixes: (string * fixityVal) list, values: (string * valueVal) list,
-                structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-                functors: (string * functorVal) list, types: (string * typeVal) list}) option -> unit -> unit
+                fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+                structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+                functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list}) option -> unit -> unit
         (* Function to process the result of compilation.  This can be used to capture the
            parse tree even if type-checking fails.
            Default: Execute the code and call the result function if the compilation
@@ -192,8 +231,12 @@ local
         (* Controls whether to add profiling information to each allocation.  Currently
            zero means no profiling and one means add the allocating function. *)
 
-    |   CPDebuggerFunction of int * valueVal * int * string * string * nameSpace -> unit
+    |   CPDebuggerFunction of int * Values.value * int * string * string * nameSpace -> unit
         (* Deprecated: No longer used. *)
+
+    |   CPBindingSeq of unit -> int
+        (* Used to create a sequence no for PTdefId properties.  This can be used in an IDE
+           to allocate a unique Id for an identifier.  Default fn _ => 0. *)
 
     (* References for control and debugging. *)
     val timing = ref false
@@ -343,18 +386,18 @@ local
         (* Default function to print and enter a value. *)
         fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
                            stream: string->unit, depth: int)
-            { fixes: (string * fixityVal) list, values: (string * valueVal) list,
-              structures: (string * structureVal) list, signatures: (string * signatureVal) list,
-              functors: (string * functorVal) list, types: (string * typeVal) list}: unit =
+            { fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+              structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+              functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list}: unit =
         let
             (* We need to merge the lists to sort them alphabetically. *)
             datatype decKind =
-                FixStatusKind of fixityVal
-            |   TypeConstrKind of typeVal
-            |   SignatureKind of signatureVal
-            |   StructureKind of structureVal
-            |   FunctorKind of functorVal
-            |   ValueKind of valueVal
+                FixStatusKind of Infixes.fixity
+            |   TypeConstrKind of TypeConstrs.typeConstr
+            |   SignatureKind of Signatures.signatureVal
+            |   StructureKind of Structures.structureVal
+            |   FunctorKind of Functors.functorVal
+            |   ValueKind of Values.value
 
             val decList =
                 map (fn (s, f) => (s, FixStatusKind f)) fixes @
@@ -386,23 +429,25 @@ local
             |   enterDec(n, FunctorKind f) = #enterFunct space (n,f)
             |   enterDec(n, ValueKind v) = #enterVal space (n,v)
 
-            fun printDec(n, FixStatusKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFix(n,f))
+            fun printDec(_, FixStatusKind f) =
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Infixes.print f)
 
             |   printDec(_, TypeConstrKind t) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayType(t, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (TypeConstrs.print(t, depth, SOME space))
 
             |   printDec(_, SignatureKind s) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displaySig(s, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Signatures.print(s, depth, SOME space))
 
             |   printDec(_, StructureKind s) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayStruct(s, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Structures.print(s, depth, SOME space))
 
             |   printDec(_, FunctorKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayFunct(f, depth, space))
+                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, depth, SOME space))
 
             |   printDec(_, ValueKind v) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (displayVal(v, depth, space))
+                    if Values.isConstructor v andalso not (Values.isException v)
+                    then () (* Value constructors are printed with the datatype. *)
+                    else prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
 
         in
             (* First add the declarations to the name space and then print them.  Doing it this way
@@ -438,6 +483,7 @@ local
             val errorProc =  find (fn CPErrorMessageProc f => SOME f | _ => NONE) (defaultErrorProc printString) parameters
             val debugging = find (fn CPDebug t => SOME t | _ => NONE) (! debug) parameters
             val allocProfiling = find(fn CPAllocationProfiling l  => SOME l | _ => NONE) (if !allocationProfiling then 1 else 0) parameters
+            val bindingSeq = find(fn CPBindingSeq l  => SOME l | _ => NONE) (fn () => 0) parameters
             local
                 (* Default is to filter the parse tree argument. *)
                 fun defaultCompilerResultFun (_, NONE) = raise Fail "Static Errors"
@@ -466,6 +512,7 @@ local
                     tagInject lineNumberTag lineNo,
                     tagInject offsetTag lineOffset,
                     tagInject fileNameTag fileName,
+                    tagInject bindingCounterTag bindingSeq,
                     tagInject inlineFunctorsTag (! inlineFunctors),
                     tagInject maxInlineSizeTag (! maxInlineSize),
                     tagInject parsetreeTag (! parsetree),
@@ -1312,7 +1359,7 @@ in
 
                 fun getArgResult stack get =
                     case stack of
-                        hd :: _ => Bootstrap.printValue(get hd, !printDepth, globalNameSpace)
+                        hd :: _ => Values.print(get hd, !printDepth)
                     |   _ => PrettyString "?"
 
                 fun printTrace (funName, location, stack, argsAndResult) =
@@ -1619,7 +1666,7 @@ in
                 local
                     fun printVal v =
                         prettyPrintWithOptionalMarkup(TextIO.print, !lineLength)
-                            (NameSpace.displayVal(v, !printDepth, globalNameSpace))
+                            (NameSpace.Values.printWithType(v, !printDepth, SOME globalNameSpace))
                     fun printStack (stack: debugState) =
                         List.app (fn (_,v) => printVal v) (#allVal (debugNameSpace stack) ())
                 in

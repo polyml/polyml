@@ -162,13 +162,13 @@ struct
             if tagIs structVar dVal
             then 
             let
-                val Struct { signat, name=structName, access, locations, ...} = tagProject structVar dVal
-                val Signatures { name=sigName, tab, typeIdMap, firstBoundIndex, declaredAt, ...} = signat
+                val Struct { signat, name=structName, access, locations=structLocs, ...} = tagProject structVar dVal
+                val Signatures { name=sigName, tab, typeIdMap, firstBoundIndex, locations=sigLocs, ...} = signat
 
                 val newSig =
                     if singleLevel
                     then (* Just compose the maps. *)
-                        makeSignature(sigName, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, mapTypeId), [])
+                        makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(typeIdMap, mapTypeId), [])
                     else (* Recursive copy. *)
                     let
                         (* Make a new sub-structure. *)
@@ -185,10 +185,10 @@ struct
                                 composeMaps(typeIdMap, mapTypeId), false, strName ^ dName ^ ".", newMap, typeCache)
                     in
                         (* If we're copying it all set the resulting map to the new map. *)
-                        makeSignature(sigName, newTab, firstBoundIndex, declaredAt, newMap, [])
+                        makeSignature(sigName, newTab, firstBoundIndex, sigLocs, newMap, [])
                     end
                 val newStruct =
-                    Struct { name = structName, signat = newSig, access = access, locations = locations}
+                    Struct { name = structName, signat = newSig, access = access, locations = structLocs}
             in
                 #enterStruct resEnv (dName, newStruct)
             end (* structures *)
@@ -263,7 +263,7 @@ struct
         valOf(! resType)
     end
 
-    fun replaceMap(Signatures{tab=sourceTab, name = sourceName, declaredAt, ...},
+    fun replaceMap(Signatures{tab=sourceTab, name = sourceName, locations, ...},
                    mapTypeId: int -> typeId, min, boundIds, newMap): signatures =
     let
         (* Make a new signature. *)
@@ -278,7 +278,7 @@ struct
         (* Copy everything into the new signature. *)
         val () = localCopySig(sourceTab, tsvEnv, mapTypeId, false, "", newMap, [])
     in
-        makeSignature(sourceName, tab, min, declaredAt, newMap, boundIds)
+        makeSignature(sourceName, tab, min, locations, newMap, boundIds)
     end (* replaceMap *)
 
     (* Find the maximum run-time offset used for a value or structure in a signature.

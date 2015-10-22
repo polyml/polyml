@@ -206,11 +206,11 @@ struct
         end
 
         (* When creating a structure we have to add a type map that will look up the bound Ids. *)
-        fun replaceSignature (Signatures{ name, tab, typeIdMap, firstBoundIndex, declaredAt, ... }) =
+        fun replaceSignature (Signatures{ name, tab, typeIdMap, firstBoundIndex, locations, ... }) =
         let
             fun getFreeId n = searchType debugEnviron (makeBoundId(0 (* ??? *), Global CodeZero, n, false, false, basisDescription ""))
         in
-            makeSignature(name, tab, firstBoundIndex, declaredAt, composeMaps(typeIdMap, getFreeId), [])
+            makeSignature(name, tab, firstBoundIndex, locations, composeMaps(typeIdMap, getFreeId), [])
         end
 
         val runTimeType = runTimeType debugEnviron

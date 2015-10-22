@@ -195,10 +195,10 @@ struct
                     case lookupStruct suffix of
                         SOME (Struct {signat, access, name=structName, locations, ...})  =>
                         let
-                            val Signatures { name=sigName, tab, typeIdMap = childMap, declaredAt, ... } = signat
+                            val Signatures { name=sigName, tab, typeIdMap = childMap, locations=sigLocs, ... } = signat
                             (* We need to apply the map from the parent structure to the child. *)
                             val copiedSig =
-                                makeSignature(sigName, tab, firstBoundIndex, declaredAt, composeMaps(childMap, typeIdMap), [])
+                                makeSignature(sigName, tab, firstBoundIndex, sigLocs, composeMaps(childMap, typeIdMap), [])
                             (* Convert Formal access to Selected and leave the others (Global?). *)
                             val newAccess =
                                 case access of
@@ -389,13 +389,24 @@ struct
         pretty
     end
 
-    fun displayFixStatus Nonfix = PrettyString "nonfix"
-    | displayFixStatus (Infix prec) =
-        PrettyBlock(0, false, [],
-            [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
-    | displayFixStatus (InfixR prec) =
-        PrettyBlock(0, false, [],
-            [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+    (* These are used to display the declarations made. *)
+    fun displayFixStatus(FixStatus(name, f)): pretty =
+    let
+        open PRETTY
+        
+        val status =
+            case f of
+                Nonfix => PrettyString "nonfix"
+            |   Infix prec =>
+                    PrettyBlock(0, false, [],
+                        [ PrettyString "infix", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+            |   InfixR prec =>
+                    PrettyBlock(0, false, [],
+                        [ PrettyString "infixr", PrettyBreak (1, 0), PrettyString (Int.toString prec) ])
+    in
+        PrettyBlock (0, false, [],
+            [status, PrettyBreak (1, 0), PrettyString name])
+    end
 
     (* Returns the declaration location as the location for the context. *)
     fun getLocation locations =
@@ -472,13 +483,13 @@ struct
             PrettyBlock (3, false, [],
                 [ valPart("constructor", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
      
-        | PattBound => (* Can this every occur? *)
+        | PattBound => (* Can this ever occur? *)
             PrettyBlock (3, false, [],
                 [ valPart("val", ":"), PrettyBreak (1, 0), displayWithMap (typeOf, depth, typeEnv, sigMap) ])
     end
 
-  (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
-  fun printValues (Value{typeOf, class, access, ...}, depth, _) =
+    (* Print global values.  This is passed through the bootstrap and used in the debugger. *)
+    fun printValues (Value{typeOf, class, access, ...}, depth) =
         case (class, access) of
             (ValBound, Global code) => printValueForType (valOf(evalue code), typeOf, depth)
         | _ => PrettyString "" (* Probably shouldn't occur. *)
@@ -574,7 +585,7 @@ struct
         end (* displaySig *)
 
   (* Print: signature S = sig .... end *)
-  and displaySignatures (str as Signatures{declaredAt, name, ...}, depth : int, nameSpace) : pretty =
+  and displaySignatures (str as Signatures{locations, name, ...}, depth : int, nameSpace) : pretty =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock(0, false, [],
@@ -583,7 +594,7 @@ struct
                     [
                         PrettyString "signature",
                         PrettyBreak(1, 0),
-                        PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                        PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                         PrettyBreak(1, 0),
                         PrettyString "="
                     ]
@@ -617,7 +628,7 @@ struct
             displaySig (sign, depth, space, nameSpace, sigMap)
     |   displayNamedSig(Signatures{name, ...}, _, _, _, _) = PrettyString name
 
-    fun displayFunctors (Functor{ name, declaredAt, arg, result, ...}, depth, nameSpace) =
+    fun displayFunctors (Functor{ name, locations, arg, result, ...}, depth, nameSpace) =
     if depth <= 0 then PrettyString "..."
     else
         PrettyBlock (0, false, [],
@@ -625,7 +636,7 @@ struct
                 [
                     PrettyString "functor",
                     PrettyBreak(1, 0),
-                    PrettyBlock(0, false, [ContextLocation declaredAt], [PrettyString name]),
+                    PrettyBlock(0, false, getLocation locations, [PrettyString name]),
                     PrettyBreak(1, 0),
                     PrettyString "("
                 ]) ::

@@ -1177,7 +1177,7 @@ local
                                            an environment to the parse tree. *)
                                         case List.find (fn (PolyML.PTtype _) => true | _ => false) tree of
                                             SOME(PolyML.PTtype t) =>
-                                                SOME(PolyML.NameSpace.Values.printType(t, 100, SOME PolyML.globalNameSpace))
+                                                SOME(PolyML.NameSpace.displayTypeExpression(t, 100, PolyML.globalNameSpace))
                                         |   _ => NONE
                                     )
                         in
@@ -1291,9 +1291,9 @@ local
                             open PolyML.NameSpace
                             (* Put in the results without printing. *)
                             fun resultFun
-                                { fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
-                                  structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
-                                  functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list} =
+                                { fixes: (string * fixityVal) list, values: (string * valueVal) list,
+                                  structures: (string * structureVal) list, signatures: (string * signatureVal) list,
+                                  functors: (string * functorVal) list, types: (string * typeVal) list} =
                             let
                                 open PolyML
                             in
@@ -1552,22 +1552,18 @@ in
             val argList = CommandLine.arguments()
             fun rtsRelease() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (10, ())
             fun rtsHelp() = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ())
-            val gitVersion =
-                case RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (9, ()) of
-                   "" => ""
-                |   s => " (Git version " ^ s ^ ")"
             
             fun switchOption option = List.exists(fn s => s = option) argList
         in
             if switchOption "-v"
             then (* -v option : Print version information and exit *)
                 print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, 
-                                     "    RTS version: ", rtsRelease(), gitVersion, "\n"])
+                                     "    RTS version: ", rtsRelease(), "\n"])
 
             else if switchOption "--help"
             then (* --help option: Print argument information and exit. *)
                (
-                print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, gitVersion, "\n"]);
+                print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
                 print "Compiler arguments:\n";
                 print "\n";
                 print "-v                   Print the version of Poly/ML and exit\n";
@@ -1642,7 +1638,7 @@ in
                 val () =
                     if switchOption "-q"
                     then PolyML.print_depth 0
-                    else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, gitVersion, "\n"]);
+                    else print (String.concat ["Poly/ML ", PolyML.Compiler.compilerVersion, "\n"]);
                 (* Set up a handler for SIGINT if that is currently set to SIG_DFL.
                    If a handler has been set up by an initialisation function don't replace it. *)
                 val () =

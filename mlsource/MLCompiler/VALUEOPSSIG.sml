@@ -85,7 +85,7 @@ sig
     val displayStructures: structVals * int * printTypeEnv -> pretty
     val displayFunctors:   functors   * int * printTypeEnv -> pretty
     val displayValues: values * int * printTypeEnv -> pretty
-    val printValues: values * int * printTypeEnv -> pretty
+    val printValues: values * int -> pretty
 
     val nullEnvironment : nameSpace
 
