@@ -1242,7 +1242,21 @@ in
         end
         
         (* Debugger control.  Extend DebuggerInterface set up by INITIALISE.  Replaces the original DebuggerInterface. *)
-        structure DebuggerInterface =
+        structure DebuggerInterface:
+        sig
+            type debugState
+            val debugFunction: debugState -> string
+            val debugFunctionArg: debugState -> PolyML.NameSpace.Values.value
+            val debugFunctionResult: debugState -> PolyML.NameSpace.Values.value
+            val debugLocation: debugState -> PolyML.location
+            val debugNameSpace: debugState -> PolyML.NameSpace.nameSpace
+            val debugState: Thread.Thread.thread -> debugState list
+            
+            val setOnBreakPoint: (PolyML.location * bool ref -> unit) option -> unit
+            val setOnEntry: (string * PolyML.location -> unit) option -> unit
+            val setOnExit: (string * PolyML.location -> unit) option -> unit
+            val setOnExitException: (string * PolyML.location -> exn -> unit) option -> unit
+        end =
         struct
             open PolyML.DebuggerInterface
  
@@ -1269,13 +1283,185 @@ in
                         if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short s orelse
                            RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short l
                         then toList n
-                        else RunCall.unsafeCast (s, d, l) :: toList n
+                        else (s, d, l) :: toList n
                     end
             in
                 if RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short static orelse
                    RunCall.run_call1 RuntimeCalls.POLY_SYS_is_short locationInfo
                 then toList stack
-                else RunCall.unsafeCast (static, dynamic, locationInfo) :: toList stack
+                else (static, dynamic, locationInfo) :: toList stack
+            end
+            
+            local
+                open PolyML
+                fun printEnv _ _ (EnvValue (s, _, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvValue", PrettyBreak(1, 1), PrettyString s])
+                |   printEnv _ _ (EnvException (s, _, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvException", PrettyBreak(1, 1), PrettyString s])
+                |   printEnv _ _ (EnvVConstr (s, _, _, _, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvVConstr", PrettyBreak(1, 1), PrettyString s])
+                |   printEnv _ _ (EnvTypeid _) = PrettyString "EnvTypeid"
+                |   printEnv _ _ (EnvStructure (s, _, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvStructure", PrettyBreak(1, 1), PrettyString s])
+                |   printEnv _ _ (EnvTConstr (s, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvTConstr", PrettyBreak(1, 1), PrettyString s])
+                |   printEnv _ _ (EnvStartFunction (s, _, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvStartFunction", PrettyBreak(1, 1), PrettyString s])
+                |   printEnv _ _ (EnvEndFunction (s, _, _)) =
+                        PrettyBlock (0, false, [], [PrettyString "EnvEndFunction", PrettyBreak(1, 1), PrettyString s])
+            in
+                val () = addPrettyPrinter printEnv
+            end
+
+            fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
+            (
+                case (match (staticEntry, dynamicEntry), staticEntry) of
+                    (SOME result, _) => SOME result
+                |   (NONE, EnvTypeid _) => searchEnvs match (statics, dynamics)
+                |   (NONE, EnvVConstr _) => searchEnvs match (statics, dynamics)
+                |   (NONE, EnvValue _) => searchEnvs match (statics, dynamics)
+                |   (NONE, EnvException _) => searchEnvs match (statics, dynamics)
+                |   (NONE, EnvStructure _) => searchEnvs match (statics, dynamics)
+                |   (NONE, EnvStartFunction _) => searchEnvs match (statics, dynamics)
+                |   (NONE, EnvEndFunction _) => searchEnvs match (statics, dynamics)
+                        (* EnvTConstr doesn't have an entry in the dynamic list *)
+                |   (NONE, EnvTConstr _) => searchEnvs match (statics, dlist)
+            
+            )
+    
+            |   searchEnvs _ _ = NONE
+            (* N.B.  It is possible to have ([EnvTConstr ...], []) in the arguments so we can't treat
+               that if either the static or dynamic list is nil and the other non-nil as an error. *)
+
+            (* Function argument.  This should always be present but if
+               it isn't just return unit.  That's probably better than
+               an exception here. *)
+            fun debugFunctionArg (state: debugState as (cList, rList, _)) =
+            let
+                val d = (cList, rList)
+                fun match (EnvStartFunction(_, _, ty), valu) =
+                    SOME(makeAnonymousValue state (ty, valu))
+                |   match _ = NONE
+            in
+                getOpt(searchEnvs match d, unitValue) 
+            end
+
+            (* Function result - only valid in exit function. *)
+            and debugFunctionResult (state: debugState as (cList, rList, _)) =
+            let
+                val d = (cList, rList)
+                fun match (EnvEndFunction(_, _, ty), valu) =
+                    SOME(makeAnonymousValue state(ty, valu))
+                |   match _ = NONE
+            in
+                getOpt(searchEnvs match d, unitValue)
+            end
+
+            (* debugFunction just looks at the static data.
+               There should always be an EnvStartFunction entry. *)
+            fun debugFunction ((cList, _, _): debugState): string =
+            (
+                case List.find(fn (EnvStartFunction _) => true | _ => false) cList of
+                    SOME(EnvStartFunction(s, _, _)) => s
+                |   _ => "?"
+            )
+
+            fun debugLocation ((_, _, locn): debugState) = locn
+
+            fun debugNameSpace (state: debugState as (clist, rlist, _)) : nameSpace =
+            let
+                val debugEnviron = (clist, rlist)
+
+                (* Lookup and "all" functions for the environment.  We can't easily use a general
+                   function for the lookup because we have dynamic entries for values and structures
+                   but not for type constructors. *)
+                fun lookupValues (EnvValue(name, ty, location) :: ntl, valu :: vl) s =
+                        if name = s
+                        then SOME(makeValue state (name, ty, location, valu))
+                        else lookupValues(ntl, vl) s
+
+                |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
+                        if name = s
+                        then SOME(makeException state (name, ty, location, valu))
+                        else lookupValues(ntl, vl) s
+
+                |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
+                        if name = s
+                        then SOME(makeConstructor state (name, ty, nullary, count, location, valu))
+                        else lookupValues(ntl, vl) s
+
+                |  lookupValues (EnvTConstr _ :: ntl, vl) s = lookupValues(ntl, vl) s
+        
+                |  lookupValues (_ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
+
+                |  lookupValues _ _ =
+                     (* The name we are looking for isn't in
+                        the environment.
+                        The lists should be the same length. *)
+                     NONE
+
+                fun allValues (EnvValue(name, ty, location) :: ntl, valu :: vl) =
+                        (name, makeValue state (name, ty, location, valu)) :: allValues(ntl, vl)
+
+                 |  allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
+                        (name, makeException state (name, ty, location, valu)) :: allValues(ntl, vl)
+
+                 |  allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
+                        (name, makeConstructor state (name, ty, nullary, count, location, valu)) :: allValues(ntl, vl)
+
+                 |  allValues (EnvTConstr _ :: ntl, vl) = allValues(ntl, vl)
+                 |  allValues (_ :: ntl, _ :: vl) = allValues(ntl, vl)
+                 |  allValues _ = []
+
+                fun lookupTypes (EnvTConstr (name, tCons) :: ntl, vl) s =
+                        if name = s
+                        then SOME (makeTypeConstr state tCons)
+                        else lookupTypes(ntl, vl) s
+
+                |   lookupTypes (_ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
+                |   lookupTypes _ _ = NONE
+
+                fun allTypes (EnvTConstr(name, tCons) :: ntl, vl) =
+                        (name, makeTypeConstr state tCons) :: allTypes(ntl, vl)
+                 |  allTypes (_ :: ntl, _ :: vl) = allTypes(ntl, vl)
+                 |  allTypes _ = []
+
+                fun lookupStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) s =
+                        if name = s
+                        then SOME(makeStructure state (name, rSig, locations, valu))
+                        else lookupStructs(ntl, vl) s
+
+                |   lookupStructs (EnvTConstr _ :: ntl, vl) s = lookupStructs(ntl, vl) s
+                |   lookupStructs (_ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
+                |   lookupStructs _ _ = NONE
+
+                fun allStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) =
+                        (name, makeStructure state (name, rSig, locations, valu)) :: allStructs(ntl, vl)
+
+                 |  allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+                 |  allStructs (_ :: ntl, vl) = allStructs(ntl, vl)
+                 |  allStructs _ = []
+
+                (* We have a full environment here for future expansion but at
+                   the moment only some of the entries are used. *)
+                fun noLook _ = NONE
+                and noEnter _ = raise Fail "Cannot update this name space"
+                and allEmpty _ = []
+           in
+               {
+                    lookupVal = lookupValues debugEnviron,
+                    lookupType = lookupTypes debugEnviron,
+                    lookupFix = noLook,
+                    lookupStruct = lookupStructs debugEnviron,
+                    lookupSig = noLook, lookupFunct = noLook, enterVal = noEnter,
+                    enterType = noEnter, enterFix = noEnter, enterStruct = noEnter,
+                    enterSig = noEnter, enterFunct = noEnter,
+                    allVal = fn () => allValues debugEnviron,
+                    allType = fn () => allTypes debugEnviron,
+                    allFix = allEmpty,
+                    allStruct = fn () => allStructs debugEnviron,
+                    allSig = allEmpty,
+                    allFunct = allEmpty }
             end
 
         end

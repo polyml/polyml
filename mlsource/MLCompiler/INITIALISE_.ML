@@ -222,11 +222,23 @@ struct
                 end
         end
         
-       fun makeTypeAbbreviation(name, typeVars, typeResult, locations) =
+        fun makeTypeAbbreviation(name, fullName, typeVars, typeResult, locations) =
             makeTypeConstructor(
-                name, makeTypeFunction(basisDescription name, (typeVars, typeResult)),
+                name, makeTypeFunction(basisDescription fullName, (typeVars, typeResult)),
                 locations)
-  
+
+        (* Make an opaque type and add it to an environment. *)
+        fun makeAndDeclareOpaqueType(typeName, fullName, env) =
+        let
+            val typeconstr =
+                makeTypeConstructor(typeName,
+                    makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription fullName),
+                    declInBasis);
+        in
+            #enterType env (typeName, TypeConstrSet(typeconstr, []));
+            mkTypeConstruction (typeName, typeconstr, [], declInBasis)
+        end;
+
         (* List of something *)
         fun List (base : types) : types =
             mkTypeConstruction ("list", tsConstr listConstr, [base], declInBasis);
@@ -769,26 +781,15 @@ struct
             and sigsEnv = makeStructure(nameSpaceEnv, "Signatures")
             and functsEnv = makeStructure(nameSpaceEnv, "Functors")
 
-            (* Types for the basic values.  These are opaque. *)
-            fun createType(typeName, fullName, env) =
-            let
-                val typeconstr =
-                    makeTypeConstructor(typeName,
-                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription fullName),
-                        declInBasis);
-            in
-                #enterType env (typeName, TypeConstrSet(typeconstr, []));
-                mkTypeConstruction (typeName, typeconstr, [], declInBasis)
-            end;
-    
-            val valueVal = createType("value", "PolyML.NameSpace.Values.value", valuesEnv)
+            (* Types for the basic values.  These are opaque. *)    
+            val valueVal = makeAndDeclareOpaqueType("value", "PolyML.NameSpace.Values.value", valuesEnv)
             (* Representation of the type of a value. *)
-            val Types = createType("typeExpression", "PolyML.NameSpace.Values.typeExpression", valuesEnv)
-            val typeVal = createType("typeConstr", "PolyML.NameSpace.TypeConstrs.typeConstr", typesEnv)
-            val fixityVal = createType("fixity", "PolyML.NameSpace.Infixes.fixity", fixesEnv)
-            val signatureVal = createType("signatureVal", "PolyML.NameSpace.Signatures.signatureVal", sigsEnv)
-            val structureVal = createType("structureVal", "PolyML.NameSpace.Structures.structureVal", structsEnv)
-            val functorVal = createType("functorVal", "PolyML.NameSpace.Functors.functorVal", functsEnv)
+            val Types = makeAndDeclareOpaqueType("typeExpression", "PolyML.NameSpace.Values.typeExpression", valuesEnv)
+            val typeVal = makeAndDeclareOpaqueType("typeConstr", "PolyML.NameSpace.TypeConstrs.typeConstr", typesEnv)
+            val fixityVal = makeAndDeclareOpaqueType("fixity", "PolyML.NameSpace.Infixes.fixity", fixesEnv)
+            val signatureVal = makeAndDeclareOpaqueType("signatureVal", "PolyML.NameSpace.Signatures.signatureVal", sigsEnv)
+            val structureVal = makeAndDeclareOpaqueType("structureVal", "PolyML.NameSpace.Structures.structureVal", structsEnv)
+            val functorVal = makeAndDeclareOpaqueType("functorVal", "PolyML.NameSpace.Functors.functorVal", functsEnv)
 
             (* nameSpace type.  Labelled record. *)
             fun createFields(name, vType): { name: string, typeof: types} list =
@@ -811,7 +812,7 @@ struct
             val fields = List.foldl (fn (p,l) => createFields p @ l) [] valTypes
     
             val recordType =
-                makeTypeAbbreviation("nameSpace", [], mkLabelled(sortLabels fields, true), declInBasis);
+                makeTypeAbbreviation("nameSpace", "PolyML.NameSpace.nameSpace", [], mkLabelled(sortLabels fields, true), declInBasis);
             val () = #enterType nameSpaceEnv ("nameSpace", TypeConstrSet(recordType, []));
             
             (* The result type of the compiler includes valueVal etc. *)
@@ -859,22 +860,73 @@ struct
         local
             open TYPETREE
             val debuggerEnv = makeStructure(polyMLEnv, "DebuggerInterface")
-            val typeconstr = 
-                makeTypeConstructor("debugState",
-                    makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.DebuggerInterface.debugState")),
-                    declInBasis)
-            val () = #enterType debuggerEnv ("debugState", TypeConstrSet(typeconstr, []))
-            val debugStateType = mkTypeConstruction ("debugState", typeconstr, [], declInBasis)
+            (* Make these opaque at this level. *)
+            val locationPropList =
+                makeAndDeclareOpaqueType("locationPropList", "PolyML.DebuggerInterface.locationPropList", debuggerEnv)
+            val typeId =
+                makeAndDeclareOpaqueType("typeId", "PolyML.DebuggerInterface.typeId", debuggerEnv)
+            val machineWordType =
+                makeAndDeclareOpaqueType("machineWord", "PolyML.DebuggerInterface.machineWord", debuggerEnv)
             open DEBUGGER
+            (* Entries in the static list.  This type is only used within the implementation of
+               DebuggerInterface in the basis library and does not appear in the final signature. *)
+            val environEntryConstr =
+                makeTypeConstructor("environEntry",
+                    makeFreeId(0, defaultEqAndPrintCode(), false,
+                        basisDescription "PolyML.DebuggerInterface.environEntry"), declInBasis)
+            val environEntryType =
+                mkTypeConstruction ("environEntry", environEntryConstr, [], declInBasis)
+            val constrs = (* Order is significant. *)
+               [ ("EnvEndFunction",     mkProductType[String, Location, Types]),
+                 ("EnvException",       mkProductType[String, Types, locationPropList]),
+                 ("EnvStartFunction",   mkProductType[String, Location, Types]),
+                 ("EnvStructure",       mkProductType[String, signatureVal, locationPropList]),
+                 ("EnvTConstr",         String ** typeVal),
+                 ("EnvTypeid",          typeId ** typeId),
+                 ("EnvVConstr",         mkProductType[String, Types, Bool, Int, locationPropList]),
+                 ("EnvValue",           mkProductType[String, Types, locationPropList])
+                 ]
+            (* This representation must match the representation defined in DEBUGGER_.sml. *)
+            val numConstrs = List.length constrs
+            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, [])
+            val constructors =
+                ListPair.map (fn ((s,t), code) =>
+                    mkGconstr(s, t ->> environEntryType, code, false, numConstrs, declInBasis))
+                        (constrs, constrReps)
+            val () = List.app (fn c => #enterVal debuggerEnv(valName c, c)) constructors
+            (* Put these constructors onto the type. *)
+            val () = #enterType debuggerEnv ("environEntry", TypeConstrSet(environEntryConstr, constructors))
+            (* Debug state type. *)
+            val debugStateConstr =
+                makeTypeAbbreviation("debugState", "PolyML.DebuggerInterface.debugState", [],
+                    mkProductType[List environEntryType, List machineWordType, Location], declInBasis)
+            val () = #enterType debuggerEnv ("debugState", TypeConstrSet(debugStateConstr, []))
+            val debugStateType = mkTypeConstruction ("debugState", debugStateConstr, [], declInBasis)
         in
             val () = applyList (fn (name, v, t) =>
                                 #enterVal debuggerEnv (name, mkGvar (name, t, mkConst v, declInBasis)))
                 [
-                    ("debugNameSpace", toMachineWord(debugNameSpace :debugState -> nameSpace), debugStateType ->> nameSpaceType),
-                    ("debugFunction", toMachineWord(debugFunction: debugState -> string), debugStateType ->> String),
-                    ("debugFunctionArg", toMachineWord(debugFunctionArg: debugState -> values), debugStateType ->> valueVal),
-                    ("debugFunctionResult", toMachineWord(debugFunctionResult: debugState -> values), debugStateType ->> valueVal),
-                    ("debugLocation", toMachineWord(debugLocation :debugState -> location), debugStateType ->> Location),
+                    ("makeValue",
+                        toMachineWord(makeValue: debugState -> string * types * locationProp list * machineWord -> values),
+                        debugStateType ->> mkProductType[String, Types, locationPropList, machineWordType] ->> valueVal),
+                    ("makeException",
+                        toMachineWord(makeException: debugState -> string * types * locationProp list * machineWord -> values),
+                        debugStateType ->> mkProductType[String, Types, locationPropList, machineWordType] ->> valueVal),
+                    ("makeConstructor",
+                        toMachineWord(makeConstructor: debugState -> string * types * bool * int * locationProp list * machineWord -> values),
+                        debugStateType ->> mkProductType[String, Types, Bool, Int, locationPropList, machineWordType] ->> valueVal),
+                    ("makeAnonymousValue",
+                        toMachineWord(makeAnonymousValue: debugState -> types * machineWord -> values),
+                        debugStateType ->> mkProductType[Types, machineWordType] ->> valueVal),
+                    ("makeStructure",
+                        toMachineWord(makeStructure: debugState -> string * signatures * locationProp list * machineWord -> structVals),
+                        debugStateType ->> mkProductType[String, signatureVal, locationPropList, machineWordType] ->> structureVal),
+                    ("makeTypeConstr",
+                        toMachineWord(makeTypeConstr: debugState -> typeConstrSet -> typeConstrSet),
+                        debugStateType ->> typeVal ->> typeVal),
+                    ("unitValue", toMachineWord(mkGvar("", unitType, CodeZero, []): values), valueVal), (* Used as a default *)
+
+                    
                     ("setOnEntry", toMachineWord(setOnEntry: (string * PolyML.location -> unit) option -> unit),
                         Option (String ** Location ->> Unit) ->> Unit),
                     ("setOnExit", toMachineWord(setOnExit: (string * PolyML.location -> unit) option -> unit),
@@ -1026,7 +1078,7 @@ struct
 
             (* Parsetree type. *)
             val parseTreeConstr =
-                makeTypeAbbreviation("parseTree", [], Location ** List PtProperties, declInBasis);    
+                makeTypeAbbreviation("parseTree", "PolyML.parseTree", [], Location ** List PtProperties, declInBasis);    
             val ParseTree = mkTypeConstruction ("parseTree", parseTreeConstr, [], declInBasis)
             val () = #enterType polyMLEnv ("parseTree", TypeConstrSet(parseTreeConstr, []));
 
@@ -1168,15 +1220,7 @@ struct
             val codetreeEnv = makeStructure(polyMLEnv, "CodeTree")
 
             fun createType typeName =
-            let
-                val typeconstr =
-                    makeTypeConstructor(typeName,
-                        makeFreeId(0, defaultEqAndPrintCode(), false, basisDescription("PolyML.CodeTree." ^ typeName)),
-                        declInBasis);
-            in
-                #enterType codetreeEnv (typeName, TypeConstrSet(typeconstr, []));
-                mkTypeConstruction (typeName, typeconstr, [], declInBasis)
-            end
+                makeAndDeclareOpaqueType(typeName, "PolyML.CodeTree." ^ typeName, codetreeEnv)
 
             val CodeTree = createType "codetree"
             and MachineWord = createType "machineWord"
