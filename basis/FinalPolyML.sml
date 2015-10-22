@@ -653,12 +653,15 @@ local
         end
     end
 
-    val suffixes = ref ["", ".ML", ".sml"];
-
+    val suffixes = ref ["", ".ML", ".sml"]
+ 
 
     (*****************************************************************************)
     (*                  "use": compile from a file.                              *)
     (*****************************************************************************)
+   
+    val useFileTag: string option Universal.tag = Universal.tag()
+    fun getUseFileName(): string option = Option.join (Thread.Thread.getLocal useFileTag)
 
     fun use (originalName: string): unit =
     let
@@ -676,6 +679,10 @@ local
         (* First in list is the name with no suffix. *)
         val (inStream, fileName) = trySuffixes("" :: ! suffixes)
         val stream = ref inStream
+        (* Record the file name.  This allows nested calls to "use" to set the
+           correct path. *)
+        val oldName = getUseFileName()
+        val () = Thread.Thread.setLocal(useFileTag, SOME fileName)
 
         val lineNo   = ref 1;
         fun getChar () : char option =
@@ -700,11 +707,13 @@ local
                 (* Report exceptions in running code. *)
                 TextIO.print ("Exception- " ^ exnMessage exn ^ " raised\n");
                 TextIO.StreamIO.closeIn (! stream);
+                Thread.Thread.setLocal(useFileTag, oldName);
                 PolyML.Exception.reraise exn
             )
         end;
         (* Normal termination: close the stream. *)
-        TextIO.StreamIO.closeIn (! stream)
+        TextIO.StreamIO.closeIn (! stream);
+        Thread.Thread.setLocal(useFileTag, oldName)
 
     end (* use *)
  
@@ -1140,7 +1149,7 @@ in
         val globalNameSpace = globalNameSpace
 
         val use = use and make = make and shell = shell
-        val suffixes = suffixes
+        val suffixes = suffixes and getUseFileName = getUseFileName
         val compiler = polyCompiler
 
         val prettyPrintWithIDEMarkup = prettyPrintWithIDEMarkup
