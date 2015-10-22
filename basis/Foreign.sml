@@ -215,8 +215,12 @@ sig
     val cLong: int conversion
     val cUlong: int conversion
     val cString: string conversion
+    val cByteArray: Word8Vector.vector conversion
     val cFloat: real conversion
     val cDouble: real conversion
+    
+    (* When a pointer e.g. a string may be null. *)
+    val cOptionPtr: 'a conversion -> 'a option conversion
 
     val cFunction0withAbi: LibFFI.abi -> unit -> 'a conversion -> (unit -> 'a) conversion
     val cFunction0: unit -> 'a conversion -> (unit -> 'a) conversion
@@ -267,6 +271,41 @@ sig
     val cStruct9: 'a conversion * 'b conversion * 'c conversion * 'd conversion *
                        'e conversion * 'f conversion * 'g conversion * 'h conversion * 'i conversion ->
                        ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion
+    val cStruct10: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion
+    val cStruct11: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion
+    val cStruct12: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion
+    val cStruct13: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion
+    val cStruct14: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion ->
+                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion
+    val cStruct15: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion
+    val cStruct16: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion -> ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion
+    val cStruct17: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion
+    val cStruct18: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion
+    val cStruct19: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion
+    val cStruct20: 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion * 'f conversion * 'g conversion *
+                   'h conversion * 'i conversion * 'j conversion * 'k conversion * 'l conversion * 'm conversion * 'n conversion *
+                   'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion * 't conversion ->
+                    ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion
 
     val call0withAbi: LibFFI.abi -> symbol -> unit -> 'a conversion -> unit -> 'a
     val call0: symbol -> unit -> 'a conversion -> unit -> 'a
@@ -876,7 +915,6 @@ struct
             in
                 CharVector.tabulate(Word.toInt length, loadChar)
             end
-            
             fun store(v: voidStar, s: string) =
             let
                 val sLen = Word.fromInt(String.size s)
@@ -893,6 +931,45 @@ struct
                 { load=load, store=store, release = release, ctype = cTypePointer }
         end
 
+        (* This is used if we want to pass NULL rather than a pointer in some cases. *)
+        fun cOptionPtr({load, store, release, ctype}:'a conversion): 'a option conversion =
+            if #typeCode(extractFFItype(#ffiType ctype ())) <> ffiTypeCodePointer
+            then raise Foreign "cOptionPtr must be applied to a pointer type"
+            else
+            let
+                fun loadOpt(s: voidStar) =
+                    if getAddress(s, 0w0) = null then NONE else SOME(load s)
+
+                fun storeOpt(v: voidStar, NONE) = setAddress(v, 0w0, null)
+                |   storeOpt(v: voidStar, SOME s) = store(v, s)
+                
+                fun releaseOpt(_, NONE) = ()
+                |   releaseOpt(v: voidStar, SOME s) = release(v, s)
+            in
+                { load=loadOpt, store=storeOpt, release = releaseOpt, ctype = cTypePointer }
+            end
+
+        local
+            (* Word8Vector.vector to C array of bytes.  It is only possible to
+               do this one way because conversion from a C array requires
+               us to know the size. *)
+            fun load _ = raise Foreign "cByteArray cannot convert from C to ML"
+
+            fun store(v: voidStar, s: Word8Vector.vector) =
+            let
+                open Word8Vector
+                val sLen = Word.fromInt(length s)
+                val sMem = malloc sLen
+                val () = appi(fn(i, b) => set8(sMem, Word.fromInt i, b)) s
+            in
+                setAddress(v, 0w0, sMem)
+            end
+            
+            fun release(s: voidStar, _) = Memory.free(getAddress(s, 0w0))
+        in
+            val cByteArray: Word8Vector.vector conversion =
+                { load=load, store=store, release = release, ctype = cTypePointer }
+        end
     end
 
     (* Replace the "release" function by a null function.  This is intended for situations
@@ -1113,6 +1190,676 @@ struct
     in
         {load=load, store=store, release=release,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei]}
+    end
+
+    fun cStruct10(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {align=alignj, ...} } = j
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj))
+        and store (x, (a, b, c, d, e, f, g, h, i, j)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j))
+        and release(x, (a, b, c, d, e, f, g, h, i, j)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej]}
+    end
+
+    fun cStruct11(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {align=alignk, ...} } = k
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek]}
+    end
+    
+    fun cStruct12(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {align=alignl, ...} } = l
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel]}
+    end
+    
+    fun cStruct13(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {align=alignm, ...} } = m
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem]}
+    end
+    
+    nonfix o
+
+    fun cStruct14(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {align=alignn, ...} } = n
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen]}
+    end
+
+    fun cStruct15(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, release=releaseo, ctype = ctypeo as {align=aligno, ...} } = o
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n); storeo(x ++ offseto, o))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n); releaseo(x ++ offseto, o))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo]}
+    end
+
+    fun cStruct16(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, release=releaseo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, release=releasep, ctype = ctypep as {align=alignp, ...} } = p
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n); storeo(x ++ offseto, o); storep(x ++ offsetp, p))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n); releaseo(x ++ offseto, o); releasep(x ++ offsetp, p))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep]}
+    end
+
+    fun cStruct17(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, release=releaseo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, release=releasep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, release=releaseq, ctype = ctypeq as {align=alignq, ...} } = q
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n); storeo(x ++ offseto, o); storep(x ++ offsetp, p);
+             storeq(x ++ offsetq, q))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n); releaseo(x ++ offseto, o); releasep(x ++ offsetp, p);
+             releaseq(x ++ offsetq, q))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq]}
+    end
+
+    fun cStruct18(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion, r: 'r conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, release=releaseo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, release=releasep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, release=releaseq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, release=releaser, ctype = ctyper as {align=alignr, ...} } = r
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+        val offsetr = alignUp(offsetq + sizeq, alignr)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq), loadr(s ++ offsetr))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n); storeo(x ++ offseto, o); storep(x ++ offsetp, p);
+             storeq(x ++ offsetq, q); storer(x ++ offsetr, r))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n); releaseo(x ++ offseto, o); releasep(x ++ offsetp, p);
+             releaseq(x ++ offsetq, q); releaser(x ++ offsetr, r))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper]}
+    end
+
+    fun cStruct19(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion, r: 'r conversion, s: 's conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, release=releaseo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, release=releasep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, release=releaseq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, release=releaser, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
+        and {load=loads, store=stores, release=releases, ctype = ctypes as {align=aligns, ...} } = s
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+        val offsetr = alignUp(offsetq + sizeq, alignr)
+        val offsets = alignUp(offsetr + sizer, aligns)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq), loadr(s ++ offsetr), loads(s ++ offsets))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n); storeo(x ++ offseto, o); storep(x ++ offsetp, p);
+             storeq(x ++ offsetq, q); storer(x ++ offsetr, r); stores(x ++ offsets, s))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n); releaseo(x ++ offseto, o); releasep(x ++ offsetp, p);
+             releaseq(x ++ offsetq, q); releaser(x ++ offsetr, r); releases(x ++ offsets, s))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes]}
+    end
+
+    fun cStruct20(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
+                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
+                  i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion,
+                  m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion,
+                  q: 'q conversion, r: 'r conversion, s: 's conversion, t: 't conversion):
+                  ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion =
+    let
+        val {load=loada, store=storea, release=releasea, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, release=releaseb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, release=releasec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, release=released, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, release=releasee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, release=releasef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, release=releaseg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, release=releaseh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, release=releasei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, release=releasej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, release=releasek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, release=releasel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, release=releasem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, release=releasen, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, release=releaseo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, release=releasep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, release=releaseq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, release=releaser, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
+        and {load=loads, store=stores, release=releases, ctype = ctypes as {size=sizes, align=aligns, ...} } = s
+        and {load=loadt, store=storet, release=releaset, ctype = ctypet as {align=alignt, ...} } = t
+
+        val offsetb = alignUp(sizea, alignb)
+        val offsetc = alignUp(offsetb + sizeb, alignc)
+        val offsetd = alignUp(offsetc + sizec, alignd)
+        val offsete = alignUp(offsetd + sized, aligne)
+        val offsetf = alignUp(offsete + sizee, alignf)
+        val offsetg = alignUp(offsetf + sizef, aligng)
+        val offseth = alignUp(offsetg + sizeg, alignh)
+        val offseti = alignUp(offseth + sizeh, aligni)
+        val offsetj = alignUp(offseti + sizei, alignj)
+        val offsetk = alignUp(offsetj + sizej, alignk)
+        val offsetl = alignUp(offsetk + sizek, alignl)
+        val offsetm = alignUp(offsetl + sizel, alignm)
+        val offsetn = alignUp(offsetm + sizem, alignn)
+        val offseto = alignUp(offsetn + sizen, aligno)
+        val offsetp = alignUp(offseto + sizeo, alignp)
+        val offsetq = alignUp(offsetp + sizep, alignq)
+        val offsetr = alignUp(offsetq + sizeq, alignr)
+        val offsets = alignUp(offsetr + sizer, aligns)
+        val offsett = alignUp(offsets + sizes, alignt)
+
+        fun load s =
+            (loada s, loadb(s ++ offsetb), loadc(s ++ offsetc), loadd(s ++ offsetd),
+             loade(s ++ offsete), loadf(s ++ offsetf), loadg(s ++ offsetg),
+             loadh(s ++ offseth), loadi(s ++ offseti), loadj(s ++ offsetj),
+             loadk(s ++ offsetk), loadl(s ++ offsetl), loadm(s ++ offsetm),
+             loadn(s ++ offsetn), loado(s ++ offseto), loadp(s ++ offsetp),
+             loadq(s ++ offsetq), loadr(s ++ offsetr), loads(s ++ offsets), loadt(s ++ offsett))
+        and store (x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+            (storea(x, a); storeb(x ++ offsetb, b); storec(x ++ offsetc, c); stored(x ++ offsetd, d);
+             storee(x ++ offsete, e); storef(x ++ offsetf, f); storeg(x ++ offsetg, g);
+             storeh(x ++ offseth, h); storei(x ++ offseti, i); storej(x ++ offsetj, j);
+             storek(x ++ offsetk, k); storel(x ++ offsetl, l); storem(x ++ offsetm, m);
+             storen(x ++ offsetn, n); storeo(x ++ offseto, o); storep(x ++ offsetp, p);
+             storeq(x ++ offsetq, q); storer(x ++ offsetr, r); stores(x ++ offsets, s); storet(x ++ offsett, t))
+        and release(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+            (releasea(x, a); releaseb(x ++ offsetb, b); releasec(x ++ offsetc, c); released(x ++ offsetd, d);
+             releasee(x ++ offsete, e); releasef(x ++ offsetf, f); releaseg(x ++ offsetg, g);
+             releaseh(x ++ offseth, h); releasei(x ++ offseti, i); releasej(x ++ offsetj, j);
+             releasek(x ++ offsetk, k); releasel(x ++ offsetl, l); releasem(x ++ offsetm, m);
+             releasen(x ++ offsetn, n); releaseo(x ++ offseto, o); releasep(x ++ offsetp, p);
+             releaseq(x ++ offsetq, q); releaser(x ++ offsetr, r); releases(x ++ offsets, s); releaset(x ++ offsett, t))
+    in
+        {load=load, store=store, release=release,
+         ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
+                                  ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes, ctypet]}
     end
 
     (* Conversion for call-by-reference. *)
