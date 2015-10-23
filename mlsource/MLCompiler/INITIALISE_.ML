@@ -867,6 +867,14 @@ struct
                 makeAndDeclareOpaqueType("typeId", "PolyML.DebuggerInterface.typeId", debuggerEnv)
             val machineWordType =
                 makeAndDeclareOpaqueType("machineWord", "PolyML.DebuggerInterface.machineWord", debuggerEnv)
+            (* For long term security keep these as different from global types and sigs.
+               Values in the static environment need to be copied before they are global. *)
+            val localType =
+                makeAndDeclareOpaqueType("localType", "PolyML.DebuggerInterface.localType", debuggerEnv)
+            val localTypeConstr =
+                makeAndDeclareOpaqueType("localTypeConstr", "PolyML.DebuggerInterface.localTypeConstr", debuggerEnv)
+            val localSig =
+                makeAndDeclareOpaqueType("localSig", "PolyML.DebuggerInterface.localSig", debuggerEnv)
             open DEBUGGER
             (* Entries in the static list.  This type is only used within the implementation of
                DebuggerInterface in the basis library and does not appear in the final signature. *)
@@ -877,14 +885,14 @@ struct
             val environEntryType =
                 mkTypeConstruction ("environEntry", environEntryConstr, [], declInBasis)
             val constrs = (* Order is significant. *)
-               [ ("EnvEndFunction",     mkProductType[String, Location, Types]),
-                 ("EnvException",       mkProductType[String, Types, locationPropList]),
-                 ("EnvStartFunction",   mkProductType[String, Location, Types]),
-                 ("EnvStructure",       mkProductType[String, signatureVal, locationPropList]),
-                 ("EnvTConstr",         String ** typeVal),
+               [ ("EnvEndFunction",     mkProductType[String, Location, localType]),
+                 ("EnvException",       mkProductType[String, localType, locationPropList]),
+                 ("EnvStartFunction",   mkProductType[String, Location, localType]),
+                 ("EnvStructure",       mkProductType[String, localSig, locationPropList]),
+                 ("EnvTConstr",         String ** localTypeConstr),
                  ("EnvTypeid",          typeId ** typeId),
-                 ("EnvVConstr",         mkProductType[String, Types, Bool, Int, locationPropList]),
-                 ("EnvValue",           mkProductType[String, Types, locationPropList])
+                 ("EnvVConstr",         mkProductType[String, localType, Bool, Int, locationPropList]),
+                 ("EnvValue",           mkProductType[String, localType, locationPropList])
                  ]
             (* This representation must match the representation defined in DEBUGGER_.sml. *)
             val numConstrs = List.length constrs
@@ -908,22 +916,22 @@ struct
                 [
                     ("makeValue",
                         toMachineWord(makeValue: debugState -> string * types * locationProp list * machineWord -> values),
-                        debugStateType ->> mkProductType[String, Types, locationPropList, machineWordType] ->> valueVal),
+                        debugStateType ->> mkProductType[String, localType, locationPropList, machineWordType] ->> valueVal),
                     ("makeException",
                         toMachineWord(makeException: debugState -> string * types * locationProp list * machineWord -> values),
-                        debugStateType ->> mkProductType[String, Types, locationPropList, machineWordType] ->> valueVal),
+                        debugStateType ->> mkProductType[String, localType, locationPropList, machineWordType] ->> valueVal),
                     ("makeConstructor",
                         toMachineWord(makeConstructor: debugState -> string * types * bool * int * locationProp list * machineWord -> values),
-                        debugStateType ->> mkProductType[String, Types, Bool, Int, locationPropList, machineWordType] ->> valueVal),
+                        debugStateType ->> mkProductType[String, localType, Bool, Int, locationPropList, machineWordType] ->> valueVal),
                     ("makeAnonymousValue",
                         toMachineWord(makeAnonymousValue: debugState -> types * machineWord -> values),
-                        debugStateType ->> mkProductType[Types, machineWordType] ->> valueVal),
+                        debugStateType ->> mkProductType[localType, machineWordType] ->> valueVal),
                     ("makeStructure",
                         toMachineWord(makeStructure: debugState -> string * signatures * locationProp list * machineWord -> structVals),
-                        debugStateType ->> mkProductType[String, signatureVal, locationPropList, machineWordType] ->> structureVal),
+                        debugStateType ->> mkProductType[String, localSig, locationPropList, machineWordType] ->> structureVal),
                     ("makeTypeConstr",
                         toMachineWord(makeTypeConstr: debugState -> typeConstrSet -> typeConstrSet),
-                        debugStateType ->> typeVal ->> typeVal),
+                        debugStateType ->> localTypeConstr ->> typeVal),
                     ("unitValue", toMachineWord(mkGvar("", unitType, CodeZero, []): values), valueVal), (* Used as a default *)
 
                     
