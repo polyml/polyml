@@ -1544,7 +1544,7 @@ in
             end
 
             (* Try to print the appropriate line from the file.*)
-            fun printSourceLine(fileName: string, line: int, funName: string, justLocation) =
+            fun printSourceLine(prefix, fileName: string, line: int, funName: string, justLocation) =
             let
                 open TextIO
                 open PolyML
@@ -1553,6 +1553,7 @@ in
                 val prettyOut = prettyPrintWithOptionalMarkup (printOut, !lineLength)
                 val lineInfo =
                     concat(
+                        [prefix] @
                         (if fileName = "" then [] else [fileName, " "]) @
                         (if line = 0 then [] else [" line:", Int.toString line, " "]) @
                         ["function:", funName])
@@ -1690,7 +1691,7 @@ in
                             let
                                 val (funName, {file, startLine, ...}) = debugLocation hd
                             in
-                                printSourceLine(file, startLine, funName, false)
+                                printSourceLine("", file, startLine, funName, false)
                             end
                     |   [] => () (* Shouldn't happen. *)
 
@@ -1838,7 +1839,7 @@ in
                         val (funName, {startLine, file, ...}) =
                             debugLocation(List.nth(stack, !debugLevel))
                     in
-                        printSourceLine(file, startLine, funName, false)
+                        printSourceLine("", file, startLine, funName, false)
                     end
                     else TextIO.print "Top of stack.\n"
                 end
@@ -1855,21 +1856,24 @@ in
                         val (funName, {startLine, file, ...}) =
                             debugLocation(List.nth(stack, !debugLevel))
                     in
-                        printSourceLine(file, startLine, funName, false)
+                        printSourceLine("", file, startLine, funName, false)
                     end
                 end
 
                 (* Just print the functions without any other context. *)
                 fun stack () : unit =
                 let
-                    fun printTrace d =
+                    fun printTrace(d, n) =
                     let
                         val (funName, {file, startLine, ...}) = debugLocation d
+                        (* If this is the current level prefix it with > *)
+                        val prefix = if n = !debugLevel then "> " else "  "
                     in
-                        printSourceLine(file, startLine, funName, true)
+                        printSourceLine(prefix, file, startLine, funName, true);
+                        n+1
                     end
                 in
-                    List.app printTrace (getCurrentStack())
+                    ignore (List.foldl printTrace 0 (getCurrentStack()))
                 end
 
                 local
