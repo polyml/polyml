@@ -1270,27 +1270,6 @@ in
                 then toList stack
                 else (static, dynamic, locationInfo) :: toList stack
             end
-            
-            local
-                open PolyML
-                fun printEnv _ _ (EnvValue (s, _, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvValue", PrettyBreak(1, 1), PrettyString s])
-                |   printEnv _ _ (EnvException (s, _, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvException", PrettyBreak(1, 1), PrettyString s])
-                |   printEnv _ _ (EnvVConstr (s, _, _, _, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvVConstr", PrettyBreak(1, 1), PrettyString s])
-                |   printEnv _ _ (EnvTypeid _) = PrettyString "EnvTypeid"
-                |   printEnv _ _ (EnvStructure (s, _, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvStructure", PrettyBreak(1, 1), PrettyString s])
-                |   printEnv _ _ (EnvTConstr (s, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvTConstr", PrettyBreak(1, 1), PrettyString s])
-                |   printEnv _ _ (EnvStartFunction (s, _, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvStartFunction", PrettyBreak(1, 1), PrettyString s])
-                |   printEnv _ _ (EnvEndFunction (s, _, _)) =
-                        PrettyBlock (0, false, [], [PrettyString "EnvEndFunction", PrettyBreak(1, 1), PrettyString s])
-            in
-                val () = addPrettyPrinter printEnv
-            end
 
             fun searchEnvs match (staticEntry :: statics, dlist as dynamicEntry :: dynamics) =
             (
