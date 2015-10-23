@@ -1229,6 +1229,7 @@ in
             val debugFunctionResult: debugState -> PolyML.NameSpace.Values.value
             val debugLocation: debugState -> PolyML.location
             val debugNameSpace: debugState -> PolyML.NameSpace.nameSpace
+            val debugLocalNameSpace: debugState -> PolyML.NameSpace.nameSpace
             val debugState: Thread.Thread.thread -> debugState list
             
             val setOnBreakPoint: (PolyML.location * bool ref -> unit) option -> unit
@@ -1284,12 +1285,12 @@ in
                 |   (NONE, EnvEndFunction _) => searchEnvs match (statics, dynamics)
                         (* EnvTConstr doesn't have an entry in the dynamic list *)
                 |   (NONE, EnvTConstr _) => searchEnvs match (statics, dlist)
-            
+        
             )
     
             |   searchEnvs _ _ = NONE
-            (* N.B.  It is possible to have ([EnvTConstr ...], []) in the arguments so we can't treat
-               that if either the static or dynamic list is nil and the other non-nil as an error. *)
+            (* N.B.  It is possible to have ([EnvTConstr ...], []) in the arguments so we can't assume
+               that if either the static or dynamic list is nil and the other non-nil it's an error. *)
 
             (* Function argument.  This should always be present but if
                it isn't just return unit.  That's probably better than
@@ -1326,7 +1327,7 @@ in
 
             fun debugLocation ((_, _, locn): debugState) = locn
 
-            fun debugNameSpace (state: debugState as (clist, rlist, _)) : nameSpace =
+            fun nameSpace localOnly (state: debugState as (clist, rlist, _)) : nameSpace =
             let
                 val debugEnviron = (clist, rlist)
 
@@ -1338,21 +1339,24 @@ in
                         then SOME(makeValue state (name, ty, location, valu))
                         else lookupValues(ntl, vl) s
 
-                |  lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
+                |   lookupValues (EnvException(name, ty, location) :: ntl, valu :: vl) s =
                         if name = s
                         then SOME(makeException state (name, ty, location, valu))
                         else lookupValues(ntl, vl) s
 
-                |  lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
+                |   lookupValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) s =
                         if name = s
                         then SOME(makeConstructor state (name, ty, nullary, count, location, valu))
                         else lookupValues(ntl, vl) s
 
-                |  lookupValues (EnvTConstr _ :: ntl, vl) s = lookupValues(ntl, vl) s
+                |   lookupValues (EnvTConstr _ :: ntl, vl) s = lookupValues(ntl, vl) s
+                
+                |   lookupValues (EnvStartFunction _ :: ntl, _ :: vl) s =
+                        if localOnly then NONE else lookupValues(ntl, vl) s
         
-                |  lookupValues (_ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
+                |   lookupValues (_ :: ntl, _ :: vl) s = lookupValues(ntl, vl) s
 
-                |  lookupValues _ _ =
+                |   lookupValues _ _ =
                      (* The name we are looking for isn't in
                         the environment.
                         The lists should be the same length. *)
@@ -1361,28 +1365,37 @@ in
                 fun allValues (EnvValue(name, ty, location) :: ntl, valu :: vl) =
                         (name, makeValue state (name, ty, location, valu)) :: allValues(ntl, vl)
 
-                 |  allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
+                |   allValues (EnvException(name, ty, location) :: ntl, valu :: vl) =
                         (name, makeException state (name, ty, location, valu)) :: allValues(ntl, vl)
 
-                 |  allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
+                |   allValues (EnvVConstr(name, ty, nullary, count, location) :: ntl, valu :: vl) =
                         (name, makeConstructor state (name, ty, nullary, count, location, valu)) :: allValues(ntl, vl)
 
-                 |  allValues (EnvTConstr _ :: ntl, vl) = allValues(ntl, vl)
-                 |  allValues (_ :: ntl, _ :: vl) = allValues(ntl, vl)
-                 |  allValues _ = []
+                |   allValues (EnvTConstr _ :: ntl, vl) = allValues(ntl, vl)
+
+                |   allValues (EnvStartFunction _ :: ntl, _ :: vl) =
+                        if localOnly then [] else allValues(ntl, vl)
+
+                |   allValues (_ :: ntl, _ :: vl) = allValues(ntl, vl)
+                |   allValues _ = []
 
                 fun lookupTypes (EnvTConstr (name, tCons) :: ntl, vl) s =
                         if name = s
                         then SOME (makeTypeConstr state tCons)
                         else lookupTypes(ntl, vl) s
 
+                |   lookupTypes (EnvStartFunction _ :: ntl, _ :: vl) s =
+                        if localOnly then NONE else lookupTypes(ntl, vl) s
+
                 |   lookupTypes (_ :: ntl, _ :: vl) s = lookupTypes(ntl, vl) s
                 |   lookupTypes _ _ = NONE
 
                 fun allTypes (EnvTConstr(name, tCons) :: ntl, vl) =
                         (name, makeTypeConstr state tCons) :: allTypes(ntl, vl)
-                 |  allTypes (_ :: ntl, _ :: vl) = allTypes(ntl, vl)
-                 |  allTypes _ = []
+                |   allTypes (EnvStartFunction _ :: ntl, _ :: vl) =
+                        if localOnly then [] else allTypes(ntl, vl)
+                |   allTypes (_ :: ntl, _ :: vl) = allTypes(ntl, vl)
+                |   allTypes _ = []
 
                 fun lookupStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) s =
                         if name = s
@@ -1390,15 +1403,20 @@ in
                         else lookupStructs(ntl, vl) s
 
                 |   lookupStructs (EnvTConstr _ :: ntl, vl) s = lookupStructs(ntl, vl) s
+
+                |   lookupStructs (EnvStartFunction _ :: ntl, _ :: vl) s =
+                        if localOnly then NONE else lookupStructs(ntl, vl) s
                 |   lookupStructs (_ :: ntl, _ :: vl) s = lookupStructs(ntl, vl) s
                 |   lookupStructs _ _ = NONE
 
                 fun allStructs (EnvStructure (name, rSig, locations) :: ntl, valu :: vl) =
                         (name, makeStructure state (name, rSig, locations, valu)) :: allStructs(ntl, vl)
 
-                 |  allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
-                 |  allStructs (_ :: ntl, vl) = allStructs(ntl, vl)
-                 |  allStructs _ = []
+                |   allStructs (EnvTypeid _ :: ntl, _ :: vl) = allStructs(ntl, vl)
+                |   allStructs (EnvStartFunction _ :: ntl, _ :: vl) =
+                        if localOnly then [] else allStructs(ntl, vl)
+                |   allStructs (_ :: ntl, vl) = allStructs(ntl, vl)
+                |   allStructs _ = []
 
                 (* We have a full environment here for future expansion but at
                    the moment only some of the entries are used. *)
@@ -1422,6 +1440,7 @@ in
                     allFunct = allEmpty }
             end
 
+            val debugNameSpace = nameSpace false and debugLocalNameSpace = nameSpace true
         end
 
         local
@@ -1861,7 +1880,8 @@ in
                         List.app (fn (_,v) => printVal v) (#allVal (debugNameSpace stack) ())
                 in
                     (* Print all variables at the current level. *)
-                    fun variables() = printStack (List.nth(getCurrentStack(), !debugLevel))
+                    fun variables() =
+                        printStack (List.nth(getCurrentStack(), !debugLevel))
                     (* Print all the levels. *)
                     and dump() =
                     let
@@ -1875,6 +1895,13 @@ in
                         end
                     in
                         List.app printLevel (getCurrentStack())
+                    end
+                    (* Print local variables at the current level. *)
+                    and locals() =
+                    let
+                        val stack = List.nth(getCurrentStack(), !debugLevel)
+                    in
+                        List.app (fn (_,v) => printVal v) (#allVal (debugLocalNameSpace stack) ())
                     end
                 end
 
