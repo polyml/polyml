@@ -540,7 +540,7 @@ local
 
         (* Top-level read-eval-print loop.  This is the normal top-level loop and is
            also used for the debugger. *)
-        fun topLevel {isDebug, nameSpace, exitLoop, exitOnError, isInteractive } =
+        fun topLevel {isDebug, nameSpace, exitLoop, exitOnError, isInteractive, startExec, endExec } =
         let
             (* This is used as the main read-eval-print loop.  It is also invoked
                by running code that has been compiled with the debug option on
@@ -615,12 +615,13 @@ local
                         )
                         
                     val endCompile = Timer.checkCPUTimer startCompile
-            
-                    val startRun = Timer.startCPUTimer()
 
+                    (* Run the code *)
+                    val startRun = Timer.startCPUTimer()
+                    val () = startExec() (* Enable any debugging *)
                     (* Run the code and capture any exception (temporarily). *)
                     val finalResult = (code(); NONE) handle exn => SOME exn
-
+                    val () = endExec() (* Turn off debugging *)
                     (* Print the times if required. *)
                     val endRun = Timer.checkCPUTimer startRun
                     val () =
@@ -657,10 +658,17 @@ local
             fun handledLoop () : unit =
             (
                 (* Process a single top-level command. *)
-                readEvalPrint() handle _ =>
-                                      if exitOnError
-                                      then OS.Process.exit OS.Process.failure
-                                      else ();
+                readEvalPrint()
+                    handle Thread.Thread.Interrupt =>
+                        (* Allow ^C to terminate the debugger and raise Interrupt in
+                           the called program. *)
+                        if exitOnError then OS.Process.exit OS.Process.failure
+                        else if isDebug then (flushInput(); raise Thread.Thread.Interrupt)
+                        else ()
+                    |   _ =>
+                        if exitOnError
+                        then OS.Process.exit OS.Process.failure
+                        else ();
                 (* Exit if we've seen end-of-file or we're in the debugger
                    and we've run "continue". *)
                 if !endOfFile orelse exitLoop() then ()
@@ -668,35 +676,6 @@ local
             )
         in
             handledLoop ()  
-        end
-
-        (* Normal, non-debugging top-level loop. *)
-        fun shell () =
-        let
-            val argList = CommandLine.arguments()
-            fun switchOption option = List.exists(fn s => s = option) argList
-            (* Generate mark-up in IDE code when printing if the option has been given
-               on the command line. *)
-            val () = useMarkupInOutput := switchOption "--with-markup"
-            val exitOnError = switchOption"--error-exit"
-            val interactive =
-                switchOption "-i" orelse
-                let
-                    open TextIO OS
-                    open StreamIO TextPrimIO IO
-                    val s = getInstream stdIn
-                    val (r, v) = getReader s
-                    val RD { ioDesc, ...} = r
-                in
-                    setInstream(stdIn, mkInstream(r,v));
-                    case ioDesc of
-                        SOME io => (kind io = Kind.tty handle SysErr _ => false)
-                    |   _  => false
-                end
-        in
-            topLevel
-                { isDebug = false, nameSpace = globalNameSpace, exitLoop = fn _ => false,
-                  isInteractive = interactive, exitOnError = exitOnError }
         end
     end
 
@@ -1195,7 +1174,7 @@ in
 
         val globalNameSpace = globalNameSpace
 
-        val use = use and make = make and shell = shell
+        val use = use and make = make
         val suffixes = suffixes and getUseFileName = getUseFileName
         val compiler = polyCompiler
 
@@ -1466,300 +1445,346 @@ in
 
         end
 
-        structure Debug =
-        struct
-            local
-                open DebuggerInterface
+        local
+            open DebuggerInterface
 
-                fun debugLocation(d: debugState): string * PolyML.location =
-                    (debugFunction d, DebuggerInterface.debugLocation d)
+            fun debugLocation(d: debugState): string * PolyML.location =
+                (debugFunction d, DebuggerInterface.debugLocation d)
 
-                fun getStack() = debugState(Thread.Thread.self())
-                (* These are only relevant when we are stopped at the debugger but
-                   we need to use globals here so that the debug functions such
-                   as "variables" and "continue" will work. *)
-                val inDebugger = ref false
-                (* Current stack and debug level. *)
-                val currentStack = ref []
-                fun getCurrentStack() =
-                    if !inDebugger then !currentStack else raise Fail "Not stopped in debugger"
-                val debugLevel = ref 0
-                (* Set to true to exit the debug loop.  Set by commands such as "continue". *)
-                val exitLoop = ref false
-                (* Exception packet sent if this was continueWithEx. *)
-                val debugExPacket: exn option ref = ref NONE
+            fun getStack() = debugState(Thread.Thread.self())
+            (* These are only relevant when we are stopped at the debugger but
+               we need to use globals here so that the debug functions such
+               as "variables" and "continue" will work. *)
+            val inDebugger = ref false
+            (* Current stack and debug level. *)
+            val currentStack = ref []
+            fun getCurrentStack() =
+                if !inDebugger then !currentStack else raise Fail "Not stopped in debugger"
+            val debugLevel = ref 0
+            (* Set to true to exit the debug loop.  Set by commands such as "continue". *)
+            val exitLoop = ref false
+            (* Exception packet sent if this was continueWithEx. *)
+            val debugExPacket: exn option ref = ref NONE
 
-                (* Call tracing. *)
-                val tracing = ref false
-                val breakNext = ref false
-                (* Single stepping. *)
-                val stepDebug = ref false
-                val stepDepth = ref ~1 (* Only break at a stack size less than this. *)
-                (* Break points.  We have three breakpoint lists: a list of file-line
-                   pairs, a list of function names and a list of exceptions. *)
-                val lineBreakPoints = ref []
-                and fnBreakPoints = ref []
-                and exBreakPoints = ref []
+            (* Call tracing. *)
+            val tracing = ref false
+            val breakNext = ref false
+            (* Single stepping. *)
+            val stepDebug = ref false
+            val stepDepth = ref ~1 (* Only break at a stack size less than this. *)
+            (* Break points.  We have three breakpoint lists: a list of file-line
+               pairs, a list of function names and a list of exceptions. *)
+            val lineBreakPoints = ref []
+            and fnBreakPoints = ref []
+            and exBreakPoints = ref []
 
-                fun checkLineBreak (file, line) =
-                    let
-                        fun findBreak [] = false
-                         |  findBreak ((f, l) :: rest) =
-                              (l = line andalso f = file) orelse findBreak rest
-                    in
-                        findBreak (! lineBreakPoints)
-                    end
-
-                fun checkFnBreak exact name =
+            fun checkLineBreak (file, line) =
                 let
-                    (* When matching a function name we allow match if the name
-                       we're looking for matches the last component of the name
-                       we have.  e.g. if we set a break for "f" we match F().S.f . *)
-                    fun matchName n =
-                        if name = n then true
-                        else if exact then false
-                        else
-                        let
-                            val nameLen = size name
-                            and nLen = size n
-                            fun isSeparator #"-" = true
-                             |  isSeparator #")" = true
-                             |  isSeparator #"." = true
-                             |  isSeparator _    = false
-                        in
-                            nameLen > nLen andalso String.substring(name, nameLen - nLen, nLen) = n
-                            andalso isSeparator(String.sub(name, nameLen - nLen - 1))
-                        end
+                    fun findBreak [] = false
+                     |  findBreak ((f, l) :: rest) =
+                          (l = line andalso f = file) orelse findBreak rest
                 in
-                    List.exists matchName (! fnBreakPoints)
+                    findBreak (! lineBreakPoints)
                 end
 
-                (* Get the exception id from an exception packet.  The id is
-                   the first word in the packet.  It's a mutable so treat it
-                   as an int ref here. *)
-                fun getExnId(ex: exn): int ref =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word (ex, 0)
-    
-                fun checkExnBreak(ex: exn) =
-                    let val exnId = getExnId ex in List.exists (fn n => n = exnId) (! exBreakPoints) end
-
-                fun getArgResult stack get =
-                    case stack of
-                        hd :: _ => Values.print(get hd, !printDepth)
-                    |   _ => PrettyString "?"
-
-                fun printTrace (funName, location, stack, argsAndResult) =
-                let
-                    (* This prints a block with the argument and, if we're exiting the result.
-                       The function name is decorated with the location.
-                       TODO: This works fine so long as the recursion depth is not too deep
-                       but once it gets too wide the pretty-printer starts breaking the lines. *)
-                    val block =
-                        PrettyBlock(0, false, [],
-                            [
-                                PrettyBreak(length stack, 0),
-                                PrettyBlock(0, false, [],
-                                [
-                                    PrettyBlock(0, false, [ContextLocation location], [PrettyString funName]),
-                                    PrettyBreak(1, 3)
-                                ] @ argsAndResult)
-                            ])
-                in
-                    prettyPrintWithOptionalMarkup (TextIO.print, !lineLength) block
-                end
-
-                (* Try to print the appropriate line from the file.*)
-                fun printSourceLine(fileName: string, line: int, funName: string, justLocation) =
-                let
-                    open TextIO
-                    open PolyML
-                    (* Use the pretty printer here because that allows us to provide a link to the
-                       function in the markup so the IDE can go straight to it. *)
-                    val prettyOut = prettyPrintWithOptionalMarkup (printOut, !lineLength)
-                    val lineInfo =
-                        concat(
-                            (if fileName = "" then [] else [fileName, " "]) @
-                            (if line = 0 then [] else [" line:", Int.toString line, " "]) @
-                            ["function:", funName])
-                in
-                    (* First just print where we are. *)
-                    prettyOut(
-                        PrettyBlock(0, true,
-                            [ContextLocation{file=fileName,startLine=line, endLine=line,startPosition=0,endPosition=0}],
-                            [PrettyString lineInfo]));
-                    (* Try to print it.  This may fail if the file name was not a full path
-                       name and we're not in the correct directory. *)
-                    if justLocation orelse fileName = "" then ()
+            fun checkFnBreak exact name =
+            let
+                (* When matching a function name we allow match if the name
+                   we're looking for matches the last component of the name
+                   we have.  e.g. if we set a break for "f" we match F().S.f . *)
+                fun matchName n =
+                    if name = n then true
+                    else if exact then false
                     else
                     let
-                        val fd = openIn fileName
-                        fun pLine n =
-                            case inputLine fd of
-                                NONE => ()
-                            |   SOME s => if n = 1 then printOut s else pLine(n-1)
+                        val nameLen = size name
+                        and nLen = size n
+                        fun isSeparator #"-" = true
+                         |  isSeparator #")" = true
+                         |  isSeparator #"." = true
+                         |  isSeparator _    = false
                     in
-                        pLine line;
-                        closeIn fd
-                    end handle IO.Io _ => () (* If it failed simply ignore the error. *)
-                end
+                        nameLen > nLen andalso String.substring(name, nameLen - nLen, nLen) = n
+                        andalso isSeparator(String.sub(name, nameLen - nLen - 1))
+                    end
+            in
+                List.exists matchName (! fnBreakPoints)
+            end
 
-                (* These functions are installed as global callbacks if necessary. *)
-                fun onEntry (funName, location as {file, startLine, ...}: PolyML.location) =
-                (
-                    if ! tracing
-                    then
-                    let
-                        val stack = getStack()
-                        val arg = getArgResult stack debugFunctionArg
-                    in
-                        printTrace(funName, location, stack, [arg])
-                    end
-                    else ();
-                    (* We don't actually break here because at this stage we don't
-                       have any variables declared. *)
-                    (* TODO: If for whatever reason we fail to find the breakpoint we need to cancel
-                       the pending break in the exit code.  Otherwise we could try and break
-                       in some other code. *)
-                    if checkLineBreak (file, startLine) orelse checkFnBreak false funName
-                    then (breakNext := true; setOnBreakPoint(SOME onBreakPoint))
-                    else ()
-                )
-                
-                and onExit (funName, location) =
-                (
-                    if ! tracing
-                    then
-                    let
-                        val stack = getStack()
-                        val arg = getArgResult stack debugFunctionArg
-                        val res = getArgResult stack debugFunctionResult
-                    in
-                        printTrace(funName, location, stack,
-                            [arg, PrettyBreak(1, 3), PrettyString "=", PrettyBreak(1, 3), res])
-                    end
-                    else ()
-                )
+            (* Get the exception id from an exception packet.  The id is
+               the first word in the packet.  It's a mutable so treat it
+               as an int ref here. *)
+            fun getExnId(ex: exn): int ref =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_load_word (ex, 0)
 
-                and onExitException(funName, location) exn =
-                (
-                    if ! tracing
-                    then
-                    let
-                        val stack = getStack()
-                        val arg = getArgResult stack debugFunctionArg
-                    in
-                        printTrace(funName, location, stack,
-                            [arg, PrettyBreak(1, 3), PrettyString "=", PrettyBreak(1, 3),
-                             PrettyString "raised", PrettyBreak(1, 3), PrettyString(exnName exn)])
-                    end
-                    else ();
-                    if checkExnBreak exn
-                    then enterDebugger ()
-                    else ()
-                )
-                
-                and onBreakPoint({file, startLine, ...}: PolyML.location, _) =
-                (
-                    if (!stepDebug andalso (!stepDepth < 0 orelse List.length(getStack()) <= !stepDepth)) orelse
-                       checkLineBreak (file, startLine) orelse ! breakNext
-                    then enterDebugger ()
-                    else () 
-                )
-                
-                (* Set the callbacks except if we're stopped in the debugger. *)
-                and setCallBacks () =
-                if ! inDebugger
-                then ()
+            fun checkExnBreak(ex: exn) =
+                let val exnId = getExnId ex in List.exists (fn n => n = exnId) (! exBreakPoints) end
+
+            fun getArgResult stack get =
+                case stack of
+                    hd :: _ => Values.print(get hd, !printDepth)
+                |   _ => PrettyString "?"
+
+            fun printTrace (funName, location, stack, argsAndResult) =
+            let
+                (* This prints a block with the argument and, if we're exiting the result.
+                   The function name is decorated with the location.
+                   TODO: This works fine so long as the recursion depth is not too deep
+                   but once it gets too wide the pretty-printer starts breaking the lines. *)
+                val block =
+                    PrettyBlock(0, false, [],
+                        [
+                            PrettyBreak(length stack, 0),
+                            PrettyBlock(0, false, [],
+                            [
+                                PrettyBlock(0, false, [ContextLocation location], [PrettyString funName]),
+                                PrettyBreak(1, 3)
+                            ] @ argsAndResult)
+                        ])
+            in
+                prettyPrintWithOptionalMarkup (TextIO.print, !lineLength) block
+            end
+
+            (* Try to print the appropriate line from the file.*)
+            fun printSourceLine(fileName: string, line: int, funName: string, justLocation) =
+            let
+                open TextIO
+                open PolyML
+                (* Use the pretty printer here because that allows us to provide a link to the
+                   function in the markup so the IDE can go straight to it. *)
+                val prettyOut = prettyPrintWithOptionalMarkup (printOut, !lineLength)
+                val lineInfo =
+                    concat(
+                        (if fileName = "" then [] else [fileName, " "]) @
+                        (if line = 0 then [] else [" line:", Int.toString line, " "]) @
+                        ["function:", funName])
+            in
+                (* First just print where we are. *)
+                prettyOut(
+                    PrettyBlock(0, true,
+                        [ContextLocation{file=fileName,startLine=line, endLine=line,startPosition=0,endPosition=0}],
+                        [PrettyString lineInfo]));
+                (* Try to print it.  This may fail if the file name was not a full path
+                   name and we're not in the correct directory. *)
+                if justLocation orelse fileName = "" then ()
                 else
-                (
-                    setOnEntry(if !tracing orelse not(null(! fnBreakPoints)) then SOME onEntry else NONE);
-                    setOnExit(if !tracing then SOME onExit else NONE);
-                    setOnExitException(if !tracing orelse not(null(! exBreakPoints)) then SOME onExitException else NONE);
-                    setOnBreakPoint(if !tracing orelse ! stepDebug orelse not(null(! lineBreakPoints)) then SOME onBreakPoint else NONE)
-                )
-
-                and enterDebugger () =
                 let
-                    (* Clear the onXXX functions to prevent any recursion. *)
-                    val () = setOnEntry NONE and () = setOnExit NONE
-                    and () = setOnExitException NONE and () = setOnBreakPoint NONE
-                    val () = inDebugger := true
-                    (* Remove any type-ahead. *)
-                    fun flushInput () =
-                        case TextIO.canInput(TextIO.stdIn, 1) of
-                            SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
-                        |   _ => ()
-                    val () = flushInput ()
-
-                    val () = exitLoop := false
-                    val () = debugLevel := 0
-                    val () = breakNext := false
-                    (* Save the stack on entry.  If we execute any code with
-                       debugging enabled while we're in the debugger we could
-                       change this. *)
-                    val () = currentStack := getStack()
- 
-                    val () =
-                        case !currentStack of
-                            hd :: _ =>
-                                let
-                                    val (funName, {file, startLine, ...}) = debugLocation hd
-                                in
-                                    printSourceLine(file, startLine, funName, false)
-                                end
-                        |   [] => () (* Shouldn't happen. *)
-
-                    val compositeNameSpace =
-                    (* Compose any debugEnv with the global environment.  Create a new temporary environment
-                       to contain any bindings made within the shell.  They are discarded when we continue
-                       from the break-point.  Previously, bindings were made in the global environment but
-                       that is problematic.  It is possible to capture local types in the bindings which
-                       could actually be different at the next breakpoint. *)
-                    let
-                        val fixTab = ProtectedTable.create() and sigTab = ProtectedTable.create()
-                        and valTab = ProtectedTable.create() and typTab = ProtectedTable.create()
-                        and fncTab = ProtectedTable.create() and strTab = ProtectedTable.create()
-                        (* The debugging environment depends on the currently selected stack frame. *)
-                        fun debugEnv() = debugNameSpace (List.nth(!currentStack, !debugLevel))
-                        fun dolookup f t s =
-                            case ProtectedTable.lookup t s of NONE => (case f (debugEnv()) s of NONE => f globalNameSpace s | v => v) | v => v
-                        fun getAll f t () = ProtectedTable.all t () @ f (debugEnv()) () @ f globalNameSpace ()
-                    in
-                        {
-                        lookupFix    = dolookup #lookupFix fixTab,
-                        lookupSig    = dolookup #lookupSig sigTab,
-                        lookupVal    = dolookup #lookupVal valTab,
-                        lookupType   = dolookup #lookupType typTab,
-                        lookupFunct  = dolookup #lookupFunct fncTab,
-                        lookupStruct = dolookup #lookupStruct strTab,
-                        enterFix     = ProtectedTable.enter fixTab,
-                        enterSig     = ProtectedTable.enter sigTab,
-                        enterVal     = ProtectedTable.enter valTab,
-                        enterType    = ProtectedTable.enter typTab,
-                        enterFunct   = ProtectedTable.enter fncTab,
-                        enterStruct  = ProtectedTable.enter strTab,
-                        allFix       = getAll #allFix fixTab,
-                        allSig       = getAll #allSig sigTab,
-                        allVal       = getAll #allVal valTab,
-                        allType      = getAll #allType typTab,
-                        allFunct     = getAll #allFunct fncTab,
-                        allStruct    = getAll #allStruct strTab
-                        }
-                    end
+                    val fd = openIn fileName
+                    fun pLine n =
+                        case inputLine fd of
+                            NONE => ()
+                        |   SOME s => if n = 1 then printOut s else pLine(n-1)
                 in
-                    topLevel
-                        { isDebug = true, nameSpace = compositeNameSpace, exitLoop = fn _ => ! exitLoop,
-                          exitOnError = false, isInteractive = true };
+                    pLine line;
+                    closeIn fd
+                end handle IO.Io _ => () (* If it failed simply ignore the error. *)
+            end
 
-                    inDebugger := false;
-                    setCallBacks();
+            (* These functions are installed as global callbacks if necessary. *)
+            fun onEntry (funName, location as {file, startLine, ...}: PolyML.location) =
+            (
+                if ! tracing
+                then
+                let
+                    val stack = getStack()
+                    val arg = getArgResult stack debugFunctionArg
+                in
+                    printTrace(funName, location, stack, [arg])
+                end
+                else ();
+                (* We don't actually break here because at this stage we don't
+                   have any variables declared. *)
+                (* TODO: If for whatever reason we fail to find the breakpoint we need to cancel
+                   the pending break in the exit code.  Otherwise we could try and break
+                   in some other code. *)
+                if checkLineBreak (file, startLine) orelse checkFnBreak false funName
+                then (breakNext := true; setOnBreakPoint(SOME onBreakPoint))
+                else ()
+            )
+            
+            and onExit (funName, location) =
+            (
+                if ! tracing
+                then
+                let
+                    val stack = getStack()
+                    val arg = getArgResult stack debugFunctionArg
+                    val res = getArgResult stack debugFunctionResult
+                in
+                    printTrace(funName, location, stack,
+                        [arg, PrettyBreak(1, 3), PrettyString "=", PrettyBreak(1, 3), res])
+                end
+                else ()
+            )
 
-                    (* If this was continueWithEx raise the exception. *)
-                    case ! debugExPacket of
-                        NONE => ()
-                    |   SOME exn => (debugExPacket := NONE; raise exn)
+            and onExitException(funName, location) exn =
+            (
+                if ! tracing
+                then
+                let
+                    val stack = getStack()
+                    val arg = getArgResult stack debugFunctionArg
+                in
+                    printTrace(funName, location, stack,
+                        [arg, PrettyBreak(1, 3), PrettyString "=", PrettyBreak(1, 3),
+                         PrettyString "raised", PrettyBreak(1, 3), PrettyString(exnName exn)])
+                end
+                else ();
+                if checkExnBreak exn
+                then enterDebugger ()
+                else ()
+            )
+            
+            and onBreakPoint({file, startLine, ...}: PolyML.location, _) =
+            (
+                if (!stepDebug andalso (!stepDepth < 0 orelse List.length(getStack()) <= !stepDepth)) orelse
+                   checkLineBreak (file, startLine) orelse ! breakNext
+                then enterDebugger ()
+                else () 
+            )
+            
+            (* Set the callbacks when beginning to run some code. *)
+            and setCallBacks () =
+            (
+                setOnEntry(if !tracing orelse not(null(! fnBreakPoints)) then SOME onEntry else NONE);
+                setOnExit(if !tracing then SOME onExit else NONE);
+                setOnExitException(if !tracing orelse not(null(! exBreakPoints)) then SOME onExitException else NONE);
+                setOnBreakPoint(if !tracing orelse ! stepDebug orelse not(null(! lineBreakPoints)) then SOME onBreakPoint else NONE)
+            )
+            
+            (* Clear all callbacks when exiting debuggable code. *)
+            and clearCallBacks () =
+            (
+                setOnEntry NONE;
+                setOnExit NONE;
+                setOnExitException NONE;
+                setOnBreakPoint NONE;
+                (* Clear all stepping. *)
+                breakNext := false;
+                stepDebug := false;
+                stepDepth := ~1;
+                (* Clear the debugger state *)
+                debugLevel := 0;
+                currentStack := []
+            )
+
+            and enterDebugger () =
+            let
+                (* Clear the onXXX functions to prevent any recursion. *)
+                val () = clearCallBacks ()
+                val () = inDebugger := true
+                (* Remove any type-ahead. *)
+                fun flushInput () =
+                    case TextIO.canInput(TextIO.stdIn, 1) of
+                        SOME 1 => (TextIO.inputN(TextIO.stdIn, 1); flushInput())
+                    |   _ => ()
+                val () = flushInput ()
+
+                val () = exitLoop := false
+                (* Save the stack on entry.  If we execute any code with
+                   debugging enabled while we're in the debugger we could
+                   change this. *)
+                val () = currentStack := getStack()
+
+                val () =
+                    case !currentStack of
+                        hd :: _ =>
+                            let
+                                val (funName, {file, startLine, ...}) = debugLocation hd
+                            in
+                                printSourceLine(file, startLine, funName, false)
+                            end
+                    |   [] => () (* Shouldn't happen. *)
+
+                val compositeNameSpace =
+                (* Compose any debugEnv with the global environment.  Create a new temporary environment
+                   to contain any bindings made within the shell.  They are discarded when we continue
+                   from the break-point.  Previously, bindings were made in the global environment but
+                   that is problematic.  It is possible to capture local types in the bindings which
+                   could actually be different at the next breakpoint. *)
+                let
+                    val fixTab = ProtectedTable.create() and sigTab = ProtectedTable.create()
+                    and valTab = ProtectedTable.create() and typTab = ProtectedTable.create()
+                    and fncTab = ProtectedTable.create() and strTab = ProtectedTable.create()
+                    (* The debugging environment depends on the currently selected stack frame. *)
+                    fun debugEnv() = debugNameSpace (List.nth(!currentStack, !debugLevel))
+                    fun dolookup f t s =
+                        case ProtectedTable.lookup t s of NONE => (case f (debugEnv()) s of NONE => f globalNameSpace s | v => v) | v => v
+                    fun getAll f t () = ProtectedTable.all t () @ f (debugEnv()) () @ f globalNameSpace ()
+                in
+                    {
+                    lookupFix    = dolookup #lookupFix fixTab,
+                    lookupSig    = dolookup #lookupSig sigTab,
+                    lookupVal    = dolookup #lookupVal valTab,
+                    lookupType   = dolookup #lookupType typTab,
+                    lookupFunct  = dolookup #lookupFunct fncTab,
+                    lookupStruct = dolookup #lookupStruct strTab,
+                    enterFix     = ProtectedTable.enter fixTab,
+                    enterSig     = ProtectedTable.enter sigTab,
+                    enterVal     = ProtectedTable.enter valTab,
+                    enterType    = ProtectedTable.enter typTab,
+                    enterFunct   = ProtectedTable.enter fncTab,
+                    enterStruct  = ProtectedTable.enter strTab,
+                    allFix       = getAll #allFix fixTab,
+                    allSig       = getAll #allSig sigTab,
+                    allVal       = getAll #allVal valTab,
+                    allType      = getAll #allType typTab,
+                    allFunct     = getAll #allFunct fncTab,
+                    allStruct    = getAll #allStruct strTab
+                    }
                 end
             in
+                topLevel
+                    { isDebug = true, nameSpace = compositeNameSpace, exitLoop = fn _ => ! exitLoop,
+                      exitOnError = false, isInteractive = true,
+                      (* Don't enable debugging for anything run within the debug level. *)
+                      startExec = fn () => (), endExec = fn () => () }
+                      (* If we type control-C to the debugger we exit it and
+                         raise Interrupt within the debuggee without re-enabling
+                         any breakpoints. *)
+                    handle exn => (inDebugger := false; raise exn);
+
+                inDebugger := false;
+                setCallBacks(); (* Re-enable debugging. *)
+
+                (* If this was continueWithEx raise the exception. *)
+                case ! debugExPacket of
+                    NONE => ()
+                |   SOME exn => (debugExPacket := NONE; raise exn)
+            end
+        in
+            (* Normal, non-debugging top-level loop. *)
+            fun shell () =
+            let
+                val argList = CommandLine.arguments()
+                fun switchOption option = List.exists(fn s => s = option) argList
+                (* Generate mark-up in IDE code when printing if the option has been given
+                   on the command line. *)
+                val () = useMarkupInOutput := switchOption "--with-markup"
+                val exitOnError = switchOption"--error-exit"
+                val interactive =
+                    switchOption "-i" orelse
+                    let
+                        open TextIO OS
+                        open StreamIO TextPrimIO IO
+                        val s = getInstream stdIn
+                        val (r, v) = getReader s
+                        val RD { ioDesc, ...} = r
+                    in
+                        setInstream(stdIn, mkInstream(r,v));
+                        case ioDesc of
+                            SOME io => (kind io = Kind.tty handle SysErr _ => false)
+                        |   _  => false
+                    end
+            in
+                topLevel
+                    { isDebug = false, nameSpace = globalNameSpace, exitLoop = fn _ => false,
+                      isInteractive = interactive, exitOnError = exitOnError,
+                      startExec = setCallBacks, endExec = clearCallBacks }
+            end
+
+            structure Debug =
+            struct
                 (* Functions that are only relevant when called from the debugger.  These
                    check the debugging state using getCurrentStack which raises an
                    exception if we're not in the debugger. *)
@@ -1876,11 +1901,11 @@ in
 
                 (* Functions to adjust tracing and breakpointing.  May be called
                    either within or outside the debugger. *)
-                fun trace b = (tracing := b; setCallBacks ())
+                fun trace b = tracing := b
 
                 fun breakAt (file, line) =
                     if checkLineBreak(file, line) then () (* Already there. *)
-                    else (lineBreakPoints := (file, line) :: ! lineBreakPoints; setCallBacks ())
+                    else lineBreakPoints := (file, line) :: ! lineBreakPoints
         
                 fun clearAt (file, line) =
                 let
@@ -1889,13 +1914,12 @@ in
                           if l = line andalso f = file
                           then rest else (f, l) :: findBreak rest
                 in
-                    lineBreakPoints := findBreak (! lineBreakPoints);
-                    setCallBacks ()
+                    lineBreakPoints := findBreak (! lineBreakPoints)
                 end
          
                 fun breakIn name =
                     if checkFnBreak true name then () (* Already there. *)
-                    else (fnBreakPoints := name :: ! fnBreakPoints; setCallBacks ())
+                    else fnBreakPoints := name :: ! fnBreakPoints
         
                 fun clearIn name =
                 let
@@ -1903,13 +1927,12 @@ in
                      |  findBreak (n :: rest) =
                           if name = n then rest else n :: findBreak rest
                 in
-                    fnBreakPoints := findBreak (! fnBreakPoints);
-                    setCallBacks ()
+                    fnBreakPoints := findBreak (! fnBreakPoints)
                 end
 
                 fun breakEx exn =
                     if checkExnBreak exn then  () (* Already there. *)
-                    else (exBreakPoints := getExnId exn :: ! exBreakPoints; setCallBacks ())
+                    else exBreakPoints := getExnId exn :: ! exBreakPoints
 
                 fun clearEx exn =
                 let
@@ -1918,8 +1941,7 @@ in
                      |  findBreak (n :: rest) =
                           if exnId = n then rest else n :: findBreak rest
                 in
-                    exBreakPoints := findBreak (! exBreakPoints);
-                    setCallBacks ()
+                    exBreakPoints := findBreak (! exBreakPoints)
                 end
 
             end
