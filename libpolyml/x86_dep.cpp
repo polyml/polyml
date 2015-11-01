@@ -1566,8 +1566,14 @@ bool X86TaskData::GetPCandSPFromContext(SIGNALCONTEXT *context, PolyWord * &sp, 
 #endif /* HOSTARCHITECTURE_X86_64 */
 #endif
 #elif defined(HAVE_STRUCT_SIGCONTEXT)
+#if defined(HOSTARCHITECTURE_X86_64) && defined(__OpenBSD__)
+    // CPP defines missing in amd64/signal.h in OpenBSD
+    pc = (byte*)context->sc_rip;
+    sp = (PolyWord*)context->sc_rsp;
+#else // !HOSTARCHITEXTURE_X86_64 || !defined(__OpenBSD__)
     pc = (byte*)context->sc_pc;
     sp = (PolyWord*)context->sc_sp;
+#endif
 #else
     // Can't get context.
     return false;

@@ -305,7 +305,10 @@ AC_CHECK_TYPES([IMAGE_FILE_HEADER],
             [polyexport=elf],
               [AC_CHECK_HEADER([mach-o/reloc.h],
                   [AC_DEFINE([HAVE_MACH_O_RELOC_H], [], [Define to 1 if you have the <mach-o/reloc.h> header file.])]
-                          [polyexport=macho]
+                          [polyexport=macho],
+                      [AC_CHECK_HEADERS([elf_abi.h machine/reloc.h],
+                          [AC_DEFINE([HAVE_ELF_ABI_H], [], [Define to 1 if you have <elf_abi.h> and <machine/reloc.h> header files.])]
+                              [polyexport=elf] )]
                 )]
     )],
     [#include <windows.h>]
