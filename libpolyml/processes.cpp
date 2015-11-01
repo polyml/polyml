@@ -1376,6 +1376,7 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         crowbarLock.Signal();
         crowbarStopped.Wait(&shutdownLock);
     }
+    shutdownLock.Unlock(); // So it's unlocked when we delete it
     finish(exitResult); // Close everything down and exit.
 }
 
