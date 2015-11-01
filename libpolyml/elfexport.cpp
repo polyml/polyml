@@ -52,8 +52,33 @@
 #define ASSERT(x)
 #endif
 
-// If we haven't got elf.h we shouldn't be building this.
+#ifdef HAVE_ELF_H
 #include <elf.h>
+#elif defined(HAVE_ELF_ABI_H)
+#include <elf_abi.h>
+#include <machine/reloc.h>
+
+#ifndef EM_X86_64
+#define EM_X86_64 EM_AMD64
+#endif
+
+#if defined(HOSTARCHITECTURE_X86_64)
+
+#ifndef R_386_PC32
+#define R_386_PC32 R_X86_64_PC32
+#endif
+
+#ifndef R_386_32
+#define R_386_32 R_X86_64_32
+#endif
+
+#ifndef R_X86_64_64
+#define R_X86_64_64 R_X86_64_64
+#endif
+
+#endif /* HOSTARCHITECTURE_X86_64 */
+
+#endif
 
 // Solaris seems to put processor-specific constants in separate files
 #ifdef HAVE_SYS_ELF_SPARC_H

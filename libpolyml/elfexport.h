@@ -27,7 +27,14 @@
 
 #include "scanaddrs.h" // For base class
 #include "exporter.h"
+
+#ifdef HAVE_ELF_H
 #include <elf.h>
+#endif
+
+#ifdef HAVE_ELF_ABI_H
+#include <elf_abi.h>
+#endif
 
 // Select 32 or 64 bit version depending on the word length
 #if (SIZEOF_VOIDP == 8)

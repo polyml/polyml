@@ -76,7 +76,7 @@
 
 #ifdef HAVE_PECOFF
 #include "pecoffexport.h"
-#elif defined(HAVE_ELF_H)
+#elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
 #include "elfexport.h"
 #elif defined(HAVE_MACH_O_RELOC_H)
 #include "machoexport.h"
@@ -540,7 +540,7 @@ Handle exportNative(TaskData *taskData, Handle args)
 #endif
     PECOFFExport exports;
     exporter(taskData, args, extension, &exports);
-#elif defined(HAVE_ELF_H)
+#elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
     // Most Unix including Linux, FreeBSD and Solaris.
     const char *extension = ".o";
     ELFExport exports;
