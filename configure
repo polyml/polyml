@@ -19628,6 +19628,23 @@ if test "x$ac_cv_header_mach_o_reloc_h" = xyes; then :
 $as_echo "#define HAVE_MACH_O_RELOC_H /**/" >>confdefs.h
 
                           polyexport=macho
+else
+  for ac_header in elf_abi.h machine/reloc.h
+do :
+  as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
+ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
+if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+_ACEOF
+
+$as_echo "#define HAVE_ELF_ABI_H /**/" >>confdefs.h
+
+                              polyexport=elf
+fi
+
+done
+
 
 fi
 

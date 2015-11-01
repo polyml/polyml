@@ -69,6 +69,9 @@
 /* Define to 1 if you have the `dup2' function. */
 #undef HAVE_DUP2
 
+/* Define to 1 if you have <elf_abi.h> and <machine/reloc.h> header files. */
+#undef HAVE_ELF_ABI_H
+
 /* Define to 1 if you have the <elf.h> header file. */
 #undef HAVE_ELF_H
 
@@ -192,6 +195,9 @@
 /* Define to 1 if `lstat' has the bug that it succeeds when given the
    zero-length file name argument. */
 #undef HAVE_LSTAT_EMPTY_STRING_BUG
+
+/* Define to 1 if you have the <machine/reloc.h> header file. */
+#undef HAVE_MACHINE_RELOC_H
 
 /* Define to 1 if you have the <mach-o/reloc.h> header file. */
 #undef HAVE_MACH_O_RELOC_H
