@@ -1829,6 +1829,8 @@ in
         (* Saving and loading state. *)
         structure SaveState =
         struct
+            open SaveState (* We've added a version with path searching. *)
+
             fun saveChild(f: string, depth: int): unit =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
             fun saveState f = saveChild (f, 0);
@@ -1844,25 +1846,23 @@ in
             (* Module loading and storing. *)
             structure Tags =
             struct
-                val structureTag: PolyML.NameSpace.structureVal Universal.tag = Universal.tag()
-                val functorTag: PolyML.NameSpace.functorVal Universal.tag = Universal.tag()
-                val signatureTag: PolyML.NameSpace.signatureVal Universal.tag = Universal.tag()
-                val valueTag: PolyML.NameSpace.valueVal Universal.tag = Universal.tag()
-                val typeTag: PolyML.NameSpace.typeVal Universal.tag = Universal.tag()
-                val fixityTag: PolyML.NameSpace.fixityVal Universal.tag = Universal.tag()
+                val structureTag: (string * PolyML.NameSpace.structureVal) Universal.tag = Universal.tag()
+                val functorTag: (string * PolyML.NameSpace.functorVal) Universal.tag = Universal.tag()
+                val signatureTag: (string * PolyML.NameSpace.signatureVal) Universal.tag = Universal.tag()
+                val valueTag: (string * PolyML.NameSpace.valueVal) Universal.tag = Universal.tag()
+                val typeTag: (string * PolyML.NameSpace.typeVal) Universal.tag = Universal.tag()
+                val fixityTag: (string * PolyML.NameSpace.fixityVal) Universal.tag = Universal.tag()
                 val startupTag: (unit -> unit) Universal.tag = Universal.tag()
             end
             
             val saveModuleBasic: string * Universal.universal list -> unit =
                 fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
-            and loadModuleBasic: string -> Universal.universal list =
-                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (32, args)
 
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let
                 fun dolookup (look, tag, kind) s =
                     case look globalNameSpace s of
-                        SOME v => Universal.tagInject tag v
+                        SOME v => Universal.tagInject tag (s, v)
                     |   NONE => raise Fail (concat[kind, " ", s, " has not been declared"])
                 val structVals = map (dolookup(#lookupStruct, Tags.structureTag, "Structure")) structs
                 val functorVals = map (dolookup(#lookupFunct, Tags.functorTag, "Functor")) functors
