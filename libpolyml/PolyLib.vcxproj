@@ -1551,6 +1551,7 @@
     <None Include="COPYING" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\resource.h" />
     <ClInclude Include="arb.h" />
     <ClInclude Include="basicio.h" />
     <ClInclude Include="bitmap.h" />
@@ -1589,7 +1590,6 @@
     <ClInclude Include="profiling.h" />
     <ClInclude Include="realconv.h" />
     <ClInclude Include="reals.h" />
-    <ClInclude Include="resource.h" />
     <ClInclude Include="rts_module.h" />
     <ClInclude Include="run_time.h" />
     <ClInclude Include="save_vec.h" />
