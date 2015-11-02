@@ -598,7 +598,7 @@ Handle Statistics::returnStatistics(TaskData *taskData, unsigned char *stats)
             }
         }
     }
-    return taskData->saveVec.push(Buffer_to_Poly(taskData, (const char*)stats, p - stats));
+    return taskData->saveVec.push(C_string_to_Poly(taskData, (const char*)stats, p - stats));
 }
 
 // Copy the local statistics into the buffer
