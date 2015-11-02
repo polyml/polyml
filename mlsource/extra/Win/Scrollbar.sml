@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -74,7 +73,7 @@ end
 =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
         open ScrollBase
         type HDC = HDC and HWND = HWND and HRGN = HRGN and RECT = RECT
@@ -111,7 +110,8 @@ struct
                 (SB_BOTH,             3)
             ]
         in
-            val SCROLLBARTYPE = tableConversion(tab, NONE)
+            val cSCROLLBARTYPE = tableConversion(tab, NONE) cUint
+                (* It's a UINT for EnableScrollBar and int for GetScrollInfo *)
         end
     
         datatype ScrollWindowFlag =
@@ -123,72 +123,74 @@ struct
                 (SW_INVALIDATE,       0x0002),
                 (SW_ERASE,            0x0004) ]
         in
-            val SCROLLWINDOWFLAG = tableSetConversion(tab, NONE)
+            val cSCROLLWINDOWFLAG = tableSetConversion(tab, NONE) cUint
         end
     
     
         local
-            open CInterface
+            open Foreign
             open Base
         in
-            val EnableScrollBar = call3(user "EnableScrollBar") (HWND,SCROLLBARTYPE,ENABLESCROLLBARFLAG)
-                    (SUCCESSSTATE "EnableScrollBar")
-            val GetScrollPos = call2 (user "GetScrollPos") (HWND,SCROLLBARTYPE) INT
-            val SetScrollRange = call5(user "SetScrollRange") (HWND,SCROLLBARTYPE,INT,INT,BOOL) BOOL 
-            val SetScrollPos = call4(user "SetScrollPos") (HWND,SCROLLBARTYPE,INT,BOOL) INT
-            val ShowScrollBar = call3(user "ShowScrollBar") (HWND,SCROLLBARTYPE,BOOL) (SUCCESSSTATE "ShowScrollBar")
+            val EnableScrollBar = winCall3(user "EnableScrollBar") (cHWND, cSCROLLBARTYPE, cENABLESCROLLBARFLAG)
+                    (successState "EnableScrollBar")
+            val GetScrollPos = winCall2 (user "GetScrollPos") (cHWND,cSCROLLBARTYPE) cInt
+            val SetScrollRange = winCall5(user "SetScrollRange") (cHWND,cSCROLLBARTYPE,cInt,cInt,cBool) cBool 
+            val SetScrollPos = winCall4(user "SetScrollPos") (cHWND,cSCROLLBARTYPE,cInt,cBool) cInt
+            val ShowScrollBar = winCall3(user "ShowScrollBar") (cHWND,cSCROLLBARTYPE,cBool) (successState "ShowScrollBar")
     
-            val ScrollWindow = call5(user "ScrollWindow") (HWND,INT,INT,POINTERTO RECT,POINTERTO RECT)
-                    (SUCCESSSTATE "ScrollWindow")
+            val ScrollWindow = winCall5(user "ScrollWindow") (cHWND,cInt,cInt,cConstStar cRect,cConstStar cRect)
+                    (successState "ScrollWindow")
     
             local
-                val (fromCrect, toCrect, rectStr) = breakConversion RECT
                 val scrollDC =
-                    call7 (user "ScrollDC") (HDC,INT,INT,POINTERTO RECT,POINTERTO RECT,HRGN,POINTER)
-                        (SUCCESSSTATE "ScrollDC")
+                    winCall7 (user "ScrollDC") (cHDC,cInt,cInt,cConstStar cRect,cConstStar cRect,cHRGN,cStar cRect)
+                        (successState "ScrollDC")
     
-                val scrollWindowEx = call8(user "ScrollWindowEx")
-                                             (HWND,INT,INT,POINTERTO RECT,POINTERTO RECT,HRGN,POINTER,SCROLLWINDOWFLAG)
-                                             (SUCCESSSTATE "ScrollWindowEx")
+                val scrollWindowEx = winCall8(user "ScrollWindowEx")
+                                             (cHWND,cInt,cInt,cConstStar cRect,cConstStar cRect,cHRGN,cStar cRect,cSCROLLWINDOWFLAG)
+                                             (successState "ScrollWindowEx")
             in
                 fun ScrollDC(hDC, dx, dy, prcScroll, prcClip, hrgnUpdate): RECT =
                 let
-                    val v = alloc 1 rectStr
-                    val _ : unit = scrollDC(hDC, dx, dy, prcScroll, prcClip, hrgnUpdate, address v)
+                    val v = ref{top=0, bottom=0, left=0, right=0}
+                    val () = scrollDC(hDC, dx, dy, prcScroll, prcClip, hrgnUpdate, v)
                 in
-                    fromCrect v
+                    ! v
                 end
                 and ScrollWindowEx(hWnd, dx, dy, prcScroll, prcClip, hrgnUpdate, flags) =
                 let
-                    val v = alloc 1 rectStr
-                    val _ : unit =
-                        scrollWindowEx(hWnd, dx, dy, prcScroll, prcClip, hrgnUpdate, address v, flags)
+                    val v = ref{top=0, bottom=0, left=0, right=0}
+                    val () =
+                        scrollWindowEx(hWnd, dx, dy, prcScroll, prcClip, hrgnUpdate, v, flags)
                 in
-                    fromCrect v
+                    ! v
                 end
             end
-    
+
             local
+                val cSCROLLINFOSTRUCT as {ctype = {size=sizeStruct, ...}, ...} =
+                    cStruct7(cUint, cSCROLLINFOOPTION, cInt, cInt, cUint, cInt, cInt)
+                
                 val getScrollInfo =
-                    call3 (user "GetScrollInfo") (HWND, SCROLLBARTYPE, POINTER)
-                                (SUCCESSSTATE "GetScrollInfo")
+                    winCall3 (user "GetScrollInfo") (cHWND, cSCROLLBARTYPE, cStar cSCROLLINFOSTRUCT)
+                                (successState "GetScrollInfo")
                 and setScrollInfo =
-                    call4 (user "SetScrollInfo") (HWND, SCROLLBARTYPE, POINTERTO SCROLLINFO, BOOL) INT
-                val (fromCscrollinfo, toCscrollinfo, _) = breakConversion SCROLLINFO
+                    winCall4 (user "SetScrollInfo") (cHWND, cSCROLLBARTYPE, cConstStar cSCROLLINFOSTRUCT, cBool) cInt
             in
                 fun GetScrollInfo(hwnd, sbt, options): SCROLLINFO =
                 let
-                    (* Create a vector.  This must contain the size of the structure and the
-                       bits for the values required. *)
-                    val v = toCscrollinfo({minPos=0, maxPos=0, pageSize=0, pos=0, trackPos=0}, options)
-                    val _: unit = getScrollInfo(hwnd, sbt, address v)
-                    val (info, _) = fromCscrollinfo v
+                    val v = ref(Word.toInt sizeStruct, options, 0, 0, 0, 0, 0)
+                    val _: unit = getScrollInfo(hwnd, sbt, v)
+                    val (_, _, minPos, maxPos, pageSize, pos, trackPos) = ! v
                 in
-                    info
+                    {minPos = minPos, maxPos = maxPos, pageSize = pageSize,
+                      pos = pos, trackPos = trackPos}
                 end
                 
-                and SetScrollInfo(hwnd, sbt, options, info, redraw): int =
-                    setScrollInfo(hwnd, sbt, (info, options), redraw)
+                and SetScrollInfo(hwnd, sbt, options,
+                        { minPos, maxPos, pageSize, pos, trackPos}, redraw): int =
+                    setScrollInfo(hwnd, sbt,
+                        (Word.toInt sizeStruct, options, minPos, maxPos, pageSize, pos, trackPos), redraw)
             end
         end
     end

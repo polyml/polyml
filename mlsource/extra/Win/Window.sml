@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001-7
+    Copyright (c) 2001-7, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -125,8 +124,8 @@ sig
     val DefFrameProc: HWND * HWND * Message.Message -> Message.LRESULT
     val DefMDIChildProc: HWND * Message.Message -> Message.LRESULT
     val DestroyWindow: HWND -> unit
-    val FindWindow: string * string option -> HWND
-    val FindWindowEx: HWND option * HWND option * string * string option -> HWND
+    val FindWindow: string option * string option -> HWND
+    val FindWindowEx: HWND option * HWND option * string option * string option -> HWND
     val GetClassName : HWND -> string
     val GetClientRect : HWND -> RECT
     val GetDesktopWindow : unit -> HWND
@@ -137,7 +136,7 @@ sig
     val GetTopWindow : HWND option -> HWND option
     val GetWindow : HWND * GetWindowFlags -> HWND option
     val GetWindowContextHelpId : HWND -> int
-    val GetWindowLong : HWND * int -> int
+    val GetWindowLongPtr : HWND * int -> int
     val GetWindowRect : HWND -> RECT
     val GetWindowText : HWND -> string
     val GetWindowTextLength : HWND -> int
@@ -151,7 +150,7 @@ sig
     val SetForegroundWindow : HWND -> bool
     val SetParent : HWND * HWND option -> HWND
     val SetWindowContextHelpId : HWND * int -> unit
-    val SetWindowLong : HWND * int * int -> int
+    val SetWindowLongPtr : HWND * int * int -> int
     val SetWindowPos : HWND * HWND * int * int * int * int * WindowPositionStyle list -> unit
     val SetWindowText : HWND * string -> unit
     val SubclassWindow :
@@ -163,7 +162,7 @@ sig
 end =
 struct
 local
-    open CInterface
+    open Foreign
     open Globals
     open Base
     open Resource
@@ -211,48 +210,48 @@ in
             |   SW_SHOWDEFAULT      => 10
     
     in
-        call2 (user "ShowWindow")(HWND,INT) (BOOL) (win, cmd)
+        winCall2 (user "ShowWindow")(cHWND,cInt) (cBool) (win, cmd)
     end;
 
     val CloseWindow =
-        call1 (user "CloseWindow") (HWND) (SUCCESSSTATE "CloseWindow")
+        winCall1 (user "CloseWindow") (cHWND) (successState "CloseWindow")
     val FindWindow =
         checkWindow o
-        call2 (user "FindWindowA") (STRING, STRINGOPT) HWND
+        winCall2 (user "FindWindowA") (STRINGOPT, STRINGOPT) cHWND
     val FindWindowEx =
         checkWindow o
-        call4 (user "FindWindowExA") (HWNDOPT, HWNDOPT, STRING, STRINGOPT) HWND
-    val GetDesktopWindow       = call0 (user "GetDesktopWindow") () HWND
-    val GetForegroundWindow    = call0 (user "GetForegroundWindow") () HWND
-    val GetLastActivePopup     = call1 (user "GetLastActivePopup") HWND HWND
-    val GetParent              = call1 (user "GetParent") HWND HWNDOPT
-    val GetTopWindow           = call1 (user "GetTopWindow") HWNDOPT HWNDOPT
+        winCall4 (user "FindWindowExA") (cHWNDOPT, cHWNDOPT, STRINGOPT, STRINGOPT) cHWND
+    val GetDesktopWindow       = winCall0 (user "GetDesktopWindow") () cHWND
+    val GetForegroundWindow    = winCall0 (user "GetForegroundWindow") () cHWND
+    val GetLastActivePopup     = winCall1 (user "GetLastActivePopup") cHWND cHWND
+    val GetParent              = winCall1 (user "GetParent") cHWND cHWNDOPT
+    val GetTopWindow           = winCall1 (user "GetTopWindow") cHWNDOPT cHWNDOPT
 
-    val GetWindowTextLength    = call1 (user "GetWindowTextLengthA") HWND INT
+    val GetWindowTextLength    = winCall1 (user "GetWindowTextLengthA") cHWND cInt
     val SetWindowText          =
-        call2 (user "SetWindowTextA") (HWND, STRING) (SUCCESSSTATE "SetWindowText")
+        winCall2 (user "SetWindowTextA") (cHWND, cString) (successState "SetWindowText")
 
     fun GetWindowText(hwnd: HWND): string =
     let
-        val getTextCall = call3 (user "GetWindowTextA") (HWND, POINTER, INT) INT
+        val getTextCall = winCall3 (user "GetWindowTextA") (cHWND, cPointer, cInt) cInt
         val baseLen = GetWindowTextLength hwnd
         (* The length returned by GetWindowTextLength may be larger than the text
            but we have to add one for the terminating null. *)
-        val buff = alloc (baseLen+1) Cchar
-        val size = getTextCall(hwnd, address buff, baseLen+1)
+           open Memory
+        val buff = malloc (Word.fromInt(baseLen+1))
+        val size = getTextCall(hwnd, buff, baseLen+1)
     in
-        if size = 0 then ""
-        else fromCstring(address buff)
+        (if size = 0 then ""
+        else fromCstring buff) before free buff
     end
 
-    (* Get the class name of a window.  The only way to do it is to loop until the
-       size returned is less than the size of the buffer. *)
+    (* Get the class name of a window. This is also in  *)
+
     local
-        val getClassCall =
-            call3 (user "GetClassNameA") (HWND, POINTER, INT) (POSINT "GetClassName")
+        val getClassName = winCall3 (user "GetClassNameA") (cHWND, cPointer, cInt) cInt
     in
-        fun GetClassName(hwnd: HWND): string = 
-            getStringCall(fn (buff, n) => getClassCall(hwnd, buff, n))
+        fun GetClassName hwnd =
+            getStringCall(fn (v, i) => getClassName(hwnd, v, i))
     end
 
     datatype GetWindowFlags =
@@ -272,71 +271,67 @@ in
         |   winFlag GW_CHILD            = 5
     in
         fun GetWindow (win, gwFlag) =
-            call2 (user "GetWindow") (HWND,INT) HWNDOPT (win, winFlag gwFlag)
+            winCall2 (user "GetWindow") (cHWND, cUint) cHWNDOPT (win, winFlag gwFlag)
         (* Only GW_HWNDNEXT and GW_HWNDPREV are allowed here but it's probably not
            worth making it a special case. *)
         fun GetNextWindow(win: HWND, gwFlag) =
             checkWindow (
-                call2 (user "GetNextWindow") (HWND,INT) HWND (win, winFlag gwFlag))
+                winCall2 (user "GetNextWindow") (cHWND,cUint) cHWND (win, winFlag gwFlag))
     end
 
-    val IsChild                = call2 (user "IsChild") (HWND,HWND) BOOL
-    val IsIconic               = call1 (user "IsIconic") (HWND) BOOL
-    val IsWindow               = call1 (user "IsWindow") (HWND) BOOL
-    val IsWindowVisible        = call1 (user "IsWindowVisible") (HWND) BOOL
-    val IsZoomed               = call1 (user "IsZoomed") (HWND) BOOL
+    val IsChild                = winCall2 (user "IsChild") (cHWND,cHWND) cBool
+    val IsIconic               = winCall1 (user "IsIconic") (cHWND) cBool
+    val IsWindow               = winCall1 (user "IsWindow") (cHWND) cBool
+    val IsWindowVisible        = winCall1 (user "IsWindowVisible") (cHWND) cBool
+    val IsZoomed               = winCall1 (user "IsZoomed") (cHWND) cBool
 
     fun GetClientRect(hWnd: HWND): RECT =
     let
-        val buff = alloc 4 Clong
-        val res = call2 (user "GetClientRect") (HWND, POINTER) BOOL (hWnd, address buff)
-        val (toRect,_,_) = breakConversion RECT
+        val v =  ref{bottom=0, top=0, left=0, right=0}
+        val res = winCall2 (user "GetClientRect") (cHWND, cStar cRect) cBool (hWnd, v)
     in
         checkResult res;
-        toRect buff
+        !v
     end
 
     fun GetWindowRect(hWnd: HWND): RECT =
     let
-        val buff = alloc 4 Clong
-        val res = call2 (user "GetWindowRect") (HWND, POINTER) BOOL (hWnd, address buff)
-        val (toRect,_,_) = breakConversion RECT
+        val v =  ref{bottom=0, top=0, left=0, right=0}
+        val res = winCall2 (user "GetWindowRect") (cHWND, cStar cRect) cBool (hWnd, v)
     in
         checkResult res;
-        toRect buff
+        !v
     end
 
     fun AdjustWindowRect(rect: RECT, style: Style.flags, bMenu: bool): RECT =
     let
-        val (toRect,fromRect,_) = breakConversion RECT
-        val buff = fromRect rect
-        val res = call3 (user "AdjustWindowRect") (POINTER, INT, BOOL) BOOL
-                    (address buff, LargeWord.toInt(Style.toWord style), bMenu)
+        val v = ref rect
+        val res = winCall3 (user "AdjustWindowRect") (cStar cRect, cDWORD, cBool) cBool
+                    (v, LargeWord.toInt(Style.toWord style), bMenu)
     in
         checkResult res;
-        toRect buff
+        !v
     end
 
     fun AdjustWindowRectEx(rect: RECT, style: Style.flags, bMenu: bool, exStyle: int): RECT =
     let
-        val (toRect,fromRect,_) = breakConversion RECT
-        val buff = fromRect rect
-        val res = call4 (user "AdjustWindowRectEx") (POINTER, INT, BOOL, INT) BOOL
-                    (address buff, LargeWord.toInt(Style.toWord style), bMenu, exStyle)
+        val v = ref rect
+        val res = winCall4 (user "AdjustWindowRectEx") (cStar cRect, cDWORD, cBool, cDWORD) cBool
+                    (v, LargeWord.toInt(Style.toWord style), bMenu, exStyle)
     in
         checkResult res;
-        toRect buff
+        !v
     end
 
-    val ArrangeIconicWindows = call1 (user "ArrangeIconicWindows") (HWND) INT (* POSINT? *)
+    val ArrangeIconicWindows = winCall1 (user "ArrangeIconicWindows") (cHWND) cUint
     val BringWindowToTop =
-        call1 (user "BringWindowToTop") (HWND) (SUCCESSSTATE "BringWindowToTop")
-    val OpenIcon = call1 (user "OpenIcon") (HWND) (SUCCESSSTATE "OpenIcon")
-    val SetForegroundWindow = call1 (user "SetForegroundWindow") (HWND) BOOL
+        winCall1 (user "BringWindowToTop") (cHWND) (successState "BringWindowToTop")
+    val OpenIcon = winCall1 (user "OpenIcon") (cHWND) (successState "OpenIcon")
+    val SetForegroundWindow = winCall1 (user "SetForegroundWindow") (cHWND) cBool
 
     fun SetParent(child: HWND, new: HWND option): HWND =
     let
-        val old = call2 (user "SetParent") (HWND, HWND) HWND (child, getOpt(new, hwndNull))
+        val old = winCall2 (user "SetParent") (cHWND, cHWND) cHWND (child, getOpt(new, hwndNull))
     in
         checkResult(not(isHNull old));
         old
@@ -354,7 +349,7 @@ in
                      instance: HINSTANCE, (* application instance *)
                      init: 'a}: HWND =
     let
-        (* Set up a callback for ML classes and return the class name. *)
+        (* Set up a winCallback for ML classes and return the class name. *)
         val className: string =
             case class of
                 Registered { proc, className} =>
@@ -365,10 +360,10 @@ in
 
         (* Create a window. *)
         val res =
-            call12 (user "CreateWindowExA") (WORD, STRING, STRING, WORD, INT, INT, INT, INT,
-                    HWND, INT, HINSTANCE, INT) HWND
-                (ExStyle.toWord exStyle, className, name, styleWord, x, y, width, height, parent, menu,
-                 instance, 0)
+            winCall12 (user "CreateWindowExA") (cDWORD, cString, cString, cDWORD, cInt, cInt, cInt, cInt,
+                    cHWND, cINT_PTR (*HMENU*), cHINSTANCE, cPointer) cHWND
+                (LargeWord.toInt(ExStyle.toWord exStyle), className, name, LargeWord.toInt styleWord,
+                 x, y, width, height, parent, menu, instance, Memory.null)
     in
         checkResult(not(isHNull res));
         res
@@ -397,13 +392,12 @@ in
                     (hwndNull, hm, Style.toWord(Style.clear(Style.WS_CHILD, style)))
             |   ChildWindow{parent, id} =>
                     (parent, handleOfInt id, Style.toWord(Style.flags[Style.WS_CHILD, style]))
-        val CLIENTCREATESTRUCT = STRUCT2(HMENU, UINT)
-        val (_, toCcreateStruct, _) = breakConversion CLIENTCREATESTRUCT
-        val createS = address(toCcreateStruct(windowMenu, idFirstChild))
-        val res =
-            call12 (user "CreateWindowExA") (WORD, STRING, WORD, WORD, INT, INT, INT, INT,
-                    HWND, HMENU, HINSTANCE, POINTER) HWND
-                (0w0, "MDICLIENT", 0w0, styleWord, 0, 0, 0, 0, parent, menu,
+        val cCLIENTCREATESTRUCT = cStruct2(cHMENU, cUint)
+        val createS = (windowMenu, idFirstChild)
+        val res = 
+            winCall12 (user "CreateWindowExA") (cDWORD, cString, cPointer, cDWORD, cInt, cInt, cInt, cInt,
+                    cHWND, cHMENU, cHINSTANCE, cConstStar cCLIENTCREATESTRUCT) cHWND
+                (0, "MDICLIENT", Memory.null, LargeWord.toInt styleWord, 0, 0, 0, 0, parent, menu,
                  instance, createS)
     in
         checkResult(not(isHNull res));
@@ -413,9 +407,9 @@ in
  
     fun DefWindowProc (hWnd: HWND, msg: Message.Message): Message.LRESULT  =
     let
-        val (wMsg, wParam: vol, lParam: vol) = Message.compileMessage msg
+        val (wMsg, wParam, lParam) = Message.compileMessage msg
         val res =
-            call4 (user "DefWindowProcA") (HWND, INT, POINTER, POINTER) POINTER
+            winCall4 (user "DefWindowProcA") (cHWND, cUint, cPointer, cPointer) cPointer
                 (hWnd, wMsg, wParam, lParam)
     in
         Message.messageReturnFromParams(msg, wParam, lParam, res)
@@ -423,9 +417,9 @@ in
    
     fun DefFrameProc (hWnd: HWND, hWndMDIClient: HWND, msg: Message.Message): Message.LRESULT  =
     let
-        val (wMsg, wParam: vol, lParam: vol) = Message.compileMessage msg
+        val (wMsg, wParam, lParam) = Message.compileMessage msg
         val res =
-            call5 (user "DefFrameProcA") (HWND, HWND, INT, POINTER, POINTER) POINTER
+            winCall5 (user "DefFrameProcA") (cHWND, cHWND, cUint, cPointer, cPointer) cPointer
                 (hWnd, hWndMDIClient, wMsg, wParam, lParam)
     in
         (* Write back any changes the function has made. *)
@@ -434,9 +428,9 @@ in
 
     fun DefMDIChildProc (hWnd: HWND, msg: Message.Message): Message.LRESULT =
     let
-        val (wMsg, wParam: vol, lParam: vol) = Message.compileMessage msg
+        val (wMsg, wParam, lParam) = Message.compileMessage msg
         val res =
-            call4 (user "DefMDIChildProcA") (HWND, INT, POINTER, POINTER) POINTER
+            winCall4 (user "DefMDIChildProcA") (cHWND, cUint, cPointer, cPointer) cPointer
                 (hWnd, wMsg, wParam, lParam)
     in
         Message.messageReturnFromParams(msg, wParam, lParam, res)
@@ -447,7 +441,7 @@ in
 
     fun DestroyWindow(hWnd: HWND) =
     (
-        call1 (user "DestroyWindow") (HWND) (SUCCESSSTATE "DestroyWindow") hWnd;
+        winCall1 (user "DestroyWindow") (cHWND) (successState "DestroyWindow") hWnd;
         Message.removeCallback hWnd
     )
 
@@ -459,40 +453,32 @@ in
     val GWL_USERDATA        = ~21
     val GWL_ID              = ~12
 
-    val GetWindowLong = call2 (user "GetWindowLongA") (HWND, INT) INT
+    val GetWindowLongPtr = winCall2 (user "GetWindowLongPtrA") (cHWND, cInt) cLONG_PTR
 
     (* SetWindowLong is a dangerous function to export. *)
-    val SetWindowLong = call3 (user "SetWindowLongA") (HWND, INT, INT) INT
+    val SetWindowLongPtr = winCall3 (user "SetWindowLongPtrA") (cHWND, cInt, cLONG_PTR) cLONG_PTR
 
     (* ML extension.  This replaces the GetWindowLong and SetWindowLong calls. *)
     val SubclassWindow = Message.subclass
 
     fun MoveWindow{hWnd: HWND, x: int, y: int, height: int, width: int, repaint: bool} =
-        call6(user "MoveWindow") (HWND,INT,INT,INT,INT,BOOL) (SUCCESSSTATE "MoveWindow")
+        winCall6(user "MoveWindow") (cHWND,cInt,cInt,cInt,cInt,cBool) (successState "MoveWindow")
             (hWnd, x, y, width, height, repaint)
 
-    val SetWindowPos = call7 (user "SetWindowPos")
-        (HWND, HWND, INT, INT, INT, INT, WINDOWPOSITIONSTYLE)
-            (SUCCESSSTATE "SetWindowPos")
+    val SetWindowPos = winCall7 (user "SetWindowPos")
+        (cHWND, cHWND, cInt, cInt, cInt, cInt, cWINDOWPOSITIONSTYLE)
+            (successState "SetWindowPos")
 
     val SetWindowContextHelpId =
-            call2 (user "SetWindowContextHelpId") (HWND, INT)
-                (SUCCESSSTATE "SetWindowContextHelpId")
+            winCall2 (user "SetWindowContextHelpId") (cHWND, cDWORD)
+                (successState "SetWindowContextHelpId")
 
-    val GetWindowContextHelpId = call1 (user "GetWindowContextHelpId") (HWND) INT
+    val GetWindowContextHelpId = winCall1 (user "GetWindowContextHelpId") (cHWND) cDWORD
 
-    local
-        (* The C interface currently passes structures by reference.  That's
-           certainly wrong for Microsoft C and I suspect it's also wrong on
-           Unix.  I'm reluctant to change it without knowing more.  DCJM. *)
-        val childWindowFromPoint =
-            call3 (user "ChildWindowFromPoint") (HWND, INT, INT) HWNDOPT
-        and windowFromPoint =
-            call2 (user "WindowFromPoint") (INT, INT) HWNDOPT
-    in
-        fun ChildWindowFromPoint(hw, {x, y}:POINT) = childWindowFromPoint(hw, x, y)
-        and WindowFromPoint({x, y}:POINT) = windowFromPoint(x, y)
-    end
+    val ChildWindowFromPoint =
+        winCall2 (user "ChildWindowFromPoint") (cHWND, cPoint) cHWNDOPT
+    and WindowFromPoint =
+        winCall1 (user "WindowFromPoint") (cPoint) cHWNDOPT
 (*
 TODO:
 AnimateWindow    - Only Win98/NT 5.0

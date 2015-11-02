@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,7 +19,7 @@
 structure MenuBase =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
         (* TODO: This duplicates some of the other datatypes. *)
         datatype MenuFlag =
@@ -63,11 +62,11 @@ struct
              ]
         in
             val (fromMenuFlagSet, toMenuFlagSet) = tableSetLookup(tab, NONE)
-            val MENUFLAGSET = absConversion {abs=toMenuFlagSet, rep=fromMenuFlagSet} INT
+            val cMENUFLAGSET = absConversion {abs=toMenuFlagSet, rep=fromMenuFlagSet} cUint
             (* Sometimes we just want a single flag - either MF_BYCOMMAND or MF_BYPOSITION
                or, for WM_MENUCHAR, MF_POPUP or MF_SYSMENU. *)
             val (fromMenuFlag, toMenuFlag) = tableLookup(tab, NONE)
-            val MENUFLAG = tableConversion(tab, NONE)
+            val cMENUFLAG = tableConversion(tab, NONE) cUint
         end
 
     end

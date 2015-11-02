@@ -1,3 +1,4 @@
+PolyML.Compiler.reportUnreferencedIds := true;
 use "Base";
 use "Globals";
 use "LocaleBase";

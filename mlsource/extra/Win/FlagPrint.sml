@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,7 +22,7 @@ struct
        it has to be called with the type itself. *)
     fun createFlagPrinter (flagTable: (BITS.flags * string) list) =
     let
-        fun accumulateFlags f [] = []
+        fun accumulateFlags _ [] = []
          |  accumulateFlags f ((w, s)::t) =
             if BITS.allSet(w, f) then s :: accumulateFlags(BITS.clear(w, f)) t
             else accumulateFlags f t
@@ -33,9 +32,9 @@ struct
             let
                 open PolyML
               val stringFlags = accumulateFlags x flagTable
-              fun plist [] depth = []
+              fun plist [] _ = []
                |  plist _ 0 = [PrettyString "..."]
-               |  plist [h]    depth = [PrettyString h]
+               |  plist [h]    _ = [PrettyString h]
                |  plist (h::t) depth =
                         PrettyString(h ^ ",") ::
                         PrettyBreak (1, 0) ::

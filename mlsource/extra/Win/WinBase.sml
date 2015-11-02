@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001-7
+    Copyright (c) 2001-7, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,7 +20,7 @@
 structure WinBase =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
 
         structure Style :>
@@ -194,7 +193,7 @@ struct
             (* It seems that some other bits are set although they're not defined. *)
             fun toInt (SWP_OTHER i) = i | toInt _ = raise Match
         in
-            val WINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toInt))
+            val cWINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toInt)) cUint
         end
         
         (* In C the parent and menu arguments are combined in a rather odd way. *)

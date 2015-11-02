@@ -1,10 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
+    License version 2.1 as published by the Free Software Foundation; either
     version 2.1 of the License, or (at your option) any later version.
     
     This library is distributed in the hope that it will be useful,
@@ -39,7 +39,7 @@ structure Caret :
  =
 struct
     local
-        open CInterface
+        open Foreign
         open Base
     in
         type HWND = HWND and HBITMAP = HBITMAP and POINT = POINT

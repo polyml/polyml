@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001-7
+    Copyright (c) 2001-7, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1084,83 +1083,92 @@ structure Message :
           (HWND * Message -> LRESULT)
 
     val setCallback: (HWND * Message * 'a -> LRESULT * 'a) * 'a -> unit
-    val addModelessDialogue : HWND * CInterface.vol -> unit
+    val addModelessDialogue : HWND * Foreign.Memory.voidStar -> unit
     val removeCallback : HWND -> unit
     (*val updateWindowHandle: HWND -> unit*)
-    val compileMessage: Message -> int * CInterface.vol * CInterface.vol
-    val decompileMessage: int * CInterface.vol * CInterface.vol -> Message
+    val compileMessage: Message -> int * Foreign.Memory.voidStar * Foreign.Memory.voidStar
+    val decompileMessage: int * Foreign.Memory.voidStar * Foreign.Memory.voidStar -> Message
     val messageReturnFromParams:
-        Message * CInterface.vol * CInterface.vol * CInterface.vol -> LRESULT
-    val updateParamsFromMessage: Message * CInterface.vol * CInterface.vol -> unit
-    val LPMSG: MSG CInterface.Conversion
-    val mainCallbackFunction: HWND*int*CInterface.vol*CInterface.vol->CInterface.vol
+        Message * Foreign.Memory.voidStar * Foreign.Memory.voidStar * Foreign.Memory.voidStar -> LRESULT
+    val updateParamsFromMessage: Message * Foreign.Memory.voidStar * Foreign.Memory.voidStar -> unit
+    val LPMSG: MSG Foreign.conversion
+    val mainCallbackFunction: HWND*int*Foreign.Memory.voidStar*Foreign.Memory.voidStar->Foreign.Memory.voidStar
   end
  =
 struct
     local
-        open CInterface
+        open Foreign
+        open Memory
         open Base
         open Globals
         open WinBase
-        fun user name = load_sym (load_lib "user32.dll") name
+        fun user name = getSymbol(loadLibrary "user32.dll") name
         
-        val COPYDATASTRUCT = STRUCT3(LONG, LONG, POINTER)
-        val (fromCcopydata, toCcopydata, _) = breakConversion COPYDATASTRUCT
-        val WINDOWPOS = STRUCT7(HWND, HWND, INT, INT, INT, INT, WINDOWPOSITIONSTYLE)    
-        val (fromCwindowpos, toCwindowpos, Cwindowpos) = breakConversion WINDOWPOS
-        val MDICREATESTRUCT = STRUCT9(CLASS,STRING,HINSTANCE,INT,INT,INT,INT,LONG,LONG)
-        val (fromCmdicreatestruct, toCmdicreatestruct, _) = breakConversion MDICREATESTRUCT
-        val MEASUREITEMSTRUCT = STRUCT6(MessageBase.CONTROLTYPE,INT,INT,INT,INT,INT)
-        val (fromCmeasureitemstruct, toCmeasureitemstruct, _) = breakConversion MEASUREITEMSTRUCT
-        val DELETEITEMSTRUCT = STRUCT5(MessageBase.CONTROLTYPE,INT,INT,HWND,INT)
-        val (fromCdeleteitemstruct, toCdeleteitemstruct, _) = breakConversion DELETEITEMSTRUCT
-        val COMPAREITEMSTRUCT = STRUCT7(MessageBase.CONTROLTYPE,INT,HWND,INT,LONG,INT,LONG)
-        val (fromCcompareitemstruct, toCcompareitemstruct, _) = breakConversion COMPAREITEMSTRUCT
-        val CREATESTRUCT = STRUCT12(INT,HINSTANCE,HMENU,HWND,INT,INT,INT,INT,WORD,STRING,CLASS,LONG)
-        val (fromCcreatestruct, toCcreatestruct, _) = breakConversion CREATESTRUCT
-        val MINMAXINFO = STRUCT5(POINT,POINT,POINT,POINT,POINT)
-        val (fromCminmaxinfo, toCminmaxinfo, _) = breakConversion MINMAXINFO
-        val DRAWITEMSTRUCT = STRUCT9(MessageBase.CONTROLTYPE,INT,INT,INT,INT,HWND,HDC,RECT,LONG)
-        val (fromCdrawitemstruct, toCdrawitemstruct, _) = breakConversion DRAWITEMSTRUCT
-        val NCCALCSIZE_PARAMS = STRUCT4(RECT,RECT,RECT,POINTERTO WINDOWPOS)
-        val (fromCncalcsizestruct, toCncalcsizestruct, _) = breakConversion NCCALCSIZE_PARAMS
-        val HELPINFO = STRUCT6(INT, INT, INT, INT, INT, POINT)
-        val (fromChelpinfo, toChelpinfo, helpStruct) = breakConversion HELPINFO
+        val fromCint = SysWord.toIntX o Memory.voidStar2Sysword
+        and fromCuint = SysWord.toInt o Memory.voidStar2Sysword
         
+        val toCint = Memory.sysWord2VoidStar o SysWord.fromInt
+        
+        val COPYDATASTRUCT = cStruct3(cULONG_PTR, cDWORD, cPointer)
+        (*val (fromCcopydata, toCcopydata, _) = breakConversion COPYDATASTRUCT *)
+        val WINDOWPOS = cStruct7(cHWND, cHWND, cInt, cInt, cInt, cInt, cWINDOWPOSITIONSTYLE)    
+        (*val (fromCwindowpos, toCwindowpos, Cwindowpos) = breakConversion WINDOWPOS *)
+        val MDICREATESTRUCT = cStruct9(cCLASS,cString,cHINSTANCE,cInt,cInt,cInt,cInt,cDWORD,cLPARAM)
+        (*val (fromCmdicreatestruct, toCmdicreatestruct, _) = breakConversion MDICREATESTRUCT *)
+        val MEASUREITEMSTRUCT = cStruct6(MessageBase.cCONTROLTYPE,cUint,cUint,cUint,cUint,cULONG_PTR)
+        (*val (fromCmeasureitemstruct, toCmeasureitemstruct, _) = breakConversion MEASUREITEMSTRUCT *)
+        val DELETEITEMSTRUCT = cStruct5(MessageBase.cCONTROLTYPE,cUint,cUint,cHWND,cULONG_PTR)
+        (*val (fromCdeleteitemstruct, toCdeleteitemstruct, _) = breakConversion DELETEITEMSTRUCT *)
+        val COMPAREITEMSTRUCT = cStruct8(MessageBase.cCONTROLTYPE,cUint,cHWND,cUint,cULONG_PTR,cUint,cULONG_PTR, cDWORD)
+        (*val (fromCcompareitemstruct, toCcompareitemstruct, _) = breakConversion COMPAREITEMSTRUCT *)
+        val CREATESTRUCT = cStruct12(cPointer,cHINSTANCE,cHMENU,cHWND,cInt,cInt,cInt,cInt,cLong,cString,cCLASS,cDWORD)
+        (*val (fromCcreatestruct, toCcreatestruct, _) = breakConversion CREATESTRUCT *)
+        val MINMAXINFO = cStruct5(cPoint,cPoint,cPoint,cPoint,cPoint)
+        (*val (fromCminmaxinfo, toCminmaxinfo, _) = breakConversion MINMAXINFO *)
+        val DRAWITEMSTRUCT = cStruct9(MessageBase.cCONTROLTYPE,cUint,cUint,cUint,cUint,cHWND,cHDC,cRect,cULONG_PTR)
+        (*val (fromCdrawitemstruct, toCdrawitemstruct, _) = breakConversion DRAWITEMSTRUCT *)
+        val NCCALCSIZE_PARAMS = cStruct4(cRect,cRect,cRect, cPointer(*POINTERTO WINDOWPOS*))
+        (*val (fromCncalcsizestruct, toCncalcsizestruct, _) = breakConversion NCCALCSIZE_PARAMS *)
+        val HELPINFO = cStruct6(cUint, cInt, cInt, cPointer (* HANDLE *), cDWORD, cPoint)
+        (*val (fromChelpinfo, toChelpinfo, helpStruct) = breakConversion HELPINFO
+         *)
         (* Notification structures *)
-        val NMHDR = STRUCT3(HWND, INT, INT)
-        val (fromCnmhdr, toCnmhdr, nmhdr) = breakConversion NMHDR
-        val CHARARRAY80 = CHARARRAY 80
-        val (_, toCcharArray80, charArray80) = breakConversion CHARARRAY80
+        val NMHDR = cStruct3(cHWND, cUINT_PTR, cUint)
+        (*val (fromCnmhdr, toCnmhdr, nmhdr) = breakConversion NMHDR *)
+        val CHARARRAY80 = cCHARARRAY 80
+        (*val (_, toCcharArray80, charArray80) = breakConversion CHARARRAY80 *)
         val NMTTDISPINFO =
-            STRUCT6(NMHDR, POINTER (* String or resource id *), CHARARRAY80, HINSTANCE, UINT, UINT);
-        val (fromCnmttdispinfo, toCnmttdispinfo, _) = breakConversion NMTTDISPINFO;
+            cStruct6(NMHDR, cPointer (* String or resource id *), CHARARRAY80, cHINSTANCE, cUint, cLPARAM);
+        (*val (fromCnmttdispinfo, toCnmttdispinfo, _) = breakConversion NMTTDISPINFO; *)
+        val FINDREPLACE =
+            cStruct11(cDWORD, cHWND, cHINSTANCE, cDWORD, cString, cString,
+                      cWORD, cWORD, cPointer, cPointer, cPointer)
         
-        val (toHMENU, fromHMENU, _) = breakConversion HMENU
-        and (toHWND,  fromHWND, _)  = breakConversion HWND
-        and (toHDC,   fromHDC, _)   = breakConversion HDC
-        and (toHFONT, fromHFONT, _) = breakConversion HFONT
-        and (toHRGN,  fromHRGN, _)  = breakConversion HRGN
-        and (toHDROP, fromHDROP, _) = breakConversion HDROP
-        and (toHINST, fromHINST, _) = breakConversion HINSTANCE
-        and (toHICON, fromHICON, _) = breakConversion HICON
-        and (toHGDIOBJ, fromHGDIOBJ, _) = breakConversion HGDIOBJ
-        and (fromCrect, toCrect, CRect) = breakConversion RECT
-        and (fromCpoint, toCpoint, CPoint) = breakConversion POINT
+        (*val (toHMENU, fromHMENU, _) = breakConversion cHMENU
+        and (toHWND,  fromHWND, _)  = breakConversion cHWND
+        and (toHDC,   fromHDC, _)   = breakConversion cHDC
+        and (toHFONT, fromHFONT, _) = breakConversion cHFONT
+        and (toHRGN,  fromHRGN, _)  = breakConversion cHRGN
+        and (toHDROP, fromHDROP, _) = breakConversion cHDROP
+        and (toHINST, fromHINST, _) = breakConversion cHINSTANCE
+        and (toHICON, fromHICON, _) = breakConversion cHICON
+        and (toHGDIOBJ, fromHGDIOBJ, _) = breakConversion cHGDIOBJ
+        and (fromCrect, toCrect, CRect) = breakConversion cRect
+        and (fromCpoint, toCpoint, CPoint) = breakConversion cPoint
         and (fromCsd, toCsd, _)     = breakConversion MessageBase.SCROLLDIRECTION
         and (fromCit, toCit, _)     = breakConversion MessageBase.IMAGETYPE
-        and (fromCcbf, toCcbf, _)   = breakConversion CLIPFORMAT
+        and (fromCcbf, toCcbf, _)   = breakConversion cCLIPFORMAT
         and (fromCwmsf, toCwmsf, _) = breakConversion MessageBase.WMSIZEOPTIONS
         val (fromCscrollinfo, toCscrollinfo, _) = breakConversion ScrollBase.SCROLLINFO
         val (fromCesbf, toCesbf, _) = breakConversion ScrollBase.ENABLESCROLLBARFLAG
         val (fromCcbal, toCcbal, _) = breakConversion ComboBase.CBDIRATTRS
         val (fromCwmpl, toCwmpl, _) = breakConversion MessageBase.WMPRINTOPS
         val (fromCmkf,  toCmkf, _)  = breakConversion MessageBase.MOUSEKEYFLAGS
-        val (fromCmdif, toCmdif, _) = breakConversion MessageBase.MDITILEFLAGS
+        val (fromCmdif, toCmdif, _) = breakConversion MessageBase.MDITILEFLAGS *)
 
         fun itob i = i <> 0
 
-        val RegisterMessage = call1 (user "RegisterWindowMessageA") STRING UINT
+        val RegisterMessage = winCall1 (user "RegisterWindowMessageA") cString cUint
     in
         open MessageBase (* Get Message, MSG and ImageType *)
         type HGDIOBJ = HGDIOBJ and HWND = HWND and RECT = RECT and POINT = POINT
@@ -1170,14 +1178,14 @@ struct
         and findReplaceFlags = FindReplaceFlags.flags
         and windowFlags = flags
     
-    fun decompileMessage (m: int, wp: vol, lp: vol) =
+    fun decompileMessage (m: int, wp: voidStar, lp: voidStar) =
     (* Decode a received message.  All the parameters are ints at this stage 
        because the parameters are passed from the callback mechanism which
-       doesn't go through the CInterface structure. *)
+       doesn't go through the Foreign structure. *)
     case m of  
 
          0x0000 => NULL
-
+(*
       |  0x0001 =>
             let
                 val (cp,inst,menu,parent, cy,cx,y,x, style, name,class, extendedstyle) =
@@ -2066,7 +2074,7 @@ WM_MOUSELEAVE                   0x02A3
       |  0x0317 =>  WM_PRINT { hdc = toHDC wp, flags = fromCwmpl lp }
 
       |  0x0318 =>  WM_PRINTCLIENT { hdc = toHDC wp, flags = fromCwmpl lp }
-
+*)
       |  i      =>
             (* User, application and registered messages. *)
             (* Rich edit controls use WM_USER+37 to WM_USER+122.  As and when we implement
@@ -2082,11 +2090,10 @@ WM_MOUSELEAVE                   0x02A3
                 if i = RegisterMessage "commdlg_FindReplace"
                 then
                 let
+                    val (_, _, _, fWord, findwhat, replace, _, _, _, _, _) =
+                        #load FINDREPLACE lp
                     (* The argument is really a FINDREPLACE struct. *)
-                    val flags = FindReplaceFlags.fromWord(LargeWord.fromInt(
-                                    fromCuint(offset 3 Cuint (deref lp))))
-                    val findwhat = fromCstring(offset 4 Cuint (deref lp))
-                    val replace = fromCstring(offset 5 Cuint (deref lp))
+                    val flags = FindReplaceFlags.fromWord(LargeWord.fromInt fWord)
                 in
                     FINDMSGSTRING{flags=flags, findWhat=findwhat, replaceWith=replace}
                 end
@@ -2095,126 +2102,114 @@ WM_MOUSELEAVE                   0x02A3
             else (*NULL*) (* Generate USER messages at the moment so we know what they are. *)
                 WM_USER { uMsg = m, wParam = (fromCint wp), lParam = (fromCint lp) }
 
-    and decompileNotification (lp: vol,   ~1) = NM_OUTOFMEMORY
-     |  decompileNotification (lp: vol,   ~2) = NM_CLICK
-     |  decompileNotification (lp: vol,   ~3) = NM_DBLCLK
-     |  decompileNotification (lp: vol,   ~4) = NM_RETURN
-     |  decompileNotification (lp: vol,   ~5) = NM_RCLICK
-     |  decompileNotification (lp: vol,   ~6) = NM_RDBLCLK
-     |  decompileNotification (lp: vol,   ~7) = NM_SETFOCUS
-     |  decompileNotification (lp: vol,   ~8) = NM_KILLFOCUS
-     |  decompileNotification (lp: vol,  ~12) = NM_CUSTOMDRAW
-     |  decompileNotification (lp: vol,  ~13) = NM_HOVER
-     |  decompileNotification (lp: vol,  ~14) = NM_NCHITTEST
-     |  decompileNotification (lp: vol,  ~15) = NM_KEYDOWN
-     |  decompileNotification (lp: vol,  ~16) = NM_RELEASEDCAPTURE
-     |  decompileNotification (lp: vol,  ~17) = NM_SETCURSOR
-     |  decompileNotification (lp: vol,  ~18) = NM_CHAR
-     |  decompileNotification (lp: vol,  ~19) = NM_TOOLTIPSCREATED
-     |  decompileNotification (lp: vol,  ~20) = NM_LDOWN
-     |  decompileNotification (lp: vol,  ~21) = NM_RDOWN
-     |  decompileNotification (lp: vol,  ~22) = NM_THEMECHANGED
-     |  decompileNotification (lp: vol, ~100) = LVN_ITEMCHANGING
-     |  decompileNotification (lp: vol, ~101) = LVN_ITEMCHANGED
-     |  decompileNotification (lp: vol, ~102) = LVN_INSERTITEM
-     |  decompileNotification (lp: vol, ~103) = LVN_DELETEITEM
-     |  decompileNotification (lp: vol, ~104) = LVN_DELETEALLITEMS
-     |  decompileNotification (lp: vol, ~105) = LVN_BEGINLABELEDIT
-     |  decompileNotification (lp: vol, ~106) = LVN_ENDLABELEDIT
-     |  decompileNotification (lp: vol, ~108) = LVN_COLUMNCLICK
-     |  decompileNotification (lp: vol, ~109) = LVN_BEGINDRAG
-     |  decompileNotification (lp: vol, ~111) = LVN_BEGINRDRAG
-     |  decompileNotification (lp: vol, ~150) = LVN_GETDISPINFO
-     |  decompileNotification (lp: vol, ~151) = LVN_SETDISPINFO
-     |  decompileNotification (lp: vol, ~155) = LVN_KEYDOWN
-     |  decompileNotification (lp: vol, ~157) = LVN_GETINFOTIP
-     |  decompileNotification (lp: vol, ~300) = HDN_ITEMCHANGING
-     |  decompileNotification (lp: vol, ~301) = HDN_ITEMCHANGED
-     |  decompileNotification (lp: vol, ~302) = HDN_ITEMCLICK
-     |  decompileNotification (lp: vol, ~303) = HDN_ITEMDBLCLICK
-     |  decompileNotification (lp: vol, ~305) = HDN_DIVIDERDBLCLICK
-     |  decompileNotification (lp: vol, ~306) = HDN_BEGINTRACK
-     |  decompileNotification (lp: vol, ~307) = HDN_ENDTRACK
-     |  decompileNotification (lp: vol, ~308) = HDN_TRACK
-     |  decompileNotification (lp: vol, ~311) = HDN_ENDDRAG
-     |  decompileNotification (lp: vol, ~310) = HDN_BEGINDRAG
-     |  decompileNotification (lp: vol, ~309) = HDN_GETDISPINFO
-     |  decompileNotification (lp: vol, ~401) = TVN_SELCHANGING
-     |  decompileNotification (lp: vol, ~402) = TVN_SELCHANGED
-     |  decompileNotification (lp: vol, ~403) = TVN_GETDISPINFO
-     |  decompileNotification (lp: vol, ~404) = TVN_SETDISPINFO
-     |  decompileNotification (lp: vol, ~405) = TVN_ITEMEXPANDING
-     |  decompileNotification (lp: vol, ~406) = TVN_ITEMEXPANDED
-     |  decompileNotification (lp: vol, ~407) = TVN_BEGINDRAG
-     |  decompileNotification (lp: vol, ~408) = TVN_BEGINRDRAG
-     |  decompileNotification (lp: vol, ~409) = TVN_DELETEITEM
-     |  decompileNotification (lp: vol, ~410) = TVN_BEGINLABELEDIT
-     |  decompileNotification (lp: vol, ~411) = TVN_ENDLABELEDIT
-     |  decompileNotification (lp: vol, ~412) = TVN_KEYDOWN
-     |  decompileNotification (lp: vol, ~413) = TVN_GETINFOTIP
-     |  decompileNotification (lp: vol, ~415) = TVN_SINGLEEXPAND
-     |  decompileNotification (lp: vol, ~520) =
+    and decompileNotification (lp: voidStar,   ~1) = NM_OUTOFMEMORY
+     |  decompileNotification (lp: voidStar,   ~2) = NM_CLICK
+     |  decompileNotification (lp: voidStar,   ~3) = NM_DBLCLK
+     |  decompileNotification (lp: voidStar,   ~4) = NM_RETURN
+     |  decompileNotification (lp: voidStar,   ~5) = NM_RCLICK
+     |  decompileNotification (lp: voidStar,   ~6) = NM_RDBLCLK
+     |  decompileNotification (lp: voidStar,   ~7) = NM_SETFOCUS
+     |  decompileNotification (lp: voidStar,   ~8) = NM_KILLFOCUS
+     |  decompileNotification (lp: voidStar,  ~12) = NM_CUSTOMDRAW
+     |  decompileNotification (lp: voidStar,  ~13) = NM_HOVER
+     |  decompileNotification (lp: voidStar,  ~14) = NM_NCHITTEST
+     |  decompileNotification (lp: voidStar,  ~15) = NM_KEYDOWN
+     |  decompileNotification (lp: voidStar,  ~16) = NM_RELEASEDCAPTURE
+     |  decompileNotification (lp: voidStar,  ~17) = NM_SETCURSOR
+     |  decompileNotification (lp: voidStar,  ~18) = NM_CHAR
+     |  decompileNotification (lp: voidStar,  ~19) = NM_TOOLTIPSCREATED
+     |  decompileNotification (lp: voidStar,  ~20) = NM_LDOWN
+     |  decompileNotification (lp: voidStar,  ~21) = NM_RDOWN
+     |  decompileNotification (lp: voidStar,  ~22) = NM_THEMECHANGED
+     |  decompileNotification (lp: voidStar, ~100) = LVN_ITEMCHANGING
+     |  decompileNotification (lp: voidStar, ~101) = LVN_ITEMCHANGED
+     |  decompileNotification (lp: voidStar, ~102) = LVN_INSERTITEM
+     |  decompileNotification (lp: voidStar, ~103) = LVN_DELETEITEM
+     |  decompileNotification (lp: voidStar, ~104) = LVN_DELETEALLITEMS
+     |  decompileNotification (lp: voidStar, ~105) = LVN_BEGINLABELEDIT
+     |  decompileNotification (lp: voidStar, ~106) = LVN_ENDLABELEDIT
+     |  decompileNotification (lp: voidStar, ~108) = LVN_COLUMNCLICK
+     |  decompileNotification (lp: voidStar, ~109) = LVN_BEGINDRAG
+     |  decompileNotification (lp: voidStar, ~111) = LVN_BEGINRDRAG
+     |  decompileNotification (lp: voidStar, ~150) = LVN_GETDISPINFO
+     |  decompileNotification (lp: voidStar, ~151) = LVN_SETDISPINFO
+     |  decompileNotification (lp: voidStar, ~155) = LVN_KEYDOWN
+     |  decompileNotification (lp: voidStar, ~157) = LVN_GETINFOTIP
+     |  decompileNotification (lp: voidStar, ~300) = HDN_ITEMCHANGING
+     |  decompileNotification (lp: voidStar, ~301) = HDN_ITEMCHANGED
+     |  decompileNotification (lp: voidStar, ~302) = HDN_ITEMCLICK
+     |  decompileNotification (lp: voidStar, ~303) = HDN_ITEMDBLCLICK
+     |  decompileNotification (lp: voidStar, ~305) = HDN_DIVIDERDBLCLICK
+     |  decompileNotification (lp: voidStar, ~306) = HDN_BEGINTRACK
+     |  decompileNotification (lp: voidStar, ~307) = HDN_ENDTRACK
+     |  decompileNotification (lp: voidStar, ~308) = HDN_TRACK
+     |  decompileNotification (lp: voidStar, ~311) = HDN_ENDDRAG
+     |  decompileNotification (lp: voidStar, ~310) = HDN_BEGINDRAG
+     |  decompileNotification (lp: voidStar, ~309) = HDN_GETDISPINFO
+     |  decompileNotification (lp: voidStar, ~401) = TVN_SELCHANGING
+     |  decompileNotification (lp: voidStar, ~402) = TVN_SELCHANGED
+     |  decompileNotification (lp: voidStar, ~403) = TVN_GETDISPINFO
+     |  decompileNotification (lp: voidStar, ~404) = TVN_SETDISPINFO
+     |  decompileNotification (lp: voidStar, ~405) = TVN_ITEMEXPANDING
+     |  decompileNotification (lp: voidStar, ~406) = TVN_ITEMEXPANDED
+     |  decompileNotification (lp: voidStar, ~407) = TVN_BEGINDRAG
+     |  decompileNotification (lp: voidStar, ~408) = TVN_BEGINRDRAG
+     |  decompileNotification (lp: voidStar, ~409) = TVN_DELETEITEM
+     |  decompileNotification (lp: voidStar, ~410) = TVN_BEGINLABELEDIT
+     |  decompileNotification (lp: voidStar, ~411) = TVN_ENDLABELEDIT
+     |  decompileNotification (lp: voidStar, ~412) = TVN_KEYDOWN
+     |  decompileNotification (lp: voidStar, ~413) = TVN_GETINFOTIP
+     |  decompileNotification (lp: voidStar, ~415) = TVN_SINGLEEXPAND
+     |  decompileNotification (lp: voidStar, ~520) =
          let
-             val nmt = fromCnmttdispinfo(deref lp)
+             val nmt = #load NMTTDISPINFO lp
              (* Just look at the byte data at the moment. *)
          in
              TTN_GETDISPINFO(ref(#3 nmt))
          end
-     |  decompileNotification (lp: vol, ~521) = TTN_SHOW
-     |  decompileNotification (lp: vol, ~522) = TTN_POP
-     |  decompileNotification (lp: vol, ~550) = TCN_KEYDOWN
-     |  decompileNotification (lp: vol, ~551) = TCN_SELCHANGE
-     |  decompileNotification (lp: vol, ~552) = TCN_SELCHANGING
-     |  decompileNotification (lp: vol, ~700) = TBN_GETBUTTONINFO
-     |  decompileNotification (lp: vol, ~701) = TBN_BEGINDRAG
-     |  decompileNotification (lp: vol, ~702) = TBN_ENDDRAG
-     |  decompileNotification (lp: vol, ~703) = TBN_BEGINADJUST
-     |  decompileNotification (lp: vol, ~704) = TBN_ENDADJUST
-     |  decompileNotification (lp: vol, ~705) = TBN_RESET
-     |  decompileNotification (lp: vol, ~706) = TBN_QUERYINSERT
-     |  decompileNotification (lp: vol, ~707) = TBN_QUERYDELETE
-     |  decompileNotification (lp: vol, ~708) = TBN_TOOLBARCHANGE
-     |  decompileNotification (lp: vol, ~709) = TBN_CUSTHELP
-     |  decompileNotification (lp: vol, ~710) = TBN_DROPDOWN
-     |  decompileNotification (lp: vol, ~713) = TBN_HOTITEMCHANGE
-     |  decompileNotification (lp: vol, ~714) = TBN_DRAGOUT
-     |  decompileNotification (lp: vol, ~715) = TBN_DELETINGBUTTON
-     |  decompileNotification (lp: vol, ~716) = TBN_GETDISPINFO
-     |  decompileNotification (lp: vol, ~718) = TBN_GETINFOTIP (*<<<*)
-     |  decompileNotification (lp: vol, ~722) = UDN_DELTAPOS
-     |  decompileNotification (lp: vol, ~832) = RBN_GETOBJECT
-     |  decompileNotification (lp: vol, ~833) = RBN_LAYOUTCHANGED
-     |  decompileNotification (lp: vol, ~834) = RBN_AUTOSIZE
-     |  decompileNotification (lp: vol, ~835) = RBN_BEGINDRAG
-     |  decompileNotification (lp: vol, ~836) = RBN_ENDDRAG
-     |  decompileNotification (lp: vol, ~837) = RBN_DELETINGBAND
-     |  decompileNotification (lp: vol, ~838) = RBN_DELETEDBAND
-     |  decompileNotification (lp: vol, ~839) = RBN_CHILDSIZE
-     |  decompileNotification (lp: vol, ~800) = CBEN_GETDISPINFO
-     |  decompileNotification (lp: vol, ~808) = CBEN_DRAGBEGIN
-     |  decompileNotification (lp: vol, ~860) = IPN_FIELDCHANGED
-     |  decompileNotification (lp: vol, ~880) = SBN_SIMPLEMODECHANGE
-     |  decompileNotification (lp: vol, ~901) = PGN_SCROLL
-     |  decompileNotification (lp: vol, ~902) = PGN_CALCSIZE     
-     |  decompileNotification (lp: vol, code) = NM_OTHER code
+     |  decompileNotification (lp: voidStar, ~521) = TTN_SHOW
+     |  decompileNotification (lp: voidStar, ~522) = TTN_POP
+     |  decompileNotification (lp: voidStar, ~550) = TCN_KEYDOWN
+     |  decompileNotification (lp: voidStar, ~551) = TCN_SELCHANGE
+     |  decompileNotification (lp: voidStar, ~552) = TCN_SELCHANGING
+     |  decompileNotification (lp: voidStar, ~700) = TBN_GETBUTTONINFO
+     |  decompileNotification (lp: voidStar, ~701) = TBN_BEGINDRAG
+     |  decompileNotification (lp: voidStar, ~702) = TBN_ENDDRAG
+     |  decompileNotification (lp: voidStar, ~703) = TBN_BEGINADJUST
+     |  decompileNotification (lp: voidStar, ~704) = TBN_ENDADJUST
+     |  decompileNotification (lp: voidStar, ~705) = TBN_RESET
+     |  decompileNotification (lp: voidStar, ~706) = TBN_QUERYINSERT
+     |  decompileNotification (lp: voidStar, ~707) = TBN_QUERYDELETE
+     |  decompileNotification (lp: voidStar, ~708) = TBN_TOOLBARCHANGE
+     |  decompileNotification (lp: voidStar, ~709) = TBN_CUSTHELP
+     |  decompileNotification (lp: voidStar, ~710) = TBN_DROPDOWN
+     |  decompileNotification (lp: voidStar, ~713) = TBN_HOTITEMCHANGE
+     |  decompileNotification (lp: voidStar, ~714) = TBN_DRAGOUT
+     |  decompileNotification (lp: voidStar, ~715) = TBN_DELETINGBUTTON
+     |  decompileNotification (lp: voidStar, ~716) = TBN_GETDISPINFO
+     |  decompileNotification (lp: voidStar, ~718) = TBN_GETINFOTIP (*<<<*)
+     |  decompileNotification (lp: voidStar, ~722) = UDN_DELTAPOS
+     |  decompileNotification (lp: voidStar, ~832) = RBN_GETOBJECT
+     |  decompileNotification (lp: voidStar, ~833) = RBN_LAYOUTCHANGED
+     |  decompileNotification (lp: voidStar, ~834) = RBN_AUTOSIZE
+     |  decompileNotification (lp: voidStar, ~835) = RBN_BEGINDRAG
+     |  decompileNotification (lp: voidStar, ~836) = RBN_ENDDRAG
+     |  decompileNotification (lp: voidStar, ~837) = RBN_DELETINGBAND
+     |  decompileNotification (lp: voidStar, ~838) = RBN_DELETEDBAND
+     |  decompileNotification (lp: voidStar, ~839) = RBN_CHILDSIZE
+     |  decompileNotification (lp: voidStar, ~800) = CBEN_GETDISPINFO
+     |  decompileNotification (lp: voidStar, ~808) = CBEN_DRAGBEGIN
+     |  decompileNotification (lp: voidStar, ~860) = IPN_FIELDCHANGED
+     |  decompileNotification (lp: voidStar, ~880) = SBN_SIMPLEMODECHANGE
+     |  decompileNotification (lp: voidStar, ~901) = PGN_SCROLL
+     |  decompileNotification (lp: voidStar, ~902) = PGN_CALCSIZE     
+     |  decompileNotification (lp: voidStar, code) = NM_OTHER code
 
-
-    (* Create a general message. *)
-    fun createMessage (msgId: int, hwnd: HWND, wParam: vol, lParam: vol,
-                       time: Time.time, pt: {x: int, y: int}): vol =
-        CInterface.make_struct[
-            (Cint, toCint msgId),
-            (voidStar, fromHWND hwnd),
-            (Cint, wParam),
-            (Clong, lParam),
-            (Clong, toCint(Time.toMilliseconds time)),
-            (Cint, toCint (#x pt)),
-            (Cint, toCint (#y pt))]
 
     fun btoi false = 0 | btoi true = 1
 
-    fun compileMessage NULL = (0x0000, toCint 0, toCint 0)
-
+    fun compileMessage NULL = (0x0000, Memory.null, Memory.null)
+(*
      | compileMessage (
                 WM_CREATE { instance, creation, menu, parent, cy, cx,
                          y, x, style, name, class, extendedstyle}) =
@@ -3047,9 +3042,9 @@ WM_MOUSELEAVE                   0x02A3
       | compileMessage (WM_USER{uMsg, wParam, lParam}) = (uMsg, toCint wParam, toCint lParam)
 
       | compileMessage (WM_APP{uMsg, wParam, lParam}) = (uMsg, toCint wParam, toCint lParam)
-
+*)
       | compileMessage (WM_REGISTERED{uMsg, wParam, lParam}) = (uMsg, toCint wParam, toCint lParam)
-
+(*
      and compileNotification (from, idFrom, NM_OUTOFMEMORY) = address(toCnmhdr(from, idFrom, ~1))
       |  compileNotification (from, idFrom, NM_CLICK) = address(toCnmhdr(from, idFrom, ~2))
       |  compileNotification (from, idFrom, NM_DBLCLK) = address(toCnmhdr(from, idFrom, ~3))
@@ -3149,27 +3144,27 @@ WM_MOUSELEAVE                   0x02A3
 
       |  compileNotification (from, idFrom, NM_OTHER code) =
         address(toCnmhdr(from, idFrom, code))
-
-
+*)
         local
-            val msgStruct = STRUCT6(HWND, INT, POINTER, POINTER, INT, POINT)
-            val (toMsg, fromMsg, msgType) = breakConversion msgStruct
+            val msgStruct = cStruct6(cHWND, cUint, cPointer, cPointer, cDWORD, cPoint)
+            val { load=loadMsg, store=storeMsg, ctype={size=msgSize, ... }, ... } = msgStruct
         in
-            (* Return the address of a vol containing the message. *)
-            fun packMessage({msg, hwnd, time, pt}: MSG): vol =
+            (* Store the address of the message in the memory. *)
+            fun storeMessage(v: voidStar, {msg, hwnd, time, pt}: MSG) =
             let
-                val (msgId: int, wParam: vol, lParam: vol) = compileMessage msg
-                val msgVol =
-                    fromMsg(hwnd, msgId, wParam, lParam, Time.toMilliseconds time, pt)
+                val (msgId: int, wParam: voidStar, lParam: voidStar) = compileMessage msg
+                val mem = Memory.malloc msgSize
+                val () = storeMsg(mem, (hwnd, msgId, wParam, lParam, Time.toMilliseconds time, pt))
             in
-                address msgVol
+                setAddress(v, 0w0, mem)
             end
         
             (* v is the address of a message structure.  The result is the unpacked
                message. *)
-            fun unpackMessage(v: vol): MSG =
+            fun loadMessage(v: voidStar): MSG =
             let
-                val (hWnd, msgId, wParam, lParam, t, pt) = toMsg(deref v)
+                val sAddr = getAddress(v, 0w0)
+                val (hWnd, msgId, wParam, lParam, t, pt) = loadMsg sAddr
             in
                 {
                 msg = decompileMessage(msgId, wParam, lParam),
@@ -3178,14 +3173,25 @@ WM_MOUSELEAVE                   0x02A3
                 pt = pt
                 }
             end
+            
+            fun releaseMessage(s: voidStar, m: MSG) =
+            let
+                val sAddr = getAddress(s, 0w0)
+                (* TODO: We may have to release strings etc. *)
+            in
+                Memory.free sAddr
+            end
     
-            val LPMSG = mkConversion unpackMessage packMessage (Cpointer msgType)
+            val LPMSG: MSG conversion =
+            { load = loadMessage, store = storeMessage, release = releaseMessage, ctype=LowLevel.cTypePointer }
+            
+            val msgSize = msgSize
         end
 
     (* Update the lParam/wParam values from the values in a returned message. This is needed
        if an ML callback makes a modification that has to be passed back to C. *)
     (* TODO: The rest of these. *)
-    fun updateParamsFromMessage(msg: Message, wp: vol, lp: vol): unit =
+    fun updateParamsFromMessage(msg: Message, wp: voidStar, lp: voidStar): unit =
         case msg of
             WM_GETTEXT{text, ...} => ()
         |   WM_ASKCBFORMATNAME{formatName, ...} => ()
@@ -3200,7 +3206,7 @@ WM_MOUSELEAVE                   0x02A3
         |   LB_GETTEXT {text, ...} => ()
         |   LB_GETSELITEMS{itemCount, items} => ()
         |   LB_GETITEMRECT{rect, ...} =>  ()
-        |   WM_NCCALCSIZE { newrect = ref newrect, ...} =>
+(*        |   WM_NCCALCSIZE { newrect = ref newrect, ...} =>
                 assign CRect (deref lp) (toCrect newrect)
         |   WM_GETMINMAXINFO {maxSize=ref maxSize, maxPosition=ref maxPosition,
                               minTrackSize=ref minTrackSize, maxTrackSize=ref maxTrackSize} =>
@@ -3218,14 +3224,14 @@ WM_MOUSELEAVE                   0x02A3
                     (* This particular notification allows the result to be fed
                        back in several ways.  We copy into the char array. *)
                     assign charArray80 (offset 1 (Cpointer Cvoid) (offset 1 nmhdr (deref lp)))
-                            (toCcharArray80 s)
+                            (toCcharArray80 s) *)
                 
         |   _ => ();
 
     (* Update the message contents from the values of wParam/lParam.  This is used
        when a message has been sent or passed into C code that may have updated
        the message contents.  Casts certain message results to HGDIOBJ. *)
-    fun messageReturnFromParams(msg: Message, wp: vol, lp: vol, reply: vol): LRESULT =
+    fun messageReturnFromParams(msg: Message, wp: voidStar, lp: voidStar, reply: voidStar): LRESULT =
     let
         val () =
             (* For certain messages we need to extract the reply from the arguments. *)
@@ -3234,7 +3240,7 @@ WM_MOUSELEAVE                   0x02A3
                 text := (if fromCint reply = 0 then "" else fromCstring lp)
         |   WM_ASKCBFORMATNAME{formatName, ...} =>
                 formatName := (if fromCint reply = 0 then "" else fromCstring lp)
-        |   EM_GETLINE{result, ...} =>
+(*        |   EM_GETLINE{result, ...} =>
                 result := (if fromCint reply = 0 then "" else fromCstring lp)
         |   EM_GETRECT{rect, ...} => rect := fromCrect(deref lp)
         |   EM_GETSEL{startPos, endPos} =>
@@ -3279,27 +3285,30 @@ WM_MOUSELEAVE                   0x02A3
                 width := newwidth;
                 height := newheight;
                 flags := newflags
-            end
+            end *)
 
         |   _ => ()
+        
+        
+            val toHGDIOBJ = voidStarOfHandle 
         in
             (* We need to "cast" some of the results. *)
         case msg of
-            WM_GETFONT => LRESHANDLE(toHGDIOBJ reply)
-        |   WM_GETICON _ => LRESHANDLE(toHGDIOBJ reply)
-        |   WM_SETICON _ => LRESHANDLE(toHGDIOBJ reply)
-        |   BM_GETIMAGE _ => LRESHANDLE(toHGDIOBJ reply)
-        |   BM_SETIMAGE _ => LRESHANDLE(toHGDIOBJ reply)
-        |   STM_GETICON => LRESHANDLE(toHGDIOBJ reply)
-        |   STM_GETIMAGE _ => LRESHANDLE(toHGDIOBJ reply)
-        |   STM_SETICON _ => LRESHANDLE(toHGDIOBJ reply)
-        |   STM_SETIMAGE _ => LRESHANDLE(toHGDIOBJ reply)
-        |   _ => LRESINT (fromCint reply)
+            WM_GETFONT => LRESHANDLE(handleOfVoidStar reply)
+        |   WM_GETICON _ => LRESHANDLE(handleOfVoidStar reply)
+        |   WM_SETICON _ => LRESHANDLE(handleOfVoidStar reply)
+        |   BM_GETIMAGE _ => LRESHANDLE(handleOfVoidStar reply)
+        |   BM_SETIMAGE _ => LRESHANDLE(handleOfVoidStar reply)
+        |   STM_GETICON => LRESHANDLE(handleOfVoidStar reply)
+        |   STM_GETIMAGE _ => LRESHANDLE(handleOfVoidStar reply)
+        |   STM_SETICON _ => LRESHANDLE(handleOfVoidStar reply)
+        |   STM_SETIMAGE _ => LRESHANDLE(handleOfVoidStar reply)
+        |   _ => LRESINT (SysWord.toInt(Memory.voidStar2Sysword reply))
         end
 
         (* Window callback table. *)
         local
-            type callback = HWND * int * vol * vol -> vol
+            type callback = HWND * int * voidStar * voidStar -> voidStar
             (* *)
             datatype tableEntry = TableEntry of {hWnd: HWND, callBack: callback}
             (* Windows belong to the thread that created them so each thread has
@@ -3307,12 +3316,12 @@ WM_MOUSELEAVE                   0x02A3
                callback waiting to be assigned to a window that is being created. *)
             val threadWindows = Universal.tag(): tableEntry list Universal.tag
             val threadOutstanding = Universal.tag(): callback option Universal.tag
-            val WNDPROC = PASCALFUNCTION4 (HWND, INT, POINTER, POINTER) POINTER
+            val WNDPROC = winFun4 (cHWND, cUint, cPointer, cPointer) cPointer
             (* This is used to set the window proc.  The result is also a window proc
                but since we're passing it to CallWindowProc it's simpler to treat the
                result as an int. *)
-            val SetWindowLong = call3 (user "SetWindowLongA") (HWND, INT, WNDPROC) POINTER
-            val CallWindowProc = call5 (user "CallWindowProcA") (POINTER, HWND, INT, POINTER, POINTER) POINTER
+            val SetWindowLong = winCall3 (user "SetWindowLongPtrA") (cHWND, cInt, WNDPROC) cPointer
+            val CallWindowProc = winCall5 (user "CallWindowProcA") (cPointer, cHWND, cUint, cPointer, cPointer) cPointer
 
             (* This message is used to test if we are using the Poly callback.  We use
                the same number as MFC uses so it's unlikely that any Windows class will
@@ -3351,17 +3360,17 @@ WM_MOUSELEAVE                   0x02A3
                 setWindowList(List.filter
                     (fn(TableEntry{hWnd, ...}) => intOfHandle hw <> intOfHandle hWnd) (getWindowList ()))
 
-            fun mainCallbackFunction(hw:HWND, msgId:int, wParam:vol, lParam:vol) =
+            fun mainCallbackFunction(hw:HWND, msgId:int, wParam:voidStar, lParam:voidStar) =
             if msgId = WMTESTPOLY
-            then toCint ~1 (* This tests whether we are already installed. *)
+            then Memory.sysWord2VoidStar(SysWord.fromInt ~1) (* This tests whether we are already installed. *)
             else getCallback hw (hw, msgId, wParam, lParam)
 
             fun windowCallback (call: HWND * Message * 'a -> LRESULT * 'a, init: 'a):
-                    (HWND * int * vol* vol-> vol) =
+                    (HWND * int * voidStar * voidStar -> voidStar) =
                 let
                     val state = ref init
 
-                    fun callBack(h: HWND, uMsg:int, wParam: vol, lParam: vol): vol =
+                    fun callBack(h: HWND, uMsg:int, wParam: voidStar, lParam: voidStar): voidStar =
                     let
                         val msg = decompileMessage(uMsg, wParam, lParam)
                             handle exn =>
@@ -3391,8 +3400,8 @@ WM_MOUSELEAVE                   0x02A3
                            guarantee that all the parameters of the original message
                            would be correctly set. *)
                         case result of
-                            LRESINT res => toCint res
-                        |   LRESHANDLE res => fromHGDIOBJ res
+                            LRESINT res => Memory.sysWord2VoidStar(SysWord.fromInt res)
+                        |   LRESHANDLE res => voidStarOfHandle res
                     end;
                 in
                     callBack
@@ -3404,8 +3413,8 @@ WM_MOUSELEAVE                   0x02A3
             fun subclass(w: HWND, f: HWND * Message * 'a -> LRESULT * 'a, init: 'a):
                     (HWND * Message -> LRESULT) =
             let
-                val sendMsg = call4(user "SendMessageA") (HWND, INT, POINTER, POINTER) INT
-                val testPoly: int = sendMsg(w, WMTESTPOLY, toCint 0, toCint 0)
+                val sendMsg = winCall4(user "SendMessageA") (cHWND, cUint, cPointer, cPointer) cInt
+                val testPoly: int = sendMsg(w, WMTESTPOLY, Memory.null, Memory.null)
 
                 fun addCallback (hWnd, call: HWND * Message * 'a -> LRESULT * 'a, init: 'a): unit =
                     setWindowList(
@@ -3438,8 +3447,8 @@ WM_MOUSELEAVE                   0x02A3
             in
                 fn (hw: HWND, msg: Message) =>
                 let
-                    val (m: int, w: vol, l: vol) = compileMessage msg
-                    val res: vol = oldDefProc(hw, m, w, l)
+                    val (m: int, w: voidStar, l: voidStar) = compileMessage msg
+                    val res: voidStar = oldDefProc(hw, m, w, l)
                 in
                     messageReturnFromParams(msg, w, l, res)
                 end
@@ -3451,18 +3460,16 @@ WM_MOUSELEAVE                   0x02A3
            We keep a list of modeless dialogues and process them in the main
            message loop.
            This also has an important function for dialogues created by FindText.
-           FindText creates a FINDREPLACE structure which must not be GC'd while
-           the dialogue exists.  We include the vol in this table which holds onto
-           the underlying C structure. *)
+           Previously this kept hold of  *)
         local
             val modeless = ref []
-            val isDialogMessage = call2 (user "IsDialogMessage") (HWND, POINTER) BOOL
-            val isWindow = call1 (user "IsWindow") (HWND) BOOL
+            val isDialogMessage = winCall2 (user "IsDialogMessage") (cHWND, cPointer) cBool
+            val isWindow = winCall1 (user "IsWindow") (cHWND) cBool
         in
-            fun addModelessDialogue (hWnd: HWND, retain: vol) =
+            fun addModelessDialogue (hWnd: HWND, retain: voidStar) =
                 modeless := (hWnd, retain) :: (!modeless)
 
-            fun isDialogueMsg(msg: vol) =
+            fun isDialogueMsg(msg: voidStar) =
             (
                 (* Take this opportunity to filter any dialogues that have gone away. *)
                 modeless := List.filter (isWindow o #1) (!modeless);
@@ -3477,14 +3484,14 @@ WM_MOUSELEAVE                   0x02A3
         fun PeekMessage(hWnd: HWND option, wMsgFilterMin: int,
                         wMsgFilterMax: int, remove: PeekMessageOptions): MSG option =
         let
-            val msg = alloc 7 Cint
-            val peekMsg = call5(user "PeekMessageA") (POINTER, HWNDOPT, INT, INT, INT) INT
+            val msg = malloc msgSize
+            val peekMsg = winCall5(user "PeekMessageA") (cPointer, cHWND, cUint, cUint, cUint) cBool
             val opts = case remove of PM_REMOVE => 1 | PM_NOREMOVE => 0
-            val res = peekMsg(address msg, hWnd, wMsgFilterMin, wMsgFilterMax, opts)
+            val res = peekMsg(msg, getOpt(hWnd, hNull), wMsgFilterMin, wMsgFilterMax, opts)
         in
-            if res = 0
+            if not res
             then NONE
-            else SOME(unpackMessage(address msg))
+            else SOME(loadMessage msg)
         end;
 
         local
@@ -3516,44 +3523,46 @@ WM_MOUSELEAVE                   0x02A3
            has been received. *)
         fun RunApplication() =
         let
-            val peekMsg = call5(user "PeekMessageA") (POINTER, HWND, INT, INT, INT) INT
-            val transMsg = call1(user "TranslateMessage") (POINTER) INT
-            val dispMsg = call1(user "DispatchMessageA") (POINTER) INT
-            val msg = alloc 7 Cint
-            val res = peekMsg(address msg, toHWND(toCint 0), 0, 0, 1)
+            val peekMsg = winCall5(user "PeekMessageA") (cPointer, cHWND, cUint, cUint, cUint) cBool
+            val transMsg = winCall1(user "TranslateMessage") (cPointer) cBool
+            val dispMsg = winCall1(user "DispatchMessageA") (cPointer) cInt
+            val msg = malloc msgSize
+            val res = peekMsg(msg, hNull, 0, 0, 1)
         in
-            if res = 0
+            if not res
             then (* There's no message at the moment.  Wait for one. *)
                 (WaitMessage(); RunApplication())
-            else case unpackMessage(address msg) of
+            else case loadMessage msg of
                 { msg = WM_QUIT{exitcode}, ...} => exitcode
             |   _ =>
                 (
-                    if isDialogueMsg(address msg) then ()
-                    else ( transMsg(address msg); dispMsg(address msg); () );
+                    if isDialogueMsg msg then ()
+                    else ( transMsg msg; dispMsg msg; () );
                 RunApplication()
                 )
         end
 
         fun SendMessage(hWnd: HWND, msg: Message) =
         let
-            val sendMsg = call4(user "SendMessageA") (HWND, INT, POINTER, POINTER) POINTER
-            val (msgId: int, wp: vol, lp: vol) = compileMessage msg
+            val sendMsg = winCall4(user "SendMessageA") (cHWND, cUint, cPointer, cPointer) cPointer
+            val (msgId: int, wp: voidStar, lp: voidStar) = compileMessage msg
             val reply = sendMsg(hWnd, msgId, wp, lp)
         in
             (* Update any result values and cast the results if necessary. *)
             messageReturnFromParams(msg, wp, lp, reply)
+            (* TODO: Free the memory *)
         end
 
 
         local
             val postMessage =
-                call4(user "PostMessageA") (HWND, INT, POINTER, POINTER)
-                    (SUCCESSSTATE "PostMessage")
+                winCall4(user "PostMessageA") (cHWND, cUint, cPointer, cPointer)
+                    (successState "PostMessage")
         in
             fun PostMessage(hWnd: HWND, msg: Message) =
             let
-                val (msgId: int, wp: vol, lp: vol) = compileMessage msg
+                val (msgId: int, wp: voidStar, lp: voidStar) = compileMessage msg
+                (* TODO: How do we free the message memory ? *)
             in
                 postMessage(hWnd, msgId, wp, lp)
             end
@@ -3561,13 +3570,13 @@ WM_MOUSELEAVE                   0x02A3
 
         val HWND_BROADCAST: HWND  = handleOfInt 0xffff
 
-        val PostQuitMessage = call1 (user "PostQuitMessage") INT VOID
-        val RegisterWindowMessage = call1 (user "RegisterWindowMessageA") (STRING) INT
-        val InSendMessage = call0 (user "InSendMessage") () BOOL
-        val GetInputState = call0 (user "GetInputState") () BOOL
+        val PostQuitMessage = winCall1 (user "PostQuitMessage") cInt cVoid
+        val RegisterWindowMessage = winCall1 (user "RegisterWindowMessageA") (cString) cUint
+        val InSendMessage = winCall0 (user "InSendMessage") () cBool
+        val GetInputState = winCall0 (user "GetInputState") () cBool
 
         local
-            val getMessagePos = call0 (user "GetMessagePos") () UINT
+            val getMessagePos = winCall0 (user "GetMessagePos") () cDWORD
         in
             fun GetMessagePos(): POINT =
             let
@@ -3578,7 +3587,7 @@ WM_MOUSELEAVE                   0x02A3
         end
 
         val GetMessageTime = Time.fromMilliseconds o 
-            call0 (user "GetMessageTime") () INT
+            winCall0 (user "GetMessageTime") () cLong
 
         datatype QueueStatus =
             QS_KEY | QS_MOUSEMOVE | QS_MOUSEBUTTON | QS_POSTMESSAGE | QS_TIMER |
@@ -3605,7 +3614,7 @@ WM_MOUSELEAVE                   0x02A3
         val QS_ALLINPUT = QS_SENDMESSAGE :: QS_ALLEVENTS
 
         local
-            val getQueueStatus = call1 (user "GetQueueStatus") (INT) UINT
+            val getQueueStatus = winCall1 (user "GetQueueStatus") (cUint) cDWORD
         in
             fun GetQueueStatus flags =
             let
