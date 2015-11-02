@@ -82,8 +82,6 @@ typedef char TCHAR;
 #define _tcslen strlen
 #define _fputtc fputc
 #define _fputts fputs
-#define _tgetenv getenv
-#define _tcschr strchr
 #endif
 
 
@@ -1399,76 +1397,9 @@ public:
     Handle rootHandle;
 };
 
-// On Windows the path separator is semicolon, on Unix it's colon
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#define PATHSEP ';'
-#define DIRSEP '\\'
-#else
-#define PATHSEP ':'
-#define DIRSEP '/'
-#endif
-
 void ModuleLoader::Perform()
 {
-    // Search the path.  This path searching could be done in ML.
-    AutoClose loadFile;
-    // If there is a directory separator in the filename use the name with
-    // no path searching.  In Windows both / and \ are separators.
-    if (_tcschr(fileName, '/') != NULL || _tcschr(fileName, DIRSEP) != NULL)
-        loadFile = _tfopen(fileName, _T("rb"));
-    else 
-    {
-        // Search the path
-        TCHAR *modpath = _tgetenv(_T("POLYMODPATH"));
-        size_t nameLen = _tcslen(fileName);
-        if (modpath != NULL && *modpath != 0)
-        {
-            TCHAR *start = modpath;
-            TCHAR *end = start;
-            do
-            {
-                end = start;
-                while (*end != 0 && *end != PATHSEP) end++;
-                TempString buff((TCHAR*)malloc(((end-start)+nameLen+2)*sizeof(TCHAR)));
-                TCHAR *tos = buff;
-                while (start != end) { *tos++ = *start++; }
-                *tos++ = DIRSEP;
-                _tcscpy(tos, fileName);
-                loadFile = _tfopen(buff, _T("rb"));
-                if (*end != 0) start = end+1;
-            } while ((FILE*)loadFile == NULL && *end != 0);
-        }
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-        // In Windows we probably want to use a registry entry for the path.
-        // That can be set by the installer to contain the standard modules.
-#define MODULEDIR _T("Modules\\")
-        if ((FILE*)loadFile == NULL)
-        {
-            HKEY hk;
-	        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-			        _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
-			        KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
-            {
-                DWORD valSize;
-                if (RegQueryValueEx(hk, _T("Path"), 0, NULL, NULL, &valSize) == ERROR_SUCCESS)
-                {
-                    TempString buff((TCHAR*)malloc(valSize + (_tcslen(MODULEDIR) + nameLen+2)*sizeof(TCHAR)));
-                    DWORD dwType;
-                    if (RegQueryValueEx(hk, _T("Path"), 0, &dwType, (LPBYTE)(LPTSTR)buff, &valSize) == ERROR_SUCCESS)
-                    {
-                        // The registry entry should end with a backslash.
-                        _tcscat(buff, MODULEDIR);
-                        _tcscat(buff, fileName);
-                        loadFile = _tfopen(buff, _T("rb"));
-                    }
-                }
-                RegCloseKey(hk);
-            }
-
-        }
-#endif
-    }
-
+    AutoClose loadFile(_tfopen(fileName, _T("rb")));
     if ((FILE*)loadFile == NULL)
     {
         errorResult = "Cannot open load file";
