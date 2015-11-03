@@ -612,7 +612,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         }
         if (haveRead >= 0)
         {
-            Handle result = SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead));
+            Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
             free(buff);
             return result;
         }

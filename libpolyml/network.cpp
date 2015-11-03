@@ -708,7 +708,7 @@ TryAgain: // Used for various retries.
             if (getpeername(strm->device.sock, &sockA, &size) != 0)
                 raise_syscall(taskData, "getpeername failed", GETERROR);
             /* Addresses are treated as strings. */
-            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockA, size)));
+            return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
 
     case 38: /* Get socket name. */
@@ -719,7 +719,7 @@ TryAgain: // Used for various retries.
             if (strm == NULL) raise_syscall(taskData, "Stream is closed", EBADF);
             if (getsockname(strm->device.sock, &sockA, &size) != 0)
                 raise_syscall(taskData, "getsockname failed", GETERROR);
-            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockA, size)));
+            return(SAVE(C_string_to_Poly(taskData, (char*)&sockA, size)));
         }
 
     case 39: /* Return the address family from an address. */
@@ -738,7 +738,7 @@ TryAgain: // Used for various retries.
             sockaddr.sin_port = htons(get_C_ushort(taskData, DEREFHANDLE(args)->Get(0)));
             sockaddr.sin_addr.s_addr =
                 htonl(get_C_unsigned(taskData, DEREFHANDLE(args)->Get(1)));
-            return(SAVE(Buffer_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
+            return(SAVE(C_string_to_Poly(taskData, (char*)&sockaddr, sizeof(sockaddr))));
         }
 
     case 41: /* Return port number from an internet socket address.
@@ -844,7 +844,7 @@ TryAgain: // Used for various retries.
                     }
                 }
 
-                addrHandle = SAVE(Buffer_to_Poly(taskData, (char*)&resultAddr, addrLen));
+                addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
                 newStrm = &basic_io_vector[stream_no];
                 newStrm->device.sock = result;
                 newStrm->ioBits =
@@ -1160,7 +1160,7 @@ TryAgain: // Used for various retries.
                     Handle addrHandle, lengthHandle, pair;
                     if (recvd > (int)length) recvd = length;
                     lengthHandle = Make_arbitrary_precision(taskData, recvd);
-                    addrHandle = SAVE(Buffer_to_Poly(taskData, (char*)&resultAddr, addrLen));
+                    addrHandle = SAVE(C_string_to_Poly(taskData, (char*)&resultAddr, addrLen));
                     pair = ALLOC(2);
                     DEREFHANDLE(pair)->Set(0, DEREFWORDHANDLE(lengthHandle));
                     DEREFHANDLE(pair)->Set(1, DEREFWORDHANDLE(addrHandle));
@@ -1255,7 +1255,7 @@ TryAgain: // Used for various retries.
             POLYUNSIGNED length = Poly_string_to_C(DEREFWORD(args), addr.sun_path, sizeof(addr.sun_path));
             if (length > (int)sizeof(addr.sun_path))
                 raise_syscall(taskData, "Address too long", ENAMETOOLONG);
-            return SAVE(Buffer_to_Poly(taskData, (char*)&addr, sizeof(addr)));
+            return SAVE(C_string_to_Poly(taskData, (char*)&addr, sizeof(addr)));
         }
 #endif
 

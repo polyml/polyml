@@ -95,22 +95,6 @@ in
         fun architecture(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (12, ())
         fun rtsArgumentHelp(): string = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (19, ());
 
-        (* Saving and loading state. *)
-        structure SaveState = 
-            struct
-                fun saveChild(f: string, depth: int): unit =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
-                fun saveState f = saveChild (f, 0);
-                fun showHierarchy(): string list =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
-                fun renameParent{ child: string, newParent: string }: unit =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
-                fun showParent(child: string): string option =
-                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
-
-                fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
-            end
-
         structure IntInf =
         struct
             fun gcd(args: int * int): int =
