@@ -591,7 +591,7 @@ Handle exportPortable(TaskData *taskData, Handle args)
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(unsigned int h): hierarchy(h), exportFile(NULL), errorMessage(0), memTable(0), newAreas(0)
+Exporter::Exporter(unsigned int h): exportFile(NULL), errorMessage(0), hierarchy(h), memTable(0), newAreas(0)
 {
 }
 

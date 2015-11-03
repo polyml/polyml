@@ -2584,7 +2584,7 @@ static Handle CreateImage(TaskData *taskData, XImage *image)
 
 /* Still allocating, so must use explicit DEREF for each element */
 #define  X ((MLXImage *)DEREFHANDLE(XHandle))
-  X->data            = Buffer_to_Poly(taskData, image->data,dsize);
+  X->data            = C_string_to_Poly(taskData, image->data,dsize);
   X->size            = DEREFWORD(CreateArea(image->width,image->height));
   X->depth           = DEREFWORD(Make_arbitrary_precision(taskData, image->depth));
   X->format          = DEREFWORD(Make_arbitrary_precision(taskData, MLImageFormat(image->format)));
@@ -5294,7 +5294,7 @@ static Handle GetTextProperty(TaskData *taskData, Display *d, Window w, unsigned
   tuple = alloc_and_save(taskData, 4, F_MUTABLE_BIT);
 
 #define data DEREFHANDLE(tuple)
-  data->Set(0, Buffer_to_Poly(taskData, (char *)T.value,T.nitems * T.format / 8));
+  data->Set(0, C_string_to_Poly(taskData, (char *)T.value,T.nitems * T.format / 8));
   data->Set(1, DEREFWORD(Make_arbitrary_precision(taskData, T.encoding)));
   data->Set(2, DEREFWORD(Make_int(T.format)));
   data->Set(3, DEREFWORD(Make_arbitrary_precision(taskData, T.nitems)));

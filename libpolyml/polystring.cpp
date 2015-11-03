@@ -65,7 +65,7 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffL
 {
     if (buffer == NULL) return EmptyString();
 
-    if (buffLen == -1) buffLen = strlen(buffer);
+    if (buffLen == (size_t)-1) buffLen = strlen(buffer);
     
     /* Return the character itself if the length is 1 */
     if (buffLen == 1) return TAGGED(((unsigned char *)buffer)[0]);
