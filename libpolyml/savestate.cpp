@@ -681,11 +681,13 @@ Handle SaveState(TaskData *taskData, Handle args)
 class StateLoader: public MainThreadRequest
 {
 public:
-    StateLoader(const TCHAR *file): MainThreadRequest(MTP_LOADSTATE),
-        errorResult(0), errNumber(0) { _tcscpy(fileName, file); }
+    StateLoader(bool isH, Handle files): MainThreadRequest(MTP_LOADSTATE),
+        isHierarchy(isH), fileNameList(files), errorResult(0), errNumber(0) { }
 
     virtual void Perform(void);
-    bool LoadFile(bool isInitial, time_t requiredStamp);
+    bool LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail);
+    bool isHierarchy;
+    Handle fileNameList;
     const char *errorResult;
     // The fileName here is the last file loaded.  As well as using it
     // to load the name can also be printed out at the end to identify the
@@ -697,7 +699,36 @@ public:
 // Called by the main thread once all the ML threads have stopped.
 void StateLoader::Perform(void)
 {
-    (void)LoadFile(true, 0);
+    // Copy the first file name into the buffer.
+    if (isHierarchy)
+    {
+        if (ML_Cons_Cell::IsNull(fileNameList->Word()))
+        {
+            errorResult = "Hierarchy list is empty";
+            return;
+        }
+        ML_Cons_Cell *p = DEREFLISTHANDLE(fileNameList);
+        POLYUNSIGNED length = Poly_string_to_C(p->h, fileName, MAXPATHLEN);
+        if (length > MAXPATHLEN)
+        {
+            errorResult = "File name too long";
+            errNumber = ENAMETOOLONG;
+            return;
+        }
+        (void)LoadFile(true, 0, p->t);
+    }
+    else
+    {
+        POLYUNSIGNED length =
+            Poly_string_to_C(DEREFHANDLE(fileNameList), fileName, MAXPATHLEN);
+        if (length > MAXPATHLEN)
+        {
+            errorResult = "File name too long";
+            errNumber = ENAMETOOLONG;
+            return;
+        }
+        (void)LoadFile(true, 0, TAGGED(0));
+    }
 }
 
 // This class is used to relocate addresses in areas that have been loaded.
@@ -779,7 +810,7 @@ void LoadRelocate::RelocateObject(PolyObject *p)
 }
 
 // Load a saved state file.  Calls itself to handle parent files.
-bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
+bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp, PolyWord tail)
 {
     LoadRelocate relocate;
     AutoFree<TCHAR*> thisFile(_tcsdup(fileName));
@@ -825,26 +856,53 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
     // top-level file we have to load the parents first.
     if (header.parentNameEntry != 0)
     {
-        size_t toRead = header.stringTableSize-header.parentNameEntry;
-        if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
-
-        if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
-            fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
-            fread(fileName, 1, toRead, loadFile) != toRead)
+        if (isHierarchy)
         {
-            errorResult = "Unable to read parent file name";
-            return false;
+            // Take the file name from the list
+            if (ML_Cons_Cell::IsNull(tail))
+            {
+                errorResult = "Missing parent name in argument list";
+                return false;
+            }
+            ML_Cons_Cell *p = (ML_Cons_Cell *)tail.AsObjPtr();
+            POLYUNSIGNED length = Poly_string_to_C(p->h, fileName, MAXPATHLEN);
+            if (length > MAXPATHLEN)
+            {
+                errorResult = "File name too long";
+                errNumber = ENAMETOOLONG;
+                return false;
+            }
+            if (! LoadFile(false, header.parentTimeStamp, p->t))
+                return false;
         }
-        fileName[toRead] = 0; // Should already be null-terminated, but just in case.
+        else
+        {
+            size_t toRead = header.stringTableSize-header.parentNameEntry;
+            if (MAXPATHLEN < toRead) toRead = MAXPATHLEN;
 
-        if (! LoadFile(false, header.parentTimeStamp))
-            return false;
+            if (header.parentNameEntry >= header.stringTableSize /* Bad entry */ ||
+                fseek(loadFile, header.stringTable + header.parentNameEntry, SEEK_SET) != 0 ||
+                fread(fileName, 1, toRead, loadFile) != toRead)
+            {
+                errorResult = "Unable to read parent file name";
+                return false;
+            }
+            fileName[toRead] = 0; // Should already be null-terminated, but just in case.
 
-        // Check the parent time stamp.
+            if (! LoadFile(false, header.parentTimeStamp, TAGGED(0)))
+                return false;
+        }
+
         ASSERT(hierarchyDepth > 0 && hierarchyTable[hierarchyDepth-1] != 0);
     }
     else // Top-level file
     {
+        if (isHierarchy && ! ML_Cons_Cell::IsNull(tail))
+        {
+            // There should be no further file names if this is really the top.
+            errorResult = "Too many file names in the list";
+            return false;
+        }
         if (header.parentTimeStamp != exportTimeStamp)
         {
             // Time-stamp does not match executable.
@@ -1023,18 +1081,11 @@ bool StateLoader::LoadFile(bool isInitial, time_t requiredStamp)
     return true; // Succeeded
 }
 
-Handle LoadState(TaskData *taskData, Handle hFileName)
-// Load a saved state file and any ancestors.
+Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileList)
+// Load a saved state or a hierarchy.  
+// hFileList is a list if this is a hierarchy and a single name if it is not.
 {
-    // Open the load file
-    TCHAR fileNameBuff[MAXPATHLEN];
-    POLYUNSIGNED length =
-        Poly_string_to_C(DEREFHANDLE(hFileName), fileNameBuff, MAXPATHLEN);
-    if (length > MAXPATHLEN)
-        raise_syscall(taskData, "File name too long", ENAMETOOLONG);
-
-    StateLoader loader(fileNameBuff);
-
+    StateLoader loader(isHierarchy, hFileList);
     // Request the main thread to do the load.  This may set the error string if it failed.
     processes->MakeRootRequest(taskData, &loader);
 

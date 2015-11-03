@@ -1652,6 +1652,10 @@ in
         (* Saving and loading state. *)
         structure SaveState =
         struct
+            (* We've already defined a version of SaveState with loadModuleBasic that
+               has path searching.  The Windows version of that includes Windows-specific
+               code so there are separate versions for Windows and Unix. *)
+            open SaveState
             fun saveChild(f: string, depth: int): unit =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
             fun saveState f = saveChild (f, 0);
@@ -1663,7 +1667,11 @@ in
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
 
             fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
-            
+            and loadHierarchy (s: string list): unit =
+                (* Load hierarchy takes a list of file names in order with the parents
+                   before the children.  It's easier for the RTS if this is reversed. *)
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (33, List.rev s)
+
             (* Module loading and storing. *)
             structure Tags =
             struct
@@ -1678,8 +1686,6 @@ in
             
             val saveModuleBasic: string * Universal.universal list -> unit =
                 fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
-            and loadModuleBasic: string -> Universal.universal list =
-                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (32, args)
             
             fun saveModule(s, {structs, functors, sigs, onStartup}) =
             let

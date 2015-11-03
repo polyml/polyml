@@ -29,7 +29,7 @@ class TaskData;
 Handle SaveState(TaskData *taskData, Handle args);
 
 // Load a saved state file and any ancestors.
-Handle LoadState(TaskData *taskData, Handle hFileName);
+Handle LoadState(TaskData *taskData, bool isHierarchy, Handle hFileName);
 
 // Show the hierarchy.
 Handle ShowHierarchy(TaskData *taskData);
