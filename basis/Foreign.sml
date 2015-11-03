@@ -255,6 +255,8 @@ sig
 
     (* Call by reference.  *)
     val cStar: 'a conversion -> 'a ref conversion
+    (* Pass a const pointer *)
+    val cConstStar: 'a conversion -> 'a conversion
 
     (* structs. *)
     val cStruct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
@@ -1891,6 +1893,30 @@ struct
                 s := loada mem; (* Update the ref from the value in the cell. *)
                 (* It's not clear what release should do here. *)
                 releasea(mem, olds);
+                free mem
+            end
+        in
+            {load=load, store=store, release=release, ctype = cTypePointer}
+        end
+
+        (* Similar to cStar but without the need to update the result. *)
+        fun cConstStar({load=loada, store=storea, release=releasea, ctype=ctypea}: 'a conversion): 'a conversion =
+        let
+            fun load s = loada(getAddress(s, 0w0))
+            
+            fun store(m, s) =
+            let
+                val mem = malloc(#size ctypea)
+                val () = setAddress(m, 0w0, mem)
+            in
+                storea(mem, s)
+            end
+            
+            fun release(m, s) =
+            let
+                val mem = getAddress(m, 0w0) (* The address of our cell. *)
+            in
+                releasea(mem, s);
                 free mem
             end
         in
