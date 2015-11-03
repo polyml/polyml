@@ -33,7 +33,8 @@ typedef struct _tree {
 local
     (* Start with the C structure. *)
     val treeNode = cStruct3(cPointer, cPointer, cInt) 
-    val {store=storeStruct, load=loadStruct, ctype = {size = sizeStruct, ...}, ... } = treeNode
+    val {store=storeStruct, load=loadStruct, ctype = {size = sizeStruct, ...}, ... } =
+        breakConversion treeNode
 in
 (* The following function builds a C data structure from an ML datatype. *)
     fun treeMake NullTree = Memory.null
@@ -41,11 +42,28 @@ in
         let
             val mem = Memory.malloc sizeStruct
         in
-            storeStruct(mem, (treeMake left, treeMake right, valu));
+            ignore(storeStruct(mem, (treeMake left, treeMake right, valu)));
             mem
         end
+    
+    fun treeClear a =
+        if a = Memory.null
+        then ()
+        else
+        let
+            val (left, right, _) = loadStruct a
+        in
+            treeClear left; treeClear right; Memory.free a
+        end
 
-    fun treeStore(addr, tree) = Memory.setAddress(addr, 0w0, treeMake tree)
+    fun treeStore(addr, tree) =
+    let
+        val mem = treeMake tree
+    in
+        Memory.setAddress(addr, 0w0, mem);
+        (* The store function returns a function that frees the memory. *)
+        fn () => treeClear mem
+    end
            
     (* The inverse of treeStore. We don't actually use this in this example. *)
     fun treeGet a = 
@@ -59,24 +77,12 @@ in
         end
 
     fun treeLoad v = treeGet(Memory.getAddress(v, 0w0))
-    
-    fun treeClear a =
-        if a = Memory.null
-        then ()
-        else
-        let
-            val (left, right, _) = loadStruct a
-        in
-            treeClear left; treeClear right; Memory.free a
-        end
-    
-    fun treeRelease(v, _) = treeClear(Memory.getAddress(v, 0w0))
 
 end;
 
 (* Build a conversion out of this. *)
 val cTree: intTree conversion =
-    { load = treeLoad, store = treeStore, release = treeRelease, ctype = LowLevel.cTypePointer };
+    makeConversion { load = treeLoad, store = treeStore, ctype = LowLevel.cTypePointer };
 
 val sumTree = call1 cTree cInt ( getSymbol mylib "SumTree" );
 
@@ -130,6 +136,8 @@ updateArg(5, r); (* Adds its first argument to the ref. *)
 !r;
 
 (* Returning a function *)
-val returnFn = call0 () (cFunction1 cInt cInt) (getSymbol mylib "ReturnFn") ();
+val returnFn = call1 (cStar (cFunction1 cInt cInt)) cVoid (getSymbol mylib "ReturnFn");
 
-returnFn 3;
+val fr: (int -> int) ref = ref (fn _ => 0);
+returnFn fr;
+!fr 3;

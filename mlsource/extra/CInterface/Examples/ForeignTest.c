@@ -113,7 +113,7 @@ static int acallBack(int q)
 
 typedef int (*CB)(int);
 
-CB ReturnFn(void)
+void ReturnFn(CB *v)
 {
-    return acallBack;
+    *v = acallBack;
 }
