@@ -18,6 +18,7 @@ Debug64/
 *.tlog
 *.suo
 *.sdf
+*.opensdf
 
 # Temporaries
 x86asmtemp.S

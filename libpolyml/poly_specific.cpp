@@ -391,7 +391,7 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
         return SaveState(taskData, args);
 
     case 21: // Load a saved state file and any ancestors.
-        return LoadState(taskData, args);
+        return LoadState(taskData, false, args);
 
     case 22: // Show the hierarchy.
         return ShowHierarchy(taskData);
@@ -424,6 +424,15 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 30: // Get remote statistics.  The argument is the process ID to get the statistics.
         return globalStats.getRemoteStatistics(taskData, getPolyUnsigned(taskData, DEREFHANDLE(args)));
+
+    case 31: // Store a module
+        return StoreModule(taskData, args);
+
+    case 32: // Load a module
+        return LoadModule(taskData, args);
+
+    case 33: // Load hierarchy.  This provides a complete list of children and parents.
+        return LoadState(taskData, true, args);
 
     case 50: // GCD
         return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));

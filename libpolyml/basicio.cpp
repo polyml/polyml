@@ -612,7 +612,7 @@ static Handle readString(TaskData *taskData, Handle stream, Handle args, bool/*i
         }
         if (haveRead >= 0)
         {
-            Handle result = SAVE(Buffer_to_Poly(taskData, (char*)buff, haveRead));
+            Handle result = SAVE(C_string_to_Poly(taskData, (char*)buff, haveRead));
             free(buff);
             return result;
         }
@@ -1158,7 +1158,7 @@ Handle readDirectory(TaskData *taskData, Handle stream)
         len = NAMLEN(dp);
         if (!((len == 1 && strncmp(dp->d_name, ".", 1) == 0) ||
               (len == 2 && strncmp(dp->d_name, "..", 2) == 0)))
-            return SAVE(Buffer_to_Poly(taskData, dp->d_name, len));
+            return SAVE(C_string_to_Poly(taskData, dp->d_name, len));
     }
 #endif
 }
@@ -1733,7 +1733,7 @@ Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle code)
             char resBuf[MAXPATHLEN];
             nLen = readlink(linkName, resBuf, sizeof(resBuf));
             if (nLen < 0) raise_syscall(taskData, "readlink failed", errno);
-            return(SAVE(Buffer_to_Poly(taskData, resBuf, nLen)));
+            return(SAVE(C_string_to_Poly(taskData, resBuf, nLen)));
 #endif
         }
 

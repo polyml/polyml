@@ -72,7 +72,9 @@ static const char* const mainThreadText[MTP_MAXENTRY] =
     "Loading saved state",
     "Profiling",
     "Setting signal handler",
-    "Cygwin spawn"
+    "Cygwin spawn",
+    "Storing module",
+    "Loading module"
 };
 
 // Entries for store profiling

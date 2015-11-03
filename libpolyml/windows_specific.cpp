@@ -185,12 +185,12 @@ static Handle make_handle_entry(TaskData *taskData)
             {
                 POLYUNSIGNED oldMax = maxHandleTab;
                 maxHandleTab += maxHandleTab/2;
-                handleTable =
-                    (PHANDLETAB)realloc(handleTable,
-                                    maxHandleTab*sizeof(HANDLETAB));
+                void *p = realloc(handleTable, maxHandleTab*sizeof(HANDLETAB));
+                // If there's insufficient memory leave the old table.
+                if (p == 0) raise_syscall(taskData, "Insufficient memory", ENOMEM);
+                handleTable = (PHANDLETAB)p;
                 /* Clear the new space. */
-                memset(handleTable+oldMax, 0,
-                        (maxHandleTab-oldMax)*sizeof(HANDLETAB));
+                memset(handleTable+oldMax, 0, (maxHandleTab-oldMax)*sizeof(HANDLETAB));
             }
         }
     } while (handle_no >= maxHandleTab);
@@ -1156,11 +1156,17 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
     // try reading directly into ML store to save copying but
     // it hardly seems worthwhile.
     // Note: It seems that valSize can be zero for some items.
-    if (valSize == 0) resVal = SAVE(Buffer_to_Poly(taskData, "", 0));
+    if (valSize == 0) resVal = SAVE(C_string_to_Poly(taskData, "", 0));
     else
     {
         do {
-            keyValue = (byte*)realloc(keyValue, valSize);
+            byte *newAlloc = (byte*)realloc(keyValue, valSize);
+            if (newAlloc == 0)
+            {
+                free(keyValue);
+                raise_syscall(taskData, "Insufficient memory", ENOMEM);
+            }
+            keyValue = newAlloc;
             lRes = RegQueryValueEx(hkey, valName, 0, &dwType, keyValue, &valSize);
             // In the special case of HKEY_PERFORMANCE_DATA we may need to keep
             // growing the buffer.
@@ -1172,7 +1178,10 @@ static Handle queryRegistryKey(TaskData *taskData, Handle args, HKEY hkey)
             free(keyValue);
             raise_syscall(taskData, "RegQueryValue failed", -lRes);
         }
-        resVal = SAVE(Buffer_to_Poly(taskData, (char*)keyValue, valSize));
+        // If we have a string we have to convert this to ANSI/utf-8.
+        if (dwType == REG_SZ || dwType == REG_MULTI_SZ || dwType == REG_EXPAND_SZ)
+            resVal = SAVE(C_string_to_Poly(taskData, (TCHAR*)keyValue, valSize / sizeof(TCHAR)));
+        else resVal = SAVE(C_string_to_Poly(taskData, (char*)keyValue, valSize));
         free(keyValue);
     }
 

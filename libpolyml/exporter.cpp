@@ -450,7 +450,7 @@ void Exporter::RunExport(PolyObject *rootFunction)
     Exporter *exports = this;
 
     PolyObject *copiedRoot = 0;
-    CopyScan copyScan;
+    CopyScan copyScan(hierarchy);
 
     try {
         copyScan.initialise();
@@ -487,8 +487,12 @@ void Exporter::RunExport(PolyObject *rootFunction)
     }
 
     // Copy the areas into the export object.
-    exports->memTable = new memoryTableEntry[gMem.neSpaces+1];
+    unsigned tableEntries = gMem.neSpaces, memEntry = 0;
+    if (hierarchy != 0) tableEntries += gMem.npSpaces;
+    tableEntries++; // One extra for the IO area
+    exports->memTable = new memoryTableEntry[tableEntries];
     exports->ioMemEntry = 0;
+
     // The IO vector.  Should we actually create a blank area?  This needs to be
     // writable by the RTS but not normally by ML.
     MemSpace *ioSpace = gMem.IoSpace();
@@ -496,14 +500,34 @@ void Exporter::RunExport(PolyObject *rootFunction)
     exports->memTable[0].mtLength = (char*)ioSpace->top - (char*)ioSpace->bottom;
     exports->memTable[0].mtFlags = MTF_WRITEABLE; // Needs to be written during initialisation.
     exports->memTable[0].mtIndex = 0;
+    memEntry = 1;
+
+    // If we're constructing a module we need to include the global spaces.
+    if (hierarchy != 0)
+    {
+        // Permanent spaces from the executable.
+        for (unsigned i = 0; i < gMem.npSpaces; i++)
+        {
+            PermanentMemSpace *space = gMem.pSpaces[i];
+            if (space->hierarchy < hierarchy)
+            {
+                memoryTableEntry *entry = &exports->memTable[memEntry++];
+                entry->mtAddr = space->bottom;
+                entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
+                entry->mtIndex = space->index;
+                entry->mtFlags = space->isMutable ? MTF_WRITEABLE : 0; 
+            }
+        }
+        newAreas = memEntry;
+    }
 
     for (unsigned i = 0; i < gMem.neSpaces; i++)
     {
-        memoryTableEntry *entry = &exports->memTable[i+1];
+        memoryTableEntry *entry = &exports->memTable[memEntry++];
         PermanentMemSpace *space = gMem.eSpaces[i];
         entry->mtAddr = space->bottom;
         entry->mtLength = (space->topPointer-space->bottom)*sizeof(PolyWord);
-        entry->mtIndex = i+1;
+        entry->mtIndex = hierarchy == 0 ? memEntry-1 : space->index;
         if (space->isMutable)
         {
             entry->mtFlags = MTF_WRITEABLE;
@@ -519,7 +543,8 @@ void Exporter::RunExport(PolyObject *rootFunction)
         }
     }
 
-    exports->memTableEntries = gMem.neSpaces+1;
+    ASSERT(memEntry == tableEntries);
+    exports->memTableEntries = memEntry;
 
     exports->ioSpacing = IO_SPACING;
     exports->rootFunction = copiedRoot;
@@ -566,7 +591,7 @@ Handle exportPortable(TaskData *taskData, Handle args)
 
 // Helper functions for exporting.  We need to produce relocation information
 // and this code is common to every method.
-Exporter::Exporter(): exportFile(NULL), errorMessage(0), memTable(0)
+Exporter::Exporter(unsigned int h): exportFile(NULL), errorMessage(0), hierarchy(h), memTable(0), newAreas(0)
 {
 }
 

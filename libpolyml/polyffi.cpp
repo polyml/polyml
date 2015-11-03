@@ -445,8 +445,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             // we need to search the table.
             void *resFun = *(void**)args->Word().AsAddress();
             PLocker pLocker(&callbackTableLock);
-            unsigned i = 0;
-            while (i < callBackEntries)
+            for (unsigned i = 0; i < callBackEntries; i++)
             {
                 if (callbackTable[i].resultFunction == resFun)
                 {

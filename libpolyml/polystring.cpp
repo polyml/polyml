@@ -60,36 +60,24 @@ PolyWord EmptyString(void)
     return (PolyObject*)IoEntry(POLY_SYS_emptystring);
 }
 
-PolyWord Buffer_to_Poly(TaskData *mdTaskData, const char *buffer, size_t length) 
-/* Returns a string as a Poly string. */
-{
-    /* Return the null string if it's empty. */
-    if (length == 0) return EmptyString();
-    
-    /* Return the character itself if the length is 1 */
-    if (length == 1) return TAGGED(((unsigned char *)buffer)[0]);
-    
-    /* Get the number of words required, plus 1 for length word,
-       plus flag bit. */
-    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(length) + 1, F_BYTE_OBJ));
-    
-    /* Set length of string, then copy the characters. */
-    result->length = length;
-    memcpy(result->chars,buffer,length);
-    /* We are relying on alloc zeroing any unused bytes in the
-       allocated store.  That's essential for structure equality to
-       work properly since it compares ALL bytes in a byte segment.
-       (c.f. test*/
-    return result;
-} /* Buffer_to_Poly */
-
-
-PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer)
+PolyWord C_string_to_Poly(TaskData *mdTaskData, const char *buffer, size_t buffLen)
 /* Returns a C string as a Poly string. */
 {
     if (buffer == NULL) return EmptyString();
+
+    if (buffLen == (size_t)-1) buffLen = strlen(buffer);
     
-    return Buffer_to_Poly(mdTaskData, buffer, strlen(buffer));
+    /* Return the character itself if the length is 1 */
+    if (buffLen == 1) return TAGGED(((unsigned char *)buffer)[0]);
+    
+    /* Get the number of words required, plus 1 for length word,
+       plus flag bit. */
+    PolyStringObject *result = (PolyStringObject *)(alloc(mdTaskData, WORDS(buffLen) + 1, F_BYTE_OBJ));
+    
+    /* Set length of string, then copy the characters. */
+    result->length = buffLen;
+    memcpy(result->chars,buffer,buffLen);
+    return result;
 } /* C_string_to_Poly */
 
 POLYUNSIGNED Poly_string_to_C(PolyWord ps, char *buff, POLYUNSIGNED bufflen)
@@ -160,17 +148,17 @@ bool setWindowsCodePage(const TCHAR *codePageArg)
 }
 
 /* We need Unicode versions of these. */
-PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer)
+PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer, size_t buffLen)
 /* Returns a Unicode string as a Poly string. */
 {
     if (buffer == NULL) return EmptyString();
 
     // Get the length of the string, without the terminating null.
-    int buffLen = (int)wcslen(buffer);
+    if (buffLen == -1) buffLen = wcslen(buffer);
     if (buffLen == 0) return EmptyString(); // If it's zero return empty string.
 
     // Find the length when converted.
-    int outputLen = WideCharToMultiByte(codePage, 0, buffer, buffLen, NULL, 0, NULL, NULL);
+    int outputLen = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, NULL, 0, NULL, NULL);
 
     // Return the null string if there's an error 
     if (outputLen <= 0) return EmptyString();
@@ -179,7 +167,7 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer)
     if (outputLen == 1)
     {
         char obuff[1];
-        int check = WideCharToMultiByte(codePage, 0, buffer, buffLen, obuff, 1, NULL, NULL);
+        int check = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, obuff, 1, NULL, NULL);
         if (check <= 0) return EmptyString();
         return TAGGED(obuff[0]);
     }
@@ -189,7 +177,7 @@ PolyWord C_string_to_Poly(TaskData *mdTaskData, const WCHAR *buffer)
     
     // Set length of string, then copy the characters.
     result->length = outputLen;
-    int check = WideCharToMultiByte(codePage, 0, buffer, buffLen, result->chars, outputLen, NULL, NULL);
+    int check = WideCharToMultiByte(codePage, 0, buffer, (int)buffLen, result->chars, outputLen, NULL, NULL);
     if (check <= 0) return EmptyString();
 
     return result;

@@ -104,3 +104,16 @@ void UpdateArg(int i, int *p)
 {
     *p += i;
 }
+
+/* Test for returning a function.  Added in updated FFI. */
+static int acallBack(int q)
+{
+    return q * 2;
+}
+
+typedef int (*CB)(int);
+
+void ReturnFn(CB *v)
+{
+    *v = acallBack;
+}

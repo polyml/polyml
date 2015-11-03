@@ -39,7 +39,7 @@ extern Handle exportPortable(TaskData *mdTaskData, Handle args);
 class Exporter
 {
 public:
-    Exporter();
+    Exporter(unsigned int h=0);
     virtual ~Exporter();
     virtual void exportStore(void) = 0;
 
@@ -58,11 +58,13 @@ public:
     const char *errorMessage;
 
 protected:
+    unsigned int hierarchy;
     struct _memTableEntry *memTable;
     unsigned memTableEntries;
     unsigned ioMemEntry; // The index corresponding to the IO area.
     unsigned ioSpacing;
     PolyObject *rootFunction; // Address of the root function.
+    unsigned newAreas;
 };
 
 // The object-code exporters all use a similar string table format

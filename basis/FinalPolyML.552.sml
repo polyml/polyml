@@ -1648,5 +1648,83 @@ in
         
         (* Include it in the PolyML structure for backwards compatibility. *)
         val exception_trace = Exception.exception_trace
+
+        (* Saving and loading state. *)
+        structure SaveState =
+        struct
+            (* We've already defined a version of SaveState with loadModuleBasic that
+               has path searching.  The Windows version of that includes Windows-specific
+               code so there are separate versions for Windows and Unix. *)
+            open SaveState
+            fun saveChild(f: string, depth: int): unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
+            fun saveState f = saveChild (f, 0);
+            fun showHierarchy(): string list =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (22, ())
+            fun renameParent{ child: string, newParent: string }: unit =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (23, (child, newParent))
+            fun showParent(child: string): string option =
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (24, child)
+
+            fun loadState (f: string): unit = RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (21, f)
+            and loadHierarchy (s: string list): unit =
+                (* Load hierarchy takes a list of file names in order with the parents
+                   before the children.  It's easier for the RTS if this is reversed. *)
+                RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (33, List.rev s)
+
+            (* Module loading and storing. *)
+            structure Tags =
+            struct
+                val structureTag: (string * PolyML.NameSpace.structureVal) Universal.tag = Universal.tag()
+                val functorTag: (string * PolyML.NameSpace.functorVal) Universal.tag = Universal.tag()
+                val signatureTag: (string * PolyML.NameSpace.signatureVal) Universal.tag = Universal.tag()
+                val valueTag: (string * PolyML.NameSpace.valueVal) Universal.tag = Universal.tag()
+                val typeTag: (string * PolyML.NameSpace.typeVal) Universal.tag = Universal.tag()
+                val fixityTag: (string * PolyML.NameSpace.fixityVal) Universal.tag = Universal.tag()
+                val startupTag: (unit -> unit) Universal.tag = Universal.tag()
+            end
+            
+            val saveModuleBasic: string * Universal.universal list -> unit =
+                fn args => RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (31, args)
+            
+            fun saveModule(s, {structs, functors, sigs, onStartup}) =
+            let
+                fun dolookup (look, tag, kind) s =
+                    case look globalNameSpace s of
+                        SOME v => Universal.tagInject tag (s, v)
+                    |   NONE => raise Fail (concat[kind, " ", s, " has not been declared"])
+                val structVals = map (dolookup(#lookupStruct, Tags.structureTag, "Structure")) structs
+                val functorVals = map (dolookup(#lookupFunct, Tags.functorTag, "Functor")) functors
+                val sigVals = map (dolookup(#lookupSig, Tags.signatureTag, "Signature")) sigs
+                val startVal =
+                    case onStartup of
+                        SOME f => [Universal.tagInject Tags.startupTag f]
+                    |   NONE => []
+            in
+                saveModuleBasic(s, structVals @ functorVals @ sigVals @ startVal)
+            end
+            
+            fun loadModule s =
+            let
+                val ulist = loadModuleBasic s
+                (* Find and run the start-up function.  If it raises an exception we
+                   don't go further. *)
+                val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
+                val () =
+                    case startFn of SOME f => (Universal.tagProject Tags.startupTag f) () | NONE => ()
+                (* Enter the items into the name space. *)
+                fun addItems (tag, enter) (hd :: tl) =
+                    (if Universal.tagIs tag hd
+                    then enter globalNameSpace (Universal.tagProject tag hd) else (); addItems (tag, enter)  tl)
+                |   addItems _ _ = ()
+            in
+                addItems(Tags.structureTag, #enterStruct) ulist;
+                addItems(Tags.signatureTag, #enterSig) ulist;
+                addItems(Tags.functorTag, #enterFunct) ulist;
+                addItems(Tags.valueTag, #enterVal) ulist;
+                addItems(Tags.typeTag, #enterType) ulist;
+                addItems(Tags.fixityTag, #enterFix) ulist
+            end
+        end
     end
 end (* PolyML. *);
