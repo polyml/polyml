@@ -2127,12 +2127,12 @@ in
             (* Module loading and storing. *)
             structure Tags =
             struct
-                val structureTag: (string * PolyML.NameSpace.structureVal) Universal.tag = Universal.tag()
-                val functorTag: (string * PolyML.NameSpace.functorVal) Universal.tag = Universal.tag()
-                val signatureTag: (string * PolyML.NameSpace.signatureVal) Universal.tag = Universal.tag()
-                val valueTag: (string * PolyML.NameSpace.valueVal) Universal.tag = Universal.tag()
-                val typeTag: (string * PolyML.NameSpace.typeVal) Universal.tag = Universal.tag()
-                val fixityTag: (string * PolyML.NameSpace.fixityVal) Universal.tag = Universal.tag()
+                val structureTag: (string * PolyML.NameSpace.Structures.structureVal) Universal.tag = Universal.tag()
+                val functorTag: (string * PolyML.NameSpace.Functors.functorVal) Universal.tag = Universal.tag()
+                val signatureTag: (string * PolyML.NameSpace.Signatures.signatureVal) Universal.tag = Universal.tag()
+                val valueTag: (string * PolyML.NameSpace.Values.value) Universal.tag = Universal.tag()
+                val typeTag: (string * PolyML.NameSpace.TypeConstrs.typeConstr) Universal.tag = Universal.tag()
+                val fixityTag: (string * PolyML.NameSpace.Infixes.fixity) Universal.tag = Universal.tag()
                 val startupTag: (unit -> unit) Universal.tag = Universal.tag()
             end
             
