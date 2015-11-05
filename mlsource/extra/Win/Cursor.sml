@@ -51,7 +51,7 @@ structure Cursor:
     val LoadSystemCursorFromFile : CursorId -> HCURSOR
     val SetCursor : HCURSOR -> HCURSOR
     val SetCursorPos : int * int -> unit
-    val SetSytemCursor : HCURSOR * CursorId -> unit
+    val SetSystemCursor : HCURSOR * CursorId -> unit
     val ShowCursor : bool -> int
   end
  =
@@ -96,69 +96,81 @@ struct
 
             fun intToId _ = raise Fail "intToId"
         in
-            val CURSORID = absConversion {abs=intToId, rep=idToInt} INT
+            val CURSORID = absConversion {abs=intToId, rep=idToInt} cDWORD
         end
 
-        val SetSytemCursor =
-            call2 (user "SetSytemCursor") (HCURSOR, CURSORID) (SUCCESSSTATE "SetSytemCursor")
+        val SetSystemCursor =
+            winCall2 (user "SetSystemCursor") (cHCURSOR, CURSORID) (successState "SetSystemCursor")
 
-        fun checkCursor c = (checkResult(not(isHcursorNull c)); c);
+        fun checkCursor c = (checkResult(not(isHcursorNull c)); c)
 
         val LoadCursorFromFile =
             checkCursor o
-            call1 (user "LoadCursorFromFileA") (STRING) HCURSOR
+            winCall1 (user "LoadCursorFromFileA") (cString) cHCURSOR
 
         (* ML extension - simpler than having a separate function. *)
+        (* I found a note suggesting that it was better to use the Unicode version
+           because not all implementations handle this properly. *)
         val LoadSystemCursorFromFile =
             checkCursor o
-            call1 (user "LoadCursorFromFileA") (CURSORID) HCURSOR
+            winCall1 (user "LoadCursorFromFileW") (CURSORID) cHCURSOR
 
         val ClipCursor =
-            call1 (user "ClipCursor") (POINTERTO RECT) (SUCCESSSTATE "ClipCursor")
+            winCall1 (user "ClipCursor") (cConstStar cRect) (successState "ClipCursor")
 
         val CopyCursor =
             checkCursor o
-            call1 (user "CopyCursor") (HCURSOR) HCURSOR
+            winCall1 (user "CopyCursor") (cHCURSOR) cHCURSOR
 
         val DestroyCursor =
-            call1 (user "DestroyCursor") (HCURSOR) (SUCCESSSTATE "DestroyCursor")
+            winCall1 (user "DestroyCursor") (cHCURSOR) (successState "DestroyCursor")
 
-        fun GetClipCursor () =
-        let
-            val (toRect, _, _) = breakConversion RECT
-            val buff = alloc 4 Clong
-            val res = call1 (user "GetClipCursor") (POINTER) BOOL (address buff)
+        local
+            val getClipCursor =
+                winCall1 (user "GetClipCursor") (cStar cRect) (successState "GetClipCursor")
         in
-            checkResult res;
-            toRect buff
+            fun GetClipCursor (): RECT =
+            let
+                val r = ref { top = 0, bottom = 0, left = 0, right = 0 }
+            in
+                getClipCursor r;
+                !r
+            end
         end
 
-        val GetCursor = call0 (user "GetCursor") () HCURSOR
+        val GetCursor = winCall0 (user "GetCursor") () cHCURSOR
 
-        fun GetCursorPos () =
-        let
-            val (toPoint, _, _) = breakConversion POINT
-            val buff = alloc 2 Clong
-            val res = call1 (user "GetCursorPos") (POINTER) BOOL (address buff)
+        local
+            val getCursorPos =
+                winCall1 (user "GetCursorPos") (cStar cPoint) (successState "GetCursorPos")
         in
-            checkResult res;
-            toPoint buff
+            fun GetCursorPos (): POINT =
+            let
+                val r = ref { x = 0, y = 0 }
+            in
+                getCursorPos r;
+                !r
+            end
         end
 
-        val SetCursor = call1 (user "SetCursor") HCURSOR HCURSOR
+        val SetCursor = winCall1 (user "SetCursor") cHCURSOR cHCURSOR
 
         val SetCursorPos =
-            call2 (user "SetCursorPos") (INT,INT) (SUCCESSSTATE "SetCursorPos")
+            winCall2 (user "SetCursorPos") (cInt, cInt) (successState "SetCursorPos")
 
-        val ShowCursor = call1 (user "ShowCursor") BOOL INT
+        val ShowCursor = winCall1 (user "ShowCursor") cBool cInt
 
+        (* Superseded by LoadImage *)
         val LoadCursor =
             checkCursor o
-            call2 (user "LoadCursorA") (HINSTANCE, RESID) HCURSOR
+                winCall2 (user "LoadCursorA") (cHINSTANCE, cRESID) cHCURSOR
 
-        fun LoadSystemCursor(id: CursorId) =
-            checkCursor
-                ((call2 (user "LoadCursorA") (HINSTANCE, CURSORID) HCURSOR) (hinstanceNull, id))
+        local
+            val loadCursor =
+                checkCursor o winCall2 (user "LoadCursorA") (cHINSTANCE, CURSORID) cHCURSOR
+        in
+            fun LoadSystemCursor(id: CursorId) = loadCursor(hinstanceNull, id)
+        end
 (*
 TODO:
 CreateCursor

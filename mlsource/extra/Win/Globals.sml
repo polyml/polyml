@@ -17,12 +17,10 @@
 *)
 structure Globals :
   sig
-    type 'a HANDLE
-    type HINSTANCE
-    type HWND
+    eqtype 'a HANDLE
+    eqtype HINSTANCE
+    eqtype HWND
     val hNull : 'a HANDLE
-    val handleOfInt : int -> 'a HANDLE
-    val intOfHandle : 'a HANDLE -> int
     val isHNull : 'a HANDLE -> bool
 
     val ApplicationInstance : unit -> HINSTANCE
@@ -38,21 +36,16 @@ in
     type 'a HANDLE = 'a HANDLE
     val hNull = hNull
     and isHNull = isHNull
-    and handleOfInt = handleOfInt
-    and intOfHandle = intOfHandle
-
     type HINSTANCE = HINSTANCE
 
     type HWND = HWND
 
     val GetLastError = Base.GetLastError
 
-    local
-        fun callWin n : int =
-            RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (n, ())
-    in
-        fun ApplicationInstance(): HINSTANCE = handleOfInt(callWin 1103)
-        and MainWindow(): HWND = handleOfInt(callWin 1104)
-    end
+    fun ApplicationInstance() =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1103, ())
+    and MainWindow() =
+        RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (1104, ())
+
 end
 end;

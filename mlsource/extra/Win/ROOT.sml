@@ -9,7 +9,7 @@ use "ComboBase";
 use "ScrollBase";
 use "MenuBase";
 use "MessageBase";
-use "Message";
+use "Message"; (* Quite a bit to do here. *)
 use "Class";
 use "FlagPrint";
 use "Window";
@@ -23,7 +23,7 @@ use "Dialog";
 use "Cursor";
 use "Icon";
 use "Menu";
-use "GdiBase";
+use "GdiBase"; (* Currently working on this *)
 use "Color";
 use "FontBase";
 use "Font";

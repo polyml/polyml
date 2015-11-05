@@ -66,7 +66,7 @@ struct
         open Foreign Base
     in
         open LocaleBase
-        val GetUserDefaultLangID = call0 (kernel "GetUserDefaultLangID") () LANGID
-        and GetSystemDefaultLangID = call0 (kernel "GetSystemDefaultLangID") () LANGID
+        val GetUserDefaultLangID = winCall0 (kernel "GetUserDefaultLangID") () LANGID
+        and GetSystemDefaultLangID = winCall0 (kernel "GetSystemDefaultLangID") () LANGID
     end
 end;

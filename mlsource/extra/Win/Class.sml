@@ -150,7 +150,8 @@ struct
             val cWNDPROC = winFun4 (cHWND, cUint, cPointer, cPointer) cPointer
             val cWNDCLASSEX = cStruct12(cUint,cUint,permanent cWNDPROC,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
                                       cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
-            val { ctype = {size=sizeWndclassEx, ...}, ...} = cWNDCLASSEX
+            val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
+            val registerClassEx = winCall1 (user "RegisterClassExA") (cConstStar cWNDCLASSEX) cUint
         in
             fun RegisterClassEx({style: Style.flags, 
                                 wndProc: HWND * Message * 'a -> LRESULT * 'a,
@@ -179,8 +180,7 @@ struct
                         className,
                         hIconSm)
     
-                val res = winCall1 (user "RegisterClassExA") (cConstStar cWNDCLASSEX) cUint
-                    cWndClass
+                val res = registerClassEx cWndClass
                 (* The result is supposed to be an atom but it doesn't always work to
                    pass this directly to CreateWindow. *)
             in
@@ -196,7 +196,7 @@ struct
                Also we use CallWindowProc because it does Unicode to ANSI conversion. *)
             val cWNDCLASSEX = cStruct12(cUint,cUint, cPointer,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
                                       cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
-            val { ctype = {size=sizeWndclassEx, ...}, ...} = cWNDCLASSEX
+            val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
             val CallWindowProc =
                 winCall5 (user "CallWindowProcA") (cPointer, cHWND, cUint, cPointer, cPointer) cPointer
         in

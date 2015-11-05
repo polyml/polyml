@@ -128,15 +128,12 @@ struct
         open Window
         open Resource
 
-        fun user name = load_sym (load_lib "user32.dll") name
-        and kernel name = load_sym (load_lib "kernel32.dll") name
-
         fun checkWindow c = (checkResult(not(isHNull c)); c)
 
         (* Dialogue procedures never call DefWindowProc. *)
         fun dlgProcRes (lres, state) = (lres, state)
         
-        val DLGPROC = PASCALFUNCTION4 (HWND, INT, POINTER, POINTER) POINTER
+        val DLGPROC = winFun4 (cHWND, cUint, cPointer, cPointer) cPointer
     in
         type HWND = HWND and HINSTANCE = HINSTANCE
 
@@ -285,7 +282,7 @@ struct
                 else NONE
             
             (* Items. *)
-            fun processItem n : DLGITEMTEMPLATE =
+            fun processItem _ : DLGITEMTEMPLATE =
             let
                 (* Must be aligned onto a DWORD boundary. *)
                 val _ = while !ptr mod 4 <> 0 do ptr := !ptr + 1;
@@ -378,8 +375,6 @@ struct
             val _ = PackWord16Little.update(basis, 7, LargeWord.fromInt(#cx t));
             val _ = PackWord16Little.update(basis, 8, LargeWord.fromInt(#cy t));
 
-            fun sixteenBit i = Word8Vector.fromList[Word8.fromInt i, Word8.fromInt(i div 256)]
-
             fun unicodeString s = Word8Vector.concat[stringToUnicode s, nullString]
 
             fun resOrString (Resource.IdAsString s) = unicodeString s
@@ -461,7 +456,7 @@ struct
         (* CreateDialogIndirect: Create a modeless dialogue using a resource. *)
         local
             val sysCreateDialog =
-                call5 (user "CreateDialogParamA") (HINSTANCE, RESID, HWND, DLGPROC, INT) HWND
+                winCall5 (user "CreateDialogParamA") (cHINSTANCE, cRESID, cHWND, DLGPROC, cLPARAM) cHWND
         in
             fun CreateDialog (hInst, lpTemplate, hWndParent, dialogueProc, init) =
             let
@@ -471,7 +466,7 @@ struct
             in
                 (* Add this to the modeless dialogue list so that keyboard
                    operations will work. *)
-                Message.addModelessDialogue(res, toCint 0);
+                Message.addModelessDialogue(res, Memory.null);
                 res
             end
         end
@@ -479,7 +474,7 @@ struct
         (* CreateDialogIndirect: Create a modeless dialogue from a template. *)
         local
             val sysCreateDialogIndirect =
-                call5 (user "CreateDialogIndirectParamA") (HINSTANCE, POINTER, HWND, DLGPROC, INT) HWND
+                winCall5 (user "CreateDialogIndirectParamA") (cHINSTANCE, cPointer, cHWND, DLGPROC, cLPARAM) cHWND
         in
             fun CreateDialogIndirect (hInst, template, hWndParent, dialogueProc, init) =
             let
@@ -487,16 +482,17 @@ struct
                 (* Compile the template and copy it to C memory. *)
                 val compiled = compileTemplate template
                 val size = Word8Vector.length compiled
-                val templ = alloc size Cchar
-                fun copyToBuf(i, v): unit =
-                    assign Cchar (offset i Cchar templ) (toCint(Word8.toInt v))
-                val _ = Word8Vector.appi copyToBuf compiled
+                open Memory
+                val templ = malloc (Word.fromInt size)
+                fun copyToBuf(i, v) = set8(templ, Word.fromInt i, v)
+                val () = Word8Vector.appi copyToBuf compiled
                 val res = checkWindow
-                    (sysCreateDialogIndirect(hInst, address templ, hWndParent, Message.mainCallbackFunction, 0))
+                    (sysCreateDialogIndirect(hInst, templ, hWndParent, Message.mainCallbackFunction, 0))
+                val () = free templ
             in
                 (* Add this to the modeless dialogue list so that keyboard
                    operations will work. *)
-                Message.addModelessDialogue(res, toCint 0);
+                Message.addModelessDialogue(res, Memory.null);
                 res
             end
         end
@@ -504,7 +500,7 @@ struct
         (* DialogBox: create a dialogue using a resource. *)
         local
             val sysDialogBox =
-                call5 (user "DialogBoxParamA") (HINSTANCE, RESID, HWND, DLGPROC, INT) INT
+                winCall5 (user "DialogBoxParamA") (cHINSTANCE, cRESID, cHWND, DLGPROC, cLPARAM) cINT_PTR
         in
             fun DialogBox (hInst, lpTemplate, hWndParent, dialogueProc, init) =
             let
@@ -520,7 +516,7 @@ struct
         (* DialogBoxIndirect: create a dialogue using a template. *)
         local
             val sysDialogBoxIndirect =
-                call5 (user "DialogBoxIndirectParamA") (HINSTANCE, POINTER, HWND, DLGPROC, INT) INT
+                winCall5 (user "DialogBoxIndirectParamA") (cHINSTANCE, cPointer, cHWND, DLGPROC, cLPARAM) cINT_PTR
         in
             fun DialogBoxIndirect (hInst, template, hWndParent, dialogueProc, init) =
             let
@@ -528,30 +524,35 @@ struct
                 (* Compile the template and copy it to C memory. *)
                 val compiled = compileTemplate template
                 val size = Word8Vector.length compiled
-                val templ = alloc size Cchar
-                fun copyToBuf(i, v): unit =
-                    assign Cchar (offset i Cchar templ) (toCint(Word8.toInt v))
+                open Memory
+                val templ = malloc (Word.fromInt size)
+                fun copyToBuf(i, v) = set8(templ, Word.fromInt i, v)
                 val _ = Word8Vector.appi copyToBuf compiled
             in
-                sysDialogBoxIndirect(hInst, address templ, hWndParent, Message.mainCallbackFunction, 0)
+                sysDialogBoxIndirect(hInst, templ, hWndParent, Message.mainCallbackFunction, 0)
+                    before free templ
             end
         end
 
         (* Get average size of system font. *)
-        fun GetDialogBaseUnits() : {horizontal: int, vertical: int} =
-        let
-            val base = call0 (user "GetDialogBaseUnits") () UINT ()
+        local
+            val getDialogBaseUnits = winCall0 (user "GetDialogBaseUnits") () cLong
         in
-            {horizontal = LOWORD base, vertical = HIWORD base}
+            fun GetDialogBaseUnits() : {horizontal: int, vertical: int} =
+            let
+                val base = getDialogBaseUnits ()
+            in
+                {horizontal = LOWORD base, vertical = HIWORD base}
+            end
         end
     
-        val GetDlgCtrlID = call1 (user "GetDlgCtrlID") HWND INT
-        and GetDlgItem   = call2 (user "GetDlgItem") (HWND, INT) HWND
+        val GetDlgCtrlID = winCall1 (user "GetDlgCtrlID") cHWND cInt
+        and GetDlgItem   = winCall2 (user "GetDlgItem") (cHWND, cInt) cHWND
     
         val GetDlgItemText = Window.GetWindowText o GetDlgItem
 
-        val IsDialogMessage = call2 (user "IsDialogMessage") (HWND, Message.LPMSG) BOOL
+        val IsDialogMessage = winCall2 (user "IsDialogMessage") (cHWND, Message.LPMSG) cBool
 
-        val EndDialog = call2 (user "EndDialog") (HWND, INT) (SUCCESSSTATE "EndDialog")
+        val EndDialog = winCall2 (user "EndDialog") (cHWND, cINT_PTR) (successState "EndDialog")
     end
 end;

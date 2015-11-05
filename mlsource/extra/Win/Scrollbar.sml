@@ -168,8 +168,9 @@ struct
             end
 
             local
-                val cSCROLLINFOSTRUCT as {ctype = {size=sizeStruct, ...}, ...} =
+                val cSCROLLINFOSTRUCT =
                     cStruct7(cUint, cSCROLLINFOOPTION, cInt, cInt, cUint, cInt, cInt)
+                val {ctype = {size=sizeStruct, ...}, ...} = breakConversion cSCROLLINFOSTRUCT
                 
                 val getScrollInfo =
                     winCall3 (user "GetScrollInfo") (cHWND, cSCROLLBARTYPE, cStar cSCROLLINFOSTRUCT)

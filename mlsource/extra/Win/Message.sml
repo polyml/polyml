@@ -1139,10 +1139,11 @@ struct
         (*val (_, toCcharArray80, charArray80) = breakConversion CHARARRAY80 *)
         val NMTTDISPINFO =
             cStruct6(NMHDR, cPointer (* String or resource id *), CHARARRAY80, cHINSTANCE, cUint, cLPARAM);
-        (*val (fromCnmttdispinfo, toCnmttdispinfo, _) = breakConversion NMTTDISPINFO; *)
-        val FINDREPLACE =
+        val {load=loadNmttdispinfo, ... } = breakConversion NMTTDISPINFO
+        val cFINDREPLACE =
             cStruct11(cDWORD, cHWND, cHINSTANCE, cDWORD, cString, cString,
                       cWORD, cWORD, cPointer, cPointer, cPointer)
+        val {load=loadFindReplace, ...} = breakConversion cFINDREPLACE
         
         (*val (toHMENU, fromHMENU, _) = breakConversion cHMENU
         and (toHWND,  fromHWND, _)  = breakConversion cHWND
@@ -2090,8 +2091,7 @@ WM_MOUSELEAVE                   0x02A3
                 if i = RegisterMessage "commdlg_FindReplace"
                 then
                 let
-                    val (_, _, _, fWord, findwhat, replace, _, _, _, _, _) =
-                        #load FINDREPLACE lp
+                    val (_, _, _, fWord, findwhat, replace, _, _, _, _, _) = loadFindReplace lp
                     (* The argument is really a FINDREPLACE struct. *)
                     val flags = FindReplaceFlags.fromWord(LargeWord.fromInt fWord)
                 in
@@ -2162,7 +2162,7 @@ WM_MOUSELEAVE                   0x02A3
      |  decompileNotification (lp: voidStar, ~415) = TVN_SINGLEEXPAND
      |  decompileNotification (lp: voidStar, ~520) =
          let
-             val nmt = #load NMTTDISPINFO lp
+             val nmt = loadNmttdispinfo lp
              (* Just look at the byte data at the moment. *)
          in
              TTN_GETDISPINFO(ref(#3 nmt))
@@ -3147,16 +3147,18 @@ WM_MOUSELEAVE                   0x02A3
 *)
         local
             val msgStruct = cStruct6(cHWND, cUint, cPointer, cPointer, cDWORD, cPoint)
-            val { load=loadMsg, store=storeMsg, ctype={size=msgSize, ... }, ... } = msgStruct
+            val { load=loadMsg, store=storeMsg, ctype={size=msgSize, ... }, ... } =
+                breakConversion msgStruct
         in
             (* Store the address of the message in the memory. *)
             fun storeMessage(v: voidStar, {msg, hwnd, time, pt}: MSG) =
             let
                 val (msgId: int, wParam: voidStar, lParam: voidStar) = compileMessage msg
                 val mem = Memory.malloc msgSize
-                val () = storeMsg(mem, (hwnd, msgId, wParam, lParam, Time.toMilliseconds time, pt))
+                val f = storeMsg(mem, (hwnd, msgId, wParam, lParam, Time.toMilliseconds time, pt))
             in
-                setAddress(v, 0w0, mem)
+                setAddress(v, 0w0, mem);
+                fn () => (f(); Memory.free mem)
             end
         
             (* v is the address of a message structure.  The result is the unpacked
@@ -3174,16 +3176,8 @@ WM_MOUSELEAVE                   0x02A3
                 }
             end
             
-            fun releaseMessage(s: voidStar, m: MSG) =
-            let
-                val sAddr = getAddress(s, 0w0)
-                (* TODO: We may have to release strings etc. *)
-            in
-                Memory.free sAddr
-            end
-    
             val LPMSG: MSG conversion =
-            { load = loadMessage, store = storeMessage, release = releaseMessage, ctype=LowLevel.cTypePointer }
+                makeConversion { load = loadMessage, store = storeMessage, ctype=LowLevel.cTypePointer }
             
             val msgSize = msgSize
         end
@@ -3342,7 +3336,7 @@ WM_MOUSELEAVE                   0x02A3
                had a message for this window we need to use the outstanding callback. *)
             fun getCallback(hw: HWND): callback =
                 case List.find (fn (TableEntry{hWnd, ...}) =>
-                        intOfHandle hw = intOfHandle hWnd) (getWindowList ())
+                        hw = hWnd) (getWindowList ())
                 of
                      SOME(TableEntry{callBack, ...}) => callBack
                 |    NONE => (* See if this has just been set up. *)
@@ -3358,7 +3352,7 @@ WM_MOUSELEAVE                   0x02A3
 
             fun removeCallback(hw: HWND): unit =
                 setWindowList(List.filter
-                    (fn(TableEntry{hWnd, ...}) => intOfHandle hw <> intOfHandle hWnd) (getWindowList ()))
+                    (fn(TableEntry{hWnd, ...}) => hw <> hWnd) (getWindowList ()))
 
             fun mainCallbackFunction(hw:HWND, msgId:int, wParam:voidStar, lParam:voidStar) =
             if msgId = WMTESTPOLY
@@ -3410,10 +3404,12 @@ WM_MOUSELEAVE                   0x02A3
             (* When we first set up a callback we don't know the window handle so we use null. *)
             fun setCallback(call, init) = setOutstanding(SOME(windowCallback(call, init)))
 
+            val sendMsg = winCall4(user "SendMessageA") (cHWND, cUint, cPointer, cPointer) cInt
+
             fun subclass(w: HWND, f: HWND * Message * 'a -> LRESULT * 'a, init: 'a):
                     (HWND * Message -> LRESULT) =
             let
-                val sendMsg = winCall4(user "SendMessageA") (cHWND, cUint, cPointer, cPointer) cInt
+                
                 val testPoly: int = sendMsg(w, WMTESTPOLY, Memory.null, Memory.null)
 
                 fun addCallback (hWnd, call: HWND * Message * 'a -> LRESULT * 'a, init: 'a): unit =
@@ -3481,24 +3477,28 @@ WM_MOUSELEAVE                   0x02A3
         datatype PeekMessageOptions = PM_NOREMOVE | PM_REMOVE
         (* TODO: We can also include PM_NOYIELD. *)
 
+        val peekMsg = winCall5(user "PeekMessageA") (cPointer, cHWND, cUint, cUint, cUint) cBool
+
         fun PeekMessage(hWnd: HWND option, wMsgFilterMin: int,
                         wMsgFilterMax: int, remove: PeekMessageOptions): MSG option =
         let
             val msg = malloc msgSize
-            val peekMsg = winCall5(user "PeekMessageA") (cPointer, cHWND, cUint, cUint, cUint) cBool
+            
             val opts = case remove of PM_REMOVE => 1 | PM_NOREMOVE => 0
             val res = peekMsg(msg, getOpt(hWnd, hNull), wMsgFilterMin, wMsgFilterMax, opts)
         in
-            if not res
+            (if not res
             then NONE
-            else SOME(loadMessage msg)
+            else SOME(loadMessage msg)) before free msg
         end;
 
+        (* TODO: This was originally implemented before we had threads.  The only reason
+           for continuing with it is to allow the thread to be interrupted. *)
         local
             val callWin = RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific
         in
             fun pauseForMessage(hwnd: HWND, min, max): unit =
-                callWin(1101, (intOfHandle hwnd, min, max))
+                callWin(1101, (hwnd, min, max))
 
             (* We implement WaitMessage within the RTS. *)
             fun WaitMessage(): bool =
@@ -3542,17 +3542,19 @@ WM_MOUSELEAVE                   0x02A3
                 )
         end
 
-        fun SendMessage(hWnd: HWND, msg: Message) =
-        let
+        local
             val sendMsg = winCall4(user "SendMessageA") (cHWND, cUint, cPointer, cPointer) cPointer
-            val (msgId: int, wp: voidStar, lp: voidStar) = compileMessage msg
-            val reply = sendMsg(hWnd, msgId, wp, lp)
         in
-            (* Update any result values and cast the results if necessary. *)
-            messageReturnFromParams(msg, wp, lp, reply)
-            (* TODO: Free the memory *)
+            fun SendMessage(hWnd: HWND, msg: Message) =
+            let
+                val (msgId: int, wp: voidStar, lp: voidStar) = compileMessage msg
+                val reply = sendMsg(hWnd, msgId, wp, lp)
+            in
+                (* Update any result values and cast the results if necessary. *)
+                messageReturnFromParams(msg, wp, lp, reply)
+                (* TODO: Free the memory *)
+            end
         end
-
 
         local
             val postMessage =
@@ -3568,7 +3570,7 @@ WM_MOUSELEAVE                   0x02A3
             end
         end
 
-        val HWND_BROADCAST: HWND  = handleOfInt 0xffff
+        val HWND_BROADCAST: HWND  = handleOfVoidStar(sysWord2VoidStar 0wxffff)
 
         val PostQuitMessage = winCall1 (user "PostQuitMessage") cInt cVoid
         val RegisterWindowMessage = winCall1 (user "RegisterWindowMessageA") (cString) cUint

@@ -92,68 +92,71 @@ struct
     in
         type HRSRCGLOBAL = HRSRCGLOBAL
 
-        val LoadLibrary = checkHandle o call1 (kernel "LoadLibraryA") (cString) cHINSTANCE
-        and FreeLibrary = call1 (kernel "FreeLibrary") (cHINSTANCE) (successState "FreeLibrary")
+        val LoadLibrary = checkHandle o winCall1 (kernel "LoadLibraryA") (cString) cHINSTANCE
+        and FreeLibrary = winCall1 (kernel "FreeLibrary") (cHINSTANCE) (successState "FreeLibrary")
         and FindResource = checkHandle o
-            call3 (kernel "FindResourceA")
+            winCall3 (kernel "FindResourceA")
                 (cHINSTANCE, cRESID, RESOURCETYPE) cHRSRC
-        and SizeofResource = call2 (kernel "SizeofResource") (cHINSTANCE, cHRSRC) cDWORD
+        and SizeofResource = winCall2 (kernel "SizeofResource") (cHINSTANCE, cHRSRC) cDWORD
         (* The name and type are in the reverse order in FindResource and FindResourceEx *)
         and FindResourceEx = checkHandle o
-             call4 (kernel "FindResourceExA")
+             winCall4 (kernel "FindResourceExA")
                 (cHINSTANCE, RESOURCETYPE, cRESID, LocaleBase.LANGID) cHRSRC
 
         (* LoadResource - load a resource into memory and get a handle to it. *)
-        fun LoadResource (hInst, hRsrc) =
-        let
-            val size = SizeofResource (hInst, hRsrc)
-            val load = call2 (kernel  "LoadResource") (cHINSTANCE, cHRSRC) cPointer
-            val rsrc = load(hInst, hRsrc)
+        local
+            val loadResource = winCall2 (kernel  "LoadResource") (cHINSTANCE, cHRSRC)
+            and lockResource = winCall1 (kernel "LockResource") (cPointer) cPointer
+            and loadString = winCall4 (user "LoadStringA") (cHINSTANCE, cRESID, cPointer, cInt) cInt
         in
-            HRSRCGLOBAL(rsrc, size)
-        end
-
-        (* LockResource - get the resource as a piece of binary store. *)
-        fun LockResource (HRSRCGLOBAL(hg, size)) =
-        let
-            val LockRes = call1 (kernel "LockResource") (cPointer) cPointer
-            val res = LockRes hg
-        in
-            Word8Vector.tabulate(size, fn i => Memory.get8(res, Word.fromInt i))
-        end
-
-        fun LoadString (hInst, resId): string =
-        let
-            (* The underlying call returns the number of bytes copied EXCLUDING the terminating null. *)
-            val load = call4 (user "LoadStringA") (cHINSTANCE, cRESID, cPointer, cInt) cInt
-            (* The easiest way to make sure we have enough store is to loop. *)
-            open Memory
-            fun tryLoad n =
+            fun LoadResource (hInst, hRsrc) =
             let
-                val store = malloc n
-                val used = Word.fromInt(load(hInst, resId, store, Word.toInt n))
+                val size = SizeofResource (hInst, hRsrc)
+                val load = loadResource cPointer
+                val rsrc = load(hInst, hRsrc)
             in
-                (* We can't distinguish the empty string from a missing resource. *)
-                if used = 0w0 then ""
-                else if used < n-0w1
-                then fromCstring store before free store
-                else (free store; tryLoad(n*0w2))
+                HRSRCGLOBAL(rsrc, size)
             end
-        in
-            tryLoad 0w100
+
+            (* LockResource - get the resource as a piece of binary store. *)
+            fun LockResource (HRSRCGLOBAL(hg, size)) =
+            let
+                val res = lockResource hg
+            in
+                Word8Vector.tabulate(size, fn i => Memory.get8(res, Word.fromInt i))
+            end
+
+            fun LoadString (hInst, resId): string =
+            let
+                (* The underlying call returns the number of bytes copied EXCLUDING the terminating null. *)
+                (* The easiest way to make sure we have enough store is to loop. *)
+                open Memory
+                fun tryLoad n =
+                let
+                    val store = malloc n
+                    val used = Word.fromInt(loadString(hInst, resId, store, Word.toInt n))
+                in
+                    (* We can't distinguish the empty string from a missing resource. *)
+                    if used = 0w0 then ""
+                    else if used < n-0w1
+                    then fromCstring store before free store
+                    else (free store; tryLoad(n*0w2))
+                end
+            in
+                tryLoad 0w100
+            end
         end
 
-        fun BeginUpdateResource(str, flag): HUPDATE =
-            case call2 (user "BeginUpdateResourceA") (cString, cBool) cInt (str, flag) of
-                0 => raiseSysErr()
-            |   h => handleOfInt h
+        val BeginUpdateResource =
+            (fn c => (checkResult(not(isHNull c)); c)) o
+            winCall2 (user "BeginUpdateResourceA") (cString, cBool) cHUPDATE
 
         val EndUpdateResource =
-            call2 (user "EndUpdateResource") (cHUPDATE, cBool) (successState "EndUpdateResource")
+            winCall2 (user "EndUpdateResource") (cHUPDATE, cBool) (successState "EndUpdateResource")
 
         local
             val updateResource =
-                call6 (user "UpdateResource")
+                winCall6 (user "UpdateResource")
                     (cHUPDATE, RESOURCETYPE, cRESID, LocaleBase.LANGID, cOptionPtr cByteArray, cInt)
                     (successState "UpdateResource")
         in

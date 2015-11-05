@@ -212,11 +212,11 @@ struct
             fun unpackWindowRelation(relation: ParentType, style) =
                 case relation of
                     PopupWithClassMenu =>
-                        (hwndNull, 0, toWord(clear(WS_CHILD, style)))
+                        (hwndNull, Memory.null, toWord(clear(WS_CHILD, style)))
                 |   PopupWindow hm =>
-                        (hwndNull, intOfHandle hm, toWord(clear(WS_CHILD, style)))
+                        (hwndNull, voidStarOfHandle hm, toWord(clear(WS_CHILD, style)))
                 |   ChildWindow{parent, id} =>
-                        (parent, id, toWord(flags[WS_CHILD, style]))
+                        (parent, Memory.sysWord2VoidStar(SysWord.fromInt id), toWord(flags[WS_CHILD, style]))
         end
     
     end

@@ -750,11 +750,11 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
 
     case 1101: // Wait for a message.
         {
+            HWND hwnd = *(HWND*)(DEREFWORDHANDLE(args)->Get(0).AsCodePtr());
+            UINT wMsgFilterMin = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
+            UINT wMsgFilterMax = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
             while (1)
             {
-                HWND hwnd = (HWND)get_C_long(taskData, DEREFWORDHANDLE(args)->Get(0)); /* Handles are treated as SIGNED. */
-                UINT wMsgFilterMin = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(1));
-                UINT wMsgFilterMax = get_C_unsigned(taskData, DEREFWORDHANDLE(args)->Get(2));
                 MSG msg;
                 processes->ThreadReleaseMLMemory(taskData);
                 // N.B.  PeekMessage may directly call the window proc resulting in a
@@ -770,10 +770,18 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
     // case 1102: // Return the address of the window callback function.
 
     case 1103: // Return the application instance.
-        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)hApplicationInstance);
+        {
+            Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+            *(HINSTANCE*)(result->Word().AsCodePtr()) = hApplicationInstance;
+            return result;
+        }
 
     case 1104: // Return the main window handle
-        return Make_arbitrary_precision(taskData, (POLYUNSIGNED)hMainWindow);
+        {
+            Handle result = alloc_and_save(taskData, 1, F_BYTE_OBJ);
+            *(HWND*)(result->Word().AsCodePtr()) = hMainWindow;
+            return result;
+        }
 
 //    case 1105: // Set the callback function
 

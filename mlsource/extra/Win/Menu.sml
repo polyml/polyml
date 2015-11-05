@@ -39,7 +39,7 @@ structure Menu:
 
     datatype MenuItemType =
           MFT_BITMAP of HBITMAP
-        | MFT_OWNERDRAW of int
+        | MFT_OWNERDRAW of SysWord.word
         | MFT_SEPARATOR
         | MFT_STRING of string
 
@@ -109,51 +109,39 @@ struct
     local
         open Foreign
         open Base
-
-        (* Flags used in GetItemInfo and SetItemInfo. *)
-        val MIIM_STATE       = 0x00000001
-        val MIIM_ID          = 0x00000002
-        val MIIM_SUBMENU     = 0x00000004
-        val MIIM_CHECKMARKS  = 0x00000008
-        val MIIM_TYPE        = 0x00000010
-        val MIIM_DATA        = 0x00000020
-
-        val allInfo = 0x3f
-
     in
         open MenuBase
 
         type HMENU = HMENU and HBITMAP = HBITMAP and RECT = RECT and HWND = HWND
         and HINSTANCE = HINSTANCE
 
-        val hmenuNull = hmenuNull
-        and isHmenuNull = isHmenuNull
+        val isHmenuNull = isHmenuNull
 
         fun checkMenu c = (checkResult(not(isHmenuNull c)); c)
 
         (* Check here means "make active", the opposite of uncheck *)
         val CheckMenuRadioItem =
             checkResult o
-            call5 (user "CheckMenuRadioItem") (HMENU, UINT, UINT, UINT, MENUFLAG) BOOL
+            winCall5 (user "CheckMenuRadioItem") (cHMENU, cUint, cUint, cUint, cMENUFLAG) cBool
 
         val CreateMenu =
-            checkMenu o call0 (user "CreateMenu") () HMENU
+            checkMenu o winCall0 (user "CreateMenu") () cHMENU
 
         val CreatePopupMenu =
-            checkMenu o call0 (user "CreatePopupMenu") () HMENU
+            checkMenu o winCall0 (user "CreatePopupMenu") () cHMENU
 
         val DeleteMenu = 
             checkResult o
-            call3 (user "DeleteMenu") (HMENU, UINT, MENUFLAG) BOOL
+            winCall3 (user "DeleteMenu") (cHMENU, cUint, cMENUFLAG) cBool
 
         val DestroyMenu = 
-            checkResult o call1 (user "DestroyMenu") (HMENU) BOOL
+            checkResult o winCall1 (user "DestroyMenu") (cHMENU) cBool
 
         val DrawMenuBar = 
-            checkResult o call1 (user "DrawMenuBar") (HWND) BOOL
+            checkResult o winCall1 (user "DrawMenuBar") (cHWND) cBool
 
         local
-            val enableCall = call3(user "EnableMenuItem") (HMENU, INT, MENUFLAG) INT
+            val enableCall = winCall3(user "EnableMenuItem") (cHMENU, cUint, cMENUFLAG) cInt
         in
             fun EnableMenuItem(hMenu: HMENU, id: int, flags: MenuFlag): MenuFlag list =
             let
@@ -164,7 +152,7 @@ struct
             end
         end
 
-        val GetMenu = call1 (user "GetMenu") (HWND) HMENU
+        val GetMenu = winCall1 (user "GetMenu") (cHWND) cHMENU
 
         datatype GMDIFlags = GMDI_GOINTOPOPUPS | GMDI_USEDISABLED
         local
@@ -172,11 +160,11 @@ struct
                 (GMDI_USEDISABLED, 0x0001),
                 (GMDI_GOINTOPOPUPS, 0x0002) ]
         in
-            val GMDIFLAGS = tableSetConversion(tab, NONE)
+            val GMDIFLAGS = tableSetConversion(tab, NONE) cUint
         end
 
         local
-            val callGMDI = call3 (user "GetMenuDefaultItem") (HMENU, BOOL, GMDIFLAGS) UINT
+            val callGMDI = winCall3 (user "GetMenuDefaultItem") (cHMENU, cBool, GMDIFLAGS) cUint
         in
             fun GetMenuDefaultItem(hMenu: HMENU, m: bool, opts: GMDIFlags list): int =
             let
@@ -188,16 +176,20 @@ struct
             end
         end
 
-        fun GetMenuItemCount hMenu =
-        case call1 (user "GetMenuItemCount") (HMENU) INT (hMenu) of
-            ~1 => raiseSysErr()
-        |   n => n
+        local
+            val getMenuItemCount = winCall1 (user "GetMenuItemCount") (cHMENU) cInt
+        in
+            fun GetMenuItemCount hMenu =
+            case getMenuItemCount hMenu of
+                ~1 => raiseSysErr()
+            |   n => n
+        end
 
-        val GetMenuItemID = call1 (user "GetMenuItemID") (HMENU) INT
+        val GetMenuItemID = winCall1 (user "GetMenuItemID") (cHMENU) cUint
  
         local
-            val getMenuString = call5 (user "GetMenuStringA")
-                          (HMENU,INT,POINTER,INT,MENUFLAG) (POSINT "GetMenuString")
+            val getMenuString = winCall5 (user "GetMenuStringA")
+                          (cHMENU,cUint,cPointer,cInt,cMENUFLAG) (cPOSINT "GetMenuString")
         in
             (* Loop until we have read the whole string. *)
             fun GetMenuString(h,i,f): string =
@@ -209,10 +201,10 @@ struct
             MFT_BITMAP of HBITMAP
         |   MFT_SEPARATOR
         |   MFT_STRING of string
-        |   MFT_OWNERDRAW of int
+        |   MFT_OWNERDRAW of SysWord.word
 
-        val mft_STRING          = 0wx00000000
-        val mft_BITMAP          = 0wx00000004
+        val mft_STRING          = 0wx00000000 (* Replaced by MIIM_STRING *)
+        val mft_BITMAP          = 0wx00000004 (* Replaced by MIIM_BITMAP and hbmpItem *)
         val mft_OWNERDRAW       = 0wx00000100
         val mft_SEPARATOR       = 0wx00000800
         val mft_POPUP           = 0wx00000010
@@ -257,7 +249,7 @@ struct
                 (MFS_UNHILITE,  0x00000000),
                 (MFS_DEFAULT,   0x00001000)]
         in
-            val MENUSTATE = tableSetConversion(tab, NONE)
+            val cMENUSTATE = tableSetConversion(tab, NONE) cUint
         end
         
         type MenuItemInfo =
@@ -279,42 +271,66 @@ struct
            To find out if we've got all the string we will have to loop until
            the value of cch we get back is less than the buffer we passed. *)
         local
-            val MENUITEMINFO =
-                STRUCT11(INT,INT,WORD,MENUSTATE,INT,HMENUOPT,HGDIOBJOPT,HGDIOBJOPT,INT,POINTER,INT)
-            val (fromCmenuiteminfo, toCmenuiteminfo, menuItemStruct) = breakConversion MENUITEMINFO
+            (* Flags used in GetItemInfo and SetItemInfo. *)
+            (*val MIIM_STATE       = 0x00000001
+            val MIIM_ID          = 0x00000002
+            val MIIM_SUBMENU     = 0x00000004
+            val MIIM_CHECKMARKS  = 0x00000008
+            (*val MIIM_TYPE        = 0x00000010 *) (* Replaced by new fields. *)
+            val MIIM_DATA        = 0x00000020
+            val MIIM_STRING      = 0x00000040 (* Added *)
+            val MIIM_BITMAP      = 0x00000080 (* Added *)
+            val MIIM_FTYPE       = 0x00000100*)
+            val allInfo = 0x1ef
+        
+            val cMENUITEMINFO =
+                cStruct12(cUint,cUint,cUint,cMENUSTATE,cUint,cHMENUOPT,cHGDIOBJOPT,
+                          cHGDIOBJOPT,cULONG_PTR,cPointer,cUint, cHGDIOBJ)
+            val {ctype={size=sizeMenuItemStruct, ...}, ...} = breakConversion cMENUITEMINFO
+            (*val (fromCmenuiteminfo, toCmenuiteminfo, menuItemStruct) = breakConversion MENUITEMINFO*)
             val getMenuItemInfo =
-                call4 (user "GetMenuItemInfoA") (HMENU, UINT, BOOL, POINTER)
-                    (SUCCESSSTATE "GetMenuItemInfo")
+                winCall4 (user "GetMenuItemInfoA") (cHMENU, cUint, cBool, cStar cMENUITEMINFO)
+                    (successState "GetMenuItemInfo")
             val setMenuItemInfo =
-                call4 (user "SetMenuItemInfoA") (HMENU, UINT, BOOL, POINTER)
-                    (SUCCESSSTATE "SetMenuItemInfo")
+                winCall4 (user "SetMenuItemInfoA") (cHMENU, cUint, cBool, cConstStar cMENUITEMINFO)
+                    (successState "SetMenuItemInfo")
             val insertMenuItem =
-                call4 (user "InsertMenuItemA") (HMENU, UINT, BOOL, POINTER)
-                    (SUCCESSSTATE "InsertMenuItem")
+                winCall4 (user "InsertMenuItemA") (cHMENU, cUint, cBool, cConstStar cMENUITEMINFO)
+                    (successState "InsertMenuItem")
         in
             fun GetMenuItemInfo(hMenu: HMENU, uItem: int, fByPosition): MenuItemInfo =
             let
-                (* We need to set the size and the bits for the information we want.
-                   In order to be able to retrieve the "Type" information we have to
-                   be prepared to accept a string.  To do that the dwTypeData must
-                   point to a small vector.  To simplify matters we don't try to get
-                   the whole string because we can't guess the size.  Instead we use
-                   GetMenuString. Everything else can be zero. *)
-                val v = alloc 4 Cchar
-                val r = toCmenuiteminfo(sizeof menuItemStruct, allInfo, 0w0, [], 0, NONE, NONE,
-                            NONE, 0, address v, 4);
-                val res = getMenuItemInfo(hMenu, uItem, fByPosition, address r)
+                (* First request allInfo.  Look at the returned type and cch.  If cch is
+                   non-zero allocate memory of cch+1 and pass memory pointer and cch+1 to
+                   get the string. *)
+                val r = ref (Word.toInt sizeMenuItemStruct, allInfo, 0, [], 0, NONE, NONE, NONE, 0, Memory.null, 0, hNull)
+                val () = getMenuItemInfo(hMenu, uItem, fByPosition, r)
+                val cch = #11(!r)
+                val str =
+                    if cch = 0 then ""
+                    else
+                    let
+                        open Memory
+                        val v = malloc (Word.fromInt cch + 0w1)
+                        val () =
+                            r := (Word.toInt sizeMenuItemStruct, allInfo, 0, [], 0, NONE, NONE, NONE, 0, v, cch+1, hNull)
+                    in
+                        (* Get the string.  Updates r *)
+                        getMenuItemInfo(hMenu, uItem, fByPosition, r)
+                            handle ex => (free v; raise ex);
+                        fromCstring v before free v
+                    end
                 val (_, _, mtype, state, wID, hSubMenu, hbmpChecked, hbmpUnchecked,
-                    itemData, typeData, cch) = fromCmenuiteminfo r
+                    itemData, typeData, _, hbmp) = ! r
+                val mtype = LargeWord.fromInt mtype
                 val menuType =
                     if LargeWord.andb(mtype, mft_BITMAP) <> 0w0
-                    then MFT_BITMAP(handleOfInt(LOWORD(fromCuint typeData)))
+                    then MFT_BITMAP hbmp
                     else if LargeWord.andb(mtype, mft_OWNERDRAW) <> 0w0
-                    then MFT_OWNERDRAW(fromCint typeData)
+                    then MFT_OWNERDRAW(Memory.voidStar2Sysword typeData)
                     else if LargeWord.andb(mtype, mft_SEPARATOR) <> 0w0
                     then MFT_SEPARATOR
-                    else (* String *) MFT_STRING(GetMenuString(hMenu, uItem,
-                                        if fByPosition then MF_BYPOSITION else MF_BYCOMMAND))
+                    else (* String *) MFT_STRING str
                 (* The options are the other bits in the type field. *)
                 val menuOptions =
                     toMFT(LargeWord.toInt(LargeWord.andb(LargeWord.notb typeBits, mtype)))
@@ -330,41 +346,47 @@ struct
                     ({menuType, menuOptions, wID, hSubMenu, hbmpChecked, hbmpUnchecked,
                       itemData, state }: MenuItemInfo)) =
             let
-                val (bits, typeData, cch) =
+                open Memory
+                val (bits, typeData, cch, bmp) =
                     case menuType of
-                        MFT_BITMAP b => (mft_BITMAP, toCint(intOfHandle b), 0)
-                    |   MFT_OWNERDRAW i => (mft_OWNERDRAW, toCint i, 0)
-                    |   MFT_SEPARATOR => (mft_SEPARATOR, toCint 0, 0)
-                    |   MFT_STRING s => (mft_STRING, toCstring s, size s + 1)
+                        MFT_BITMAP b => (mft_BITMAP, null, 0, b)
+                    |   MFT_OWNERDRAW i => (mft_OWNERDRAW, sysWord2VoidStar i, 0, hNull)
+                    |   MFT_SEPARATOR => (mft_SEPARATOR, null, 0, hNull)
+                    |   MFT_STRING s => (mft_STRING, toCstring s, size s + 1, hNull)
                         
                 val mtype = LargeWord.orb(LargeWord.fromInt (fromMFT menuOptions), bits)
-                val r = toCmenuiteminfo(sizeof menuItemStruct, allInfo, mtype, state, wID,
-                            hSubMenu, hbmpChecked, hbmpUnchecked, itemData, typeData, cch);
+                val r = (Word.toInt sizeMenuItemStruct, allInfo, LargeWord.toInt mtype, state, wID,
+                            hSubMenu, hbmpChecked, hbmpUnchecked, itemData, typeData, cch, bmp)
             in
-                setMenuItemInfo(hMenu, uItem, fByPosition, address r)
+                setMenuItemInfo(hMenu, uItem, fByPosition, r)
+                    handle ex => (free typeData; raise ex);
+                free typeData
             end
 
             fun InsertMenuItem(hMenu: HMENU, uItem: int, fByPosition,
                     ({menuType, menuOptions, wID, hSubMenu, hbmpChecked, hbmpUnchecked,
                       itemData, state }: MenuItemInfo)) =
             let
-                val (bits, typeData, cch) =
+                open Memory
+                val (bits, typeData, cch, bmp) =
                     case menuType of
-                        MFT_BITMAP b => (mft_BITMAP, toCint(intOfHandle b), 0)
-                    |   MFT_OWNERDRAW i => (mft_OWNERDRAW, toCint i, 0)
-                    |   MFT_SEPARATOR => (mft_SEPARATOR, toCint 0, 0)
-                    |   MFT_STRING s => (mft_STRING, toCstring s, size s + 1)
+                        MFT_BITMAP b => (mft_BITMAP, null, 0, b)
+                    |   MFT_OWNERDRAW i => (mft_OWNERDRAW, sysWord2VoidStar i, 0, hNull)
+                    |   MFT_SEPARATOR => (mft_SEPARATOR, null, 0, hNull)
+                    |   MFT_STRING s => (mft_STRING, toCstring s, size s + 1, hNull)
                         
                 val mtype = LargeWord.orb(LargeWord.fromInt (fromMFT menuOptions), bits)
-                val r = toCmenuiteminfo(sizeof menuItemStruct, allInfo, mtype, state, wID,
-                            hSubMenu, hbmpChecked, hbmpUnchecked, itemData, typeData, cch);
+                val r = (Word.toInt sizeMenuItemStruct, allInfo, LargeWord.toInt mtype, state, wID,
+                            hSubMenu, hbmpChecked, hbmpUnchecked, itemData, typeData, cch, bmp)
             in
-                insertMenuItem(hMenu, uItem, fByPosition, address r)
+                insertMenuItem(hMenu, uItem, fByPosition, r)
+                    handle ex => (free typeData; raise ex);
+                free typeData
             end
         end
 
         local
-            val getMenuState = call3 (user "GetMenuState") (HMENU,INT,MENUFLAG) UINT
+            val getMenuState = winCall3 (user "GetMenuState") (cHMENU,cUint,cMENUFLAG) cUint
         in
             (* If the menu opens a submenu the high order word is the number of
                items.  The low order word is the state. *)
@@ -377,14 +399,14 @@ struct
             end
         end
 
-        val GetSubMenu             = call2 (user "GetSubMenu") (HMENU,INT) HMENU
+        val GetSubMenu             = winCall2 (user "GetSubMenu") (cHMENU,cInt) cHMENU
 
-        val GetSystemMenu          = call2 (user "GetSystemMenu") (HWND,BOOL) HMENU
+        val GetSystemMenu          = winCall2 (user "GetSystemMenu") (cHWND,cBool) cHMENU
 
         val HiliteMenuItem = 
-            call4 (user "HiliteMenuItem") (HWND,HMENU,INT,cMENUFLAGSET) (SUCCESSSTATE "HiliteMenuItem")
+            winCall4 (user "HiliteMenuItem") (cHWND,cHMENU,cUint,cMENUFLAGSET) (successState "HiliteMenuItem")
 
-        val IsMenu                 = call1 (user "IsMenu") (HMENU) BOOL
+        val IsMenu                 = winCall1 (user "IsMenu") (cHMENU) cBool
 
         (* InsertMenu can insert a string item or a submenu. *)
         datatype MenuIdOrHandle =
@@ -392,34 +414,45 @@ struct
         |   MenuHandle of HMENU
 
         local
-            fun getDisplay (MFT_BITMAP hb)           = (mft_BITMAP, toCint(hgdiAsInt hb))
-             |  getDisplay MFT_SEPARATOR             = (mft_SEPARATOR, toCint 0)
-             |  getDisplay (MFT_STRING (s: string))  = (mft_STRING, toCstring s)
-             |  getDisplay (MFT_OWNERDRAW (i: int))  = (mft_OWNERDRAW, toCint i)
-
-            fun InsertOrModifyMenu (functionName: string)
-                (hMenu: HMENU, pos: int, flags: MenuFlag list,
-                           new: MenuIdOrHandle, disp: MenuItemType) =
+            open Memory
+            (* Get the menu item.  If this is a string we have to free the memory afterwards. *)
+            fun getDisplay (MFT_BITMAP hb)           = (mft_BITMAP, voidStarOfHandle hb, null)
+             |  getDisplay MFT_SEPARATOR             = (mft_SEPARATOR, null, null)
+             |  getDisplay (MFT_STRING (s: string))  = let val v = toCstring s in (mft_STRING, v, v) end
+             |  getDisplay (MFT_OWNERDRAW i)  = (mft_OWNERDRAW, sysWord2VoidStar i, null)
+             
+            fun InsertOrModifyMenu (functionName: string) =
             let
-                (* Flags - mask out the ones we set by other means. *)
-                val f1 = LargeWord.andb(LargeWord.fromInt(fromMenuFlagSet flags),
-                            LargeWord.notb typeBits)
-                (* The C call incorporates various options within the flags.  It's better,
-                   in ML, to pull these out and treat them as part of the datatype. *)
-                (* The "new" argument indicates whether the item is a sub-menu or
-                   should send a message containing the id when the menu item is
-                   selected. *)
-                val (f2, id) =
-                    case new of
-                        MenuId i => (0w0, i)
-                    |   MenuHandle m => (mft_POPUP, intOfHandle m)
-                (* The "disp" argument describes how the item is displayed. *)
-                val (f3, str) = getDisplay disp
-                val flags = List.foldl LargeWord.orb 0w0 [f1,f2,f3]
+                val docall =
+                    winCall5 (user functionName) (cHMENU,cUint,cUint,cPointer,cPointer) (successState functionName)
             in
-                call5 (user functionName) (HMENU,INT,WORD,INT,POINTER) (SUCCESSSTATE functionName)
-                        (hMenu, pos, flags, id, str)
+                fn(hMenu: HMENU, pos: int, flags: MenuFlag list,
+                               new: MenuIdOrHandle, disp: MenuItemType) =>
+                let
+                    (* Flags - mask out the ones we set by other means. *)
+                    val f1 = LargeWord.andb(LargeWord.fromInt(fromMenuFlagSet flags),
+                                LargeWord.notb typeBits)
+                    (* The C call incorporates various options within the flags.  It's better,
+                       in ML, to pull these out and treat them as part of the datatype. *)
+                    (* The "new" argument indicates whether the item is a sub-menu or
+                       should send a message containing the id when the menu item is
+                       selected. *)
+                    val (f2, id) =
+                        case new of
+                            MenuId i => (0w0, sysWord2VoidStar (SysWord.fromInt i))
+                        |   MenuHandle m => (mft_POPUP, voidStarOfHandle m)
+                    (* The "disp" argument describes how the item is displayed. *)
+                    val (f3, str, toFree) = getDisplay disp
+                    val flags = List.foldl LargeWord.orb 0w0 [f1,f2,f3]
+                in
+                    docall(hMenu, pos, LargeWord.toInt flags, id, str)
+                        handle ex => (free toFree; raise ex);
+                    free toFree
+                end
             end
+            
+            val appendMenu =
+                winCall4 (user "AppendMenuA") (cHMENU,cUint,cPointer,cPointer) (successState "AppendMenuA")
         in
             val InsertMenu = InsertOrModifyMenu "InsertMenuA"
             and ModifyMenu = InsertOrModifyMenu "ModifyMenuA"
@@ -430,17 +463,18 @@ struct
                             LargeWord.notb typeBits)
                 val (f2, id) =
                     case new of
-                        MenuId i => (0wx00000000, i)
-                    |   MenuHandle m => (mft_POPUP, intOfHandle m)
-                val (f3, str) = getDisplay disp
+                        MenuId i => (0w0, sysWord2VoidStar (SysWord.fromInt i))
+                    |   MenuHandle m => (mft_POPUP, voidStarOfHandle m)
+                val (f3, str, toFree) = getDisplay disp
                 val flags = List.foldl LargeWord.orb 0w0 [f1,f2,f3]
             in
-                call4 (user "AppendMenuA") (HMENU,WORD,INT,POINTER) (SUCCESSSTATE "AppendMenuA")
-                        (hMenu, flags, id, str)
+               appendMenu (hMenu, LargeWord.toInt flags, id, str)
+                        handle ex => (free toFree; raise ex);
+               free toFree
             end
         end
 
-        val RemoveMenu = call3(user "RemoveMenu") (HMENU, INT, MENUFLAG) (SUCCESSSTATE "RemoveMenu")
+        val RemoveMenu = winCall3(user "RemoveMenu") (cHMENU, cUint, cMENUFLAG) (successState "RemoveMenu")
 
         datatype TrackPopupMenuOptions =
             TPM_LEFTBUTTON | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_CENTERALIGN | TPM_RIGHTALIGN |
@@ -463,40 +497,39 @@ struct
                 (TPM_RETURNCMD, 0x0100)
                 ]
         in
-            val TRACKPOPUPOPTIONS = tableSetConversion(tab, NONE)
+            val TRACKPOPUPOPTIONS = tableSetConversion(tab, NONE) cUint
         end
 
         local
             val trackPopupMenu =
-                call7 (user "TrackPopupMenu")
-                    (HMENU, TRACKPOPUPOPTIONS, INT, INT, INT, HWND, POINTER) INT
+                winCall7 (user "TrackPopupMenu")
+                    (cHMENU, TRACKPOPUPOPTIONS, cInt, cInt, cInt, cHWND, cPointer) cInt
         in
             fun TrackPopupMenu(menu, flags, x, y, owner) =
-                trackPopupMenu(menu, flags, x, y, 0, owner, toCint 0)
+                trackPopupMenu(menu, flags, x, y, 0, owner, Memory.null)
         end
 
         local
-            val (fromR,toR,ctypeR) = breakConversion RECT
+            val getMenuItemRect =
+                winCall4 (user "GetMenuItemRect") (cHWND, cHMENU, cUint, cStar cRect) (successState "GetMenuItemRect")
         in
             fun GetMenuItemRect(hWnd, hMenu, item): RECT =
             let
-                val (fromR,toR,ctypeR) = breakConversion RECT
-                val r = alloc 1 ctypeR
-                val res = call4 (user "GetMenuItemRect") (HWND, HMENU, UINT, POINTER)
-                            (SUCCESSSTATE "GetMenuItemRect") (hWnd, hMenu, item, address r)
+                val r = ref { top = 0, bottom=0, left=0, right=0}
+                val () = getMenuItemRect(hWnd, hMenu, item, r)
             in
-                fromR r
+                ! r
             end
         end
 
-        val LoadMenu = call2 (user "LoadMenuA") (HINSTANCE, RESID) HMENU
-        val SetMenu = call2 (user "SetMenu") (HWND, HMENUOPT) (SUCCESSSTATE "SetMenu")
+        val LoadMenu = winCall2 (user "LoadMenuA") (cHINSTANCE, cRESID) cHMENU
+        val SetMenu = winCall2 (user "SetMenu") (cHWND, cHMENUOPT) (successState "SetMenu")
 
         val SetMenuContextHelpId =
-            call2 (user "SetMenuContextHelpId") (HMENU, INT)
-                    (SUCCESSSTATE "SetWindowContextHelpId")
+            winCall2 (user "SetMenuContextHelpId") (cHMENU, cDWORD)
+                    (successState "SetWindowContextHelpId")
     
-        val GetMenuContextHelpId = call1 (user "GetMenuContextHelpId") (HMENU) INT
+        val GetMenuContextHelpId = winCall1 (user "GetMenuContextHelpId") (cHMENU) cDWORD
 
         (* *)
         (*fun LoadMenuIndirect (mlist: (MenuFlag list * int * string) list list) =
@@ -547,8 +580,8 @@ struct
         val u = pl2a menu 0 mlist
     
     in
-      call1 (getuser "LoadMenuIndirectA")
-            (POINTER) (HMENU)
+      winCall1 (getuser "LoadMenuIndirectA")
+            (POINTER) (cHMENU)
             (address menu)
     end 
 end;

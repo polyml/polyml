@@ -41,24 +41,23 @@ struct
         open Resource
     in
         type HICON = HICON and HINSTANCE = HINSTANCE and HDC = HDC
-        val hiconNull = hgdiObjNull
-        and isHiconNull = isHgdiObjNull
+        val isHiconNull = isHgdiObjNull
 
         fun checkIcon c = (checkResult(not(isHiconNull c)); c)
 
         val CopyIcon =
-            checkIcon o call1 (user "CopyIcon") (HICON) HICON
+            checkIcon o winCall1 (user "CopyIcon") (cHICON) cHICON
 
         val DestroyIcon =
-            checkResult o call1 (user "DestroyIcon") (HICON) BOOL
+            checkResult o winCall1 (user "DestroyIcon") (cHICON) cBool
             
         val DrawIcon =
-            checkResult o call4 (user "DrawIcon") (HDC, INT, INT, HICON) BOOL
+            checkResult o winCall4 (user "DrawIcon") (cHDC, cInt, cInt, cHICON) cBool
 
-        val ExtractIcon = call3 (user "ExtractIcon") (HINSTANCE, STRING, INT) HICON
+        val ExtractIcon = winCall3 (user "ExtractIcon") (cHINSTANCE, cString, cUint) cHICON
 
         val LoadIcon =
-            checkIcon o call2 (user "LoadIconA") (HINSTANCE, RESID) HICON
+            checkIcon o winCall2 (user "LoadIconA") (cHINSTANCE, cRESID) cHICON
 
         (* Built-in icons. *)
         val IDI_APPLICATION     = Resource.IdAsInt 32512
