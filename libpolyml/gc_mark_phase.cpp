@@ -184,8 +184,8 @@ MTGCProcessMarkPointers::MTGCProcessMarkPointers(): msp(0), active(false), locPt
     // Clear the large object cache just to be sure.
     for (unsigned j = 0; j < LARGECACHE_SIZE; j++)
     {
-        largeObjectCache[locPtr].base = 0;
-        largeObjectCache[locPtr].current = 0;
+        largeObjectCache[j].base = 0;
+        largeObjectCache[j].current = 0;
     }
 }
 
@@ -197,8 +197,8 @@ void MTGCProcessMarkPointers::Reset()
     // Clear the cache completely just to be safe
     for (unsigned j = 0; j < LARGECACHE_SIZE; j++)
     {
-        largeObjectCache[locPtr].base = 0;
-        largeObjectCache[locPtr].current = 0;
+        largeObjectCache[j].base = 0;
+        largeObjectCache[j].current = 0;
     }
 
 }
