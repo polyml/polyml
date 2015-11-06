@@ -61,7 +61,7 @@ sig
         |   SWP_NOSIZE
         |   SWP_NOZORDER
         |   SWP_SHOWWINDOW
-        |   SWP_OTHER of int
+        |   SWP_OTHER of Word32.word
 
     datatype ShowWindowOptions =
         SW_HIDE
@@ -252,11 +252,11 @@ in
         end
     end
 
-    (* Get the class name of a window. This is also in  *)
-
+    (* Get the class name of a window. *)
     local
         val getClassName = winCall3 (user "GetClassNameA") (cHWND, cPointer, cInt) cInt
     in
+        (* Unfortunately we can't pass NULL here to get the length. *)
         fun GetClassName hwnd =
             getStringCall(fn (v, i) => getClassName(hwnd, v, i))
     end

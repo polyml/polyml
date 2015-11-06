@@ -536,13 +536,13 @@ struct
 
         (* Get average size of system font. *)
         local
-            val getDialogBaseUnits = winCall0 (user "GetDialogBaseUnits") () cLong
+            val getDialogBaseUnits = winCall0 (user "GetDialogBaseUnits") () cDWORDw (* Actually LONG *)
         in
             fun GetDialogBaseUnits() : {horizontal: int, vertical: int} =
             let
                 val base = getDialogBaseUnits ()
             in
-                {horizontal = LOWORD base, vertical = HIWORD base}
+                {horizontal = Word.toInt(LOWORD base), vertical = Word.toInt(HIWORD base)}
             end
         end
     

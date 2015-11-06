@@ -26,15 +26,15 @@ struct
             DDL_ARCHIVE | DDL_POSTMSGS | DDL_DRIVES | DDL_EXCLUSIVE
         local
             val tab = [
-                (DDL_READWRITE, 0x0000),
-                (DDL_READONLY, 0x0001),
-                (DDL_HIDDEN, 0x0002),
-                (DDL_SYSTEM, 0x0004),
-                (DDL_DIRECTORY, 0x0010),
-                (DDL_ARCHIVE, 0x0020),
-                (DDL_POSTMSGS, 0x2000),
-                (DDL_DRIVES, 0x4000),
-                (DDL_EXCLUSIVE, 0x8000)
+                (DDL_READWRITE, 0wx0000),
+                (DDL_READONLY, 0wx0001),
+                (DDL_HIDDEN, 0wx0002),
+                (DDL_SYSTEM, 0wx0004),
+                (DDL_DIRECTORY, 0wx0010),
+                (DDL_ARCHIVE, 0wx0020),
+                (DDL_POSTMSGS, 0wx2000),
+                (DDL_DRIVES, 0wx4000),
+                (DDL_EXCLUSIVE, 0wx8000)
                 ]
         in
             val CBDIRATTRS = tableSetConversion(tab, NONE)

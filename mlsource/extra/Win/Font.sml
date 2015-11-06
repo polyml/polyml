@@ -44,19 +44,13 @@ structure Font :
         | OUT_TT_ONLY_PRECIS
         | OUT_TT_PRECIS
     and OutputQuality =
-          DEFAULT_QUALITY
-        | DRAFT_QUALITY
-        | OTHER_QUALITY of int
-        | PROOF_QUALITY
+            DEFAULT_QUALITY | DRAFT_QUALITY | PROOF_QUALITY | ANTIALIASED_QUALITY | CLEARTYPE_QUALITY | NONANTIALIASED_QUALITY
     and CharacterSet =
-          ANSI_CHARSET
-        | CHINESEBIG5_CHARSET
-        | DEFAULT_CHARSET
-        | HANGEUL_CHARSET
-        | OEM_CHARSET
-        | OTHER_CHARSET of int
-        | SHIFTJIS_CHARSET
-        | SYMBOL_CHARSET
+          ANSI_CHARSET | DEFAULT_CHARSET | SYMBOL_CHARSET | MAC_CHARSET |
+                SHIFTJIS_CHARSET | HANGEUL_CHARSET | JOHAB_CHARSET | GB2312_CHARSET |
+                CHINESEBIG5_CHARSET | GREEK_CHARSET | TURKISH_CHARSET | VIETNAMESE_CHARSET |
+                HEBREW_CHARSET | ARABIC_CHARSET | BALTIC_CHARSET | RUSSIAN_CHARSET |
+                THAI_CHARSET | EASTEUROPE_CHARSET | OEM_CHARSET
 
     type FontWeight =  int
     val FW_BLACK : FontWeight
@@ -75,14 +69,8 @@ structure Font :
     val FW_ULTRABOLD : FontWeight
     val FW_ULTRALIGHT : FontWeight
 
-    type ClippingPrecision
-    val CLIP_CHARACTER_PRECIS : ClippingPrecision
-    val CLIP_DEFAULT_PRECIS : ClippingPrecision
-    val CLIP_EMBEDDED : ClippingPrecision
-    val CLIP_LH_ANGLES : ClippingPrecision
-    val CLIP_MASK : ClippingPrecision
-    val CLIP_STROKE_PRECIS : ClippingPrecision
-    val CLIP_TT_ALWAYS : ClippingPrecision
+    datatype ClippingPrecision =
+        CLIP_DEFAULT_PRECIS | CLIP_STROKE_PRECIS | CLIP_LH_ANGLES | CLIP_DFA_DISABLE | CLIP_EMBEDDED
 
     type LOGFONT =
     {
@@ -96,7 +84,7 @@ structure Font :
         strikeOut : bool,
         charSet : CharacterSet,
         outputPrecision: OutputPrecision,
-        clipPrecision : ClippingPrecision,
+        clipPrecision : ClippingPrecision list,
         quality : OutputQuality,
         pitch: FontPitch,
         family: FontFamily,
@@ -155,10 +143,10 @@ structure Font :
     val ExtTextOut : HDC * POINT * ExtendedTextMode list *
        RECT option * string * int list -> unit
     val GetAspectRatioFilterEx : HDC -> SIZE
-    val GetCharABCWidths : HDC * char * char -> (int * int * int) list
-    val GetCharABCWidthsFloat : HDC * char * char -> (real * real * real) list
-    val GetCharWidth32 : HDC * char * char -> int list
-    val GetCharWidthFloat : HDC * int * int -> real list
+    val GetCharABCWidths : HDC * char * char -> (int * int * int) vector
+    val GetCharABCWidthsFloat : HDC * char * char -> (real * real * real) vector
+    val GetCharWidth32 : HDC * char * char -> int vector
+    val GetCharWidthFloat : HDC * char * char -> real vector
     val GetTabbedTextExtent : HDC * string * int list -> SIZE
     val GetTextAlign : HDC -> TextAlign list
     val GetTextCharacterExtra : HDC -> int
@@ -181,20 +169,7 @@ structure Font :
 struct
     local
         open Foreign Base GdiBase
-
-        fun callgdi name = call_sym (load_sym (load_lib "gdi32.DLL") name)
-        fun gdicall_IW name CR (C1,C2) (a1) =
-            let val (from1,to1,ctype1) = breakConversion C1
-                val (from2,to2,ctype2) = breakConversion C2
-                val (fromR,toR,ctypeR) = breakConversion CR
-                val va1 = to1 a1
-                val va2 = address (alloc 1 ctype2)
-                val res = callgdi name [(ctype1,va1),(Cpointer ctype2,va2)] ctypeR
-                val _: unit = fromR res
-            in  (from2 (deref va2))
-            end
-        val HEIGHT = INT: int Conversion
-        val FONTMAPPERFLAG = BOOL : bool Conversion
+        (*val HEIGHT = INT: int conversion*)
     in
         type COLORREF = Color.COLORREF
         type SIZE = SIZE and POINT = POINT and RECT = RECT
@@ -206,17 +181,19 @@ struct
             TA_NOUPDATECP | TA_UPDATECP | TA_LEFT | TA_RIGHT | TA_CENTER | TA_TOP | TA_BOTTOM | TA_BASELINE
         local
             val tab = [
-                (TA_NOUPDATECP,     0),
-                (TA_UPDATECP,       1),
-                (TA_LEFT,           0),
-                (TA_RIGHT,          2),
-                (TA_CENTER,         6),
-                (TA_TOP,            0),
-                (TA_BOTTOM,         8),
-                (TA_BASELINE,       24)
+                (TA_NOUPDATECP,     0w0),
+                (TA_UPDATECP,       0w1),
+                (TA_LEFT,           0w0),
+                (TA_RIGHT,          0w2),
+                (TA_CENTER,         0w6),
+                (TA_TOP,            0w0),
+                (TA_BOTTOM,         0w8),
+                (TA_BASELINE,       0w24)
             ]
-        in
             val TEXTALIGN = tableSetConversion(tab, NONE)
+        in
+            val GetTextAlign               = winCall1(gdi "GetTextAlign") (cHDC) TEXTALIGN
+            val SetTextAlign               = winCall2(gdi "SetTextAlign") (cHDC,TEXTALIGN) TEXTALIGN
         end
         
         (*TYPE: DrawTextMode *)
@@ -225,181 +202,213 @@ struct
             DT_CALCRECT  | DT_NOPREFIX | DT_INTERNAL | DT_TABSTOP of int
         local
             val tab = [
-                (DT_TOP,                0x0000),
-                (DT_LEFT,               0x0000),
-                (DT_CENTER,             0x0001),
-                (DT_RIGHT,              0x0002),
-                (DT_VCENTER,            0x0004),
-                (DT_BOTTOM,             0x0008),
-                (DT_WORDBREAK,          0x0010),
-                (DT_SINGLELINE,         0x0020),
-                (DT_EXPANDTABS,         0x0040),
-                (DT_NOCLIP,             0x0100),
-                (DT_EXTERNALLEADING,    0x0200),
-                (DT_CALCRECT,           0x0400),
-                (DT_NOPREFIX,           0x0800),
-                (DT_INTERNAL,           0x1000)
+                (DT_TOP,                0wx0000),
+                (DT_LEFT,               0wx0000),
+                (DT_CENTER,             0wx0001),
+                (DT_RIGHT,              0wx0002),
+                (DT_VCENTER,            0wx0004),
+                (DT_BOTTOM,             0wx0008),
+                (DT_WORDBREAK,          0wx0010),
+                (DT_SINGLELINE,         0wx0020),
+                (DT_EXPANDTABS,         0wx0040),
+                (DT_NOCLIP,             0wx0100),
+                (DT_EXTERNALLEADING,    0wx0200),
+                (DT_CALCRECT,           0wx0400),
+                (DT_NOPREFIX,           0wx0800),
+                (DT_INTERNAL,           0wx1000)
             ]
-            val tabStop = 0x0080
-            fun toInt (DT_TABSTOP i) = IntInf.orb(tabStop, i*256) | toInt _ = raise Match
+            val tabStop = 0wx0080
+            fun toInt (DT_TABSTOP i) = Word32.orb(tabStop, Word32.fromInt i*0w256) | toInt _ = raise Match
             fun fromInt i =
-                if IntInf.andb(i, tabStop) = tabStop
-                then DT_TABSTOP((i div 256) mod 256)
+                if Word32.andb(i, tabStop) = tabStop
+                then DT_TABSTOP(Word32.toInt(Word32.andb((Word32.>>(i, 0w8)), 0wxff)))
                 else raise Match;
-        in
             val DRAWTEXTMODE = tableSetConversion(tab, SOME(fromInt, toInt))
+        in
+            val DrawText                   =
+                winCall4(user "DrawTextA") (cHDC,cString,cConstStar cRect,DRAWTEXTMODE) cInt
         end
 
-        
-        val AddFontResource            = call1(gdi "AddFontResourceA") (STRING) INT
+        val AddFontResource            = winCall1(gdi "AddFontResourceA") (cString) cInt
         val CreateScalableFontResource =
-            call4(gdi "CreateScalableFontResourceA") (INT,STRING,STRING,STRING) (SUCCESSSTATE "CreateScalableFontResource")
+            winCall4(gdi "CreateScalableFontResourceA") (cDWORD,cString,cString,cString) (successState "CreateScalableFontResource")
                                          
-        val GetTextAlign               = call1(gdi "GetTextAlign") (HDC) TEXTALIGN
-        val GetTextCharacterExtra      = call1(gdi "GetTextCharacterExtra") (HDC) INT
-        val RemoveFontResource         = call1(gdi "RemoveFontResourceA") (STRING) (SUCCESSSTATE "RemoveFontResource")
-        val SetMapperFlags             = call2(gdi "SetMapperFlags") (HDC,FONTMAPPERFLAG) FONTMAPPERFLAG
-        val SetTextAlign               = call2(gdi "SetTextAlign") (HDC,TEXTALIGN) TEXTALIGN
-        val SetTextCharacterExtra      = call2(gdi "SetTextCharacterExtra") (HDC,INT) INT
-        val SetTextJustification       = call3(gdi "SetTextJustification") (HDC,INT,INT) (SUCCESSSTATE "SetTextJustification")
-        val DrawText                   =
-            call4(user "DrawTextA") (HDC,STRING,POINTERTO RECT,DRAWTEXTMODE) INT
-        val GetTextColor = call1 (gdi "GetTextColor") (HDC) COLORREF
-        and SetTextColor = call2 (gdi "SetTextColor") (HDC, COLORREF) COLORREF
-        val GetAspectRatioFilterEx     = gdicall_IW "GetAspectRatioFilterEx" (SUCCESSSTATE "GetAspectRatioFilterEx") (HDC,SIZE)
 
-        fun CreateFont({height: int, width: int, escapement: int, orientation: int,
-                       weight: FontWeight, italic: bool, underline: bool, strikeOut: bool,
-                       charSet: CharacterSet, outputPrecision: OutputPrecision,
-                       clipPrecision: ClippingPrecision, quality: OutputQuality,
-                       pitch: FontPitch, family: FontFamily, faceName: string}: LOGFONT) =
-            call14 (gdi "CreateFontA") (INT, INT, INT, INT, FONTWEIGHT, BOOL, BOOL, BOOL,
-                    CHARACTERSET, OUTPUTPRECISION, CLIPPINGPRECISION, OUTPUTQUALITY,
-                    FONTPITCHANDFAMILY, STRING) HFONT
-                (height, width, escapement, orientation, weight, italic, underline,
-                 strikeOut, charSet, outputPrecision, clipPrecision, quality,
-                 (pitch, family),
-                 if size faceName > 31 then String.substring(faceName, 0, 31) else faceName)
+        val GetTextCharacterExtra      = winCall1(gdi "GetTextCharacterExtra") (cHDC) cInt
+        val RemoveFontResource         = winCall1(gdi "RemoveFontResourceA") (cString) (successState "RemoveFontResource")
+
+        local
+            val cFONTMAPPERFLAG: bool conversion =
+                absConversion{rep=fn true => 0w1 | false => 0w0, abs=fn n => n <> 0w0} cDWORDw
+        in
+            val SetMapperFlags             = winCall2(gdi "SetMapperFlags") (cHDC, cFONTMAPPERFLAG) cFONTMAPPERFLAG
+        end
+
+        val SetTextCharacterExtra      = winCall2(gdi "SetTextCharacterExtra") (cHDC,cInt) cInt
+        val SetTextJustification       = winCall3(gdi "SetTextJustification") (cHDC,cInt,cInt) (successState "SetTextJustification")
+        val GetTextColor = winCall1 (gdi "GetTextColor") (cHDC) cCOLORREF
+        and SetTextColor = winCall2 (gdi "SetTextColor") (cHDC, cCOLORREF) cCOLORREF
+        
+        local
+            val getAspectRatioFilterEx =
+                winCall2(gdi "GetAspectRatioFilterEx") (cHDC, cStar cSize)(successState "GetAspectRatioFilterEx")
+        in
+            fun GetAspectRatioFilterEx hdc =
+            let
+                val s = ref{cx=0, cy= 0}
+            in
+                getAspectRatioFilterEx(hdc, s);
+                !s
+            end
+        end
+
+        local
+            val createFont =
+                winCall14 (gdi "CreateFontA") (cInt, cInt, cInt, cInt, cInt (* FONTWEIGHT *), cDWORDw, cDWORDw, cDWORDw,
+                        cDWORDw (*CHARACTERSET *), cDWORDw (* OUTPUTPRECISION *), cDWORDw (* CLIPPINGPRECISION *),
+                        cDWORDw (* OUTPUTQUALITY *), cDWORDw (* FONTPITCHANDFAMILY *), cString) cHFONT
+            fun bToch false = 0w0 | bToch true = 0w1
+            val w8ToW32 = Word32.fromLargeWord o Word8.toLargeWord
+        in
+            fun CreateFont({height: int, width: int, escapement: int, orientation: int,
+                           weight: FontWeight, italic: bool, underline: bool, strikeOut: bool,
+                           charSet: CharacterSet, outputPrecision: OutputPrecision,
+                           clipPrecision: ClippingPrecision list, quality: OutputQuality,
+                           pitch: FontPitch, family: FontFamily, faceName: string}: LOGFONT) =
+                    createFont(height, width, escapement, orientation, weight, bToch italic, bToch underline,
+                     bToch strikeOut, w8ToW32(charsetToW8 charSet), w8ToW32(outPrecToW8 outputPrecision),
+                     clipPrecSetToW32 clipPrecision, w8ToW32(outQualToW8 quality),
+                     w8ToW32(pitchAndFamilyToW8 (pitch, family)),
+                     if size faceName > 31 then String.substring(faceName, 0, 31) else faceName)
+        end
 
         (* CreateFont and CreateFontIndirect take the same arguments in ML. *)
         val CreateFontIndirect =
-            call1 (gdi "CreateFontIndirectA") (POINTERTO LOGFONT) HFONT
+            winCall1 (gdi "CreateFontIndirectA") (cConstStar cLOGFONT) cHFONT
 
         datatype ExtendedTextMode = ETO_OPAQUE | ETO_CLIPPED | ETO_GLYPH_INDEX |
                     ETO_RTLREADING | ETO_IGNORELANGUAGE
         local
             val tab = [
-                (ETO_OPAQUE,                   0x0002),
-                (ETO_CLIPPED,                  0x0004),
-                (ETO_GLYPH_INDEX,              0x0010),
-                (ETO_RTLREADING,               0x0080),
-                (ETO_IGNORELANGUAGE,           0x1000)
+                (ETO_OPAQUE,                   0wx0002),
+                (ETO_CLIPPED,                  0wx0004),
+                (ETO_GLYPH_INDEX,              0wx0010),
+                (ETO_RTLREADING,               0wx0080),
+                (ETO_IGNORELANGUAGE,           0wx1000)
             ]
         in
             val EXTENDEDTEXTOUT = tableSetConversion(tab, NONE)
         end
 
-        fun ExtTextOut (h,({x,y}:POINT),option,rect,text,gapl) =
-        let         
-            val slen = String.size text
-            val (gaps, _) =
-                case gapl of
-                    [] => (toCint 0 (* Null *), 0)
-                |   _ => list2Vector INT gapl
-            (* The Rect is optional but really depends on the ETO_OPAQUE or ETO_CLIPPED
-               options. *)
-            val r =
-                case rect of
-                    NONE => toCint 0 (* Null *)
-                |   SOME rect =>
-                    let
-                        val (_, to, _) = breakConversion (POINTERTO RECT)
-                    in
-                        to rect
-                    end
-        in call8 (gdi "ExtTextOutA")
-                 (HDC,INT,INT,EXTENDEDTEXTOUT,POINTER,STRING,INT,POINTER)
-                    (SUCCESSSTATE "ExtTextOut")
-                 (h,x,y,option,r,text,slen, gaps)
-        end
-        
-        fun GetCharABCWidths (h, c1: char, c2: char) = 
-        let val count = ord c2 - ord c1
-            val ABC = STRUCT3(INT, INT, INT)
-            val (toABC, fromABC, abcStruct) = breakConversion ABC
-            val abcarr = alloc count abcStruct
-        
-            val _: unit = call4 (gdi "GetCharABCWidthsA")
-                            (HDC,INT,INT,POINTER) (SUCCESSSTATE "GetCharABCWidths")
-                            (h, ord c1, ord c2,address abcarr)
-            fun getElement i = toABC(offset i abcStruct abcarr)
+        local
+            val extTextOut =
+                winCall8 (gdi "ExtTextOutA")
+                 (cHDC,cInt,cInt, EXTENDEDTEXTOUT, cOptionPtr (cConstStar cRect), cString, cUint, cPointer)
+                    (successState "ExtTextOut")
         in
-            List.tabulate(count, getElement)
+            fun ExtTextOut (h,({x,y}:POINT), option, rect, text, gapl) =
+            let         
+                val slen = String.size text
+                val (gaps, _) =
+                    case gapl of
+                        [] => (Memory.null, 0)
+                    |   _ => list2Vector cInt gapl
+                (* The Rect is optional but really depends on the ETO_OPAQUE or ETO_CLIPPED
+                   options. *)
+            in
+                extTextOut(h, x, y, option, rect, text, slen, gaps)
+                    handle ex => (Memory.free gaps; raise ex);
+                Memory.free gaps
+            end
         end
 
-        fun GetCharABCWidthsFloat (h,c1,c2) = 
-        let val count = ord c2 - ord c1
-            val ABC = STRUCT3(FLOAT, FLOAT, FLOAT)
-            val (toABC, fromABC, abcStruct) = breakConversion ABC
-            val abcarr = alloc count abcStruct
-        
-            val res = call4 (gdi "GetCharABCWidthsFloatA")
-                            (HDC,INT,INT,POINTER) (SUCCESSSTATE "GetCharABCWidthsFloat")
-                            (h, ord c1, ord c2, address abcarr)
-        
-            fun getElement i = toABC(offset i abcStruct abcarr)
-        
+        local
+            val ABC = cStruct3(cInt, cUint, cInt)
+            val getCharABCWidths =
+                winCall4 (gdi "GetCharABCWidthsA")
+                            (cHDC, cUint, cUint, cPointer) (successState "GetCharABCWidths")
+            val getVec = getVectorResult ABC
         in
-            List.tabulate(count, getElement)
+            fun GetCharABCWidths (h, c1: char, c2: char) = 
+            let
+                fun getCharABC(abcarr, count) =
+                    (getCharABCWidths(h, ord c1, ord c2, abcarr); count)
+            in
+                getVec getCharABC (ord c2 - ord c1 + 1) 
+            end
         end
-        
-        fun GetCharWidth32 (h,c1,c2) = 
-        let val count = ord c2 - ord c1
-            val arr = alloc count Cint
-        
-            val res = call4 (gdi "GetCharWidth32A")
-                            (HDC,INT,INT,POINTER) (SUCCESSSTATE "GetCharWidth32")
-                            (h, ord c1, ord c2,address arr)
-            fun getElement i = fromCint(offset i Cint arr)
+
+        local
+            val ABC = cStruct3(cFloat, cFloat, cFloat)
+            val getCharABCWidthsFloat =
+                winCall4 (gdi "GetCharABCWidthsFloatA")
+                            (cHDC, cUint, cUint, cPointer) (successState "GetCharABCWidthsFloat")
+            val getVec = getVectorResult ABC
         in
-            List.tabulate(count, getElement)
+            fun GetCharABCWidthsFloat (h,c1,c2) = 
+            let
+                fun getCharABC(abcarr, count) =
+                    (getCharABCWidthsFloat(h, ord c1, ord c2, abcarr); count)
+            in
+                getVec getCharABC (ord c2 - ord c1 + 1)
+            end
         end
-        
-        fun GetCharWidthFloat (h,c1,c2) = 
-        let val count = c2-c1
-            val arr = alloc count Cfloat
-        
-            val res = call4 (gdi "GetCharWidthFloatA")
-                            (HDC,INT,INT,POINTER) (SUCCESSSTATE "GetCharWidthFloat")
-                            (h,c1,c2,address arr)
-        
-            fun getElement i = fromCfloat(offset i Cfloat arr)
+
+        local
+            val getCharWidth32 =
+                winCall4 (gdi "GetCharWidth32A")
+                                (cHDC, cUint, cUint, cPointer) (successState "GetCharWidth32")
+            val getVec = getVectorResult cInt
         in
-            List.tabulate(count, getElement)
+            fun GetCharWidth32 (h,c1,c2) = 
+            let
+                fun getCharW(vec, count) =
+                    (getCharWidth32(h, ord c1, ord c2, vec); count)
+            in
+                getVec getCharW (ord c2 - ord c1 + 1)
+            end
         end
-        
-        fun GetTextExtentPoint32 (h,s) = 
-        let
-            val (fromSize, _, sizeStruct) = breakConversion SIZE
-            val sz = alloc 1 sizeStruct
-            val slen = String.size s
-            val _ = call4 (gdi "GetTextExtentPoint32A")
-                            (HDC,STRING,INT,POINTER) (SUCCESSSTATE "GetTextExtentPoint32")
-                            (h,s,slen,address sz)
+
+        local
+            val getCharWidthFloat =
+                winCall4 (gdi "GetCharWidthFloatA")
+                            (cHDC,cUint, cUint, cPointer) (successState "GetCharWidthFloat")
+            val getVec = getVectorResult cFloat
         in
-           fromSize sz
+            fun GetCharWidthFloat (h,c1,c2) = 
+            let
+                fun getCharW(vec, count) =
+                    (getCharWidthFloat(h, ord c1, ord c2, vec); count)
+            in
+                getVec getCharW (ord c2 - ord c1 + 1)
+            end
         end
-        
-        fun TextOut (h,({x,y}:POINT),s) = 
-        let val len = String.size s
+ 
+        local
+            val getTextExtentPoint32 =
+                winCall4 (gdi "GetTextExtentPoint32A")
+                            (cHDC, cString, cInt, cStar cSize) (successState "GetTextExtentPoint32")
         in
-           call5 (gdi "TextOutA")
-                 (HDC,INT,INT,STRING,INT) (SUCCESSSTATE "TextOut")
-                 (h,x,y,s,len)
+            fun GetTextExtentPoint32 (h, s) = 
+            let
+                val r = ref {cx=0, cy=0}
+                val () = getTextExtentPoint32(h, s, size s, r)
+            in
+               !r
+            end
+        end
+
+        local
+            val textOut =
+                winCall5 (gdi "TextOutA")
+                 (cHDC,cInt,cInt,cString,cInt) (successState "TextOut")
+        in
+            fun TextOut (h,({x,y}:POINT),s) = textOut(h, x, y, s, size s)
         end
 
 
         datatype TextMetricPitch = TMPF_FIXED_PITCH | TMPF_VECTOR | TMPF_TRUETYPE | TMPF_DEVICE
+        
         (* N.B. TMPF_FIXED_PITCH is included if the font is NOT fixed pitch!! *)
         type TEXTMETRIC =
             { height: int, ascent: int, descent: int, internalLeading: int, externalLeading: int,
@@ -407,105 +416,127 @@ struct
               digitizedAspectX: int, digitizedAspectY: int, firstChar: char, lastChar: char,
               defaultChar: char, breakChar: char, italic: bool, underlined: bool, struckOut: bool,
               pitch: TextMetricPitch list, family: FontFamily, charSet : CharacterSet }
-
-        fun GetTextMetrics hdc : TEXTMETRIC =
-        let
-            val TEXTMETRIC = STRUCT20(LONG, LONG, LONG, LONG, LONG, LONG, LONG, LONG, LONG, LONG,
-                                      LONG, CHAR, CHAR, CHAR, CHAR, CHAR, CHAR, CHAR, CHAR, CHAR)
-            val (fromTm, toTm, tmStruct) = breakConversion TEXTMETRIC
-            val buff = alloc 1 tmStruct
-            val _:unit = call2 (gdi "GetTextMetricsA") (HDC, POINTER) (SUCCESSSTATE "GetTextMetrics")
-                    (hdc, address buff)
-            val (height, ascent, descent, internalLeading, externalLeading,
-                  aveCharWidth, maxCharWidth, weight, overhang,
-                  digitizedAspectX, digitizedAspectY, firstChar, lastChar,
-                  defaultChar, breakChar, italic, underlined, struckOut,
-                  pitchAndFamily, charSet) = fromTm buff
-            val (fromChs, _, _) = breakConversion CHARACTERSET
-            val family = toFamily(IntInf.andb(ord pitchAndFamily, 0xf0))
-            val pitch =
-                (if IntInf.andb(ord pitchAndFamily, 1) <> 0 then [TMPF_FIXED_PITCH] else []) @
-                (if IntInf.andb(ord pitchAndFamily, 2) <> 0 then [TMPF_VECTOR] else []) @
-                (if IntInf.andb(ord pitchAndFamily, 4) <> 0 then [TMPF_TRUETYPE] else []) @
-                (if IntInf.andb(ord pitchAndFamily, 8) <> 0 then [TMPF_DEVICE] else []) 
+        local
+            val TEXTMETRIC =
+                cStruct20(cLong, cLong, cLong, cLong, cLong, cLong, cLong, cLong, cLong, cLong,
+                          cLong, cChar, cChar, cChar, cChar, cUint8w, cUint8w, cUint8w, cUint8w, cUint8w)
+            val getTextMetrics =
+                winCall2 (gdi "GetTextMetricsA") (cHDC, cStar TEXTMETRIC) (successState "GetTextMetrics")
+            val tmpfTab = [
+                (TMPF_FIXED_PITCH,  0wx1), (* N.B.  This is the opposite *)
+                (TMPF_VECTOR,       0wx2),
+                (TMPF_TRUETYPE,     0wx4),
+                (TMPF_DEVICE,       0wx8)
+                ]
+            val (_, tmpfFromW32) = tableSetLookup(tmpfTab, NONE)
         in
-            {
-            height = height, ascent = ascent, descent = ascent, internalLeading = internalLeading,
-            externalLeading = externalLeading, aveCharWidth = aveCharWidth, maxCharWidth = maxCharWidth,
-            weight = weight, overhang = overhang, digitizedAspectX = digitizedAspectX,
-            digitizedAspectY = digitizedAspectY, firstChar = firstChar, lastChar = lastChar,
-            defaultChar = defaultChar, breakChar = breakChar, italic = italic <> #"\000",
-            underlined = underlined <> #"\000", struckOut = struckOut <> #"\000",
-            family = family, pitch = pitch, charSet = fromChs(toCint(ord charSet))
-            }
+
+            fun GetTextMetrics hdc : TEXTMETRIC =
+            let
+                val r = ref (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, #" ", #" ", #" ", #" ", 0w0, 0w0, 0w0, 0w0, 0w0)
+                val () = getTextMetrics (hdc, r)
+                val (height, ascent, descent, internalLeading, externalLeading,
+                      aveCharWidth, maxCharWidth, weight, overhang,
+                      digitizedAspectX, digitizedAspectY, firstChar, lastChar,
+                      defaultChar, breakChar, italic, underlined, struckOut,
+                      pitchAndFamily, charSet) = !r
+                (*val (fromChs, _, _) = breakConversion CHARACTERSET*)
+                val family = toFamily(Word8.andb(pitchAndFamily, 0wxf0))
+                val pitch = tmpfFromW32(Word32.fromLargeWord(Word8.toLargeWord(Word8.andb(pitchAndFamily, 0wxf))))
+            in
+                {
+                height = height, ascent = ascent, descent = descent, internalLeading = internalLeading,
+                externalLeading = externalLeading, aveCharWidth = aveCharWidth, maxCharWidth = maxCharWidth,
+                weight = weight, overhang = overhang, digitizedAspectX = digitizedAspectX,
+                digitizedAspectY = digitizedAspectY, firstChar = firstChar, lastChar = lastChar,
+                defaultChar = defaultChar, breakChar = breakChar, italic = italic <> 0w0,
+                underlined = underlined <> 0w0, struckOut = struckOut <> 0w0,
+                family = family, pitch = pitch, charSet = charsetFromW8 charSet
+                }
+            end
         end
 
-        fun GetTextFace hdc : string =
-        let
-            val getFaceCall = call3(gdi "GetTextFaceA") (HDC, INT, POINTER) INT
-            (* Call with a NULL buffer to find out the size. *)
-            val count = getFaceCall(hdc, 0, toCint 0)
-            val _ = checkResult(count >= 0)
-            val buff = alloc count Cchar
-            val res = getFaceCall(hdc, count, address buff)
+        local
+            val getFaceCall = winCall3(gdi "GetTextFaceA") (cHDC, cInt, cPointer) cInt
         in
-            fromCstring(address buff)
+            fun GetTextFace hdc : string =
+                getStringWithNullIsLength(fn(vec, len) => getFaceCall(hdc, len, vec))
         end
 
-        fun GetTextExtentExPoint(hdc: HDC, s: string, maxWidth: int option) :
-            {fit: int option, extents: int list, size: SIZE} =
-        let
-            val count = size s
-            val vec = alloc count Cint
-            (* The lpnFit argument controls whether we get the maximum no. of chars. *)
-            val lpnFit =
-                case maxWidth of
-                    NONE => toCint 0
-                |   SOME f => address(alloc 1 Cint)
-            val (fromSize, _, sizeStruct) = breakConversion SIZE
-            val sizeVec = alloc 1 sizeStruct
-            val _: unit = call7(gdi "GetTextExtentExPointA")
-                (HDC, STRING, INT, INT, POINTER, POINTER, POINTER)
-                    (SUCCESSSTATE "GetTextExtentExPoint")
-                    (hdc, s, count, getOpt(maxWidth, 0), lpnFit, address vec, address sizeVec)
-            val fit = case maxWidth of NONE => NONE | _ => SOME(fromCint(deref lpnFit))
-            val extents = List.tabulate(getOpt(fit, count), fn i => fromCint(offset i Cint vec))
+        local
+            val getTextExtentExPoint =
+                winCall7(gdi "GetTextExtentExPointA")
+                    (cHDC, cString, cInt, cInt, cPointer, cPointer, cStar cSize) (successState "GetTextExtentExPoint")
+            val {load=loadInt, ctype={size=sizeInt, ...}, ...} = breakConversion cInt
+            val sizeIntSw = SysWord.fromLargeWord(Word.toLargeWord sizeInt)
         in
-            {fit = fit, extents = extents, size = fromSize sizeVec}
+            fun GetTextExtentExPoint(hdc: HDC, s: string, maxWidth: int option) :
+                {fit: int option, extents: int list, size: SIZE} =
+            let
+                val count = size s
+                open Memory
+                val vec = malloc(Word.fromInt count * sizeInt)
+                (* The lpnFit argument controls whether we get the maximum no. of chars. *)
+                val lpnFit =
+                    case maxWidth of
+                        NONE => null
+                    |   SOME _ => malloc sizeInt
+                val sizeVec = ref {cx=0, cy=0}
+                val () =
+                    getTextExtentExPoint
+                        (hdc, s, count, getOpt(maxWidth, 0), lpnFit, vec, sizeVec)
+                            handle ex => (free vec; free lpnFit; raise ex)
+                val fit = case maxWidth of NONE => NONE | _ => SOME(loadInt lpnFit)
+                fun loadExt i =
+                    loadInt(sysWord2VoidStar(voidStar2Sysword vec + SysWord.fromInt i * sizeIntSw))
+                val extents = List.tabulate(getOpt(fit, count), loadExt)
+                val () = free vec
+                val () = free lpnFit
+            in
+                {fit = fit, extents = extents, size = ! sizeVec}
+            end
         end
 
         local
             val tabbedTextOut =
-                call8 (user "TabbedTextOutA") (HDC, INT, INT, STRING, INT, INT, POINTER, INT) UINT
+                winCall8 (user "TabbedTextOutA") (cHDC, cInt, cInt, cString, cInt, cInt, cPointer, cInt) cDWORDw
         in
             fun TabbedTextOut(hdc, {x, y}: POINT, str, tabs, origin): SIZE =
             let
                 val (tabVec, nTabs) =
                     case tabs of
-                        [] => (toCint 0, 0) (* Make the vector null. *)
-                    | _ => list2Vector INT tabs
-                val res = tabbedTextOut(hdc, x, y, str, size str, nTabs, tabVec, origin)
+                        [] => (Memory.null, 0) (* Make the vector null. *)
+                    | _ => list2Vector cInt tabs
+                val res =
+                    tabbedTextOut(hdc, x, y, str, size str, nTabs, tabVec, origin)
+                        handle ex => (Memory.free tabVec; raise ex)
+                val () = Memory.free tabVec
+                val () = checkResult(res <> 0w0)
             in
                 (* Zero represents an error.  But it's also possible to return zero if
                    the string is empty. *)
-                {cx = LOWORD res, cy = HIWORD res}
+                {cx = Word.toInt(LOWORD res), cy = Word.toInt(HIWORD res)}
             end
         end
 
         local
             val tabbedTextExtent =
-                call5 (user "GetTabbedTextExtentA") (HDC, STRING, INT, INT, POINTER)
-                    (POSINT "GetTabbedTextExtent")
+                winCall5 (user "GetTabbedTextExtentA") (cHDC, cString, cInt, cInt, cPointer) cDWORDw
+                    (*(POSINT "GetTabbedTextExtent")*)
         in
             fun GetTabbedTextExtent(hdc, str, tabs): SIZE =
             let
                 val (tabVec, nTabs) =
                     case tabs of
-                        [] => (toCint 0, 0) (* Make the vector null. *)
-                    | _ => list2Vector INT tabs
-                val res = tabbedTextExtent(hdc, str, size str, nTabs, tabVec)
+                        [] => (Memory.null, 0) (* Make the vector null. *)
+                    | _ => list2Vector cInt tabs
+                val res =
+                    tabbedTextExtent(hdc, str, size str, nTabs, tabVec)
+                        handle ex => (Memory.free tabVec; raise ex)
+                val () = Memory.free tabVec
+                val () = checkResult(res <> 0w0)
             in
-                {cx = LOWORD res, cy = HIWORD res}
+                {cx = Word.toInt(LOWORD res), cy = Word.toInt(HIWORD res)}
             end
         end
 

@@ -23,11 +23,11 @@ use "Dialog";
 use "Cursor";
 use "Icon";
 use "Menu";
-use "GdiBase"; (* Currently working on this *)
+use "GdiBase";
 use "Color";
 use "FontBase";
 use "Font";
-use "DeviceBase";
+use "DeviceBase"; (* Currently working on this *)
 use "Bitmap";
 use "Brush";
 use "Pen";

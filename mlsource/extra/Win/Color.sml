@@ -41,7 +41,7 @@ structure Color (* Use American spelling for consistency. *):
     val GetNearestColor : HDC * COLORREF -> COLORREF
     val GetNearestPaletteIndex : HPALETTE * COLORREF -> int
     val GetPaletteEntries : HPALETTE * int * int -> PALETTEENTRY list
-    val GetSystemPaletteEntries : HPALETTE * int * int -> PALETTEENTRY list
+    val GetSystemPaletteEntries : HDC * int * int -> PALETTEENTRY list
     val GetSystemPaletteUse : HDC -> SystemPaletteUse
     val RealizePalette : HDC -> int
     val ResizePalette : HPALETTE * int -> unit
@@ -64,7 +64,7 @@ struct
             W of int
         in
             type SystemPaletteUse = SystemPaletteUse
-            val SYSTEMPALETTEUSE = absConversion {abs = W, rep = fn W n => n} INT
+            val SYSTEMPALETTEUSE = absConversion {abs = W, rep = fn W n => n} cUint
         
             val SYSPAL_ERROR                                 = W (0)
             val SYSPAL_STATIC                                = W (1)
@@ -75,107 +75,173 @@ struct
         type PALETTEENTRY = {red: int, green: int, blue: int, flags: PaletteEntryFlag}
 
         local
-            open LargeWord
-            infix 7 andb
-            infix 6 orb
-            infix 4 << >>
+            val cPaletteEnt = cStruct4(cUint8, cUint8, cUint8, cUint8)
+            val { load=loadPE, store=storePE, ctype={size=peSize, ...} } = breakConversion cPaletteEnt
 
             fun toPE({red, green, blue, flags}: PALETTEENTRY) =
-                fromInt red andb 0wxff
-                      orb (fromInt green andb 0wxff << 0w8)
-                      orb (fromInt blue andb 0wxff << 0w16)
-                      orb (case flags of PC_NULL => 0w0 | PC_RESERVED => 0w1 << 0w24
-                                | PC_EXPLICIT => 0w2 << 0w24 | PC_NOCOLLAPSE => 0w4 << 0w24)
-            fun fromPE w : PALETTEENTRY =
             let
-                val red = toInt(w andb 0wxff)
-                val green = toInt((w >> 0w8) andb 0wxff)
-                val blue = toInt((w >> 0w16) andb 0wxff)
+                val f =
+                    case flags of PC_NULL => 0 | PC_RESERVED => 1
+                    | PC_EXPLICIT => 2 | PC_NOCOLLAPSE => 4
+            in
+                (red, green, blue, f)
+            end
+            fun fromPE (red, green, blue, f): PALETTEENTRY =
+            let
                 val flags =
-                    case toInt(w >> 0w16) of
+                    case f of
                         0 => PC_NULL
                     |   1 => PC_RESERVED
                     |   2 => PC_EXPLICIT
                     |   4 => PC_NOCOLLAPSE
                     |   _ => raise Match
             in
-                {red=red, green=green, blue=blue, flags=flags}: PALETTEENTRY
+                {red=red, green=green, blue=blue, flags=flags}
             end
+            
+            open Memory
+            val peSizSW = SysWord.fromLargeWord(Word.toLargeWord peSize)
+            val logPal = cStruct2(cWORD, cWORD)
+            val {store=storeLP, ctype={size=lpSize, ...}, ...} = breakConversion logPal
+            val lpSizeSW = SysWord.fromLargeWord(Word.toLargeWord lpSize)
         in
-            val PALETTEENTRY = absConversion{abs = fromPE, rep = toPE} WORD
+            (* Unfortunately we can't make a simple conversion here.  When we load
+               the entries we need to know how many we're loading. *)
+            fun allocPEVec n = malloc(Word.fromInt n * peSize)
+            val freePEVec = free
+
+            local
+                (* Copy the elements into the array. *)
+                fun doStore (pe: PALETTEENTRY, addr: SysWord.word): SysWord.word =
+                (
+                    storePE(sysWord2VoidStar addr, toPE pe);
+                    addr + peSizSW
+                )
+            in
+                fun palListToC pl =
+                let
+                    val count = List.length pl
+                    val vec = allocPEVec count
+                    val _ = List.foldl doStore (voidStar2Sysword vec) pl
+                in
+                    (vec, count)
+                end
+            
+                fun logPaletteToC pl =
+                let
+                    (* A logical palette has two additional words at the start. *)
+                    val count = List.length pl
+                    val vec = malloc(Word.fromInt count * peSize + lpSize)
+                    val _ = storeLP(vec, (0x300, count))                
+                    val _ = List.foldl doStore (voidStar2Sysword vec + lpSizeSW) pl
+                in
+                    vec
+                end
+            end
+
+            fun palListFromC(vec, count) =
+            let
+                fun loadPalE n =
+                let
+                    val addr = sysWord2VoidStar(voidStar2Sysword vec + SysWord.fromInt n * peSizSW)
+                in
+                    fromPE(loadPE addr)
+                end
+            in
+                List.tabulate(count, loadPalE)
+            end
+        end
+        
+        val GetSystemPaletteUse        = winCall1(gdi "GetSystemPaletteUse") (cHDC) SYSTEMPALETTEUSE
+        val RealizePalette             = winCall1(gdi "RealizePalette") (cHDC) cUint
+        val ResizePalette              = winCall2(gdi "ResizePalette") (cHPALETTE,cUint) (successState "ResizePalette")
+        val SelectPalette              = winCall3(gdi "SelectPalette") (cHDC,cHPALETTE,cBool) cHPALETTE
+        val SetSystemPaletteUse        = winCall2(gdi "SetSystemPaletteUse") (cHDC,SYSTEMPALETTEUSE) SYSTEMPALETTEUSE
+        val UpdateColors               = winCall1(gdi "UpdateColors") (cHDC) (successState "UpdateColors")
+        val CreateHalftonePalette      = winCall1(gdi "CreateHalftonePalette") (cHDC) cHPALETTE
+        val GetNearestColor = winCall2 (gdi "GetNearestColor") (cHDC,cCOLORREF) cCOLORREF 
+        val GetNearestPaletteIndex = winCall2 (gdi "GetNearestPaletteIndex") (cHPALETTE,cCOLORREF) cUint
+        val UnrealizeObject              = winCall1(gdi "UnrealizeObject") (cHPALETTE) (successState "UnrealizeObject")
+        
+        local
+            val animatePalette =
+                winCall4 (gdi "AnimatePalette") (cHPALETTE, cUint, cUint, cPointer) (cBool)
+        in
+            fun AnimatePalette (h,start,pl) =
+            let
+                val (vec, count) = palListToC pl
+                val res =
+                    animatePalette(h, start, count, vec)
+                        handle ex => (freePEVec vec; raise ex)
+                val () = freePEVec vec
+            in 
+                res
+            end
+        end 
+
+        local
+            val createPalette = winCall1 (gdi "CreatePalette") (cPointer) (cHPALETTE)
+        in
+            fun CreatePalette pl =
+            let
+                val vec = logPaletteToC pl
+                val res =
+                    createPalette vec handle ex => (freePEVec vec; raise ex)
+                val () = freePEVec vec
+                val () = checkResult(not(isHNull res))
+            in
+                res
+            end
         end
 
-        
-        val GetSystemPaletteUse        = call1(gdi "GetSystemPaletteUse") (HDC) SYSTEMPALETTEUSE
-        val RealizePalette             = call1(gdi "RealizePalette") (HDC) INT
-        val ResizePalette              = call2(gdi "ResizePalette") (HPALETTE,INT) (SUCCESSSTATE "ResizePalette")
-        val SelectPalette              = call3(gdi "SelectPalette") (HDC,HPALETTE,BOOL) HPALETTE
-        val SetSystemPaletteUse        = call2(gdi "SetSystemPaletteUse") (HDC,SYSTEMPALETTEUSE) SYSTEMPALETTEUSE
-        val UpdateColors               = call1(gdi "UpdateColors") (HDC) (SUCCESSSTATE "UpdateColors")
-        val CreateHalftonePalette      = call1(gdi "CreateHalftonePalette") (HDC) HPALETTE
-        val GetNearestColor = call2 (gdi "GetNearestColor") (HDC,COLORREF) COLORREF 
-        val GetNearestPaletteIndex = call2 (gdi "GetNearestPaletteIndex") (HPALETTE,COLORREF) (INT)
-        val UnrealizeObject              = call1(gdi "UnrealizeObject") (HPALETTE) (SUCCESSSTATE "UnrealizeObject")
-        
-        fun AnimatePalette (h,start,pl) =
-        let val count = List.length pl
-            val (_, toPE, paletteEntry) = breakConversion PALETTEENTRY
-            val pal = alloc count paletteEntry
-            (* Copy the elements into the array. *)
-            val _ = List.foldl (fn (pe, n) => (assign Clong (offset n Clong pal) (toPE pe); n+1)) 0 pl
-        
-        in call4 (gdi "AnimatePalette")
-                 (HPALETTE,INT,INT,POINTER) (BOOL)
-                 (h,start,count,address pal)
-        end 
-        
-        fun CreatePalette (pl) =
-        let val count = List.length pl
-            val (_, toPE, paletteEntry) = breakConversion PALETTEENTRY
-            (* A LOGPALETTE consists of a version number, the number of palette entries
-               and the entries themselves.  It seems the version is 0x300. *)
-            val logpal = alloc (count+1) Clong
-            val _ = assign Cshort (offset 0 Cshort logpal) (toCshort 0x300)
-            val u = assign Cshort (offset 1 Cshort logpal) (toCshort count)
-            val _ = List.foldl (fn (pe, n) => (assign Clong (offset n Clong logpal) (toPE pe); n+1)) 1 pl
+        local
+            val getPaletteEntries =
+                winCall4 (gdi "GetPaletteEntries") (cHPALETTE, cUint, cUint, cPointer) cUint
         in
-           call1 (gdi "CreatePalette") (POINTER) (HPALETTE) (address logpal)
-        end 
-        
-        fun GetPaletteEntries (h,start,no) = 
-        let
-          val (fromPE, _, paletteEntry) = breakConversion PALETTEENTRY
-          val palarr = alloc no paletteEntry
-        
-          val res = call4 (gdi "GetPaletteEntries") (HPALETTE,INT,INT,POINTER) (INT)
-                    (h,start,no,address palarr)
+            fun GetPaletteEntries (h, start, no) = 
+            let
+                val vec = allocPEVec no
+                val res = getPaletteEntries (h, start, no, vec)
+                (* The result is zero if error *)
+                val result = palListFromC(vec, res)
+                val () = freePEVec vec
+                val () = checkResult(res <> 0)
+            in
+                result
+            end 
+        end
+
+        local
+            val getSystemPaletteEntries =
+                winCall4 (gdi "GetSystemPaletteEntries") (cHDC, cUint, cUint, cPointer) cUint
         in
-            if res <= 0
-            then raiseSysErr()
-            else List.tabulate(res, fn i => fromPE (offset i Clong palarr))
-        end 
-        
-        fun GetSystemPaletteEntries (h,start,no) = 
-        let
-          val (fromPE, _, paletteEntry) = breakConversion PALETTEENTRY
-          val palarr = alloc no paletteEntry
-        
-          val res = call4 (gdi "GetSystemPaletteEntries") (HPALETTE,INT,INT,POINTER) (INT)
-                    (h,start,no,address palarr)
+            fun GetSystemPaletteEntries (h, start, no) = 
+            let
+                val vec = allocPEVec no
+                val res = getSystemPaletteEntries (h, start, no, vec)
+                (* The result is zero if error *)
+                val result = palListFromC(vec, res)
+                val () = freePEVec vec
+                val () = checkResult(res <> 0)
+            in
+                result
+            end 
+        end
+
+        local
+            val setPaletteEntries =
+                winCall4 (gdi "SetPaletteEntries") (cHPALETTE, cUint, cUint, cPointer) cUint
         in
-            if res <= 0
-            then raiseSysErr()
-            else List.tabulate(res, fn i => fromPE (offset i Clong palarr))
-        end 
-         
-        fun SetPaletteEntries (h,start,pl) =
-        let val count = List.length pl
-            val (_, toPE, paletteEntry) = breakConversion PALETTEENTRY
-            val pal = alloc count paletteEntry
-            val _ = List.foldl (fn (pe, n) => (assign Clong (offset n Clong pal) (toPE pe); n+1)) 0 pl      
-        in call4 (gdi "SetPaletteEntries")
-                 (HPALETTE,INT,INT,POINTER) (SUCCESSSTATE "SetPaletteEntries")
-                 (h,start,count,address pal)
+            fun SetPaletteEntries (h, start,pl) =
+            let 
+                val (vec, count) = palListToC pl
+                val res =
+                    setPaletteEntries(h, start, count, vec)
+                        handle ex => (freePEVec vec; raise ex)
+                val () = freePEVec vec
+            in 
+                checkResult(res <> 0)
+            end
         end
         (*
         Other Colour functions:

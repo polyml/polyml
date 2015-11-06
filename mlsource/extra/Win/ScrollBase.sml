@@ -51,14 +51,14 @@ struct
 
         local
             val tab = [
-                (SIF_RANGE,           0x0001),
-                (SIF_PAGE,            0x0002),
-                (SIF_POS,             0x0004),
-                (SIF_DISABLENOSCROLL, 0x0008),
-                (SIF_TRACKPOS,        0x0010)]
+                (SIF_RANGE,           0wx0001),
+                (SIF_PAGE,            0wx0002),
+                (SIF_POS,             0wx0004),
+                (SIF_DISABLENOSCROLL, 0wx0008),
+                (SIF_TRACKPOS,        0wx0010)]
         in
             (*val (fromSIF, toSIF) = tableSetLookup(tab, NONE)*)
-            val cSCROLLINFOOPTION = tableSetConversion(tab, NONE) cUint
+            val cSCROLLINFOOPTION = tableSetConversion(tab, NONE)
         end
     end
 end;

@@ -119,7 +119,7 @@ struct
 
         (* BRUSHES *)
         val CreateBrushIndirect = call1 (user "CreateBrushIndirect") (LOGBRUSH) HBRUSH
-        and CreateHatchBrush = call2 (gdi "CreateHatchBrush") (HATCHSTYLE, COLORREF) HBRUSH
+        and CreateHatchBrush = call2 (gdi "CreateHatchBrush") (cHATCHSTYLE, COLORREF) HBRUSH
         and CreateSolidBrush = call1 (gdi "CreateSolidBrush") (COLORREF) HBRUSH
         val GetBrushOrgEx              = gdicall_IW "GetBrushOrgEx" (SUCCESSSTATE "GetBrushOrgEx") (HDC,POINT)
         val SetBrushOrgEx              = gdicall_IM "SetBrushOrgEx" (SUCCESSSTATE "SetBrushOrgEx") (HDC,POINT)

@@ -172,28 +172,28 @@ struct
             |   SWP_NOSIZE
             |   SWP_NOZORDER
             |   SWP_SHOWWINDOW
-            |   SWP_OTHER of int
+            |   SWP_OTHER of Word32.word
 
         local
             val tab = [
-            (SWP_NOSIZE,          0x0001),
-            (SWP_NOMOVE,          0x0002),
-            (SWP_NOZORDER,        0x0004),
-            (SWP_NOREDRAW,        0x0008),
-            (SWP_NOACTIVATE,      0x0010),
-            (SWP_FRAMECHANGED,    0x0020),  (* The frame changed: send WM_NCCALCSIZE *)
-            (SWP_SHOWWINDOW,      0x0040),
-            (SWP_HIDEWINDOW,      0x0080),
-            (SWP_NOCOPYBITS,      0x0100),
-            (SWP_NOOWNERZORDER,   0x0200),  (* Don't do owner Z ordering *)
-            (SWP_NOSENDCHANGING,  0x0400),  (* Don't send WM_WINDOWPOSCHANGING *)
-            (SWP_DEFERERASE,      0x2000),
-            (SWP_ASYNCWINDOWPOS,  0x4000)]
+            (SWP_NOSIZE,          0wx0001),
+            (SWP_NOMOVE,          0wx0002),
+            (SWP_NOZORDER,        0wx0004),
+            (SWP_NOREDRAW,        0wx0008),
+            (SWP_NOACTIVATE,      0wx0010),
+            (SWP_FRAMECHANGED,    0wx0020),  (* The frame changed: send WM_NCCALCSIZE *)
+            (SWP_SHOWWINDOW,      0wx0040),
+            (SWP_HIDEWINDOW,      0wx0080),
+            (SWP_NOCOPYBITS,      0wx0100),
+            (SWP_NOOWNERZORDER,   0wx0200),  (* Don't do owner Z ordering *)
+            (SWP_NOSENDCHANGING,  0wx0400),  (* Don't send WM_WINDOWPOSCHANGING *)
+            (SWP_DEFERERASE,      0wx2000),
+            (SWP_ASYNCWINDOWPOS,  0wx4000)]
 
             (* It seems that some other bits are set although they're not defined. *)
-            fun toInt (SWP_OTHER i) = i | toInt _ = raise Match
+            fun toWord (SWP_OTHER i) = i | toWord _ = raise Match
         in
-            val cWINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toInt)) cUint
+            val cWINDOWPOSITIONSTYLE = tableSetConversion(tab, SOME(SWP_OTHER, toWord))
         end
         
         (* In C the parent and menu arguments are combined in a rather odd way. *)

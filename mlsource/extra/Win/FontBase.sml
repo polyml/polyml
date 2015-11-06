@@ -22,34 +22,50 @@ struct
         open Foreign Base
     in
         datatype OutputQuality =
-            DEFAULT_QUALITY | DRAFT_QUALITY | PROOF_QUALITY | OTHER_QUALITY of int
+            DEFAULT_QUALITY | DRAFT_QUALITY | PROOF_QUALITY | ANTIALIASED_QUALITY | CLEARTYPE_QUALITY | NONANTIALIASED_QUALITY
         local
             val tab = [
-                (DEFAULT_QUALITY, 0),
-                (DRAFT_QUALITY, 1),
-                (PROOF_QUALITY, 2)
+                (DEFAULT_QUALITY,           0w0: Word8.word),
+                (DRAFT_QUALITY,             0w1),
+                (PROOF_QUALITY,             0w2),
+                (NONANTIALIASED_QUALITY,    0w3),
+                (ANTIALIASED_QUALITY,       0w4),
+                (CLEARTYPE_QUALITY,         0w5)
                 ]
         in
-            fun doConv (OTHER_QUALITY i) = i | doConv _ = raise Match
-            val OUTPUTQUALITY = tableConversion(tab, SOME(OTHER_QUALITY, doConv))
+            val (outQualToW8, outQualFromW8) = tableLookup(tab, NONE)
         end
 
-        datatype CharacterSet = ANSI_CHARSET | DEFAULT_CHARSET | SYMBOL_CHARSET |
-                SHIFTJIS_CHARSET | HANGEUL_CHARSET | CHINESEBIG5_CHARSET | OEM_CHARSET |
-                OTHER_CHARSET of int
+        datatype CharacterSet = ANSI_CHARSET | DEFAULT_CHARSET | SYMBOL_CHARSET | MAC_CHARSET |
+                SHIFTJIS_CHARSET | HANGEUL_CHARSET | JOHAB_CHARSET | GB2312_CHARSET |
+                CHINESEBIG5_CHARSET | GREEK_CHARSET | TURKISH_CHARSET | VIETNAMESE_CHARSET |
+                HEBREW_CHARSET | ARABIC_CHARSET | BALTIC_CHARSET | RUSSIAN_CHARSET |
+                THAI_CHARSET | EASTEUROPE_CHARSET | OEM_CHARSET
+
         local
             val tab = [
-                (ANSI_CHARSET, 0),
-                (DEFAULT_CHARSET, 1),
-                (SYMBOL_CHARSET, 2),
-                (SHIFTJIS_CHARSET, 128),
-                (HANGEUL_CHARSET, 129),
-                (CHINESEBIG5_CHARSET, 136),
-                (OEM_CHARSET, 255)
+                (ANSI_CHARSET,          0wx00: Word8.word),
+                (DEFAULT_CHARSET,       0wx01),
+                (SYMBOL_CHARSET,        0wx02),
+                (MAC_CHARSET,           0wx4D),
+                (SHIFTJIS_CHARSET,      0wx80),
+                (HANGEUL_CHARSET,       0wx81),
+                (JOHAB_CHARSET,         0wx82),
+                (GB2312_CHARSET,        0wx86),
+                (CHINESEBIG5_CHARSET,   0wx88),
+                (GREEK_CHARSET,         0wxA1),
+                (TURKISH_CHARSET,       0wxA2),
+                (VIETNAMESE_CHARSET,    0wxA3),
+                (HEBREW_CHARSET,        0wxB1),
+                (ARABIC_CHARSET,        0wxB2),
+                (BALTIC_CHARSET,        0wxBA),
+                (RUSSIAN_CHARSET,       0wxCC),
+                (THAI_CHARSET,          0wxDE),
+                (EASTEUROPE_CHARSET,    0wxEE),
+                (OEM_CHARSET,           0wxff)
                 ]
-            fun doConv (OTHER_CHARSET i) = i | doConv _ = raise Match
         in
-            val CHARACTERSET = tableConversion(tab, SOME(OTHER_CHARSET, doConv))
+            val (charsetToW8, charsetFromW8) = tableLookup(tab, NONE)
         end
     
         (* In the underlying CreateFont call the pitch and family are ORed together. *)
@@ -60,29 +76,30 @@ struct
         and FontPitch = DEFAULT_PITCH | FIXED_PITCH | VARIABLE_PITCH
 
         local
+            open Word8
             val tab1 = [
-                (DEFAULT_PITCH, 0),
-                (FIXED_PITCH, 1),
-                (VARIABLE_PITCH, 2)]
+                (DEFAULT_PITCH,     0w0),
+                (FIXED_PITCH,       0w1),
+                (VARIABLE_PITCH,    0w2)]
             and tab2 = [
-                (FF_DONTCARE, 0 * 16 (* (0<<4) Don't care or don't know. *)),
-                (FF_ROMAN, 1 * 16 (* (1<<4) Variable stroke width, serifed. *)),
-                (FF_SWISS, 2 * 16 (* (2<<4) Variable stroke width, sans~serifed. *)),
-                (FF_MODERN, 3 * 16 (* (3<<4) Constant stroke width, serifed or sans~serifed. *)),
-                (FF_SCRIPT, 4 * 16 (* (4<<4) Cursive, etc. *)),
-                (FF_DECORATIVE, 5 * 16 (* (5<<4) Old English, etc. *))]
+                (FF_DONTCARE,       0wx00 (* (0<<4) Don't care or don't know. *)),
+                (FF_ROMAN,          0wx10 (* (1<<4) Variable stroke width, serifed. *)),
+                (FF_SWISS,          0wx20 (* (2<<4) Variable stroke width, sans~serifed. *)),
+                (FF_MODERN,         0wx30 (* (3<<4) Constant stroke width, serifed or sans~serifed. *)),
+                (FF_SCRIPT,         0wx40 (* (4<<4) Cursive, etc. *)),
+                (FF_DECORATIVE,     0wx50 (* (5<<4) Old English, etc. *))]
             val (fromPitch, toPitch) = tableLookup(tab1, NONE)
             and (fromFamily, toFamily) = tableLookup(tab2, NONE)
-            fun repPF (pitch, family) = IntInf.orb(fromPitch pitch, fromFamily family)
-            fun absPF i = (toPitch(IntInf.andb(i, 3)), toFamily(IntInf.andb(i, ~16)))
         in
-            val toFamily = toFamily (* This is used in TEXTMETRIC. *)
-            val FONTPITCHANDFAMILY = absConversion {abs = absPF, rep = repPF} INT
+            val toFamily = toFamily (* This is used in GetTextMetrics. *)
+            fun pitchAndFamilyToW8 (pitch, family) = orb(fromPitch pitch, fromFamily family)
+            fun pitchAndFamilyFromW8 i = (toPitch(andb(i, 0w3)), toFamily(andb(i, 0wxf0)))
         end
 
         (*TYPE: FontWeight - This type is really int, not an abstract type. *)
         type FontWeight =  int
-        val FONTWEIGHT = INT
+        (* Values between 0 and 1000 *)
+        (*val FONTWEIGHT = cLong*) (* It's int for CreateFont but LONG for LONGFONT. *)
         
         val FW_DONTCARE                                  = 0
         val FW_THIN                                      = 100
@@ -107,36 +124,36 @@ struct
 
         local
             val tab = [
-                (OUT_DEFAULT_PRECIS, 0),
-                (OUT_STRING_PRECIS, 1),
-                (OUT_CHARACTER_PRECIS, 2),
-                (OUT_STROKE_PRECIS, 3),
-                (OUT_TT_PRECIS, 4),
-                (OUT_DEVICE_PRECIS, 5),
-                (OUT_RASTER_PRECIS, 6),
-                (OUT_TT_ONLY_PRECIS, 7),
-                (OUT_OUTLINE_PRECIS, 8),
-                (OUT_SCREEN_OUTLINE_PRECIS, 9)
+                (OUT_DEFAULT_PRECIS,        0w0: Word8.word),
+                (OUT_STRING_PRECIS,         0w1),
+                (OUT_CHARACTER_PRECIS,      0w2),
+                (OUT_STROKE_PRECIS,         0w3),
+                (OUT_TT_PRECIS,             0w4),
+                (OUT_DEVICE_PRECIS,         0w5),
+                (OUT_RASTER_PRECIS,         0w6),
+                (OUT_TT_ONLY_PRECIS,        0w7),
+                (OUT_OUTLINE_PRECIS,        0w8),
+                (OUT_SCREEN_OUTLINE_PRECIS, 0w9)
                 ]
         in
-            val OUTPUTPRECISION = tableConversion(tab, NONE)
+            val (outPrecToW8, outPrecFromW8) = tableLookup(tab, NONE)
         end
 
         (* TODO: This is a bit set. *)
+        datatype ClippingPrecision =
+            CLIP_DEFAULT_PRECIS | CLIP_STROKE_PRECIS | CLIP_LH_ANGLES | CLIP_DFA_DISABLE | CLIP_EMBEDDED
+            (* CLIP_CHARACTER_PRECIS and CLIP_TT_ALWAYS "should not be used"
+               [CLIP_DEFAULT_PRECIS] is the same as [] i.e. zero. *)
         local
-            datatype ClippingPrecision =
-            W of int
+            val tab = [
+                (CLIP_DEFAULT_PRECIS,       0wx0),
+                (CLIP_STROKE_PRECIS,        0wx2),
+                (CLIP_LH_ANGLES,            0wx10),
+                (CLIP_DFA_DISABLE,          0w40),
+                (CLIP_EMBEDDED,             0w80)
+                ]
         in
-            type ClippingPrecision = ClippingPrecision
-            val CLIPPINGPRECISION = absConversion {abs = W, rep = fn W n => n} INT
-        
-            val CLIP_DEFAULT_PRECIS                          = W (0)
-            val CLIP_CHARACTER_PRECIS                        = W (1)
-            val CLIP_STROKE_PRECIS                           = W (2)
-            val CLIP_MASK                                    = W (0xf)
-            val CLIP_LH_ANGLES                               = W (1 * 16 (* 1<<4 *))
-            val CLIP_TT_ALWAYS                               = W (2 * 16 (* 2<<4 *))
-            val CLIP_EMBEDDED                                = W (8 * 16 (* 8<<4 *))
+            val (clipPrecSetToW32, clipPrecSetFromW32) = tableSetLookup(tab, NONE)
         end
 
         type LOGFONT =
@@ -151,7 +168,7 @@ struct
             strikeOut : bool,
             charSet : CharacterSet,
             outputPrecision: OutputPrecision,
-            clipPrecision : ClippingPrecision,
+            clipPrecision : ClippingPrecision list,
             quality : OutputQuality,
             pitch: FontPitch,
             family: FontFamily,
@@ -159,48 +176,42 @@ struct
         }
 
         local
-            val LogFont = STRUCT14(INT, INT, INT, INT, FONTWEIGHT, CHAR, CHAR, CHAR, CHAR,
-                                CHAR, CHAR, CHAR, CHAR, CHARARRAY 32)
-            val (fromBase, toBase, struc) = breakConversion LogFont
-            val (fromCS, toCS, _) = breakConversion CHARACTERSET
-            val (fromOP, toOP, _) = breakConversion OUTPUTPRECISION
-            val (fromCP, toCP, _) = breakConversion CLIPPINGPRECISION
-            val (fromOQ, toOQ, _) = breakConversion OUTPUTQUALITY
-            val (fromFPF, toFPF, _) = breakConversion FONTPITCHANDFAMILY
-            fun chToB #"\000" = false | chToB _ = true
-            fun bToch false = #"\000" | bToch true = #"\001"
+            val cLogFont =
+                cStruct14(cLong, cLong, cLong, cLong, cLong, cUint8w, cUint8w, cUint8w, cUint8w,
+                                cUint8w, cUint8w, cUint8w, cUint8w, cCHARARRAY 32)
+            fun chToB 0w0 = false | chToB _ = true
+            fun bToch false = 0w0 | bToch true = 0w1
 
-            fun from v : LOGFONT =
+            fun toLF(height, width, escapement, orientation, weight, italic, underline,
+                    strikeOut, charSet, outputPrecision, clipPrecision, quality,
+                    pitchFamily, faceName) : LOGFONT =
             let
-                val (height, width, escapement, orientation, weight, italic, underline,
-                 strikeOut, charSet, outputPrecision, clipPrecision, quality,
-                 pitchFamily, faceName) = fromBase v
-                val (pitch, family) = (fromFPF o toCint o ord) pitchFamily
+                val (pitch, family) = pitchAndFamilyFromW8 pitchFamily
             in
                 {height = height, width = width, escapement = escapement,
                  orientation = orientation, weight = weight, italic = chToB italic,
                  underline = chToB underline, strikeOut = chToB strikeOut,
-                 charSet = (fromCS o toCint o ord) charSet,
-                 outputPrecision = (fromOP o toCint o ord) outputPrecision,
-                 clipPrecision = (fromCP o toCint o ord) clipPrecision,
-                 quality = (fromOQ o toCint o ord) quality, pitch = pitch, family = family,
+                 charSet = charsetFromW8 charSet,
+                 outputPrecision = outPrecFromW8 outputPrecision,
+                 clipPrecision = clipPrecSetFromW32(Word32.fromLargeWord(Word8.toLargeWord clipPrecision)),
+                 quality = outQualFromW8 quality, pitch = pitch, family = family,
                  faceName = faceName}
             end
 
-            fun to ({height, width, escapement, orientation, weight, italic, underline,
+            fun fromLF ({height, width, escapement, orientation, weight, italic, underline,
                      strikeOut, charSet, outputPrecision, clipPrecision, quality,
                      pitch, family, faceName}: LOGFONT) =
             let
-                val pitchFamily = fromCchar(toFPF(pitch, family))
+                val pitchFamily = pitchAndFamilyToW8(pitch, family)
             in
-                toBase(height, width, escapement, orientation, weight, bToch italic,
-                    bToch underline, bToch strikeOut, (chr o fromCint o toCS) charSet,
-                    (chr o fromCint o toOP) outputPrecision,
-                    (chr o fromCint o toCP) clipPrecision,
-                    (chr o fromCint o toOQ) quality, pitchFamily, faceName)
+                (height, width, escapement, orientation, weight, bToch italic,
+                    bToch underline, bToch strikeOut, charsetToW8 charSet,
+                    outPrecToW8 outputPrecision,
+                    Word8.fromLargeWord(Word32.toLargeWord (clipPrecSetToW32 clipPrecision)),
+                    outQualToW8 quality, pitchFamily, faceName)
             end
         in
-            val LOGFONT = mkConversion from to struc
+            val cLOGFONT = absConversion{abs=toLF, rep=fromLF} cLogFont
         end
     end
 end;

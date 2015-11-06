@@ -90,13 +90,14 @@ struct
 
         structure Style =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word32
+            type flags = Word32.word
+            val toWord = SysWord.fromLargeWord o toLargeWord
+            and fromWord = fromLargeWord o SysWord.toLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
     
             val CS_VREDRAW: flags          = 0wx0001
             val CS_HREDRAW: flags          = 0wx0002
@@ -116,7 +117,7 @@ struct
                             CS_CLASSDC, CS_NOKEYCVT, CS_NOCLOSE, CS_SAVEBITS,
                             CS_BYTEALIGNCLIENT, CS_BYTEALIGNWINDOW, CS_GLOBALCLASS]
     
-            val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+            val intersect = List.foldl (fn (a, b) => andb(a,b)) all
         end
     
         (* Classes are either registered by the user, in which case they have
@@ -148,7 +149,7 @@ struct
 
         local
             val cWNDPROC = winFun4 (cHWND, cUint, cPointer, cPointer) cPointer
-            val cWNDCLASSEX = cStruct12(cUint,cUint,permanent cWNDPROC,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
+            val cWNDCLASSEX = cStruct12(cUint,cUintw,permanent cWNDPROC,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
                                       cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
             val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
             val registerClassEx = winCall1 (user "RegisterClassExA") (cConstStar cWNDCLASSEX) cUint
@@ -168,7 +169,7 @@ struct
                 val windowProc = Message.mainCallbackFunction
                 val cWndClass =
                     (Word.toInt sizeWndclassEx,
-                        LargeWord.toInt(Style.toWord style),
+                        style,
                         windowProc,
                         0, (* Class extra *)
                         0, (* Window extra *)

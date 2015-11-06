@@ -28,8 +28,8 @@ struct
         in
             type RasterOpCode = RasterOpCode
             type QuaternaryRop = QuaternaryRop
-            val RASTEROPCODE = absConversion {abs = W, rep = fn W n => n} INT
-            val QUATERNARY = absConversion {abs = Y, rep = fn Y n => n} INT
+            val cRASTEROPCODE = absConversion {abs = W, rep = fn W n => n} cDWORD
+            val cQUATERNARY = absConversion {abs = Y, rep = fn Y n => n} cDWORD
         
             val SRCCOPY                                      = W (0x00CC0020 (* dest = source *))
             val SRCPAINT                                     = W (0x00EE0086 (* dest = source OR dest *))
@@ -57,27 +57,32 @@ struct
             { width: int, height: int, widthBytes: int, planes: int, bitsPerPixel: int,
               bits: Word8Vector.vector option }
         local
-            val bitmapStruct = STRUCT7(INT, INT, INT, INT, SHORT, SHORT, POINTER)
-            val (fromCStr, toCStr, lpStruct) = breakConversion bitmapStruct
+            val bitmapStruct = cStruct7(cLong, cLong, cLong, cLong, cWORD, cWORD, cPointer)
+            val {load = fromCStr, store = toCStr, ctype = lpStruct} = breakConversion bitmapStruct
+            open Memory
 
-            fun toCbmp({width, height, widthBytes, planes, bitsPerPixel, bits}: BITMAP) =
-                toCStr(0, width, height, widthBytes, planes, bitsPerPixel,
-                    case bits of NONE => toCint 0 | SOME b => fromWord8vec b)
+            fun storeBmp(v: voidStar, {width, height, widthBytes, planes, bitsPerPixel, bits}: BITMAP) =
+            let
+                val m = case bits of NONE => Memory.null | SOME b => toCWord8vec b
+            in
+                toCStr(v, (0, width, height, widthBytes, planes, bitsPerPixel, m));
+                fn () => Memory.free m
+            end
 
-            fun fromCbmp(v: vol): BITMAP =
+            fun loadbmp(v: voidStar): BITMAP =
             let
                 val (_, width, height, widthBytes, planes, bitsPerPixel, bits) =
                     fromCStr v
                 val bits =
-                    if fromCint bits = 0
+                    if bits = Memory.null
                     then NONE
-                    else SOME (toWord8vec (bits, height * widthBytes))
+                    else SOME (fromCWord8vec (bits, height * widthBytes))
             in
                 {width = width, height = height, widthBytes = widthBytes, planes = planes,
                  bitsPerPixel = bitsPerPixel, bits = bits}
             end
         in
-            val BITMAP = mkConversion fromCbmp toCbmp lpStruct
+            val cBITMAP = makeConversion{store=storeBmp, load=loadbmp, ctype = lpStruct}
         end
 
         (* Line and Path *)
@@ -93,15 +98,15 @@ struct
             ]
             val (toInt, fromInt) = tableLookup(tab, NONE)
         in
-            val POINTTYPE =
-                absConversion {abs = fromInt o ord, rep = chr o toInt} CHAR (* Encoded as single bytes *)
+            val cPOINTTYPE =
+                absConversion {abs = fromInt, rep = toInt} cUint8 (* Encoded as single bytes *)
         end
 
         (* COLORREF - this is an RGB encoded into a 32-bit word. *)
-        abstype COLORREF = C of LargeWord.word
+        abstype COLORREF = C of Word32.word
         with
             local
-                open LargeWord
+                open Word32
                 infix 7 andb
                 infix 6 orb
                 infix 4 << >>
@@ -118,7 +123,7 @@ struct
                       green = toInt((p >> 0w8) andb 0wxff),
                       blue = toInt((p >> 0w16) andb 0wxff) }
             end
-            val COLORREF = absConversion {abs=C, rep = fn(C v) => v} WORD
+            val cCOLORREF = absConversion {abs=C, rep = fn(C v) => v} cDWORDw
         end
 
         (* Brush *)
@@ -130,8 +135,8 @@ struct
 
         type LOGBRUSH = BrushStyle * COLORREF
         local
-            val LBRUSH = STRUCT3(INT, COLORREF, INT)
-            val (fromStr, toStr, lbStruct) = breakConversion LBRUSH
+            val cLBRUSH = cStruct3(cUint, cCOLORREF, cULONG_PTR)
+            val {load=loadStr, store=storeStr, ctype=lbStruct} = breakConversion cLBRUSH
             val hbtab = [
                 (HS_HORIZONTAL,     0 (* ~~~~~ *)),
                 (HS_VERTICAL,       1 (* ||||| *)),
@@ -141,16 +146,19 @@ struct
                 (HS_DIAGCROSS,      5 (* xxxxx *))
             ]
             val (fromHB, toHB) = tableLookup(hbtab, NONE)
+            val hgdiAsInt = SysWord.toInt o Memory.voidStar2Sysword o voidStarOfHandle
+            and intAsHgdi = handleOfVoidStar o Memory.sysWord2VoidStar o SysWord.fromInt
 
-            fun toLB(BS_SOLID, cr) = toStr(0, cr, 0)
-             |  toLB(BS_HOLLOW, cr) = toStr(1, cr (* actually ignored *), 0)
-             |  toLB(BS_HATCHED hs, cr) = toStr(2, cr, fromHB hs)
-             |  toLB(BS_PATTERN hb, cr) = toStr(3, cr (* actually ignored *), hgdiAsInt hb)
+            fun storeLB(m, (BS_SOLID, cr)) = storeStr(m, (0, cr, 0))
+             |  storeLB(m, (BS_HOLLOW, cr)) = storeStr(m, (1, cr (* actually ignored *), 0))
+             |  storeLB(m, (BS_HATCHED hs, cr)) = storeStr(m, (2, cr, fromHB hs))
+             |  storeLB(m, (BS_PATTERN hb, cr)) =
+                    storeStr(m, (3, cr (* actually ignored *), hgdiAsInt hb))
              (* |  toLB(BS_DIBPATTERN dp, cr) = toStr(5, cr (* treated specially *), ??? dp) *)
 
-            fun fromLB (v: vol): LOGBRUSH =
+            fun loadLB (v: Memory.voidStar): LOGBRUSH =
             let
-                val (t, cr, i) = fromStr v
+                val (t, cr, i) = loadStr v
             in
                 case t of
                     0 => (BS_SOLID, cr)
@@ -160,8 +168,8 @@ struct
                 |   _ => raise Fail "Unknown brush type"
             end
         in
-            val HATCHSTYLE = absConversion {abs = toHB, rep = fromHB} INT
-            val LOGBRUSH = mkConversion fromLB toLB lbStruct
+            val cHATCHSTYLE = absConversion {abs = toHB, rep = fromHB} cInt
+            val cLOGBRUSH = makeConversion{load=loadLB, store=storeLB, ctype = lbStruct}
         end
 
         (* Pen *)
@@ -176,39 +184,41 @@ struct
         type LOGPEN = PenStyle * int option * COLORREF
 
         local
-            val LPEN = STRUCT3(INT, POINT, COLORREF)
-            val (fromStr, toStr, lpStruct) = breakConversion LPEN
+            val LPEN = cStruct3(cUintw, cPoint, cCOLORREF)
+            val {load=loadStr, store=storeStr, ctype=lpStruct} = breakConversion LPEN
             val tab = [
-                (PS_SOLID, 0),
-                (PS_DASH, 1 (* ~~~~~~~ *)),
-                (PS_DOT, 2 (* ....... *)),
-                (PS_DASHDOT, 3 (* _._._._ *)),
-                (PS_DASHDOTDOT, 4 (* _.._.._ *)),
-                (PS_NULL, 5),
-                (PS_INSIDEFRAME, 6),
-                (PS_USERSTYLE, 7),
-                (PS_ALTERNATE, 8),
-                (PS_ENDCAP_ROUND, 0x00000000),
-                (PS_ENDCAP_SQUARE, 0x00000100),
-                (PS_ENDCAP_FLAT, 0x00000200),
-                (PS_JOIN_ROUND, 0x00000000),
-                (PS_JOIN_BEVEL, 0x00001000),
-                (PS_JOIN_MITER, 0x00002000),
-                (PS_COSMETIC, 0x00000000),
-                (PS_GEOMETRIC, 0x00010000)
+                (PS_SOLID, 0w0),
+                (PS_DASH, 0w1 (* ~~~~~~~ *)),
+                (PS_DOT, 0w2 (* ....... *)),
+                (PS_DASHDOT, 0w3 (* _._._._ *)),
+                (PS_DASHDOTDOT, 0w4 (* _.._.._ *)),
+                (PS_NULL, 0w5),
+                (PS_INSIDEFRAME, 0w6),
+                (PS_USERSTYLE, 0w7),
+                (PS_ALTERNATE, 0w8),
+                (PS_ENDCAP_ROUND, 0wx00000000),
+                (PS_ENDCAP_SQUARE, 0wx00000100),
+                (PS_ENDCAP_FLAT, 0wx00000200),
+                (PS_JOIN_ROUND, 0wx00000000),
+                (PS_JOIN_BEVEL, 0wx00001000),
+                (PS_JOIN_MITER, 0wx00002000),
+                (PS_COSMETIC, 0wx00000000),
+                (PS_GEOMETRIC, 0wx00010000)
             ]
             val (fromPS, toPS) = tableLookup(tab, NONE)
-            fun toLP((ps, width, cr): LOGPEN) =
-                toStr(fromPS ps, {x=getOpt(width, 0), y=0}, cr)
-            fun fromLP(v: vol): LOGPEN =
+
+            fun storeLP(m, (ps, width, cr): LOGPEN) =
+                storeStr(m, (fromPS ps, {x=getOpt(width, 0), y=0}, cr))
+
+            fun loadLP v: LOGPEN =
             let
-                val (ps, {x=width, ...}, cr) = fromStr v
+                val (ps, {x=width, ...}, cr) = loadStr v
             in
                 (toPS ps, case width of 0 => NONE | i => SOME i, cr)
             end
         in
-            val PENSTYLE = tableSetConversion(tab, NONE)
-            val LOGPEN = mkConversion fromLP toLP lpStruct
+            val cPENSTYLE = tableSetConversion(tab, NONE)
+            val cLOGPEN = makeConversion{store=storeLP, load=loadLP, ctype=lpStruct}
         end
 
         (* Transform *)
@@ -233,7 +243,7 @@ struct
             fun toInt _ = raise Match
             fun fromInt i = (checkResult(i <> 0); raise Match);
         in
-            val MAPMODE = tableConversion(tab, SOME(fromInt, toInt))
+            val cMAPMODE = tableConversion(tab, SOME(fromInt, toInt)) cLong
         end
 
         (* REGIONS *)
@@ -242,7 +252,7 @@ struct
             W of int
         in
             type RegionOperation = RegionOperation
-            val REGIONOPERATION  = absConversion {abs = W, rep = fn W n => n} INT
+            val REGIONOPERATION  = absConversion {abs = W, rep = fn W n => n} cInt
         
             val RGN_ERROR                                    = W (0)
             val RGN_AND                                      = W (1)
@@ -257,7 +267,7 @@ struct
             W of int
         in
             type ResultRegion = ResultRegion
-            val RESULTREGION  = absConversion {abs = W, rep = fn W n => n} INT
+            val RESULTREGION  = absConversion {abs = W, rep = fn W n => n} cInt
         
             val ERROR                                        = W (0)
             val NULLREGION                                   = W (1)
@@ -269,14 +279,14 @@ struct
         type METAFILEPICT = {mm: MapMode, size: SIZE, hMF: HMETAFILE}
 
         local
-            val metaFilePict = STRUCT3(MAPMODE, SIZE, HMETAFILE)
-            val (toMfp, fromMfp, mfpStruct) = breakConversion metaFilePict
-            fun toCMfp({mm, size, hMF}: METAFILEPICT): vol = fromMfp(mm, size, hMF)
-            fun fromCMfp v : METAFILEPICT =
-            let val (mm, size, hMF) = toMfp v in {mm=mm, size=size, hMF=hMF} end
+            val metaFilePict = cStruct3(cMAPMODE, cSize, cHMETAFILE)
+            val {store=storeMfp, load=loadMfp, ctype=mfpStruct} = breakConversion metaFilePict
+            fun storeCMfp(m, ({mm, size, hMF}: METAFILEPICT)) = storeMfp(m, (mm, size, hMF))
+            fun loadCMfp v : METAFILEPICT =
+            let val (mm, size, hMF) = loadMfp v in {mm=mm, size=size, hMF=hMF} end
         in
             (* This is needed in the Clipboard structure. *)
-            val METAFILEPICT = mkConversion fromCMfp toCMfp mfpStruct
+            val cMETAFILEPICT = makeConversion{store=storeCMfp, load=loadCMfp, ctype=mfpStruct}
         end
 
 

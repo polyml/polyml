@@ -119,11 +119,11 @@ struct
         
         local
             val tab = [
-                (SW_SCROLLCHILDREN,   0x0001),
-                (SW_INVALIDATE,       0x0002),
-                (SW_ERASE,            0x0004) ]
+                (SW_SCROLLCHILDREN,   0wx0001),
+                (SW_INVALIDATE,       0wx0002),
+                (SW_ERASE,            0wx0004) ]
         in
-            val cSCROLLWINDOWFLAG = tableSetConversion(tab, NONE) cUint
+            val cSCROLLWINDOWFLAG = tableSetConversion(tab, NONE)
         end
     
     

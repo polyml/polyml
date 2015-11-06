@@ -94,7 +94,17 @@ sig
     and cINT_PTR: int Foreign.conversion
     and cUINT_PTR: int Foreign.conversion
     and cDWORD: int Foreign.conversion
-   
+    and cWORD: int Foreign.conversion
+
+    val cUint8w: Word8.word Foreign.conversion
+    and cUint16w: Word.word Foreign.conversion
+    and cUint32w: Word32.word Foreign.conversion
+    and cUintw: Word32.word Foreign.conversion
+    and cUlongw: Word32.word Foreign.conversion
+
+    val cDWORDw: Word32.word Foreign.conversion
+    and cWORDw: Word.word Foreign.conversion
+
     val cBool: bool Foreign.conversion
     
     val successState: string -> unit Foreign.conversion
@@ -160,16 +170,20 @@ sig
         {abs: 'a -> 'b, rep: 'b -> 'a} -> 'a Foreign.conversion -> 'b Foreign.conversion
 
     val tableLookup:
-        (''a * int) list * ((int -> ''a) * (''a -> int)) option -> (''a -> int) * (int -> ''a)
+        (''a * ''b) list * ((''b -> ''a) * (''a -> ''b)) option -> (''a -> ''b) * (''b -> ''a)
     and tableSetLookup:
-        (''a * int) list * ((int -> ''a) * (''a -> int)) option -> (''a list -> int) * (int -> ''a list)
+        (''a * Word32.word) list * ((Word32.word -> ''a) * (''a -> Word32.word)) option ->
+            (''a list -> Word32.word) * (Word32.word -> ''a list)
 
     val tableConversion:
-        (''a * int) list * ((int -> ''a) * (''a -> int)) option ->
-            int Foreign.conversion -> ''a Foreign.conversion
+        (''a * ''b) list * ((''b -> ''a) * (''a -> ''b)) option ->
+            ''b Foreign.conversion -> ''a Foreign.conversion
+    (* tableSetConversion is always a cUint *)
     and tableSetConversion:
-        (''a * int) list * ((int -> ''a) * (''a -> int)) option ->
-            int Foreign.conversion -> ''a list Foreign.conversion
+        (''a * Word32.word) list * ((Word32.word -> ''a) * (''a -> Word32.word)) option ->
+            ''a list Foreign.conversion
+    
+    val list2Vector: 'a Foreign.conversion -> 'a list -> Foreign.Memory.voidStar * int
     
     datatype ClassType = NamedClass of string | ClassAtom of int
     val cCLASS: ClassType Foreign.conversion
@@ -185,13 +199,17 @@ sig
     datatype RESID = IdAsInt of int | IdAsString of string
     val cRESID: RESID Foreign.conversion
     
-    val cWORD: LargeWord.word Foreign.conversion 
     val STRINGOPT: string option Foreign.conversion
     val cCHARARRAY: int -> string Foreign.conversion
     val fromCstring: Foreign.Memory.voidStar -> string
     val toCstring: string -> Foreign.Memory.voidStar (* Memory must be freed *)
+    val fromCWord8vec: Foreign.Memory.voidStar * int -> Word8Vector.vector
+    val toCWord8vec: Word8Vector.vector -> Foreign.Memory.voidStar (* Memory must be freed *)
     
-    val getStringCall: (Foreign.Memory.voidStar*int -> int) -> string
+    val getStringCall: (Foreign.Memory.voidStar * int -> int) -> string
+    val getStringWithNullIsLength: (Foreign.Memory.voidStar * int -> int) -> string
+    val getVectorResult:
+        'a Foreign.conversion -> (Foreign.Memory.voidStar * int -> int) -> int -> 'a vector
 
     eqtype HGLOBAL
     val cHGLOBAL: HGLOBAL Foreign.conversion
@@ -201,12 +219,11 @@ sig
     val GlobalSize: HGLOBAL -> int
     val GlobalUnlock: HGLOBAL -> bool
 
-    
-    val HIWORD: int -> int
-    val LOWORD: int -> int
-    val MAKELONG: int * int -> int
-    val HIBYTE: int -> int
-    val LOBYTE: int -> int
+    val HIWORD: Word32.word -> Word.word
+    val LOWORD: Word32.word -> Word.word
+    val MAKELONG: Word.word * Word.word -> Word32.word
+    val HIBYTE: Word.word -> Word8.word
+    val LOBYTE: Word.word -> Word8.word
     
     val unicodeToString: Word8Vector.vector -> string
     val stringToUnicode: string -> Word8Vector.vector
@@ -260,8 +277,48 @@ struct
     in
         mkConversion (toList o fromCuint) (toCuint o fromList) Cuint
     end*)
-   
+
+    (* Conversions between Word/Word32/LargeWord etc. *)
+    local
+        open Memory LowLevel
+        fun noFree () = ()
+    in
+        local
+            fun load(m: voidStar): Word8.word = get8(m, 0w0)
+            fun store(m: voidStar, i: Word8.word) = (set8(m, 0w0, i); noFree)
+        in
+            val cUint8w: Word8.word conversion =
+                makeConversion{ load=load, store=store, ctype = cTypeUint8 }
+        end
+        local
+            fun load(m: voidStar): Word.word = get16(m, 0w0)
+            fun store(m: voidStar, i: Word.word) = (set16(m, 0w0, i); noFree)
+        in
+            val cUint16w: Word.word conversion =
+                makeConversion{ load=load, store=store, ctype = cTypeInt16 }
+        end
+        local
+            fun load(m: voidStar): Word32.word = get32(m, 0w0)
+            fun store(m: voidStar, i: Word32.word) = (set32(m, 0w0, i); noFree)
+        in
+            val cUint32w: Word32.word conversion =
+                makeConversion{ load=load, store=store, ctype = cTypeUint32 }
+            
+        end
+        val cUintw = cUint32w
+        (* Int should be 32-bits on Windows. *)
+        val _ = #size LowLevel.cTypeUint = #size LowLevel.cTypeUint32
+                    orelse raise Fail "unsigned int is not 32-bits"
+        val cUlongw = cUint32w
+        val _ = #size LowLevel.cTypeUlong = #size LowLevel.cTypeUint32
+                    orelse raise Fail "unsigned long is not 32-bits"
+    end
+
     val cDWORD = cUint32 (* Defined to be 32-bit unsigned *)
+    and cWORD = cUint16 (* Defined to be 16-bit unsigned *)
+    
+    val cDWORDw = cUint32w
+    and cWORDw = cUint16w
     
     (* For some reason Windows has both INT_PTR and LONG_PTR and they
        are slightly different. *)
@@ -489,7 +546,7 @@ struct
     val cHICON = cHGDIOBJ and cHCURSOR = cHGDIOBJ
 
     (* The easiest way to deal with datatypes is often by way of a table. *)
-    fun tableLookup (table: (''a * int) list, default) =
+    fun tableLookup (table: (''a * ''b) list, default) =
     let
         fun toInt [] x =
             (case default of NONE => raise Fail "tableLookup: not found" | SOME (_, d) => d x)
@@ -497,14 +554,14 @@ struct
 
         fun fromInt [] x =
             (case default of
-                NONE => raise Fail ("tableLookup: not found" ^ Int.toString x)
+                NONE => raise Fail ("tableLookup: not found")
              |  SOME (d, _) => d x)
          |  fromInt ((y, i) :: tl) x = if x = i then y else fromInt tl x
     in
         (toInt table, fromInt table)
     end
 
-    fun tableConversion (table: (''a * int) list, default) (conv: int conversion): ''a conversion  =
+    fun tableConversion (table: (''a * ''b) list, default) (conv: ''b conversion): ''a conversion  =
     let
         val (toInt, fromInt) = tableLookup(table, default)
     in
@@ -515,41 +572,42 @@ struct
        The order of the elements in the table is significant if we are to be
        able to handle multiple bits.  Patterns with more than one bit set
        MUST be placed later than those with a subset of those bits. *)
-    fun tableSetLookup (table: (''a * int) list, default) =
+    fun tableSetLookup (table: (''a * Word32.word) list, default) =
     let
+        open Word32
         (* Conversion to integer - just fold the values. *)
         fun toInt' [] x =
             (case default of NONE => raise Fail "tableLookup: not found" | SOME (_, d) => d x)
          |  toInt' ((y, i) :: tl) x = if x = y then i else toInt' tl x
 
-        val toInt = List.foldl (fn (a, b) => IntInf.orb(toInt' table a, b)) 0
+        val toInt = List.foldl (fn (a, b) => orb(toInt' table a, b)) 0w0
 
         (* It would speed up the searches if we ordered the list so that multiple
            bit entries preceded those with fewer bits but it's much easier to lay
            out the tables if we do it this way. *)
-        fun fromInt _ _ 0 = [] (* Zero is an empty list. *)
+        fun fromInt _ _ 0w0 = [] (* Zero is an empty list. *)
 
          |  fromInt [] NONE x = (* Not found *)
                 (case default of
-                    NONE => raise Fail ("tableLookup: not found" ^ Int.toString x)
+                    NONE => raise Fail ("tableLookup: not found" ^ Word32.toString x)
                   | SOME (d, _) => [d x])
 
          |  fromInt [] (SOME(res, bits)) x = (* Found something - remove it from the set. *)
-                (res :: fromInt table NONE (IntInf.andb(x, IntInf.notb bits)))
+                (res :: fromInt table NONE (andb(x, notb bits)))
 
          |  fromInt ((res, bits)::tl) sofar x =
-                if bits <> 0 andalso IntInf.andb(x, bits) = bits
+                if bits <> 0w0 andalso andb(x, bits) = bits
                 then (* Matches *) fromInt tl (SOME(res, bits)) x
                 else (* Doesn't match *) fromInt tl sofar x
     in
         (toInt, fromInt table NONE)
     end
 
-    fun tableSetConversion (table: (''a * int) list, default) (conv: int conversion): ''a list conversion  =
+    fun tableSetConversion (table: (''a * Word32.word) list, default): ''a list conversion  =
     let
         val (toInt, fromInt) = tableSetLookup(table, default)
     in
-        absConversion {abs = fromInt, rep = toInt} conv
+        absConversion {abs = fromInt, rep = toInt} cUintw
     end
 
     
@@ -713,9 +771,6 @@ struct
 
 
     (* Useful conversions. *)
-    (* Conversion to and from LargeWord.word.  This is used for 32-bit flags. *)
-    val cWORD = absConversion {abs = LargeWord.fromInt, rep = LargeWord.toInt} cUlong
-
     (* Various functions return zero if error.  This conversion checks for that. *)
     fun cPOSINT _ =
         absConversion {abs = fn 0 => raiseSysErr() | n => n, rep = fn i => i} cInt
@@ -749,9 +804,22 @@ struct
         sMem
     end
 
+    (* When getting a string it is often the case that passing NULL returns the
+       length required.  Then a second call will actually retrieve the string. *)
+    fun getStringWithNullIsLength(f: Memory.voidStar*int -> int): string =
+    let
+        open Memory
+        val realLength = f(null, 0)
+        val buff = malloc (Word.fromInt(realLength+1))
+        val _ = f(buff, realLength) handle ex => (free buff; raise ex)
+    in
+        fromCstring buff before free buff
+    end
+
     (* In several cases when extracting a string it is not possible in advance
        to know how big to make the buffer.  This function loops until all the
        string has been extracted. *)
+    (* This is at least needed for GetClassName *)
     fun getStringCall(f: Memory.voidStar*int -> int): string =
     let
         open Memory
@@ -765,7 +833,8 @@ struct
                the return value is less than initialSize-1 because the return
                value could be the number of real characters copied to the buffer. *)
             val buff = malloc (Word.fromInt(initialSize+1))
-            val resultSize = f(buff, initialSize)
+            val resultSize =
+                f(buff, initialSize) handle ex => (free buff; raise ex)
         in
             if resultSize < initialSize-1
             then (* We've got it all. *)
@@ -776,40 +845,66 @@ struct
         doCall (*1024*) 3 (* Use a small size initially for testing. *)
     end
 
+    (* We have a number of calls that extract a vector of results.  They
+       are called with an initial size, set the vector to the results and
+       return a count of the number actually assigned.  *)
+    fun getVectorResult(element: 'a conversion) =
+    let
+        val { load=loadElem, ctype={size=sizeElem, ...}, ...} = breakConversion element
+        val sizeElemSW = SysWord.fromLargeWord(Word.toLargeWord sizeElem)
+        fun run f initialCount =
+        let
+            open Memory
+            val vec = malloc(Word.fromInt initialCount * sizeElem)
+            fun getElement i =
+                loadElem(sysWord2VoidStar(voidStar2Sysword vec + SysWord.fromInt i * sizeElemSW))
+            val resultCount =
+                f (vec, initialCount) handle ex => (free vec; raise ex)
+        in
+            Vector.tabulate(resultCount, getElement) before free vec
+        end
+    in
+        run 
+    end
+
+
+
     (* Some C functions take a vector of values to allow a variable number of
        elements to be passed.  We use a list for this in ML. *)
-(*    fun list2Vector (conv: 'a conversion) (l:'a list): Memory.voidStar * int =
+    fun list2Vector (conv: 'a conversion) (l:'a list): Memory.voidStar * int =
     let
         val count = List.length l
-        val {load=loada, store=storea, release=releasea, ctype={size=sizea, ...}} = conv
+        val {store=storea, ctype={size=sizea, ...}, ...} = breakConversion conv
+        val sizeAsSw = SysWord.fromLargeWord(Word.toLargeWord sizea)
         open Memory
         val vec = malloc(Word.fromInt count * sizea)
-        fun setItem(item, n) = storea(vec + n, 0w0, 
-            (assign element (offset n element vec) (to item); n+sizea)
-        val _: int = List.foldl setItem 0w0 l 
+        fun setItem(item, v) = (storea(sysWord2VoidStar v, item); v + sizeAsSw)
+        val _ = List.foldl setItem (voidStar2Sysword vec) l 
     in
-        (address vec, count)
-    end*)
-
-    (* We have to allocate some of the values as global handles. *)
-(*    abstype HGLOBAL = HG of int
-    with
-        val hglobalNull = HG 0
-        fun isHglobalNull(HG 0) = true | isHglobalNull _ = false
-        val cHGLOBAL = absConversion {abs=HG, rep=fn (HG i) => i} UINT
-    end*)
+        (vec, count)
+    end
 
     val GlobalAlloc = winCall2 (kernel "GlobalAlloc") (cInt, cSIZE_T) cHGLOBAL
     val GlobalLock = winCall1 (kernel "GlobalLock") (cHGLOBAL) cPointer
     val GlobalFree = winCall1 (kernel "GlobalFree") (cHGLOBAL) cHGLOBAL
     val GlobalSize = winCall1 (kernel "GlobalSize") (cHGLOBAL) cSIZE_T
     val GlobalUnlock = winCall1 (kernel "GlobalUnlock") (cHGLOBAL) cBool
-(*
+
     (* Conversion for Word8Vector.  We can't do this as a general conversion because
        we can't find out how big the C vector is. *)
-    val fromWord8vec = toCbytes
-    and toWord8vec = fromCbytes
-*)
+    fun fromCWord8vec (buff, length) =
+        Word8Vector.tabulate(length, fn i => Memory.get8(buff, Word.fromInt i))
+
+    fun toCWord8vec(s: Word8Vector.vector): Memory.voidStar =
+    let
+        open Memory Word8Vector
+        val sLen = Word.fromInt(length s)
+        val sMem = malloc sLen
+        val () = appi(fn(i, b) => set8(sMem, Word.fromInt i, b)) s
+    in
+        sMem
+    end
+    
 (*
     (* Conversion for a fixed size byte array. *)
     fun BYTEARRAY n =
@@ -864,17 +959,24 @@ struct
 
     (* These should always be UNSIGNED values. *)
     local
-        open LargeWord
+        open Word32
         infix << >> orb andb
+        val w32ToW = Word.fromLargeWord o Word32.toLargeWord
+        and wTow32 = Word32.fromLargeWord o Word.toLargeWord
     in
-        fun LOWORD(l) = toInt(fromInt l andb 0wxFFFF)
-        fun HIWORD(l) = toInt((fromInt l >> 0w16) andb 0wxFFFF)
+        fun LOWORD(l) = w32ToW(l andb 0wxFFFF)
+        fun HIWORD(l) = w32ToW((l >> 0w16) andb 0wxFFFF)
     
-        fun MAKELONG(a, b) =
-            toInt ((fromInt b << 0w16) orb (fromInt a andb 0wxFFFF))
-            
-        fun HIBYTE(w) = toInt((fromInt w >> 0w8) andb 0wxFF)
-        fun LOBYTE(w) = toInt(fromInt w andb 0wxFF)
+        fun MAKELONG(a, b) = (wTow32 b << 0w16) orb (wTow32 a andb 0wxFFFF)
+    end
+
+    local
+        open Word
+        infix << >> orb andb
+        val wToW8 = Word8.fromLargeWord o Word.toLargeWord
+    in
+        fun HIBYTE(w) = wToW8((w >> 0w8) andb 0wxFF)
+        fun LOBYTE(w) = wToW8(w andb 0wxFF)
     end
 
     (* Convert between strings and vectors containing Unicode characters.

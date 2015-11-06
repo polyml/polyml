@@ -3578,13 +3578,13 @@ WM_MOUSELEAVE                   0x02A3
         val GetInputState = winCall0 (user "GetInputState") () cBool
 
         local
-            val getMessagePos = winCall0 (user "GetMessagePos") () cDWORD
+            val getMessagePos = winCall0 (user "GetMessagePos") () cDWORDw
         in
             fun GetMessagePos(): POINT =
             let
                 val r = getMessagePos ()
             in
-                { x = LOWORD r, y = HIWORD r }
+                { x = Word.toInt(LOWORD r), y = Word.toInt(HIWORD r) }
             end
         end
 
@@ -3596,15 +3596,15 @@ WM_MOUSELEAVE                   0x02A3
             QS_PAINT | QS_SENDMESSAGE | QS_HOTKEY | QS_ALLPOSTMESSAGE
         local
             val tab = [
-                (QS_KEY,              0x0001),
-                (QS_MOUSEMOVE,        0x0002),
-                (QS_MOUSEBUTTON,      0x0004),
-                (QS_POSTMESSAGE,      0x0008),
-                (QS_TIMER,            0x0010),
-                (QS_PAINT,            0x0020),
-                (QS_SENDMESSAGE,      0x0040),
-                (QS_HOTKEY,           0x0080),
-                (QS_ALLPOSTMESSAGE,   0x0100)
+                (QS_KEY,              0wx0001),
+                (QS_MOUSEMOVE,        0wx0002),
+                (QS_MOUSEBUTTON,      0wx0004),
+                (QS_POSTMESSAGE,      0wx0008),
+                (QS_TIMER,            0wx0010),
+                (QS_PAINT,            0wx0020),
+                (QS_SENDMESSAGE,      0wx0040),
+                (QS_HOTKEY,           0wx0080),
+                (QS_ALLPOSTMESSAGE,   0wx0100)
             ]
         in
             val (fromQS, toQS) = tableSetLookup(tab, NONE)
@@ -3616,7 +3616,7 @@ WM_MOUSELEAVE                   0x02A3
         val QS_ALLINPUT = QS_SENDMESSAGE :: QS_ALLEVENTS
 
         local
-            val getQueueStatus = winCall1 (user "GetQueueStatus") (cUint) cDWORD
+            val getQueueStatus = winCall1 (user "GetQueueStatus") (cUintw) cDWORDw
         in
             fun GetQueueStatus flags =
             let
@@ -3624,7 +3624,7 @@ WM_MOUSELEAVE                   0x02A3
             in
                 (* The RTS uses PeekMessage internally so the "new messages"
                    value in the LOWORD is meaningless. *)
-                toQS(HIWORD(res))
+                toQS(Word32.fromLargeWord(Word.toLargeWord(HIWORD(res))))
             end
         end
 

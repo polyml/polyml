@@ -150,12 +150,12 @@ struct
 
         local
             val tab = [
-                (PRF_CHECKVISIBLE,      0x00000001),
-                (PRF_NONCLIENT,         0x00000002),
-                (PRF_CLIENT,            0x00000004),
-                (PRF_ERASEBKGND,        0x00000008),
-                (PRF_CHILDREN,          0x00000010),
-                (PRF_OWNED,             0x00000020)
+                (PRF_CHECKVISIBLE,      0wx00000001),
+                (PRF_NONCLIENT,         0wx00000002),
+                (PRF_CLIENT,            0wx00000004),
+                (PRF_ERASEBKGND,        0wx00000008),
+                (PRF_CHILDREN,          0wx00000010),
+                (PRF_OWNED,             0wx00000020)
                 ]
         in
             val WMPRINTOPS = tableSetConversion(tab, NONE)
@@ -169,11 +169,11 @@ struct
 
         local
             val tab = [
-                (MK_LBUTTON,        0x0001),
-                (MK_RBUTTON,        0x0002),
-                (MK_SHIFT,          0x0004),
-                (MK_CONTROL,        0x0008),
-                (MK_MBUTTON,        0x0010)
+                (MK_LBUTTON,        0wx0001),
+                (MK_RBUTTON,        0wx0002),
+                (MK_SHIFT,          0wx0004),
+                (MK_CONTROL,        0wx0008),
+                (MK_MBUTTON,        0wx0010)
                 ]
         in
             val MOUSEKEYFLAGS = tableSetConversion(tab, NONE)
@@ -183,9 +183,9 @@ struct
 
         local
             val tab = [
-                (MDITILE_VERTICAL,      0x0000),
-                (MDITILE_HORIZONTAL,    0x0001),
-                (MDITILE_SKIPDISABLED,  0x0002)
+                (MDITILE_VERTICAL,      0wx0000),
+                (MDITILE_HORIZONTAL,    0wx0001),
+                (MDITILE_SKIPDISABLED,  0wx0002)
                 ]
         in
             val MDITILEFLAGS = tableSetConversion(tab, NONE)

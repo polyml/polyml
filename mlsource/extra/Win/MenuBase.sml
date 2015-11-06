@@ -32,41 +32,41 @@ struct
 
         local
             val tab = [
-                (*(MF_INSERT,   0x00000000),
-                (MF_CHANGE,     0x00000080),
-                (MF_APPEND,     0x00000100),
-                (MF_DELETE,     0x00000200),
-                (MF_REMOVE,     0x00001000),*)
-                (MF_BYCOMMAND,  0x00000000),
-                (MF_BYPOSITION, 0x00000400),
-                (MF_SEPARATOR,  0x00000800),
-                (MF_ENABLED,    0x00000000),
-                (MF_GRAYED,     0x00000001),
-                (MF_DISABLED,   0x00000002),
-                (MF_UNCHECKED,  0x00000000),
-                (MF_CHECKED,    0x00000008),
-                (MF_USECHECKBITMAPS, 0x00000200),
-                (MF_STRING,     0x00000000),
-                (MF_BITMAP,     0x00000004),
-                (MF_OWNERDRAW,  0x00000100),
-                (MF_POPUP,      0x00000010),
-                (MF_MENUBARBREAK, 0x00000020),
-                (MF_MENUBREAK,  0x00000040),
-                (MF_UNHILITE,   0x00000000),
-                (MF_HILITE,     0x00000080),
-                (MF_DEFAULT,    0x00001000),
-                (MF_SYSMENU,    0x00002000),
-                (MF_HELP,       0x00004000),
-                (MF_RIGHTJUSTIFY, 0x00004000),
-                (MF_MOUSESELECT, 0x00008000)
+                (*(MF_INSERT,   0wx00000000),
+                (MF_CHANGE,     0wx00000080),
+                (MF_APPEND,     0wx00000100),
+                (MF_DELETE,     0wx00000200),
+                (MF_REMOVE,     0wx00001000),*)
+                (MF_BYCOMMAND,  0wx00000000),
+                (MF_BYPOSITION, 0wx00000400),
+                (MF_SEPARATOR,  0wx00000800),
+                (MF_ENABLED,    0wx00000000),
+                (MF_GRAYED,     0wx00000001),
+                (MF_DISABLED,   0wx00000002),
+                (MF_UNCHECKED,  0wx00000000),
+                (MF_CHECKED,    0wx00000008),
+                (MF_USECHECKBITMAPS, 0wx00000200),
+                (MF_STRING,     0wx00000000),
+                (MF_BITMAP,     0wx00000004),
+                (MF_OWNERDRAW,  0wx00000100),
+                (MF_POPUP,      0wx00000010),
+                (MF_MENUBARBREAK, 0wx00000020),
+                (MF_MENUBREAK,  0wx00000040),
+                (MF_UNHILITE,   0wx00000000),
+                (MF_HILITE,     0wx00000080),
+                (MF_DEFAULT,    0wx00001000),
+                (MF_SYSMENU,    0wx00002000),
+                (MF_HELP,       0wx00004000),
+                (MF_RIGHTJUSTIFY, 0wx00004000),
+                (MF_MOUSESELECT, 0wx00008000)
              ]
         in
             val (fromMenuFlagSet, toMenuFlagSet) = tableSetLookup(tab, NONE)
-            val cMENUFLAGSET = absConversion {abs=toMenuFlagSet, rep=fromMenuFlagSet} cUint
+            val cMENUFLAGSET = absConversion {abs=toMenuFlagSet, rep=fromMenuFlagSet} cUintw
             (* Sometimes we just want a single flag - either MF_BYCOMMAND or MF_BYPOSITION
                or, for WM_MENUCHAR, MF_POPUP or MF_SYSMENU. *)
             val (fromMenuFlag, toMenuFlag) = tableLookup(tab, NONE)
-            val cMENUFLAG = tableConversion(tab, NONE) cUint
+            val cMENUFLAG = tableConversion(tab, NONE) cUintw
         end
 
     end
