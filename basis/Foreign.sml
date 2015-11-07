@@ -318,102 +318,102 @@ sig
                    'o conversion * 'p conversion * 'q conversion * 'r conversion * 's conversion * 't conversion ->
                     ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion
 
-    val call0withAbi: LibFFI.abi -> unit -> 'a conversion -> symbol -> unit -> 'a
-    val call0: unit -> 'a conversion -> symbol -> unit -> 'a
-    val call1withAbi: LibFFI.abi -> 'a conversion -> 'b conversion -> symbol -> 'a -> 'b
-    val call1: 'a conversion -> 'b conversion -> symbol -> 'a -> 'b
-    val call2withAbi: LibFFI.abi -> 'a conversion * 'b conversion -> 'c conversion -> symbol -> 'a * 'b -> 'c
-    val call2: 'a conversion * 'b conversion -> 'c conversion -> symbol -> 'a * 'b -> 'c
+    val call0withAbi: LibFFI.abi -> symbol -> unit -> 'a conversion -> unit -> 'a
+    val call0: symbol -> unit -> 'a conversion -> unit -> 'a
+    val call1withAbi: LibFFI.abi -> symbol -> 'a conversion -> 'b conversion -> 'a -> 'b
+    val call1: symbol -> 'a conversion -> 'b conversion -> 'a -> 'b
+    val call2withAbi: LibFFI.abi -> symbol -> 'a conversion * 'b conversion -> 'c conversion -> 'a * 'b -> 'c
+    val call2: symbol -> 'a conversion * 'b conversion -> 'c conversion -> 'a * 'b -> 'c
     val call3withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion ->  symbol -> 'a * 'b * 'c -> 'd
-    val call3: 'a conversion * 'b conversion * 'c conversion -> 'd conversion ->  symbol -> 'a * 'b * 'c -> 'd
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
+    val call3: symbol -> 'a conversion * 'b conversion * 'c conversion -> 'd conversion -> 'a * 'b * 'c -> 'd
     val call4withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
-            symbol -> 'a * 'b * 'c * 'd -> 'e
-    val call4: 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
-            symbol -> 'a * 'b * 'c * 'd -> 'e
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+            'a * 'b * 'c * 'd -> 'e
+    val call4: symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion -> 'e conversion ->
+            'a * 'b * 'c * 'd -> 'e
     val call5withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion ->
-            'f conversion -> symbol -> 'a * 'b * 'c * 'd * 'e -> 'f
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion ->
+            'f conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
     val call5:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion *  'e conversion ->
-            'f conversion -> symbol -> 'a * 'b * 'c * 'd * 'e -> 'f
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion *  'e conversion ->
+            'f conversion -> 'a * 'b * 'c * 'd * 'e -> 'f
     val call6withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion -> 'g conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion -> 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
     val call6:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
-             'f conversion -> 'g conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+             'f conversion -> 'g conversion -> 'a * 'b * 'c * 'd * 'e * 'f -> 'g
     val call7withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion -> 'h conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
     val call7:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion -> 'h conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
+             'a * 'b * 'c * 'd * 'e * 'f * 'g -> 'h
     val call8withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion -> 'i conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
     val call8:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion -> 'i conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h -> 'i
     val call9withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion ->
-             'j conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+             'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
     val call9:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion ->
-             'j conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
+             'j conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j
     val call10withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion ->
-             'k conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+             'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
     val call10:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion ->
-             'k conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
+             'k conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k
     val call11withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion ->
-             'l conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
     val call11:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion ->
-             'l conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
+             'l conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l
     val call12withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion -> 'm conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
     val call12:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion -> 'm conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm
     val call13withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion * 'm conversion -> 'n conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
     val call13:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion * 'm conversion -> 'n conversion ->
-             symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
+             'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n
     val call14withAbi:
-        LibFFI.abi -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        LibFFI.abi -> symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion * 'm conversion * 'n conversion ->
-            'o conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
+            'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
     val call14:
-        'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
+        symbol -> 'a conversion * 'b conversion * 'c conversion * 'd conversion * 'e conversion *
              'f conversion * 'g conversion * 'h conversion * 'i conversion * 'j conversion * 'k conversion *
              'l conversion * 'm conversion * 'n conversion ->
-            'o conversion -> symbol -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
+            'o conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
 end;
 
 structure Foreign:> FOREIGN =
@@ -2093,7 +2093,7 @@ struct
     local
         open LibFFI Memory LowLevel
     in
-        fun call0withAbi (abi: abi) ()
+        fun callInternal0withAbi (abi: abi) ()
             ({ctype = resType, load= resLoad, ...} : 'a conversion): symbol -> unit->'a =
         let
             val callF = callwithAbi abi [] resType
@@ -2117,9 +2117,10 @@ struct
             end
         end
 
+        fun call0withAbi abi symbol argTypes resType = callInternal0withAbi abi argTypes resType symbol
         fun call0 x = call0withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
-        fun call1withAbi (abi: abi)
+        fun callInternal1withAbi (abi: abi)
             ({ ctype = argType, store = argStore, update = argUpdate, ...}: 'a conversion)
             ({ ctype = resType, load= resLoad, ...}: 'b conversion): symbol -> 'a ->'b =
         let
@@ -2152,9 +2153,10 @@ struct
             end
         end
 
+        fun call1withAbi abi symbol argTypes resType = callInternal1withAbi abi argTypes resType symbol
         fun call1 x = call1withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
-        fun call2withAbi (abi: abi)
+        fun callInternal2withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion)
             ({ ctype = resType, load= resLoad, ...}: 'c conversion): symbol -> 'a * 'b -> 'c =
@@ -2188,9 +2190,10 @@ struct
             end
         end
 
+        fun call2withAbi abi symbol argTypes resType = callInternal2withAbi abi argTypes resType symbol
         fun call2 x = call2withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
-        fun call3withAbi (abi: abi)
+        fun callInternal3withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion)
@@ -2228,9 +2231,10 @@ struct
             end
         end
 
+        fun call3withAbi abi symbol argTypes resType = callInternal3withAbi abi argTypes resType symbol
         fun call3 x = call3withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
-        fun call4withAbi (abi: abi)
+        fun callInternal4withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2273,9 +2277,10 @@ struct
             end
         end
 
+        fun call4withAbi abi symbol argTypes resType = callInternal4withAbi abi argTypes resType symbol
         fun call4 x = call4withAbi abiDefault x
 
-        fun call5withAbi (abi: abi)
+        fun callInternal5withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2324,9 +2329,10 @@ struct
             end
         end
 
+        fun call5withAbi abi symbol argTypes resType = callInternal5withAbi abi argTypes resType symbol
         fun call5 x = call5withAbi abiDefault x
 
-        fun call6withAbi (abi: abi)
+        fun callInternal6withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2379,9 +2385,10 @@ struct
             end
         end
 
+        fun call6withAbi abi symbol argTypes resType = callInternal6withAbi abi argTypes resType symbol
         fun call6 x = call6withAbi abiDefault x
 
-        fun call7withAbi (abi: abi)
+        fun callInternal7withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2440,9 +2447,10 @@ struct
             end
         end
 
+        fun call7withAbi abi symbol argTypes resType = callInternal7withAbi abi argTypes resType symbol
         fun call7 x = call7withAbi abiDefault x
 
-        fun call8withAbi (abi: abi)
+        fun callInternal8withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2507,9 +2515,10 @@ struct
             end
         end
 
+        fun call8withAbi abi symbol argTypes resType = callInternal8withAbi abi argTypes resType symbol
         fun call8 x = call8withAbi abiDefault x
 
-        fun call9withAbi (abi: abi)
+        fun callInternal9withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2579,9 +2588,10 @@ struct
             end
         end
 
+        fun call9withAbi abi symbol argTypes resType = callInternal9withAbi abi argTypes resType symbol
         fun call9 x = call9withAbi abiDefault x
 
-        fun call10withAbi (abi: abi)
+        fun callInternal10withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2658,9 +2668,10 @@ struct
             end
         end
 
+        fun call10withAbi abi symbol argTypes resType = callInternal10withAbi abi argTypes resType symbol
         fun call10 x = call10withAbi abiDefault x
 
-        fun call11withAbi (abi: abi)
+        fun callInternal11withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2741,9 +2752,10 @@ struct
             end
         end
 
+        fun call11withAbi abi symbol argTypes resType = callInternal11withAbi abi argTypes resType symbol
         fun call11 x = call11withAbi abiDefault x
 
-        fun call12withAbi (abi: abi)
+        fun callInternal12withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2829,9 +2841,10 @@ struct
             end
         end
 
+        fun call12withAbi abi symbol argTypes resType = callInternal12withAbi abi argTypes resType symbol
         fun call12 x = call12withAbi abiDefault x
 
-        fun call13withAbi (abi: abi)
+        fun callInternal13withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -2922,9 +2935,10 @@ struct
             end
         end
 
+        fun call13withAbi abi symbol argTypes resType = callInternal13withAbi abi argTypes resType symbol
         fun call13 x = call13withAbi abiDefault x
 
-        fun call14withAbi (abi: abi)
+        fun callInternal14withAbi (abi: abi)
             ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
              { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
              { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
@@ -3020,6 +3034,7 @@ struct
             end
         end
 
+        fun call14withAbi abi symbol argTypes resType = callInternal14withAbi abi argTypes resType symbol
         fun call14 x = call14withAbi abiDefault x
 
     end
@@ -3048,7 +3063,7 @@ struct
             end
             
             (* If we return a function as a result we need to wrap it as an ML call. *)
-            val call = call0withAbi abi () resConv
+            val call = callInternal0withAbi abi () resConv
             
             fun load(v: voidStar): unit->'a =
                 let val f = getAddress(v, 0w0) in call (fn () => f) end
@@ -3079,7 +3094,7 @@ struct
                 fn () => freeCallback cb
             end
 
-            val call = call1withAbi abi argConv resConv
+            val call = callInternal1withAbi abi argConv resConv
             
             fun load(v: voidStar): 'a -> 'b =
                 let val f = getAddress(v, 0w0) in call (fn () => f) end
@@ -3125,7 +3140,7 @@ struct
                 fun store (v: voidStar, f) =
                     let val c = cb f in setAddress(v, 0w0, c); fn () => freeCallback c end
 
-                val call = call2withAbi abi (arg1Conv, arg2Conv) resConv
+                val call = callInternal2withAbi abi (arg1Conv, arg2Conv) resConv
             
                 fun load(v: voidStar): 'a *'b -> 'c =
                     let val f = getAddress(v, 0w0) in call (fn () => f) end
@@ -3169,7 +3184,7 @@ struct
                 fun store (v: voidStar, f) =
                     let val c = cb f in setAddress(v, 0w0, c); fn () => freeCallback c end
 
-                val call = call3withAbi abi (arg1Conv, arg2Conv, arg3Conv) resConv
+                val call = callInternal3withAbi abi (arg1Conv, arg2Conv, arg3Conv) resConv
             
                 fun load(v: voidStar): 'a *'b * 'c -> 'd =
                     let val f = getAddress(v, 0w0) in call (fn () => f) end
@@ -3214,7 +3229,7 @@ struct
                 fun store (v: voidStar, f) =
                     let val c = cb f in setAddress(v, 0w0, c); fn () => freeCallback c end
 
-                val call = call4withAbi abi (arg1Conv, arg2Conv, arg3Conv, arg4Conv) resConv
+                val call = callInternal4withAbi abi (arg1Conv, arg2Conv, arg3Conv, arg4Conv) resConv
             
                 fun load(v: voidStar): 'a *'b * 'c * 'd -> 'e =
                     let val f = getAddress(v, 0w0) in call (fn () => f) end
@@ -3264,7 +3279,7 @@ struct
                     let val c = cb f in setAddress(v, 0w0, c); fn () => freeCallback c end
 
                 val call =
-                    call5withAbi abi (arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv) resConv
+                    callInternal5withAbi abi (arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv) resConv
             
                 fun load(v: voidStar): 'a *'b * 'c * 'd * 'e -> 'f =
                     let val f = getAddress(v, 0w0) in call (fn () => f) end
@@ -3316,7 +3331,7 @@ struct
                     let val c = cb f in setAddress(v, 0w0, c); fn () => freeCallback c end
 
                 val call =
-                    call6withAbi abi (arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv) resConv
+                    callInternal6withAbi abi (arg1Conv, arg2Conv, arg3Conv, arg4Conv, arg5Conv, arg6Conv) resConv
             
                 fun load(v: voidStar): 'a *'b * 'c * 'd * 'e * 'f -> 'g =
                     let val f = getAddress(v, 0w0) in call (fn () => f) end
