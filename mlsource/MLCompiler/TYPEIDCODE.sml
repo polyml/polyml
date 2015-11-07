@@ -19,17 +19,8 @@ functor TYPEIDCODE (
     structure LEX : LEXSIG;
     structure CODETREE : CODETREESIG
     structure TYPETREE : TYPETREESIG
-
-    structure STRUCTVALS : STRUCTVALSIG;
-
-    structure DEBUG :
-    sig
-        val printDepthFunTag : (unit->int) Universal.tag
-        val errorDepthTag: int Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end;
-
+    structure STRUCTVALS : STRUCTVALSIG
+    structure DEBUG: DEBUGSIG
     structure PRETTY : PRETTYSIG
     structure ADDRESS : AddressSig
     

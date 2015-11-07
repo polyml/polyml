@@ -63,13 +63,7 @@ sig
   val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
 end;
 
-structure DEBUG :
-sig
-    val inlineFunctorsTag: bool Universal.tag
-    val errorDepthTag : int Universal.tag
-    val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a 
-end;
+structure DEBUG: DEBUGSIG
 
 sharing LEX.Sharing = VALUEOPS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing
     = PRETTY.Sharing = EXPORTTREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing

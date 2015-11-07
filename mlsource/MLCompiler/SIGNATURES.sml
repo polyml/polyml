@@ -48,12 +48,7 @@ functor SIGNATURES (
         val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
     end;
 
-    structure DEBUG :
-    sig
-        val errorDepthTag : int Universal.tag
-        val getParameter :
-               'a Universal.tag -> Universal.universal list -> 'a 
-    end;
+    structure DEBUG: DEBUGSIG
 
     structure UTILITIES :
     sig

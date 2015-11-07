@@ -31,14 +31,8 @@ functor TYPE_TREE (
     structure PRETTY : PRETTYSIG
     structure CODETREE : CODETREESIG where type machineWord = Address.machineWord
     structure EXPORTTREE: EXPORTTREESIG;
+    structure DEBUG: DEBUGSIG
 
-    structure DEBUG :
-    sig
-        val errorDepthTag: int Universal.tag
-        val narrowOverloadFlexRecordTag: bool Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end;
     structure UTILITIES :
     sig
         val mapTable: ('a * 'a -> bool) ->

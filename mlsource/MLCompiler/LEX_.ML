@@ -26,20 +26,9 @@
 *)
 
 functor LEX_ (
-structure PRETTY: PRETTYSIG;
-
+structure PRETTY: PRETTYSIG
 structure SYMBOLS : SymbolsSig
-
-structure DEBUG:
-sig
-    val lineNumberTag: (unit -> int) Universal.tag
-    val offsetTag: (unit->int) Universal.tag
-    val fileNameTag: string Universal.tag
-    val errorDepthTag : int Universal.tag
-    val bindingCounterTag: (unit->int) Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end
+structure DEBUG: DEBUGSIG
 
 ) : LEXSIG =
 

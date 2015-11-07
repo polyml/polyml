@@ -58,14 +58,7 @@ sig
     { enterFix:  string * fixStatus -> unit, lookupFix: string -> fixStatus option } -> program
 end;
 
-structure DEBUG :
-sig
-    val parsetreeTag   : bool Universal.tag
-    val traceCompilerTag : bool Universal.tag
-
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end;
+structure DEBUG: DEBUGSIG
 
 structure UTILITIES :
 sig
