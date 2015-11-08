@@ -360,21 +360,21 @@ struct
         |   NONE => LibFFI.abiDefault
 
     (* As well as setting the abi we can also use the old argument order. *)
-    fun winCall0 s f t = call0withAbi winAbi f t s
-    and winCall1 s f t = call1withAbi winAbi f t s
-    and winCall2 s f t = call2withAbi winAbi f t s
-    and winCall3 s f t = call3withAbi winAbi f t s
-    and winCall4 s f t = call4withAbi winAbi f t s
-    and winCall5 s f t = call5withAbi winAbi f t s
-    and winCall6 s f t = call6withAbi winAbi f t s
-    and winCall7 s f t = call7withAbi winAbi f t s
-    and winCall8 s f t = call8withAbi winAbi f t s
-    and winCall9 s f t = call9withAbi winAbi f t s
-    and winCall10 s f t = call10withAbi winAbi f t s
-    and winCall11 s f t = call11withAbi winAbi f t s
-    and winCall12 s f t = call12withAbi winAbi f t s
-    and winCall13 s f t = call13withAbi winAbi f t s
-    and winCall14 s f t = call14withAbi winAbi f t s
+    fun winCall0 args = call0withAbi winAbi args
+    and winCall1 args = call1withAbi winAbi args
+    and winCall2 args = call2withAbi winAbi args
+    and winCall3 args = call3withAbi winAbi args
+    and winCall4 args = call4withAbi winAbi args
+    and winCall5 args = call5withAbi winAbi args
+    and winCall6 args = call6withAbi winAbi args
+    and winCall7 args = call7withAbi winAbi args
+    and winCall8 args = call8withAbi winAbi args
+    and winCall9 args = call9withAbi winAbi args
+    and winCall10 args = call10withAbi winAbi args
+    and winCall11 args = call11withAbi winAbi args
+    and winCall12 args = call12withAbi winAbi args
+    and winCall13 args = call13withAbi winAbi args
+    and winCall14 args = call14withAbi winAbi args
     
     fun winFun0 args = cFunction0withAbi winAbi args
     and winFun1 args = cFunction1withAbi winAbi args
