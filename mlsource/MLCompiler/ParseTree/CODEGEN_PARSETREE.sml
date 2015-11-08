@@ -43,18 +43,7 @@ functor CODEGEN_PARSETREE (
     structure STRUCTVALS : STRUCTVALSIG
     structure VALUEOPS : VALUEOPSSIG
     structure DATATYPEREP: DATATYPEREPSIG
-
-    structure DEBUG :
-    sig
-        val debugTag: bool Universal.tag
-        val errorDepthTag : int Universal.tag
-        val fileNameTag: string Universal.tag
-        val reportUnreferencedIdsTag: bool Universal.tag
-        val reportExhaustiveHandlersTag: bool Universal.tag
-        val createPrintFunctionsTag: bool Universal.tag
-        val getParameter :
-               'a Universal.tag -> Universal.universal list -> 'a 
-    end
+    structure DEBUG: DEBUGSIG
 
     structure MISC :
     sig

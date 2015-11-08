@@ -84,7 +84,7 @@ end;
 val cTree: intTree conversion =
     makeConversion { load = treeLoad, store = treeStore, ctype = LowLevel.cTypePointer };
 
-val sumTree = call1 cTree cInt ( getSymbol mylib "SumTree" );
+val sumTree = call1 ( getSymbol mylib "SumTree" ) cTree cInt;
 
 val aTree = Node{left=Node{left=NullTree, right=NullTree, valu=4},
                right=Node{
@@ -95,18 +95,18 @@ sumTree aTree;
 
 
 (* Example of returning a structure. *)
-val returnR2 = call2 (cInt, cInt) (cStruct2(cInt, cInt)) (getSymbol mylib "ReturnR2");
+val returnR2 = call2 (getSymbol mylib "ReturnR2") (cInt, cInt) (cStruct2(cInt, cInt));
 returnR2(5,6);
 
 (* Example of passing and returning strings. *)
-val dupNString = call2 (cInt, cString) cString (getSymbol mylib "DupNString");
+val dupNString = call2 (getSymbol mylib "DupNString") (cInt, cString) cString;
 
 dupNString (4, "hi");
 
 (* Example of a callback function. *)
 
 fun f (i, j) = (PolyML.print(i, j); i+j);
-val doAdd = call2 (cInt, cFunction2 (cInt, cInt) cInt) cInt (getSymbol mylib "MakeCallback");
+val doAdd = call2 (getSymbol mylib "MakeCallback") (cInt, cFunction2 (cInt, cInt) cInt) cInt;
 doAdd(4, f);
 
 fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
@@ -116,12 +116,11 @@ fun myCallback(a: int, b: char, c: real, d: real, e: int, f: Memory.voidStar) =
 );
 
 val returnR3 =
-    call1 (cFunction6(cInt, cChar, cDouble, cFloat, cShort, cPointer) cDouble) cDouble
-        (getSymbol mylib "MakeCallback2")
+    call1(getSymbol mylib "MakeCallback2") (cFunction6(cInt, cChar, cDouble, cFloat, cShort, cPointer) cDouble) cDouble
         myCallback;
 
 
-val doit = call2 (cFunction1 cInt cVoid, cInt) cVoid (getSymbol mylib "MakeCallback3");
+val doit = call2(getSymbol mylib "MakeCallback3") (cFunction1 cInt cVoid, cInt) cVoid;
 doit(fn i => print(Int.toString i), 2);
 
 (* Call-by-reference. *)
@@ -129,14 +128,14 @@ doit(fn i => print(Int.toString i), 2);
 val r = ref 6;
 
 val updateArg =
-    call2 (cInt, cStar cInt) cVoid (getSymbol mylib "UpdateArg");
+    call2 (getSymbol mylib "UpdateArg") (cInt, cStar cInt) cVoid;
 
 updateArg(5, r); (* Adds its first argument to the ref. *)
 
 !r;
 
 (* Returning a function *)
-val returnFn = call1 (cStar (cFunction1 cInt cInt)) cVoid (getSymbol mylib "ReturnFn");
+val returnFn = call1 (getSymbol mylib "ReturnFn") (cStar (cFunction1 cInt cInt)) cVoid;
 
 val fr: (int -> int) ref = ref (fn _ => 0);
 returnFn fr;

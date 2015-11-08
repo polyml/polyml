@@ -47,25 +47,8 @@ sig
 end;
 
 structure STRUCTVALS : STRUCTVALSIG;
-
-structure DEBUG:
-sig
-    val lineNumberTag: (unit->int) Universal.tag
-    val maxInlineSizeTag: int Universal.tag
-    val traceCompilerTag: bool Universal.tag
-    val fileNameTag: string Universal.tag
-    val reportUnreferencedIdsTag: bool Universal.tag
-    val reportExhaustiveHandlersTag: bool Universal.tag
-    val parsetreeTag: bool Universal.tag
-    val codetreeTag: bool Universal.tag
-    val codetreeAfterOptTag: bool Universal.tag
-    val pstackTraceTag: bool Universal.tag
-    val assemblyCodeTag: bool Universal.tag
-    val printDepthFunTag: (unit->int) Universal.tag
-end
-
+structure DEBUG: DEBUGSIG
 structure PRETTY: PRETTYSIG (* For compilerOutputTag *)
-
 structure LEX: LEXSIG (* For errorMessageProcTag *)
 
 structure VERSION:
@@ -74,7 +57,6 @@ structure VERSION:
     end
 
 sharing STRUCTVALS.Sharing = COMPILERBODY.Sharing
-
 sharing LEX.Sharing = PRETTY.Sharing
 
 )

@@ -36,7 +36,6 @@ functor TYPECHECK_PARSETREE (
 structure BASEPARSETREE : BaseParseTreeSig
 structure PRINTTREE: PrintParsetreeSig
 structure EXPORTTREE: ExportParsetreeSig
-
 structure LEX : LEXSIG
 structure CODETREE : CODETREESIG
 structure STRUCTVALS : STRUCTVALSIG;
@@ -302,11 +301,22 @@ struct
         }
          (* Process each item of the sequence and return the type of the
             last item. A default item is returned if the list is empty. *)
-        fun assignSeq env depth l =
+        fun assignSeq(env, depth, l, isExp) =
         let
             fun applyList last []       = last
-            |   applyList _ ((h, _) :: t) = 
-                    applyList (assignValues(level, depth, env, v, h)) t
+            |   applyList _ ((h, _) :: t) =
+                let
+                    val expT = assignValues(level, depth, env, v, h)
+                    val _ =
+                        if isExp andalso not (null t)
+                        then (* It's not the last value and we're going to discard it *)
+                        case checkDiscard(expT, lex) of
+                            NONE => ()
+                        |   SOME s => errorNear (lex, false, h, getLocation h, s)
+                        else ()
+                in
+                    applyList expT t
+                end
         in
             applyList badType l
         end
@@ -1166,7 +1176,7 @@ struct
                 };
         
               (* Process the local declarations and discard the result. *)
-              val _ : types = assignSeq localEnv newLetDepth decs;
+              val _ : types = assignSeq(localEnv, newLetDepth, decs, false)
         
               (* This is the environment used for the body of the declaration.
                  Declarations are added both to the local environment and to
@@ -1200,7 +1210,7 @@ struct
                   allValNames   = #allValNames localEnv
                 };
               (* Now the body, returning its result if it is an expression. *)
-                val resType = assignSeq bodyEnv newLetDepth body
+                val resType = assignSeq(bodyEnv, newLetDepth, body, not isLocal)
             in
                 resType
             end (* LocalDec *)
@@ -1208,7 +1218,7 @@ struct
           | ExpSeq (ptl, _) =>
              (* A sequence of expressions separated by semicolons.
                 Result is result of last expression. *)
-              assignSeq env letDepth ptl
+              assignSeq (env, letDepth, ptl, true)
 
           | ExDeclaration(tlist, _) =>
             let
@@ -2081,7 +2091,7 @@ struct
   
                 in
                     (* Process the declarations, discarding the result. *)
-                    assignSeq decEnv letDepth declist;
+                    assignSeq (decEnv, letDepth, declist, false);
                     (* Turn off equality outside the with..end block.  This is required by the
                        "Abs" function defined in section 4.9 of the ML Definition.
                        We need to record the equality status, though, because we need

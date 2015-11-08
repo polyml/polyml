@@ -27,13 +27,7 @@ functor DEBUGGER_ (
     structure COPIER: COPIERSIG
     structure TYPEIDCODE: TYPEIDCODESIG
     structure LEX : LEXSIG
-
-    structure DEBUG :
-    sig
-        val debugTag: bool Universal.tag
-        val getParameter :
-           'a Universal.tag -> Universal.universal list -> 'a
-    end
+    structure DEBUG: DEBUGSIG
 
     structure UTILITIES :
     sig

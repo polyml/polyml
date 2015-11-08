@@ -90,32 +90,7 @@ sig
 end;
 
 structure ADDRESS : AddressSig
-
-structure DEBUG :
-sig
-    val lineNumberTag: (unit->int) Universal.tag
-    val offsetTag: (unit->int) Universal.tag
-    val fileNameTag: string Universal.tag
-    val printDepthFunTag : (unit->int) Universal.tag;
-    val errorDepthTag : int Universal.tag;
-    val lineLengthTag : int Universal.tag;
-    val bindingCounterTag:      (unit->int) Universal.tag
-    val profileAllocationTag : int Universal.tag
-    val assemblyCodeTag        : bool Universal.tag;
-    val parsetreeTag           : bool Universal.tag;
-    val codetreeTag            : bool Universal.tag;
-    val pstackTraceTag         : bool Universal.tag;
-    val lowlevelOptimiseTag    : bool Universal.tag
-    val codetreeAfterOptTag    : bool Universal.tag;
-    val traceCompilerTag       : bool Universal.tag;
-    val inlineFunctorsTag      : bool Universal.tag;
-    val maxInlineSizeTag       : int Universal.tag;
-    val debugTag                : bool Universal.tag;
-    val reportUnreferencedIdsTag: bool Universal.tag;
-    val reportExhaustiveHandlersTag: bool Universal.tag;
-    val narrowOverloadFlexRecordTag: bool Universal.tag
-    val createPrintFunctionsTag: bool Universal.tag
-end;
+structure DEBUG: DEBUGSIG
 
 structure MISC :
 sig
@@ -1217,7 +1192,8 @@ struct
                 ("reportUnreferencedIdsTag", toMachineWord (reportUnreferencedIdsTag: bool tag), Tag Bool),
                 ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool),
                 ("narrowOverloadFlexRecordTag", toMachineWord (narrowOverloadFlexRecordTag: bool tag), Tag Bool),
-                ("createPrintFunctionsTag", toMachineWord (createPrintFunctionsTag: bool tag), Tag Bool)
+                ("createPrintFunctionsTag", toMachineWord (createPrintFunctionsTag: bool tag), Tag Bool),
+                ("reportDiscardedValuesTag", toMachineWord (reportDiscardedValuesTag: int tag), Tag Int)
                  ]
         end;
  

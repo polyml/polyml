@@ -122,7 +122,7 @@ local
                         if String.sub(s, 2) = #"x" then StringCvt.HEX else StringCvt.DEC
                 in
                         case StringCvt.scanString (Word32.scan radix) s of
-                                NONE => raise RunCall.Conversion "Invalid word8 constant"
+                                NONE => raise RunCall.Conversion "Invalid Word32.word constant"
                           | SOME res => res
                 end
 

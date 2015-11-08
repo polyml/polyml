@@ -48,13 +48,7 @@ sig
     val app: (string * universal -> unit) -> univTable -> unit
 end;
 
-structure DEBUG :
-sig
-    val printDepthFunTag : (unit->int) Universal.tag
-    val errorDepthTag: int Universal.tag
-    val getParameter :
-       'a Universal.tag -> Universal.universal list -> 'a
-end;
+structure DEBUG : DEBUGSIG
 
 structure MISC :
 sig

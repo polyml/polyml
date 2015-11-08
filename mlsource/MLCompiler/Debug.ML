@@ -18,12 +18,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-
-structure Debug =
-
-(*****************************************************************************)
-(*                  Body of DEBUG                                            *)
-(*****************************************************************************)
+structure Debug: DEBUGSIG =
 struct
     local
         open Universal
@@ -76,13 +71,17 @@ struct
         val reportExhaustiveHandlersTag: bool tag    = tag()
         (* Use a narrow context to resolve overloading and flexible records. *)
         val narrowOverloadFlexRecordTag: bool tag    = tag()
-        (* Create print functions for datatypes based on the sconstructors. *)
+        (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
+        (* Warning level for discarding values *)
+        val reportDiscardedValuesTag: int tag           = tag()
+        val reportDiscardNone     = 0 (* No reports *)
+        and reportDiscardFunction = 1 (* Only report discarded functions *)
+        and reportDiscardNonUnit  = 2 (* Report discarding any non unit values *)
         
         (* To avoid circularity of dependencies a few tags are defined
            elsewhere:  *)
         (* ValueOps.printSpaceTag: ValueOps.nameSpace tag
-           Debugger.debuggerFunTag: Debugger.debugger tag
            Pretty.printOutputTag: (pretty->unit) tag
            Pretty.compilerOutputTag: (pretty->unit) tag
            Lex.errorMessageProcTag: (pretty * bool * int -> unit) tag
@@ -113,7 +112,8 @@ struct
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
             tagInject narrowOverloadFlexRecordTag false,
-            tagInject createPrintFunctionsTag true
+            tagInject createPrintFunctionsTag true,
+            tagInject reportDiscardedValuesTag reportDiscardFunction
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

@@ -32,6 +32,7 @@ use "mlsource/MLCompiler/PRETTYSIG.sml";
 use "mlsource/MLCompiler/LEXSIG.sml";
 use "mlsource/MLCompiler/SymbolsSig.sml";
 use "mlsource/MLCompiler/COMPILERBODYSIG.sml";
+use "mlsource/MLCompiler/DEBUGSIG.ML";
 use "mlsource/MLCompiler/MAKE_.ML";
 use "mlsource/MLCompiler/CODETREESIG.ML";
 use "mlsource/MLCompiler/STRUCT_VALS.ML";

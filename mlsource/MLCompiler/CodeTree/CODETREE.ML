@@ -17,17 +17,9 @@
 
 functor CODETREE (
 
-structure DEBUG :
-sig
-    val codetreeTag:            bool Universal.tag (* If true then print the original code. *)
-    val maxInlineSizeTag:       int  Universal.tag
-    val getParameter : 'a Universal.tag -> Universal.universal list -> 'a
-end
-
+structure DEBUG: DEBUGSIG
 structure PRETTY : PRETTYSIG
-
 structure BASECODETREE: BaseCodeTreeSig
-
 structure CODETREE_FUNCTIONS: CodetreeFunctionsSig
 
 structure BACKEND:
