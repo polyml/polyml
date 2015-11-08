@@ -1192,7 +1192,8 @@ struct
                 ("reportUnreferencedIdsTag", toMachineWord (reportUnreferencedIdsTag: bool tag), Tag Bool),
                 ("reportExhaustiveHandlersTag", toMachineWord (reportExhaustiveHandlersTag: bool tag), Tag Bool),
                 ("narrowOverloadFlexRecordTag", toMachineWord (narrowOverloadFlexRecordTag: bool tag), Tag Bool),
-                ("createPrintFunctionsTag", toMachineWord (createPrintFunctionsTag: bool tag), Tag Bool)
+                ("createPrintFunctionsTag", toMachineWord (createPrintFunctionsTag: bool tag), Tag Bool),
+                ("reportDiscardedValuesTag", toMachineWord (reportDiscardedValuesTag: int tag), Tag Int)
                  ]
         end;
  

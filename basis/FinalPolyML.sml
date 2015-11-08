@@ -254,6 +254,8 @@ local
     and reportExhaustiveHandlers = ref false
     and narrowOverloadFlexRecord = ref false
     and createPrintFunctions = ref true
+    and reportDiscardFunction = ref true
+    and reportDiscardNonUnit = ref false
     val lowlevelOptimise = ref true
     
     val debug = ref false
@@ -532,7 +534,9 @@ local
                     tagInject reportUnreferencedIdsTag (! reportUnreferencedIds),
                     tagInject reportExhaustiveHandlersTag (! reportExhaustiveHandlers),
                     tagInject narrowOverloadFlexRecordTag (! narrowOverloadFlexRecord),
-                    tagInject createPrintFunctionsTag (! createPrintFunctions)
+                    tagInject createPrintFunctionsTag (! createPrintFunctions),
+                    tagInject reportDiscardedValuesTag
+                        (if ! reportDiscardNonUnit then 2 else if ! reportDiscardFunction then 1 else 0)
                     ])
         in
             compilerResultFun treeAndCode
@@ -1212,6 +1216,8 @@ in
             and lowlevelOptimise = lowlevelOptimise and reportExhaustiveHandlers = reportExhaustiveHandlers
             and narrowOverloadFlexRecord = narrowOverloadFlexRecord
             and createPrintFunctions = createPrintFunctions
+            and reportDiscardFunction = reportDiscardFunction
+            and reportDiscardNonUnit = reportDiscardNonUnit
             
             val debug = debug
             val inlineFunctors = inlineFunctors

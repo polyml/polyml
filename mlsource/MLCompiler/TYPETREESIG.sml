@@ -200,6 +200,10 @@ sig
 
     (* Fill in the values of type variables and make checks. *)
     val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
+    
+    (* Check the value we're discarding in an expression sequence or a let binding
+       and return a string if it's not appropriate. *)
+    val checkDiscard: types * lexan -> string option
 
     val typeExportTree: navigation * typeParsetree -> exportTree
 

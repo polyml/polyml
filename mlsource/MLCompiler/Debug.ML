@@ -74,7 +74,7 @@ struct
         (* Create print functions for datatypes based on the constructors. *)
         val createPrintFunctionsTag: bool tag        = tag()
         (* Warning level for discarding values *)
-        val reportDiscardedValues: int tag           = tag()
+        val reportDiscardedValuesTag: int tag           = tag()
         val reportDiscardNone     = 0 (* No reports *)
         and reportDiscardFunction = 1 (* Only report discarded functions *)
         and reportDiscardNonUnit  = 2 (* Report discarding any non unit values *)
@@ -112,7 +112,8 @@ struct
             tagInject reportUnreferencedIdsTag false,
             tagInject reportExhaustiveHandlersTag false,
             tagInject narrowOverloadFlexRecordTag false,
-            tagInject createPrintFunctionsTag true
+            tagInject createPrintFunctionsTag true,
+            tagInject reportDiscardedValuesTag reportDiscardFunction
         ]
     
         fun getParameter (t:'a tag) (tagList: universal list) :'a =

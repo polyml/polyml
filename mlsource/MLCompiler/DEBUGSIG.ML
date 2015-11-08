@@ -42,7 +42,7 @@ sig
     val reportExhaustiveHandlersTag : bool Universal.tag
     val reportUnreferencedIdsTag : bool Universal.tag
     val traceCompilerTag : bool Universal.tag
-    val reportDiscardedValues: int Universal.tag
+    val reportDiscardedValuesTag: int Universal.tag
     val reportDiscardNone: int (* No reports *)
     and reportDiscardFunction: int (* Only report discarded functions *)
     and reportDiscardNonUnit: int (* Report discarding any non unit values *)
