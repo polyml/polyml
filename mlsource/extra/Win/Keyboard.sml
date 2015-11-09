@@ -32,16 +32,16 @@ struct
         fun checkWindow c = (checkResult(not(isHNull c)); c)
     in
         type HWND = HWND
-        val EnableWindow = call2 (user "EnableWindow") (HWND, BOOL) BOOL
-        val GetActiveWindow = call0 (user "GetActiveWindow") () HWNDOPT
-        val GetFocus = call0 (user "GetFocus") () HWNDOPT
-        val IsWindowEnabled = call1 (user "IsWindowEnabled") (HWND) BOOL
+        val EnableWindow = call2 (user "EnableWindow") (cHWND, cBool) cBool
+        val GetActiveWindow = call0 (user "GetActiveWindow") () cHWNDOPT
+        val GetFocus = call0 (user "GetFocus") () cHWNDOPT
+        val IsWindowEnabled = call1 (user "IsWindowEnabled") (cHWND) cBool
         val SetActiveWindow =
-            checkWindow o call1 (user "SetActiveWindow") (HWND) HWND
+            checkWindow o call1 (user "SetActiveWindow") (cHWND) cHWND
 
         (* The argument to SetFocus is an option because we may ignore input.
            The result may be null if there was an error or if no window had focus. *)
-        val SetFocus = call1 (user "SetFocus") (HWNDOPT) HWNDOPT
+        val SetFocus = call1 (user "SetFocus") (cHWNDOPT) cHWNDOPT
     end
 end;
 

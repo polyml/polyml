@@ -305,6 +305,7 @@ struct
                 winCall8 (gdi "ExtTextOutA")
                  (cHDC,cInt,cInt, EXTENDEDTEXTOUT, cOptionPtr (cConstStar cRect), cString, cUint, cPointer)
                     (successState "ExtTextOut")
+            val l2Vec = list2Vector cInt
         in
             fun ExtTextOut (h,({x,y}:POINT), option, rect, text, gapl) =
             let         
@@ -312,7 +313,7 @@ struct
                 val (gaps, _) =
                     case gapl of
                         [] => (Memory.null, 0)
-                    |   _ => list2Vector cInt gapl
+                    |   _ => l2Vec gapl
                 (* The Rect is optional but really depends on the ETO_OPAQUE or ETO_CLIPPED
                    options. *)
             in
@@ -468,13 +469,13 @@ struct
                 winCall7(gdi "GetTextExtentExPointA")
                     (cHDC, cString, cInt, cInt, cPointer, cPointer, cStar cSize) (successState "GetTextExtentExPoint")
             val {load=loadInt, ctype={size=sizeInt, ...}, ...} = breakConversion cInt
-            val sizeIntSw = SysWord.fromLargeWord(Word.toLargeWord sizeInt)
         in
             fun GetTextExtentExPoint(hdc: HDC, s: string, maxWidth: int option) :
                 {fit: int option, extents: int list, size: SIZE} =
             let
                 val count = size s
                 open Memory
+                infix 6 ++
                 val vec = malloc(Word.fromInt count * sizeInt)
                 (* The lpnFit argument controls whether we get the maximum no. of chars. *)
                 val lpnFit =
@@ -487,8 +488,7 @@ struct
                         (hdc, s, count, getOpt(maxWidth, 0), lpnFit, vec, sizeVec)
                             handle ex => (free vec; free lpnFit; raise ex)
                 val fit = case maxWidth of NONE => NONE | _ => SOME(loadInt lpnFit)
-                fun loadExt i =
-                    loadInt(sysWord2VoidStar(voidStar2Sysword vec + SysWord.fromInt i * sizeIntSw))
+                fun loadExt i = loadInt(vec ++ Word.fromInt i * sizeInt)
                 val extents = List.tabulate(getOpt(fit, count), loadExt)
                 val () = free vec
                 val () = free lpnFit
@@ -500,13 +500,14 @@ struct
         local
             val tabbedTextOut =
                 winCall8 (user "TabbedTextOutA") (cHDC, cInt, cInt, cString, cInt, cInt, cPointer, cInt) cDWORDw
+            val list2vec = list2Vector cInt
         in
             fun TabbedTextOut(hdc, {x, y}: POINT, str, tabs, origin): SIZE =
             let
                 val (tabVec, nTabs) =
                     case tabs of
                         [] => (Memory.null, 0) (* Make the vector null. *)
-                    | _ => list2Vector cInt tabs
+                    | _ => list2vec tabs
                 val res =
                     tabbedTextOut(hdc, x, y, str, size str, nTabs, tabVec, origin)
                         handle ex => (Memory.free tabVec; raise ex)

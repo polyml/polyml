@@ -41,7 +41,7 @@ sig
         and TBSTYLE_TRANSPARENT:flags and BTNS_BUTTON:flags and BTNS_SEP:flags
         and BTNS_CHECK:flags and BTNS_GROUP:flags and BTNS_CHECKGROUP:flags
         and BTNS_DROPDOWN:flags and BTNS_AUTOSIZE:flags and BTNS_NOPREFIX:flags
-        and BTNS_WHOLEDROPDOWN:flags
+        and BTNS_SHOWTEXT:flags and BTNS_WHOLEDROPDOWN:flags
     end
     
     structure ToolbarState:
@@ -90,27 +90,30 @@ struct
     in
         type HWND = HWND and HINSTANCE = HINSTANCE and HBITMAP = HBITMAP
 
-        val InitCommonControls = call0(comctl "InitCommonControls") () VOID
+        val InitCommonControls = call0(comctl "InitCommonControls") () cVoid
         
+        (* Toolbar style is a mess.  The TBBUTTON structure allows only a single
+           byte for the style but some of the values exceed that.  Apparently
+           it's necessary to use CreateWindowEx for those. *)
         structure ToolbarStyle =
         struct
             open Window.Style (* Include all the windows styles. *)
-            val TBSTYLE_BUTTON      = fromWord 0w0
-            val TBSTYLE_SEP         = fromWord 0w1
-            val TBSTYLE_CHECK       = fromWord 0w2
-            val TBSTYLE_GROUP       = fromWord 0w4
+            val TBSTYLE_BUTTON      = fromWord 0wx0
+            val TBSTYLE_SEP         = fromWord 0wx1
+            val TBSTYLE_CHECK       = fromWord 0wx2
+            val TBSTYLE_GROUP       = fromWord 0wx4
             val TBSTYLE_CHECKGROUP  = flags[TBSTYLE_GROUP,TBSTYLE_CHECK]
-            val TBSTYLE_DROPDOWN    = fromWord 0w8
-            val TBSTYLE_AUTOSIZE    = fromWord 0w16
-            val TBSTYLE_NOPREFIX    = fromWord 0w32
-            val TBSTYLE_TOOLTIPS    = fromWord 0w256
-            val TBSTYLE_WRAPABLE    = fromWord 0w512
+            val TBSTYLE_DROPDOWN    = fromWord 0wx8
+            val TBSTYLE_AUTOSIZE    = fromWord 0wx10
+            val TBSTYLE_NOPREFIX    = fromWord 0wx20
+            val TBSTYLE_TOOLTIPS    = fromWord 0wx100
+            val TBSTYLE_WRAPABLE    = fromWord 0wx200
             
-            val TBSTYLE_ALTDRAG     = fromWord 0w1024
+            val TBSTYLE_ALTDRAG     = fromWord 0wx400
             
-            val TBSTYLE_FLAT         = fromWord 0w2048
-            val TBSTYLE_LIST         = fromWord 0w4096
-            val TBSTYLE_CUSTOMERASE  = fromWord 0w8192
+            val TBSTYLE_FLAT         = fromWord 0wx800
+            val TBSTYLE_LIST         = fromWord 0wx1000
+            val TBSTYLE_CUSTOMERASE  = fromWord 0wx2000
             val TBSTYLE_REGISTERDROP = fromWord 0wx4000
             val TBSTYLE_TRANSPARENT     = fromWord 0wx8000
             (* -- These are used with TB_SETEXTENDEDSTYLE/TB_GETEXTENDEDSTYLE
@@ -126,13 +129,14 @@ struct
             val BTNS_DROPDOWN       = TBSTYLE_DROPDOWN
             val BTNS_AUTOSIZE       = TBSTYLE_AUTOSIZE
             val BTNS_NOPREFIX       = TBSTYLE_NOPREFIX
+            val BTNS_SHOWTEXT       = fromWord 0wx0040
             val BTNS_WHOLEDROPDOWN  = fromWord 0wx0080
 
             val all = flags[Window.Style.all, TBSTYLE_BUTTON, TBSTYLE_SEP, TBSTYLE_CHECK,
                             TBSTYLE_GROUP, TBSTYLE_DROPDOWN, TBSTYLE_AUTOSIZE, TBSTYLE_NOPREFIX,
                             TBSTYLE_TOOLTIPS, TBSTYLE_WRAPABLE, TBSTYLE_ALTDRAG, TBSTYLE_FLAT,
                             TBSTYLE_LIST, TBSTYLE_CUSTOMERASE, TBSTYLE_TRANSPARENT,
-                            BTNS_WHOLEDROPDOWN]
+                            BTNS_SHOWTEXT, BTNS_WHOLEDROPDOWN]
     
             val intersect =
                 List.foldl (fn (a, b) => fromWord(SysWord.andb(toWord a, toWord b))) all
@@ -144,29 +148,32 @@ struct
             val TBSTATE_CHECKED: flags and TBSTATE_PRESSED: flags and TBSTATE_ENABLED: flags
             and TBSTATE_HIDDEN: flags and TBSTATE_INDETERMINATE: flags and TBSTATE_WRAP: flags
             and TBSTATE_ELLIPSES: flags and TBSTATE_MARKED : flags
+            val cToolBarState: flags conversion (* Only used internally *)
         end =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word8
+            type flags = Word8.word
+            val toWord = toLargeWord
+            and fromWord = fromLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
 
-            val TBSTATE_CHECKED     = 0w1
-            val TBSTATE_PRESSED     = 0w2
-            val TBSTATE_ENABLED     = 0w4
-            val TBSTATE_HIDDEN      = 0w8
-            val TBSTATE_INDETERMINATE   = 0w16
-            val TBSTATE_WRAP        = 0w32
-            val TBSTATE_ELLIPSES    = 0wx40
-            val TBSTATE_MARKED      = 0wx0080
+            val TBSTATE_CHECKED         = 0w1
+            val TBSTATE_PRESSED         = 0w2
+            val TBSTATE_ENABLED         = 0w4
+            val TBSTATE_HIDDEN          = 0w8
+            val TBSTATE_INDETERMINATE   = 0wx10
+            val TBSTATE_WRAP            = 0wx20
+            val TBSTATE_ELLIPSES        = 0wx40
+            val TBSTATE_MARKED          = 0wx80
             val all = flags[TBSTATE_CHECKED, TBSTATE_PRESSED, TBSTATE_ENABLED, TBSTATE_HIDDEN,
                             TBSTATE_INDETERMINATE, TBSTATE_WRAP, TBSTATE_ELLIPSES, TBSTATE_MARKED]
     
-            val intersect =
-                List.foldl (fn (a, b) => fromWord(SysWord.andb(toWord a, toWord b))) all
+            val intersect = List.foldl (fn (a, b) => andb(a, b)) all
+            
+            val cToolBarState = cUint8w (*Must be a byte*)
         end
 
     
@@ -174,48 +181,65 @@ struct
             ToolbarHandle of HBITMAP | ToolbarResource of HINSTANCE*Resource.RESID
     
         type TBBUTTON = { iBitmap: int, idCommand: int, fsState: ToolbarState.flags,
-                          fsStyle: ToolbarStyle.flags, dwData: int, isString: int};
-        val TBBUTTON = STRUCT6(INT, INT, CHAR, CHAR, INT, INT);
-        val (_, _, tbButton) = breakConversion TBBUTTON
-        
-        fun CreateToolbarEx { relation: ParentType, style: ToolbarStyle.flags, nBitmaps: int,
-                              bitmaps: ToolbarResource, buttons: TBBUTTON list,
-                              xButton: int, yButton: int, xBitmap: int, yBitmap: int}: HWND =
-        let
-            (* We use the general form although this is really only ever a child. *)
-            val (parent, childId, styleWord) = WinBase.unpackWindowRelation(relation, style)
-
-            fun mapToStruct({iBitmap, idCommand, fsState, fsStyle, dwData, isString}:TBBUTTON) =
-                (iBitmap, idCommand, chr(LargeWord.toInt(ToolbarState.toWord fsState)),
-                 chr(LargeWord.toInt(ToolbarStyle.toWord fsStyle)), dwData, isString)
-
-            val (buttonVec, nButtons) = list2Vector TBBUTTON
-                (map mapToStruct buttons)
+                          fsStyle: ToolbarStyle.flags, dwData: int, isString: int}
+        local
+            val TBBUTTON =
+                cStruct6(cInt, cInt, ToolbarState.cToolBarState(*byte*), cUint8w, cDWORD_PTR, cINT_PTR)
+            val {ctype={size=sizeTBB, ...}, ...} = breakConversion TBBUTTON
                 
-            val CreateToolbarEx = call13 (comctl "CreateToolbarEx")
-                (HWND,WORD,UINT,INT,HINSTANCE,RESID,POINTER,INT,INT,INT,INT,INT,UINT) HWND
+            val createToolbarEx = call13 (comctl "CreateToolbarEx")
+                (cHWND,cDWORDw,cUint,cInt,cHINSTANCE, cPointer ,cPointer,cInt,cInt,cInt,cInt,cInt,cUint) cHWND
+            val list2vec = list2Vector TBBUTTON
 
-            val (hBMInst, wBMID) =
-                case bitmaps of
-                    ToolbarHandle hbm => (hinstanceNull, IdAsInt(intOfHandle hbm))
-                |   ToolbarResource(hi, wb) => (hi, wb)
-
-            val res = CreateToolbarEx(parent, styleWord, childId, nBitmaps,
-                        hBMInst, wBMID, buttonVec, nButtons, xButton, yButton, xBitmap, yBitmap,
-                        sizeof tbButton)
         in
-            checkResult(not(isHNull res));
-            res
+            fun CreateToolbarEx { relation: ParentType, style: ToolbarStyle.flags, nBitmaps: int,
+                                  bitmaps: ToolbarResource, buttons: TBBUTTON list,
+                                  xButton: int, yButton: int, xBitmap: int, yBitmap: int}: HWND =
+            let
+                (* This must be a child and WS_CHILD is included by default *)
+                val (parent, childId, styleWord) =
+                    case relation of
+                        ChildWindow{parent, id} => (parent, id, WinBase.Style.toWord style)
+                    |   _ => raise Fail "CreateToolbarEx: relation must be ChildWindow"
+
+                fun mapToStruct({iBitmap, idCommand, fsState, fsStyle, dwData, isString}:TBBUTTON) =
+                    (iBitmap, idCommand, fsState, Word8.fromLargeWord(ToolbarStyle.toWord fsStyle), dwData, isString)
+
+                val (buttonVec, nButtons) = list2vec (map mapToStruct buttons)
+                (* The wBMID argument may be either a resource identifier or a bitmap handle. *)
+                val (hBMInst, wBMID, freeStr) =
+                    case bitmaps of
+                        ToolbarHandle hbm => (hinstanceNull, voidStarOfHandle hbm, Memory.null)
+                    |   ToolbarResource(hi, IdAsInt wb) => (hi, Memory.sysWord2VoidStar(SysWord.fromInt wb), Memory.null)
+                    |   ToolbarResource(hi, IdAsString str) => let val s = toCstring str in (hi, s, s) end
+
+                val res =
+                    createToolbarEx(parent, Word32.fromLargeWord styleWord, childId, nBitmaps,
+                            hBMInst, wBMID, buttonVec, nButtons, xButton, yButton, xBitmap, yBitmap,
+                            Word.toInt sizeTBB)
+                        handle ex => (Memory.free freeStr; Memory.free buttonVec; raise ex)
+                val () = Memory.free freeStr and () = Memory.free buttonVec
+            in
+                checkResult(not(isHNull res));
+                res
+            end
         end
         
-        fun CreateStatusWindow{ relation: ParentType, style: Window.Style.flags, text: string } =
-        let
-            val (parent, childId, styleWord) = WinBase.unpackWindowRelation(relation, style)
-            val CreateStatusWindow = call4 (comctl "CreateStatusWindowA") (WORD,STRING,HWND,UINT) HWND
-            val res = CreateStatusWindow(styleWord, text, parent, childId)
+        local
+            val createStatusWindow = call4 (comctl "CreateStatusWindowA") (cLong,cString,cHWND,cUint) cHWND
         in
-            checkResult(not(isHNull res));
-            res
+            fun CreateStatusWindow{ relation: ParentType, style: Window.Style.flags, text: string } =
+            let
+                val (parent, childId, styleWord) =
+                    case relation of
+                        ChildWindow{parent, id} =>
+                            let open WinBase.Style in (parent, id, toWord(flags[WS_CHILD, style])) end
+                    |   _ => raise Fail "CreateStatusWindow: relation must be ChildWindow"
+                val res = createStatusWindow(LargeWord.toInt styleWord, text, parent, childId)
+            in
+                checkResult(not(isHNull res));
+                res
+            end
         end
 
         val SB_SIMPLEID = 0x00ff
@@ -246,33 +270,47 @@ struct
                 List.foldl (fn (a, b) => fromWord(SysWord.andb(toWord a, toWord b))) all
         end;
         
-        val sendMsg = call4(user "SendMessageA") (HWND, INT, POINTER, POINTER) UINT
+        val sendMsg = call4(user "SendMessageA") (cHWND, cUint, cUINT_PTR, cPointer) cUint
 
-        fun StatusBarSetText{hWnd, iPart, uType, text} =
-          sendMsg(hWnd, 0x401, toCint(IntInf.orb(iPart, LargeWord.toInt(StatusBarType.toWord uType))), toCstring text)
+        fun StatusBarSetText{hWnd, iPart, uType, text}:int =
+        let
+            val s = toCstring text
+            val res = sendMsg(hWnd, 0x401, IntInf.orb(iPart, LargeWord.toInt(StatusBarType.toWord uType)), s)
+                handle ex => (Memory.free s; raise ex)
+            val () = Memory.free s
+        in
+            res
+        end
           
         fun StatusBarGetText(hWnd, iPart): string * StatusBarType.flags =
         let
-            val result1 = sendMsg(hWnd, 0x403, toCint iPart, toCint 0);
+            val result1 = Word32.fromInt(sendMsg(hWnd, 0x403, iPart, Memory.null))
             val length = LOWORD result1
-            val flags = StatusBarType.fromWord(LargeWord.fromInt(HIWORD result1))
+            val flags = StatusBarType.fromWord(Word.toLargeWord(HIWORD result1))
         in
             if StatusBarType.anySet(flags, StatusBarType.SBT_OWNERDRAW)
             then ("", flags)
             else
             let
-                val buff = address(alloc (length+1) Cchar)
-                val reply = sendMsg(hWnd, 0x402, toCint iPart, buff)
+                open Memory
+                val buff = malloc (length+0w1)
+                val reply =
+                    sendMsg(hWnd, 0x402, iPart, buff)
+                        handle ex => (free buff; raise ex)
             in
-                (if reply = 0 then "" else fromCstring buff, flags)
+                (if reply = 0 then "" else fromCstring buff, flags) before free buff
             end
         end
 
         fun StatusBarSetParts(hWnd, parts: int list): bool =
         let
-            val (vec, nParts) = list2Vector INT parts
+            val (vec, nParts) = list2Vector cInt parts
+            open Memory
+            val res = sendMsg(hWnd, 0x404, nParts, vec)
+                handle ex => (free vec; raise ex)
+            val () = free vec
         in
-            sendMsg(hWnd, 0x404, toCint nParts, vec) <> 0
+            res <> 0
         end
           
  (* 

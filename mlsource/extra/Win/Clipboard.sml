@@ -121,20 +121,20 @@ struct
             CH_HDROP of HDROP |
             CH_LOCALE of Word8Vector.vector
 
-        val ChangeClipboardChain = call2 (user "ChangeClipboardChain") (HWND, HWND) BOOL
-        and CloseClipboard = call0 (user "CloseClipboard") () (SUCCESSSTATE "CloseClipboard")
+        val ChangeClipboardChain = call2 (user "ChangeClipboardChain") (cHWND, cHWND) BOOL
+        and CloseClipboard = call0 (user "CloseClipboard") () (successState "CloseClipboard")
         and CountClipboardFormats = call0 (user "CountClipboardFormats") () INT
-        and EmptyClipboard = call0 (user "EmptyClipboard") () (SUCCESSSTATE "EmptyClipboard")
-        and EnumClipboardFormats = call1 (user "EnumClipboardFormats") (CLIPFORMAT) CLIPFORMAT
-        and GetClipboardOwner = call0 (user "GetClipboardOwner") () HWND
-        and GetClipboardViewer = call0 (user "GetClipboardViewer") () HWND
-        and GetOpenClipboardWindow = call0 (user "GetOpenClipboardWindow") () HWND
+        and EmptyClipboard = call0 (user "EmptyClipboard") () (successState "EmptyClipboard")
+        and EnumClipboardFormats = call1 (user "EnumClipboardFormats") (cCLIPFORMAT) cCLIPFORMAT
+        and GetClipboardOwner = call0 (user "GetClipboardOwner") () cHWND
+        and GetClipboardViewer = call0 (user "GetClipboardViewer") () cHWND
+        and GetOpenClipboardWindow = call0 (user "GetOpenClipboardWindow") () cHWND
         and IsClipboardFormatAvailable =
-            call1 (user "IsClipboardFormatAvailable") (CLIPFORMAT) BOOL
-        and OpenClipboard = call1 (user "OpenClipboard") (HWNDOPT) (SUCCESSSTATE "OpenClipboard")
+            call1 (user "IsClipboardFormatAvailable") (cCLIPFORMAT) BOOL
+        and OpenClipboard = call1 (user "OpenClipboard") (cHWNDOPT) (successState "OpenClipboard")
         and RegisterClipboardFormat =
             CF_REGISTERED o call1 (user "RegisterClipboardFormat") (STRING) INT
-        and SetClipboardViewer = call1 (user "SetClipboardViewer") (HWND) HWND
+        and SetClipboardViewer = call1 (user "SetClipboardViewer") (cHWND) cHWND
 
         (* SetClipboardData copies the data to the clipboard.  It is possible to pass
            NULL as the handle and instead process the WM_RENDERFORMAT message.  We
@@ -200,7 +200,7 @@ struct
                 |   CH_REGISTERED(i, m)     => (CF_REGISTERED i, globMem m)
                 |   CH_HDROP d              => (CF_HDROP, toHDRP d)
                 |   CH_LOCALE m             => (CF_LOCALE, globMem m)
-            val res = call2(user "SetClipboardData") (CLIPFORMAT, POINTER) POINTER (cf, data)
+            val res = call2(user "SetClipboardData") (cCLIPFORMAT, POINTER) POINTER (cf, data)
         in
             if fromCint res = 0
             then raiseSysErr ()
@@ -211,7 +211,7 @@ struct
         let
             (* The result of GetClipboardData is a handle, usually but not always an
                HGLOBAL pointing to a piece of memory. *)
-            val res = call1 (user "GetClipboardData") (CLIPFORMAT) POINTER (f)
+            val res = call1 (user "GetClipboardData") (cCLIPFORMAT) POINTER (f)
             val _ = checkResult (fromCint res <> 0)
             fun getMem(p: vol) =
             let
@@ -267,7 +267,7 @@ struct
         end
 
         local
-            val getformat = call3 (user "GetClipboardFormatNameA") (CLIPFORMAT, POINTER, INT) INT
+            val getformat = call3 (user "GetClipboardFormatNameA") (cCLIPFORMAT, POINTER, INT) INT
         in
             (* Loop until we have read the whole string.  The result may legitimately be
                a null string. *)
@@ -277,9 +277,9 @@ struct
 
         fun GetPriorityClipboardFormat(l: ClipboardFormat list): ClipboardFormat option =
         let
-            val (vec, count) = list2Vector CLIPFORMAT l
+            val (vec, count) = list2Vector cCLIPFORMAT l
             val res = call2(user "GetPriorityClipboardFormat") (POINTER, INT) INT (vec, count)
-            val (toClip, _, _) = breakConversion CLIPFORMAT
+            val (toClip, _, _) = breakConversion cCLIPFORMAT
         in
             (* It returns 0 if the clipboard is empty, ~1 if it doesn't contain any
                of the requested formats and >0 if it contains one of the formats.

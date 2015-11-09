@@ -272,8 +272,6 @@ struct
             icmIntent: DMICMIntent option,
             mediaType: DMMedia option,
             ditherType: DMDither option,
-            iccManufacturer: int option,
-            iccModel: int option,
             panningWidth: int option,
             panningHeight: int option,
             driverPrivate: Word8Vector.vector
@@ -281,7 +279,9 @@ struct
 
         local
             val DM_SPECVERSION = 0x0401
-            val DMBaseSize = 156 (* Size of structure without any user data. *)
+            (* The size of the structure is the same in both 32-bit and 64-bit modes
+                but is larger in Unicode (220 bytes). *)
+            val DMBaseSize = 0w156 (* Size of structure without any user data. *)
 
             (* These bits indicate the valid fields in the structure. *)
             val DM_ORIENTATION      = 0x00000001
@@ -310,38 +310,34 @@ struct
             val DM_ICMINTENT        = 0x04000000
             val DM_MEDIATYPE        = 0x08000000
             val DM_DITHERTYPE       = 0x10000000
-            val DM_ICCMANUFACTURER  = 0x20000000
-            val DM_ICCMODEL         = 0x40000000
+
+            open Memory
+            infix 6 ++
+            
+            val {load=loadShort, store=storeShort, ctype={size=sizeShort, ...}} =
+                breakConversion cShort
+            val {load=loadDWord, store=storeDWord, ctype={size=sizeDWord, ...}} =
+                breakConversion cDWORD
 
             (* The argument "vaddr" is the address of the structure.
                Perhaps we shouldn't do it that way and instead use POINTERTO
                in various places. *)
-            fun fromCDevMode vaddr : DEVMODE =
+            fun loadCDevMode(vaddr: voidStar) : DEVMODE =
             let
-                val v = deref vaddr
-                val off = ref 0
-                fun getShort() =
-                let
-                    val r = fromCshort(offset (!off) Cchar v)
-                in
-                    off := !off + sizeof(Cshort);
-                    r
-                end;
-                fun getLong() =
-                let
-                    val r = fromClong(offset (!off) Cchar v)
-                in
-                    off := !off + sizeof(Clong);
-                    r
-                end;
-                val deviceName = fromCstring(address v)
-                val _ = off := !off + (32 * sizeof(Cchar))
-                val specVersion         = getShort()
+                val v = getAddress(vaddr, 0w0)
+                val ptr = ref v
+
+                fun getShort() = loadShort(!ptr) before ptr := !ptr ++ sizeShort
+                and getDWord() = loadDWord(!ptr) before ptr := !ptr ++ sizeDWord
+
+                val deviceName = fromCstring (!ptr)
+                val () = ptr := !ptr ++ 0w32
+                val _                   = getShort()
                 val driverVersion       = getShort()
-                val size                = getShort()
+                val _                   = getShort()
                 val driverExtra         = getShort()
                 (* The "fields" value determines which of the fields are valid. *)
-                val fields              = getLong()
+                val fields              = getDWord()
                 fun getOpt opt conv v =
                     if IntInf.andb(fields, opt) = 0 then NONE else SOME(conv v)
                 fun I x = x
@@ -359,24 +355,27 @@ struct
                 val yResolution         = getOpt DM_YRESOLUTION I (getShort())
                 val ttOption            = (getOpt DM_TTOPTION toDMTT o getShort) ()
                 val collate             = getOpt DM_COLLATE I (getShort())
-                val formName            = getOpt DM_FORMNAME I (fromCstring(address(offset (!off) Cchar v)))
-                val _ = off := !off + (32 * sizeof(Cchar))
+                val formName            = getOpt DM_FORMNAME I (fromCstring(!ptr))
+                val () = ptr := !ptr ++ 0w32
                 val logPixels           = getOpt DM_LOGPIXELS I (getShort())
-                val bitsPerPixel        = getOpt DM_BITSPERPEL I (getLong())
-                val pelsWidth           = getOpt DM_PELSWIDTH I (getLong())
-                val pelsHeight          = getOpt DM_PELSHEIGHT I (getLong())
-                val displayFlags        = getOpt DM_DISPLAYFLAGS I (getLong())
-                val displayFrequency    = getOpt DM_DISPLAYFREQUENCY I (getLong())
-                val icmMethod           = (getOpt DM_ICMMETHOD toDMICMM o getLong) ()
-                val icmIntent           = (getOpt DM_ICMINTENT toDMICMI o getLong) ()
-                val mediaType           = (getOpt DM_MEDIATYPE toDMM o getLong) ()
-                val ditherType          = (getOpt DM_DITHERTYPE toDMDi o getLong) ()
-                val iccManufacturer     = getOpt DM_ICCMANUFACTURER I (getLong())
-                val iccModel            = getOpt DM_ICCMODEL I (getLong())
-                val panningWidth        = getOpt DM_PANNINGWIDTH I (getLong())
-                val panningHeight       = getOpt DM_PANNINGHEIGHT I (getLong())
+                val bitsPerPixel        = getOpt DM_BITSPERPEL I (getDWord())
+                val pelsWidth           = getOpt DM_PELSWIDTH I (getDWord())
+                val pelsHeight          = getOpt DM_PELSHEIGHT I (getDWord())
+                val displayFlags        = getOpt DM_DISPLAYFLAGS I (getDWord()) (* Or dmNup *)
+                val displayFrequency    = getOpt DM_DISPLAYFREQUENCY I (getDWord())
+                val icmMethod           = (getOpt DM_ICMMETHOD toDMICMM o getDWord) ()
+                val icmIntent           = (getOpt DM_ICMINTENT toDMICMI o getDWord) ()
+                val mediaType           = (getOpt DM_MEDIATYPE toDMM o getDWord) ()
+                val ditherType          = (getOpt DM_DITHERTYPE toDMDi o getDWord) ()
+                val (*iccManufacturer*)_ = getDWord()
+                val (*iccModel*)_       = getDWord()
+                val panningWidth        = getOpt DM_PANNINGWIDTH I (getDWord())
+                val panningHeight       = getOpt DM_PANNINGHEIGHT I (getDWord())
+                val _ =
+                    voidStar2Sysword(!ptr) - voidStar2Sysword v = Word.toLargeWord DMBaseSize orelse raise Fail "loadCDevMode: length wrong"
                 (* There may be private data at the end. *)
-                val driverPrivate = toWord8vec(address(offset size Cchar v), driverExtra) 
+                fun loadByte _ = Memory.get8(!ptr, 0w0) before ptr := !ptr ++ 0w1
+                val driverPrivate = Word8Vector.tabulate(driverExtra, loadByte)
             in
                 {
                 deviceName = deviceName,
@@ -405,15 +404,14 @@ struct
                 icmIntent = icmIntent,
                 mediaType = mediaType,
                 ditherType = ditherType,
-                iccManufacturer = iccManufacturer,
-                iccModel = iccModel,
                 panningWidth = panningWidth,
                 panningHeight = panningHeight,
                 driverPrivate = driverPrivate
                 }
             end
 
-            fun toCDevMode({
+            fun storeCDevMode(vaddr: voidStar,
+            {
                 deviceName: string,
                 driverVersion: int,
                 orientation: DMOrientation option,
@@ -440,29 +438,26 @@ struct
                 icmIntent: DMICMIntent option,
                 mediaType: DMMedia option,
                 ditherType: DMDither option,
-                iccManufacturer: int option,
-                iccModel: int option,
                 panningWidth: int option,
                 panningHeight: int option,
                 driverPrivate: Word8Vector.vector
-                }: DEVMODE) : vol =
+                }: DEVMODE) : unit -> unit =
             let
                 val driverExtra = Word8Vector.length driverPrivate
-                val v = alloc (DMBaseSize + driverExtra) Cchar
-                val off = ref 0
+                val v = malloc (DMBaseSize + Word.fromInt driverExtra)
+                val () = setAddress(vaddr, 0w0, v)
+                val ptr = ref v
                 (* The name can be at most 31 characters. *)
                 val devName =
                     if size deviceName > 31 then String.substring(deviceName, 0, 31) else deviceName
                 (* setShort and setLong set the appropriate field and advance the pointer. *)
-                fun setShort i =
-                    (assign Cshort (offset (!off) Cchar v) (toCshort i); off := !off + sizeof Cshort)
-                fun setLong i =
-                    (assign Clong (offset (!off) Cchar v) (toClong i); off := !off + sizeof Clong)
+                fun setShort i = ignore(storeShort(!ptr, i)) before ptr := !ptr ++ sizeShort
+                and setDWord i = ignore(storeDWord(!ptr, i)) before ptr := !ptr ++ sizeDWord
 
                 (* Optional values default to zero.  If the option is SOME v we set the
                    appropriate bit in "fields". *)
                 val fields = ref 0
-                fun setOpt opt _ NONE = 0
+                fun setOpt _ _ NONE = 0
                  |  setOpt opt conv (SOME v) = (fields := IntInf.orb(!fields, opt); conv v)
                 fun I x = x
                 fun fromCollate true = 1 | fromCollate false = 0
@@ -470,12 +465,14 @@ struct
                     case formName of NONE => ""
                     |   SOME s => if size s > 31 then String.substring(s, 0, 31) else s
             in
-                fillCstring v devName; off := !off + 32;
+                CharVector.appi(fn (i, c) => set8(!ptr, Word.fromInt i, Word8.fromInt(ord c))) devName;
+                set8(!ptr, Word.fromInt(size devName), 0w0);
+                ptr := !ptr ++ 0w32;
                 setShort DM_SPECVERSION;
                 setShort driverVersion;
-                setShort DMBaseSize;
+                setShort (Word.toInt DMBaseSize);
                 setShort driverExtra;
-                setLong 0; (* Fields - set this later. *)
+                setDWord 0; (* Fields - set this later. *)
                 setShort(setOpt DM_ORIENTATION fromDMO orientation);
                 setShort(setOpt DM_PAPERSIZE fromDMPS paperSize);
                 setShort(setOpt DM_PAPERLENGTH I paperLength);
@@ -489,36 +486,38 @@ struct
                 setShort(setOpt DM_YRESOLUTION I yResolution);
                 setShort(setOpt DM_TTOPTION fromDMTT ttOption);
                 setShort(setOpt DM_COLLATE fromCollate collate);
-                fillCstring (offset (!off) Cchar v) form; off := !off + 32;
+                CharVector.appi(fn (i, c) => set8(!ptr, Word.fromInt i, Word8.fromInt(ord c))) form;
+                set8(!ptr, Word.fromInt(size form), 0w0);
+                ptr := !ptr ++ 0w32;
                 setShort(setOpt DM_LOGPIXELS I logPixels);
-                setLong(setOpt DM_BITSPERPEL I bitsPerPixel);
-                setLong(setOpt DM_PELSWIDTH I pelsWidth);
-                setLong(setOpt DM_PELSHEIGHT I pelsHeight);
-                setLong(setOpt DM_DISPLAYFLAGS I displayFlags);
-                setLong(setOpt DM_DISPLAYFREQUENCY I displayFrequency);
-                setLong(setOpt DM_ICMMETHOD fromDMICMM icmMethod);
-                setLong(setOpt DM_ICMINTENT fromDMICMI icmIntent);
-                setLong(setOpt DM_MEDIATYPE fromDMM mediaType);
-                setLong(setOpt DM_DITHERTYPE fromDMDi ditherType);
-                setLong(setOpt DM_ICCMANUFACTURER I iccManufacturer);
-                setLong(setOpt DM_ICCMODEL I iccModel);
-                setLong(setOpt DM_PANNINGWIDTH I panningWidth);
-                setLong(setOpt DM_PANNINGHEIGHT I panningHeight);
+                setDWord(setOpt DM_BITSPERPEL I bitsPerPixel);
+                setDWord(setOpt DM_PELSWIDTH I pelsWidth);
+                setDWord(setOpt DM_PELSHEIGHT I pelsHeight);
+                setDWord(setOpt DM_DISPLAYFLAGS I displayFlags);
+                setDWord(setOpt DM_DISPLAYFREQUENCY I displayFrequency);
+                setDWord(setOpt DM_ICMMETHOD fromDMICMM icmMethod);
+                setDWord(setOpt DM_ICMINTENT fromDMICMI icmIntent);
+                setDWord(setOpt DM_MEDIATYPE fromDMM mediaType);
+                setDWord(setOpt DM_DITHERTYPE fromDMDi ditherType);
+                setDWord 0;
+                setDWord 0;
+                setDWord(setOpt DM_PANNINGWIDTH I panningWidth);
+                setDWord(setOpt DM_PANNINGHEIGHT I panningHeight);
 
                 (* Set the fields now. *)
-                assign Clong (offset 40 Cchar v) (toClong(!fields));
+                ignore(storeDWord(v ++ 0w40, !fields));
 
                 let
-                    fun copyToBuf (i, c): unit =
-                        assign Cchar (offset (i + !off) Cchar v) (toCint(Word8.toInt c))
+                    fun copyToBuf (_, c) = set8(!ptr, 0w0, c) before ptr := !ptr ++ 0w1
                 in
                     Word8Vector.appi copyToBuf driverPrivate
                 end;
-
-                address v
+                
+                fn () => (free v)
             end
         in
-            val LPDEVMODE = mkConversion fromCDevMode toCDevMode (Cpointer Cvoid)
+            val LPDEVMODE =
+                makeConversion{load=loadCDevMode, store=storeCDevMode, ctype=LowLevel.cTypePointer }
         end
     end
 end;

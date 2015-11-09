@@ -27,8 +27,8 @@ use "GdiBase";
 use "Color";
 use "FontBase";
 use "Font";
-use "DeviceBase"; (* Currently working on this *)
-use "Bitmap";
+use "DeviceBase";
+use "Bitmap"; (* Currently working on this *)
 use "Brush";
 use "Pen";
 use "DeviceContext";
@@ -46,7 +46,7 @@ use "Region";
 use "Painting";
 use "Shape";
 use "Clipping";
-use "DragDrop";
+use "DragDrop"; (* Done from here *)
 use "Keyboard";
 use "Mouse";
 use "WinSystem";

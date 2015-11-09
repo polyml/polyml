@@ -33,26 +33,29 @@ struct
         type POINT = POINT
 
         (* Call DragAcceptFiles to accept files. *)
-        val DragAcceptFiles = call2 (shell "DragAcceptFiles") (HWND,BOOL) VOID
+        val DragAcceptFiles = call2 (shell "DragAcceptFiles") (cHWND,cBool) cVoid
 
         (* Call DragFinish when finished processing a WM_DROP message. *)
-        and DragFinish = call1 (shell "DragFinish") (HDROP) VOID
+        and DragFinish = call1 (shell "DragFinish") (cHDROP) cVoid
 
         (* Call DragQueryFile to get the file(s). *)
         local
-            val dragQueryFile = call4 (shell "DragQueryFileA") (HDROP,INT,POINTER,UINT) UINT
+            val dragQueryFile = call4 (shell "DragQueryFileA") (cHDROP,cUint,cPointer,cUint) cUint
         in
             fun DragQueryFile (hd: HDROP): string list =
             let
-                val nfiles = dragQueryFile(hd, ~1, toCint 0, 0)
+                val nfiles = dragQueryFile(hd, ~1, Memory.null, 0)
                 fun getFile n =
                 let
                     val buffsize =
-                        dragQueryFile(hd, n, toCint 0, 0) + 1 (* Must add one for NULL *)
-                    val buff = address (alloc buffsize Cchar)
-                    val res = dragQueryFile(hd, n, buff, buffsize)
+                        dragQueryFile(hd, n, Memory.null, 0) + 1 (* Must add one for NULL *)
+                    open Memory
+                    val buff = malloc(Word.fromInt buffsize)
+                    val _ =
+                        dragQueryFile(hd, n, buff, buffsize)
+                            handle ex => (free buff; raise ex)
                 in
-                    fromCstring buff
+                    fromCstring buff before free buff
                 end
             in
                 List.tabulate(nfiles, getFile)
@@ -61,15 +64,14 @@ struct
 
         (* Call DragQueryPoint to find out where to drop the file(s). *)
         local
-            val dragQueryPoint = call2 (shell "DragQueryPoint") (HDROP, POINTER) BOOL
-            val (fromCpt, toCpt, ptSize) = breakConversion POINT
+            val dragQueryPoint = call2 (shell "DragQueryPoint") (cHDROP, cStar cPoint) cBool
         in
             fun DragQueryPoint (hd: HDROP): POINT * bool =
             let
-                val v = alloc 1 ptSize
-                val res = dragQueryPoint(hd, address v)
+                val r = ref {x=0, y=0}
+                val res = dragQueryPoint(hd, r)
             in
-                (fromCpt v, res)
+                (!r, res)
             end
         end
     end

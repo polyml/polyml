@@ -100,10 +100,9 @@ struct
             end
             
             open Memory
-            val peSizSW = SysWord.fromLargeWord(Word.toLargeWord peSize)
+            infix 6 ++
             val logPal = cStruct2(cWORD, cWORD)
             val {store=storeLP, ctype={size=lpSize, ...}, ...} = breakConversion logPal
-            val lpSizeSW = SysWord.fromLargeWord(Word.toLargeWord lpSize)
         in
             (* Unfortunately we can't make a simple conversion here.  When we load
                the entries we need to know how many we're loading. *)
@@ -112,17 +111,17 @@ struct
 
             local
                 (* Copy the elements into the array. *)
-                fun doStore (pe: PALETTEENTRY, addr: SysWord.word): SysWord.word =
+                fun doStore (pe: PALETTEENTRY, vec) =
                 (
-                    storePE(sysWord2VoidStar addr, toPE pe);
-                    addr + peSizSW
+                    ignore(storePE(vec, toPE pe)); (* Ignore result - nothing to free *)
+                    vec ++ peSize
                 )
             in
                 fun palListToC pl =
                 let
                     val count = List.length pl
                     val vec = allocPEVec count
-                    val _ = List.foldl doStore (voidStar2Sysword vec) pl
+                    val _ = List.foldl doStore vec pl
                 in
                     (vec, count)
                 end
@@ -133,7 +132,7 @@ struct
                     val count = List.length pl
                     val vec = malloc(Word.fromInt count * peSize + lpSize)
                     val _ = storeLP(vec, (0x300, count))                
-                    val _ = List.foldl doStore (voidStar2Sysword vec + lpSizeSW) pl
+                    val _ = List.foldl doStore (vec ++ lpSize) pl
                 in
                     vec
                 end
@@ -141,12 +140,7 @@ struct
 
             fun palListFromC(vec, count) =
             let
-                fun loadPalE n =
-                let
-                    val addr = sysWord2VoidStar(voidStar2Sysword vec + SysWord.fromInt n * peSizSW)
-                in
-                    fromPE(loadPE addr)
-                end
+                fun loadPalE n = fromPE(loadPE(vec ++ Word.fromInt n * peSize))
             in
                 List.tabulate(count, loadPalE)
             end

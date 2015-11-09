@@ -95,6 +95,7 @@ sig
     and cUINT_PTR: int Foreign.conversion
     and cDWORD: int Foreign.conversion
     and cWORD: int Foreign.conversion
+    and cDWORD_PTR: int Foreign.conversion
 
     val cUint8w: Word8.word Foreign.conversion
     and cUint16w: Word.word Foreign.conversion
@@ -344,6 +345,7 @@ struct
 
     val cLPARAM = cLONG_PTR
     val cSIZE_T = cULONG_PTR (* Probably. *)
+    val cDWORD_PTR = cULONG_PTR (* Defined to be the same so I'm not sure why it's there .*)
 
     (* These are called XXX32.DLL on both 32-bit and 64-bit. *)
     fun kernel name = getSymbol(loadLibrary "kernel32.dll") name
@@ -851,13 +853,12 @@ struct
     fun getVectorResult(element: 'a conversion) =
     let
         val { load=loadElem, ctype={size=sizeElem, ...}, ...} = breakConversion element
-        val sizeElemSW = SysWord.fromLargeWord(Word.toLargeWord sizeElem)
         fun run f initialCount =
         let
             open Memory
+            infix 6 ++ --
             val vec = malloc(Word.fromInt initialCount * sizeElem)
-            fun getElement i =
-                loadElem(sysWord2VoidStar(voidStar2Sysword vec + SysWord.fromInt i * sizeElemSW))
+            fun getElement i = loadElem(vec ++ Word.fromInt i * sizeElem)
             val resultCount =
                 f (vec, initialCount) handle ex => (free vec; raise ex)
         in
@@ -867,19 +868,19 @@ struct
         run 
     end
 
-
-
     (* Some C functions take a vector of values to allow a variable number of
        elements to be passed.  We use a list for this in ML. *)
+    (* TODO: This discards the result of any store function so if we
+       store strings we'll leak store. *)
     fun list2Vector (conv: 'a conversion) (l:'a list): Memory.voidStar * int =
     let
         val count = List.length l
         val {store=storea, ctype={size=sizea, ...}, ...} = breakConversion conv
-        val sizeAsSw = SysWord.fromLargeWord(Word.toLargeWord sizea)
         open Memory
+        infix 6 ++
         val vec = malloc(Word.fromInt count * sizea)
-        fun setItem(item, v) = (storea(sysWord2VoidStar v, item); v + sizeAsSw)
-        val _ = List.foldl setItem (voidStar2Sysword vec) l 
+        fun setItem(item, v) = (ignore(storea(v, item)); v ++ sizea)
+        val _ = List.foldl setItem vec l 
     in
         (vec, count)
     end
