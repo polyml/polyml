@@ -466,7 +466,7 @@ struct
             in
                 (* Add this to the modeless dialogue list so that keyboard
                    operations will work. *)
-                Message.addModelessDialogue(res, Memory.null);
+                Message.addModelessDialogue(res, NONE);
                 res
             end
         end
@@ -492,7 +492,7 @@ struct
             in
                 (* Add this to the modeless dialogue list so that keyboard
                    operations will work. *)
-                Message.addModelessDialogue(res, Memory.null);
+                Message.addModelessDialogue(res, NONE);
                 res
             end
         end

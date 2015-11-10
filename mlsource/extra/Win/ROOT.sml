@@ -28,11 +28,11 @@ use "Color";
 use "FontBase";
 use "Font";
 use "DeviceBase";
-use "Bitmap"; (* Currently working on this *)
+use "Bitmap";
 use "Brush";
 use "Pen";
 use "DeviceContext";
-use "CommonDialog";
+use "CommonDialog"; (* Currently working on this *)
 use "MessageBox";
 use "Caret";
 use "Transform";

@@ -34,13 +34,14 @@ structure Caret :
     val HideCaret : HWND -> unit
     val SetCaretBlinkTime : Time.time -> unit
     val SetCaretPos : POINT -> unit
-    val ShowCaret : HWND -> bool
+    val ShowCaret : HWND -> unit
   end
  =
 struct
     local
         open Foreign
         open Base
+        open GdiBase
     in
         type HWND = HWND and HBITMAP = HBITMAP and POINT = POINT
         datatype caretShape =
@@ -49,46 +50,40 @@ struct
         |   CaretBitmap of HBITMAP
 
         local
-            val createCaret = call4 (user "CreateCaret") (HWND, HBITMAP, INT, INT)
-                (SUCCESSSTATE "CreateCaret")
+            val createCaret = call4 (user "CreateCaret") (cHWND, cHBITMAP, cInt, cInt)
+                (successState "CreateCaret")
+            val intAsHgdi = handleOfVoidStar o Memory.sysWord2VoidStar o SysWord.fromInt
         in
             (* The x and y value are only used if the bitmap is not 0 or 1. *)
             fun CreateCaret(hw, CaretBlack{height, width}) =
-                    createCaret(hw, intAsHgdi 0, width, height)
+                    createCaret(hw, hNull, width, height)
             |   CreateCaret(hw, CaretGrey{height, width}) =
                     createCaret(hw, intAsHgdi 1, width, height)
             |   CreateCaret(hw, CaretBitmap hb) =
                     createCaret(hw, hb, 0, 0)
         end
 
-        val DestroyCaret = call0 (user "DestroyCaret") () (SUCCESSSTATE "DestroyCaret")
+        val DestroyCaret = call0 (user "DestroyCaret") () (successState "DestroyCaret")
 
-        val GetCaretBlinkTime = Time.fromMilliseconds o (call0 (user "GetCaretBlinkTime") () UINT)
+        val GetCaretBlinkTime = Time.fromMilliseconds o (call0 (user "GetCaretBlinkTime") () cUint)
 
-        val HideCaret = call1 (user "HideCaret") (HWND) (SUCCESSSTATE "HideCaret")
+        val HideCaret = call1 (user "HideCaret") (cHWND) (successState "HideCaret")
 
         val SetCaretBlinkTime =
-            (call1 (user "SetCaretBlinkTime") UINT (SUCCESSSTATE "SetCaretBlinkTime")) o
+            (call1 (user "SetCaretBlinkTime") cUint (successState "SetCaretBlinkTime")) o
                 Time.toMilliseconds
 
         (* The result of ShowCaret may be false either if there was an error or
            if HideCaret was called more than once. *)
-        val ShowCaret = call1 (user "ShowCaret") (HWND) BOOL
+        val ShowCaret = call1 (user "ShowCaret") (cHWND) (successState "ShowCaret")
 
         local
             val getCaretPos =
-                call1 (user "GetCaretPos") (POINTER) (SUCCESSSTATE "GetCaretPos")
+                call1 (user "GetCaretPos") (cStar cPoint) (successState "GetCaretPos")
             val setCaretPos =
-                call2 (user "SetCaretPos") (INT, INT) (SUCCESSSTATE "SetCaretPos")
-            val (fromCpt, _, ptStruct) = breakConversion POINT
+                call2 (user "SetCaretPos") (cInt, cInt) (successState "SetCaretPos")
         in
-            fun GetCaretPos(): POINT =
-            let
-                val v = alloc 1 ptStruct
-                val _: unit = getCaretPos(address v)
-            in
-                fromCpt v
-            end
+            fun GetCaretPos() = let val v = ref {x=0, y=0 } in getCaretPos v; !v  end
             and SetCaretPos({x, y}: POINT) = setCaretPos(x, y)
         end
     end

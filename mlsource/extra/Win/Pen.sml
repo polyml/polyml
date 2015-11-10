@@ -55,22 +55,29 @@ struct
         open GdiBase
         type HPEN = HPEN
 
-        val CreatePen = call3 (gdi "CreatePen") (PENSTYLE,INT,COLORREF) (HPEN)
-        val CreatePenIndirect = call1 (gdi "CreatePenIndirect") (POINTERTO LOGPEN) (HPEN)
-
-        fun ExtCreatePen (ps: PenStyle list, width, log: LOGBRUSH, dashSp: (int*int) list) = 
-        let
-            val PAIR = absConversion {abs = fn _ => raise Fail "PAIR", rep = MAKELONG} LONG
-            (* custom is supposed to be NULL if ps <> PS_USERSTYLE.  Make sure it is at least
-               NULL if the list is empty. *)
-            val (custom, len) =
-                case dashSp of
-                    [] => (toCint 0, 0)
-                |   _ => list2Vector PAIR dashSp
+        val CreatePen = call3 (gdi "CreatePen") (cPENSTYLE,cInt,cCOLORREF) (cHPEN)
+        val CreatePenIndirect = call1 (gdi "CreatePenIndirect") (cConstStar cLOGPEN) (cHPEN)
+        
+        local
+            val extCreatePen =
+                call5 (gdi "ExtCreatePen")
+                 (cPENSTYLE,cDWORD,cConstStar cLOGBRUSH,cDWORD,cPointer) (cHPEN)
+            val PAIR = absConversion {abs = fn _ => raise Fail "PAIR", rep = MAKELONG} cDWORDw
+            val list2v = list2Vector PAIR
         in
-           call5 (gdi "ExtCreatePen")
-                 (PENSTYLE,LONG,LOGBRUSH,LONG,POINTER) (HPEN)
-                 (ps, width, log, len, custom)
+
+            fun ExtCreatePen (ps: PenStyle list, width, log: LOGBRUSH, dashSp: (int*int) list) = 
+            let
+                (* custom is supposed to be NULL if ps <> PS_USERSTYLE.  Make sure it is at least
+                   NULL if the list is empty. *)
+                val (custom, len) =
+                    case dashSp of
+                        [] => (Memory.null, 0)
+                    |   _ => list2v (map (fn (i, j) => (Word.fromInt i, Word.fromInt j)) dashSp)
+            in
+                (extCreatePen(ps, width, log, len, custom)
+                    handle ex => (Memory.free custom; raise ex)) before Memory.free custom
+            end
         end
         
     end

@@ -82,8 +82,7 @@ structure Brush:
 struct
     local
         open Foreign Base
-
-        fun callgdi name = call_sym (load_sym (load_lib "gdi32.DLL") name)
+(*
         fun gdicall_IW name CR (C1,C2) (a1) =
             let val (from1,to1,ctype1) = breakConversion C1
                 val (from2,to2,ctype2) = breakConversion C2
@@ -108,7 +107,7 @@ struct
         val XCOORD = INT : int Conversion
         val YCOORD = INT: int Conversion
         val WIDTH = INT: int Conversion
-        val HEIGHT = INT: int Conversion
+        val HEIGHT = INT: int Conversion*)
 
     in
         type HBRUSH = HBRUSH and COLORREF = Color.COLORREF and HBITMAP = HBITMAP
@@ -118,14 +117,22 @@ struct
 
 
         (* BRUSHES *)
-        val CreateBrushIndirect = call1 (user "CreateBrushIndirect") (LOGBRUSH) HBRUSH
-        and CreateHatchBrush = call2 (gdi "CreateHatchBrush") (cHATCHSTYLE, COLORREF) HBRUSH
-        and CreateSolidBrush = call1 (gdi "CreateSolidBrush") (COLORREF) HBRUSH
-        val GetBrushOrgEx              = gdicall_IW "GetBrushOrgEx" (SUCCESSSTATE "GetBrushOrgEx") (HDC,POINT)
-        val SetBrushOrgEx              = gdicall_IM "SetBrushOrgEx" (SUCCESSSTATE "SetBrushOrgEx") (HDC,POINT)
-        val CreatePatternBrush         = call1 (gdi "CreatePatternBrush") (HBITMAP) HBRUSH
-        val PatBlt                     = call6(gdi "PatBlt") (HDC,XCOORD,YCOORD,WIDTH,HEIGHT,RASTEROPCODE)
-                                            (SUCCESSSTATE "PatBlt")
+        val CreateBrushIndirect = call1 (user "CreateBrushIndirect") (cConstStar cLOGBRUSH) cHBRUSH
+        and CreateHatchBrush = call2 (gdi "CreateHatchBrush") (cHATCHSTYLE, cCOLORREF) cHBRUSH
+        and CreateSolidBrush = call1 (gdi "CreateSolidBrush") (cCOLORREF) cHBRUSH
+        
+        local
+            val getBrushOrgEx =
+                call2 (gdi "GetBrushOrgEx") (cHDC, cStar cPoint) (successState "GetBrushOrgEx")
+            and setBrushOrgEx =
+                call4 (gdi "SetBrushOrgEx")(cHDC, cInt, cInt, cStar cPoint) (successState "SetBrushOrgEx")
+        in
+            fun GetBrushOrgEx hdc = let val v = ref{x=0, y=0} in getBrushOrgEx(hdc, v); !v end
+            and SetBrushOrgEx(hdc, {x, y}) = let val v = ref{x=0, y=0} in setBrushOrgEx(hdc, x, y, v); !v end
+        end
+        val CreatePatternBrush         = call1 (gdi "CreatePatternBrush") (cHBITMAP) cHBRUSH
+        val PatBlt                     = call6(gdi "PatBlt") (cHDC,cInt,cInt,cInt,cInt,cRASTEROPCODE)
+                                            (successState "PatBlt")
         datatype ColorType =
             COLOR_SCROLLBAR
         |   COLOR_BACKGROUND
@@ -180,7 +187,7 @@ struct
          |  colourTypeToInt COLOR_INFOBK = 24
     
         (* Create a brush from a system colour. *)
-        val GetSysColorBrush = call1 (user "GetSysColorBrush") (INT) HBRUSH o colourTypeToInt
+        val GetSysColorBrush = call1 (user "GetSysColorBrush") (cInt) cHBRUSH o colourTypeToInt
 
         (*
             Other Brush functions:

@@ -317,8 +317,6 @@ structure DeviceContext:
         icmIntent: DMICMIntent option,
         mediaType: DMMedia option,
         ditherType: DMDither option,
-        iccManufacturer: int option,
-        iccModel: int option,
         panningWidth: int option,
         panningHeight: int option,
         driverPrivate: Word8Vector.vector
@@ -393,20 +391,6 @@ structure DeviceContext:
 struct
     local
         open Foreign Base
-
-        fun callgdi name = call_sym (load_sym (load_lib "gdi32.DLL") name)
-
-        fun gdicall_IW name CR (C1,C2) (a1) =
-            let val (from1,to1,ctype1) = breakConversion C1
-                val (from2,to2,ctype2) = breakConversion C2
-                val (fromR,toR,ctypeR) = breakConversion CR
-                val va1 = to1 a1
-                val va2 = address (alloc 1 ctype2)
-                val res = callgdi name [(ctype1,va1),(Cpointer ctype2,va2)] ctypeR
-                val _: unit = fromR res
-            in  (from2 (deref va2))
-            end
-
         fun checkDC c = (checkResult(not(isHdcNull c)); c)
     in
         type HDC = HDC and HGDIOBJ = HGDIOBJ and HWND = HWND and HRGN = HRGN
@@ -422,19 +406,19 @@ struct
             DCX_LOCKWINDOWUPDATE | DCX_NORECOMPUTE | DCX_VALIDATE
         local
             val tab = [
-                (DCX_WINDOW,            0x00000001),
-                (DCX_CACHE,             0x00000002),
-                (DCX_NORESETATTRS,      0x00000004),
-                (DCX_CLIPCHILDREN,      0x00000008),
-                (DCX_CLIPSIBLINGS,      0x00000010),
-                (DCX_PARENTCLIP,        0x00000020),
-                (DCX_EXCLUDERGN,        0x00000040),
-                (DCX_INTERSECTRGN,      0x00000080),
-                (DCX_EXCLUDEUPDATE,     0x00000100),
-                (DCX_INTERSECTUPDATE,   0x00000200),
-                (DCX_LOCKWINDOWUPDATE,  0x00000400),
-                (DCX_NORECOMPUTE,       0x00100000),
-                (DCX_VALIDATE,          0x00200000)]
+                (DCX_WINDOW,            0wx00000001),
+                (DCX_CACHE,             0wx00000002),
+                (DCX_NORESETATTRS,      0wx00000004),
+                (DCX_CLIPCHILDREN,      0wx00000008),
+                (DCX_CLIPSIBLINGS,      0wx00000010),
+                (DCX_PARENTCLIP,        0wx00000020),
+                (DCX_EXCLUDERGN,        0wx00000040),
+                (DCX_INTERSECTRGN,      0wx00000080),
+                (DCX_EXCLUDEUPDATE,     0wx00000100),
+                (DCX_INTERSECTUPDATE,   0wx00000200),
+                (DCX_LOCKWINDOWUPDATE,  0wx00000400),
+                (DCX_NORECOMPUTE,       0wx00100000),
+                (DCX_VALIDATE,          0wx00200000)]
         in
             val DEVICECONTEXTFLAG = tableSetConversion(tab, NONE)
         end
@@ -469,7 +453,7 @@ struct
             fun toInt _ = raise Match
             fun fromInt i = (checkResult(i <> 0); raise Match);
         in
-            val ENUMOBJECT = tableConversion(tab, SOME(fromInt, toInt))
+            val ENUMOBJECT = tableConversion(tab, SOME(fromInt, toInt)) cUint
         end
 
         local
@@ -477,7 +461,7 @@ struct
             W of int
         in
             type DeviceItem = DeviceItem
-            val DEVICEITEM = absConversion {abs = W, rep = fn W n => n} INT
+            val DEVICEITEM = absConversion {abs = W, rep = fn W n => n} cInt
         
             val DRIVERVERSION                                = W (0 (* Device driver version *))
             val TECHNOLOGY                                   = W (2 (* Device classification *))
@@ -608,7 +592,7 @@ struct
             W of int
         in
             type StockObjectType = StockObjectType
-            val STOCKOBJECTTYPE  = absConversion {abs = W, rep = fn W n => n} INT
+            val STOCKOBJECTTYPE  = absConversion {abs = W, rep = fn W n => n} cInt
         
             val WHITE_BRUSH                                  = W (0)
             val LTGRAY_BRUSH                                 = W (1)
@@ -627,40 +611,37 @@ struct
             val DEVICE_DEFAULT_FONT                          = W (14)
             val DEFAULT_PALETTE                              = W (15)
             val SYSTEM_FIXED_FONT                            = W (16)
-            val STOCK_LAST                                   = W (16)
+            (*val STOCK_LAST                                   = W (16)*)
             val CLR_INVALID                                  = W (0xFFFFFFFF)
         end
 
-        val CancelDC                   = call1(gdi "CancelDC") (HDC) (SUCCESSSTATE "CancelDC")
-        val CreateCompatibleDC         = call1(gdi "CreateCompatibleDC") (HDC) HDC
-        val DeleteDC                   = call1(gdi "DeleteDC") (HDC) (SUCCESSSTATE "DeleteDC")
-        val DeleteObject               = call1(gdi "DeleteObject") (HGDIOBJ) (SUCCESSSTATE "DeleteObject")
-        val GetCurrentObject           = call2(gdi "GetCurrentObject") (HDC,ENUMOBJECT) HGDIOBJ
-        val GetDC                      = checkDC o call1(user "GetDC") (HWND) HDC
-        val GetDCEx                    = checkDC o call3(user "GetDCEx") (HWND,HRGN,DEVICECONTEXTFLAG) HDC
-        val GetDCOrgEx                 = gdicall_IW "GetDCOrgEx" (SUCCESSSTATE "GetDCOrgEx") (HDC,POINT)
-        val GetDeviceCaps              = call2(gdi "GetDeviceCaps") (HDC,DEVICEITEM) INT
-        val GetObjectType              = call1(gdi "GetObjectType") (HGDIOBJ) ENUMOBJECT
-        val GetStockObject             = call1 (gdi "GetStockObject") (STOCKOBJECTTYPE) HGDIOBJ
-        val ReleaseDC                  = call2(user "ReleaseDC") (HWND,HDC) BOOL
-        val RestoreDC                  = call2(gdi "RestoreDC") (HDC,INT) (SUCCESSSTATE "RestoreDC")
-        val SaveDC                     = call1(gdi "SaveDC") (HDC) INT
-        val ResetDC                    = call2 (gdi "ResetDC") (HDC, LPDEVMODE) HDC
+        val CancelDC                   = call1(gdi "CancelDC") (cHDC) (successState "CancelDC")
+        val CreateCompatibleDC         = call1(gdi "CreateCompatibleDC") (cHDC) cHDC
+        val DeleteDC                   = call1(gdi "DeleteDC") (cHDC) (successState "DeleteDC")
+        val DeleteObject               = call1(gdi "DeleteObject") (cHGDIOBJ) (successState "DeleteObject")
+        val GetCurrentObject           = call2(gdi "GetCurrentObject") (cHDC,ENUMOBJECT) cHGDIOBJ
+        val GetDC                      = checkDC o call1(user "GetDC") (cHWND) cHDC
+        val GetDCEx                    = checkDC o call3(user "GetDCEx") (cHWND,cHRGN,DEVICECONTEXTFLAG) cHDC
+        
+        local
+            val getDCOrgEx = call2(gdi "GetDCOrgEx") (cHDC, cStar cPoint) (successState "GetDCOrgEx")
+        in
+            fun GetDCOrgEx hdc = let val v = ref {x=0, y=0} in getDCOrgEx(hdc, v); !v end
+        end
+
+        val GetDeviceCaps              = call2(gdi "GetDeviceCaps") (cHDC,DEVICEITEM) cInt
+        val GetObjectType              = call1(gdi "GetObjectType") (cHGDIOBJ) ENUMOBJECT
+        val GetStockObject             = call1 (gdi "GetStockObject") (STOCKOBJECTTYPE) cHGDIOBJ
+        val ReleaseDC                  = call2(user "ReleaseDC") (cHWND,cHDC) cBool
+        val RestoreDC                  = call2(gdi "RestoreDC") (cHDC,cInt) (successState "RestoreDC")
+        val SaveDC                     = call1(gdi "SaveDC") (cHDC) cInt
+        val ResetDC                    = call2 (gdi "ResetDC") (cHDC, LPDEVMODE) cHDC
         (* The result of SelectObject is a bit of a mess.  It is the original object being
            replaced except if the argument is a region when it returns a RESULTREGION.
            Perhaps we need a different function for that. *)
-        val SelectObject               = call2(gdi "SelectObject") (HDC,HGDIOBJ) HGDIOBJ
+        val SelectObject               = call2(gdi "SelectObject") (cHDC,cHGDIOBJ) cHGDIOBJ
 
-        local
-            val cdc = call4 (gdi "CreateDCA") (STRINGOPT, STRINGOPT, STRINGOPT, POINTER) HDC
-            val (_, toCdev, _) = breakConversion LPDEVMODE
-        in
-            fun CreateDC(driver: string option, device: string option, output: string option,
-                    data: DEVMODE option) =
-                checkDC
-                    (cdc(driver, device, output,
-                    case data of NONE => toCint 0 | SOME dev => toCdev dev))
-        end
+        val CreateDC = call4 (gdi "CreateDCA") (STRINGOPT, STRINGOPT, STRINGOPT, cOptionPtr LPDEVMODE) cHDC
 
         (* GetObject returns information about different kinds of GDI object.
            It takes a pointer to a structure whose size and format differ according
@@ -675,29 +656,33 @@ struct
         |   GO_Pen of LOGPEN
         |   GO_Palette of int
         local
-            val getObj = call3 (gdi "GetObjectA") (HGDIOBJ, INT, POINTER) INT
-            val (fromCBM, _, _) = breakConversion BITMAP
-            val (fromCLF, _, _) = breakConversion FontBase.LOGFONT
-            val (fromCLB, _, _) = breakConversion LOGBRUSH
-            val (fromCLP, _, _) = breakConversion LOGPEN
+            val getObj = call3 (gdi "GetObjectA") (cHGDIOBJ, cInt, cPointer) cInt
+            val {load=fromCBM, ...} = breakConversion cBITMAP
+            val {load=fromCLF, ...} = breakConversion FontBase.cLOGFONT
+            val {load=fromCLB, ...} = breakConversion cLOGBRUSH
+            val {load=fromCLP, ...} = breakConversion cLOGPEN
+            val {load=fromCshort, ...} = breakConversion cShort
         in
             fun GetObject(hgdi: HGDIOBJ): GetObject =
             let
                 (* Call with a NULL buffer to find out the memory required.  Also
                    checks the GDI object. *)
-                val space = getObj(hgdi, 0, toCint 0)
+                open Memory
+                val space = getObj(hgdi, 0, Memory.null)
                 val _ = checkResult(space > 0);
-                val mem = alloc space Cchar
-                val res = getObj(hgdi, space, address mem)
+                val mem = malloc (Word.fromInt space)
+                val _ =
+                    getObj(hgdi, space, mem) handle ex => (free mem; raise ex)
             in
-                case GetObjectType hgdi of
+                (case GetObjectType hgdi of
                     OBJ_PEN     => GO_Pen(fromCLP mem)
                 |   OBJ_BRUSH   => GO_Brush(fromCLB mem)
                 |   OBJ_BITMAP  => GO_Bitmap(fromCBM mem)
                 |   OBJ_FONT    => GO_Font(fromCLF mem)
                 (*| OBJ_EXPEN   => *) (* TODO!!*)
                 |   OBJ_PAL     => GO_Palette(fromCshort mem) (* Number of entries. *)
-                |   _ => raise Fail "Different type"
+                |   _ => raise Fail "Different type")
+                        before free mem
             end
         end
 

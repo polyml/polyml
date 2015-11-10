@@ -251,6 +251,7 @@ sig
         val FR_REPLACEALL : flags
         val FR_SHOWHELP : flags
         val FR_WHOLEWORD : flags
+        val cFindReplaceFlags: flags Foreign.conversion
     end
 
 end =
@@ -614,7 +615,7 @@ struct
 
     
     structure FindReplaceFlags:>
-      sig
+    sig
         include BIT_FLAGS
         val FR_DIALOGTERM : flags
         val FR_DOWN : flags
@@ -630,15 +631,17 @@ struct
         val FR_REPLACEALL : flags
         val FR_SHOWHELP : flags
         val FR_WHOLEWORD : flags
-      end =
+        val cFindReplaceFlags: flags conversion
+    end =
     struct
-        type flags = SysWord.word
-        fun toWord f = f
-        fun fromWord f = f
-        val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-        fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-        fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-        fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+        open Word32
+        type flags = word
+        val toWord = toLargeWord
+        and fromWord = fromLargeWord
+        val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+        fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+        fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+        fun clear (fl1, fl2) = andb(notb fl1, fl2)
 
         val FR_DOWN                       = 0wx00000001
         val FR_WHOLEWORD                  = 0wx00000002
@@ -659,7 +662,9 @@ struct
                         FR_REPLACEALL, FR_DIALOGTERM, FR_NOUPDOWN, FR_NOMATCHCASE,
                         FR_NOWHOLEWORD, FR_HIDEUPDOWN, FR_HIDEMATCHCASE, FR_HIDEWHOLEWORD]
 
-        val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+        val intersect = List.foldl (fn (a, b) => andb(a,b)) all
+        
+        val cFindReplaceFlags = cDWORDw
     end
 
     (* The class "string" may be a name or an atom. *)

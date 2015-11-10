@@ -1083,7 +1083,7 @@ structure Message :
           (HWND * Message -> LRESULT)
 
     val setCallback: (HWND * Message * 'a -> LRESULT * 'a) * 'a -> unit
-    val addModelessDialogue : HWND * Foreign.Memory.voidStar -> unit
+    val addModelessDialogue : HWND * (unit->unit) option -> unit
     val removeCallback : HWND -> unit
     (*val updateWindowHandle: HWND -> unit*)
     val compileMessage: Message -> int * Foreign.Memory.voidStar * Foreign.Memory.voidStar
@@ -3456,22 +3456,28 @@ WM_MOUSELEAVE                   0x02A3
            We keep a list of modeless dialogues and process them in the main
            message loop.
            This also has an important function for dialogues created by FindText.
-           Previously this kept hold of  *)
+           They allocate memory which can't be freed until the dialogue has gone. *)
         local
             val modeless = ref []
             val isDialogMessage = winCall2 (user "IsDialogMessage") (cHWND, cPointer) cBool
             val isWindow = winCall1 (user "IsWindow") (cHWND) cBool
         in
-            fun addModelessDialogue (hWnd: HWND, retain: voidStar) =
-                modeless := (hWnd, retain) :: (!modeless)
+            fun addModelessDialogue (hWnd: HWND, doFree) =
+                modeless := (hWnd, doFree) :: (!modeless)
 
             fun isDialogueMsg(msg: voidStar) =
-            (
+            let
                 (* Take this opportunity to filter any dialogues that have gone away. *)
-                modeless := List.filter (isWindow o #1) (!modeless);
+                (* If this has gone away run any "free" function.*)
+                fun filter(w, f) =
+                    if isWindow w
+                    then true (* Still there *)
+                    else (case f of NONE => () | SOME f => f(); false)
+            in
+                modeless := List.filter filter (!modeless);
                 (* See if isDialogMessage returns true for any of these. *)
                 List.foldl (fn ((w, _), b) => b orelse isDialogMessage(w, msg)) false (!modeless)
-            )
+            end
         end
 
         datatype PeekMessageOptions = PM_NOREMOVE | PM_REMOVE
