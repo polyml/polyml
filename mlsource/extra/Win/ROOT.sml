@@ -32,9 +32,9 @@ use "Bitmap";
 use "Brush";
 use "Pen";
 use "DeviceContext";
-use "CommonDialog"; (* Currently working on this *)
+use "CommonDialog";
 use "MessageBox";
-use "Caret";
+use "Caret"; (* Currently working on this *)
 use "Transform";
 use "Metafile";
 use "Clipboard";

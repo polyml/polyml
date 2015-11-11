@@ -70,7 +70,7 @@ structure CommonDialog :
     val CommDlgExtendedError : unit -> CDERR
 
     (* ChooseColor *)
-
+(*
     structure ChooseColorFlags :
       sig
         include BIT_FLAGS
@@ -147,6 +147,7 @@ structure CommonDialog :
     }
 
     val ChooseFont : CHOOSEFONT -> CHOOSEFONT option
+    *)
 
     (* FindText and ReplaceText *)
     structure FindReplaceFlags :
@@ -341,11 +342,6 @@ struct
             buf
         end
 
-        val {load=toHWND,  store=fromHWND, ...}  = breakConversion cHWND
-        and {load=toRESID, store=fromRESID, ...} = breakConversion cRESID
-        and {load=toHINST, store=fromHINST, ...} = breakConversion cHINSTANCE
-        and {load=fromCDevMode, store=toCDevMode, ...} = breakConversion DeviceBase.LPDEVMODE
-
     in
         type HWND = HWND and HDC = HDC and COLORREF = COLORREF and HINSTANCE = HINSTANCE
         type RECT = RECT and POINT = POINT
@@ -522,7 +518,7 @@ struct
         end
 
         (* These flags are local only. *)
-        val OFN_ENABLEHOOK               = OpenFileFlags.fromWord 0wx00000020 (* Never used. *)
+        (*val OFN_ENABLEHOOK               = OpenFileFlags.fromWord 0wx00000020 *)
         val OFN_ENABLETEMPLATE           = OpenFileFlags.fromWord 0wx00000040
         val OFN_ENABLETEMPLATEHANDLE     = OpenFileFlags.fromWord 0wx00000080
 
@@ -567,7 +563,6 @@ struct
                     defExt: string option, ...} = arg
                 open Memory
                 infix 6 ++
-                val hw = getOpt(owner, hwndNull)
                 val (f1, inst, templ, toFree) =
                     case template of
                         TemplateHandle dlgTemp =>
@@ -743,7 +738,7 @@ struct
         structure FindReplaceFlags = FindReplaceFlags
 
         (* These flags are local only. *)
-        val FR_ENABLEHOOK                 = FindReplaceFlags.fromWord 0wx00000100
+        (*val FR_ENABLEHOOK                 = FindReplaceFlags.fromWord 0wx00000100*)
         val FR_ENABLETEMPLATE             = FindReplaceFlags.fromWord 0wx00000200
         val FR_ENABLETEMPLATEHANDLE       = FindReplaceFlags.fromWord 0wx00002000
 
@@ -763,7 +758,7 @@ struct
             val FINDREPLACE =
                 cStruct11(cDWORD, cHWND, cPointer (*HINSTANCE*), FindReplaceFlags.cFindReplaceFlags,
                           cPointer, cPointer, cWORD, cWORD, cLPARAM, cPointer (* LPFRHOOKPROC *), cPointer)
-            val {load=toOFR, store=fromOFR, ctype={size=sizeFR, ...}, ...} = breakConversion FINDREPLACE
+            val {store=fromOFR, ctype={size=sizeFR, ...}, ...} = breakConversion FINDREPLACE
 
             val findText = call1 (commdlg "FindTextA") cPointer cHWND
             and replaceText = call1 (commdlg "ReplaceTextA") cPointer cHWND
@@ -1000,17 +995,13 @@ struct
         }
 
         local
-            val PAGESETUPDLG =
-                cStruct14(cDWORD, cHWNDOPT, cHGLOBAL, cHGLOBAL, cDWORDw, cPoint,
-                          cRect, cRect, cHINSTANCE, cLPARAM, cPointer, cPointer, cPointer, cPointer)
-            val {load=toPSD, store=fromPSD, ctype={size=sizePageSD, ...}, ...} = breakConversion PAGESETUPDLG
-
             (* A DEVNAMES structure is a structure containing offsets followed by
                the actual strings. *)
             val DEVNAMES = cStruct4(cWORD, cWORD, cWORD, cWORD)
             val {load=toDN, store=fromDN, ctype={size=sizeDevN, ...}, ...} = breakConversion DEVNAMES
             val DN_DEFAULTPRN      = 0x0001
 
+            (* Allocate global memory for the devnames if necessary *)
             fun toDevNames NONE = hNull
             |   toDevNames (SOME{driver, device, output, default}) =
                 let
@@ -1042,95 +1033,112 @@ struct
                     mHandle
                 end
 
-            (* Convert a DevNames structure.  Also frees the handle if it's not null. *)
+            (* Convert a DevNames structure. *)
             fun fromDevNames v =
                 if isHNull v then NONE
                 else
                 let
                     val buff = GlobalLock v
                     val (off0, off1, off2, def) = toDN buff
-                    val driver = fromCstring(address(offset off0 Cchar buff))
-                    val device = fromCstring(address(offset off1 Cchar buff))
-                    val output = fromCstring(address(offset off2 Cchar buff))
+                    open Memory
+                    infix 6 ++
+                    val driver = fromCstring(buff ++ Word.fromInt off0)
+                    val device = fromCstring(buff ++ Word.fromInt off1)
+                    val output = fromCstring(buff ++ Word.fromInt off2)
                     val default = IntInf.andb(def, DN_DEFAULTPRN) <> 0
                 in
                     GlobalUnlock v;
-                    GlobalFree v;
                     SOME {driver=driver, device=device, output=output, default=default}
                 end
 
-            fun toCPageSetupDlg({
-                owner: HWND option,
-                devMode: DEVMODE option,
-                devNames: {driver: string, device: string, output: string, default: bool} option,
-                flags: PageSetupFlags.flags,
-                paperSize: POINT,
-                minMargin: RECT,
-                margin: RECT}: PAGESETUPDLG) : vol =
+            val PAGESETUPDLG =
+                cStruct14(cDWORD, cHWNDOPT, cHGLOBAL, cHGLOBAL, PageSetupFlags.cConvert, cPoint,
+                          cRect, cRect, cHINSTANCE, cLPARAM, cPointer, cPointer, cPointer, cPointer)
+            val {load=toPSD, store=fromPSD, ctype={size=sizePageSD, ...}, ...} = breakConversion PAGESETUPDLG
+
+            (* This is a bit of a mess.  It seems that it uses structure packing on 32-bits
+               which means that the fields after the five shorts are not aligned onto
+               4-byte boundaries.  We currently don't use them so we just define this as
+               the structure as far as we use it and set the length explicitly.
+               This problem doesn't arise with PrintDlgEx so that might be preferable. *)
+            val PRINTDLG = cStruct11(cDWORD, cHWNDOPT, cHGLOBAL, cHGLOBAL, cHDC, PrintDlgFlags.cConvert, cWORD,
+                                    cWORD, cWORD, cWORD, cWORD)
+            val {load=toPRD, store=fromPRD, ...} = breakConversion PRINTDLG
+            val printDlgSize =
+                if #size LowLevel.cTypePointer = 0w4 then 0w66 else 0w120
+
+            val pageSetupDlg = call1 (commdlg "PageSetupDlgA") cPointer cBool
+            and printDlg = call1 (commdlg "PrintDlgA") cPointer cBool
+        in
+            fun PageSetupDlg (arg: PAGESETUPDLG): PAGESETUPDLG option =
             let
+                val {
+                    owner: HWND option,
+                    devMode: DEVMODE option,
+                    devNames: {driver: string, device: string, output: string, default: bool} option,
+                    flags: PageSetupFlags.flags,
+                    paperSize: POINT,
+                    minMargin: RECT,
+                    margin: RECT} = arg
                 val devnames = toDevNames devNames
                 val devmode =
                     case devMode of
-                        NONE => hglobalNull
+                        NONE => hNull
                     |   SOME dv =>
                         let
-                            val dev = deref(toCDevMode dv)
-                            (* toCDevMode constructs the structure in local memory.
-                               We have to copy it to store allocated with GlobalAlloc. *)
-                            val size = fromCshort(offset 36 Cchar dev) +
-                                       fromCshort(offset 38 Cchar dev)
-                            val hGlob = GlobalAlloc(0, size)
-                            val mem = deref(GlobalLock hGlob)
-                            fun doCopy t f 0 = ()
-                             |  doCopy t f i =
-                                (
-                                 assign Cchar t f;
-                                 doCopy(offset 1 Cchar t) (offset 1 Cchar f) (i-1)
-                                )
+                            (* This has to be in global memory *)
+                            open DeviceBase
+                            val hGlob = GlobalAlloc(0, Word.toInt(devModeSize dv))
+                            val mem = GlobalLock hGlob
+                            val () = setCDevMode(mem, dv)
                         in
-                            doCopy mem dev size;
                             GlobalUnlock hGlob;
                             hGlob
                         end
-            in
-                address(
-                    fromPSD (sizeof psdStruct, owner, devmode, devnames, PageSetupFlags.toWord flags,
-                        paperSize, minMargin, margin, hinstanceNull, 0, 0, 0, 0, 0 ) )
-            end
+                open Memory
+                val mem = malloc sizePageSD
+                val str = (Word.toInt sizePageSD, owner, devmode, devnames, flags,
+                           paperSize, minMargin, margin, hinstanceNull, 0, null, null, null, null)
+                val freePsd = fromPSD(mem, str) (* Set the PAGESETUPDLG struct *)
 
-            fun fromCPageSetupDlg v : PAGESETUPDLG =
-            let
+                fun freeAll() =
+                let
+                    (* We can only free the handles after we've reloaded them. *)
+                    val (_, _, hgDevMode, hgDevNames, _, _, _, _, _, _, _, _, _, _) = toPSD mem
+                in
+                    if isHNull hgDevNames then () else ignore(GlobalFree hgDevNames);
+                    if isHNull hgDevMode then () else ignore(GlobalFree hgDevMode);
+                    free mem; freePsd()
+                end
+
+                val result = pageSetupDlg mem handle ex => (freeAll(); raise ex)
                 val (_, owner, hgDevMode, hgDevNames, flags, paperSize, minMargin, margin,
-                     _, _, _, _, _, _) = toPSD(deref v)
+                     _, _, _, _, _, _) = toPSD mem
                 val devMode =
-                    if isHglobalNull hgDevMode
+                    if isHNull hgDevMode
                     then NONE
-                    else let
-                        
-                        val r = SOME(fromCDevMode(GlobalLock hgDevMode))
+                    else
+                    let
+                        val r = SOME(DeviceBase.getCDevMode(GlobalLock hgDevMode))
                     in
                         GlobalUnlock hgDevMode;
-                        GlobalFree hgDevMode;
                         r
                     end;
                 val devNames = fromDevNames hgDevNames
+                val newArg =
+                    { owner = owner, devMode = devMode, devNames = devNames,
+                      flags = flags,
+                      paperSize = paperSize, minMargin = minMargin, margin = margin }
+                val () = freeAll()
             in
-                { owner = owner, devMode = devMode, devNames = devNames,
-                  flags = PageSetupFlags.fromWord flags,
-                  paperSize = paperSize, minMargin = minMargin, margin = margin }
+                if result
+                then SOME newArg
+                else NONE
             end
 
-
-            (* This is a bit of a mess.  It turns out that the fields after the five
-               shorts are not aligned onto 4-byte boundaries. Since we don't currently use
-               them this doesn't matter except that we have to set the size explicitly. *)
-            val PRINTDLG = cStruct19(UINT, HWNDOPT, HGLOBAL, HGLOBAL, HDC, WORD, SHORT,
-                                    SHORT, SHORT, SHORT, SHORT, INT, INT, INT,
-                                    INT, INT, INT, INT, INT)
-            val (toPRD, fromPRD, _) = breakConversion PRINTDLG
-            val printDlgSize = 66
-
-            fun toCPrintDlg({
+            and PrintDlg (arg: PRINTDLG): PRINTDLG option =
+            let
+                val {
                 owner: HWND option,
                 devMode: DEVMODE option,
                 devNames: {driver: string, device: string, output: string, default: bool} option,
@@ -1140,85 +1148,66 @@ struct
                 toPage: int,
                 minPage: int,
                 maxPage: int,
-                copies: int}: PRINTDLG) : vol =
-            let
+                copies: int} = arg
                 val devnames = toDevNames devNames
                 val devmode =
                     case devMode of
-                        NONE => hglobalNull
+                        NONE => hNull
                     |   SOME dv =>
                         let
-                            val dev = deref(toCDevMode dv)
-                            (* toCDevMode constructs the structure in local memory.
-                               We have to copy it to store allocated with GlobalAlloc. *)
-                            val size = fromCshort(offset 36 Cchar dev) +
-                                       fromCshort(offset 38 Cchar dev)
-                            val hGlob = GlobalAlloc(0, size)
-                            val mem = deref(GlobalLock hGlob)
-                            fun doCopy t f 0 = ()
-                             |  doCopy t f i =
-                                (
-                                 assign Cchar t f;
-                                 doCopy(offset 1 Cchar t) (offset 1 Cchar f) (i-1)
-                                )
+                            (* This has to be in global memory *)
+                            open DeviceBase
+                            val hGlob = GlobalAlloc(0, Word.toInt(devModeSize dv))
+                            val mem = GlobalLock hGlob
+                            val () = setCDevMode(mem, dv)
                         in
-                            doCopy mem dev size;
                             GlobalUnlock hGlob;
                             hGlob
                         end
-            in
-                address(
-                    fromPRD (printDlgSize, owner, devmode, devnames, getOpt(context, hdcNull),
-                        PrintDlgFlags.toWord flags, fromPage, toPage, minPage, maxPage, copies,
-                        0, 0, 0, 0, Memory.null, Memory.null, Memory.null, Memory.null ) )
-            end
+                open Memory
+                val mem = malloc printDlgSize
+                (* Since we're not going to set all of it we need to zero it. *)
+                local
+                    fun zero n = if n = printDlgSize then () else (set8(mem, n, 0w0); zero(n+0w1))
+                in
+                    val () = zero 0w0
+                end
+                val freePRD =
+                    fromPRD(mem, (Word.toInt printDlgSize, owner, devmode, devnames, getOpt(context, hdcNull),
+                        flags, fromPage, toPage, minPage, maxPage, copies)) 
 
-            fun fromCPrintDlg v : PRINTDLG =
-            let
+                fun freeAll() =
+                let
+                    (* We can only free the handles after we've reloaded them. *)
+                    val (_, _, hgDevMode, hgDevNames, _, _, _, _, _, _, _) = toPRD mem
+                in
+                    if isHNull hgDevNames then () else ignore(GlobalFree hgDevNames);
+                    if isHNull hgDevMode then () else ignore(GlobalFree hgDevMode);
+                    free mem; freePRD()
+                end
+                
+                val result = printDlg mem handle ex => (freeAll(); raise ex)
+                (* Convert the result.  We have to do this even if the result is
+                   false to make sure we call GlobalFree on any global handles. *)
                 val (_, owner, hgDevMode, hgDevNames, hdc, flags, fromPage, toPage, minPage,
-                     maxPage, copies, _, _, _, _, _, _, _, _) = toPRD(deref v)
+                     maxPage, copies) = toPRD mem
                 val devMode =
-                    if isHglobalNull hgDevMode
+                    if isHNull hgDevMode
                     then NONE
-                    else let
-                        
-                        val r = SOME(fromCDevMode(GlobalLock hgDevMode))
+                    else
+                    let
+                        val r = SOME(DeviceBase.getCDevMode(GlobalLock hgDevMode))
                     in
                         GlobalUnlock hgDevMode;
-                        GlobalFree hgDevMode;
                         r
                     end;
                 val devNames = fromDevNames hgDevNames
-            in
-                { owner = owner, devMode = devMode, devNames = devNames,
-                  context = if isHdcNull hdc then NONE else SOME hdc,
-                  flags = PrintDlgFlags.fromWord flags, fromPage = fromPage, toPage = toPage,
-                  minPage = minPage, maxPage = maxPage, copies = copies }
-            end
-
-        in
-            fun PageSetupDlg (arg: PAGESETUPDLG): PAGESETUPDLG option =
-            let
-                val converted = toCPageSetupDlg arg
-                val result =
-                    call1 (commdlg "PageSetupDlgA") POINTER BOOL converted
-                (* Convert the result.  We have to do this even if the result is
-                   false to make sure we call GlobalFree on any global handles. *)
-                val newArg = fromCPageSetupDlg converted
-            in
-                if result
-                then SOME newArg
-                else NONE
-            end
-
-            and PrintDlg (arg: PRINTDLG): PRINTDLG option =
-            let
-                val converted = toCPrintDlg arg
-                val result =
-                    call1 (commdlg "PrintDlgA") POINTER BOOL converted
-                (* Convert the result.  We have to do this even if the result is
-                   false to make sure we call GlobalFree on any global handles. *)
-                val newArg = fromCPrintDlg converted
+                val newArg =
+                    { owner = owner, devMode = devMode, devNames = devNames,
+                      context = if isHdcNull hdc then NONE else SOME hdc,
+                      flags = flags, fromPage = fromPage, toPage = toPage,
+                      minPage = minPage, maxPage = maxPage, copies = copies }
+                val () = freeAll()
             in
                 if result
                 then SOME newArg

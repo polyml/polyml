@@ -319,12 +319,10 @@ struct
             val {load=loadDWord, store=storeDWord, ctype={size=sizeDWord, ...}} =
                 breakConversion cDWORD
 
-            (* The argument "vaddr" is the address of the structure.
-               Perhaps we shouldn't do it that way and instead use POINTERTO
-               in various places. *)
-            fun loadCDevMode(vaddr: voidStar) : DEVMODE =
+            (* We need separate versions of this for local and global storage. PageSetupDlg
+               requires a HGLOBAL handle to the memory. *)
+            fun getCDevMode(v: voidStar) : DEVMODE =
             let
-                val v = getAddress(vaddr, 0w0)
                 val ptr = ref v
 
                 fun getShort() = loadShort(!ptr) before ptr := !ptr ++ sizeShort
@@ -410,7 +408,7 @@ struct
                 }
             end
 
-            fun storeCDevMode(vaddr: voidStar,
+            fun setCDevMode(v: voidStar, (* This is the address of the data *)
             {
                 deviceName: string,
                 driverVersion: int,
@@ -441,11 +439,8 @@ struct
                 panningWidth: int option,
                 panningHeight: int option,
                 driverPrivate: Word8Vector.vector
-                }: DEVMODE) : unit -> unit =
+                }: DEVMODE) : unit =
             let
-                val driverExtra = Word8Vector.length driverPrivate
-                val v = malloc (DMBaseSize + Word.fromInt driverExtra)
-                val () = setAddress(vaddr, 0w0, v)
                 val ptr = ref v
                 (* The name can be at most 31 characters. *)
                 val devName =
@@ -471,7 +466,7 @@ struct
                 setShort DM_SPECVERSION;
                 setShort driverVersion;
                 setShort (Word.toInt DMBaseSize);
-                setShort driverExtra;
+                setShort (Word8Vector.length driverPrivate);
                 setDWord 0; (* Fields - set this later. *)
                 setShort(setOpt DM_ORIENTATION fromDMO orientation);
                 setShort(setOpt DM_PAPERSIZE fromDMPS paperSize);
@@ -511,13 +506,28 @@ struct
                     fun copyToBuf (_, c) = set8(!ptr, 0w0, c) before ptr := !ptr ++ 0w1
                 in
                     Word8Vector.appi copyToBuf driverPrivate
-                end;
-                
-                fn () => (free v)
+                end
             end
+            
+            fun devModeSize({driverPrivate: Word8Vector.vector, ...}: DEVMODE): word =
+                DMBaseSize + Word.fromInt (Word8Vector.length driverPrivate)
+                
+            fun storeCDevMode(vaddr: voidStar, devmode) =
+            let
+                val v = malloc (devModeSize devmode)
+                val () = setAddress(vaddr, 0w0, v)
+            in
+                setCDevMode(v, devmode);
+                fn () => free v
+            end
+            
+            fun loadCDevMode(vaddr: voidStar) : DEVMODE = getCDevMode(getAddress(vaddr, 0w0))
         in
             val LPDEVMODE =
                 makeConversion{load=loadCDevMode, store=storeCDevMode, ctype=LowLevel.cTypePointer }
+            val getCDevMode = getCDevMode
+            and setCDevMode = setCDevMode
+            and devModeSize = devModeSize
         end
     end
 end;

@@ -65,7 +65,7 @@ sig
         val MB_YESNOCANCEL : flags
       end
 
-    val MessageBox : HWND option * string * string * MessageBoxStyle.flags -> int
+    val MessageBox : HWND option * string option * string option * MessageBoxStyle.flags -> int
     val MessageBeep: MessageBoxStyle.flags -> unit
 
 end
@@ -75,19 +75,19 @@ struct
         open Foreign
         open Base
         open Globals
-        fun user name = load_sym (load_lib "user32.dll") name
     in
         type HWND = HWND
 
         structure MessageBoxStyle =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word32
+            type flags = word
+            val toWord = toLargeWord
+            and fromWord = fromLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
     
             val MB_OK                       = 0wx00000000
             val MB_OKCANCEL                 = 0wx00000001
@@ -136,7 +136,8 @@ struct
                             MB_DEFAULT_DESKTOP_ONLY, MB_TOPMOST, MB_RIGHT, MB_RTLREADING,
                             MB_SERVICE_NOTIFICATION, MB_SERVICE_NOTIFICATION_NT3X]
     
-            val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+            val intersect = List.foldl (fn (a, b) => andb(a,b)) all
+            val cConvert: flags conversion = cUintw
         end
 
         (* Return values from a message box.  Should this be a datatype? *)
@@ -150,11 +151,9 @@ struct
         val IDCLOSE             = 8
         val IDHELP              = 9
 
-        val MBSTYLE: MessageBoxStyle.flags Conversion = WORD
 
-        val MessageBox = call4 (user "MessageBoxA") (HWNDOPT, STRING, STRING, MBSTYLE) INT
-
-        val MessageBeep = call1 (user "MessageBeep") MBSTYLE (SUCCESSSTATE "MessageBeep")
+        val MessageBox = call4 (user "MessageBoxA") (cHWNDOPT, STRINGOPT, STRINGOPT, MessageBoxStyle.cConvert) cInt
+        val MessageBeep = call1 (user "MessageBeep") MessageBoxStyle.cConvert (successState "MessageBeep")
 
     end
 end;
