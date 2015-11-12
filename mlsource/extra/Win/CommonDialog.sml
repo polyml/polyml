@@ -318,19 +318,7 @@ struct
         open Base
         open DeviceContext Color Font GdiBase
         
-
-        (* Copy a string to a particular offset in a buffer and
-           add a null terminator. *)
-        fun stringToBuf (buf, n, s) =
-        let
-            open Memory
-            infix 6 ++
-            fun copyToBuf (i, v) =
-                set8(buf, Word.fromInt(i+n), Byte.charToByte v)
-        in
-            CharVector.appi copyToBuf s;
-            set8(buf, Word.fromInt(n + size s), 0w0)
-        end
+        val stringToBuf = copyStringToMem
 
         fun allocAndInitialise(space: int, str: string) =
         let

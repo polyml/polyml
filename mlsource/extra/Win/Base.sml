@@ -204,6 +204,7 @@ sig
     val cCHARARRAY: int -> string Foreign.conversion
     val fromCstring: Foreign.Memory.voidStar -> string
     val toCstring: string -> Foreign.Memory.voidStar (* Memory must be freed *)
+    val copyStringToMem: Foreign.Memory.voidStar * int * string -> unit
     val fromCWord8vec: Foreign.Memory.voidStar * int -> Word8Vector.vector
     val toCWord8vec: Word8Vector.vector -> Foreign.Memory.voidStar (* Memory must be freed *)
     
@@ -785,8 +786,7 @@ struct
     (* Conversion between string option and C strings.  NONE is converted to NULL. *)
     val STRINGOPT = cOptionPtr cString
 
-    (* Convert a C string to ML.  We can't use #load cString because the argument is the address of
-       the address of the string.  N.B. We normally have to free the memory after use. *)
+    (* Convert a C string to ML. *)
     fun fromCstring buff =
     let
         open Memory
@@ -800,13 +800,24 @@ struct
         CharVector.tabulate(Word.toInt length, loadChar)
     end
 
+    (* Copy a string to a particular offset in a buffer and
+       add a null terminator. *)
+    fun copyStringToMem (buf, n, s) =
+    let
+        open Memory
+        infix 6 ++
+        fun copyToBuf (i, v) = set8(buf, Word.fromInt(i+n), Byte.charToByte v)
+    in
+        CharVector.appi copyToBuf s;
+        set8(buf, Word.fromInt(n + size s), 0w0)
+    end
+
     fun toCstring s =
     let
         open Memory
         val sLen = Word.fromInt(String.size s)
         val sMem = malloc(sLen + 0w1)
-        val () = CharVector.appi(fn(i, ch) => set8(sMem, Word.fromInt i, Word8.fromInt(Char.ord ch))) s
-        val () = set8(sMem, sLen, 0w0)
+        val () = copyStringToMem(sMem, 0, s)
     in
         sMem
     end

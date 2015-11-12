@@ -243,7 +243,7 @@ struct
             fun toInt _ = raise Match
             fun fromInt i = (checkResult(i <> 0); raise Match);
         in
-            val cMAPMODE = tableConversion(tab, SOME(fromInt, toInt)) cLong
+            val cMAPMODE = tableConversion(tab, SOME(fromInt, toInt)) cInt (* int for Get/SetMapMode *)
         end
 
         (* REGIONS *)
