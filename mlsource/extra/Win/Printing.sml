@@ -39,24 +39,28 @@ struct
         type DOCINFO = { docName: string, output: string option, dType: string option}
 
         (* PRINTING AND SPOOLING. *)
-        fun StartDoc(hdc: HDC, info: DOCINFO as {docName, output, dType}): int =
-        let
-            val DOCINFO = STRUCT5(INT, STRING, STRINGOPT, STRINGOPT, WORD)
-            val (_,_,dinfo) = breakConversion DOCINFO
-            val startdoc = call2(gdi "StartDocA")(HDC, DOCINFO) INT
-            val res = startdoc(hdc, (sizeof dinfo, docName, output, dType, 0w0))
+        local
+            val DOCINFO = cStruct5(cInt, cString, STRINGOPT, STRINGOPT, cDWORDw)
+            val {ctype={size=sizeDI, ...}, ...} = breakConversion DOCINFO
+            val startdoc = call2(gdi "StartDocA")(cHDC, DOCINFO) cInt
         in
-            checkResult(res > 0);
-            res
+            
+            fun StartDoc(hdc: HDC, {docName, output, dType}): int =
+            let
+                val res = startdoc(hdc, (Word.toInt sizeDI, docName, output, dType, 0w0))
+            in
+                checkResult(res > 0);
+                res
+            end
         end
 
         local
             fun checkSuccess res = checkResult(res > 0)
         in
-            val EndDoc      = checkSuccess o call1(gdi "EndDoc") HDC INT
-            val StartPage   = checkSuccess o call1(gdi "StartPage") HDC INT
-            val EndPage     = checkSuccess o call1(gdi "EndPage") HDC INT
-            val AbortDoc    = checkSuccess o call1(gdi "AbortDoc") HDC INT
+            val EndDoc      = checkSuccess o call1(gdi "EndDoc") cHDC cInt
+            val StartPage   = checkSuccess o call1(gdi "StartPage") cHDC cInt
+            val EndPage     = checkSuccess o call1(gdi "EndPage") cHDC cInt
+            val AbortDoc    = checkSuccess o call1(gdi "AbortDoc") cHDC cInt
         end
 
         datatype WMPrintOption = datatype MessageBase.WMPrintOption

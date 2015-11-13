@@ -64,6 +64,7 @@ struct
         open Foreign Base GdiBase
 
         fun checkDC c = (checkResult(not(isHdcNull c)); c)
+        val zeroRect:RECT = {top=0, bottom=0, left=0, right=0}
     in
         type ResultRegion = Region.ResultRegion
         type HDC = HDC and HRGN = HRGN and HWND = HWND
@@ -75,7 +76,7 @@ struct
             W of int
         in
             type BinaryRasterOperation = BinaryRasterOperation
-            val BINARYRASTEROPERATION = absConversion {abs = W, rep = fn W n => n} INT
+            val BINARYRASTEROPERATION = absConversion {abs = W, rep = fn W n => n} cInt
         
             val R2_BLACK                                     = W (1 (* 0 *))
             val R2_NOTMERGEPEN                               = W (2 (* DPon *))
@@ -95,62 +96,56 @@ struct
             val R2_WHITE                                     = W (16 (* 1 *))
         end
 
-        val GdiFlush               = call0 (gdi "GdiFlush") () (SUCCESSSTATE "GdiFlush")
-        val GdiGetBatchLimit       = call0 (gdi "GdiGetBatchLimit") () INT
-        val GdiSetBatchLimit       = call1 (gdi "GdiSetBatchLimit") (INT) INT
-        val GetBkColor             = call1 (gdi "GetBkColor") (HDC) COLORREF
-        val GetROP2                = call1(user "GetROP2") (HDC) BINARYRASTEROPERATION
-        val GetUpdateRgn           = call3(user "GetUpdateRgn") (HWND,HRGN,BOOL) RESULTREGION
-        val GetWindowDC            = call1(user "GetWindowDC") (HWND) HDC
-        val InvalidateRgn          = call3(user "InvalidateRgn") (HWND,HRGN,BOOL) (SUCCESSSTATE "InvalidateRgn")
-        val SetBkColor             = call2 (gdi "SetBkColor") (HDC, COLORREF) COLORREF
-        val WindowFromDC           = call1(user "WindowFromDC") (HDC) HWND
-        val SetROP2                = call2(user "SetROP2") (HDC, BINARYRASTEROPERATION) BINARYRASTEROPERATION
+        val GdiFlush               = call0 (gdi "GdiFlush") () (successState "GdiFlush")
+        val GdiGetBatchLimit       = call0 (gdi "GdiGetBatchLimit") () cDWORD
+        val GdiSetBatchLimit       = call1 (gdi "GdiSetBatchLimit") (cDWORD) cDWORD
+        val GetBkColor             = call1 (gdi "GetBkColor") (cHDC) cCOLORREF
+        val GetROP2                = call1(user "GetROP2") (cHDC) BINARYRASTEROPERATION
+        val GetUpdateRgn           = call3(user "GetUpdateRgn") (cHWND,cHRGN,cBool) RESULTREGION
+        val GetWindowDC            = call1(user "GetWindowDC") (cHWND) cHDC
+        val InvalidateRgn          = call3(user "InvalidateRgn") (cHWND,cHRGN,cBool) (successState "InvalidateRgn")
+        val InvalidateRect =
+            call3 (user "InvalidateRect") (cHWND, cConstStar cRect, cBool) (successState "InvalidateRect")
+        val SetBkColor             = call2 (gdi "SetBkColor") (cHDC, cCOLORREF) cCOLORREF
+        val WindowFromDC           = call1(user "WindowFromDC") (cHDC) cHWND
+        val SetROP2                = call2(user "SetROP2") (cHDC, BINARYRASTEROPERATION) BINARYRASTEROPERATION
 
-        fun GetUpdateRect (hw: HWND, erase: bool): RECT option =
-        let
-            val (from,_,rtype) = breakConversion RECT 
-            val va = address (alloc 1 rtype)
-            (* If the update area is empty the result is zero. *)
-            val res = call3 (user "GetUpdateRect") (HWND, POINTER, BOOL) BOOL (hw, va, erase)
+        local
+            val getUpdateRect = call3 (user "GetUpdateRect") (cHWND, cStar cRect, cBool) cBool
         in
-            if res then SOME(from(deref va)) else NONE
+            fun GetUpdateRect (hw: HWND, erase: bool): RECT option =
+            let
+                val va = ref zeroRect
+                (* If the update area is empty the result is zero. *)
+                val res = getUpdateRect(hw, va, erase)
+            in
+                if res then SOME(!va) else NONE
+            end
         end
 
         type PAINTSTRUCT =
             { hdc: HDC, erase: bool, paint: RECT, private: Word8Vector.vector }
 
         local
-            val PAINTSTRUCT = STRUCT4(HDC, BOOL, RECT, BYTEARRAY 40)
-            val (fromPS, toPS, psStr) = breakConversion PAINTSTRUCT
+            fun toPt({hdc, erase, paint, private}: PAINTSTRUCT) =
+                (hdc, erase, paint, Byte.bytesToString private)
+            and fromPt(hdc, erase, paint, private) =
+                {hdc = hdc, erase = erase, paint = paint, private = Byte.stringToBytes private}
+            val PAINTSTRUCT =
+                absConversion {abs=fromPt, rep=toPt} (cStruct4(cHDC, cBool, cRect, cCHARARRAY 40))
 
-            fun fromCPS(b: vol): PAINTSTRUCT =
-            let
-                val (hdc, erase, paint, private) = fromPS b
-            in
-                {hdc = hdc, erase = erase, paint = paint, private = private}
-            end
-
-            fun toCPS({hdc, erase, paint, private}: PAINTSTRUCT): vol =
-                toPS(hdc, erase, paint, private)
-    
-            val beginPaint = call2 (user "BeginPaint") (HWND, POINTER) HDC
-            val endPaint = call2 (user "EndPaint") (HWND, POINTER) VOID
-
+            val beginPaint = call2 (user "BeginPaint") (cHWND, cStar PAINTSTRUCT) cHDC
         in
             fun BeginPaint(hwnd: HWND): HDC * PAINTSTRUCT =
             let
-                val b = alloc 1 psStr
-                val hdc = checkDC (beginPaint (hwnd, address b))
+                val b = ref {hdc=hNull, erase=false, paint=zeroRect, private=Word8Vector.fromList []}
+                val hdc = checkDC (beginPaint (hwnd, b))
             in
-                (hdc, fromCPS b)
+                (hdc, !b)
             end
-            and EndPaint(hwnd: HWND, ps: PAINTSTRUCT): unit = endPaint(hwnd, address(toCPS ps))
+
+            val EndPaint = call2 (user "EndPaint") (cHWND, cConstStar PAINTSTRUCT) cVoid
         end
-        
-        val InvalidateRect =
-            checkResult o
-            (call3 (user "InvalidateRect") (HWND, POINTERTO RECT, BOOL) BOOL)
         (*
             Other painting and drawing functions:
                 DrawAnimatedRects  

@@ -20,6 +20,7 @@ structure Clipping :
   sig
     type HDC and HRGN
     type RECT = { top: int, left: int, bottom: int, right: int }
+    type POINT = { x: int, y: int }
     type RegionOperation = Region.RegionOperation
     type ResultRegion = Region.ResultRegion
 
@@ -30,7 +31,7 @@ structure Clipping :
     val GetMetaRgn : HDC * HRGN -> unit
     val IntersectClipRect : HDC * RECT -> ResultRegion
     val OffsetClipRgn : HDC * int * int -> ResultRegion
-    val PtVisible : HDC * int * int * bool -> bool
+    val PtVisible : HDC * POINT -> bool
     val RectVisible : HDC * RECT -> bool
     val SelectClipPath : HDC * RegionOperation -> unit
     val SelectClipRgn : HDC * HRGN -> unit
@@ -39,39 +40,45 @@ structure Clipping :
 struct
     local
         open Foreign Base GdiBase
-        val XCOORD = INT : int Conversion
-        val YCOORD = INT: int Conversion
-        val XOFFSET = INT: int Conversion
-        val YOFFSET = INT: int Conversion
     in
         type RegionOperation = RegionOperation and ResultRegion = ResultRegion
-        type RECT = RECT and HDC = HDC and HRGN = HRGN
+        type RECT = RECT and HDC = HDC and HRGN = HRGN and POINT = POINT
         
-        val ExtSelectClipRgn           = call3(gdi "ExtSelectClipRgn") (HDC,HRGN,REGIONOPERATION) RESULTREGION
-        val GetClipRgn                 = call2(gdi "GetClipRgn") (HDC,HRGN) (SUCCESSSTATE "GetClipRgn")
-        val GetMetaRgn                 = call2(gdi "GetMetaRgn") (HDC,HRGN) (SUCCESSSTATE "GetMetaRgn")
-        val OffsetClipRgn              = call3(gdi "OffsetClipRgn") (HDC,XOFFSET,YOFFSET) RESULTREGION
-        val RectVisible                = call2(gdi "RectVisible") (HDC,POINTERTO RECT) BOOL
-        val PtVisible                  = call4(gdi "PtVisible") (HDC,XCOORD,YCOORD,BOOL) BOOL
-        val SelectClipPath             = call2(gdi "SelectClipPath") (HDC,REGIONOPERATION) (SUCCESSSTATE "SelectClipPath")
-        val SelectClipRgn              = call2(gdi "SelectClipRgn") (HDC,HRGN) (SUCCESSSTATE "SelectClipRgn")
-        val SetMetaRgn                 = call1(gdi "SetMetaRgn") (HDC) (SUCCESSSTATE "SetMetaRgn")
-
-        fun ExcludeClipRect (h,{left,top,right,bottom}: RECT) =
-            call5 (gdi "ExcludeClipRect") (HDC,LONG,LONG,LONG,LONG) RESULTREGION
-                       (h,left,top,right,bottom)
-         
-        fun IntersectClipRect (h,{left,top,right,bottom}: RECT) =
-              call5 (gdi "IntersectClipRect")
-                       (HDC,LONG,LONG,LONG,LONG) RESULTREGION (h,left,top,right,bottom)
-
-        fun GetClipBox hdc =
-        let
-            val (from,_,rtype) = breakConversion RECT 
-            val va = address (alloc 1 rtype)
-            val res = call2 (gdi "GetClipBox") (HDC, POINTER) RESULTREGION (hdc, va)
+        val ExtSelectClipRgn           = call3(gdi "ExtSelectClipRgn") (cHDC,cHRGN,REGIONOPERATION) RESULTREGION
+        val GetClipRgn                 = call2(gdi "GetClipRgn") (cHDC,cHRGN) (successState "GetClipRgn")
+        val GetMetaRgn                 = call2(gdi "GetMetaRgn") (cHDC,cHRGN) (successState "GetMetaRgn")
+        val OffsetClipRgn              = call3(gdi "OffsetClipRgn") (cHDC,cInt,cInt) RESULTREGION
+        val RectVisible                = call2(gdi "RectVisible") (cHDC,cConstStar cRect) cBool
+        val SelectClipPath             = call2(gdi "SelectClipPath") (cHDC,REGIONOPERATION) (successState "SelectClipPath")
+        val SelectClipRgn              = call2(gdi "SelectClipRgn") (cHDC,cHRGN) (successState "SelectClipRgn")
+        val SetMetaRgn                 = call1(gdi "SetMetaRgn") (cHDC) (successState "SetMetaRgn")
+        
+        local
+            val ptVisible = call3(gdi "PtVisible") (cHDC,cInt,cInt) cBool
         in
-            (res, from(deref va))
+            fun PtVisible(hd, {x, y}) = ptVisible(hd, x, y)
+        end
+
+        local
+            val excludeClipRect = call5 (gdi "ExcludeClipRect") (cHDC,cInt,cInt,cInt,cInt) RESULTREGION
+        in
+            fun ExcludeClipRect (h,{left,top,right,bottom}) = excludeClipRect(h,left,top,right,bottom)
+        end
+
+        local
+            val intersectClipRect =
+                call5 (gdi "IntersectClipRect") (cHDC,cInt,cInt,cInt,cInt) RESULTREGION
+        in
+            fun IntersectClipRect (h,{left,top,right,bottom}: RECT) =
+               intersectClipRect(h,left,top,right,bottom)
+        end
+
+        local
+            val getClipBox = call2 (gdi "GetClipBox") (cHDC, cStar cRect) RESULTREGION
+            val zeroRect = { top=0, bottom=0, left=0, right=0}
+        in
+            fun GetClipBox hdc =
+                let val v = ref zeroRect val res = getClipBox(hdc, v) in (res, !v) end
         end
 
     end

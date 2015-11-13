@@ -195,7 +195,7 @@ sig
         CF_ENHMETAFILE | CF_OWNERDISPLAY | CF_DSPTEXT | CF_DSPBITMAP | CF_DSPMETAFILEPICT |
         CF_DSPENHMETAFILE | CF_PRIVATE of int | CF_GDIOBJ of int | CF_REGISTERED of int |
         CF_HDROP | CF_LOCALE
-    val cCLIPFORMAT: ClipboardFormat Foreign.conversion
+    val clipLookup: (ClipboardFormat -> int) * (int -> ClipboardFormat)
     
     datatype RESID = IdAsInt of int | IdAsString of string
     val cRESID: RESID Foreign.conversion
@@ -694,7 +694,8 @@ struct
         val cCLASS = makeConversion { load = loadClass, store = storeClass, ctype = ctype }
     end
 
-    (* Clipboard formats.  I've added CF_NONE, CF_PRIVATE, CF_GDIOBJ and CF_REGISTERED *)
+    (* Clipboard formats.  I've added CF_NONE, CF_PRIVATE, CF_GDIOBJ and CF_REGISTERED.
+       This is here because it is used in both Clipboard and Message (WM_RENDERFORMAT) *)
     datatype ClipboardFormat =
         CF_NONE | CF_TEXT | CF_BITMAP | CF_METAFILEPICT | CF_SYLK | CF_DIF | CF_TIFF |
         CF_OEMTEXT | CF_DIB | CF_PALETTE | CF_PENDATA | CF_RIFF | CF_WAVE | CF_UNICODETEXT |
@@ -702,47 +703,46 @@ struct
         CF_DSPENHMETAFILE | CF_PRIVATE of int | CF_GDIOBJ of int | CF_REGISTERED of int |
         CF_HDROP | CF_LOCALE
 
-        local
-            val tab = [
-                (CF_NONE,                  0),
-                (CF_TEXT,                  1),
-                (CF_BITMAP,                2),
-                (CF_METAFILEPICT,          3),
-                (CF_SYLK,                  4),
-                (CF_DIF,                   5),
-                (CF_TIFF,                  6),
-                (CF_OEMTEXT,               7),
-                (CF_DIB,                   8),
-                (CF_PALETTE,               9),
-                (CF_PENDATA,               10),
-                (CF_RIFF,                  11),
-                (CF_WAVE,                  12),
-                (CF_UNICODETEXT,           13),
-                (CF_ENHMETAFILE,           14),
-                (CF_HDROP,                 15),
-                (CF_LOCALE,                16),
-                (CF_OWNERDISPLAY,          0x0080),
-                (CF_DSPTEXT,               0x0081),
-                (CF_DSPBITMAP,             0x0082),
-                (CF_DSPMETAFILEPICT,       0x0083),
-                (CF_DSPENHMETAFILE,        0x008E)
-                ]
-            fun toInt (CF_PRIVATE i) =
-                    if i >= 0 andalso i < 0xff then 0x0200 + i else raise Size
-            |   toInt (CF_GDIOBJ i) =
-                    if i >= 0 andalso i < 0xff then 0x0300 + i else raise Size
-            |   toInt (CF_REGISTERED i) = i
-            |   toInt _ = raise Match
+    local
+        val tab = [
+            (CF_NONE,                  0),
+            (CF_TEXT,                  1),
+            (CF_BITMAP,                2),
+            (CF_METAFILEPICT,          3),
+            (CF_SYLK,                  4),
+            (CF_DIF,                   5),
+            (CF_TIFF,                  6),
+            (CF_OEMTEXT,               7),
+            (CF_DIB,                   8),
+            (CF_PALETTE,               9),
+            (CF_PENDATA,               10),
+            (CF_RIFF,                  11),
+            (CF_WAVE,                  12),
+            (CF_UNICODETEXT,           13),
+            (CF_ENHMETAFILE,           14),
+            (CF_HDROP,                 15),
+            (CF_LOCALE,                16),
+            (CF_OWNERDISPLAY,          0x0080),
+            (CF_DSPTEXT,               0x0081),
+            (CF_DSPBITMAP,             0x0082),
+            (CF_DSPMETAFILEPICT,       0x0083),
+            (CF_DSPENHMETAFILE,        0x008E)
+            ]
+        fun toInt (CF_PRIVATE i) =
+                if i >= 0 andalso i < 0xff then 0x0200 + i else raise Size
+        |   toInt (CF_GDIOBJ i) =
+                if i >= 0 andalso i < 0xff then 0x0300 + i else raise Size
+        |   toInt (CF_REGISTERED i) = i
+        |   toInt _ = raise Match
 
-            fun fromInt i =
-                if i >= 0x0200 andalso i <= 0x02ff then CF_PRIVATE(i-0x0200)
-                else if i >= 0x0300 andalso i <= 0x03ff then CF_GDIOBJ(i-0x0300)
-                else if i >= 0xC000 andalso i < 0xFFFF then CF_REGISTERED i
-                else raise Match
-        in
-            (* Assume this is cUint *)
-            val cCLIPFORMAT = tableConversion(tab, SOME(fromInt, toInt)) cUint
-        end
+        fun fromInt i =
+            if i >= 0x0200 andalso i <= 0x02ff then CF_PRIVATE(i-0x0200)
+            else if i >= 0x0300 andalso i <= 0x03ff then CF_GDIOBJ(i-0x0300)
+            else if i >= 0xC000 andalso i < 0xFFFF then CF_REGISTERED i
+            else raise Match
+    in
+        val clipLookup = tableLookup (tab, SOME(fromInt, toInt))
+    end
 
     (* Resources may be specified by strings or by ints. *)
     datatype RESID = IdAsInt of int | IdAsString of string

@@ -81,12 +81,7 @@ struct
         and GMEM_MOVEABLE = 0x0002
         val GMEM_OPTS = IntInf.orb(GMEM_SHARE, GMEM_MOVEABLE)
 
-        val (fromHG, toHG, _) = breakConversion HGLOBAL
-        val (fromHPAL, toHPAL, _) = breakConversion HPALETTE
-        val (fromHBIT, toHBIT, _) = breakConversion HBITMAP
-        val (fromHENH, toHENH, _) = breakConversion HENHMETAFILE
-        val (fromHDRP, toHDRP, _) = breakConversion HDROP
-        val (fromMFP, toMFP, mfpStruct) = breakConversion GdiBase.METAFILEPICT
+        val {load=fromMFP, store=toMFP, ctype={size=sizeMfp, ...}, ...} = breakConversion GdiBase.cMETAFILEPICT
     in
         type HBITMAP = HBITMAP and HPALETTE = HPALETTE and HWND = HWND and HDROP = HDROP
 
@@ -120,154 +115,150 @@ struct
             CH_REGISTERED of int * Word8Vector.vector |
             CH_HDROP of HDROP |
             CH_LOCALE of Word8Vector.vector
+       
+        local
+            val (toInt, fromInt) = clipLookup
+        in
+            val cCLIPFORMAT = absConversion {abs = fromInt, rep = toInt} cUint
+        end
 
-        val ChangeClipboardChain = call2 (user "ChangeClipboardChain") (cHWND, cHWND) BOOL
+        val ChangeClipboardChain = call2 (user "ChangeClipboardChain") (cHWND, cHWND) cBool
         and CloseClipboard = call0 (user "CloseClipboard") () (successState "CloseClipboard")
-        and CountClipboardFormats = call0 (user "CountClipboardFormats") () INT
+        and CountClipboardFormats = call0 (user "CountClipboardFormats") () cInt
         and EmptyClipboard = call0 (user "EmptyClipboard") () (successState "EmptyClipboard")
         and EnumClipboardFormats = call1 (user "EnumClipboardFormats") (cCLIPFORMAT) cCLIPFORMAT
         and GetClipboardOwner = call0 (user "GetClipboardOwner") () cHWND
         and GetClipboardViewer = call0 (user "GetClipboardViewer") () cHWND
         and GetOpenClipboardWindow = call0 (user "GetOpenClipboardWindow") () cHWND
         and IsClipboardFormatAvailable =
-            call1 (user "IsClipboardFormatAvailable") (cCLIPFORMAT) BOOL
+            call1 (user "IsClipboardFormatAvailable") (cCLIPFORMAT) cBool
         and OpenClipboard = call1 (user "OpenClipboard") (cHWNDOPT) (successState "OpenClipboard")
         and RegisterClipboardFormat =
-            CF_REGISTERED o call1 (user "RegisterClipboardFormat") (STRING) INT
+            CF_REGISTERED o call1 (user "RegisterClipboardFormat") (cString) cUint
         and SetClipboardViewer = call1 (user "SetClipboardViewer") (cHWND) cHWND
 
-        (* SetClipboardData copies the data to the clipboard.  It is possible to pass
-           NULL as the handle and instead process the WM_RENDERFORMAT message.  We
-           don't support that. *)
-        fun SetClipboardData(clip: CLIPHANDLE): unit =
-        let
+        local
+            (* The argument and result are actually HANDLE but we haven't got quite the
+               right form of subclassing to allow all the various handle types to be combined. *)
+            val setClipboardData = call2(user "SetClipboardData") (cCLIPFORMAT, cHGLOBAL) cHGLOBAL
+
             (* Most clipboard data is passed in memory allocated using GlobalAlloc. *)
-            fun globString (s: string):vol =
+            fun globString (s: string) =
             let
-                val hGlob = GlobalAlloc(GMEM_OPTS, size s)
-                val mem = deref(GlobalLock hGlob)
+                val hGlob = GlobalAlloc(GMEM_OPTS, size s + 1)
+                val mem = GlobalLock hGlob
             in
-                fillCstring mem s;
+                copyStringToMem(mem, 0, s);
                 GlobalUnlock hGlob;
-                toHG hGlob
+                hGlob
             end
-            and globMem (w: Word8Vector.vector): vol =
+            and globMem (w: Word8Vector.vector) =
             let
                 val length = Word8Vector.length w
                 val hGlob = GlobalAlloc(GMEM_OPTS, length)
-                val buf = deref(GlobalLock hGlob)
-                fun copyToBuf (i, v): unit =
-                    assign Cchar (offset i Cchar buf) (toCint(Word8.toInt v))
+                val buf = GlobalLock hGlob
             in
-                Word8Vector.appi copyToBuf w;
+                Word8Vector.appi (fn (i, v) => Memory.set8(buf, Word.fromInt i, v)) w;
                 GlobalUnlock hGlob;
-                toHG hGlob
+                hGlob
             end
-
-            (* Convert the various data formats and get the format type to pass. *)
-            val (cf, data) =
-                case clip of
-                    CH_NONE                 => raise Fail "SetClipboardData: No data"
-                |   CH_TEXT t               => (CF_TEXT, globString t)
-                |   CH_BITMAP b             => (CF_BITMAP, toHBIT b)
-                |   CH_METAFILEPICT p =>
-                    let
-                        val mfp = toMFP p
-                        val hGlob = GlobalAlloc(GMEM_OPTS, sizeof mfpStruct)
-                    in
-                        assign mfpStruct (deref(GlobalLock hGlob)) mfp;
-                        GlobalUnlock hGlob;
-                        (CF_METAFILEPICT, toHG hGlob)
-                    end
-                |   CH_SYLK m               => (CF_SYLK, globMem m)
-                |   CH_DIF m                => (CF_DIF, globMem m)
-                |   CH_TIFF m               => (CF_TIFF, globMem m)
-                |   CH_OEMTEXT t            => (CF_OEMTEXT, globString t)
-                |   CH_DIB m                => (CF_DIB, globMem m)
-                |   CH_PALETTE p            => (CF_PALETTE, toHPAL p)
-                |   CH_PENDATA m            => (CF_PENDATA, globMem m)
-                |   CH_RIFF m               => (CF_RIFF, globMem m)
-                |   CH_WAVE m               => (CF_WAVE, globMem m)
-                |   CH_UNICODETEXT m        => (CF_UNICODETEXT, globMem m)
-                |   CH_ENHMETAFILE mf       => (CF_ENHMETAFILE, toHENH mf)
-                |   CH_OWNERDISPLAY m       => (CF_OWNERDISPLAY, globMem m)
-                |   CH_DSPTEXT m            => (CF_DSPTEXT, globMem m)
-                |   CH_DSPBITMAP m          => (CF_DSPBITMAP, globMem m)
-                |   CH_DSPMETAFILEPICT m    => (CF_DSPMETAFILEPICT, globMem m)
-                |   CH_DSPENHMETAFILE m     => (CF_DSPENHMETAFILE, globMem m)
-                |   CH_PRIVATE(i, m)        => (CF_PRIVATE i, globMem m)
-                |   CH_GDIOBJ(i, m)         => (CF_GDIOBJ i, globMem m)
-                |   CH_REGISTERED(i, m)     => (CF_REGISTERED i, globMem m)
-                |   CH_HDROP d              => (CF_HDROP, toHDRP d)
-                |   CH_LOCALE m             => (CF_LOCALE, globMem m)
-            val res = call2(user "SetClipboardData") (cCLIPFORMAT, POINTER) POINTER (cf, data)
+            fun toHglobal (h: 'a HANDLE): HGLOBAL = handleOfVoidStar(voidStarOfHandle h)
         in
-            if fromCint res = 0
-            then raiseSysErr ()
-            else ()
-        end
+            (* SetClipboardData copies the data to the clipboard.  It is possible to pass
+               NULL as the handle and instead process the WM_RENDERFORMAT message.  We
+               don't support that. *)
+            fun SetClipboardData(clip: CLIPHANDLE): unit =
+            let
 
-        fun GetClipboardData(f: ClipboardFormat): CLIPHANDLE =
-        let
-            (* The result of GetClipboardData is a handle, usually but not always an
-               HGLOBAL pointing to a piece of memory. *)
-            val res = call1 (user "GetClipboardData") (cCLIPFORMAT) POINTER (f)
-            val _ = checkResult (fromCint res <> 0)
-            fun getMem(p: vol) =
-            let
-                val hg = fromHG p
-                val len = GlobalSize hg
-                val res = toWord8vec(GlobalLock hg, len)
+                (* Convert the various data formats and get the format type to pass. *)
+                val (cf, data) =
+                    case clip of
+                        CH_NONE                 => raise Fail "SetClipboardData: No data"
+                    |   CH_TEXT t               => (CF_TEXT, globString t)
+                    |   CH_BITMAP b             => (CF_BITMAP, toHglobal b)
+                    |   CH_METAFILEPICT p =>
+                        let
+                            val hGlob = GlobalAlloc(GMEM_OPTS, Word.toInt sizeMfp)
+                        in
+                            ignore(toMFP(GlobalLock hGlob, p));
+                            GlobalUnlock hGlob;
+                            (CF_METAFILEPICT, hGlob)
+                        end
+                    |   CH_SYLK m               => (CF_SYLK, globMem m)
+                    |   CH_DIF m                => (CF_DIF, globMem m)
+                    |   CH_TIFF m               => (CF_TIFF, globMem m)
+                    |   CH_OEMTEXT t            => (CF_OEMTEXT, globString t)
+                    |   CH_DIB m                => (CF_DIB, globMem m)
+                    |   CH_PALETTE p            => (CF_PALETTE, toHglobal p)
+                    |   CH_PENDATA m            => (CF_PENDATA, globMem m)
+                    |   CH_RIFF m               => (CF_RIFF, globMem m)
+                    |   CH_WAVE m               => (CF_WAVE, globMem m)
+                    |   CH_UNICODETEXT m        => (CF_UNICODETEXT, globMem m)
+                    |   CH_ENHMETAFILE mf       => (CF_ENHMETAFILE, toHglobal mf)
+                    |   CH_OWNERDISPLAY m       => (CF_OWNERDISPLAY, globMem m)
+                    |   CH_DSPTEXT m            => (CF_DSPTEXT, globMem m)
+                    |   CH_DSPBITMAP m          => (CF_DSPBITMAP, globMem m)
+                    |   CH_DSPMETAFILEPICT m    => (CF_DSPMETAFILEPICT, globMem m)
+                    |   CH_DSPENHMETAFILE m     => (CF_DSPENHMETAFILE, globMem m)
+                    |   CH_PRIVATE(i, m)        => (CF_PRIVATE i, globMem m)
+                    |   CH_GDIOBJ(i, m)         => (CF_GDIOBJ i, globMem m)
+                    |   CH_REGISTERED(i, m)     => (CF_REGISTERED i, globMem m)
+                    |   CH_HDROP d              => (CF_HDROP, toHglobal d)
+                    |   CH_LOCALE m             => (CF_LOCALE, globMem m)
+                val res = setClipboardData (cf, data)
             in
-                GlobalUnlock hg;
-                res
+                if res = hNull
+                then raiseSysErr ()
+                else ()
             end
-            and getText(p: vol): string =
-            let
-                val hg = fromHG p
-                val s = fromCstring(GlobalLock hg)
-            in
-                GlobalUnlock hg;
-                s
-            end
-        in
-            case f of
-                CF_NONE             => CH_NONE
-            |   CF_TEXT             => CH_TEXT(getText res)
-            |   CF_BITMAP           => CH_BITMAP(fromHBIT res)
-            |   CF_METAFILEPICT     =>
-                let
-                    val hg = fromHG res
-                    val res = CH_METAFILEPICT(fromMFP(deref(GlobalLock hg)))
-                in
-                    GlobalUnlock hg;
-                    res
-                end
-            |   CF_SYLK             => CH_SYLK(getMem res)
-            |   CF_DIF              => CH_DIF(getMem res)
-            |   CF_TIFF             => CH_TIFF(getMem res)
-            |   CF_OEMTEXT          => CH_OEMTEXT(getText res)
-            |   CF_DIB              => CH_DIB(getMem res)
-            |   CF_PALETTE          => CH_PALETTE(fromHPAL res)
-            |   CF_PENDATA          => CH_PENDATA(getMem res)
-            |   CF_RIFF             => CH_RIFF(getMem res)
-            |   CF_WAVE             => CH_WAVE(getMem res)
-            |   CF_UNICODETEXT      => CH_UNICODETEXT(getMem res)
-            |   CF_ENHMETAFILE      => CH_ENHMETAFILE(fromHENH res)
-            |   CF_OWNERDISPLAY     => CH_OWNERDISPLAY(getMem res)
-            |   CF_DSPTEXT          => CH_DSPTEXT(getMem res)
-            |   CF_DSPBITMAP        => CH_DSPBITMAP(getMem res)
-            |   CF_DSPMETAFILEPICT  => CH_DSPMETAFILEPICT(getMem res)
-            |   CF_DSPENHMETAFILE   => CH_DSPENHMETAFILE(getMem res)
-            |   CF_PRIVATE i        => CH_PRIVATE(i, getMem res)
-            |   CF_GDIOBJ i         => CH_GDIOBJ(i, getMem res)
-            |   CF_REGISTERED i     => CH_REGISTERED(i, getMem res)
-            |   CF_HDROP            => CH_HDROP(fromHDRP res)
-            |   CF_LOCALE           => CH_LOCALE(getMem res)
         end
 
         local
-            val getformat = call3 (user "GetClipboardFormatNameA") (cCLIPFORMAT, POINTER, INT) INT
+            val getClipboardData = call1 (user "GetClipboardData") (cCLIPFORMAT) cHGLOBAL
+            fun getMem hg = fromCWord8vec(GlobalLock hg, GlobalSize hg) before ignore(GlobalUnlock hg)
+            and getText hg = fromCstring(GlobalLock hg) before ignore(GlobalUnlock hg)
+            fun fromHglobal (h: HGLOBAL): 'a HANDLE = handleOfVoidStar(voidStarOfHandle h)
+        in
+            fun GetClipboardData(f: ClipboardFormat): CLIPHANDLE =
+            let
+                (* The result of GetClipboardData is a handle, usually but not always an
+                   HGLOBAL pointing to a piece of memory. *)
+                val res = getClipboardData f
+                val _ = checkResult (res <> hNull)
+
+            in
+                case f of
+                    CF_NONE             => CH_NONE
+                |   CF_TEXT             => CH_TEXT(getText res)
+                |   CF_BITMAP           => CH_BITMAP(fromHglobal res)
+                |   CF_METAFILEPICT     =>
+                        CH_METAFILEPICT(fromMFP(GlobalLock res)) before ignore(GlobalUnlock res)
+                |   CF_SYLK             => CH_SYLK(getMem res)
+                |   CF_DIF              => CH_DIF(getMem res)
+                |   CF_TIFF             => CH_TIFF(getMem res)
+                |   CF_OEMTEXT          => CH_OEMTEXT(getText res)
+                |   CF_DIB              => CH_DIB(getMem res)
+                |   CF_PALETTE          => CH_PALETTE(fromHglobal res)
+                |   CF_PENDATA          => CH_PENDATA(getMem res)
+                |   CF_RIFF             => CH_RIFF(getMem res)
+                |   CF_WAVE             => CH_WAVE(getMem res)
+                |   CF_UNICODETEXT      => CH_UNICODETEXT(getMem res)
+                |   CF_ENHMETAFILE      => CH_ENHMETAFILE(fromHglobal res)
+                |   CF_OWNERDISPLAY     => CH_OWNERDISPLAY(getMem res)
+                |   CF_DSPTEXT          => CH_DSPTEXT(getMem res)
+                |   CF_DSPBITMAP        => CH_DSPBITMAP(getMem res)
+                |   CF_DSPMETAFILEPICT  => CH_DSPMETAFILEPICT(getMem res)
+                |   CF_DSPENHMETAFILE   => CH_DSPENHMETAFILE(getMem res)
+                |   CF_PRIVATE i        => CH_PRIVATE(i, getMem res)
+                |   CF_GDIOBJ i         => CH_GDIOBJ(i, getMem res)
+                |   CF_REGISTERED i     => CH_REGISTERED(i, getMem res)
+                |   CF_HDROP            => CH_HDROP(fromHglobal res)
+                |   CF_LOCALE           => CH_LOCALE(getMem res)
+            end
+        end
+
+        local
+            val getformat = call3 (user "GetClipboardFormatNameA") (cCLIPFORMAT, cPointer, cInt) cInt
         in
             (* Loop until we have read the whole string.  The result may legitimately be
                a null string. *)
@@ -275,16 +266,20 @@ struct
                 getStringCall(fn (buff, n) => getformat(f, buff, n))
         end
 
-        fun GetPriorityClipboardFormat(l: ClipboardFormat list): ClipboardFormat option =
-        let
-            val (vec, count) = list2Vector cCLIPFORMAT l
-            val res = call2(user "GetPriorityClipboardFormat") (POINTER, INT) INT (vec, count)
-            val (toClip, _, _) = breakConversion cCLIPFORMAT
-        in
-            (* It returns 0 if the clipboard is empty, ~1 if it doesn't contain any
-               of the requested formats and >0 if it contains one of the formats.
-               We map ~1 to NONE. *)
-            if res < 0 then NONE else SOME(toClip(toCint res))
+        local
+            val getPriorityClipboardFormat = call2(user "GetPriorityClipboardFormat") (cPointer, cInt) cInt
+         in
+            fun GetPriorityClipboardFormat(l: ClipboardFormat list): ClipboardFormat option =
+            let
+                val (vec, count) = list2Vector cCLIPFORMAT l
+                val res = getPriorityClipboardFormat(vec, count) handle ex => (Memory.free vec; raise ex)
+                val () = Memory.free vec
+            in
+                (* It returns 0 if the clipboard is empty, ~1 if it doesn't contain any
+                   of the requested formats and >0 if it contains one of the formats.
+                   We map ~1 to NONE. *)
+                if res < 0 then NONE else SOME(#2 clipLookup res)
+            end
         end
     end
 end;

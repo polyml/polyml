@@ -34,7 +34,7 @@ use "Pen";
 use "DeviceContext";
 use "CommonDialog";
 use "MessageBox";
-use "Caret"; (* Currently working on this *)
+use "Caret";
 use "Transform";
 use "Metafile";
 use "Clipboard";
@@ -46,7 +46,7 @@ use "Region";
 use "Painting";
 use "Shape";
 use "Clipping";
-use "DragDrop"; (* Done from here *)
+use "DragDrop";
 use "Keyboard";
 use "Mouse";
 use "WinSystem";
