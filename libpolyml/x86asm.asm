@@ -1261,9 +1261,8 @@ sra1:
     ret
 CALLMACRO   RegMask shift_right_arith_word,(M_Reax OR M_Recx)
 
-CALLMACRO   INLINE_ROUTINE  locksega
- ;# Clears the "mutable" bit on a segment
-
+;# Clears the "mutable" bit on a segment
+locksega:
 IFDEF WINDOWS
     and     byte ptr    [Reax-1],CONST(0ffh-B_mutable)
 ELSE
