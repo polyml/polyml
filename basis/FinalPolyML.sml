@@ -327,6 +327,82 @@ local
                 OS.Process.terminate OS.Process.failure
             )
 
+    (* Default function to print and enter a value. *)
+    fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
+                       stream: string->unit, depth: int)
+        { fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
+          structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
+          functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list}: unit =
+    let
+        (* We need to merge the lists to sort them alphabetically. *)
+        datatype decKind =
+            FixStatusKind of Infixes.fixity
+        |   TypeConstrKind of TypeConstrs.typeConstr
+        |   SignatureKind of Signatures.signatureVal
+        |   StructureKind of Structures.structureVal
+        |   FunctorKind of Functors.functorVal
+        |   ValueKind of Values.value
+
+        val decList =
+            map (fn (s, f) => (s, FixStatusKind f)) fixes @
+            map (fn (s, f) => (s, TypeConstrKind f)) types @
+            map (fn (s, f) => (s, SignatureKind f)) signatures @
+            map (fn (s, f) => (s, StructureKind f)) structures @
+            map (fn (s, f) => (s, FunctorKind f)) functors @
+            map (fn (s, f) => (s, ValueKind f)) values
+
+        fun kindToInt(FixStatusKind _) = 0
+        |   kindToInt(TypeConstrKind _) = 1
+        |   kindToInt(SignatureKind _) = 2
+        |   kindToInt(StructureKind _) = 3
+        |   kindToInt(FunctorKind _) = 4
+        |   kindToInt(ValueKind _) = 5
+
+        fun order (s1: string, k1) (s2, k2) =
+                if s1 = s2 then kindToInt k1 <= kindToInt k2
+                else s1 <= s2
+
+        (* Don't sort the declarations if we want them in declaration order. *)
+        val sortedDecs =
+            if inOrder then quickSort order decList else decList
+
+        fun enterDec(n, FixStatusKind f) = #enterFix space (n,f)
+        |   enterDec(n, TypeConstrKind t) = #enterType space (n,t)
+        |   enterDec(n, SignatureKind s) = #enterSig space (n,s)
+        |   enterDec(n, StructureKind s) = #enterStruct space (n,s)
+        |   enterDec(n, FunctorKind f) = #enterFunct space (n,f)
+        |   enterDec(n, ValueKind v) = #enterVal space (n,v)
+
+        fun printDec(_, FixStatusKind f) =
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Infixes.print f)
+
+        |   printDec(_, TypeConstrKind t) =
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (TypeConstrs.print(t, depth, SOME space))
+
+        |   printDec(_, SignatureKind s) =
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Signatures.print(s, depth, SOME space))
+
+        |   printDec(_, StructureKind s) =
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Structures.print(s, depth, SOME space))
+
+        |   printDec(_, FunctorKind f) =
+                prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, depth, SOME space))
+
+        |   printDec(_, ValueKind v) =
+                if Values.isConstructor v andalso not (Values.isException v)
+                then () (* Value constructors are printed with the datatype. *)
+                else prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
+
+    in
+        (* First add the declarations to the name space and then print them.  Doing it this way
+           improves the printing of types since these require look-ups in the name space.  For
+           instance the constructors of a datatype from an opened structure should not include
+           the structure name but that will only work once the datatype itself is in the global
+           name-space. *)
+        List.app enterDec sortedDecs;
+        if depth > 0 then List.app printDec sortedDecs else ()
+    end
+
     local
         open Bootstrap Bootstrap.Universal
         (* To allow for the possibility of changing the representation we don't make Universal
@@ -383,82 +459,6 @@ local
                      (if startLine = 0 andalso file = "" then [] else [".\n"]))); *)
                 PolyML.prettyPrint(printString, !lineLength) fullMessage
             )
-        end
-
-        (* Default function to print and enter a value. *)
-        fun printAndEnter (inOrder: bool, space: PolyML.NameSpace.nameSpace,
-                           stream: string->unit, depth: int)
-            { fixes: (string * Infixes.fixity) list, values: (string * Values.value) list,
-              structures: (string * Structures.structureVal) list, signatures: (string * Signatures.signatureVal) list,
-              functors: (string * Functors.functorVal) list, types: (string * TypeConstrs.typeConstr) list}: unit =
-        let
-            (* We need to merge the lists to sort them alphabetically. *)
-            datatype decKind =
-                FixStatusKind of Infixes.fixity
-            |   TypeConstrKind of TypeConstrs.typeConstr
-            |   SignatureKind of Signatures.signatureVal
-            |   StructureKind of Structures.structureVal
-            |   FunctorKind of Functors.functorVal
-            |   ValueKind of Values.value
-
-            val decList =
-                map (fn (s, f) => (s, FixStatusKind f)) fixes @
-                map (fn (s, f) => (s, TypeConstrKind f)) types @
-                map (fn (s, f) => (s, SignatureKind f)) signatures @
-                map (fn (s, f) => (s, StructureKind f)) structures @
-                map (fn (s, f) => (s, FunctorKind f)) functors @
-                map (fn (s, f) => (s, ValueKind f)) values
-
-            fun kindToInt(FixStatusKind _) = 0
-            |   kindToInt(TypeConstrKind _) = 1
-            |   kindToInt(SignatureKind _) = 2
-            |   kindToInt(StructureKind _) = 3
-            |   kindToInt(FunctorKind _) = 4
-            |   kindToInt(ValueKind _) = 5
-
-            fun order (s1: string, k1) (s2, k2) =
-                    if s1 = s2 then kindToInt k1 <= kindToInt k2
-                    else s1 <= s2
-
-            (* Don't sort the declarations if we want them in declaration order. *)
-            val sortedDecs =
-                if inOrder then quickSort order decList else decList
-
-            fun enterDec(n, FixStatusKind f) = #enterFix space (n,f)
-            |   enterDec(n, TypeConstrKind t) = #enterType space (n,t)
-            |   enterDec(n, SignatureKind s) = #enterSig space (n,s)
-            |   enterDec(n, StructureKind s) = #enterStruct space (n,s)
-            |   enterDec(n, FunctorKind f) = #enterFunct space (n,f)
-            |   enterDec(n, ValueKind v) = #enterVal space (n,v)
-
-            fun printDec(_, FixStatusKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Infixes.print f)
-
-            |   printDec(_, TypeConstrKind t) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (TypeConstrs.print(t, depth, SOME space))
-
-            |   printDec(_, SignatureKind s) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Signatures.print(s, depth, SOME space))
-
-            |   printDec(_, StructureKind s) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Structures.print(s, depth, SOME space))
-
-            |   printDec(_, FunctorKind f) =
-                    prettyPrintWithOptionalMarkup (stream, !lineLength) (Functors.print(f, depth, SOME space))
-
-            |   printDec(_, ValueKind v) =
-                    if Values.isConstructor v andalso not (Values.isException v)
-                    then () (* Value constructors are printed with the datatype. *)
-                    else prettyPrintWithOptionalMarkup (stream, !lineLength) (Values.printWithType(v, depth, SOME space))
-
-        in
-            (* First add the declarations to the name space and then print them.  Doing it this way
-               improves the printing of types since these require look-ups in the name space.  For
-               instance the constructors of a datatype from an opened structure should not include
-               the structure name but that will only work once the datatype itself is in the global
-               name-space. *)
-            List.app enterDec sortedDecs;
-            if depth > 0 then List.app printDec sortedDecs else ()
         end
     in
         (* This function ends up as PolyML.compiler.  *)
@@ -2123,7 +2123,7 @@ in
                 then loadMod fileName
                 else
                 let
-                    (* Ppath elements are separated by semicolons in Windows but colons in Unix. *)
+                    (* Path elements are separated by semicolons in Windows but colons in Unix. *)
                     val sepInPathList = if getOS = 1 then #";" else #":"
                     val pathList =
                         case OS.Process.getEnv "POLYMODPATH" of
@@ -2207,20 +2207,24 @@ in
                 val startFn = List.find (Universal.tagIs Tags.startupTag) ulist
                 val () =
                     case startFn of SOME f => (Universal.tagProject Tags.startupTag f) () | NONE => ()
-                (* Enter the items into the name space. *)
-                fun addItems (tag, enter) (hd :: tl) =
-                    (if Universal.tagIs tag hd
-                    then enter globalNameSpace (Universal.tagProject tag hd) else (); addItems (tag, enter)  tl)
-                |   addItems _ _ = ()
+                fun extract (tag:'a Universal.tag): Universal.universal list -> 'a list =
+                    List.mapPartial(
+                        fn s => if Universal.tagIs tag s then SOME(Universal.tagProject tag s) else NONE)
             in
-                addItems(Tags.structureTag, #enterStruct) ulist;
-                addItems(Tags.signatureTag, #enterSig) ulist;
-                addItems(Tags.functorTag, #enterFunct) ulist;
-                addItems(Tags.valueTag, #enterVal) ulist;
-                addItems(Tags.typeTag, #enterType) ulist;
-                addItems(Tags.fixityTag, #enterFix) ulist
+                (* Add the entries and print them in the same way as top-level bindings. *)
+                printAndEnter(! printInAlphabeticalOrder, globalNameSpace, TextIO.print, !printDepth)
+                {
+                    fixes = extract Tags.fixityTag ulist,
+                    values = extract Tags.valueTag ulist,
+                    structures = extract Tags.structureTag ulist,
+                    signatures = extract Tags.signatureTag ulist,
+                    functors = extract Tags.functorTag ulist,
+                    types = extract Tags.typeTag ulist
+                }
             end
         end
+        
+        val loadModule = SaveState.loadModule
 
     end
 end (* PolyML. *);

@@ -1666,7 +1666,7 @@ in
                 then loadMod fileName
                 else
                 let
-                    (* Ppath elements are separated by semicolons in Windows but colons in Unix. *)
+                    (* Path elements are separated by semicolons in Windows but colons in Unix. *)
                     val sepInPathList = if getOS = 1 then #";" else #":"
                     val pathList =
                         case OS.Process.getEnv "POLYMODPATH" of
