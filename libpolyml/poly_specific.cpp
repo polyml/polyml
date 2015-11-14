@@ -434,6 +434,40 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 33: // Load hierarchy.  This provides a complete list of children and parents.
         return LoadState(taskData, true, args);
 
+    case 34: // Return the system directory for modules.  This is configured differently
+        // in Unix and in Windows.
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+        {
+            // This registry key is configured when Poly/ML is installed using the installer.
+            // It gives the path to the Poly/ML installation directory.  We return the
+            // Modules subdirectory.
+            HKEY hk;
+	        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+			        _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
+			        KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
+            {
+                DWORD valSize;
+                if (RegQueryValueEx(hk, _T("Path"), 0, NULL, NULL, &valSize) == ERROR_SUCCESS)
+                {
+#define MODULEDIR _T("Modules")
+                    TempString buff((TCHAR*)malloc(valSize + (_tcslen(MODULEDIR) + 1)*sizeof(TCHAR)));
+                    DWORD dwType;
+                    if (RegQueryValueEx(hk, _T("Path"), 0, &dwType, (LPBYTE)(LPTSTR)buff, &valSize) == ERROR_SUCCESS)
+                    {
+                        RegCloseKey(hk);
+                        // The registry entry should end with a backslash.
+                        _tcscat(buff, MODULEDIR);
+                        return SAVE(C_string_to_Poly(taskData, buff));
+                    }
+                }
+                RegCloseKey(hk);
+            }
+            return SAVE(C_string_to_Poly(taskData, ""));
+        }
+#else
+        return SAVE(C_string_to_Poly(taskData, ""));
+#endif
+
     case 50: // GCD
         return gcd_arbitrary(taskData, SAVE(DEREFHANDLE(args)->Get(0)), SAVE(DEREFHANDLE(args)->Get(1)));
     case 51: // LCM
