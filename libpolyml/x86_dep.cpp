@@ -840,10 +840,6 @@ Handle X86TaskData::EnterPolyCode()
                 CallIO1(this, &Real_negc);
                 break;
 
-            case POLY_SYS_Repr_real:
-                CallIO1(this, &Real_reprc);
-                break;
-
             case POLY_SYS_conv_real:
                 CallIO1(this, &Real_convc);
                 break;
