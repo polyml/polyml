@@ -668,10 +668,12 @@ Handle Real_dispatchc(TaskData *mdTaskData, Handle args, Handle code)
        number which can be represented is DBL_MIN*2**(-DBL_MANT_DIG) */
     case 14: /* Minimum normalised number. */
         return real_result(mdTaskData, DBL_MIN);
+#if (0)
     case 15: /* Is finite */ /* No longer used - implemented in ML. */
         return mdTaskData->saveVec.push(finite(real_arg(args)) ? TAGGED(1) : TAGGED(0));
     case 16: /* Is Nan */ /* No longer used - implemented in ML. */
         return mdTaskData->saveVec.push(isnan(real_arg(args)) ? TAGGED(1) : TAGGED(0));
+#endif
     case 17: /* Get sign bit.  There may be better ways to find this. */
         return mdTaskData->saveVec.push(copysign(1.0, real_arg(args)) < 0.0 ? TAGGED(1) : TAGGED(0));
     case 18: /* Copy sign. */
