@@ -153,7 +153,7 @@ Statistics::Statistics(): accessLock("Statistics")
     mapFileName = 0;
     exportStats = false; // Don't export by default
 #endif
-    size_t memSize = 0;
+    memSize = 0;
     statMemory = 0;
     newPtr = 0;
 }
@@ -187,8 +187,8 @@ void Statistics::Init()
         return;
     }
     memSize = STATS_SPACE;
-
-#elif HAVE_MMAP
+#else
+#if HAVE_MMAP
     if (exportStats)
     {
         // Create the shared memory in the user's .polyml directory
@@ -216,11 +216,11 @@ void Statistics::Init()
         }
     }
     else
-#else
+#endif
     {
         // If we just want the statistics locally.
         statMemory = (unsigned char*)malloc(STATS_SPACE);
-        if (statsMemory == 0) return;
+        if (statMemory == 0) return;
         memset(statMemory, 0, STATS_SPACE);
     }
 #endif
@@ -409,10 +409,10 @@ Statistics::~Statistics()
 #if HAVE_MMAP
     if (mapFileName != 0)
     {
-    if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
-    if (mapFd != -1) close(mapFd);
-    if (mapFileName != 0) unlink(mapFileName);
-    free(mapFileName);
+        if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
+        if (mapFd != -1) close(mapFd);
+        if (mapFileName != 0) unlink(mapFileName);
+        free(mapFileName);
     }
     else
 #endif

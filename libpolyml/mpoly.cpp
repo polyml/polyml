@@ -237,21 +237,24 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                 size_t argl = _tcslen(argTable[j].argName);
                 if (_tcsncmp(argv[i], argTable[j].argName, argl) == 0)
                 {
-                    const TCHAR *p;
-                    TCHAR *endp;
-                    if (_tcslen(argv[i]) == argl)
-                    { // If it has used all the argument pick the next
-                        i++;
-                        p = argv[i];
-                    }
-                    else
+                    const TCHAR *p = 0;
+                    TCHAR *endp = 0;
+                    if (argTable[j].argKey != OPT_REMOTESTATS)
                     {
-                        p = argv[i]+argl;
-                        if (*p == '=') p++; // Skip an equals sign
+                        if (_tcslen(argv[i]) == argl)
+                        { // If it has used all the argument pick the next
+                            i++;
+                            p = argv[i];
+                        }
+                        else
+                        {
+                            p = argv[i]+argl;
+                             if (*p == '=') p++; // Skip an equals sign
+                        }
+                        if (i >= argc)
+                            Usage("Incomplete %s option\n", argTable[j].argName);
                     }
-                    if (i >= argc)
-                        Usage("Incomplete %s option\n", argTable[j].argName);
-                    else switch (argTable[j].argKey)
+                    switch (argTable[j].argKey)
                     {
                     case OPT_HEAPMIN:
                         minsize = parseSize(p, argTable[j].argName);
