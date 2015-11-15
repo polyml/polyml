@@ -78,6 +78,7 @@
 #include "memmgr.h"
 #include "pexport.h"
 #include "polystring.h"
+#include "statistics.h"
 
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
 #include "Console.h"
@@ -109,7 +110,8 @@ enum {
     OPT_DEBUGOPTS,
     OPT_DEBUGFILE,
     OPT_DDESERVICE,
-    OPT_CODEPAGE
+    OPT_CODEPAGE,
+    OPT_REMOTESTATS
 };
 
 static struct __argtab {
@@ -125,13 +127,14 @@ static struct __argtab {
     { _T("--stackspace"),   "Space to reserve for thread stacks and C++ heap(MB)",  OPT_RESERVE },
     { _T("--gcthreads"),    "Number of threads to use for garbage collection",      OPT_GCTHREADS },
     { _T("--debug"),        "Debug options: checkmem, gc, x",                       OPT_DEBUGOPTS },
-    { _T("--logfile"),      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE }
+    { _T("--logfile"),      "Logging file (default is to log to stdout)",           OPT_DEBUGFILE },
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-    ,
 #ifdef UNICODE
     { _T("--codepage"),     "Code-page to use for file-names etc in Windows",       OPT_CODEPAGE },
 #endif
     { _T("-pServiceName"),  "DDE service name for remote interrupt in Windows",     OPT_DDESERVICE }
+#else
+    { _T("--exportstats"),  "Enable another process to read the statistics",        OPT_REMOTESTATS }
 #endif
 };
 
@@ -318,6 +321,10 @@ int polymain(int argc, TCHAR **argv, exportDescription *exports)
                         break;
 #endif
 #endif
+                    case OPT_REMOTESTATS:
+                        // If set we export the statistics on Unix.
+                        globalStats.exportStats = true;
+                        break;
                     }
                     argUsed = true;
                     break;
