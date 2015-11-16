@@ -148,7 +148,7 @@ struct
              hIconSm: HICON option}
 
         local
-            val cWNDPROC = winFun4 (cHWND, cUint, cPointer, cPointer) cPointer
+            val cWNDPROC = winFun4 (cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
             val cWNDCLASSEX = cStruct12(cUint,cUintw,permanent cWNDPROC,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
                                       cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
             val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
@@ -199,7 +199,7 @@ struct
                                       cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
             val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
             val CallWindowProc =
-                winCall5 (user "CallWindowProcA") (cPointer, cHWND, cUint, cPointer, cPointer) cPointer
+                winCall5 (user "CallWindowProcA") (cPointer, cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
         in
             fun GetClassInfoEx(hInst, class): 'a WNDCLASSEX =
             let
@@ -217,10 +217,11 @@ struct
                     |   m => SOME m
                 fun wndProc(hwnd, msg, state) =
                 let
-                    val (msgId: int, wParam, lParam) = Message.compileMessage msg
+                    val (msgId: int, wParam, lParam, freeMsg) = Message.compileMessage msg
                     val res = CallWindowProc(wproc, hwnd, msgId, wParam, lParam)
                 in
                     (Message.messageReturnFromParams(msg, wParam, lParam, res), state)
+                        before freeMsg()
                 end
             in
                 {style = Style.fromWord(LargeWord.fromInt style), wndProc = wndProc, hInstance = hInstance,

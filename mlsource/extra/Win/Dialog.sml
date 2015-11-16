@@ -133,7 +133,7 @@ struct
         (* Dialogue procedures never call DefWindowProc. *)
         fun dlgProcRes (lres, state) = (lres, state)
         
-        val DLGPROC = winFun4 (cHWND, cUint, cPointer, cPointer) cPointer
+        val DLGPROC = winFun4 (cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
     in
         type HWND = HWND and HINSTANCE = HINSTANCE
 

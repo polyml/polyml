@@ -425,35 +425,38 @@ in
 
     local
         val defWindowProc =
-                winCall4 (user "DefWindowProcA") (cHWND, cUint, cPointer, cPointer) cPointer
+                winCall4 (user "DefWindowProcA") (cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
         and defFrameProc =
-            winCall5 (user "DefFrameProcA") (cHWND, cHWND, cUint, cPointer, cPointer) cPointer
+            winCall5 (user "DefFrameProcA") (cHWND, cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
         and defMDIChildProc =
-            winCall4 (user "DefMDIChildProcA") (cHWND, cUint, cPointer, cPointer) cPointer
+            winCall4 (user "DefMDIChildProcA") (cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
     in 
         fun DefWindowProc (hWnd: HWND, msg: Message.Message): Message.LRESULT  =
         let
-            val (wMsg, wParam, lParam) = Message.compileMessage msg
+            val (wMsg, wParam, lParam, freeMsg) = Message.compileMessage msg
             val res = defWindowProc(hWnd, wMsg, wParam, lParam)
         in
             Message.messageReturnFromParams(msg, wParam, lParam, res)
+                before freeMsg()
         end
 
         fun DefFrameProc (hWnd: HWND, hWndMDIClient: HWND, msg: Message.Message): Message.LRESULT  =
         let
-            val (wMsg, wParam, lParam) = Message.compileMessage msg
+            val (wMsg, wParam, lParam, freeMsg) = Message.compileMessage msg
             val res = defFrameProc(hWnd, hWndMDIClient, wMsg, wParam, lParam)
         in
             (* Write back any changes the function has made. *)
             Message.messageReturnFromParams(msg, wParam, lParam, res)
+                before freeMsg()
         end
 
         fun DefMDIChildProc (hWnd: HWND, msg: Message.Message): Message.LRESULT =
         let
-            val (wMsg, wParam, lParam) = Message.compileMessage msg
+            val (wMsg, wParam, lParam, freeMsg) = Message.compileMessage msg
             val res = defMDIChildProc(hWnd, wMsg, wParam, lParam)
         in
             Message.messageReturnFromParams(msg, wParam, lParam, res)
+                before freeMsg()
         end
     end
 

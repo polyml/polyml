@@ -96,6 +96,7 @@ sig
     and cDWORD: int Foreign.conversion
     and cWORD: int Foreign.conversion
     and cDWORD_PTR: int Foreign.conversion
+    and cUINT_PTRw: SysWord.word Foreign.conversion
 
     val cUint8w: Word8.word Foreign.conversion
     and cUint16w: Word.word Foreign.conversion
@@ -348,6 +349,8 @@ struct
     val cLPARAM = cLONG_PTR
     val cSIZE_T = cULONG_PTR (* Probably. *)
     val cDWORD_PTR = cULONG_PTR (* Defined to be the same so I'm not sure why it's there .*)
+    
+    val cUINT_PTRw = absConversion{abs=Memory.voidStar2Sysword, rep=Memory.sysWord2VoidStar} cPointer
 
     (* These are called XXX32.DLL on both 32-bit and 64-bit. *)
     fun kernel name = getSymbol(loadLibrary "kernel32.dll") name

@@ -76,14 +76,14 @@ struct
             SIZE_RESTORED | SIZE_MINIMIZED | SIZE_MAXIMIZED | SIZE_MAXSHOW | SIZE_MAXHIDE
         local
             val tab = [
-                (SIZE_RESTORED,       0),
-                (SIZE_MINIMIZED,      1),
-                (SIZE_MAXIMIZED,      2),
-                (SIZE_MAXSHOW,        3),
-                (SIZE_MAXHIDE,        4)
+                (SIZE_RESTORED,       0w0: SysWord.word),
+                (SIZE_MINIMIZED,      0w1),
+                (SIZE_MAXIMIZED,      0w2),
+                (SIZE_MAXSHOW,        0w3),
+                (SIZE_MAXHIDE,        0w4)
                 ]
         in
-            val WMSIZEOPTIONS = tableConversion(tab, NONE)
+            val (fromWMSizeOpt, toWMSizeOpt) = tableLookup(tab, NONE)
         end
 
         (* WM_ACTIVATE options *)
@@ -91,9 +91,9 @@ struct
         local
             val 
             tab = [
-                (WA_INACTIVE,       0),
-                (WA_ACTIVE,         1),
-                (WA_CLICKACTIVE,    2)
+                (WA_INACTIVE,       0w0: word),
+                (WA_ACTIVE,         0w1),
+                (WA_CLICKACTIVE,    0w2)
                 ]
         in
             val (fromWMactive, toWMactive) = tableLookup(tab, NONE)
@@ -361,7 +361,7 @@ struct
                       (* Passes data to another application  *)
 
                     | WM_CREATE of { instance: HINSTANCE,
-                                     creation: int,
+                                     creation: Foreign.Memory.voidStar,
                                      menu : HMENU,
                                      parent : HWND,
                                      cy : int,
@@ -783,7 +783,7 @@ struct
                     | WM_SETHOTKEY of { virtualKey : int  } 
                       (* Associates a hot key with a Window *) 
                     
-                    | WM_SETREDRAW of { redrawflag : int  }
+                    | WM_SETREDRAW of { redrawflag : bool  }
                       (* Allows or prevents redrawing in a Window *) 
                     
                     | WM_SETTEXT of { text : string  }  
@@ -827,22 +827,17 @@ struct
                     | WM_UNDO   
                       (* Undoes the last operation in an edit control *)
                     
-                    | WM_USER of { uMsg: int, wParam: int, lParam: int }
-                    | WM_APP of { uMsg: int, wParam: int, lParam: int }
-                    | WM_REGISTERED of { uMsg: int, wParam: int, lParam: int }
+                    | WM_USER of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
+                    | WM_APP of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
+                    | WM_REGISTERED of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
                     
                     (* Indicates a range of message values *)  
                     (*                  
-                      0 through WM_USER - 1 Messages reserved for use by the system. 
-                      WM_USER through 0x7FFF Integer messages for use by private window classes. 
-                      WM_APP through 0xBFFF Messages available for use by applications. 
-                      0xC000 through 0xFFFF String messages for use by applications. 
-                      Greater than 0xFFFF Reserved by the system for future use. 
-                      WM_USER through 0x7FFF  Integer messages for use by private 
-                                              Window classes 
-                      0x8000 through 0xBFFF   Messages reserved for future use by Windows 
-                      0xC000 through 0xFFFF   String messages for use by applications 
-                      Greater than 0xFFFF     Reserved by Windows for future use      *)
+                      0 to WM_USER - 1          Messages reserved for use by the system. 
+                      WM_USER to 0x7FFF         Integer messages for use by private window classes. 
+                      WM_APP to 0xBFFF          Messages available for use by applications. 
+                      0xC000 to 0xFFFF          String messages for use by applications. 
+                      Greater than 0xFFFF       Reserved by the system for future use. *)
                     
 
                     | WM_VKEYTOITEM of { virtualKey : int,
