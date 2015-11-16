@@ -201,9 +201,9 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             {
                 char buf[256];
 #if (defined(UNICODE))
-                _snprintf(buf, sizeof(buf), "Loading <%S> failed. Error %lu", libName, GetLastError());
+                _snprintf(buf, sizeof(buf), "Loading <%S> failed. Error %lu", (LPCTSTR)libName, GetLastError());
 #else
-                _snprintf(buf, sizeof(buf), "Loading <%s> failed. Error %lu", libName, GetLastError());
+                _snprintf(buf, sizeof(buf), "Loading <%s> failed. Error %lu", (const char*)libName, GetLastError());
 #endif
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
@@ -264,7 +264,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             if (sym == NULL)
             {
                 char buf[256];
-                _snprintf(buf, sizeof(buf), "Loading symbol <%s> failed. Error %lu", symName, GetLastError());
+                _snprintf(buf, sizeof(buf), "Loading symbol <%s> failed. Error %lu", (LPCSTR)symName, GetLastError());
                 buf[sizeof(buf)-1] = 0; // Terminate just in case
                 raise_exception_string(taskData, EXC_foreign, buf);
             }

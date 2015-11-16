@@ -636,6 +636,7 @@ enable_option_checking=no
 ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
+moduledir
 GIT_VERSION
 gitinstalled
 NO_UNDEFINED_FALSE
@@ -822,6 +823,7 @@ with_gmp
 with_system_libffi
 with_threads
 with_portable
+with_moduledir
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1501,8 +1503,9 @@ Optional Packages:
                           [default=no]
   --with-threads          use the pthread library for multi-threading
                           [default=check]
-  --with-portable         Build the portable interpreter version of Poly/ML
+  --with-portable         build the portable interpreter version of Poly/ML
                           instead of native [default=no]
+  --with-moduledir=DIR    directory for Poly/ML modules
 
 Some influential environment variables:
   CC          C compiler command
@@ -21916,6 +21919,18 @@ if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
     GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
 
 fi
+
+# Modules directory
+
+# Check whether --with-moduledir was given.
+if test "${with_moduledir+set}" = set; then :
+  withval=$with_moduledir; moduledir=$withval
+else
+  moduledir="\${libdir}/polyml/modules"
+fi
+
+moduledir=$moduledir
+
 
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.

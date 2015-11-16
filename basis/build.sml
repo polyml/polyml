@@ -115,8 +115,8 @@ local
 in
     val () =
     if getOS = 0
-    then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml"; Bootstrap.use "basis/loadModuleUnix.sml")
-    else if getOS = 1 then (Bootstrap.use "basis/Windows.sml"; Bootstrap.use "basis/loadModuleWin.sml")
+    then ( Bootstrap.use "basis/Posix.sml"; Bootstrap.use "basis/Unix.sml")
+    else if getOS = 1 then (Bootstrap.use "basis/Windows.sml")
     else ()
 end;
 

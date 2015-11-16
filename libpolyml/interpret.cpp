@@ -1596,10 +1596,6 @@ Handle IntTaskData::EnterPolyCode()
                 CallIO1(this, &Real_negc);
                 break;
 
-            case POLY_SYS_Repr_real:
-                CallIO1(this, &Real_reprc);
-                break;
-
             case POLY_SYS_conv_real:
                 CallIO1(this, &Real_convc);
                 break;
@@ -1958,7 +1954,6 @@ void Interpreter::InitInterfaceVector(void)
     add_word_to_io_area(POLY_SYS_Div_real, TAGGED(POLY_SYS_Div_real));
     add_word_to_io_area(POLY_SYS_Abs_real, TAGGED(POLY_SYS_Abs_real));
     add_word_to_io_area(POLY_SYS_Neg_real, TAGGED(POLY_SYS_Neg_real));
-    add_word_to_io_area(POLY_SYS_Repr_real, TAGGED(POLY_SYS_Repr_real));
     add_word_to_io_area(POLY_SYS_conv_real, TAGGED(POLY_SYS_conv_real));
     add_word_to_io_area(POLY_SYS_real_to_int, TAGGED(POLY_SYS_real_to_int));
     add_word_to_io_area(POLY_SYS_int_to_real, TAGGED(POLY_SYS_int_to_real));

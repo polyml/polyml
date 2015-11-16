@@ -648,7 +648,6 @@ POLY_SYS_Mul_real            EQU 127
 POLY_SYS_Div_real            EQU 128
 POLY_SYS_Abs_real            EQU 129
 POLY_SYS_Neg_real            EQU 130
-POLY_SYS_Repr_real           EQU 132
 POLY_SYS_conv_real           EQU 133
 POLY_SYS_real_to_int         EQU 134
 POLY_SYS_int_to_real         EQU 135
@@ -1261,9 +1260,8 @@ sra1:
     ret
 CALLMACRO   RegMask shift_right_arith_word,(M_Reax OR M_Recx)
 
-CALLMACRO   INLINE_ROUTINE  locksega
- ;# Clears the "mutable" bit on a segment
-
+;# Clears the "mutable" bit on a segment
+locksega:
 IFDEF WINDOWS
     and     byte ptr    [Reax-1],CONST(0ffh-B_mutable)
 ELSE
@@ -3250,7 +3248,6 @@ CALLMACRO CREATE_IO_CALL  POLY_SYS_exception_trace_fn
 CALLMACRO CREATE_IO_CALL  POLY_SYS_profiler
 CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_str
 CALLMACRO CREATE_IO_CALL  POLY_SYS_Real_Dispatch
-CALLMACRO CREATE_IO_CALL  POLY_SYS_Repr_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_conv_real
 CALLMACRO CREATE_IO_CALL  POLY_SYS_real_to_int
 CALLMACRO CREATE_IO_CALL  POLY_SYS_sqrt_real
@@ -3439,7 +3436,7 @@ ENDIF
     DDQ  real_abs                       ;# 129
     DDQ  real_neg                       ;# 130
     DDQ  0                              ;# 131 is unused
-    DDQ  CallPOLY_SYS_Repr_real         ;# 132
+    DDQ  0                              ;# 132 is no longer used
     DDQ  CallPOLY_SYS_conv_real         ;# 133
     DDQ  CallPOLY_SYS_real_to_int       ;# 134
     DDQ  real_from_int                  ;# 135

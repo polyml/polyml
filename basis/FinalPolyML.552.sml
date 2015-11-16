@@ -1652,10 +1652,47 @@ in
         (* Saving and loading state. *)
         structure SaveState =
         struct
-            (* We've already defined a version of SaveState with loadModuleBasic that
-               has path searching.  The Windows version of that includes Windows-specific
-               code so there are separate versions for Windows and Unix. *)
-            open SaveState
+            local
+                val getOS: int =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_os_specific (0, 0)
+                fun loadMod (args: string): Universal.universal list =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (32, args)
+                and systemDir(): string =
+                    RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (34, ())
+            in
+                fun loadModuleBasic (fileName: string): Universal.universal list =
+                (* If there is a path separator use the name and don't search further. *)
+                if OS.Path.dir fileName <> ""
+                then loadMod fileName
+                else
+                let
+                    (* Path elements are separated by semicolons in Windows but colons in Unix. *)
+                    val sepInPathList = if getOS = 1 then #";" else #":"
+                    val pathList =
+                        case OS.Process.getEnv "POLYMODPATH" of
+                            NONE => []
+                        |   SOME s => String.fields (fn ch => ch = sepInPathList) s
+
+                    fun findFile [] = NONE
+                    |   findFile (hd::tl) =
+                        (* Try actually loading the file.  That way we really check we have a module. *)
+                        SOME(loadMod (OS.Path.joinDirFile{dir=hd, file=fileName}))
+                            handle Fail _ => findFile tl | OS.SysErr _ => findFile tl      
+                in
+                    case findFile pathList of
+                        SOME l => l (* Found *)
+                    |   NONE => 
+                        let
+                            val sysDir = systemDir()
+                            val inSysDir =
+                                if sysDir = "" then NONE else findFile[sysDir]
+                        in
+                            case inSysDir of
+                                SOME l => l
+                            |   NONE => raise Fail("Unable to find module ``" ^ fileName ^ "''")
+                        end
+                end
+            end
             fun saveChild(f: string, depth: int): unit =
                 RunCall.run_call2 RuntimeCalls.POLY_SYS_poly_specific (20, (f, depth))
             fun saveState f = saveChild (f, 0);

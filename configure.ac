@@ -404,7 +404,7 @@ AC_CHECK_MEMBERS([struct sockaddr_un.sun_len],,,
 # we have a code-generator.
 AC_ARG_WITH([portable],
             [AS_HELP_STRING([--with-portable],
-              [Build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])],
+              [build the portable interpreter version of Poly/ML instead of native @<:@default=no@:>@])],
             [],
             [with_portable=check])
 
@@ -491,6 +491,13 @@ if test X"$gitinstalled" = "Xyes" -a -d ".git"; then
     GIT_VERSION='-DGIT_VERSION=$(shell git describe --tags --always)'
     AC_SUBST(GIT_VERSION)
 fi
+
+# Modules directory
+AC_ARG_WITH([moduledir],
+  [AS_HELP_STRING([--with-moduledir=DIR], [directory for Poly/ML modules])],
+  [moduledir=$withval],
+  [moduledir="\${libdir}/polyml/modules"])
+AC_SUBST([moduledir], [$moduledir])
 
 # These are needed for building in a separate build directory, as they are
 # referenced from exportPoly.sml.

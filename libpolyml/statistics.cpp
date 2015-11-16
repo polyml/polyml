@@ -143,8 +143,24 @@ Statistics::Statistics(): accessLock("Statistics")
 
     memset(&gcUserTime, 0, sizeof(gcUserTime));
     memset(&gcSystemTime, 0, sizeof(gcSystemTime));
+
 #ifdef HAVE_WINDOWS_H
-    hFileMap = NULL;
+    // File mapping handle
+    hFileMap  = NULL;
+    exportStats = true; // Actually unused
+#else
+    mapFd = -1;
+    mapFileName = 0;
+    exportStats = false; // Don't export by default
+#endif
+    memSize = 0;
+    statMemory = 0;
+    newPtr = 0;
+}
+
+void Statistics::Init()
+{
+#ifdef HAVE_WINDOWS_H
     // Get the process ID to use in the shared memory name
     DWORD pid = ::GetCurrentProcessId();
     TCHAR shmName[MAX_PATH];
@@ -171,35 +187,42 @@ Statistics::Statistics(): accessLock("Statistics")
         return;
     }
     memSize = STATS_SPACE;
-
-#elif HAVE_MMAP
-    // Create the shared memory in the user's .polyml directory
-    mapFd = -1;
-    mapFileName = 0;
-    int pageSize = getpagesize();
-    memSize = (STATS_SPACE + pageSize-1) & ~(pageSize-1);
-    char *homeDir = getenv("HOME");
-    if (homeDir == NULL) return;
-    mapFileName = (char*)malloc(strlen(homeDir) + 100);
-    strcpy(mapFileName, homeDir);
-    strcat(mapFileName, "/.polyml");
-    mkdir(mapFileName, 0777); // Make the directory to ensure it exists
-    sprintf(mapFileName + strlen(mapFileName), "/" POLY_STATS_NAME "%d", getpid());
-    // Open the file.  Truncates it if it already exists.  That should only happen
-    // if a previous run with the same process id crashed.
-    mapFd = open(mapFileName, O_RDWR|O_CREAT, 0444);
-    if (mapFd == -1) return;
-    // Write enough of the file to fill the space.
-    char ch = 0;
-    for (size_t i = 0; i < memSize; i++) write(mapFd, &ch, 1);
-    statMemory = (unsigned char*)mmap(0, memSize, PROT_READ|PROT_WRITE, MAP_SHARED, mapFd, 0);
-    if (statMemory == MAP_FAILED)
-    {
-        statMemory = 0;
-        return;
-    }
 #else
-    return;
+#if HAVE_MMAP
+    if (exportStats)
+    {
+        // Create the shared memory in the user's .polyml directory
+        int pageSize = getpagesize();
+        memSize = (STATS_SPACE + pageSize-1) & ~(pageSize-1);
+        char *homeDir = getenv("HOME");
+        if (homeDir == NULL) return;
+        mapFileName = (char*)malloc(strlen(homeDir) + 100);
+        strcpy(mapFileName, homeDir);
+        strcat(mapFileName, "/.polyml");
+        mkdir(mapFileName, 0777); // Make the directory to ensure it exists
+        sprintf(mapFileName + strlen(mapFileName), "/" POLY_STATS_NAME "%d", getpid());
+        // Open the file.  Truncates it if it already exists.  That should only happen
+        // if a previous run with the same process id crashed.
+        mapFd = open(mapFileName, O_RDWR|O_CREAT, 0444);
+        if (mapFd == -1) return;
+        // Write enough of the file to fill the space.
+        char ch = 0;
+        for (size_t i = 0; i < memSize; i++) write(mapFd, &ch, 1);
+        statMemory = (unsigned char*)mmap(0, memSize, PROT_READ|PROT_WRITE, MAP_SHARED, mapFd, 0);
+        if (statMemory == MAP_FAILED)
+        {
+            statMemory = 0;
+            return;
+        }
+    }
+    else
+#endif
+    {
+        // If we just want the statistics locally.
+        statMemory = (unsigned char*)malloc(STATS_SPACE);
+        if (statMemory == 0) return;
+        memset(statMemory, 0, STATS_SPACE);
+    }
 #endif
     
     // Set up the ASN1 structure in the statistics area.
@@ -236,8 +259,7 @@ Statistics::Statistics(): accessLock("Statistics")
     addUser(4, POLY_STATS_ID_USER4, "UserCounter4");
     addUser(5, POLY_STATS_ID_USER5, "UserCounter5");
     addUser(6, POLY_STATS_ID_USER6, "UserCounter6");
-    addUser(7, POLY_STATS_ID_USER7, "UserCounter7");
-}
+    addUser(7, POLY_STATS_ID_USER7, "UserCounter7");}
 
 void Statistics::addCounter(int cEnum, unsigned statId, const char *name)
 {
@@ -383,11 +405,20 @@ Statistics::~Statistics()
 #ifdef HAVE_WINDOWS_H
     if (statMemory != NULL) ::UnmapViewOfFile(statMemory);
     if (hFileMap != NULL) ::CloseHandle(hFileMap);
-#elif HAVE_MMAP
-    if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
-    if (mapFd != -1) close(mapFd);
-    if (mapFileName != 0) unlink(mapFileName);
-    free(mapFileName);
+#else
+#if HAVE_MMAP
+    if (mapFileName != 0)
+    {
+        if (statMemory != 0 && statMemory != MAP_FAILED) munmap(statMemory, memSize);
+        if (mapFd != -1) close(mapFd);
+        if (mapFileName != 0) unlink(mapFileName);
+        free(mapFileName);
+    }
+    else
+#endif
+    {
+        free(statMemory);
+    }
 #endif
 }
 
