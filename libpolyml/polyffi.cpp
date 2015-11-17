@@ -659,6 +659,9 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
         }
     }
     else processes->ThreadUseMLMemory(taskData);
+    // We may get multiple calls to call-backs and we mustn't risk
+    // overflowing the save-vec.
+    Handle mark = taskData->saveVec.mark();
 
     // In the future we might want to call C functions without some of the
     // overhead that comes with an RTS call which may allocate in ML
@@ -684,6 +687,8 @@ static void callbackEntryPt(ffi_cif *cif, void *ret, void* args[], void *data)
     // They could easily be cached in X86TaskData::SetCallbackFunction at least
     // up to the next GC.
     taskData->EnterCallbackFunction(mlEntryHandle, pairHandle);
+
+    taskData->saveVec.reset(mark);
 
     // Release ML memory now we're going back to C.
     processes->ThreadReleaseMLMemory(taskData);
