@@ -60,5 +60,9 @@ struct
             (*val (fromSIF, toSIF) = tableSetLookup(tab, NONE)*)
             val cSCROLLINFOOPTION = tableSetConversion(tab, NONE)
         end
+
+        (* Needed in Scrollbar and also Messages *)
+        val cSCROLLINFOSTRUCT =
+            cStruct7(cUint, cSCROLLINFOOPTION, cInt, cInt, cUint, cInt, cInt)
     end
 end;

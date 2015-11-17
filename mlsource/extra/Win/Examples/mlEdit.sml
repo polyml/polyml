@@ -116,7 +116,7 @@ let
                 val hFont = CreateFont{height=height, width=0, escapement=0, orientation=0,
                        weight=FW_DONTCARE, italic=false, underline=false, strikeOut=false,
                        charSet=ANSI_CHARSET, outputPrecision=OUT_DEFAULT_PRECIS,
-                       clipPrecision=CLIP_DEFAULT_PRECIS, quality=DEFAULT_QUALITY,
+                       clipPrecision=[CLIP_DEFAULT_PRECIS], quality=DEFAULT_QUALITY,
                        pitch=FIXED_PITCH, family=FF_MODERN, faceName="Courier"}
             in
                 SendMessage(edit, WM_SETFONT{font=hFont, redrawflag=false});
@@ -148,7 +148,7 @@ let
                    passes it to the default window procedure and does it for us. *)
                 (if checkForSave(hw, edit, fileName) then DefWindowProc(hw, msg) else LRESINT 0, state)
     
-        |    WM_COMMAND{notifyCode = 0, wId, control} =>
+        |    WM_COMMAND{notifyCode = 0, wId, ...} =>
                 (* Menu selections arrive here. *)
 
                 if wId = menuQuit
@@ -198,10 +198,10 @@ let
                             SendMessage(edit, EM_SETMODIFY{modified=false});
                             (LRESINT 0, SOME{edit=edit, devMode=devMode, devNames=devNames,
                                           fileName=file})
-                        end) handle exn =>
+                        end) handle _ =>
                             (MessageBox(SOME hw,
-                                concat["Unable to open - ", file, "\n"(*, exnMessage exn*)],
-                                "Open failure", MessageBoxStyle.MB_OK);
+                                SOME(concat["Unable to open - ", file, "\n"(*, exnMessage exn*)]),
+                                SOME "Open failure", MessageBoxStyle.MB_OK);
                             (LRESINT 0, state))
                         else (LRESINT 0, state)
                 end
@@ -293,7 +293,7 @@ let
                             val textLength = size printWhat
 
                             (* Tell the spooler to start the document. *)
-                            val jobID = StartDoc(hdc, {docName=fileName, output=NONE, dType=NONE})
+                            val _ = StartDoc(hdc, {docName=fileName, output=NONE, dType=NONE})
 
                             (* Find out how big a character is. From this we can work out
                                how many characters fit on a line and how many lines on a
@@ -312,7 +312,7 @@ let
                             val hFont = CreateFont{height=charHeight, width=0, escapement=0, orientation=0,
                                    weight=FW_DONTCARE, italic=false, underline=false, strikeOut=false,
                                    charSet=ANSI_CHARSET, outputPrecision=OUT_DEFAULT_PRECIS,
-                                   clipPrecision=CLIP_DEFAULT_PRECIS, quality=DEFAULT_QUALITY,
+                                   clipPrecision=[CLIP_DEFAULT_PRECIS], quality=DEFAULT_QUALITY,
                                    pitch=FIXED_PITCH, family=FF_MODERN, faceName="Courier"}
                             val oldFont = SelectObject(hdc, hFont); (* Use this font. *)
 
@@ -487,7 +487,7 @@ let
         |    _ => 
             let
                 val res =
-                    MessageBox(SOME hw, "Save document?", "Confirm",
+                    MessageBox(SOME hw, SOME "Save document?", SOME "Confirm",
                                MessageBoxStyle.MB_YESNOCANCEL)
             in
                 if res = IDYES
@@ -512,10 +512,10 @@ let
             (* Document is now unmodified. *)
             SendMessage(edit, EM_SETMODIFY{modified=false});
             true (* Succeeded. *)
-        end handle exn =>
+        end handle _ =>
             (MessageBox(SOME hw,
-                concat["Unable to save to - ", fileName, "\n"(*, exnMessage exn*)],
-                "Open failure", MessageBoxStyle.MB_OK);
+                SOME(concat["Unable to save to - ", fileName, "\n"(*, exnMessage exn*)]),
+                SOME "Open failure", MessageBoxStyle.MB_OK);
              false)
 
     and saveAsDocument(hw, edit) =

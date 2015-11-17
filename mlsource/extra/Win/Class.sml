@@ -23,8 +23,10 @@ sig
     and HICON (* = Icon.HICON *)
     and HCURSOR (* = Cursor.HCURSOR *)
     and HGDIOBJ
+    and HitTest = Message.HitTest
 
-    datatype LRESULT = LRESINT of int | LRESHANDLE of HGDIOBJ
+    datatype LRESULT =
+        LRESINT of int | LRESHANDLE of HGDIOBJ | LRES_HIT_TEST of HitTest
 
     datatype 'a ATOM =
         Registered of
@@ -87,6 +89,7 @@ struct
         type HWND = HWND and HINSTANCE = HINSTANCE and HICON = HICON
         and HBRUSH = HBRUSH and HCURSOR = HCURSOR and HGDIOBJ = HGDIOBJ
         datatype LRESULT = datatype MessageBase.LRESULT
+        datatype HitTest = datatype MessageBase.HitTest
 
         structure Style =
         struct
