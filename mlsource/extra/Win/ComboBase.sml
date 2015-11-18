@@ -37,7 +37,7 @@ struct
                 (DDL_EXCLUSIVE, 0wx8000)
                 ]
         in
-            val CBDIRATTRS = tableSetConversion(tab, NONE)
+            val CBDIRATTRS = tableSetLookup(tab, NONE)
         end
     end
 end;

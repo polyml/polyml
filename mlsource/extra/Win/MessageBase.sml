@@ -56,7 +56,6 @@ struct
         datatype LRESULT =
             LRESINT of int
         |   LRESHANDLE of HGDIOBJ
-        |   LRES_HIT_TEST of HitTest
 
         (* Maybe we should have two different types for horizontal and vertical. *)
         datatype ScrollDirection =
@@ -172,7 +171,6 @@ struct
             val cCONTROLTYPE = tableConversion(tab, NONE) cUint
         end
 
-
         datatype WMPrintOption = 
             PRF_CHECKVISIBLE | PRF_NONCLIENT | PRF_CLIENT | PRF_ERASEBKGND |
             PRF_CHILDREN | PRF_OWNED
@@ -187,7 +185,7 @@ struct
                 (PRF_OWNED,             0wx00000020)
                 ]
         in
-            val WMPRINTOPS = tableSetConversion(tab, NONE)
+            val WMPRINTOPS = tableSetLookup(tab, NONE)
         end
 
         (* Parameters to EM_SETMARGINS. *)
@@ -217,7 +215,7 @@ struct
                 (MDITILE_SKIPDISABLED,  0wx0002)
                 ]
         in
-            val MDITILEFLAGS = tableSetConversion(tab, NONE)
+            val MDITILEFLAGS = tableSetLookup(tab, NONE)
         end
 
         (* TODO: Perhaps use a record for this.  It's always possible to use
@@ -367,13 +365,15 @@ struct
         type windowFlags = flags
 
         datatype Message     =
-            WM_ACTIVATE of {active : WMActivateOptions, minimize : bool }
-                      (* Indicates a change in activation state *)
+            WM_NULL
 
-        |   WM_ACTIVATEAPP of {active  : bool, threadid: int  } 
+        |   WM_ACTIVATE of {active: WMActivateOptions, minimize: bool }
+                  (* Indicates a change in activation state *)
+
+        |   WM_ACTIVATEAPP of {active: bool, threadid: int  } 
           (* Notifies applications when a new task activates *)
 
-        |   WM_ASKCBFORMATNAME of { length: int, formatName : string ref} 
+        |   WM_ASKCBFORMATNAME of { length: int, formatName: string ref} 
           (* Retrieves the name of the clipboard format *)
 
         |   WM_CANCELJOURNAL  
@@ -382,13 +382,13 @@ struct
         |   WM_CANCELMODE 
           (* Notifies a Window to cancel internal modes *)
 
-        |   WM_CHANGECBCHAIN of { removed : HWND, next : HWND  }  
+        |   WM_CHANGECBCHAIN of { removed: HWND, next: HWND  }  
           (* Notifies clipboard viewer of removal from chain *)
 
-        |   WM_CHAR of {charCode : char, data : KeyData }                     
+        |   WM_CHAR of {charCode: char, data: KeyData }                     
           (* Indicates the user pressed a character key *)
 
-        |   WM_CHARTOITEM of {key : int, caretpos : int, listbox  : HWND  }
+        |   WM_CHARTOITEM of {key: int, caretpos: int, listbox: HWND  }
           (* Provides list-box keystrokes to owner Window *)
 
         |   WM_CHILDACTIVATE  
@@ -406,105 +406,54 @@ struct
 
         |   WM_COMMAND of {notifyCode: int, wId: int, control: HWND }
           (* Specifies a command message *)
-   
-        |   WM_COMPACTING of { compactratio : int }
-          (* Indicates a low memory condition *)
 
         |   WM_COMPAREITEM of (* Determines position of combo- or list-box item *)
             {
-                controlid: int, ctlType : ControlType, ctlID : int, hItem : HWND,
+                controlid: int, ctlType: ControlType, ctlID: int, hItem: HWND,
                 itemID1: int, itemData1: SysWord.word, itemID2: int, itemData2: SysWord.word                                        
             }
 
         |   WM_COPY
           (* Copies a selection to the clipboard *)
 
-        |   WM_COPYDATA of { sender : HWND, data : int, pdata: Word8Vector.vector }
+        |   WM_COPYDATA of { sender: HWND, data: int, pdata: Word8Vector.vector }
           (* Passes data to another application  *)
 
-        |   WM_CREATE of { instance: HINSTANCE,
-                         creation: Foreign.Memory.voidStar,
-                         menu : HMENU,
-                         parent : HWND,
-                         cy : int,
-                         cx : int,
-                         y : int,
-                         x : int,
-                         style : windowFlags,
-                         name : string,
-                         (* The class may be a string or an atom. *)
-                         class : ClassType,
-                         extendedstyle : int                                                                          
-                         }
+        |   WM_CREATE of
+            { instance: HINSTANCE, creation: Foreign.Memory.voidStar, menu: HMENU, parent: HWND, cy: int, cx: int,
+              y: int, x: int, style: windowFlags, name: string, (* The class may be a string or an atom. *)
+              class: ClassType, extendedstyle: int }
           (* Indicates a Window is being created *)
 
-        |   WM_CTLCOLORBTN of { displaycontext : HDC, button : HWND  }
+        |   WM_CTLCOLORBTN of { displaycontext: HDC, button: HWND }
           (* Button is about to be drawn *)
 
-        |   WM_CTLCOLORDLG of { displaycontext : HDC,
-                           dialogbox      : HWND  }
+        |   WM_CTLCOLORDLG of { displaycontext: HDC, dialogbox: HWND  }
           (* Dialog box is about to be drawn *)
- 
-        |   WM_CTLCOLOREDIT of {  displaycontext : HDC, editcontrol : HWND  }
+
+        |   WM_CTLCOLOREDIT of {  displaycontext: HDC, editcontrol: HWND  }
           (* Control is about to be drawn *)
 
-        |   WM_CTLCOLORLISTBOX of { displaycontext : HDC, listbox : HWND   }
+        |   WM_CTLCOLORLISTBOX of { displaycontext: HDC, listbox: HWND   }
           (* List box is about to be drawn *)
 
-        |   WM_CTLCOLORMSGBOX of { displaycontext : HDC,
-                                 messagebox     : HWND  }
+        |   WM_CTLCOLORMSGBOX of { displaycontext: HDC, messagebox: HWND  }
           (* Message box is about to be drawn *)
 
-        |   WM_CTLCOLORSCROLLBAR of { displaycontext : HDC,
-                                 scrollbar      : HWND  }
+        |   WM_CTLCOLORSCROLLBAR of { displaycontext: HDC, scrollbar: HWND  }
           (* Indicates scroll bar is about to be drawn *)
 
-        |   WM_CTLCOLORSTATIC of { displaycontext : HDC,
-                                 staticcontrol  : HWND  }
+        |   WM_CTLCOLORSTATIC of { displaycontext: HDC, staticcontrol: HWND }
           (* Control is about to be drawn *)
           (* Note the return value is an HBRUSH *)
 
         |   WM_CUT
           (* Deletes a selection and copies it to the clipboard *)
-        (*
-        |   WM_DDE_ACK
-          (* Acknowledges a DDE message *)
 
-        |   WM_DDE_ADVISE 
-          (* Requests a DDE data-change update *)
-
-        |   WM_DDE_DATA
-          (* Sends data to a DDE client *)
-   
-        |   WM_DDE_EXECUTE
-          (* Sends a string to a DDE server *)
-
-        |   WM_DDE_INITIATE   
-          (* Initiates a DDE conversation *)
-
-        |   WM_DDE_POKE   
-          (* Send unsolicited data to a server *)
-   
-        |   WM_DDE_REQUEST    
-          (* Requests data from a DDE server *)
-
-        |   WM_DDE_TERMINATE  
-          (* Ends a DDE conversation *)
-
-        |   WM_DDE_UNADVISE   
-          (* Stops a DDE data-update request *)
-        *)
-
-        |   WM_DEADCHAR of { charCode : char, data  : KeyData   }
+        |   WM_DEADCHAR of { charCode: char, data: KeyData }
           (* Indicates the user pressed a dead key *)
 
-        |   WM_DELETEITEM of { controlid : int,
-                                 ctlType : ControlType,
-                                 ctlID : int,
-                                 itemID : int,
-                                 item : HWND,
-                                 itemData : int                                         
-                               }
+        |   WM_DELETEITEM of { senderId: int, ctlType: ControlType, ctlID: int, itemID: int, item: HWND, itemData: int }
           (* Indicates owner-draw item or control was altered *)
 
         |   WM_DESTROY    
@@ -512,36 +461,28 @@ struct
 
         |   WM_DESTROYCLIPBOARD   
           (* Notifies owner that the clipboard was emptied *)
- 
-        |   WM_DEVMODECHANGE of { devicename : string }   
+
+        |   WM_DEVMODECHANGE of { devicename: string }   
           (* Indicates the device-mode settings have changed *)
- 
+
         |   WM_DRAWCLIPBOARD  
           (* Indicates the clipboard's contents have changed *) 
 
-        |   WM_DRAWITEM of { controlid : int,
-                           ctlType : ControlType,
-                           ctlID : int,
-                           itemID : int,
-                           itemAction : int,
-                           itemState : int,
-                           hItem : HWND ,
-                           hDC : HDC,
-                           rcItem : RECT,
-                           itemData : int
-                            }   
+        |   WM_DRAWITEM of
+                { senderId: int, ctlType: ControlType, ctlID: int, itemID: int, itemAction: int,
+                  itemState: int, hItem: HWND , hDC: HDC, rcItem: RECT, itemData: int }   
           (* Indicates owner-draw control/menu needs redrawing *) 
- 
-        |   WM_DROPFILES of { hDrop : HDROP } 
+
+        |   WM_DROPFILES of { hDrop: HDROP } 
           (* Indicates that a file has been dropped *)
 
-        |   WM_ENABLE of { enabled : bool }
+        |   WM_ENABLE of { enabled: bool }
           (* Indicates a Window's enable state is changing *)
 
-        |   WM_ENDSESSION of { endsession : bool }
+        |   WM_ENDSESSION of { endsession: bool }
           (* Indicates whether the Windows session is ending *)
 
-        |   WM_ENTERIDLE of { flag : int, window : HWND }
+        |   WM_ENTERIDLE of { flag: int, window: HWND }
           (* Indicates a modal dialog box or menu is idle *)
 
         |   WM_ENTERMENULOOP of { istrack: bool }
@@ -550,14 +491,15 @@ struct
         |   WM_EXITMENULOOP of { istrack: bool }
           (* Indicates exit from menu modal loop *)
 
-        |   WM_ERASEBKGND of { devicecontext : HDC }
+        |   WM_ERASEBKGND of { devicecontext: HDC }
           (* Indicates a Window's background need erasing *)
 
         |   WM_FONTCHANGE
           (* Indicates a change in the font-resource pool *)
- 
+
         |   WM_GETDLGCODE
-          (* Allows dialog procedure to process control input *)
+          (* Allows dialog procedure to process control input
+             TODO: This has parameters! *)
 
         |   WM_GETFONT    
           (* Retrieves the font that a control is using *)
@@ -567,84 +509,72 @@ struct
 
         |   WM_GETMINMAXINFO of
              { maxSize: POINT ref, maxPosition: POINT ref,
-               minTrackSize: POINT ref, maxTrackSize : POINT ref }
+               minTrackSize: POINT ref, maxTrackSize: POINT ref }
           (* Gets minimum and maximum sizing information *)
 
-        |   WM_GETTEXT of { length: int, text : string ref  } 
+        |   WM_GETTEXT of { length: int, text: string ref  } 
           (* Gets the text that corresponds to a Window *)
 
         |   WM_GETTEXTLENGTH  
           (* Gets length of text associated with a Window *)
 
-        |   WM_HOTKEY of { id : int }
+        |   WM_HOTKEY of { id: int }
           (* Hot key has been detected *)
 
-        |   WM_HSCROLL of { value    : ScrollDirection,
-                           position : int,
-                           scrollbar   : HWND  }    
+        |   WM_HSCROLL of { value: ScrollDirection, position: int, scrollbar: HWND  }    
           (* Indicates a click in a horizontal scroll bar *)
 
-        |   WM_HSCROLLCLIPBOARD of { viewer   : HWND,
-                                   code     : int,
-                                   position : int  }    
+        |   WM_HSCROLLCLIPBOARD of { viewer: HWND, code: int, position: int  }    
           (* Prompts owner to scroll clipboard contents *)
 
-        |   WM_ICONERASEBKGND of { devicecontext : HDC }
+        |   WM_ICONERASEBKGND of { devicecontext: HDC }
           (* Notifies minimized Window to fill icon background *)
 
-        |   WM_INITDIALOG of { dialog   : HWND, initdata : int  }
+        |   WM_INITDIALOG of { dialog: HWND, initdata: int  }
           (* Initializes a dialog box *)
 
-        |   WM_INITMENU of { menu : HMENU }   
+        |   WM_INITMENU of { menu: HMENU }   
           (* Indicates a menu is about to become active *)
 
-        |   WM_INITMENUPOPUP of { menupopup  : HMENU,
-                                itemposition : int,
-                                isSystemMenu : bool  }
+        |   WM_INITMENUPOPUP of { menupopup: HMENU, itemposition: int, isSystemMenu: bool  }
           (* Indicates a pop-up menu is being created *)
 
-        |   WM_KEYDOWN of { virtualKey : int, data : KeyData  }   
+        |   WM_KEYDOWN of { virtualKey: int, data: KeyData  }   
           (* Indicates a nonsystem key was pressed *)
 
-        |   WM_KEYUP of { virtualKey : int, data : KeyData  } 
+        |   WM_KEYUP of { virtualKey: int, data: KeyData  } 
           (* Indicates a nonsystem key was released *)
 
-        |   WM_KILLFOCUS of { receivefocus : HWND }
+        |   WM_KILLFOCUS of { receivefocus: HWND }
           (* Indicates the Window is losing keyboard focus *)
 
-        |   WM_LBUTTONDBLCLK of { keyflags : MouseKeyFlags list, x : int, y : int  }
+        |   WM_LBUTTONDBLCLK of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates double-click of left button *) 
 
-        |   WM_LBUTTONDOWN of { keyflags : MouseKeyFlags list, x : int, y : int  }
+        |   WM_LBUTTONDOWN of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates when left mouse button is pressed *)
 
-        |   WM_LBUTTONUP of { keyflags : MouseKeyFlags list, x : int, y : int  }
+        |   WM_LBUTTONUP of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates when left mouse button is released *)
 
-        |   WM_MBUTTONDBLCLK of { keyflags : MouseKeyFlags list, x : int, y : int  }
+        |   WM_MBUTTONDBLCLK of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates double-click of middle mouse button *)
 
-        |   WM_MBUTTONDOWN of { keyflags : MouseKeyFlags list, x : int, y : int  }
+        |   WM_MBUTTONDOWN of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates when middle mouse button is pressed *)
 
-        |   WM_MBUTTONUP of { keyflags : MouseKeyFlags list, x : int, y : int  }
+        |   WM_MBUTTONUP of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates when middle mouse button is released *)
-      
-        |   WM_MDICASCADE of { skipDisabled : bool  } 
+  
+        |   WM_MDICASCADE of { skipDisabled: bool  } 
           (* Arranges MDI child Windows in cascade format *)
 
-        |   WM_MDICREATE of { class : ClassType,
-                             title : string,
-                             instance: HINSTANCE,
-                             x : int,
-                             y : int,
-                             cx : int,
-                             cy : int,
-                             style : int,
-                             cdata : int }  
+        |   WM_MDICREATE of
+            { class: ClassType, title: string, instance: HINSTANCE, x: int, y: int,
+              cx: int, cy: int, style: int, cdata: int }  
           (* Prompts MDI client to create a child Window *) 
 
-        |   WM_MDIDESTROY of { child : HWND  }    
+        |   WM_MDIDESTROY of { child: HWND  }    
           (* Closes an MDI child Window *) 
 
         |   WM_MDIGETACTIVE
@@ -656,164 +586,135 @@ struct
         |   WM_MDIMAXIMIZE of {  child: HWND  }   
           (* Maximizes an MDI child Window *) 
 
-        |   WM_MDINEXT of { child    : HWND, flagnext : bool  }
+        |   WM_MDINEXT of { child: HWND, flagnext: bool  }
           (* Activates the next MDI child Window *) 
 
         |   WM_MDIREFRESHMENU
           (* Refreshes an MDI frame Window's menu *) 
- 
-        |   WM_MDIRESTORE of {  child : HWND  }
+
+        |   WM_MDIRESTORE of {  child: HWND  }
           (* Prompts MDI client to restore a child Window *) 
 
-        |   WM_MDISETMENU  of { frameMenu  : HMENU, windowMenu : HMENU  } 
+        |   WM_MDISETMENU  of { frameMenu: HMENU, windowMenu: HMENU  } 
           (* Replaces an MDI frame Window's menu *) 
 
-        |   WM_MDITILE of { tilingflag : MDITileFlags list }
+        |   WM_MDITILE of { tilingflag: MDITileFlags list }
           (* Arranges MDI child Windows in tiled format *) 
 
-        |   WM_MEASUREITEM of { controlid  : int,
-                              ctlType    : ControlType,
-                              ctlID      : int,
-                              itemID     : int,
-                              itemWidth  : int,
-                              itemHeight : int,
-                              itemData   : int
-                             }  
+        |   WM_MEASUREITEM of
+            { controlid: int, ctlType: ControlType, ctlID: int, itemID: int, itemWidth: int ref, itemHeight: int ref, itemData: int }  
           (* Requests dimensions of owner-draw control or item *)
 
-        |   WM_MENUCHAR of { ch : char, menuflag : MenuBase.MenuFlag, menu : HMENU }  
+        |   WM_MENUCHAR of { ch: char, menuflag: MenuBase.MenuFlag, menu: HMENU }  
           (* Indicates an unknown menu mnemonic was pressed *)
- 
-        |   WM_MENUSELECT of { menuitem  : int,
-                             menuflags : MenuBase.MenuFlag list,
-                             menu      : HMENU  }
+
+        |   WM_MENUSELECT of { menuitem: int, menuflags: MenuBase.MenuFlag list, menu: HMENU  }
           (* Indicates that the user selected a menu item *)
 
-        |   WM_MOUSEACTIVATE of { parent   : HWND,
-                                hitTest : int,
-                                message  : int  }   
+        |   WM_MOUSEACTIVATE of { parent: HWND, hitTest: HitTest, message: int }
           (* Indicates a mouse click in an inactive Window *) 
 
-        |   WM_MOUSEMOVE of { keyflags : MouseKeyFlags list, x : int, y : int  }  
+        |   WM_MOUSEMOVE of { keyflags: MouseKeyFlags list, x: int, y: int }  
           (* Indicates mouse-cursor movement *)
 
-        |   WM_MOUSEHOVER of { keyflags : MouseKeyFlags list, x : int, y : int }
+        |   WM_MOUSEHOVER of { keyflags: MouseKeyFlags list, x: int, y: int }
             (* Indicates the mouse hovering in the client area *)
     
         |   WM_MOUSELEAVE
             (* Indicates the mouse leaving the client area *)
 
-        |   WM_MOVE of { x : int, y : int  }  
+        |   WM_MOVE of { x: int, y: int  }  
           (* Indicates a Window's position has changed *)
 
-        |   WM_NCACTIVATE of { active : bool }
+        |   WM_NCACTIVATE of { active: bool }
           (* Changes the active state of nonclient area *)
 
-        |   WM_NCCALCSIZE of { validarea     : bool,
-                             newrect       : RECT ref,
-                             oldrect       : RECT,
-                             oldclientarea : RECT,
-                             hwnd          : HWND,
-                             insertAfter   : HWND,
-                             x     : int,
-                             y     : int,
-                             cx    : int,
-                             cy    : int,
-                             style : WindowPositionStyle list
-                           }
+        |   WM_NCCALCSIZE of
+            { validarea: bool, newrect: RECT ref, oldrect: RECT, oldclientarea: RECT,
+              hwnd: HWND, insertAfter: HWND, x: int, y: int, cx: int, cy: int, style: WindowPositionStyle list}
           (* Calculates the size of a Window's client area *)
 
-        |   WM_NCCREATE of { instance: HINSTANCE,
-                        creation: int,
-                           menu : HMENU,
-                           parent : HWND,
-                           cy : int,
-                           cx : int,
-                           y : int,
-                           x : int,
-                           style : windowFlags,
-                           name : string,
-                           class : ClassType,
-                           extendedstyle : int                      
-                          } 
+        |   WM_NCCREATE of
+            { instance: HINSTANCE, creation: int, menu: HMENU, parent: HWND, cy: int, cx: int,
+              y: int, x: int, style: windowFlags, name: string, class: ClassType, extendedstyle: int } 
           (* Indicates a Window's nonclient area being created *)
 
         |   WM_NCDESTROY  
           (* Indicates Window's nonclient area being destroyed *)
 
-        |   WM_NCHITTEST of { x : int, y : int  } 
+        |   WM_NCHITTEST of { x: int, y: int  } 
           (* Indicates mouse-cursor movement *)
 
         |   WM_NCLBUTTONDBLCLK of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates nonclient left button double-click *)
- 
-        |   WM_NCLBUTTONDOWN  of { hitTest: HitTest, x : int, y : int  } 
+
+        |   WM_NCLBUTTONDOWN  of { hitTest: HitTest, x: int, y: int  } 
           (* Indicates left button pressed in nonclient area *)
 
-        |   WM_NCLBUTTONUP of { hitTest: HitTest, x : int, y : int  }    
+        |   WM_NCLBUTTONUP of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates left button released in nonclient area *)
 
-        |   WM_NCMBUTTONDBLCLK of { hitTest: HitTest, x : int, y : int  }    
+        |   WM_NCMBUTTONDBLCLK of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates nonclient middle button double-click *)
 
-        |   WM_NCMBUTTONDOWN of { hitTest: HitTest, x : int, y : int  }  
+        |   WM_NCMBUTTONDOWN of { hitTest: HitTest, x: int, y: int  }  
           (* Indicates middle button pressed in nonclient area *)
 
-        |   WM_NCMBUTTONUP of { hitTest: HitTest, x : int, y : int  }    
+        |   WM_NCMBUTTONUP of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates middle button released in nonclient area *)
 
-        |   WM_NCMOUSEMOVE of { hitTest: HitTest, x : int, y : int  }    
+        |   WM_NCMOUSEMOVE of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates mouse-cursor movement in nonclient area *)
 
-        |   WM_NCMOUSEHOVER of { hitTest: HitTest, x : int, y : int  }
+        |   WM_NCMOUSEHOVER of { hitTest: HitTest, x: int, y: int  }
             (* Indicates the mouse hovering in the nonclient area *)
     
         |   WM_NCMOUSELEAVE
             (* Indicates the mouse leaving the nonclient area *)
 
-        |   WM_NCPAINT of { region : HRGN  }  
+        |   WM_NCPAINT of { region: HRGN  }  
           (* Indicates a Window's frame needs painting *)
 
-        |   WM_NCRBUTTONDBLCLK of { hitTest: HitTest, x : int, y : int  }    
+        |   WM_NCRBUTTONDBLCLK of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates nonclient right button double-click *)
 
-        |   WM_NCRBUTTONDOWN of { hitTest: HitTest, x : int, y : int  }  
+        |   WM_NCRBUTTONDOWN of { hitTest: HitTest, x: int, y: int  }  
           (* Indicates right button pressed in nonclient area *)
 
-        |   WM_NCRBUTTONUP of { hitTest: HitTest, x : int, y : int  }    
+        |   WM_NCRBUTTONUP of { hitTest: HitTest, x: int, y: int  }    
           (* Indicates right button released in nonclient area *)
 
-        |   WM_NEXTDLGCTL of { control: int, handleflag : bool  } 
+        |   WM_NEXTDLGCTL of { control: int, handleflag: bool  } 
           (* Sets focus to different dialog box control *) 
 
         |   WM_PAINT  
           (* Indicates a Window's client area need painting *)
 
-        |   WM_PAINTCLIPBOARD of { clipboard : HWND }
+        |   WM_PAINTCLIPBOARD of { clipboard: HWND }
           (* Prompts owner to display clipboard contents *)
 
         |   WM_PAINTICON
           (* Icon is about to be painted *) 
 
-        |   WM_PALETTECHANGED of { palChg : HWND  }   
+        |   WM_PALETTECHANGED of { palChg: HWND  }   
           (* Indicates the focus-Window realized its palette *)
 
-        |   WM_PALETTEISCHANGING of { realize : HWND  }   
+        |   WM_PALETTEISCHANGING of { realize: HWND  }   
           (* Informs Windows that palette is changing *) 
 
-        |   WM_PARENTNOTIFY of { eventflag : int, idchild   : int, value : int }  
+        |   WM_PARENTNOTIFY of { eventflag: int, idchild: int, value: int }  
           (* Notifies parent of child-Window activity *) 
 
         |   WM_PASTE  
           (* Inserts clipboard data into an edit control *)
 
-        |   WM_POWER of { powerevent : int  } 
+        |   WM_POWER of { powerevent: int  } 
           (* Indicates the system is entering suspended mode *)
 
         |   WM_QUERYDRAGICON  
           (* Requests a cursor handle for a minimized Window *)
 
-        |   WM_QUERYENDSESSION of { source : int  }
+        |   WM_QUERYENDSESSION of { source: int  }
           (* Requests that the Windows session be ended *) 
 
         |   WM_QUERYNEWPALETTE
@@ -825,97 +726,89 @@ struct
         |   WM_QUEUESYNC
           (* Delimits CBT messages *) 
 
-        |   WM_QUIT of { exitcode : int  }    
+        |   WM_QUIT of { exitcode: int  }    
           (* Requests that an application be terminated *)
 
-        |   WM_RBUTTONDBLCLK of { keyflags : MouseKeyFlags list, x: int, y: int  }    
+        |   WM_RBUTTONDBLCLK of { keyflags: MouseKeyFlags list, x: int, y: int  }    
           (* Indicates double-click of right mouse button *)
 
-        |   WM_RBUTTONDOWN of { keyflags : MouseKeyFlags list, x: int, y: int  }  
+        |   WM_RBUTTONDOWN of { keyflags: MouseKeyFlags list, x: int, y: int  }  
           (* Indicates when right mouse button is pressed *)
 
-        |   WM_RBUTTONUP of { keyflags : MouseKeyFlags list, x: int, y: int  }
+        |   WM_RBUTTONUP of { keyflags: MouseKeyFlags list, x: int, y: int  }
           (* Indicates when right mouse button is released *) 
 
         |   WM_RENDERALLFORMATS   
           (* Notifies owner to render all clipboard formats *) 
 
-        |   WM_RENDERFORMAT of { format : ClipboardFormat  }  
+        |   WM_RENDERFORMAT of { format: ClipboardFormat  }  
           (* Notifies owner to render clipboard data *) 
 
-        |   WM_SETCURSOR of { cursorwindow : HWND, hitTest : int, mousemessage : int  }   
+        |   WM_SETCURSOR of { cursorwindow: HWND, hitTest: HitTest, mousemessage: int }
           (* Prompts a Window to set the cursor shape *) 
 
-        |   WM_SETFOCUS of { losing : HWND  }
+        |   WM_SETFOCUS of { losing: HWND  }
 
-        |   WM_SETFONT of {font : HFONT, redrawflag : bool  } 
+        |   WM_SETFONT of {font: HFONT, redrawflag: bool  } 
 
-        |   WM_SETHOTKEY of { virtualKey : int  } 
+        |   WM_SETHOTKEY of { virtualKey: int  } 
 
-        |   WM_SETREDRAW of { redrawflag : bool  }
+        |   WM_SETREDRAW of { redrawflag: bool  }
 
-        |   WM_SETTEXT of { text : string  }  
+        |   WM_SETTEXT of { text: string  }  
 
-        |   WM_SHOWWINDOW of { showflag   : bool, statusflag : int  } 
+        |   WM_SHOWWINDOW of { showflag: bool, statusflag: int  } 
 
-        |   WM_SIZE of { flag : WMSizeOptions, width : int, height : int  }   
+        |   WM_SIZE of { flag: WMSizeOptions, width: int, height: int  }   
 
-        |   WM_SIZECLIPBOARD of { viewer : HWND}
+        |   WM_SIZECLIPBOARD of { viewer: HWND}
 
-        |   WM_SPOOLERSTATUS of { jobstatus : int, jobsleft  : int  } 
-
-        |   WM_SYSCHAR of { charCode : char, data : KeyData  }
+        |   WM_SYSCHAR of { charCode: char, data: KeyData  }
 
         |   WM_SYSCOLORCHANGE
 
-        |   WM_SYSCOMMAND of { commandvalue : SystemCommand, sysBits: int, p: POINT }
+        |   WM_SYSCOMMAND of { commandvalue: SystemCommand, sysBits: int, p: POINT }
 
-        |   WM_SYSDEADCHAR of { charCode : char, data : KeyData  }
+        |   WM_SYSDEADCHAR of { charCode: char, data: KeyData  }
 
-        |   WM_SYSKEYDOWN of { virtualKey : int, data : KeyData  }
+        |   WM_SYSKEYDOWN of { virtualKey: int, data: KeyData  }
 
-        |   WM_SYSKEYUP of { virtualKey : int, data : KeyData  }
+        |   WM_SYSKEYUP of { virtualKey: int, data: KeyData  }
 
         |   WM_TIMECHANGE 
           (* Indicates the system time has been set *)
 
-        |   WM_TIMER of { timerid : int  }
+        |   WM_TIMER of { timerid: int  }
 
         |   WM_UNDO   
- 
+
+        |   WM_SYSTEM_OTHER of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
         |   WM_USER of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
         |   WM_APP of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
         |   WM_REGISTERED of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
 
-        |   WM_VKEYTOITEM of { virtualKey : int,
-                             caretpos   : int,
-                             listbox    : HWND  }
- 
-        |   WM_VSCROLL of { value     : ScrollDirection,
-                          position  : int,
-                          scrollbar : HWND  }
+        |   WM_VKEYTOITEM of { virtualKey: int,
+                             caretpos: int,
+                             listbox: HWND  }
 
-        |   WM_VSCROLLCLIPBOARD of { viewer   : HWND,
-                                   code     : int,
-                                   position : int  }
+        |   WM_VSCROLL of { value: ScrollDirection,
+                          position: int,
+                          scrollbar: HWND  }
 
-        |   WM_WINDOWPOSCHANGED of { hwnd: HWND, front  : HWND,
-                                   x   : int,
-                                   y   : int,
-                                   width  : int,
-                                   height : int,
-                                   flags  : WindowPositionStyle list }
+        |   WM_VSCROLLCLIPBOARD of { viewer: HWND,
+                                   code: int,
+                                   position: int  }
 
-        |   WM_WINDOWPOSCHANGING of { hwnd: HWND, front: HWND ref,
-                                    x   : int ref,
-                                    y   : int ref,
-                                    width  : int ref,
-                                    height : int ref,
-                                    flags  : WindowPositionStyle list ref } 
- 
-        |   WM_SETTINGCHANGE of { section_name : string  }    
+        |   WM_WINDOWPOSCHANGED of
+                { hwnd: HWND, front: HWND, x: int, y: int, width: int, height: int, flags: WindowPositionStyle list }
 
-        |   WM_NOTIFY of {from: HWND, idCtrl: int, idFrom : int, notification: Notification }
+        |   WM_WINDOWPOSCHANGING of
+                {
+                    hwnd: HWND, front: HWND ref, x: int ref, y: int ref,
+                    width: int ref, height: int ref, flags: WindowPositionStyle list ref
+                }
+
+        |   WM_NOTIFY of {from: HWND, idCtrl: int, idFrom: int, notification: Notification }
 
         |   WM_CAPTURECHANGED of { newCapture: HWND }
 
@@ -927,8 +820,7 @@ struct
 
         |   WM_PRINTCLIENT of {hdc: HDC, flags: WMPrintOption list }
 
-        |   WM_HELP of { ctrlId: int, itemHandle: HelpHandle, contextId: int,
-                       mousePos: POINT }
+        |   WM_HELP of { ctrlId: int, itemHandle: HelpHandle, contextId: int, mousePos: POINT }
 
         |   WM_GETICON of { big: bool }
 
@@ -1194,8 +1086,6 @@ struct
 
         |   FINDMSGSTRING of
             { flags: findReplaceFlags, findWhat: string, replaceWith: string }
-
-        |   NULL
 
 
         (* GetMessage and PeekMessage return these values. *)

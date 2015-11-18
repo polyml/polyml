@@ -38,7 +38,7 @@ struct
                 {enableLeftUp = IntInf.andb(i, 1) = 0,
                  enableRightDown = IntInf.andb(i, 2) = 0} 
         in
-            val cENABLESCROLLBARFLAG = absConversion{rep = toInt, abs = fromInt} cUint
+            val ENABLESCROLLBARFLAG = (toInt, fromInt)
         end
 
         type SCROLLINFO =
