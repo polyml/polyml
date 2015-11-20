@@ -84,10 +84,10 @@ struct
         open Base
         open Resource
     in
-        type Message = MessageBase.Message
+        type Message = Message.Message
         type HWND = HWND and HINSTANCE = HINSTANCE and HICON = HICON
         and HBRUSH = HBRUSH and HCURSOR = HCURSOR and HGDIOBJ = HGDIOBJ
-        datatype LRESULT = datatype MessageBase.LRESULT
+        datatype LRESULT = datatype Message.LRESULT
 
         structure Style =
         struct

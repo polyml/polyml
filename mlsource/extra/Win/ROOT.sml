@@ -8,8 +8,7 @@ use "WinBase";
 use "ComboBase";
 use "ScrollBase";
 use "MenuBase";
-use "MessageBase";
-use "Message"; (* Quite a bit to do here. *)
+use "Message";
 use "Class";
 use "FlagPrint";
 use "Window";

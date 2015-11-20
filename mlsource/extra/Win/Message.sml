@@ -16,7 +16,7 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-structure Message :
+signature MESSAGE =
 sig
     datatype ControlType =
           ODT_BUTTON
@@ -97,28 +97,27 @@ sig
 
     datatype MDITileFlags = MDITILE_VERTICAL | MDITILE_HORIZONTAL | MDITILE_SKIPDISABLED
 
-    datatype
-      SystemCommand =
-          SC_ARRANGE
-        | SC_CLOSE
-        | SC_CONTEXTHELP
-        | SC_DEFAULT
-        | SC_HOTKEY
-        | SC_HSCROLL
-        | SC_KEYMENU
-        | SC_MAXIMIZE
-        | SC_MINIMIZE
-        | SC_MONITORPOWER
-        | SC_MOUSEMENU
-        | SC_MOVE
-        | SC_NEXTWINDOW
-        | SC_PREVWINDOW
-        | SC_RESTORE
-        | SC_SCREENSAVE
-        | SC_SEPARATOR
-        | SC_SIZE
-        | SC_TASKLIST
-        | SC_VSCROLL
+    datatype SystemCommand =
+        SC_ARRANGE
+    |   SC_CLOSE
+    |   SC_CONTEXTHELP
+    |   SC_DEFAULT
+    |   SC_HOTKEY
+    |   SC_HSCROLL
+    |   SC_KEYMENU
+    |   SC_MAXIMIZE
+    |   SC_MINIMIZE
+    |   SC_MONITORPOWER
+    |   SC_MOUSEMENU
+    |   SC_MOVE
+    |   SC_NEXTWINDOW
+    |   SC_PREVWINDOW
+    |   SC_RESTORE
+    |   SC_SCREENSAVE
+    |   SC_SEPARATOR
+    |   SC_SIZE
+    |   SC_TASKLIST
+    |   SC_VSCROLL
 
     datatype WMActivateOptions = WA_ACTIVE | WA_CLICKACTIVE | WA_INACTIVE
 
@@ -284,11 +283,7 @@ sig
             itemID1: int, itemData1: SysWord.word, itemID2: int, itemData2: SysWord.word                                        
         }
 
-    |   WM_COPY
-      (* Copies a selection to the clipboard *)
-
-    |   WM_COPYDATA of { sender: HWND, data: int, pdata: Word8Vector.vector }
-      (* Passes data to another application  *)
+    |   WM_COPY (* Copies a selection to the clipboard *)
 
     |   WM_CREATE of
         { instance: HINSTANCE, creation: Foreign.Memory.voidStar, menu: HMENU, parent: HWND, cy: int, cx: int,
@@ -473,7 +468,7 @@ sig
       (* Arranges MDI child Windows in tiled format *) 
 
     |   WM_MEASUREITEM of
-        { controlid: int, ctlType: ControlType, ctlID: int, itemID: int, itemWidth: int ref, itemHeight: int ref, itemData: int }  
+        { senderId: int, ctlType: ControlType, ctlID: int, itemID: int, itemWidth: int ref, itemHeight: int ref, itemData: int }  
       (* Requests dimensions of owner-draw control or item *)
 
     |   WM_MENUCHAR of { ch: char, menuflag: MenuBase.MenuFlag, menu: HMENU }  
@@ -506,7 +501,7 @@ sig
       (* Calculates the size of a Window's client area *)
 
     |   WM_NCCREATE of
-        { instance: HINSTANCE, creation: int, menu: HMENU, parent: HWND, cy: int, cx: int,
+        { instance: HINSTANCE, creation: Foreign.Memory.voidStar, menu: HMENU, parent: HWND, cy: int, cx: int,
           y: int, x: int, style: windowFlags, name: string, class: ClassType, extendedstyle: int } 
       (* Indicates a Window's nonclient area being created *)
 
@@ -1016,8 +1011,9 @@ sig
     val updateParamsFromMessage: Message * SysWord.word * SysWord.word -> unit
     val LPMSG: MSG Foreign.conversion
     val mainCallbackFunction: HWND*int*SysWord.word*SysWord.word->SysWord.word
-  end
- =
+end;
+
+structure Message: MESSAGE =
 struct
     local
         open Foreign
@@ -1031,14 +1027,13 @@ struct
         and fromAddr = Memory.voidStar2Sysword
 
         val RegisterMessage = winCall1 (user "RegisterWindowMessageA") cString cUint
-
-        val COPYDATASTRUCT = cStruct3(cULONG_PTR, cDWORD, cPointer)
-        val {load=fromCcopydata, store=toCcopydata, ...} = breakConversion COPYDATASTRUCT
+        
+        (* Used in WM_WINDOWPOSXXX and also WM_NCCALCSIZE *)
+        val WINDOWPOS = cStruct7(cHWND, cHWND, cInt, cInt, cInt, cInt, cWINDOWPOSITIONSTYLE)    
 
         local (* WM_WINDOWPOSCHANGING and WM_WINDOWPOSCHANGED. The C structure is the same
                  but WM_WINDOWPOSCHANGING has refs in the ML to allow the call-back to
                  change the position. *)
-            val WINDOWPOS = cStruct7(cHWND, cHWND, cInt, cInt, cInt, cInt, cWINDOWPOSITIONSTYLE)    
             val {load=fromCwindowpos, store=toCwindowpos, ctype={size=sizeCwp, ...}, ...} = breakConversion WINDOWPOS
             type wmWINDOWPOSCHANGED =
                 { hwnd: HWND, front: HWND, x: int, y: int, width: int, height: int, flags: WindowPositionStyle list }
@@ -1099,61 +1094,96 @@ struct
         
         val MDICREATESTRUCT = cStruct9(cCLASS,cString,cHINSTANCE,cInt,cInt,cInt,cInt,cDWORD,cLPARAM)
         val {load=fromCmdicreatestruct, store=toCmdicreatestruct, ...} = breakConversion MDICREATESTRUCT
-        
-        val MEASUREITEMSTRUCT = cStruct6(MessageBase.cCONTROLTYPE,cUint,cUint,cUint,cUint,cULONG_PTR)
-        val {load=fromCmeasureitemstruct, store=toCmeasureitemstruct, ...} = breakConversion MEASUREITEMSTRUCT
-        
-        val DELETEITEMSTRUCT = cStruct5(MessageBase.cCONTROLTYPE,cUint,cUint,cHWND,cULONG_PTR)
-        val {load=fromCdeleteitemstruct, store=toCdeleteitemstruct, ...} = breakConversion DELETEITEMSTRUCT
 
-        local (* WM_COMPAREITEM *)
-            open MessageBase
-            val COMPAREITEMSTRUCT = cStruct8(cCONTROLTYPE,cUint,cHWND,cUint,cUINT_PTRw,cUint,cUINT_PTRw, cDWORD)
-            val {load=fromCcompareitemstruct, store=toCcompareitemstruct, ctype={size=sizeCcompareitemstruct, ...}, ...} =
-                breakConversion COMPAREITEMSTRUCT
-            type wmCompareItem = 
-            {
-                controlid: int, ctlType: ControlType, ctlID: int, hItem: HWND,
-                itemID1: int, itemData1: SysWord.word, itemID2: int, itemData2: SysWord.word                                        
-            }
+        datatype ControlType = ODT_MENU | ODT_LISTBOX | ODT_COMBOBOX | ODT_BUTTON | ODT_STATIC
+        local
+            val 
+            tab = [
+                (ODT_MENU, 1),
+                (ODT_LISTBOX, 2),
+                (ODT_COMBOBOX, 3),
+                (ODT_BUTTON, 4),
+                (ODT_STATIC, 5)
+                ]
         in
-            fun cToMLwmCompareItem{wp, lp}: wmCompareItem =
-            let
-                val (ctlType, ctlID, hItem, itemID1, itemData1, itemID2, itemData2, _) =
-                      fromCcompareitemstruct(toAddr lp)       
-            in
-                {
-                    controlid = SysWord.toInt wp, ctlType = ctlType, ctlID = ctlID, hItem = hItem,
-                    itemID1 = itemID1, itemData1 = itemData1, itemID2 = itemID2, itemData2 = itemData2
-                }
-            end
+            val cCONTROLTYPE = tableConversion(tab, NONE) cUint
+        end
+ 
+        fun structAsAddr strConv =
+        let
+            val {load, store, ctype={size, ...}, ...} = breakConversion strConv
 
-            fun mlToCwmCompareItem(msgNo,
-                { controlid, ctlType, ctlID, hItem, itemID1,itemData1, itemID2,itemData2}: wmCompareItem) =
+            fun make v =
             let
                 open Memory
-                val mem = malloc sizeCcompareitemstruct
-                (* TODO: Perhaps we should have locale Id in the argument record. *)
-                val LOCALE_USER_DEFAULT = 0x0400
-                val freeCs =
-                    toCcompareitemstruct(mem,
-                        (ctlType, ctlID, hItem, itemID1, itemData1, itemID2, itemData2, LOCALE_USER_DEFAULT))
+                val mem = malloc size
+                val freeS = store(mem, v)
             in
-                (msgNo, SysWord.fromInt controlid, fromAddr mem, fn () => (freeCs(); free mem))
+                (fromAddr mem, fn () => (freeS(); free mem))
+            end
+        in
+            (load o toAddr, make)
+        end
+
+        local (* WM_COMPAREITEM *)
+            val COMPAREITEMSTRUCT = cStruct8(cCONTROLTYPE,cUint,cHWND,cUint,cUINT_PTRw,cUint,cUINT_PTRw, cDWORD)
+            val MEASUREITEMSTRUCT = cStruct6(cCONTROLTYPE,cUint,cUint,cUint,cUint,cULONG_PTR)
+            val DELETEITEMSTRUCT = cStruct5(cCONTROLTYPE,cUint,cUint,cHWND,cULONG_PTR)
+            val {store=toMeasureItem, ...} = breakConversion MEASUREITEMSTRUCT
+        in
+            val (toMLCompareItem, fromMLCompareItem) = structAsAddr COMPAREITEMSTRUCT
+            and (toMLMeasureItem, fromMLMeasureItem) = structAsAddr MEASUREITEMSTRUCT
+            and (toMLDeleteItem, fromMLDeleteItem) = structAsAddr DELETEITEMSTRUCT
+            
+            fun updateMeasureItemFromWpLp({itemWidth, itemHeight, ...}, {wp=_, lp}) =
+            let
+                val (_, _, _, iWidth, iHeight, _) = toMLMeasureItem lp
+            in
+                itemWidth := iWidth;
+                itemHeight := iHeight
+            end
+            and updateMeasureItemParms({wp=_, lp}, {itemWidth=ref itemWidth, itemHeight=ref itemHeight, ...}) =
+            let
+                val (ctlType, ctlID, itemID, _, _, itemData) = toMLMeasureItem lp
+            in
+                ignore(toMeasureItem(toAddr lp, (ctlType, ctlID, itemID, itemWidth, itemHeight, itemData)))
             end
         end
-            
-        val CREATESTRUCT = cStruct12(cPointer,cHINSTANCE,cHMENU,cHWND,cInt,cInt,cInt,cInt,cUlongw,cString,cCLASS,cDWORD)
-        val {load=fromCcreatestruct, store=toCcreatestruct, ctype={size=sizeCcreatestruct, ...}, ...} = breakConversion CREATESTRUCT
+
+        local (* WM_CREATE and WM_NCCREATE *)
+            val CREATESTRUCT = cStruct12(cPointer,cHINSTANCE,cHMENU,cHWND,cInt,cInt,cInt,cInt,cUlongw,cString,cCLASS,cDWORD)
+            val (toMLCreate, fromMLCreate) = structAsAddr CREATESTRUCT
+        in
+            fun decompileCreate{wp=_, lp} =
+            let
+                val (cp,inst,menu,parent, cy,cx,y,x, style, name,class, extendedstyle) = toMLCreate lp
+            in
+                { instance = inst, creation = cp, menu = menu, parent = parent, cy = cy, cx = cx,
+                  y = y, x = x, style = Style.fromWord(Word32.toLargeWord style), name = name,
+                  class = class, extendedstyle = extendedstyle }
+            end
+
+            and compileCreate(code, { instance, creation, menu, parent, cy, cx,
+                                y, x, style, name, class, extendedstyle}) =
+            let
+                val (addr, free) =
+                    fromMLCreate(creation, instance, menu, parent,
+                        cy, cx, y, x, Word32.fromLargeWord(Style.toWord style), name, class,
+                        extendedstyle)
+            in
+                (code, 0w0, addr, free)
+            end
+
+        end
 
         local
             val MINMAXINFO = cStruct5(cPoint,cPoint,cPoint,cPoint,cPoint)
-            val {load=fromCminmaxinfo, store=toCminmaxinfo, ctype={size=sizeMMI, ...}, ...} =
-                breakConversion MINMAXINFO
+            val {store=toCminmaxinfo, ...} = breakConversion MINMAXINFO
+            val (toMLMinMax, fromMLMinMax) = structAsAddr MINMAXINFO
         in
             fun decompileMinMax{wp=_, lp} =
             let  
-                val (_, ptms, ptmp, ptts, ptmts) = fromCminmaxinfo(toAddr lp)
+                val (_, ptms, ptmp, ptts, ptmts) = toMLMinMax lp
             in
                     { maxSize = ref ptms, maxPosition = ref ptmp,
                       minTrackSize = ref ptts, maxTrackSize = ref ptmts}
@@ -1161,16 +1191,14 @@ struct
             and compileMinMax(code, { maxSize=ref maxSize, maxPosition=ref maxPosition,
                                 minTrackSize=ref minTrackSize, maxTrackSize=ref maxTrackSize}) =
             let
-                open Memory
-                val mem = malloc sizeMMI
-                val _ = toCminmaxinfo(mem, ({x=0,y=0}, maxSize, maxPosition, minTrackSize, maxTrackSize))
+                val (addr, free) = fromMLMinMax({x=0,y=0}, maxSize, maxPosition, minTrackSize, maxTrackSize)
             in
-                (code, 0w0, fromAddr mem, fn () => free mem)
+                (code, 0w0, addr, free)
             end
             
             fun updateMinMaxFromWpLp({maxSize, maxPosition, minTrackSize, maxTrackSize}, {wp=_, lp}) =
             let
-                val (_, ptms, ptmp, ptts, ptmts) = fromCminmaxinfo(toAddr lp)
+                val (_, ptms, ptmp, ptts, ptmts) = toMLMinMax lp
             in
                 maxSize := ptms;
                 maxPosition := ptmp;
@@ -1180,29 +1208,389 @@ struct
             and updateMinMaxParms({wp=_, lp}, {maxSize=ref maxSize, maxPosition=ref maxPosition,
                                                minTrackSize=ref minTrackSize, maxTrackSize=ref maxTrackSize}) =
             let
-                val (ptres, _, _, _, _) = fromCminmaxinfo(toAddr lp)
+                val (ptres, _, _, _, _) = toMLMinMax lp
             in
                 ignore(toCminmaxinfo(toAddr lp, (ptres, maxSize, maxPosition, minTrackSize, maxTrackSize)))
             end
         end
-        
-        val DRAWITEMSTRUCT = cStruct9(MessageBase.cCONTROLTYPE,cUint,cUint,cUint,cUint,cHWND,cHDC,cRect,cULONG_PTR)
-        (*val (fromCdrawitemstruct, toCdrawitemstruct, _) = breakConversion DRAWITEMSTRUCT *)
-        
-        val NCCALCSIZE_PARAMS = cStruct4(cRect,cRect,cRect, cPointer(*POINTERTO WINDOWPOS*))
-        (*val (fromCncalcsizestruct, toCncalcsizestruct, _) = breakConversion NCCALCSIZE_PARAMS *)
+
+        local
+            val DRAWITEMSTRUCT = cStruct9(cCONTROLTYPE,cUint,cUint,cUint,cUint,cHWND,cHDC,cRect,cULONG_PTR)
+        in
+            val (toMLDrawItem, fromMLDrawItem) = structAsAddr DRAWITEMSTRUCT
+        end
+
+        local (* WM_NCCALCSIZE *)
+            val NCCALCSIZE_PARAMS = cStruct4(cRect,cRect,cRect, cConstStar WINDOWPOS)
+            val {load=loadStruct, store=storeStruct, ctype={size=sizeStr, ...}, ...} = breakConversion NCCALCSIZE_PARAMS
+            val {load=loadRect, store=storeRect, ctype={size=sizeRect, ...}, ...} = breakConversion cRect
+        in
+            fun decompileNCCalcSize{wp=0w0, lp} =
+                let
+                    val (newrect,oldrect,oldclientarea,winpos) = loadStruct (toAddr lp)
+                    val (wh,front,x,y,cx,cy,style) = winpos 
+                in
+                    { validarea = true, newrect = ref newrect, oldrect = oldrect,
+                      oldclientarea = oldclientarea, hwnd = wh, insertAfter = front,
+                      x = x, y = y, cx = cx, cy = cy, style = style }
+                end
+
+            |   decompileNCCalcSize{wp=_, lp} =
+                let
+                    val newrect = loadRect (toAddr lp)
+                    val zeroRect = {left=0, top=0, right=0, bottom=0}
+                in 
+                    { validarea = false, newrect = ref newrect, oldrect = zeroRect,
+                      oldclientarea = zeroRect, insertAfter = hwndNull, hwnd = hwndNull,
+                      x = 0, y = 0, cx = 0, cy = 0, style = [] }
+                end
+
+            and compileNCCalcSize{validarea=true, newrect=ref newrect, oldrect, oldclientarea,
+                            hwnd, insertAfter, x, y, cx, cy, style} =
+            let
+                open Memory
+                val mem = malloc sizeStr
+                val freeRect =
+                    storeStruct(mem, (newrect,oldrect,oldclientarea,
+                                         (hwnd,insertAfter,x,y,cx,cy, style)))
+            in
+                (0x0083, 0w1, fromAddr mem, fn () => (freeRect(); free mem))
+            end    
+            |   compileNCCalcSize{validarea=false, newrect=ref newrect, ...} =
+            let
+                open Memory
+                val mem = malloc sizeRect
+                val () = ignore(storeRect(mem, newrect))
+            in
+                (0x0083, 0w0, fromAddr mem, fn () => free mem)
+            end    
+        end
         
         val HELPINFO = cStruct6(cUint, cInt, cInt, cPointer (* HANDLE *), cDWORD, cPoint)
         (*val (fromChelpinfo, toChelpinfo, helpStruct) = breakConversion HELPINFO *)
 
-        (* Notification structures *)
-        val NMHDR = cStruct3(cHWND, cUINT_PTR, cUint)
-        (*val (fromCnmhdr, toCnmhdr, nmhdr) = breakConversion NMHDR *)
-        val CHARARRAY80 = cCHARARRAY 80
-        (*val (_, toCcharArray80, charArray80) = breakConversion CHARARRAY80 *)
-        val NMTTDISPINFO =
-            cStruct6(NMHDR, cPointer (* String or resource id *), CHARARRAY80, cHINSTANCE, cUint, cLPARAM);
-        val {load=loadNmttdispinfo, ... } = breakConversion NMTTDISPINFO
+        (* Passed in the lpParam argument of a WM_NOTIFY message.
+           TODO: Many of these have additional information. *)
+        datatype Notification =
+            NM_OUTOFMEMORY
+        |   NM_CLICK
+        |   NM_DBLCLK
+        |   NM_RETURN
+        |   NM_RCLICK
+        |   NM_RDBLCLK
+        |   NM_SETFOCUS
+        |   NM_KILLFOCUS
+        |   NM_CUSTOMDRAW
+        |   NM_HOVER
+        |   NM_NCHITTEST
+        |   NM_KEYDOWN
+        |   NM_RELEASEDCAPTURE
+        |   NM_SETCURSOR
+        |   NM_CHAR
+        |   NM_TOOLTIPSCREATED
+        |   NM_LDOWN
+        |   NM_RDOWN
+        |   NM_THEMECHANGED
+        |   LVN_ITEMCHANGING
+        |   LVN_ITEMCHANGED
+        |   LVN_INSERTITEM
+        |   LVN_DELETEITEM
+        |   LVN_DELETEALLITEMS
+        |   LVN_BEGINLABELEDIT
+        |   LVN_ENDLABELEDIT
+        |   LVN_COLUMNCLICK
+        |   LVN_BEGINDRAG
+        |   LVN_BEGINRDRAG
+        |   LVN_GETDISPINFO
+        |   LVN_SETDISPINFO
+        |   LVN_KEYDOWN
+        |   LVN_GETINFOTIP
+        |   HDN_ITEMCHANGING
+        |   HDN_ITEMCHANGED
+        |   HDN_ITEMCLICK
+        |   HDN_ITEMDBLCLICK
+        |   HDN_DIVIDERDBLCLICK
+        |   HDN_BEGINTRACK
+        |   HDN_ENDTRACK
+        |   HDN_TRACK
+        |   HDN_ENDDRAG
+        |   HDN_BEGINDRAG
+        |   HDN_GETDISPINFO
+        |   TVN_SELCHANGING
+        |   TVN_SELCHANGED
+        |   TVN_GETDISPINFO
+        |   TVN_SETDISPINFO
+        |   TVN_ITEMEXPANDING
+        |   TVN_ITEMEXPANDED
+        |   TVN_BEGINDRAG
+        |   TVN_BEGINRDRAG
+        |   TVN_DELETEITEM
+        |   TVN_BEGINLABELEDIT
+        |   TVN_ENDLABELEDIT
+        |   TVN_KEYDOWN
+        |   TVN_GETINFOTIP
+        |   TVN_SINGLEEXPAND
+        |   TTN_GETDISPINFO of string ref
+        |   TTN_SHOW
+        |   TTN_POP
+        |   TCN_KEYDOWN
+        |   TCN_SELCHANGE
+        |   TCN_SELCHANGING
+        |   TBN_GETBUTTONINFO
+        |   TBN_BEGINDRAG
+        |   TBN_ENDDRAG
+        |   TBN_BEGINADJUST
+        |   TBN_ENDADJUST
+        |   TBN_RESET
+        |   TBN_QUERYINSERT
+        |   TBN_QUERYDELETE
+        |   TBN_TOOLBARCHANGE
+        |   TBN_CUSTHELP
+        |   TBN_DROPDOWN
+        |   TBN_HOTITEMCHANGE
+        |   TBN_DRAGOUT
+        |   TBN_DELETINGBUTTON
+        |   TBN_GETDISPINFO
+        |   TBN_GETINFOTIP
+        |   UDN_DELTAPOS
+        |   RBN_GETOBJECT
+        |   RBN_LAYOUTCHANGED
+        |   RBN_AUTOSIZE
+        |   RBN_BEGINDRAG
+        |   RBN_ENDDRAG
+        |   RBN_DELETINGBAND
+        |   RBN_DELETEDBAND
+        |   RBN_CHILDSIZE
+        |   CBEN_GETDISPINFO
+        |   CBEN_DRAGBEGIN
+        |   IPN_FIELDCHANGED
+        |   SBN_SIMPLEMODECHANGE
+        |   PGN_SCROLL
+        |   PGN_CALCSIZE
+        |   NM_OTHER of int (* Catch-all for other cases. *)
+
+        local
+            (* Notification structures *)
+            val NMHDR = cStruct3(cHWND, cUINT_PTR, cUint)
+            val (toMLNmhdr, fromMLNmhdr) = structAsAddr NMHDR
+            val CHARARRAY80 = cCHARARRAY 80
+            val NMTTDISPINFO =
+                cStruct6(NMHDR, cPointer (* String or resource id *), CHARARRAY80, cHINSTANCE, cUint, cLPARAM);
+            val (toMLNMTTDISPINFO, fromMLNMTTDISPINFO) = structAsAddr NMTTDISPINFO
+        in
+            fun compileNotification (from, idFrom, NM_OUTOFMEMORY) = fromMLNmhdr(from, idFrom, ~1)
+            |  compileNotification (from, idFrom, NM_CLICK) = fromMLNmhdr(from, idFrom, ~2)
+            |  compileNotification (from, idFrom, NM_DBLCLK) = fromMLNmhdr(from, idFrom, ~3)
+            |  compileNotification (from, idFrom, NM_RETURN) = fromMLNmhdr(from, idFrom, ~4)
+            |  compileNotification (from, idFrom, NM_RCLICK) = fromMLNmhdr(from, idFrom, ~5)
+            |  compileNotification (from, idFrom, NM_RDBLCLK) = fromMLNmhdr(from, idFrom, ~6)
+            |  compileNotification (from, idFrom, NM_SETFOCUS) = fromMLNmhdr(from, idFrom, ~7)
+            |  compileNotification (from, idFrom, NM_KILLFOCUS) = fromMLNmhdr(from, idFrom, ~8)
+            |  compileNotification (from, idFrom, NM_CUSTOMDRAW) = fromMLNmhdr(from, idFrom, ~12)
+            |  compileNotification (from, idFrom, NM_HOVER) = fromMLNmhdr(from, idFrom, ~13)
+            |  compileNotification (from, idFrom, NM_NCHITTEST) = fromMLNmhdr(from, idFrom, ~14)
+            |  compileNotification (from, idFrom, NM_KEYDOWN) = fromMLNmhdr(from, idFrom, ~15)
+            |  compileNotification (from, idFrom, NM_RELEASEDCAPTURE) = fromMLNmhdr(from, idFrom, ~16)
+            |  compileNotification (from, idFrom, NM_SETCURSOR) = fromMLNmhdr(from, idFrom, ~17)
+            |  compileNotification (from, idFrom, NM_CHAR) = fromMLNmhdr(from, idFrom, ~18)
+            |  compileNotification (from, idFrom, NM_TOOLTIPSCREATED) = fromMLNmhdr(from, idFrom, ~19)
+            |  compileNotification (from, idFrom, NM_LDOWN) = fromMLNmhdr(from, idFrom, ~20)
+            |  compileNotification (from, idFrom, NM_RDOWN) = fromMLNmhdr(from, idFrom, ~21)
+            |  compileNotification (from, idFrom, NM_THEMECHANGED) = fromMLNmhdr(from, idFrom, ~22)
+            |  compileNotification (from, idFrom, LVN_ITEMCHANGING) = fromMLNmhdr(from, idFrom, ~100)
+            |  compileNotification (from, idFrom, LVN_ITEMCHANGED) = fromMLNmhdr(from, idFrom, ~101)
+            |  compileNotification (from, idFrom, LVN_INSERTITEM) = fromMLNmhdr(from, idFrom, ~102)
+            |  compileNotification (from, idFrom, LVN_DELETEITEM) = fromMLNmhdr(from, idFrom, ~103)
+            |  compileNotification (from, idFrom, LVN_DELETEALLITEMS) = fromMLNmhdr(from, idFrom, ~104)
+            |  compileNotification (from, idFrom, LVN_BEGINLABELEDIT) = fromMLNmhdr(from, idFrom, ~105)
+            |  compileNotification (from, idFrom, LVN_ENDLABELEDIT) = fromMLNmhdr(from, idFrom, ~106)
+            |  compileNotification (from, idFrom, LVN_COLUMNCLICK) = fromMLNmhdr(from, idFrom, ~108)
+            |  compileNotification (from, idFrom, LVN_BEGINDRAG) = fromMLNmhdr(from, idFrom, ~109)
+            |  compileNotification (from, idFrom, LVN_BEGINRDRAG) = fromMLNmhdr(from, idFrom, ~111)
+            |  compileNotification (from, idFrom, LVN_GETDISPINFO) = fromMLNmhdr(from, idFrom, ~150)
+            |  compileNotification (from, idFrom, LVN_SETDISPINFO) = fromMLNmhdr(from, idFrom, ~151)
+            |  compileNotification (from, idFrom, LVN_KEYDOWN) = fromMLNmhdr(from, idFrom, ~155)
+            |  compileNotification (from, idFrom, LVN_GETINFOTIP) = fromMLNmhdr(from, idFrom, ~157)
+            |  compileNotification (from, idFrom, HDN_ITEMCHANGING) = fromMLNmhdr(from, idFrom, ~300)
+            |  compileNotification (from, idFrom, HDN_ITEMCHANGED) = fromMLNmhdr(from, idFrom, ~301)
+            |  compileNotification (from, idFrom, HDN_ITEMCLICK) = fromMLNmhdr(from, idFrom, ~302)
+            |  compileNotification (from, idFrom, HDN_ITEMDBLCLICK) = fromMLNmhdr(from, idFrom, ~303)
+            |  compileNotification (from, idFrom, HDN_DIVIDERDBLCLICK) = fromMLNmhdr(from, idFrom, ~305)
+            |  compileNotification (from, idFrom, HDN_BEGINTRACK) = fromMLNmhdr(from, idFrom, ~306)
+            |  compileNotification (from, idFrom, HDN_ENDTRACK) = fromMLNmhdr(from, idFrom, ~307)
+            |  compileNotification (from, idFrom, HDN_TRACK) = fromMLNmhdr(from, idFrom, ~308)
+            |  compileNotification (from, idFrom, HDN_ENDDRAG) = fromMLNmhdr(from, idFrom, ~311)
+            |  compileNotification (from, idFrom, HDN_BEGINDRAG) = fromMLNmhdr(from, idFrom, ~310)
+            |  compileNotification (from, idFrom, HDN_GETDISPINFO) = fromMLNmhdr(from, idFrom, ~309)
+            |  compileNotification (from, idFrom, TVN_SELCHANGING) = fromMLNmhdr(from, idFrom, ~401)
+            |  compileNotification (from, idFrom, TVN_SELCHANGED) = fromMLNmhdr(from, idFrom, ~402)
+            |  compileNotification (from, idFrom, TVN_GETDISPINFO) = fromMLNmhdr(from, idFrom, ~403)
+            |  compileNotification (from, idFrom, TVN_SETDISPINFO) = fromMLNmhdr(from, idFrom, ~404)
+            |  compileNotification (from, idFrom, TVN_ITEMEXPANDING) = fromMLNmhdr(from, idFrom, ~405)
+            |  compileNotification (from, idFrom, TVN_ITEMEXPANDED) = fromMLNmhdr(from, idFrom, ~406)
+            |  compileNotification (from, idFrom, TVN_BEGINDRAG) = fromMLNmhdr(from, idFrom, ~407)
+            |  compileNotification (from, idFrom, TVN_BEGINRDRAG) = fromMLNmhdr(from, idFrom, ~408)
+            |  compileNotification (from, idFrom, TVN_DELETEITEM) = fromMLNmhdr(from, idFrom, ~409)
+            |  compileNotification (from, idFrom, TVN_BEGINLABELEDIT) = fromMLNmhdr(from, idFrom, ~410)
+            |  compileNotification (from, idFrom, TVN_ENDLABELEDIT) = fromMLNmhdr(from, idFrom, ~411)
+            |  compileNotification (from, idFrom, TVN_KEYDOWN) = fromMLNmhdr(from, idFrom, ~412)
+            |  compileNotification (from, idFrom, TVN_GETINFOTIP) = fromMLNmhdr(from, idFrom, ~413)
+            |  compileNotification (from, idFrom, TVN_SINGLEEXPAND) = fromMLNmhdr(from, idFrom, ~415)
+            |  compileNotification (from, idFrom, TTN_GETDISPINFO(ref s)) =
+                   fromMLNMTTDISPINFO((from, idFrom, ~520), Memory.null, s, Globals.hNull, 0, 0)
+            |  compileNotification (from, idFrom, TTN_SHOW) = fromMLNmhdr(from, idFrom, ~521)
+            |  compileNotification (from, idFrom, TTN_POP) = fromMLNmhdr(from, idFrom, ~522)
+            |  compileNotification (from, idFrom, TCN_KEYDOWN) = fromMLNmhdr(from, idFrom, ~550)
+            |  compileNotification (from, idFrom, TCN_SELCHANGE) = fromMLNmhdr(from, idFrom, ~551)
+            |  compileNotification (from, idFrom, TCN_SELCHANGING) = fromMLNmhdr(from, idFrom, ~552)
+            |  compileNotification (from, idFrom, TBN_GETBUTTONINFO) = fromMLNmhdr(from, idFrom, ~700)
+            |  compileNotification (from, idFrom, TBN_BEGINDRAG) = fromMLNmhdr(from, idFrom, ~701)
+            |  compileNotification (from, idFrom, TBN_ENDDRAG) = fromMLNmhdr(from, idFrom, ~702)
+            |  compileNotification (from, idFrom, TBN_BEGINADJUST) = fromMLNmhdr(from, idFrom, ~703)
+            |  compileNotification (from, idFrom, TBN_ENDADJUST) = fromMLNmhdr(from, idFrom, ~704)
+            |  compileNotification (from, idFrom, TBN_RESET) = fromMLNmhdr(from, idFrom, ~705)
+            |  compileNotification (from, idFrom, TBN_QUERYINSERT) = fromMLNmhdr(from, idFrom, ~706)
+            |  compileNotification (from, idFrom, TBN_QUERYDELETE) = fromMLNmhdr(from, idFrom, ~707)
+            |  compileNotification (from, idFrom, TBN_TOOLBARCHANGE) = fromMLNmhdr(from, idFrom, ~708)
+            |  compileNotification (from, idFrom, TBN_CUSTHELP) = fromMLNmhdr(from, idFrom, ~709)
+            |  compileNotification (from, idFrom, TBN_DROPDOWN) = fromMLNmhdr(from, idFrom, ~710)
+            |  compileNotification (from, idFrom, TBN_HOTITEMCHANGE) = fromMLNmhdr(from, idFrom, ~713)
+            |  compileNotification (from, idFrom, TBN_DRAGOUT) = fromMLNmhdr(from, idFrom, ~714)
+            |  compileNotification (from, idFrom, TBN_DELETINGBUTTON) = fromMLNmhdr(from, idFrom, ~715)
+            |  compileNotification (from, idFrom, TBN_GETDISPINFO) = fromMLNmhdr(from, idFrom, ~716)
+            |  compileNotification (from, idFrom, TBN_GETINFOTIP) = fromMLNmhdr(from, idFrom, ~718)   
+            |  compileNotification (from, idFrom, UDN_DELTAPOS) = fromMLNmhdr(from, idFrom, ~722)
+            |  compileNotification (from, idFrom, RBN_GETOBJECT) = fromMLNmhdr(from, idFrom, ~832)
+            |  compileNotification (from, idFrom, RBN_LAYOUTCHANGED) = fromMLNmhdr(from, idFrom, ~833)
+            |  compileNotification (from, idFrom, RBN_AUTOSIZE) = fromMLNmhdr(from, idFrom, ~834)
+            |  compileNotification (from, idFrom, RBN_BEGINDRAG) = fromMLNmhdr(from, idFrom, ~835)
+            |  compileNotification (from, idFrom, RBN_ENDDRAG) = fromMLNmhdr(from, idFrom, ~836)
+            |  compileNotification (from, idFrom, RBN_DELETINGBAND) = fromMLNmhdr(from, idFrom, ~837)
+            |  compileNotification (from, idFrom, RBN_DELETEDBAND) = fromMLNmhdr(from, idFrom, ~838)
+            |  compileNotification (from, idFrom, RBN_CHILDSIZE) = fromMLNmhdr(from, idFrom, ~839)
+            |  compileNotification (from, idFrom, CBEN_GETDISPINFO) = fromMLNmhdr(from, idFrom, ~800)
+            |  compileNotification (from, idFrom, CBEN_DRAGBEGIN) = fromMLNmhdr(from, idFrom, ~808)
+            |  compileNotification (from, idFrom, IPN_FIELDCHANGED) = fromMLNmhdr(from, idFrom, ~860)
+            |  compileNotification (from, idFrom, SBN_SIMPLEMODECHANGE) = fromMLNmhdr(from, idFrom, ~880)
+            |  compileNotification (from, idFrom, PGN_SCROLL) = fromMLNmhdr(from, idFrom, ~901)
+            |  compileNotification (from, idFrom, PGN_CALCSIZE) = fromMLNmhdr(from, idFrom, ~902)
+
+            |  compileNotification (from, idFrom, NM_OTHER code) = fromMLNmhdr(from, idFrom, code)
+
+            local
+                fun decompileNotifyArg (_,   ~1) = NM_OUTOFMEMORY
+                 |  decompileNotifyArg (_,   ~2) = NM_CLICK
+                 |  decompileNotifyArg (_,   ~3) = NM_DBLCLK
+                 |  decompileNotifyArg (_,   ~4) = NM_RETURN
+                 |  decompileNotifyArg (_,   ~5) = NM_RCLICK
+                 |  decompileNotifyArg (_,   ~6) = NM_RDBLCLK
+                 |  decompileNotifyArg (_,   ~7) = NM_SETFOCUS
+                 |  decompileNotifyArg (_,   ~8) = NM_KILLFOCUS
+                 |  decompileNotifyArg (_,  ~12) = NM_CUSTOMDRAW
+                 |  decompileNotifyArg (_,  ~13) = NM_HOVER
+                 |  decompileNotifyArg (_,  ~14) = NM_NCHITTEST
+                 |  decompileNotifyArg (_,  ~15) = NM_KEYDOWN
+                 |  decompileNotifyArg (_,  ~16) = NM_RELEASEDCAPTURE
+                 |  decompileNotifyArg (_,  ~17) = NM_SETCURSOR
+                 |  decompileNotifyArg (_,  ~18) = NM_CHAR
+                 |  decompileNotifyArg (_,  ~19) = NM_TOOLTIPSCREATED
+                 |  decompileNotifyArg (_,  ~20) = NM_LDOWN
+                 |  decompileNotifyArg (_,  ~21) = NM_RDOWN
+                 |  decompileNotifyArg (_,  ~22) = NM_THEMECHANGED
+                 |  decompileNotifyArg (_, ~100) = LVN_ITEMCHANGING
+                 |  decompileNotifyArg (_, ~101) = LVN_ITEMCHANGED
+                 |  decompileNotifyArg (_, ~102) = LVN_INSERTITEM
+                 |  decompileNotifyArg (_, ~103) = LVN_DELETEITEM
+                 |  decompileNotifyArg (_, ~104) = LVN_DELETEALLITEMS
+                 |  decompileNotifyArg (_, ~105) = LVN_BEGINLABELEDIT
+                 |  decompileNotifyArg (_, ~106) = LVN_ENDLABELEDIT
+                 |  decompileNotifyArg (_, ~108) = LVN_COLUMNCLICK
+                 |  decompileNotifyArg (_, ~109) = LVN_BEGINDRAG
+                 |  decompileNotifyArg (_, ~111) = LVN_BEGINRDRAG
+                 |  decompileNotifyArg (_, ~150) = LVN_GETDISPINFO
+                 |  decompileNotifyArg (_, ~151) = LVN_SETDISPINFO
+                 |  decompileNotifyArg (_, ~155) = LVN_KEYDOWN
+                 |  decompileNotifyArg (_, ~157) = LVN_GETINFOTIP
+                 |  decompileNotifyArg (_, ~300) = HDN_ITEMCHANGING
+                 |  decompileNotifyArg (_, ~301) = HDN_ITEMCHANGED
+                 |  decompileNotifyArg (_, ~302) = HDN_ITEMCLICK
+                 |  decompileNotifyArg (_, ~303) = HDN_ITEMDBLCLICK
+                 |  decompileNotifyArg (_, ~305) = HDN_DIVIDERDBLCLICK
+                 |  decompileNotifyArg (_, ~306) = HDN_BEGINTRACK
+                 |  decompileNotifyArg (_, ~307) = HDN_ENDTRACK
+                 |  decompileNotifyArg (_, ~308) = HDN_TRACK
+                 |  decompileNotifyArg (_, ~311) = HDN_ENDDRAG
+                 |  decompileNotifyArg (_, ~310) = HDN_BEGINDRAG
+                 |  decompileNotifyArg (_, ~309) = HDN_GETDISPINFO
+                 |  decompileNotifyArg (_, ~401) = TVN_SELCHANGING
+                 |  decompileNotifyArg (_, ~402) = TVN_SELCHANGED
+                 |  decompileNotifyArg (_, ~403) = TVN_GETDISPINFO
+                 |  decompileNotifyArg (_, ~404) = TVN_SETDISPINFO
+                 |  decompileNotifyArg (_, ~405) = TVN_ITEMEXPANDING
+                 |  decompileNotifyArg (_, ~406) = TVN_ITEMEXPANDED
+                 |  decompileNotifyArg (_, ~407) = TVN_BEGINDRAG
+                 |  decompileNotifyArg (_, ~408) = TVN_BEGINRDRAG
+                 |  decompileNotifyArg (_, ~409) = TVN_DELETEITEM
+                 |  decompileNotifyArg (_, ~410) = TVN_BEGINLABELEDIT
+                 |  decompileNotifyArg (_, ~411) = TVN_ENDLABELEDIT
+                 |  decompileNotifyArg (_, ~412) = TVN_KEYDOWN
+                 |  decompileNotifyArg (_, ~413) = TVN_GETINFOTIP
+                 |  decompileNotifyArg (_, ~415) = TVN_SINGLEEXPAND
+                 |  decompileNotifyArg (lp, ~520) =
+                     let
+                         val nmt = toMLNMTTDISPINFO lp
+                         (* Just look at the byte data at the moment. *)
+                     in
+                         TTN_GETDISPINFO(ref(#3 nmt))
+                     end
+                 |  decompileNotifyArg (_, ~521) = TTN_SHOW
+                 |  decompileNotifyArg (_, ~522) = TTN_POP
+                 |  decompileNotifyArg (_, ~550) = TCN_KEYDOWN
+                 |  decompileNotifyArg (_, ~551) = TCN_SELCHANGE
+                 |  decompileNotifyArg (_, ~552) = TCN_SELCHANGING
+                 |  decompileNotifyArg (_, ~700) = TBN_GETBUTTONINFO
+                 |  decompileNotifyArg (_, ~701) = TBN_BEGINDRAG
+                 |  decompileNotifyArg (_, ~702) = TBN_ENDDRAG
+                 |  decompileNotifyArg (_, ~703) = TBN_BEGINADJUST
+                 |  decompileNotifyArg (_, ~704) = TBN_ENDADJUST
+                 |  decompileNotifyArg (_, ~705) = TBN_RESET
+                 |  decompileNotifyArg (_, ~706) = TBN_QUERYINSERT
+                 |  decompileNotifyArg (_, ~707) = TBN_QUERYDELETE
+                 |  decompileNotifyArg (_, ~708) = TBN_TOOLBARCHANGE
+                 |  decompileNotifyArg (_, ~709) = TBN_CUSTHELP
+                 |  decompileNotifyArg (_, ~710) = TBN_DROPDOWN
+                 |  decompileNotifyArg (_, ~713) = TBN_HOTITEMCHANGE
+                 |  decompileNotifyArg (_, ~714) = TBN_DRAGOUT
+                 |  decompileNotifyArg (_, ~715) = TBN_DELETINGBUTTON
+                 |  decompileNotifyArg (_, ~716) = TBN_GETDISPINFO
+                 |  decompileNotifyArg (_, ~718) = TBN_GETINFOTIP (*<<<*)
+                 |  decompileNotifyArg (_, ~722) = UDN_DELTAPOS
+                 |  decompileNotifyArg (_, ~832) = RBN_GETOBJECT
+                 |  decompileNotifyArg (_, ~833) = RBN_LAYOUTCHANGED
+                 |  decompileNotifyArg (_, ~834) = RBN_AUTOSIZE
+                 |  decompileNotifyArg (_, ~835) = RBN_BEGINDRAG
+                 |  decompileNotifyArg (_, ~836) = RBN_ENDDRAG
+                 |  decompileNotifyArg (_, ~837) = RBN_DELETINGBAND
+                 |  decompileNotifyArg (_, ~838) = RBN_DELETEDBAND
+                 |  decompileNotifyArg (_, ~839) = RBN_CHILDSIZE
+                 |  decompileNotifyArg (_, ~800) = CBEN_GETDISPINFO
+                 |  decompileNotifyArg (_, ~808) = CBEN_DRAGBEGIN
+                 |  decompileNotifyArg (_, ~860) = IPN_FIELDCHANGED
+                 |  decompileNotifyArg (_, ~880) = SBN_SIMPLEMODECHANGE
+                 |  decompileNotifyArg (_, ~901) = PGN_SCROLL
+                 |  decompileNotifyArg (_, ~902) = PGN_CALCSIZE     
+                 |  decompileNotifyArg (_, code) = NM_OTHER code
+            in
+                fun decompileNotify {wp, lp} =
+                let
+                    val (hwndFrom, idFrom, code) = toMLNmhdr lp
+                    val notification = decompileNotifyArg (lp, code)
+                in
+                    { idCtrl = SysWord.toInt wp, from = hwndFrom, idFrom = idFrom, notification = notification}
+                end
+            end
+
+        end
         
         local
             val cFINDREPLACE =
@@ -1210,7 +1598,7 @@ struct
                           cWORD, cWORD, cPointer, cPointer, cPointer)
             val {load=loadFindReplace, store=storeFindReplace, ctype={size=sizeFindReplace, ...}, ...} =
                 breakConversion cFINDREPLACE
-            type findMsg = { flags: MessageBase.findReplaceFlags, findWhat: string, replaceWith: string }
+            type findMsg = { flags: FindReplaceFlags.flags, findWhat: string, replaceWith: string }
         in
             fun compileFindMsg({flags, findWhat, replaceWith}: findMsg) =
             let
@@ -1253,17 +1641,98 @@ struct
         and fromHGDIOBJ: HGDIOBJ -> SysWord.word = Memory.voidStar2Sysword o voidStarOfHandle
 
         val {load=loadInt, ctype={size=sizeInt, ...}, ...} = breakConversion cInt
-        and {load=fromCpoint, store=toCpoint, ctype={size=sizePoint, ...},...} = breakConversion cPoint
+
         val {load=fromCscrollinfo, store=toCscrollinfo, ctype = {size=sizeStruct, ...}, ...} =
             breakConversion ScrollBase.cSCROLLINFOSTRUCT
 
-        val (toCsd, fromCsd) = MessageBase.SCROLLDIRECTION
-        and (toCit, fromCit) = MessageBase.IMAGETYPE
-        and (toCcbf, fromCcbf) = clipLookup
-        and (toCmkf, fromCmkf) = MessageBase.MOUSEKEYFLAGS
-        and (toCmdif, fromCmdif) = MessageBase.MDITILEFLAGS
-        and (toCwmpl, fromCwmpl) = MessageBase.WMPRINTOPS
-        and (toCcbal, fromCcbal) = ComboBase.CBDIRATTRS
+        (* Maybe we should have two different types for horizontal and vertical. *)
+        datatype ScrollDirection =
+            SB_BOTTOM | SB_ENDSCROLL | SB_LINEDOWN | SB_LINEUP | SB_PAGEDOWN | SB_PAGEUP |
+            SB_THUMBPOSITION | SB_THUMBTRACK | SB_TOP | SB_LEFT | SB_RIGHT | SB_LINELEFT |
+            SB_LINERIGHT | SB_PAGELEFT | SB_PAGERIGHT
+        local
+            val tab = [
+                (SB_LINEUP,     0w0: word),
+                (SB_LINELEFT,   0w0),
+                (SB_LINEDOWN,   0w1),
+                (SB_LINERIGHT,  0w1),
+                (SB_PAGEUP,     0w2),
+                (SB_PAGELEFT,   0w2),
+                (SB_PAGEDOWN,   0w3),
+                (SB_PAGERIGHT,  0w3),
+                (SB_THUMBPOSITION, 0w4),
+                (SB_THUMBTRACK, 0w5),
+                (SB_TOP,        0w6),
+                (SB_LEFT,       0w6),
+                (SB_BOTTOM,     0w7),
+                (SB_RIGHT,      0w7),
+                (SB_ENDSCROLL,  0w8)
+                ]
+        in
+            val (toCsd, fromCsd) = tableLookup(tab, NONE)
+        end
+
+        (* This is a bit of a mess.  Various operations take or return handles to
+           these types of image and also take this value as a parameter. *)
+        datatype ImageType = IMAGE_BITMAP | IMAGE_CURSOR | IMAGE_ENHMETAFILE | IMAGE_ICON
+    
+        local
+            val tab = [
+                (IMAGE_BITMAP, 0),
+                (IMAGE_ICON, 1),
+                (IMAGE_CURSOR, 2),
+                (IMAGE_ENHMETAFILE, 3)
+                ]
+        in
+            val (toCit, fromCit) = tableLookup(tab, NONE)
+        end
+
+        val (toCcbf, fromCcbf) = clipLookup
+        datatype MouseKeyFlags = MK_LBUTTON | MK_RBUTTON | MK_SHIFT | MK_CONTROL | MK_MBUTTON
+
+        local
+            val tab = [
+                (MK_LBUTTON,        0wx0001),
+                (MK_RBUTTON,        0wx0002),
+                (MK_SHIFT,          0wx0004),
+                (MK_CONTROL,        0wx0008),
+                (MK_MBUTTON,        0wx0010)
+                ]
+        in
+            val (toCmkf, fromCmkf) = tableSetLookup(tab, NONE)
+        end
+        
+
+        datatype MDITileFlags = MDITILE_VERTICAL | MDITILE_HORIZONTAL | MDITILE_SKIPDISABLED
+
+        local
+            val tab = [
+                (MDITILE_VERTICAL,      0wx0000),
+                (MDITILE_HORIZONTAL,    0wx0001),
+                (MDITILE_SKIPDISABLED,  0wx0002)
+                ]
+        in
+            val (toCmdif, fromCmdif) = tableSetLookup(tab, NONE)
+        end
+
+        datatype WMPrintOption = 
+            PRF_CHECKVISIBLE | PRF_NONCLIENT | PRF_CLIENT | PRF_ERASEBKGND |
+            PRF_CHILDREN | PRF_OWNED
+
+        local
+            val tab = [
+                (PRF_CHECKVISIBLE,      0wx00000001),
+                (PRF_NONCLIENT,         0wx00000002),
+                (PRF_CLIENT,            0wx00000004),
+                (PRF_ERASEBKGND,        0wx00000008),
+                (PRF_CHILDREN,          0wx00000010),
+                (PRF_OWNED,             0wx00000020)
+                ]
+        in
+            val (toCwmpl, fromCwmpl) = tableSetLookup(tab, NONE)
+        end
+
+        val (toCcbal, fromCcbal) = ComboBase.CBDIRATTRS
         val (toCesbf, fromCesbf) = ScrollBase.ENABLESCROLLBARFLAG
 
         (*fun itob i = i <> 0*)
@@ -1284,7 +1753,889 @@ struct
             fun makeXYParam (x, y) = ((fromInt y andb 0wxffff) << 0w16) orb (fromInt x andb 0wxffff)
         end
     in
-        open MessageBase (* Get Message, MSG and ImageType *)
+        type flags = WinBase.Style.flags
+        and WindowPositionStyle = WinBase.WindowPositionStyle
+        
+        datatype ControlType = datatype ControlType
+        datatype ScrollDirection = datatype ScrollDirection
+
+        datatype HitTest =
+            HTBORDER
+        |   HTBOTTOM
+        |   HTBOTTOMLEFT
+        |   HTBOTTOMRIGHT
+        |   HTCAPTION
+        |   HTCLIENT
+        |   HTCLOSE
+        |   HTERROR
+        |   HTGROWBOX
+        |   HTHELP
+        |   HTHSCROLL
+        |   HTLEFT
+        |   HTMENU
+        |   HTMAXBUTTON
+        |   HTMINBUTTON
+        |   HTNOWHERE
+        |   HTREDUCE
+        |   HTRIGHT
+        |   HTSIZE
+        |   HTSYSMENU
+        |   HTTOP
+        |   HTTOPLEFT
+        |   HTTOPRIGHT
+        |   HTTRANSPARENT
+        |   HTVSCROLL
+        |   HTZOOM
+
+        datatype LRESULT =
+            LRESINT of int
+        |   LRESHANDLE of HGDIOBJ
+
+        datatype ImageType = datatype ImageType
+
+        (* WM_SIZE options. *)
+        datatype WMSizeOptions =
+            SIZE_RESTORED | SIZE_MINIMIZED | SIZE_MAXIMIZED | SIZE_MAXSHOW | SIZE_MAXHIDE
+        local
+            val tab = [
+                (SIZE_RESTORED,       0w0: SysWord.word),
+                (SIZE_MINIMIZED,      0w1),
+                (SIZE_MAXIMIZED,      0w2),
+                (SIZE_MAXSHOW,        0w3),
+                (SIZE_MAXHIDE,        0w4)
+                ]
+        in
+            val (fromWMSizeOpt, toWMSizeOpt) = tableLookup(tab, NONE)
+        end
+
+        (* WM_ACTIVATE options *)
+        datatype WMActivateOptions = WA_INACTIVE | WA_ACTIVE | WA_CLICKACTIVE
+        local
+            val 
+            tab = [
+                (WA_INACTIVE,       0w0: word),
+                (WA_ACTIVE,         0w1),
+                (WA_CLICKACTIVE,    0w2)
+                ]
+        in
+            val (fromWMactive, toWMactive) = tableLookup(tab, NONE)
+        end
+
+        datatype SystemCommand =
+            SC_SIZE | SC_MOVE | SC_MINIMIZE | SC_MAXIMIZE | SC_NEXTWINDOW | SC_PREVWINDOW |
+            SC_CLOSE | SC_VSCROLL | SC_HSCROLL | SC_MOUSEMENU | SC_KEYMENU | SC_ARRANGE |
+            SC_RESTORE | SC_TASKLIST | SC_SCREENSAVE | SC_HOTKEY | SC_DEFAULT |
+            SC_MONITORPOWER | SC_CONTEXTHELP | SC_SEPARATOR
+        local
+            val tab = [
+                (SC_SIZE,           0xF000),
+                (SC_MOVE,           0xF010),
+                (SC_MINIMIZE,       0xF020),
+                (SC_MAXIMIZE,       0xF030),
+                (SC_NEXTWINDOW,     0xF040),
+                (SC_PREVWINDOW,     0xF050),
+                (SC_CLOSE,          0xF060),
+                (SC_VSCROLL,        0xF070),
+                (SC_HSCROLL,        0xF080),
+                (SC_MOUSEMENU,      0xF090),
+                (SC_KEYMENU,        0xF100),
+                (SC_ARRANGE,        0xF110),
+                (SC_RESTORE,        0xF120),
+                (SC_TASKLIST,       0xF130),
+                (SC_SCREENSAVE,     0xF140),
+                (SC_HOTKEY,         0xF150),
+                (SC_DEFAULT,        0xF160),
+                (SC_MONITORPOWER,   0xF170),
+                (SC_CONTEXTHELP,    0xF180)]
+        in
+            val (fromSysCommand, toSysCommand) = tableLookup(tab, NONE)
+        end
+
+        datatype WMPrintOption = datatype WMPrintOption
+
+        (* Parameters to EM_SETMARGINS. *)
+        datatype MarginSettings = 
+            UseFontInfo | Margins of {left: int option, right: int option }
+
+        datatype MouseKeyFlags = datatype MouseKeyFlags
+        datatype MDITileFlags = datatype MDITileFlags
+
+        (* TODO: Perhaps use a record for this.  It's always possible to use
+           functions from Word32 though. *)
+        type KeyData = Word32.word
+
+        datatype HelpHandle = MenuHandle of HMENU | WindowHandle of HWND
+
+        datatype Notification = datatype Notification
+
+        local
+            val tab =
+            [
+                (HTBORDER,      18),
+                (HTBOTTOM,      15),
+                (HTBOTTOMLEFT,  16),
+                (HTBOTTOMRIGHT, 17),
+                (HTCAPTION,     2),
+                (HTCLIENT,      1),
+                (HTCLOSE,       20),
+                (HTERROR,       ~2),
+                (HTGROWBOX,     4),
+                (HTHELP,        21),
+                (HTHSCROLL,     6),
+                (HTLEFT,        10),
+                (HTMENU,        5),
+                (HTMAXBUTTON,   9),
+                (HTMINBUTTON,   8),
+                (HTNOWHERE,     0),
+                (HTREDUCE,      8),
+                (HTRIGHT,       11),
+                (HTSIZE,        4),
+                (HTSYSMENU,     3),
+                (HTTOP,         12),
+                (HTTOPLEFT,     13),
+                (HTTOPRIGHT,    14),
+                (HTTRANSPARENT, ~1),
+                (HTVSCROLL,     7),
+                (HTZOOM,        9)
+            ]
+        in
+            val (fromHitTest, toHitTest) =
+                tableLookup(tab, SOME(fn _ => HTERROR, fn _ => ~2))
+                    (* Include default just in case a new value is added some time *)
+        end
+
+
+        type findReplaceFlags = FindReplaceFlags.flags
+        type windowFlags = flags
+
+        datatype Message     =
+            WM_NULL
+
+        |   WM_ACTIVATE of {active: WMActivateOptions, minimize: bool }
+                  (* Indicates a change in activation state *)
+
+        |   WM_ACTIVATEAPP of {active: bool, threadid: int  } 
+          (* Notifies applications when a new task activates *)
+
+        |   WM_ASKCBFORMATNAME of { length: int, formatName: string ref} 
+          (* Retrieves the name of the clipboard format *)
+
+        |   WM_CANCELJOURNAL  
+          (* Notifies application when user cancels journaling *)
+
+        |   WM_CANCELMODE 
+          (* Notifies a Window to cancel internal modes *)
+
+        |   WM_CHANGECBCHAIN of { removed: HWND, next: HWND  }  
+          (* Notifies clipboard viewer of removal from chain *)
+
+        |   WM_CHAR of {charCode: char, data: KeyData }                     
+          (* Indicates the user pressed a character key *)
+
+        |   WM_CHARTOITEM of {key: int, caretpos: int, listbox: HWND  }
+          (* Provides list-box keystrokes to owner Window *)
+
+        |   WM_CHILDACTIVATE  
+          (* Notifies a child Window of activation *)
+
+        (* This is WM_USER+1.  It's only used in a GetFont dialogue box.
+        |   WM_CHOOSEFONT_GETLOGFONT of LOGFONT ref *)
+          (* Retrieves LOGFONT structure for Font dialog box *)
+
+        |   WM_CLEAR
+          (* Clears an edit control *)
+
+        |   WM_CLOSE      
+          (* System Close menu command was chosen *)
+
+        |   WM_COMMAND of {notifyCode: int, wId: int, control: HWND }
+          (* Specifies a command message *)
+
+        |   WM_COMPAREITEM of (* Determines position of combo- or list-box item *)
+            {
+                controlid: int, ctlType: ControlType, ctlID: int, hItem: HWND,
+                itemID1: int, itemData1: SysWord.word, itemID2: int, itemData2: SysWord.word                                        
+            }
+
+        |   WM_COPY (* Copies a selection to the clipboard *)
+
+        |   WM_CREATE of
+            { instance: HINSTANCE, creation: Foreign.Memory.voidStar, menu: HMENU, parent: HWND, cy: int, cx: int,
+              y: int, x: int, style: windowFlags, name: string, (* The class may be a string or an atom. *)
+              class: ClassType, extendedstyle: int }
+          (* Indicates a Window is being created *)
+
+        |   WM_CTLCOLORBTN of { displaycontext: HDC, button: HWND }
+          (* Button is about to be drawn *)
+
+        |   WM_CTLCOLORDLG of { displaycontext: HDC, dialogbox: HWND  }
+          (* Dialog box is about to be drawn *)
+
+        |   WM_CTLCOLOREDIT of {  displaycontext: HDC, editcontrol: HWND  }
+          (* Control is about to be drawn *)
+
+        |   WM_CTLCOLORLISTBOX of { displaycontext: HDC, listbox: HWND   }
+          (* List box is about to be drawn *)
+
+        |   WM_CTLCOLORMSGBOX of { displaycontext: HDC, messagebox: HWND  }
+          (* Message box is about to be drawn *)
+
+        |   WM_CTLCOLORSCROLLBAR of { displaycontext: HDC, scrollbar: HWND  }
+          (* Indicates scroll bar is about to be drawn *)
+
+        |   WM_CTLCOLORSTATIC of { displaycontext: HDC, staticcontrol: HWND }
+          (* Control is about to be drawn *)
+          (* Note the return value is an HBRUSH *)
+
+        |   WM_CUT
+          (* Deletes a selection and copies it to the clipboard *)
+
+        |   WM_DEADCHAR of { charCode: char, data: KeyData }
+          (* Indicates the user pressed a dead key *)
+
+        |   WM_DELETEITEM of { senderId: int, ctlType: ControlType, ctlID: int, itemID: int, item: HWND, itemData: int }
+          (* Indicates owner-draw item or control was altered *)
+
+        |   WM_DESTROY    
+          (* Indicates Window is about to be destroyed *)
+
+        |   WM_DESTROYCLIPBOARD   
+          (* Notifies owner that the clipboard was emptied *)
+
+        |   WM_DEVMODECHANGE of { devicename: string }   
+          (* Indicates the device-mode settings have changed *)
+
+        |   WM_DRAWCLIPBOARD  
+          (* Indicates the clipboard's contents have changed *) 
+
+        |   WM_DRAWITEM of
+                { senderId: int, ctlType: ControlType, ctlID: int, itemID: int, itemAction: int,
+                  itemState: int, hItem: HWND , hDC: HDC, rcItem: RECT, itemData: int }   
+          (* Indicates owner-draw control/menu needs redrawing *) 
+
+        |   WM_DROPFILES of { hDrop: HDROP } 
+          (* Indicates that a file has been dropped *)
+
+        |   WM_ENABLE of { enabled: bool }
+          (* Indicates a Window's enable state is changing *)
+
+        |   WM_ENDSESSION of { endsession: bool }
+          (* Indicates whether the Windows session is ending *)
+
+        |   WM_ENTERIDLE of { flag: int, window: HWND }
+          (* Indicates a modal dialog box or menu is idle *)
+
+        |   WM_ENTERMENULOOP of { istrack: bool }
+          (* Indicates entry into menu modal loop *)
+
+        |   WM_EXITMENULOOP of { istrack: bool }
+          (* Indicates exit from menu modal loop *)
+
+        |   WM_ERASEBKGND of { devicecontext: HDC }
+          (* Indicates a Window's background need erasing *)
+
+        |   WM_FONTCHANGE
+          (* Indicates a change in the font-resource pool *)
+
+        |   WM_GETDLGCODE
+          (* Allows dialog procedure to process control input
+             TODO: This has parameters! *)
+
+        |   WM_GETFONT    
+          (* Retrieves the font that a control is using *)
+
+        |   WM_GETHOTKEY
+          (* Gets the virtual-key code of a Window's hot key *) 
+
+        |   WM_GETMINMAXINFO of
+             { maxSize: POINT ref, maxPosition: POINT ref,
+               minTrackSize: POINT ref, maxTrackSize: POINT ref }
+          (* Gets minimum and maximum sizing information *)
+
+        |   WM_GETTEXT of { length: int, text: string ref  } 
+          (* Gets the text that corresponds to a Window *)
+
+        |   WM_GETTEXTLENGTH  
+          (* Gets length of text associated with a Window *)
+
+        |   WM_HOTKEY of { id: int }
+          (* Hot key has been detected *)
+
+        |   WM_HSCROLL of { value: ScrollDirection, position: int, scrollbar: HWND  }    
+          (* Indicates a click in a horizontal scroll bar *)
+
+        |   WM_HSCROLLCLIPBOARD of { viewer: HWND, code: int, position: int  }    
+          (* Prompts owner to scroll clipboard contents *)
+
+        |   WM_ICONERASEBKGND of { devicecontext: HDC }
+          (* Notifies minimized Window to fill icon background *)
+
+        |   WM_INITDIALOG of { dialog: HWND, initdata: int  }
+          (* Initializes a dialog box *)
+
+        |   WM_INITMENU of { menu: HMENU }   
+          (* Indicates a menu is about to become active *)
+
+        |   WM_INITMENUPOPUP of { menupopup: HMENU, itemposition: int, isSystemMenu: bool  }
+          (* Indicates a pop-up menu is being created *)
+
+        |   WM_KEYDOWN of { virtualKey: int, data: KeyData  }   
+          (* Indicates a nonsystem key was pressed *)
+
+        |   WM_KEYUP of { virtualKey: int, data: KeyData  } 
+          (* Indicates a nonsystem key was released *)
+
+        |   WM_KILLFOCUS of { receivefocus: HWND }
+          (* Indicates the Window is losing keyboard focus *)
+
+        |   WM_LBUTTONDBLCLK of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates double-click of left button *) 
+
+        |   WM_LBUTTONDOWN of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates when left mouse button is pressed *)
+
+        |   WM_LBUTTONUP of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates when left mouse button is released *)
+
+        |   WM_MBUTTONDBLCLK of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates double-click of middle mouse button *)
+
+        |   WM_MBUTTONDOWN of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates when middle mouse button is pressed *)
+
+        |   WM_MBUTTONUP of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates when middle mouse button is released *)
+  
+        |   WM_MDICASCADE of { skipDisabled: bool  } 
+          (* Arranges MDI child Windows in cascade format *)
+
+        |   WM_MDICREATE of
+            { class: ClassType, title: string, instance: HINSTANCE, x: int, y: int,
+              cx: int, cy: int, style: int, cdata: int }  
+          (* Prompts MDI client to create a child Window *) 
+
+        |   WM_MDIDESTROY of { child: HWND  }    
+          (* Closes an MDI child Window *) 
+
+        |   WM_MDIGETACTIVE
+          (* Retrieves data about the active MDI child Window *) 
+
+        |   WM_MDIICONARRANGE 
+          (* Arranges minimized MDI child Windows *) 
+
+        |   WM_MDIMAXIMIZE of {  child: HWND  }   
+          (* Maximizes an MDI child Window *) 
+
+        |   WM_MDINEXT of { child: HWND, flagnext: bool  }
+          (* Activates the next MDI child Window *) 
+
+        |   WM_MDIREFRESHMENU
+          (* Refreshes an MDI frame Window's menu *) 
+
+        |   WM_MDIRESTORE of {  child: HWND  }
+          (* Prompts MDI client to restore a child Window *) 
+
+        |   WM_MDISETMENU  of { frameMenu: HMENU, windowMenu: HMENU  } 
+          (* Replaces an MDI frame Window's menu *) 
+
+        |   WM_MDITILE of { tilingflag: MDITileFlags list }
+          (* Arranges MDI child Windows in tiled format *) 
+
+        |   WM_MEASUREITEM of
+            { senderId: int, ctlType: ControlType, ctlID: int, itemID: int, itemWidth: int ref, itemHeight: int ref, itemData: int }  
+          (* Requests dimensions of owner-draw control or item *)
+
+        |   WM_MENUCHAR of { ch: char, menuflag: MenuBase.MenuFlag, menu: HMENU }  
+          (* Indicates an unknown menu mnemonic was pressed *)
+
+        |   WM_MENUSELECT of { menuitem: int, menuflags: MenuBase.MenuFlag list, menu: HMENU  }
+          (* Indicates that the user selected a menu item *)
+
+        |   WM_MOUSEACTIVATE of { parent: HWND, hitTest: HitTest, message: int }
+          (* Indicates a mouse click in an inactive Window *) 
+
+        |   WM_MOUSEMOVE of { keyflags: MouseKeyFlags list, x: int, y: int }  
+          (* Indicates mouse-cursor movement *)
+
+        |   WM_MOUSEHOVER of { keyflags: MouseKeyFlags list, x: int, y: int }
+            (* Indicates the mouse hovering in the client area *)
+    
+        |   WM_MOUSELEAVE
+            (* Indicates the mouse leaving the client area *)
+
+        |   WM_MOVE of { x: int, y: int  }  
+          (* Indicates a Window's position has changed *)
+
+        |   WM_NCACTIVATE of { active: bool }
+          (* Changes the active state of nonclient area *)
+
+        |   WM_NCCALCSIZE of
+            { validarea: bool, newrect: RECT ref, oldrect: RECT, oldclientarea: RECT,
+              hwnd: HWND, insertAfter: HWND, x: int, y: int, cx: int, cy: int, style: WindowPositionStyle list}
+          (* Calculates the size of a Window's client area *)
+
+        |   WM_NCCREATE of
+            { instance: HINSTANCE, creation: Foreign.Memory.voidStar, menu: HMENU, parent: HWND, cy: int, cx: int,
+              y: int, x: int, style: windowFlags, name: string, class: ClassType, extendedstyle: int } 
+          (* Indicates a Window's nonclient area being created *)
+
+        |   WM_NCDESTROY  
+          (* Indicates Window's nonclient area being destroyed *)
+
+        |   WM_NCHITTEST of { x: int, y: int  } 
+          (* Indicates mouse-cursor movement *)
+
+        |   WM_NCLBUTTONDBLCLK of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates nonclient left button double-click *)
+
+        |   WM_NCLBUTTONDOWN  of { hitTest: HitTest, x: int, y: int  } 
+          (* Indicates left button pressed in nonclient area *)
+
+        |   WM_NCLBUTTONUP of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates left button released in nonclient area *)
+
+        |   WM_NCMBUTTONDBLCLK of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates nonclient middle button double-click *)
+
+        |   WM_NCMBUTTONDOWN of { hitTest: HitTest, x: int, y: int  }  
+          (* Indicates middle button pressed in nonclient area *)
+
+        |   WM_NCMBUTTONUP of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates middle button released in nonclient area *)
+
+        |   WM_NCMOUSEMOVE of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates mouse-cursor movement in nonclient area *)
+
+        |   WM_NCMOUSEHOVER of { hitTest: HitTest, x: int, y: int  }
+            (* Indicates the mouse hovering in the nonclient area *)
+    
+        |   WM_NCMOUSELEAVE
+            (* Indicates the mouse leaving the nonclient area *)
+
+        |   WM_NCPAINT of { region: HRGN  }  
+          (* Indicates a Window's frame needs painting *)
+
+        |   WM_NCRBUTTONDBLCLK of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates nonclient right button double-click *)
+
+        |   WM_NCRBUTTONDOWN of { hitTest: HitTest, x: int, y: int  }  
+          (* Indicates right button pressed in nonclient area *)
+
+        |   WM_NCRBUTTONUP of { hitTest: HitTest, x: int, y: int  }    
+          (* Indicates right button released in nonclient area *)
+
+        |   WM_NEXTDLGCTL of { control: int, handleflag: bool  } 
+          (* Sets focus to different dialog box control *) 
+
+        |   WM_PAINT  
+          (* Indicates a Window's client area need painting *)
+
+        |   WM_PAINTCLIPBOARD of { clipboard: HWND }
+          (* Prompts owner to display clipboard contents *)
+
+        |   WM_PAINTICON
+          (* Icon is about to be painted *) 
+
+        |   WM_PALETTECHANGED of { palChg: HWND  }   
+          (* Indicates the focus-Window realized its palette *)
+
+        |   WM_PALETTEISCHANGING of { realize: HWND  }   
+          (* Informs Windows that palette is changing *) 
+
+        |   WM_PARENTNOTIFY of { eventflag: int, idchild: int, value: int }  
+          (* Notifies parent of child-Window activity *) 
+
+        |   WM_PASTE  
+          (* Inserts clipboard data into an edit control *)
+
+        |   WM_POWER of { powerevent: int  } 
+          (* Indicates the system is entering suspended mode *)
+
+        |   WM_QUERYDRAGICON  
+          (* Requests a cursor handle for a minimized Window *)
+
+        |   WM_QUERYENDSESSION of { source: int  }
+          (* Requests that the Windows session be ended *) 
+
+        |   WM_QUERYNEWPALETTE
+          (* Allows a Window to realize its logical palette *) 
+
+        |   WM_QUERYOPEN
+          (* Requests that a minimized Window be restored *) 
+
+        |   WM_QUEUESYNC
+          (* Delimits CBT messages *) 
+
+        |   WM_QUIT of { exitcode: int  }    
+          (* Requests that an application be terminated *)
+
+        |   WM_RBUTTONDBLCLK of { keyflags: MouseKeyFlags list, x: int, y: int  }    
+          (* Indicates double-click of right mouse button *)
+
+        |   WM_RBUTTONDOWN of { keyflags: MouseKeyFlags list, x: int, y: int  }  
+          (* Indicates when right mouse button is pressed *)
+
+        |   WM_RBUTTONUP of { keyflags: MouseKeyFlags list, x: int, y: int  }
+          (* Indicates when right mouse button is released *) 
+
+        |   WM_RENDERALLFORMATS   
+          (* Notifies owner to render all clipboard formats *) 
+
+        |   WM_RENDERFORMAT of { format: ClipboardFormat  }  
+          (* Notifies owner to render clipboard data *) 
+
+        |   WM_SETCURSOR of { cursorwindow: HWND, hitTest: HitTest, mousemessage: int }
+          (* Prompts a Window to set the cursor shape *) 
+
+        |   WM_SETFOCUS of { losing: HWND  }
+
+        |   WM_SETFONT of {font: HFONT, redrawflag: bool  } 
+
+        |   WM_SETHOTKEY of { virtualKey: int  } 
+
+        |   WM_SETREDRAW of { redrawflag: bool  }
+
+        |   WM_SETTEXT of { text: string  }  
+
+        |   WM_SHOWWINDOW of { showflag: bool, statusflag: int  } 
+
+        |   WM_SIZE of { flag: WMSizeOptions, width: int, height: int  }   
+
+        |   WM_SIZECLIPBOARD of { viewer: HWND}
+
+        |   WM_SYSCHAR of { charCode: char, data: KeyData  }
+
+        |   WM_SYSCOLORCHANGE
+
+        |   WM_SYSCOMMAND of { commandvalue: SystemCommand, sysBits: int, p: POINT }
+
+        |   WM_SYSDEADCHAR of { charCode: char, data: KeyData  }
+
+        |   WM_SYSKEYDOWN of { virtualKey: int, data: KeyData  }
+
+        |   WM_SYSKEYUP of { virtualKey: int, data: KeyData  }
+
+        |   WM_TIMECHANGE 
+          (* Indicates the system time has been set *)
+
+        |   WM_TIMER of { timerid: int  }
+
+        |   WM_UNDO   
+
+        |   WM_SYSTEM_OTHER of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
+        |   WM_USER of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
+        |   WM_APP of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
+        |   WM_REGISTERED of { uMsg: int, wParam: SysWord.word, lParam: SysWord.word }
+
+        |   WM_VKEYTOITEM of { virtualKey: int,
+                             caretpos: int,
+                             listbox: HWND  }
+
+        |   WM_VSCROLL of { value: ScrollDirection,
+                          position: int,
+                          scrollbar: HWND  }
+
+        |   WM_VSCROLLCLIPBOARD of { viewer: HWND,
+                                   code: int,
+                                   position: int  }
+
+        |   WM_WINDOWPOSCHANGED of
+                { hwnd: HWND, front: HWND, x: int, y: int, width: int, height: int, flags: WindowPositionStyle list }
+
+        |   WM_WINDOWPOSCHANGING of
+                {
+                    hwnd: HWND, front: HWND ref, x: int ref, y: int ref,
+                    width: int ref, height: int ref, flags: WindowPositionStyle list ref
+                }
+
+        |   WM_NOTIFY of {from: HWND, idCtrl: int, idFrom: int, notification: Notification }
+
+        |   WM_CAPTURECHANGED of { newCapture: HWND }
+
+        |   WM_ENTERSIZEMOVE
+
+        |   WM_EXITSIZEMOVE
+
+        |   WM_PRINT of {hdc: HDC, flags: WMPrintOption list }
+
+        |   WM_PRINTCLIENT of {hdc: HDC, flags: WMPrintOption list }
+
+        |   WM_HELP of { ctrlId: int, itemHandle: HelpHandle, contextId: int, mousePos: POINT }
+
+        |   WM_GETICON of { big: bool }
+
+        |   WM_SETICON of { big: bool, icon: HICON }
+
+        |   WM_CONTEXTMENU of { hwnd: HWND, xPos: int, yPos: int }
+
+        |   WM_DISPLAYCHANGE of { bitsPerPixel: int, xScreen: int, yScreen: int }
+
+        |   EM_CANUNDO
+
+        |   EM_CHARFROMPOS of { point: POINT }
+
+        |   EM_EMPTYUNDOBUFFER
+
+        |   EM_FMTLINES of {addEOL: bool}
+
+        |   EM_GETFIRSTVISIBLELINE
+
+        |   EM_GETLIMITTEXT
+
+        |   EM_GETLINE of { lineNo: int, size: int, result: string ref }
+
+        |   EM_GETLINECOUNT
+
+        |   EM_GETMARGINS
+
+        |   EM_GETMODIFY
+
+        |   EM_GETPASSWORDCHAR
+
+        |   EM_GETRECT of {rect: RECT ref}
+
+        |   EM_GETSEL of {startPos: int ref, endPos: int ref}
+
+        |   EM_GETTHUMB
+
+        |   EM_LIMITTEXT of {limit: int}
+
+        |   EM_LINEFROMCHAR of {index: int}
+
+        |   EM_LINEINDEX of {line: int}
+
+        |   EM_LINELENGTH of {index: int}
+
+        |   EM_LINESCROLL of {xScroll: int, yScroll: int}
+
+        |   EM_POSFROMCHAR of {index: int}
+
+        |   EM_REPLACESEL of {canUndo: bool, text: string}
+
+        |   EM_SCROLL of {action: ScrollDirection}
+
+        |   EM_SCROLLCARET
+
+        |   EM_SETMARGINS of {margins: MarginSettings}
+
+        |   EM_SETMODIFY of { modified: bool }
+
+        |   EM_SETPASSWORDCHAR of { ch: char }
+
+        |   EM_SETREADONLY of { readOnly: bool }
+
+        |   EM_SETRECT of {rect: RECT}
+
+        |   EM_SETRECTNP of {rect: RECT}
+
+        |   EM_SETSEL of {startPos: int, endPos: int}
+
+        |   EM_SETTABSTOPS of {tabs: int list}
+
+        |   EM_UNDO
+
+        |   BM_CLICK
+
+        |   BM_GETCHECK
+
+        |   BM_GETIMAGE of {imageType: ImageType}
+
+        |   BM_GETSTATE
+
+        |   BM_SETCHECK of {state: int}
+
+        |   BM_SETIMAGE of {image: HGDIOBJ, imageType: ImageType}
+
+        |   BM_SETSTATE of {highlight: bool }
+
+        |   BM_SETSTYLE of {redraw: bool, style: windowFlags}
+
+        |   CB_GETEDITSEL of {startPos: int ref, endPos: int ref}
+
+        |   CB_LIMITTEXT of {limit: int}
+
+        |   CB_SETEDITSEL of {startPos: int, endPos: int}
+
+        |   CB_ADDSTRING of { text: string }
+
+        |   CB_DELETESTRING of { index: int }
+
+        |   CB_GETCOUNT
+
+        |   CB_GETCURSEL
+
+        |   CB_DIR of { attrs: ComboBase.CBDirAttr list, fileSpec: string }
+
+        |   CB_GETLBTEXT of { index: int, length: int, text: string ref }
+
+        |   CB_GETLBTEXTLEN of { index: int }
+
+        |   CB_INSERTSTRING of { index: int, text: string }
+
+        |   CB_RESETCONTENT
+
+        |   CB_FINDSTRING of { indexStart: int, text: string }
+
+        |   CB_SELECTSTRING of { indexStart: int, text: string }
+
+        |   CB_SETCURSEL of { index: int }
+
+        |   CB_SHOWDROPDOWN of { show: bool }
+
+        |   CB_GETITEMDATA of { index: int }
+
+        |   CB_SETITEMDATA of { index: int, data: int }
+
+        |   CB_GETDROPPEDCONTROLRECT of { rect: RECT ref }
+
+        |   CB_SETITEMHEIGHT of { index: int, height: int }
+
+        |   CB_GETITEMHEIGHT of { index: int }
+
+        |   CB_SETEXTENDEDUI of { extended: bool }
+
+        |   CB_GETEXTENDEDUI
+
+        |   CB_GETDROPPEDSTATE
+
+        |   CB_FINDSTRINGEXACT of { indexStart: int, text: string }
+
+        |   CB_SETLOCALE of { locale: int }
+
+        |   CB_GETLOCALE
+
+        |   CB_GETTOPINDEX
+
+        |   CB_SETTOPINDEX of { index: int }
+
+        |   CB_GETHORIZONTALEXTENT
+
+        |   CB_SETHORIZONTALEXTENT of { extent: int }
+
+        |   CB_GETDROPPEDWIDTH
+
+        |   CB_SETDROPPEDWIDTH of { width: int }
+
+        |   CB_INITSTORAGE of { items: int, bytes: int }
+
+        |   LB_ADDSTRING of { text: string }
+
+        |   LB_INSERTSTRING of { index: int, text: string }
+
+        |   LB_DELETESTRING of { index: int }
+
+        |   LB_SELITEMRANGEEX of { first: int, last: int }
+
+        |   LB_RESETCONTENT
+
+        |   LB_SETSEL of { select: bool, index: int }
+
+        |   LB_SETCURSEL of { index: int }
+
+        |   LB_GETSEL of { index: int }
+
+        |   LB_GETCURSEL
+
+        |   LB_GETTEXT of { index: int, length: int, text: string ref }
+
+        |   LB_GETTEXTLEN of { index: int }
+
+        |   LB_GETCOUNT
+
+        |   LB_SELECTSTRING of { indexStart: int, text: string }
+
+        |   LB_DIR of { attrs: ComboBase.CBDirAttr list, fileSpec: string }
+
+        |   LB_GETTOPINDEX
+
+        |   LB_FINDSTRING of { indexStart: int, text: string }
+
+        |   LB_GETSELCOUNT
+
+        |   LB_GETSELITEMS of { itemCount: int, items: int list ref }
+
+        |   LB_SETTABSTOPS of { tabs: int list }
+
+        |   LB_GETHORIZONTALEXTENT
+
+        |   LB_SETHORIZONTALEXTENT of { extent: int }
+
+        |   LB_SETCOLUMNWIDTH of { column: int }
+
+        |   LB_ADDFILE of { fileName: string }
+
+        |   LB_SETTOPINDEX of { index: int }
+
+        |   LB_GETITEMRECT of { rect: RECT ref, index: int }
+
+        |   LB_GETITEMDATA of { index: int }
+
+        |   LB_SETITEMDATA of { index: int, data: int }
+
+        |   LB_SELITEMRANGE of { select: bool, first: int, last: int }
+
+        |   LB_SETANCHORINDEX of { index: int }
+
+        |   LB_GETANCHORINDEX
+
+        |   LB_SETCARETINDEX of { index: int, scroll: bool }
+
+        |   LB_GETCARETINDEX
+
+        |   LB_SETITEMHEIGHT of { index: int, height: int }
+
+        |   LB_GETITEMHEIGHT of { index: int }
+
+        |   LB_FINDSTRINGEXACT of { indexStart: int, text: string }
+
+        |   LB_SETLOCALE of { locale: int } (* Should be an abstract type? *)
+
+        |   LB_GETLOCALE (* Result will be the type used above. *)
+
+        |   LB_SETCOUNT of { items: int }
+
+        |   LB_INITSTORAGE of { items: int, bytes: int }
+
+        |   LB_ITEMFROMPOINT of { point: POINT }
+
+        |   STM_GETICON
+
+        |   STM_GETIMAGE of {imageType: ImageType}
+
+        |   STM_SETICON of {icon: HICON}
+
+        |   STM_SETIMAGE of {image: HGDIOBJ, imageType: ImageType}
+
+        |   SBM_SETPOS of { pos: int, redraw: bool }
+
+        |   SBM_GETPOS
+
+        |   SBM_SETRANGE of { minPos: int, maxPos: int }
+
+        |   SBM_SETRANGEREDRAW of { minPos: int, maxPos: int }
+
+        |   SBM_GETRANGE of { minPos: int ref, maxPos: int ref }
+
+        |   SBM_ENABLE_ARROWS of ScrollBase.enableArrows
+
+        |   SBM_SETSCROLLINFO of { info: ScrollBase.SCROLLINFO,
+                                 options: ScrollBase.ScrollInfoOption list }
+
+        |   SBM_GETSCROLLINFO of { info: ScrollBase.SCROLLINFO ref,
+                                 options: ScrollBase.ScrollInfoOption list }
+
+        |   FINDMSGSTRING of
+            { flags: findReplaceFlags, findWhat: string, replaceWith: string }
+
+
+        (* GetMessage and PeekMessage return these values. *)
+        type MSG = {
+            msg: Message,
+            hwnd: HWND,
+            time: Time.time,
+            pt: {x: int, y: int}
+            }
+            
         type HGDIOBJ = HGDIOBJ and HWND = HWND and RECT = RECT and POINT = POINT
         and HMENU = HMENU and HICON = HICON and HINSTANCE = HINSTANCE and HDC = HDC
         and HFONT = HFONT and HRGN = HRGN and HDROP = HDROP
@@ -1368,31 +2719,19 @@ struct
             and toCrect = ignore o storeRect
         end
 
+    val hiWord = Word.toInt o HIWORD o Word32.fromLargeWord
+    and loWord = Word.toInt o LOWORD o Word32.fromLargeWord
+
     (* Decode a received message. *)
     fun decompileMessage (0x0000, _: SysWord.word, _: SysWord.word) = WM_NULL
     
-    |   decompileMessage (0x0001, _, lp) =
-        let
-            val (cp,inst,menu,parent, cy,cx,y,x, style, name,class, extendedstyle) =
-                fromCcreatestruct (toAddr lp)
-        in
-            WM_CREATE
-                { instance = inst, creation = cp, menu = menu, parent = parent, cy = cy, cx = cx,
-                  y = y, x = x, style = Style.fromWord(Word32.toLargeWord style), name = name,
-                  class = class, extendedstyle = extendedstyle }
-        end
+    |   decompileMessage (0x0001, wp, lp) = WM_CREATE(decompileCreate{wp=wp, lp=lp})
 
     |   decompileMessage (0x0002, _, _) = WM_DESTROY
      
-    |   decompileMessage (0x0003, _, lp) =
-        let val lp32 = Word32.fromLargeWord lp in WM_MOVE { x = Word.toInt(LOWORD lp32), y = Word.toInt(HIWORD lp32) } end
+    |   decompileMessage (0x0003, _, lp) = WM_MOVE { x = loWord lp, y = hiWord lp }
 
-    |   decompileMessage (0x0005, wp, lp) =
-        let
-            val lp32 = Word32.fromLargeWord lp
-        in
-            WM_SIZE { flag = toWMSizeOpt wp, width = Word.toInt(LOWORD lp32), height = Word.toInt(HIWORD lp32) }
-        end
+    |   decompileMessage (0x0005, wp, lp) = WM_SIZE { flag = toWMSizeOpt wp, width = loWord lp, height = hiWord lp }
 
     |   decompileMessage (0x0006, wp, _) =
         let
@@ -1410,11 +2749,10 @@ struct
     |   decompileMessage (0x000B, wp, _) = WM_SETREDRAW { redrawflag = wp <> 0w0  }
 
     |   decompileMessage (0x000C, _, lp) = WM_SETTEXT { text = fromCstring(toAddr lp)  }
-(*
 
-          (* When the message arrives we don't know what the text is. *)
-    |   decompileMessage (0x000D, wp, lp) = WM_GETTEXT { length = SysWord.toInt wp, text = ref ""  }
-*)
+        (* When the message arrives we don't know what the text is. *)
+    |   decompileMessage (0x000D, wp, _) = WM_GETTEXT { length = SysWord.toInt wp, text = ref ""  }
+
     |   decompileMessage ( 0x000E, _, _) = WM_GETTEXTLENGTH
     
     |   decompileMessage ( 0x000F, _, _) = WM_PAINT
@@ -1446,20 +2784,12 @@ struct
     |   decompileMessage ( 0x001F, _, _) = WM_CANCELMODE (* "0x001F" *)
     
     |   decompileMessage ( 0x0020, wp, lp) =
-        let
-            val lp32 = Word32.fromLargeWord lp
-        in
             WM_SETCURSOR
-                { cursorwindow = toHWND wp, hitTest = toHitTest(Word.toInt(LOWORD lp32)), mousemessage = Word.toInt(HIWORD lp32) }
-        end
+                { cursorwindow = toHWND wp, hitTest = toHitTest(loWord lp), mousemessage = hiWord lp }
     
     |   decompileMessage ( 0x0021, wp, lp) =
-        let
-            val lp32 = Word32.fromLargeWord lp
-        in
             WM_MOUSEACTIVATE
-                { parent = toHWND wp, hitTest = toHitTest(Word.toInt(LOWORD lp32)), message = Word.toInt(HIWORD lp32)  }
-        end
+                { parent = toHWND wp, hitTest = toHitTest(loWord lp), message = hiWord lp }
     
     |   decompileMessage (0x0022, _, _) = WM_CHILDACTIVATE (* "0x0022" *)
     
@@ -1472,61 +2802,43 @@ struct
     |   decompileMessage ( 0x0027, wp, _) = WM_ICONERASEBKGND { devicecontext = toHDC wp } (* "0x0027" *)
     
     |   decompileMessage ( 0x0028, wp, lp) = WM_NEXTDLGCTL { control = SysWord.toInt wp, handleflag = lp <> 0w0  } (* "0x0028" *)
-(* 
-    |   decompileMessage ( 0x002B =>
-            let
-              val (ctlType,ctlID,itemID,itemAction,itemState,hItem,hDC,
-                   rcItem,itemData) = 
-                fromCdrawitemstruct(deref lp) 
-            in
-                WM_DRAWITEM  { controlid = SysWord.toInt wp,
-                            ctlType = ctlType,
-                            ctlID = ctlID,
-                            itemID = itemID,
-                            itemAction = itemAction,
-                            itemState = itemState,
-                            hItem = hItem,
-                            hDC = hDC,
-                            rcItem = rcItem,
-                            itemData = itemData
-                           }
-            end
+
+    |   decompileMessage (0x002B, wp, lp) =
+        let
+            val (ctlType,ctlID,itemID,itemAction,itemState,hItem,hDC, rcItem,itemData) = 
+                toMLDrawItem lp
+        in
+            WM_DRAWITEM{ senderId = SysWord.toInt wp, ctlType = ctlType, ctlID = ctlID, itemID = itemID,
+              itemAction = itemAction, itemState = itemState, hItem = hItem, hDC = hDC,
+              rcItem = rcItem, itemData = itemData }
+        end
+
+    |   decompileMessage (0x002C, wp, lp) =
+        let
+            val (ctlType,ctlID,itemID, itemWidth,itemHeight,itemData) = toMLMeasureItem lp       
+        in
+            WM_MEASUREITEM
+            {
+                senderId = SysWord.toInt wp, ctlType = ctlType, ctlID = ctlID,
+                itemID = itemID, itemWidth = ref itemWidth, itemHeight = ref itemHeight, itemData = itemData 
+            }
+        end
+
+    |   decompileMessage (0x002D, wp, lp) =
+        let
+            val (ctlType,ctlID,itemID,hItem,itemData) = toMLDeleteItem lp
+        in
+            WM_DELETEITEM
+                { senderId = SysWord.toInt wp, ctlType = ctlType, ctlID = ctlID, itemID = itemID,
+                  item = hItem, itemData = itemData }
+        end
+
+    |   decompileMessage ( 0x002E, wp, lp) =
+            WM_VKEYTOITEM  { virtualKey = loWord wp, caretpos = hiWord wp, listbox = toHWND lp  } (* "0x002E" *)
     
-    |   decompileMessage ( 0x002C =>
-            let
-                val (ctlType,ctlID,itemID, itemWidth,itemHeight,itemData) =
-                    fromCmeasureitemstruct (deref lp)
-            in
-                WM_MEASUREITEM {controlid = SysWord.toInt wp,
-                              ctlType = ctlType,
-                              ctlID = ctlID,
-                              itemID = itemID,
-                              itemWidth = itemWidth,
-                              itemHeight = itemHeight,
-                              itemData = itemData 
-                         }
-            end
-    
-    |   decompileMessage ( 0x002D =>
-            let
-                val (ctlType,ctlID,itemID,hItem,itemData) = 
-                      fromCdeleteitemstruct(deref lp)
-            in
-                WM_DELETEITEM { controlid = SysWord.toInt wp,
-                             ctlType = ctlType,
-                             ctlID = ctlID,
-                             itemID = itemID,
-                             item = hItem,
-                             itemData = itemData                                         
-                            }
-            end
-    
-    |   decompileMessage ( 0x002E, wp, lp) = WM_VKEYTOITEM  { virtualKey = LOWORD (fromCuint wp),
-                                  caretpos = HIWORD (fromCuint wp), listbox = toHWND lp  } (* "0x002E" *)
-    
-    |   decompileMessage ( 0x002F, wp, lp) = WM_CHARTOITEM { key = LOWORD (fromCuint wp),
-                                 caretpos = HIWORD (fromCuint wp),listbox  = toHWND lp  } (* "0x002F" *)
-*)
+    |   decompileMessage ( 0x002F, wp, lp) =
+            WM_CHARTOITEM { key = loWord wp, caretpos = hiWord wp,listbox  = toHWND lp  } (* "0x002F" *)
+
     |   decompileMessage ( 0x0030, wp, lp) =
             (* The definition of WM_SETFONT says that it is the low order word of lp that says whether the
                control should be redrawn immediately. *)
@@ -1540,36 +2852,29 @@ struct
     
     |   decompileMessage ( 0x0037, _, _) = WM_QUERYDRAGICON (* "0x0037" *)
     
-    |   decompileMessage (0x0039, wp, lp) = WM_COMPAREITEM(cToMLwmCompareItem{wp=wp, lp=lp}) (* "0x0039" *)
+    |   decompileMessage (0x0039, wp, lp) =
+        let
+            val (ctlType, ctlID, hItem, itemID1, itemData1, itemID2, itemData2, _) = toMLCompareItem lp       
+        in
+            WM_COMPAREITEM
+            {
+                controlid = SysWord.toInt wp, ctlType = ctlType, ctlID = ctlID, hItem = hItem,
+                itemID1 = itemID1, itemData1 = itemData1, itemID2 = itemID2, itemData2 = itemData2
+            }
+        end
 
     |   decompileMessage (0x0046, wp, lp) = WM_WINDOWPOSCHANGING(cToMLWindowPosChanging{wp=wp, lp=lp})
 
     |   decompileMessage (0x0047, wp, lp) = WM_WINDOWPOSCHANGED(cToMLWindowPosChanged{wp=wp, lp=lp})
 
     |   decompileMessage ( 0x0048, wp, _) = WM_POWER { powerevent = SysWord.toInt wp  } (* "0x0048" *)
-(*
-    |   decompileMessage ( 0x004A =>
-            let
-                val (data,cbData,lpData) = fromCcopydata(deref lp)
-                (* Extract the memory block as a Word8Vector.vector. *)
-                (* TODO: Test this.  Have we got the correct level of indirection? *)
-                val pdata = toWord8vec (lpData, cbData)
-            in
-                WM_COPYDATA  { sender = toHWND wp, data = data, pdata = pdata }
-            end
-*)
-    |   decompileMessage ( 0x004B, _, _) = WM_CANCELJOURNAL (* "0x004B" *)
-(*
-    |   decompileMessage ( 0x004E =>
-            let
-                val (hwndFrom, idFrom, code) = fromCnmhdr (deref lp)
-                val notification = decompileNotification (lp, code)
-            in
-                WM_NOTIFY  { idCtrl = SysWord.toInt wp, from = hwndFrom, idFrom = idFrom,
-                             notification = notification}
-            end
 
-    |   decompileMessage ( 0x0053 =>
+    |   decompileMessage ( 0x004B, _, _) = WM_CANCELJOURNAL (* "0x004B" *)
+
+    |   decompileMessage ( 0x004E, wp, lp) = WM_NOTIFY(decompileNotify{wp=wp, lp=lp})
+
+(*
+    |   decompileMessage ( 0x0053, wp, lp) =
             let
                 val (_, contextType, ctrlId, itemHandle, contextId, mousePos) =
                     fromChelpinfo(deref lp)
@@ -1596,83 +2901,25 @@ WM_CONTEXTMENU                  0x007B
 WM_STYLECHANGING                0x007C
 WM_STYLECHANGED                 0x007D
 *)
-
-    |   decompileMessage ( 0x007B =>
-            WM_CONTEXTMENU { hwnd = toHWND wp, xPos = LOWORD (fromCuint lp), yPos = HIWORD (fromCuint lp)}
-
-    |   decompileMessage ( 0x007E =>
-            WM_DISPLAYCHANGE { bitsPerPixel = SysWord.toInt wp, xScreen = LOWORD (fromCuint lp), yScreen = HIWORD (fromCuint lp)}
-
-    |   decompileMessage ( 0x007F => WM_GETICON { big = SysWord.toInt wp = 1}
-
-    |   decompileMessage ( 0x0080 => WM_SETICON { big = SysWord.toInt wp = 1, icon = toHICON lp}
-
-    |   decompileMessage ( 0x0081 =>
-            let
-                val (cp,inst,menu,parent, cy,cx,y,x, style, name,class, extendedstyle) =
-                    fromCcreatestruct (deref lp)
-            in
-                WM_NCCREATE { instance = inst,
-                         creation = cp,
-                         menu = menu,
-                         parent = parent,
-                         cy = cy,
-                         cx = cx,
-                         y = y,
-                         x = x,
-                         style = Style.fromWord style,
-                         name = name,
-                         class = class,
-                         extendedstyle = extendedstyle }
-            end
 *)
+    |   decompileMessage ( 0x007B, wp, lp) =
+            WM_CONTEXTMENU { hwnd = toHWND wp, xPos = loWord lp, yPos = hiWord lp}
+
+    |   decompileMessage ( 0x007E, wp, lp) =
+            WM_DISPLAYCHANGE { bitsPerPixel = SysWord.toInt wp, xScreen = loWord lp, yScreen = hiWord lp}
+
+    |   decompileMessage ( 0x007F, wp, _) = WM_GETICON { big = SysWord.toInt wp = 1}
+
+    |   decompileMessage ( 0x0080, wp, lp) = WM_SETICON { big = SysWord.toInt wp = 1, icon = toHICON lp}
+
+    |   decompileMessage ( 0x0081, wp, lp) = WM_NCCREATE(decompileCreate{wp=wp, lp=lp})
+
     |   decompileMessage ( 0x0082, _, _) = WM_NCDESTROY
-(*
-    |   decompileMessage ( 0x0083 =>
-            if itob (SysWord.toInt wp)
-            then
-                let
-                    val (newrect,oldrect,oldclientarea,winpos) =
-                        fromCncalcsizestruct (deref lp)
-                    val (wh,front,x,y,cx,cy,style) = winpos 
-                in
-                    WM_NCCALCSIZE 
-                          { 
-                            validarea = true,
-                            newrect = ref newrect,
-                            oldrect = oldrect,
-                            oldclientarea = oldclientarea,
-                            hwnd = wh,
-                            insertAfter = front,
-                            x = x,
-                            y = y,
-                            cx = cx,
-                            cy = cy,
-                            style = style 
-                            }
-                end
-            else (* lParam points to a rect. *)
-                let
-                    val newrect = fromCrect (deref lp)
-                in
-                    WM_NCCALCSIZE 
-                      { 
-                        validarea = false,
-                        newrect = ref newrect,
-                        oldrect = {left=0, top=0, right=0, bottom=0},
-                        oldclientarea = {left=0, top=0, right=0, bottom=0},
-                        insertAfter = hwndNull,
-                        hwnd = hwndNull,
-                        x = 0,
-                        y = 0,
-                        cx = 0,
-                        cy = 0,
-                        style = [] 
-                        }
-                end
 
-    |   decompileMessage ( 0x0084, wp, lp) = WM_NCHITTEST { x = LOWORD (fromCuint lp), y = HIWORD (fromCuint lp)  } (* "0x0084" *)
-*)
+    |   decompileMessage ( 0x0083, wp, lp) = WM_NCCALCSIZE(decompileNCCalcSize{wp=wp, lp=lp})
+
+    |   decompileMessage ( 0x0084, _, lp) = WM_NCHITTEST { x = loWord lp, y = hiWord lp  } (* "0x0084" *)
+
     |   decompileMessage ( 0x0085, wp, _) = WM_NCPAINT { region = toHRGN wp  } (* "0x0085" *)
     
     |   decompileMessage ( 0x0086, wp, _) = WM_NCACTIVATE  { active = wp <> 0w0 } (* "0x0086" *)
@@ -1729,75 +2976,79 @@ EM_SETHANDLE            0x00BC
     |   decompileMessage ( 0x00BE, _, _) = EM_GETTHUMB
 
     |   decompileMessage ( 0x00C1, wp, _) = EM_LINELENGTH {index = SysWord.toIntX (* May be -1 *) wp}
-(*
-    |   decompileMessage ( 0x00C2, wp, lp) = EM_REPLACESEL {canUndo = itob (SysWord.toInt wp), text = fromCstring lp}
+
+    |   decompileMessage ( 0x00C2, wp, lp) = EM_REPLACESEL {canUndo = wp <> 0w0, text = fromCstring(toAddr lp)}
 
             (* All we know at this stage is the number of characters. *)
-    |   decompileMessage ( 0x00C4 =>
+(*
+    |   decompileMessage ( 0x00C4, wp, lp) =
                 EM_GETLINE { lineNo = SysWord.toInt wp, size = SysWord.toInt(deref lp), result = ref "" }
-
-    |   decompileMessage ( 0x00C5, wp, lp) = EM_LIMITTEXT {limit = SysWord.toInt wp}
 *)
+    |   decompileMessage ( 0x00C5, wp, _) = EM_LIMITTEXT {limit = SysWord.toInt wp}
+
     |   decompileMessage ( 0x00C6, _, _) = EM_CANUNDO
 
     |   decompileMessage ( 0x00C7, _, _) = EM_UNDO
+
+    |   decompileMessage ( 0x00C8, wp, _) = EM_FMTLINES{addEOL = wp <> 0w0}
+
+    |   decompileMessage ( 0x00C9, wp, _) = EM_LINEFROMCHAR{index = SysWord.toInt wp}
 (*
-    |   decompileMessage ( 0x00C8, wp, lp) = EM_FMTLINES{addEOL = itob (SysWord.toInt wp)}
-
-    |   decompileMessage ( 0x00C9, wp, lp) = EM_LINEFROMCHAR{index = SysWord.toInt wp}
-
-    |   decompileMessage ( 0x00CB =>
+    |   decompileMessage ( 0x00CB, wp, lp) =
             let
                 val v = deref lp
                 fun getTab i = SysWord.toInt(offset i Cint v)
             in
                 EM_SETTABSTOPS{tabs=List.tabulate((SysWord.toInt wp), getTab)}
             end
-
-    |   decompileMessage ( 0x00CC, wp, lp) = EM_SETPASSWORDCHAR{ch = chr (SysWord.toInt wp)}
 *)
+    |   decompileMessage ( 0x00CC, wp, _) = EM_SETPASSWORDCHAR{ch = chr (SysWord.toInt wp)}
+
     |   decompileMessage ( 0x00CD, _, _) = EM_EMPTYUNDOBUFFER
 
     |   decompileMessage ( 0x00CE, _, _) = EM_GETFIRSTVISIBLELINE
-(*
-    |   decompileMessage ( 0x00CF, wp, lp) = EM_SETREADONLY{readOnly = itob (SysWord.toInt wp)}
+
+    |   decompileMessage ( 0x00CF, wp, _) = EM_SETREADONLY{readOnly = wp <> 0w0}
 (*
 EM_SETWORDBREAKPROC     0x00D0
 EM_GETWORDBREAKPROC     0x00D1
 *)
-      |  0x00D2, wp, lp) = EM_GETPASSWORDCHAR
 
+   |   decompileMessage (0x00D2, _, _) = EM_GETPASSWORDCHAR
+(*
     |   decompileMessage (0x00D3 =>
-            if (SysWord.toInt wp) = 0xffff then EM_SETMARGINS{margins=UseFontInfo}
+            if SysWord.toInt wp = 0xffff then EM_SETMARGINS{margins=UseFontInfo}
             else
             let
                 val left =
                     if IntInf.andb((SysWord.toInt wp), 1) <> 0
-                    then SOME(LOWORD (fromCuint lp))
+                    then SOME(loWord lp)
                     else NONE
                 val right =
                     if IntInf.andb((SysWord.toInt wp), 2) <> 0
-                    then SOME(HIWORD (fromCuint lp))
+                    then SOME(hiWord lp)
                     else NONE
             in
                 EM_SETMARGINS{margins=Margins{left=left, right=right}}
             end
+*)
+    |   decompileMessage (0x00D4, _, _) = EM_GETMARGINS
 
-    |   decompileMessage (0x00D4, wp, lp) = EM_GETMARGINS
+    |   decompileMessage (0x00D5, _, _) = EM_GETLIMITTEXT
 
-    |   decompileMessage (0x00D5, wp, lp) = EM_GETLIMITTEXT
-
-    |   decompileMessage (0x00D6, wp, lp) = EM_POSFROMCHAR {index = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x00D7 =>
+    |   decompileMessage (0x00D6, wp, _) = EM_POSFROMCHAR {index = SysWord.toInt wp}
+(*
+    |   decompileMessage (0x00D7, wp, lp_) =
             let
                 val pt = fromCuint (deref lp)
             in
+                (* The value of lp depends on whether this is an edit control or a rich edit control.
+                   This looks like it's assuming a rich-edit control. *)
                 EM_CHARFROMPOS { point = {x = LOWORD pt, y = HIWORD pt} }
-            end
-
+           end
+ *)
 (* Scroll bar messages *)
-*)
+
     |   decompileMessage (0x00E0, wp, lp) = SBM_SETPOS {pos = SysWord.toInt wp, redraw = lp <> 0w0}
 
     |   decompileMessage (0x00E1, _, _) = SBM_GETPOS
@@ -1829,16 +3080,15 @@ EM_GETWORDBREAKPROC     0x00D1
 
 *)
 (* Button control messages *)
-
     |   decompileMessage (0x00F0, _, _) = BM_GETCHECK
 
-    |   decompileMessage (0x00F1, wp, _) = BM_SETCHECK{state = (SysWord.toInt wp)}
+    |   decompileMessage (0x00F1, wp, _) = BM_SETCHECK{state = SysWord.toInt wp}
 
     |   decompileMessage (0x00F2, _, _) = BM_GETSTATE
 
-    |   decompileMessage (0x00F3, wp, _) = BM_SETSTATE{highlight = (SysWord.toInt wp) <> 0}
+    |   decompileMessage (0x00F3, wp, _) = BM_SETSTATE{highlight = SysWord.toInt wp <> 0}
 
-    |   decompileMessage (0x00F4, wp, lp) = BM_SETSTYLE{redraw = (SysWord.toInt lp) <> 0, style = Style.fromWord(LargeWord.fromInt (SysWord.toInt wp))}
+    |   decompileMessage (0x00F4, wp, lp) = BM_SETSTYLE{redraw = SysWord.toInt lp <> 0, style = Style.fromWord wp}
 
     |   decompileMessage (0x00F5, _, _) = BM_CLICK
 
@@ -1854,9 +3104,9 @@ EM_GETWORDBREAKPROC     0x00D1
     
     |   decompileMessage (0x0103, wp, lp) = WM_DEADCHAR { charCode = chr (SysWord.toInt wp), data = Word32.fromLargeWord lp  }
     
-    |   decompileMessage (0x0104, wp, lp) = WM_SYSKEYDOWN { virtualKey = (SysWord.toInt wp), data = Word32.fromLargeWord lp }
+    |   decompileMessage (0x0104, wp, lp) = WM_SYSKEYDOWN { virtualKey = SysWord.toInt wp, data = Word32.fromLargeWord lp }
     
-    |   decompileMessage (0x0105, wp, lp) = WM_SYSKEYUP { virtualKey = (SysWord.toInt wp), data = Word32.fromLargeWord lp }
+    |   decompileMessage (0x0105, wp, lp) = WM_SYSKEYUP { virtualKey = SysWord.toInt wp, data = Word32.fromLargeWord lp }
     
     |   decompileMessage (0x0106, wp, lp) = WM_SYSCHAR { charCode = chr (SysWord.toInt wp), data = Word32.fromLargeWord lp }
     
@@ -1868,7 +3118,7 @@ WM_IME_COMPOSITION              0x010F
 WM_IME_KEYLAST                  0x010F
 *)
     
-    |   decompileMessage (0x0110, wp, lp) = WM_INITDIALOG { dialog   = toHWND wp, initdata = (SysWord.toInt lp) } (* "0x0110" *)
+    |   decompileMessage (0x0110, wp, lp) = WM_INITDIALOG { dialog   = toHWND wp, initdata = SysWord.toInt lp } (* "0x0110" *)
 
     |   decompileMessage (0x0111, wp, lp) =
         let
@@ -1876,40 +3126,48 @@ WM_IME_KEYLAST                  0x010F
         in
             WM_COMMAND { notifyCode = Word.toInt(HIWORD wp32), wId = Word.toInt(LOWORD wp32), control = toHWND lp  }
         end
-(*
-    |   decompileMessage (0x0112, wp, lp) = WM_SYSCOMMAND
-            let
-                val uIntWp = fromCuint wp
-                val uIntLp = fromCuint lp
-            in
-                { commandvalue = MessageBase.toSysCommand(IntInf.andb(uIntWp, 0xFFF0)),
-                  sysBits = IntInf.andb(uIntWp, 0xF),
-                  p = {x= LOWORD uIntLp,y= HIWORD uIntLp}}
-            end
-*)
-    |   decompileMessage (0x0113, wp, _) = WM_TIMER  { timerid = (SysWord.toInt wp)  } (* "0x0113" *)
-(*
-    |   decompileMessage (0x0114, wp, lp) = WM_HSCROLL { value = fromCsd(SysWord.fromInt(LOWORD (fromCuint wp))),
-                              position = HIWORD (fromCuint wp), scrollbar = toHWND lp } (* "0x0114" *)
+
+    |   decompileMessage (0x0112, wp, lp) =
+            WM_SYSCOMMAND
+                { commandvalue = toSysCommand(SysWord.toInt(SysWord.andb(wp, 0wxFFF0))),
+                  sysBits = SysWord.toInt(SysWord.andb(wp, 0wxF)),
+                  p = {x= getXLParam lp, y= getYLParam lp}}
+
+    |   decompileMessage (0x0113, wp, _) = WM_TIMER  { timerid = SysWord.toInt wp  } (* "0x0113" *)
+
+    |   decompileMessage (0x0114, wp, lp) =
+            WM_HSCROLL { value = fromCsd(LOWORD(Word32.fromLargeWord wp)), position = hiWord wp, scrollbar = toHWND lp } (* "0x0114" *)
     
-    |   decompileMessage (0x0115, wp, lp) = WM_VSCROLL { value = fromCsd(SysWord.fromInt(LOWORD (fromCuint wp))), position  = HIWORD (fromCuint wp),
-                              scrollbar = toHWND lp } (* "0x0115" *)
-*)
+    |   decompileMessage (0x0115, wp, lp) =
+            WM_VSCROLL { value = fromCsd(LOWORD(Word32.fromLargeWord wp)), position  = hiWord wp, scrollbar = toHWND lp } (* "0x0115" *)
+
     |   decompileMessage (0x0116, wp, _) = WM_INITMENU { menu = toHMENU wp } (* "0x0116" *)
-(*
-    |   decompileMessage (0x0117, wp, lp) = WM_INITMENUPOPUP { menupopup  = toHMENU wp,
-                                    itemposition = LOWORD (fromCuint lp), isSystemMenu = itob (HIWORD (fromCuint lp)) } (* "0x0117" *)
+
+    |   decompileMessage (0x0117, wp, lp) =
+            WM_INITMENUPOPUP { menupopup  = toHMENU wp, itemposition = loWord lp, isSystemMenu = hiWord lp <> 0 } (* "0x0117" *)
     
-    |   decompileMessage (0x011F, wp, lp) = WM_MENUSELECT { menuitem  = LOWORD (fromCuint wp),
-                                    menuflags = MenuBase.toMenuFlagSet(IntInf.andb(HIWORD (fromCuint wp), 65535)),
-                                    menu= toHMENU lp } (* "0x011F" *)
+    |   decompileMessage (0x011F, wp, lp) =
+        let
+            val wp32 = Word32.fromLargeWord wp
+        in
+            WM_MENUSELECT { menuitem = Word.toInt(LOWORD wp32),
+                            menuflags =
+                                MenuBase.toMenuFlagSet(Word32.fromLargeWord(Word.toLargeWord(Word.andb(HIWORD wp32, 0wxffff)))),
+                            menu = toHMENU lp } (* "0x011F" *)
+        end
     
-    |   decompileMessage (0x0120, wp, lp) = WM_MENUCHAR { ch = chr (LOWORD (fromCuint wp)),
-                                  menuflag = MenuBase.toMenuFlag(IntInf.andb(HIWORD (fromCuint wp), 65535)),
-                                  menu= toHMENU lp  } (* "0x0120" *)
+    |   decompileMessage (0x0120, wp, lp) =
+        let
+            val wp32 = Word32.fromLargeWord wp
+        in
+            WM_MENUCHAR { ch = chr(Word.toInt(LOWORD wp32)),
+                          menuflag = (* Just a single flag *)
+                                MenuBase.toMenuFlag(Word32.fromLargeWord(Word.toLargeWord(Word.andb(HIWORD wp32, 0wxffff)))),
+                          menu= toHMENU lp  } (* "0x0120" *)
+        end
     
-    |   decompileMessage (0x0121, wp, lp) = WM_ENTERIDLE { flag = (SysWord.toInt wp), window = toHWND lp } (* "0x0121" *)
-*)
+    |   decompileMessage (0x0121, wp, lp) = WM_ENTERIDLE { flag = SysWord.toInt wp, window = toHWND lp } (* "0x0121" *)
+
     |   decompileMessage (0x0132, wp, lp) = WM_CTLCOLORMSGBOX { displaycontext = toHDC wp, messagebox = toHWND lp  } (* "0x0132" *)
     
     |   decompileMessage (0x0133, wp, lp) = WM_CTLCOLOREDIT { displaycontext = toHDC wp, editcontrol = toHWND lp  } (* "0x0133" *)
@@ -1923,36 +3181,37 @@ WM_IME_KEYLAST                  0x010F
     |   decompileMessage (0x0137, wp, lp) = WM_CTLCOLORSCROLLBAR { displaycontext = toHDC wp, scrollbar = toHWND lp  } (* "0x0137" *)
     
     |   decompileMessage (0x0138, wp, lp) = WM_CTLCOLORSTATIC { displaycontext = toHDC wp, staticcontrol = toHWND lp  } (* "0x0138" *)
+
 (* Combobox messages. *)
-
     |   decompileMessage (0x0140, wp, lp) = CB_GETEDITSEL (decompileGetSel{wp=wp, lp=lp})
-(*
-    |   decompileMessage (0x0141, wp, lp) = CB_LIMITTEXT {limit = (SysWord.toInt wp)}
 
-    |   decompileMessage (0x0142, wp, lp) = CB_SETEDITSEL { startPos = LOWORD (fromCuint lp), endPos = HIWORD (fromCuint lp) }
+    |   decompileMessage (0x0141, wp, _) = CB_LIMITTEXT {limit = SysWord.toInt wp}
 
-    |   decompileMessage (0x0143, wp, lp) = CB_ADDSTRING {text = fromCstring lp }
+    |   decompileMessage (0x0142, _, lp) = CB_SETEDITSEL { startPos = loWord lp, endPos = hiWord lp }
 
-    |   decompileMessage (0x0144, wp, lp) = CB_DELETESTRING {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x0143, _, lp) = CB_ADDSTRING {text = fromCstring(toAddr lp) }
 
-    |   decompileMessage (0x0145, wp, lp) = CB_DIR {attrs = fromCcbal  wp, fileSpec = fromCstring lp }
-*)
+    |   decompileMessage (0x0144, wp, _) = CB_DELETESTRING {index = SysWord.toInt wp}
+
+    |   decompileMessage (0x0145, wp, lp) =
+            CB_DIR {attrs = fromCcbal(Word32.fromLargeWord wp), fileSpec = fromCstring(toAddr lp) }
+
     |   decompileMessage (0x0146, _, _) = CB_GETCOUNT
 
     |   decompileMessage (0x0147, _, _) = CB_GETCURSEL
-(*
-    |   decompileMessage (0x0148, wp, lp) = CB_GETLBTEXT { index = (SysWord.toInt wp), length = ~1, text = ref ""  }
 
-    |   decompileMessage (0x0149, wp, lp) = CB_GETLBTEXTLEN {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x0148, wp, _) = CB_GETLBTEXT { index = SysWord.toInt wp, length = ~1, text = ref ""  }
 
-    |   decompileMessage (0x014A, wp, lp) = CB_INSERTSTRING {text = fromCstring lp, index = (SysWord.toInt wp) }
+    |   decompileMessage (0x0149, wp, _) = CB_GETLBTEXTLEN {index = SysWord.toInt wp}
 
-    |   decompileMessage (0x014B, wp, lp) = CB_RESETCONTENT
+    |   decompileMessage (0x014A, wp, lp) = CB_INSERTSTRING {text = fromCstring(toAddr lp), index = SysWord.toInt wp }
 
-    |   decompileMessage (0x014C, wp, lp) = CB_FINDSTRING {text = fromCstring lp, indexStart = (SysWord.toInt wp) }
+    |   decompileMessage (0x014B, _, _) = CB_RESETCONTENT
 
-    |   decompileMessage (0x014D, wp, lp) = CB_SELECTSTRING {text = fromCstring lp, indexStart = (SysWord.toInt wp) }
-*)
+    |   decompileMessage (0x014C, wp, lp) = CB_FINDSTRING {text = fromCstring(toAddr lp), indexStart = SysWord.toInt wp }
+
+    |   decompileMessage (0x014D, wp, lp) = CB_SELECTSTRING {text = fromCstring(toAddr lp), indexStart = SysWord.toInt wp }
+
     |   decompileMessage (0x014E, wp, _) = CB_SETCURSEL {index = SysWord.toInt wp}
 
     |   decompileMessage (0x014F, wp, _) = CB_SHOWDROPDOWN {show = wp <> 0w0}
@@ -1972,29 +3231,28 @@ WM_IME_KEYLAST                  0x010F
     |   decompileMessage (0x0156, _, _) = CB_GETEXTENDEDUI
 
     |   decompileMessage (0x0157, _, _) = CB_GETDROPPEDSTATE
-(*
-    |   decompileMessage (0x0158, wp, lp) = CB_FINDSTRINGEXACT {text = fromCstring lp, indexStart = (SysWord.toInt wp) }
-*)
-    |   decompileMessage (0x0159, wp, _) = CB_SETLOCALE {locale = (SysWord.toInt wp)}
+
+    |   decompileMessage (0x0158, wp, lp) = CB_FINDSTRINGEXACT {text = fromCstring(toAddr lp), indexStart = SysWord.toInt wp }
+
+    |   decompileMessage (0x0159, wp, _) = CB_SETLOCALE {locale = SysWord.toInt wp}
 
     |   decompileMessage (0x015A, _, _) = CB_GETLOCALE
 
     |   decompileMessage (0x015b, _, _) = CB_GETTOPINDEX
 
-    |   decompileMessage (0x015c, wp, _) = CB_SETTOPINDEX {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x015c, wp, _) = CB_SETTOPINDEX {index = SysWord.toInt wp}
 
     |   decompileMessage (0x015d, _, _) = CB_GETHORIZONTALEXTENT
 
-    |   decompileMessage (0x015e, wp, _) = CB_SETHORIZONTALEXTENT {extent = (SysWord.toInt wp)}
+    |   decompileMessage (0x015e, wp, _) = CB_SETHORIZONTALEXTENT {extent = SysWord.toInt wp}
 
     |   decompileMessage (0x015f, _, _) = CB_GETDROPPEDWIDTH
 
-    |   decompileMessage (0x0160, wp, _) = CB_SETDROPPEDWIDTH {width = (SysWord.toInt wp)}
+    |   decompileMessage (0x0160, wp, _) = CB_SETDROPPEDWIDTH {width = SysWord.toInt wp}
 
-    |   decompileMessage (0x0161, wp, lp) = CB_INITSTORAGE {items = (SysWord.toInt wp), bytes = (SysWord.toInt lp)}
+    |   decompileMessage (0x0161, wp, lp) = CB_INITSTORAGE {items = SysWord.toInt wp, bytes = SysWord.toInt lp}
 
 (* Static control messages. *)
-
     |   decompileMessage (0x0170, wp, _) = STM_SETICON{icon = toHICON wp}
 
     |   decompileMessage (0x0171, _, _) = STM_GETICON
@@ -2002,45 +3260,44 @@ WM_IME_KEYLAST                  0x010F
     |   decompileMessage (0x0172, wp, lp) = STM_SETIMAGE{imageType = fromCit(SysWord.toInt wp), image = toHGDIOBJ lp}
 
     |   decompileMessage (0x0173, wp, _) = STM_GETIMAGE{imageType = fromCit(SysWord.toInt wp)}
-(*
+
 (* Listbox messages *)
+    |   decompileMessage (0x0180, _, lp) = LB_ADDSTRING {text = fromCstring(toAddr lp) }
 
-    |   decompileMessage (0x0180, wp, lp) = LB_ADDSTRING {text = fromCstring(SysWord.fromInt (SysWord.toInt lp)) }
+    |   decompileMessage (0x0181, wp, lp) = LB_INSERTSTRING {text = fromCstring(toAddr lp), index = SysWord.toInt wp }
 
-    |   decompileMessage (0x0181, wp, lp) = LB_INSERTSTRING {text = fromCstring lp, index = (SysWord.toInt wp) }
+    |   decompileMessage (0x0182, wp, _) = LB_DELETESTRING {index = SysWord.toInt wp}
 
-    |   decompileMessage (0x0182, wp, lp) = LB_DELETESTRING {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x0183, wp, lp) = LB_SELITEMRANGEEX {first = SysWord.toInt wp, last = SysWord.toInt lp}
 
-    |   decompileMessage (0x0183, wp, lp) = LB_SELITEMRANGEEX {first = (SysWord.toInt wp), last = (SysWord.toInt lp)}
+    |   decompileMessage (0x0184, _, _) = LB_RESETCONTENT
 
-    |   decompileMessage (0x0184, wp, lp) = LB_RESETCONTENT
+    |   decompileMessage (0x0185, wp, lp) = LB_SETSEL {select = wp <> 0w0, index = SysWord.toInt lp}
 
-    |   decompileMessage (0x0185, wp, lp) = LB_SETSEL {select = itob (SysWord.toInt wp), index = (SysWord.toInt lp)}
+    |   decompileMessage (0x0186, wp, _) = LB_SETCURSEL {index = SysWord.toInt wp}
 
-    |   decompileMessage (0x0186, wp, lp) = LB_SETCURSEL {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x0187, wp, _) = LB_GETSEL {index = SysWord.toInt wp}
 
-    |   decompileMessage (0x0187, wp, lp) = LB_GETSEL {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x0188, _, _) = LB_GETCURSEL
 
-    |   decompileMessage (0x0188, wp, lp) = LB_GETCURSEL
+    |   decompileMessage (0x0189, wp, _) = LB_GETTEXT { index = SysWord.toInt wp, length = ~1, text = ref ""  }
 
-    |   decompileMessage (0x0189, wp, lp) = LB_GETTEXT { index = (SysWord.toInt wp), length = ~1, text = ref ""  }
+    |   decompileMessage (0x018A, wp, _) = LB_GETTEXTLEN {index = SysWord.toInt wp}
 
-    |   decompileMessage (0x018A, wp, lp) = LB_GETTEXTLEN {index = (SysWord.toInt wp)}
+    |   decompileMessage (0x018B, _, _) = LB_GETCOUNT
 
-    |   decompileMessage (0x018B, wp, lp) = LB_GETCOUNT
+    |   decompileMessage (0x018C, wp, lp) = LB_SELECTSTRING {text = fromCstring(toAddr lp), indexStart = SysWord.toInt wp }
 
-    |   decompileMessage (0x018C, wp, lp) = LB_SELECTSTRING {text = fromCstring lp, indexStart = (SysWord.toInt wp) }
+    |   decompileMessage (0x018D, wp, lp) = LB_DIR {attrs = fromCcbal(Word32.fromLargeWord wp), fileSpec = fromCstring(toAddr lp) }
 
-    |   decompileMessage (0x018D, wp, lp) = LB_DIR {attrs = fromCcbal  wp, fileSpec = fromCstring lp }
+    |   decompileMessage (0x018E, _, _) = LB_GETTOPINDEX
 
-    |   decompileMessage (0x018E, wp, lp) = LB_GETTOPINDEX
+    |   decompileMessage (0x018F, wp, lp) = LB_FINDSTRING {text = fromCstring(toAddr lp), indexStart = SysWord.toInt wp }
 
-    |   decompileMessage (0x018F, wp, lp) = LB_FINDSTRING {text = fromCstring lp, indexStart = (SysWord.toInt wp) }
+    |   decompileMessage (0x0190, _, _) = LB_GETSELCOUNT
 
-    |   decompileMessage (0x0190, wp, lp) = LB_GETSELCOUNT
-
-    |   decompileMessage (0x0191, wp, lp) = LB_GETSELITEMS { itemCount = (SysWord.toInt wp), items = ref [] }
-
+    |   decompileMessage (0x0191, wp, _) = LB_GETSELITEMS { itemCount = SysWord.toInt wp, items = ref [] }
+(*
     |   decompileMessage (0x0192 =>
             let
                 val v = deref lp
@@ -2048,49 +3305,49 @@ WM_IME_KEYLAST                  0x010F
             in
                 LB_SETTABSTOPS{tabs=List.tabulate((SysWord.toInt wp), getTab)}
             end
-
-    |   decompileMessage (0x0193, wp, lp) = LB_GETHORIZONTALEXTENT
-
-    |   decompileMessage (0x0194, wp, lp) = LB_SETHORIZONTALEXTENT {extent = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x0195, wp, lp) = LB_SETCOLUMNWIDTH {column = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x0196, wp, lp) = LB_ADDFILE {fileName = fromCstring lp }
-
-    |   decompileMessage (0x0197, wp, lp) = LB_SETTOPINDEX {index = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x0198, wp, lp) = LB_GETITEMRECT {index = (SysWord.toInt wp), rect = ref(fromCrect (deref lp)) }
-
-    |   decompileMessage (0x0199, wp, lp) = LB_GETITEMDATA {index = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x019A, wp, lp) = LB_SETITEMDATA {index = (SysWord.toInt wp), data = (SysWord.toInt lp)}
-
-    |   decompileMessage (0x019B, wp, lp) = LB_SELITEMRANGE {select = itob (SysWord.toInt wp), first = LOWORD (fromCuint lp), last = HIWORD (fromCuint lp)}
-
-    |   decompileMessage (0x019C, wp, lp) = LB_SETANCHORINDEX {index = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x019D, wp, lp) = LB_GETANCHORINDEX
-
-    |   decompileMessage (0x019E, wp, lp) = LB_SETCARETINDEX {index = (SysWord.toInt wp), scroll = itob (SysWord.toInt lp)}
-
-    |   decompileMessage (0x019F, wp, lp) = LB_GETCARETINDEX
-
-    |   decompileMessage (0x01A0, wp, lp) = LB_SETITEMHEIGHT {index = (SysWord.toInt wp), height = LOWORD (fromCuint lp)}
-
-    |   decompileMessage (0x01A1, wp, lp) = LB_GETITEMHEIGHT {index = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x01A2, wp, lp) = LB_FINDSTRINGEXACT {text = fromCstring lp, indexStart = (SysWord.toInt wp) }
-
-    |   decompileMessage (0x01A5, wp, lp) = LB_SETLOCALE {locale = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x01A6, wp, lp) = LB_GETLOCALE
-
-    |   decompileMessage (0x01A7, wp, lp) = LB_SETCOUNT {items = (SysWord.toInt wp)}
-
-    |   decompileMessage (0x01A8, wp, lp) = LB_INITSTORAGE {items = (SysWord.toInt wp), bytes = (SysWord.toInt lp)}
-
-    |   decompileMessage (0x01A9, wp, lp) = LB_ITEMFROMPOINT {point = {x = LOWORD (fromCuint lp), y = HIWORD (fromCuint lp) }}
 *)
+    |   decompileMessage (0x0193, _, _) = LB_GETHORIZONTALEXTENT
+
+    |   decompileMessage (0x0194, wp, _) = LB_SETHORIZONTALEXTENT {extent = SysWord.toInt wp}
+
+    |   decompileMessage (0x0195, wp, _) = LB_SETCOLUMNWIDTH {column = SysWord.toInt wp}
+
+    |   decompileMessage (0x0196, _, lp) = LB_ADDFILE {fileName = fromCstring(toAddr lp) }
+
+    |   decompileMessage (0x0197, wp, _) = LB_SETTOPINDEX {index = SysWord.toInt wp}
+(*
+    |   decompileMessage (0x0198, wp, lp) = LB_GETITEMRECT {index = SysWord.toInt wp, rect = ref(fromCrect(toAddr lp)) }
+*)
+    |   decompileMessage (0x0199, wp, _) = LB_GETITEMDATA {index = SysWord.toInt wp}
+
+    |   decompileMessage (0x019A, wp, lp) = LB_SETITEMDATA {index = SysWord.toInt wp, data = SysWord.toInt lp}
+
+    |   decompileMessage (0x019B, wp, lp) = LB_SELITEMRANGE {select = wp <> 0w0, first = loWord lp, last = hiWord lp}
+
+    |   decompileMessage (0x019C, wp, _) = LB_SETANCHORINDEX {index = SysWord.toInt wp}
+
+    |   decompileMessage (0x019D, _, _) = LB_GETANCHORINDEX
+
+    |   decompileMessage (0x019E, wp, lp) = LB_SETCARETINDEX {index = SysWord.toInt wp, scroll = lp <> 0w0}
+
+    |   decompileMessage (0x019F, _, _) = LB_GETCARETINDEX
+
+    |   decompileMessage (0x01A0, wp, lp) = LB_SETITEMHEIGHT {index = SysWord.toInt wp, height = loWord lp}
+
+    |   decompileMessage (0x01A1, wp, _) = LB_GETITEMHEIGHT {index = SysWord.toInt wp}
+
+    |   decompileMessage (0x01A2, wp, lp) = LB_FINDSTRINGEXACT {text = fromCstring(toAddr lp), indexStart = SysWord.toInt wp }
+
+    |   decompileMessage (0x01A5, wp, _) = LB_SETLOCALE {locale = SysWord.toInt wp}
+
+    |   decompileMessage (0x01A6, _, _) = LB_GETLOCALE
+
+    |   decompileMessage (0x01A7, wp, _) = LB_SETCOUNT {items = SysWord.toInt wp}
+
+    |   decompileMessage (0x01A8, wp, lp) = LB_INITSTORAGE {items = SysWord.toInt wp, bytes = SysWord.toInt lp}
+
+    |   decompileMessage (0x01A9, _, lp) = LB_ITEMFROMPOINT {point = {x = loWord lp, y = hiWord lp }}
+
     |   decompileMessage (0x0200, wp, lp) = decompileMouseMove(WM_MOUSEMOVE, wp, lp)
     
     |   decompileMessage (0x0201, wp, lp) = decompileMouseMove(WM_LBUTTONDOWN, wp, lp)
@@ -2110,27 +3367,26 @@ WM_IME_KEYLAST                  0x010F
     |   decompileMessage (0x0208, wp, lp) = decompileMouseMove(WM_MBUTTONUP, wp, lp)
 
     |   decompileMessage (0x0209, wp, lp) = decompileMouseMove(WM_MBUTTONDBLCLK, wp, lp)
-(*
+
 (*
 WM_MOUSEWHEEL                   0x020A
 *)
+    |   decompileMessage (0x0210, wp, lp) = WM_PARENTNOTIFY { eventflag = loWord wp, idchild = hiWord wp, value     = SysWord.toInt lp  }
     
-    |   decompileMessage (0x0210, wp, lp) = WM_PARENTNOTIFY { eventflag = LOWORD (fromCuint wp), idchild = HIWORD (fromCuint wp), value     = (SysWord.toInt lp)  }
+    |   decompileMessage (0x0211, wp, _) = WM_ENTERMENULOOP { istrack= wp <> 0w0 } (* "0x0211" *)
     
-    |   decompileMessage (0x0211, wp, lp) = WM_ENTERMENULOOP { istrack= itob (SysWord.toInt wp) } (* "0x0211" *)
-    
-    |   decompileMessage (0x0212, wp, lp) = WM_EXITMENULOOP { istrack= itob (SysWord.toInt wp) } (* "0x0212" *)
+    |   decompileMessage (0x0212, wp, _) = WM_EXITMENULOOP { istrack= wp <> 0w0 } (* "0x0212" *)
 (*
 WM_NEXTMENU                     0x0213
 WM_SIZING                       0x0214
 *)
-    
-    |   decompileMessage (0x0215, wp, lp) = WM_CAPTURECHANGED { newCapture = toHWND lp }
+    |   decompileMessage (0x0215, _, lp) = WM_CAPTURECHANGED { newCapture = toHWND lp }
 (*
 WM_MOVING                       0x0216
 WM_POWERBROADCAST               0x0218
 WM_DEVICECHANGE                 0x0219
 *)
+(*
     |   decompileMessage (0x0220 =>
             let
               val (class,title,hinst, x,y,cx,cy, style,lParam) = 
@@ -2210,34 +3466,34 @@ WM_IME_KEYUP                    0x0291
     |   decompileMessage (0x0308, _, _) = WM_DRAWCLIPBOARD (* "0x0308" *)
     
     |   decompileMessage (0x0309, wp, _) = WM_PAINTCLIPBOARD { clipboard = toHWND wp  } (* "0x0309" *)
-(*
-    |   decompileMessage (0x030A, wp, lp) = WM_VSCROLLCLIPBOARD { viewer = toHWND wp,
-                                       code = LOWORD (fromCuint lp), position = HIWORD (fromCuint lp)  } (* "0x030A" *)
+
+    |   decompileMessage (0x030A, wp, lp) =
+            WM_VSCROLLCLIPBOARD { viewer = toHWND wp, code = loWord lp, position = hiWord lp  } (* "0x030A" *)
     
-    |   decompileMessage (0x030B, wp, lp) = WM_SIZECLIPBOARD { viewer = toHWND lp  } (* "0x030B" *)
+    |   decompileMessage (0x030B, _, lp) = WM_SIZECLIPBOARD { viewer = toHWND lp  } (* "0x030B" *)
 
             (* The format name is inserted by the window procedure so any
                incoming message won't have the information.  Indeed the
                buffer may not have been initialised. *)
-    |   decompileMessage (0x030C, wp, lp) = WM_ASKCBFORMATNAME { length = (SysWord.toInt wp), formatName = ref ""  }
+    |   decompileMessage (0x030C, wp, _) = WM_ASKCBFORMATNAME { length = SysWord.toInt wp, formatName = ref ""  }
     
     |   decompileMessage (0x030D, wp, lp) = WM_CHANGECBCHAIN { removed = toHWND wp, next = toHWND lp }
     
-    |   decompileMessage (0x030E, wp, lp) = WM_HSCROLLCLIPBOARD { viewer   = toHWND wp,
-                                       code     = LOWORD (fromCuint lp), position = HIWORD (fromCuint lp)  } (* "0x030E" *)
+    |   decompileMessage (0x030E, wp, lp) =
+            WM_HSCROLLCLIPBOARD { viewer   = toHWND wp, code = loWord lp, position = hiWord lp  } (* "0x030E" *)
 
-    |   decompileMessage (0x030F, wp, lp) = WM_QUERYNEWPALETTE (* "0x030F" *)
+    |   decompileMessage (0x030F, _, _) = WM_QUERYNEWPALETTE (* "0x030F" *)
 
-    |   decompileMessage (0x0310, wp, lp) = WM_PALETTEISCHANGING { realize = toHWND wp } (* "0x0310" *)
+    |   decompileMessage (0x0310, wp, _) = WM_PALETTEISCHANGING { realize = toHWND wp } (* "0x0310" *)
 
-    |   decompileMessage (0x0311, wp, lp) = WM_PALETTECHANGED { palChg = toHWND wp } (* "0x0311" *)
+    |   decompileMessage (0x0311, wp, _) = WM_PALETTECHANGED { palChg = toHWND wp } (* "0x0311" *)
 
-    |   decompileMessage (0x0312, wp, lp) = WM_HOTKEY { id = (SysWord.toInt wp) } (* "0x0312" *)
+    |   decompileMessage (0x0312, wp, _) = WM_HOTKEY { id = SysWord.toInt wp } (* "0x0312" *)
 
-    |   decompileMessage (0x0317, wp, lp) = WM_PRINT { hdc = toHDC wp, flags = fromCwmpl lp }
+    |   decompileMessage (0x0317, wp, lp) = WM_PRINT { hdc = toHDC wp, flags = fromCwmpl(Word32.fromLargeWord lp) }
 
-    |   decompileMessage (0x0318, wp, lp) = WM_PRINTCLIENT { hdc = toHDC wp, flags = fromCwmpl lp }
-*)
+    |   decompileMessage (0x0318, wp, lp) = WM_PRINTCLIENT { hdc = toHDC wp, flags = fromCwmpl(Word32.fromLargeWord lp) }
+
     |   decompileMessage (m, wp, lp) =
             (* User, application and registered messages. *)
             (* Rich edit controls use WM_USER+37 to WM_USER+122.  As and when we implement
@@ -2257,110 +3513,6 @@ WM_IME_KEYUP                    0x0291
             else (* Other system messages. *)
                 WM_SYSTEM_OTHER { uMsg = m, wParam = wp, lParam = lp }
 
-    and decompileNotification (_,   ~1) = NM_OUTOFMEMORY
-     |  decompileNotification (_,   ~2) = NM_CLICK
-     |  decompileNotification (_,   ~3) = NM_DBLCLK
-     |  decompileNotification (_,   ~4) = NM_RETURN
-     |  decompileNotification (_,   ~5) = NM_RCLICK
-     |  decompileNotification (_,   ~6) = NM_RDBLCLK
-     |  decompileNotification (_,   ~7) = NM_SETFOCUS
-     |  decompileNotification (_,   ~8) = NM_KILLFOCUS
-     |  decompileNotification (_,  ~12) = NM_CUSTOMDRAW
-     |  decompileNotification (_,  ~13) = NM_HOVER
-     |  decompileNotification (_,  ~14) = NM_NCHITTEST
-     |  decompileNotification (_,  ~15) = NM_KEYDOWN
-     |  decompileNotification (_,  ~16) = NM_RELEASEDCAPTURE
-     |  decompileNotification (_,  ~17) = NM_SETCURSOR
-     |  decompileNotification (_,  ~18) = NM_CHAR
-     |  decompileNotification (_,  ~19) = NM_TOOLTIPSCREATED
-     |  decompileNotification (_,  ~20) = NM_LDOWN
-     |  decompileNotification (_,  ~21) = NM_RDOWN
-     |  decompileNotification (_,  ~22) = NM_THEMECHANGED
-     |  decompileNotification (_, ~100) = LVN_ITEMCHANGING
-     |  decompileNotification (_, ~101) = LVN_ITEMCHANGED
-     |  decompileNotification (_, ~102) = LVN_INSERTITEM
-     |  decompileNotification (_, ~103) = LVN_DELETEITEM
-     |  decompileNotification (_, ~104) = LVN_DELETEALLITEMS
-     |  decompileNotification (_, ~105) = LVN_BEGINLABELEDIT
-     |  decompileNotification (_, ~106) = LVN_ENDLABELEDIT
-     |  decompileNotification (_, ~108) = LVN_COLUMNCLICK
-     |  decompileNotification (_, ~109) = LVN_BEGINDRAG
-     |  decompileNotification (_, ~111) = LVN_BEGINRDRAG
-     |  decompileNotification (_, ~150) = LVN_GETDISPINFO
-     |  decompileNotification (_, ~151) = LVN_SETDISPINFO
-     |  decompileNotification (_, ~155) = LVN_KEYDOWN
-     |  decompileNotification (_, ~157) = LVN_GETINFOTIP
-     |  decompileNotification (_, ~300) = HDN_ITEMCHANGING
-     |  decompileNotification (_, ~301) = HDN_ITEMCHANGED
-     |  decompileNotification (_, ~302) = HDN_ITEMCLICK
-     |  decompileNotification (_, ~303) = HDN_ITEMDBLCLICK
-     |  decompileNotification (_, ~305) = HDN_DIVIDERDBLCLICK
-     |  decompileNotification (_, ~306) = HDN_BEGINTRACK
-     |  decompileNotification (_, ~307) = HDN_ENDTRACK
-     |  decompileNotification (_, ~308) = HDN_TRACK
-     |  decompileNotification (_, ~311) = HDN_ENDDRAG
-     |  decompileNotification (_, ~310) = HDN_BEGINDRAG
-     |  decompileNotification (_, ~309) = HDN_GETDISPINFO
-     |  decompileNotification (_, ~401) = TVN_SELCHANGING
-     |  decompileNotification (_, ~402) = TVN_SELCHANGED
-     |  decompileNotification (_, ~403) = TVN_GETDISPINFO
-     |  decompileNotification (_, ~404) = TVN_SETDISPINFO
-     |  decompileNotification (_, ~405) = TVN_ITEMEXPANDING
-     |  decompileNotification (_, ~406) = TVN_ITEMEXPANDED
-     |  decompileNotification (_, ~407) = TVN_BEGINDRAG
-     |  decompileNotification (_, ~408) = TVN_BEGINRDRAG
-     |  decompileNotification (_, ~409) = TVN_DELETEITEM
-     |  decompileNotification (_, ~410) = TVN_BEGINLABELEDIT
-     |  decompileNotification (_, ~411) = TVN_ENDLABELEDIT
-     |  decompileNotification (_, ~412) = TVN_KEYDOWN
-     |  decompileNotification (_, ~413) = TVN_GETINFOTIP
-     |  decompileNotification (_, ~415) = TVN_SINGLEEXPAND
-     |  decompileNotification (lp: voidStar, ~520) =
-         let
-             val nmt = loadNmttdispinfo lp
-             (* Just look at the byte data at the moment. *)
-         in
-             TTN_GETDISPINFO(ref(#3 nmt))
-         end
-     |  decompileNotification (_, ~521) = TTN_SHOW
-     |  decompileNotification (_, ~522) = TTN_POP
-     |  decompileNotification (_, ~550) = TCN_KEYDOWN
-     |  decompileNotification (_, ~551) = TCN_SELCHANGE
-     |  decompileNotification (_, ~552) = TCN_SELCHANGING
-     |  decompileNotification (_, ~700) = TBN_GETBUTTONINFO
-     |  decompileNotification (_, ~701) = TBN_BEGINDRAG
-     |  decompileNotification (_, ~702) = TBN_ENDDRAG
-     |  decompileNotification (_, ~703) = TBN_BEGINADJUST
-     |  decompileNotification (_, ~704) = TBN_ENDADJUST
-     |  decompileNotification (_, ~705) = TBN_RESET
-     |  decompileNotification (_, ~706) = TBN_QUERYINSERT
-     |  decompileNotification (_, ~707) = TBN_QUERYDELETE
-     |  decompileNotification (_, ~708) = TBN_TOOLBARCHANGE
-     |  decompileNotification (_, ~709) = TBN_CUSTHELP
-     |  decompileNotification (_, ~710) = TBN_DROPDOWN
-     |  decompileNotification (_, ~713) = TBN_HOTITEMCHANGE
-     |  decompileNotification (_, ~714) = TBN_DRAGOUT
-     |  decompileNotification (_, ~715) = TBN_DELETINGBUTTON
-     |  decompileNotification (_, ~716) = TBN_GETDISPINFO
-     |  decompileNotification (_, ~718) = TBN_GETINFOTIP (*<<<*)
-     |  decompileNotification (_, ~722) = UDN_DELTAPOS
-     |  decompileNotification (_, ~832) = RBN_GETOBJECT
-     |  decompileNotification (_, ~833) = RBN_LAYOUTCHANGED
-     |  decompileNotification (_, ~834) = RBN_AUTOSIZE
-     |  decompileNotification (_, ~835) = RBN_BEGINDRAG
-     |  decompileNotification (_, ~836) = RBN_ENDDRAG
-     |  decompileNotification (_, ~837) = RBN_DELETINGBAND
-     |  decompileNotification (_, ~838) = RBN_DELETEDBAND
-     |  decompileNotification (_, ~839) = RBN_CHILDSIZE
-     |  decompileNotification (_, ~800) = CBEN_GETDISPINFO
-     |  decompileNotification (_, ~808) = CBEN_DRAGBEGIN
-     |  decompileNotification (_, ~860) = IPN_FIELDCHANGED
-     |  decompileNotification (_, ~880) = SBN_SIMPLEMODECHANGE
-     |  decompileNotification (_, ~901) = PGN_SCROLL
-     |  decompileNotification (_, ~902) = PGN_CALCSIZE     
-     |  decompileNotification (_, code) = NM_OTHER code
-
-
     fun btoi false = 0 | btoi true = 1
     
     fun makeLong(x, y) = Word32.toLargeWord(MAKELONG(Word.fromInt x, Word.fromInt y))
@@ -2372,24 +3524,14 @@ WM_IME_KEYUP                    0x0291
     in
         (code, wp, fromAddr s, fn () => Memory.free s)
     end
-   
+    
+    fun strAddrAsLp(code, wp, (addr, free)) = (code, wp, addr, free)
+
     fun noFree () = ()
 
     fun compileMessage WM_NULL = (0x0000, 0w0: SysWord.word, 0w0: SysWord.word, noFree)
 
-    |   compileMessage (
-            WM_CREATE { instance, creation, menu, parent, cy, cx,
-                         y, x, style, name, class, extendedstyle}) =
-        let
-            open Memory
-            val crStr = malloc sizeCcreatestruct
-            val freeCs =
-                toCcreatestruct(crStr, (creation, instance, menu, parent,
-                    cy, cx, y, x, Word32.fromLargeWord(Style.toWord style), name, class,
-                    extendedstyle))
-        in
-            (0x0001, 0w0, fromAddr crStr, fn () => (freeCs(); free crStr))
-        end
+    |   compileMessage (WM_CREATE args) = compileCreate(0x0001, args)
 
     |   compileMessage WM_DESTROY = (0x0002, 0w0, 0w0, noFree)
 
@@ -2471,21 +3613,20 @@ WM_IME_KEYUP                    0x0291
 
     |   compileMessage (WM_NEXTDLGCTL {control, handleflag}) =
                 (0x0028, SysWord.fromInt control, SysWord.fromInt(btoi handleflag), noFree)
-(*
-    |   compileMessage (WM_DRAWITEM{ controlid, ctlType, ctlID, itemID, itemAction,itemState,
-                                  hItem, hDC, rcItem, itemData}) =
-            (0x002B, SysWord.fromInt controlid, address(toCdrawitemstruct(ctlType, ctlID, itemID, itemAction,itemState,
-                                  hItem, hDC,rcItem,itemData)), noFree)
 
-    |   compileMessage (WM_MEASUREITEM{ controlid, ctlType, ctlID, itemID, itemWidth, itemHeight,
-                                     itemData}) =
-            (0x002C, SysWord.fromInt controlid, address(toCmeasureitemstruct(ctlType, ctlID, itemID,
-                                     itemWidth, itemHeight,itemData)), noFree)
+    |   compileMessage (WM_DRAWITEM { senderId, ctlType, ctlID, itemID, itemAction,itemState,
+                                 hItem, hDC, rcItem, itemData}) =
+            strAddrAsLp(0x002B, SysWord.fromInt senderId,
+                fromMLDrawItem(ctlType, ctlID, itemID, itemAction,itemState, hItem, hDC,rcItem,itemData))
 
-    |   compileMessage (WM_DELETEITEM{ controlid, ctlType, ctlID, itemID, item, itemData}) =
-            (0x002D, SysWord.fromInt controlid, address(toCdeleteitemstruct(ctlType, ctlID, itemID,
-                                     item, itemData)), noFree)
-*)
+    |   compileMessage (WM_MEASUREITEM{ senderId, ctlType, ctlID, itemID, itemWidth=ref itemWidth, itemHeight=ref itemHeight, itemData}) =
+            strAddrAsLp(0x002C, SysWord.fromInt senderId,
+                fromMLMeasureItem(ctlType, ctlID, itemID, itemWidth, itemHeight, itemData))
+
+    |   compileMessage (WM_DELETEITEM{ senderId, ctlType, ctlID, itemID, item, itemData}) =
+            strAddrAsLp(0x002D, SysWord.fromInt senderId,
+                fromMLDeleteItem(ctlType, ctlID, itemID, item, itemData))
+
     |   compileMessage (WM_VKEYTOITEM {virtualKey, caretpos, listbox}) =
             (0x002E, makeLong(virtualKey, caretpos), fromHWND listbox, noFree)
 
@@ -2503,22 +3644,26 @@ WM_IME_KEYUP                    0x0291
 
     |   compileMessage WM_QUERYDRAGICON = (0x0037, 0w0, 0w0, noFree)
 
-    |   compileMessage (WM_COMPAREITEM cs) = mlToCwmCompareItem(0x0039, cs)
+    |   compileMessage (WM_COMPAREITEM { controlid, ctlType, ctlID, hItem, itemID1,itemData1, itemID2,itemData2}) =
+        let
+            (* TODO: Perhaps we should have locale Id in the argument record. *)
+            val LOCALE_USER_DEFAULT = 0x0400
+        in
+            strAddrAsLp(0x0039, SysWord.fromInt controlid,
+                fromMLCompareItem (ctlType, ctlID, hItem, itemID1, itemData1, itemID2, itemData2, LOCALE_USER_DEFAULT))
+        end
 
     |   compileMessage (WM_WINDOWPOSCHANGING wpc) = mlToCWindowPosChanging(0x0046, wpc)
 
     |   compileMessage (WM_WINDOWPOSCHANGED wpc) = mlToCWindowPosChanged(0x0047, wpc)
 
     |   compileMessage (WM_POWER {powerevent}) = (0x0048, SysWord.fromInt powerevent, 0w0, noFree)
-(*
-    |   compileMessage (WM_COPYDATA {sender, data, pdata}) =
-            (0x004A, fromHWND sender,
-                address(toCcopydata(data, Word8Vector.length pdata, fromWord8vec pdata)), noFree)
-*)
+
     |   compileMessage WM_CANCELJOURNAL = (0x004B, 0w0, 0w0, noFree)
-(*
+
     |   compileMessage (WM_NOTIFY {idCtrl, from, idFrom, notification}) =
-            (0x004E, SysWord.fromInt idCtrl, compileNotification(from, idFrom, notification), noFree)
+            strAddrAsLp (0x004E, SysWord.fromInt idCtrl, compileNotification(from, idFrom, notification))
+
 (*
 WM_INPUTLANGCHANGEREQUEST       0x0050
 WM_INPUTLANGCHANGE              0x0051
@@ -2529,6 +3674,7 @@ WM_NOTIFYFORMAT                 0x0055
 WM_STYLECHANGING                0x007C
 WM_STYLECHANGED                 0x007D
 *)
+(*
     |   compileMessage (WM_HELP {ctrlId, itemHandle, contextId, mousePos}) =
             let
                 val (ctype, handl) =
@@ -2551,24 +3697,13 @@ WM_STYLECHANGED                 0x007D
 
     |   compileMessage (WM_SETICON { big, icon }) =
             (0x0080, SysWord.fromInt(btoi big), fromAddr(voidStarOfHandle icon), noFree)
-(*
-    |   compileMessage (
-                WM_NCCREATE { instance, creation, menu, parent, cy, cx,
-                           y, x, style, name, class, extendedstyle}) =
-            (0x0081, 0w0, address(toCcreatestruct(creation, instance, menu, parent,
-                    cy, cx, y, x, Style.toWord style, name, class,
-                    extendedstyle)), noFree)
-*)
+
+    |   compileMessage (WM_NCCREATE args) = compileCreate(0x0081, args)
+
     |   compileMessage WM_NCDESTROY = (0x0082, 0w0, 0w0, noFree)
-(*
-    |   compileMessage (
-                WM_NCCALCSIZE {validarea, newrect=ref newrect, oldrect, oldclientarea,
-                            hwnd, insertAfter, x, y, cx, cy, style}) =
-            if validarea
-            then (0x0083, 0w1, address(toCncalcsizestruct(newrect,oldrect,oldclientarea,
-                                (hwnd,insertAfter,x,y,cx,cy, style))), noFree)
-            else (0x0083, 0w0, address(toCrect newrect), noFree)
-*)
+
+    |   compileMessage (WM_NCCALCSIZE args) = compileNCCalcSize args
+
     |   compileMessage (WM_NCHITTEST {x, y}) = (0x0084, 0w0, makeLong(x, y), noFree)
 
     |   compileMessage (WM_NCPAINT {region}) = (0x0085, fromHRGN region, 0w0, noFree)
@@ -2787,11 +3922,11 @@ WM_IME_KEYLAST                  0x010F
 
     |   compileMessage (WM_COMMAND {notifyCode, wId, control}) =
             (0x0111, makeLong(wId, notifyCode), fromHWND control, noFree)
-(*
+
     |   compileMessage (WM_SYSCOMMAND {commandvalue, sysBits, p={x,y}}) =
-            (0x0112, toCuint(IntInf.orb(sysBits, MessageBase.fromSysCommand commandvalue)),
-             toCuint(makeLong(x,y)), noFree)
-*)
+            (0x0112, SysWord.fromInt(IntInf.orb(sysBits, fromSysCommand commandvalue)),
+             makeLong(x,y), noFree)
+
     |   compileMessage (WM_TIMER {timerid}) = (0x0113, SysWord.fromInt timerid, 0w0, noFree)
 
     |   compileMessage (WM_HSCROLL {value, position, scrollbar}) =
@@ -2805,14 +3940,13 @@ WM_IME_KEYLAST                  0x010F
 
     |   compileMessage (WM_INITMENUPOPUP {menupopup, itemposition, isSystemMenu}) =
             (0x0117, fromHMENU menupopup, makeLong(itemposition, btoi isSystemMenu), noFree)
-(*
+
     |   compileMessage (WM_MENUSELECT {menuitem, menuflags, menu}) =
-            (0x011F, toCuint(makeLong(menuitem, MenuBase.fromMenuFlagSet menuflags)),
-                    fromHMENU menu, noFree)
+            (0x011F, makeLong(menuitem, Word32.toInt(MenuBase.fromMenuFlagSet menuflags)), fromHMENU menu, noFree)
 
     |   compileMessage (WM_MENUCHAR { ch, menuflag, menu}) =
-            (0x0120, toCuint(makeLong(ord ch, MenuBase.fromMenuFlag menuflag)), fromHMENU menu, noFree)
-*)
+            (0x0120, makeLong(ord ch, Word32.toInt(MenuBase.fromMenuFlag menuflag)), fromHMENU menu, noFree)
+
     |   compileMessage (WM_ENTERIDLE { flag, window}) = (0x0121, SysWord.fromInt flag, fromHWND window, noFree)
 
     |   compileMessage (WM_CTLCOLORMSGBOX { displaycontext, messagebox}) =
@@ -3187,107 +4321,7 @@ WM_IME_KEYUP                    0x0291
     |   compileMessage (WM_APP{uMsg, wParam, lParam}) = (uMsg, wParam, lParam, noFree)
 
     |   compileMessage (WM_REGISTERED{uMsg, wParam, lParam}) = (uMsg, wParam, lParam, noFree)
-(*
-     and compileNotification (from, idFrom, NM_OUTOFMEMORY) = address(toCnmhdr(from, idFrom, ~1))
-      |  compileNotification (from, idFrom, NM_CLICK) = address(toCnmhdr(from, idFrom, ~2))
-      |  compileNotification (from, idFrom, NM_DBLCLK) = address(toCnmhdr(from, idFrom, ~3))
-      |  compileNotification (from, idFrom, NM_RETURN) = address(toCnmhdr(from, idFrom, ~4))
-      |  compileNotification (from, idFrom, NM_RCLICK) = address(toCnmhdr(from, idFrom, ~5))
-      |  compileNotification (from, idFrom, NM_RDBLCLK) = address(toCnmhdr(from, idFrom, ~6))
-      |  compileNotification (from, idFrom, NM_SETFOCUS) = address(toCnmhdr(from, idFrom, ~7))
-      |  compileNotification (from, idFrom, NM_KILLFOCUS) = address(toCnmhdr(from, idFrom, ~8))
-      |  compileNotification (from, idFrom, NM_CUSTOMDRAW) = address(toCnmhdr(from, idFrom, ~12))
-      |  compileNotification (from, idFrom, NM_HOVER) = address(toCnmhdr(from, idFrom, ~13))
-      |  compileNotification (from, idFrom, NM_NCHITTEST) = address(toCnmhdr(from, idFrom, ~14))
-      |  compileNotification (from, idFrom, NM_KEYDOWN) = address(toCnmhdr(from, idFrom, ~15))
-      |  compileNotification (from, idFrom, NM_RELEASEDCAPTURE) = address(toCnmhdr(from, idFrom, ~16))
-      |  compileNotification (from, idFrom, NM_SETCURSOR) = address(toCnmhdr(from, idFrom, ~17))
-      |  compileNotification (from, idFrom, NM_CHAR) = address(toCnmhdr(from, idFrom, ~18))
-      |  compileNotification (from, idFrom, NM_TOOLTIPSCREATED) = address(toCnmhdr(from, idFrom, ~19))
-      |  compileNotification (from, idFrom, NM_LDOWN) = address(toCnmhdr(from, idFrom, ~20))
-      |  compileNotification (from, idFrom, NM_RDOWN) = address(toCnmhdr(from, idFrom, ~21))
-      |  compileNotification (from, idFrom, NM_THEMECHANGED) = address(toCnmhdr(from, idFrom, ~22))
-      |  compileNotification (from, idFrom, LVN_ITEMCHANGING) = address(toCnmhdr(from, idFrom, ~100))
-      |  compileNotification (from, idFrom, LVN_ITEMCHANGED) = address(toCnmhdr(from, idFrom, ~101))
-      |  compileNotification (from, idFrom, LVN_INSERTITEM) = address(toCnmhdr(from, idFrom, ~102))
-      |  compileNotification (from, idFrom, LVN_DELETEITEM) = address(toCnmhdr(from, idFrom, ~103))
-      |  compileNotification (from, idFrom, LVN_DELETEALLITEMS) = address(toCnmhdr(from, idFrom, ~104))
-      |  compileNotification (from, idFrom, LVN_BEGINLABELEDIT) = address(toCnmhdr(from, idFrom, ~105))
-      |  compileNotification (from, idFrom, LVN_ENDLABELEDIT) = address(toCnmhdr(from, idFrom, ~106))
-      |  compileNotification (from, idFrom, LVN_COLUMNCLICK) = address(toCnmhdr(from, idFrom, ~108))
-      |  compileNotification (from, idFrom, LVN_BEGINDRAG) = address(toCnmhdr(from, idFrom, ~109))
-      |  compileNotification (from, idFrom, LVN_BEGINRDRAG) = address(toCnmhdr(from, idFrom, ~111))
-      |  compileNotification (from, idFrom, LVN_GETDISPINFO) = address(toCnmhdr(from, idFrom, ~150))
-      |  compileNotification (from, idFrom, LVN_SETDISPINFO) = address(toCnmhdr(from, idFrom, ~151))
-      |  compileNotification (from, idFrom, LVN_KEYDOWN) = address(toCnmhdr(from, idFrom, ~155))
-      |  compileNotification (from, idFrom, LVN_GETINFOTIP) = address(toCnmhdr(from, idFrom, ~157))
-      |  compileNotification (from, idFrom, HDN_ITEMCHANGING) = address(toCnmhdr(from, idFrom, ~300))
-      |  compileNotification (from, idFrom, HDN_ITEMCHANGED) = address(toCnmhdr(from, idFrom, ~301))
-      |  compileNotification (from, idFrom, HDN_ITEMCLICK) = address(toCnmhdr(from, idFrom, ~302))
-      |  compileNotification (from, idFrom, HDN_ITEMDBLCLICK) = address(toCnmhdr(from, idFrom, ~303))
-      |  compileNotification (from, idFrom, HDN_DIVIDERDBLCLICK) = address(toCnmhdr(from, idFrom, ~305))
-      |  compileNotification (from, idFrom, HDN_BEGINTRACK) = address(toCnmhdr(from, idFrom, ~306))
-      |  compileNotification (from, idFrom, HDN_ENDTRACK) = address(toCnmhdr(from, idFrom, ~307))
-      |  compileNotification (from, idFrom, HDN_TRACK) = address(toCnmhdr(from, idFrom, ~308))
-      |  compileNotification (from, idFrom, HDN_ENDDRAG) = address(toCnmhdr(from, idFrom, ~311))
-      |  compileNotification (from, idFrom, HDN_BEGINDRAG) = address(toCnmhdr(from, idFrom, ~310))
-      |  compileNotification (from, idFrom, HDN_GETDISPINFO) = address(toCnmhdr(from, idFrom, ~309))
-      |  compileNotification (from, idFrom, TVN_SELCHANGING) = address(toCnmhdr(from, idFrom, ~401))
-      |  compileNotification (from, idFrom, TVN_SELCHANGED) = address(toCnmhdr(from, idFrom, ~402))
-      |  compileNotification (from, idFrom, TVN_GETDISPINFO) = address(toCnmhdr(from, idFrom, ~403))
-      |  compileNotification (from, idFrom, TVN_SETDISPINFO) = address(toCnmhdr(from, idFrom, ~404))
-      |  compileNotification (from, idFrom, TVN_ITEMEXPANDING) = address(toCnmhdr(from, idFrom, ~405))
-      |  compileNotification (from, idFrom, TVN_ITEMEXPANDED) = address(toCnmhdr(from, idFrom, ~406))
-      |  compileNotification (from, idFrom, TVN_BEGINDRAG) = address(toCnmhdr(from, idFrom, ~407))
-      |  compileNotification (from, idFrom, TVN_BEGINRDRAG) = address(toCnmhdr(from, idFrom, ~408))
-      |  compileNotification (from, idFrom, TVN_DELETEITEM) = address(toCnmhdr(from, idFrom, ~409))
-      |  compileNotification (from, idFrom, TVN_BEGINLABELEDIT) = address(toCnmhdr(from, idFrom, ~410))
-      |  compileNotification (from, idFrom, TVN_ENDLABELEDIT) = address(toCnmhdr(from, idFrom, ~411))
-      |  compileNotification (from, idFrom, TVN_KEYDOWN) = address(toCnmhdr(from, idFrom, ~412))
-      |  compileNotification (from, idFrom, TVN_GETINFOTIP) = address(toCnmhdr(from, idFrom, ~413))
-      |  compileNotification (from, idFrom, TVN_SINGLEEXPAND) = address(toCnmhdr(from, idFrom, ~415))
-      |  compileNotification (from, idFrom, TTN_GETDISPINFO(ref s)) =
-                address(toCnmttdispinfo((from, idFrom, ~520), SysWord.fromInt 0, s, Globals.hNull, 0, 0))
-      |  compileNotification (from, idFrom, TTN_SHOW) = address(toCnmhdr(from, idFrom, ~521))
-      |  compileNotification (from, idFrom, TTN_POP) = address(toCnmhdr(from, idFrom, ~522))
-      |  compileNotification (from, idFrom, TCN_KEYDOWN) = address(toCnmhdr(from, idFrom, ~550))
-      |  compileNotification (from, idFrom, TCN_SELCHANGE) = address(toCnmhdr(from, idFrom, ~551))
-      |  compileNotification (from, idFrom, TCN_SELCHANGING) = address(toCnmhdr(from, idFrom, ~552))
-      |  compileNotification (from, idFrom, TBN_GETBUTTONINFO) = address(toCnmhdr(from, idFrom, ~700))
-      |  compileNotification (from, idFrom, TBN_BEGINDRAG) = address(toCnmhdr(from, idFrom, ~701))
-      |  compileNotification (from, idFrom, TBN_ENDDRAG) = address(toCnmhdr(from, idFrom, ~702))
-      |  compileNotification (from, idFrom, TBN_BEGINADJUST) = address(toCnmhdr(from, idFrom, ~703))
-      |  compileNotification (from, idFrom, TBN_ENDADJUST) = address(toCnmhdr(from, idFrom, ~704))
-      |  compileNotification (from, idFrom, TBN_RESET) = address(toCnmhdr(from, idFrom, ~705))
-      |  compileNotification (from, idFrom, TBN_QUERYINSERT) = address(toCnmhdr(from, idFrom, ~706))
-      |  compileNotification (from, idFrom, TBN_QUERYDELETE) = address(toCnmhdr(from, idFrom, ~707))
-      |  compileNotification (from, idFrom, TBN_TOOLBARCHANGE) = address(toCnmhdr(from, idFrom, ~708))
-      |  compileNotification (from, idFrom, TBN_CUSTHELP) = address(toCnmhdr(from, idFrom, ~709))
-      |  compileNotification (from, idFrom, TBN_DROPDOWN) = address(toCnmhdr(from, idFrom, ~710))
-      |  compileNotification (from, idFrom, TBN_HOTITEMCHANGE) = address(toCnmhdr(from, idFrom, ~713))
-      |  compileNotification (from, idFrom, TBN_DRAGOUT) = address(toCnmhdr(from, idFrom, ~714))
-      |  compileNotification (from, idFrom, TBN_DELETINGBUTTON) = address(toCnmhdr(from, idFrom, ~715))
-      |  compileNotification (from, idFrom, TBN_GETDISPINFO) = address(toCnmhdr(from, idFrom, ~716))
-      |  compileNotification (from, idFrom, TBN_GETINFOTIP) = address(toCnmhdr(from, idFrom, ~718))   
-      |  compileNotification (from, idFrom, UDN_DELTAPOS) = address(toCnmhdr(from, idFrom, ~722))
-      |  compileNotification (from, idFrom, RBN_GETOBJECT) = address(toCnmhdr(from, idFrom, ~832))
-      |  compileNotification (from, idFrom, RBN_LAYOUTCHANGED) = address(toCnmhdr(from, idFrom, ~833))
-      |  compileNotification (from, idFrom, RBN_AUTOSIZE) = address(toCnmhdr(from, idFrom, ~834))
-      |  compileNotification (from, idFrom, RBN_BEGINDRAG) = address(toCnmhdr(from, idFrom, ~835))
-      |  compileNotification (from, idFrom, RBN_ENDDRAG) = address(toCnmhdr(from, idFrom, ~836))
-      |  compileNotification (from, idFrom, RBN_DELETINGBAND) = address(toCnmhdr(from, idFrom, ~837))
-      |  compileNotification (from, idFrom, RBN_DELETEDBAND) = address(toCnmhdr(from, idFrom, ~838))
-      |  compileNotification (from, idFrom, RBN_CHILDSIZE) = address(toCnmhdr(from, idFrom, ~839))
-      |  compileNotification (from, idFrom, CBEN_GETDISPINFO) = address(toCnmhdr(from, idFrom, ~800))
-      |  compileNotification (from, idFrom, CBEN_DRAGBEGIN) = address(toCnmhdr(from, idFrom, ~808))
-      |  compileNotification (from, idFrom, IPN_FIELDCHANGED) = address(toCnmhdr(from, idFrom, ~860))
-      |  compileNotification (from, idFrom, SBN_SIMPLEMODECHANGE) = address(toCnmhdr(from, idFrom, ~880))
-      |  compileNotification (from, idFrom, PGN_SCROLL) = address(toCnmhdr(from, idFrom, ~901))
-      |  compileNotification (from, idFrom, PGN_CALCSIZE) = address(toCnmhdr(from, idFrom, ~902))
 
-      |  compileNotification (from, idFrom, NM_OTHER code) =
-        address(toCnmhdr(from, idFrom, code))
-*)
         local
             val msgStruct = cStruct6(cHWND, cUint, cUINT_PTRw, cUINT_PTRw, cDWORD, cPoint)
             val { load=loadMsg, store=storeMsg, ctype={size=msgSize, ... }, ... } =
@@ -3357,7 +4391,7 @@ WM_IME_KEYUP                    0x0291
             |   LB_GETSELITEMS{itemCount, items} => ()
             |   LB_GETITEMRECT{rect = ref r, ...} => toCrect(toAddr lp, r)
             |   WM_NCCALCSIZE { newrect = ref r, ...} => toCrect(toAddr lp, r) (* This sets the first rect *)
-            |   WM_MEASUREITEM { itemWidth = ref w, itemHeight = ref h, ...} => () (* TODO *)
+            |   WM_MEASUREITEM args => updateMeasureItemParms({wp=wp, lp=lp}, args)
             |   WM_GETMINMAXINFO args => updateMinMaxParms({wp=wp, lp=lp}, args)
             |   WM_WINDOWPOSCHANGING args => updateWindowPosChangingParms({wp=wp, lp=lp}, args)
     (*      |   WM_NOTIFY{ notification=TTN_GETDISPINFO(ref s), ...} =>
@@ -3426,7 +4460,7 @@ WM_IME_KEYUP                    0x0291
         |   WM_WINDOWPOSCHANGING wpCh =>
                 updateCfromMLwmWindowPosChanging({wp=wp, lp=lp}, wpCh)
 
-        |   WM_MEASUREITEM {itemWidth, itemHeight, ...} => () (* TODO *)
+        |   WM_MEASUREITEM args => updateMeasureItemFromWpLp(args, {wp=wp, lp=lp})
         |   _ => ()
         
             val fromHgdi = handleOfVoidStar o toAddr

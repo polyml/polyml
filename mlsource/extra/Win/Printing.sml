@@ -63,7 +63,7 @@ struct
             val AbortDoc    = checkSuccess o call1(gdi "AbortDoc") cHDC cInt
         end
 
-        datatype WMPrintOption = datatype MessageBase.WMPrintOption
+        datatype WMPrintOption = datatype Message.WMPrintOption
 
         (*
         Other printing functions:
