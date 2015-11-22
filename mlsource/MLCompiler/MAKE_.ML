@@ -111,7 +111,7 @@ sig
     val makeGEnv   : unit -> gEnv
     val gEnvAsEnv  : gEnv -> env
     val gEnvAsNameSpace: gEnv -> nameSpace
-    val useIntoEnv   : gEnv -> string -> unit
+    val useIntoEnv   : gEnv -> Universal.universal list -> string -> unit
     val useStringIntoEnv: gEnv -> string -> unit
     val shellProc   : gEnv -> unit -> unit    (* The command processor *)
  end =
@@ -227,7 +227,7 @@ struct
     (*****************************************************************************)
     (*                  useIntoEnv (runcompiler with ML compiler bound in)       *)
     (*****************************************************************************)
-    fun compileIntoEnv (globalEnv : gEnv) : (string * TextIO.instream) -> unit =
+    fun compileIntoEnv (globalEnv : gEnv) : (string * TextIO.instream * Universal.universal list) -> unit =
     let
         val useEnv : nameSpace =
         { 
@@ -251,7 +251,7 @@ struct
             allFunct     = dbEnvAll globalEnv STRUCTVALS.functorVar
         };
 
-        fun use (fileName, inStream) =
+        fun use (fileName, inStream, parameters) =
         let            
             val lineNo   = ref 1;
             val eof      = ref false;
@@ -281,6 +281,7 @@ struct
                     val code = 
                         case COMPILERBODY.compiler
                             (useEnv, getChar,
+                              parameters @ (* These will be found first and override the defaults. *)
                               [
                                  tagInject traceCompilerTag true,
                                  tagInject PRETTY.compilerOutputTag (PRETTY.prettyPrint(print, 70)),
@@ -329,7 +330,7 @@ struct
         use
     end; (* scope of compileIntoEnv *)
 
-    fun useIntoEnv globalEnv baseName =
+    fun useIntoEnv globalEnv parameters baseName =
     let
         val () = print ("Use: " ^ baseName ^ "\n")
         (* See if there is a path given as a command line argument. *)
@@ -360,14 +361,14 @@ struct
             (TextIO.openIn versionName, versionName)
                 handle IO.Io _ => (TextIO.openIn filePath, filePath)
     in
-        compileIntoEnv globalEnv (fileName, inStream);
+        compileIntoEnv globalEnv (fileName, inStream, parameters);
         TextIO.closeIn inStream
     end
 
-    fun shellProc globalEnv () = compileIntoEnv globalEnv ("<stdin>", TextIO.stdIn)
+    fun shellProc globalEnv () = compileIntoEnv globalEnv ("<stdin>", TextIO.stdIn, [])
     
     fun useStringIntoEnv globalEnv str =
-        compileIntoEnv globalEnv (str, TextIO.openString str)
+        compileIntoEnv globalEnv (str, TextIO.openString str, [])
 
 end (* MAKE *)
 
