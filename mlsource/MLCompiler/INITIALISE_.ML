@@ -74,7 +74,7 @@ sig
     val gEnvAsEnv    : gEnv -> env
     val gEnvAsNameSpace: gEnv -> nameSpace
     
-    val useIntoEnv   : gEnv -> string -> unit
+    val useIntoEnv   : gEnv -> Universal.universal list -> string -> unit
 
     type location =
         { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
@@ -1106,7 +1106,11 @@ struct
             type compilerType =
                     nameSpace * (unit -> char option) * Universal.universal list -> exportTree option * (unit->execResult) option
         in
-            val () = enterBootstrap ("use", mkConst (toMachineWord ((useIntoEnv globalTable): string -> unit)), String ->> Unit)            
+            val () = enterBootstrap ("use", mkConst (toMachineWord ((useIntoEnv globalTable []): string -> unit)), String ->> Unit)            
+            val () =
+                enterBootstrap ("useWithParms",
+                    mkConst (toMachineWord ((useIntoEnv globalTable): Universal.universal list -> string -> unit)),
+                    List Universal ->> String ->> Unit)            
             val () = enterPolyMLVal("compiler", mkGvar ("compiler", compilerType, mkConst (toMachineWord (compiler: compilerType)), declInBasis));
             val () = enterBootstrap("globalSpace", mkConst (toMachineWord(gEnvAsNameSpace globalTable: nameSpace)), nameSpaceType)
         end;

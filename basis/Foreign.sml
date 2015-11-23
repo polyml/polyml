@@ -266,6 +266,14 @@ sig
     val cStar: 'a conversion -> 'a ref conversion
     (* Pass a const pointer *)
     val cConstStar: 'a conversion -> 'a conversion
+    
+    (* Fixed size vector.  It is treated as a struct and passed by value or embedded in a structure. *)
+    val cVectorFixedSize: int * 'a conversion -> 'a vector conversion
+    (* Pass an ML vector as a pointer to a C array. *)
+    and cVectorPointer: 'a conversion -> 'a vector conversion
+    (* Pass an ML array as a pointer to a C array and, on return, update each element of
+       the ML array from the C array. *)
+    and cArrayPointer: 'a conversion -> 'a array conversion
 
     (* structs. *)
     val cStruct2: 'a conversion * 'b conversion -> ('a * 'b) conversion
@@ -709,12 +717,13 @@ struct
     {
         load: Memory.voidStar -> 'a, (* Load a value from C memory *)
         store: Memory.voidStar * 'a -> unit -> unit, (* Store a value in C memory *)
-        update: Memory.voidStar * 'a -> unit, (* Update - only used in cStar. *)
+        updateML: Memory.voidStar * 'a -> unit, (* Update ML value after call - only used in cStar. *)
+        updateC: Memory.voidStar * 'a -> unit,  (* Update C value after callback - only used in cStar. *)
         ctype: LowLevel.ctype
     }
     
     fun makeConversion { load, store, ctype } =
-        { load = load, store = store, ctype = ctype, update = fn _ => () }
+        { load = load, store = store, ctype = ctype, updateML = fn _ => (), updateC = fn _ => () }
 
     fun breakConversion({load, store, ctype, ... }: 'a conversion) =
         { load = load, store = store, ctype = ctype }
@@ -952,7 +961,7 @@ struct
         end
 
         (* This is used if we want to pass NULL rather than a pointer in some cases. *)
-        fun cOptionPtr({load, store, update, ctype}:'a conversion): 'a option conversion =
+        fun cOptionPtr({load, store, updateML, updateC, ctype}:'a conversion): 'a option conversion =
             if #typeCode(extractFFItype(#ffiType ctype ())) <> ffiTypeCodePointer
             then raise Foreign "cOptionPtr must be applied to a pointer type"
             else
@@ -964,10 +973,14 @@ struct
                 |   storeOpt(v: voidStar, SOME s) = store(v, s)
                 
                 (* Do we have update here? *)
-                fun updateOpt(_, NONE) = ()
-                |   updateOpt(v: voidStar, SOME s) = update(v, s)
+                fun updateMLOpt(_, NONE) = ()
+                |   updateMLOpt(v: voidStar, SOME s) = updateML(v, s)
+                
+                fun updateCOpt(_, NONE) = ()
+                |   updateCOpt(v, SOME s) = updateC(v, s)
             in
-                { load=loadOpt, store=storeOpt, update = updateOpt, ctype = cTypePointer }
+                { load=loadOpt, store=storeOpt, updateML = updateMLOpt,
+                  updateC = updateCOpt, ctype = cTypePointer }
             end
 
         local
@@ -995,19 +1008,19 @@ struct
 
     (* Remove the free part from the store fn.  This is intended for situations
        where an argument should not be deleted once the function completes. *)
-    fun permanent({load, store, ctype, update}: 'a conversion): 'a conversion =
+    fun permanent({load, store, ctype, updateML, updateC }: 'a conversion): 'a conversion =
     let
         fun storeP args = (ignore (store args); fn () => ())
     in
-        { load=load, store=storeP, update = update, ctype=ctype }
+        { load=load, store=storeP, updateML = updateML, updateC = updateC, ctype=ctype }
     end
  
     val op ++ = Memory.++
 
     fun cStruct2(a: 'a conversion, b: 'b conversion): ('a*'b)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ... }} = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {align=alignb, ... }} = b
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ... }} = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {align=alignb, ... }} = b
         
         val offsetb = alignUp(sizea, alignb)
         fun load s = (loada s, loadb(s ++ offsetb))
@@ -1017,17 +1030,18 @@ struct
         in
             fn () => ( freea(); freeb() )
         end
-        and update(s, (a, b)) = (updatea(s, a); updateb(s ++ offsetb, b))
-
+        and updateML(s, (a, b)) = (updateMLa(s, a); updateMLb(s ++ offsetb, b))
+        and updateC(x, (a, b)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b))
     in
-        {load=load, store=store, update = update, ctype = LowLevel.cStruct[ctypea, ctypeb]}
+        {load=load, store=store, updateML = updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb]}
     end
 
     fun cStruct3(a: 'a conversion, b: 'b conversion, c: 'c conversion): ('a*'b*'c)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {align=alignc, ...} } = c
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {align=alignc, ...} } = c
        
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1039,17 +1053,19 @@ struct
         in
             fn () => ( freea(); freeb(); freec() )
         end
-        and update(s, (a, b, c)) = (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c))
+        and updateML(s, (a, b, c)) = (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c))
+        and updateC(x, (a, b, c)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c))
     in
-        {load=load, store=store, update=update, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec]}
     end
 
     fun cStruct4(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion): ('a*'b*'c*'d)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {align=alignd, ...} } = d
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {align=alignd, ...} } = d
  
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1063,20 +1079,22 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed() )
         end
-        and update(s, (a, b, c, d)) =
-            (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c); updated(s ++ offsetd, d))
+        and updateML(s, (a, b, c, d)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d))
+        and updateC(x, (a, b, c, d)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d))
     in
-        {load=load, store=store, update=update, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped]}
     end
 
     fun cStruct5(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion): ('a*'b*'c*'d*'e)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {align=aligne, ...} } = e
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {align=aligne, ...} } = e
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1092,22 +1110,25 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed(); freee() )
         end
-        and update(s, (a, b, c, d, e)) =
-            (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c);
-             updated(s ++ offsetd, d); updatee(s ++ offsete, e))
+        and updateML(s, (a, b, c, d, e)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c);
+             updateMLd(s ++ offsetd, d); updateMLe(s ++ offsete, e))
+        and updateC(x, (a, b, c, d, e)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e))
     in
-        {load=load, store=store, update=update, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee]}
     end
 
     fun cStruct6(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion): ('a*'b*'c*'d*'e*'f)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {align=alignf, ...} } = f
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {align=alignf, ...} } = f
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1125,23 +1146,26 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed(); freee(); freef() )
         end
-        and update(s, (a, b, c, d, e, f)) =
-            (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c); updated(s ++ offsetd, d);
-             updatee(s ++ offsete, e); updatef(s ++ offsetf, f))
+        and updateML(s, (a, b, c, d, e, f)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f))
+        and updateC(x, (a, b, c, d, e, f)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f))
     in
-        {load=load, store=store, update=update, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef]}
     end
 
     fun cStruct7(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion, g: 'g conversion): ('a*'b*'c*'d*'e*'f*'g)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {align=aligng, ...} } = g
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {align=aligng, ...} } = g
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1161,25 +1185,28 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg() )
         end
-        and update(s, (a, b, c, d, e, f, g)) =
-            (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c); updated(s ++ offsetd, d);
-             updatee(s ++ offsete, e); updatef(s ++ offsetf, f); updateg(s ++ offsetg, g))
+        and updateML(s, (a, b, c, d, e, f, g)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g))
+        and updateC(x, (a, b, c, d, e, f, g)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g))
     in
-        {load=load, store=store, update=update, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
+        {load=load, store=store, updateML=updateML, updateC=updateC, ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg]}
     end
 
     fun cStruct8(a: 'a conversion, b: 'b conversion, c: 'c conversion, d: 'd conversion,
                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion):
                     ('a*'b*'c*'d*'e*'f*'g*'h)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {align=alignh, ...} } = h
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {align=alignh, ...} } = h
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1200,12 +1227,16 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); freeh() )
         end
-        and update(s, (a, b, c, d, e, f, g, h)) =
-            (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c); updated(s ++ offsetd, d);
-             updatee(s ++ offsete, e); updatef(s ++ offsetf, f); updateg(s ++ offsetg, g);
-             updateh(s ++ offseth, h))
+        and updateML(s, (a, b, c, d, e, f, g, h)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g);
+             updateMLh(s ++ offseth, h))
+        and updateC(x, (a, b, c, d, e, f, g, h)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh]}
     end
 
@@ -1213,15 +1244,15 @@ struct
                  e: 'e conversion, f: 'f conversion, g: 'g conversion, h: 'h conversion,
                  i: 'i conversion): ('a*'b*'c*'d*'e*'f*'g*'h*'i)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {align=aligni, ...} } = i
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {align=aligni, ...} } = i
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1244,12 +1275,16 @@ struct
         in
             fn () => ( freea(); freeb(); freec(); freed(); freee(); freef(); freeg(); freeh(); freei() )
         end
-        and update(s, (a, b, c, d, e, f, g, h, i)) =
-            (updatea(s, a); updateb(s ++ offsetb, b); updatec(s ++ offsetc, c); updated(s ++ offsetd, d);
-             updatee(s ++ offsete, e); updatef(s ++ offsetf, f); updateg(s ++ offsetg, g);
-             updateh(s ++ offseth, h); updatei(s ++ offseti, i))
+        and updateML(s, (a, b, c, d, e, f, g, h, i)) =
+            (updateMLa(s, a); updateMLb(s ++ offsetb, b); updateMLc(s ++ offsetc, c); updateMLd(s ++ offsetd, d);
+             updateMLe(s ++ offsete, e); updateMLf(s ++ offsetf, f); updateMLg(s ++ offsetg, g);
+             updateMLh(s ++ offseth, h); updateMLi(s ++ offseti, i))
+        and updateC(x, (a, b, c, d, e, f, g, h, i)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei]}
     end
 
@@ -1258,16 +1293,16 @@ struct
                   i: 'i conversion, j: 'j conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {align=alignj, ...} } = j
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {align=alignj, ...} } = j
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1296,12 +1331,16 @@ struct
                     freeh(); freei(); freej()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej]}
     end
 
@@ -1310,17 +1349,17 @@ struct
                   i: 'i conversion, j: 'j conversion, k: 'k conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {align=alignk, ...} } = k
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {align=alignk, ...} } = k
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1351,13 +1390,18 @@ struct
                     freeh(); freei(); freej(); freek()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek]}
     end
@@ -1367,18 +1411,18 @@ struct
                   i: 'i conversion, j: 'j conversion, k: 'k conversion, l: 'l conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {align=alignl, ...} } = l
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {align=alignl, ...} } = l
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1410,13 +1454,18 @@ struct
                     freeh(); freei(); freej(); freek(); freel()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel]}
     end
@@ -1427,19 +1476,19 @@ struct
                   m: 'm conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {align=alignm, ...} } = m
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {align=alignm, ...} } = m
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1473,13 +1522,18 @@ struct
                     freeh(); freei(); freej(); freek(); freel(); freem()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem]}
     end
@@ -1492,20 +1546,20 @@ struct
                   m: 'm conversion, n: 'n conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {align=alignn, ...} } = n
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {align=alignn, ...} } = n
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1542,14 +1596,20 @@ struct
                     freen()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen]}
     end
@@ -1560,21 +1620,21 @@ struct
                   m: 'm conversion, n: 'n conversion, o: 'o conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, update=updateo, ctype = ctypeo as {align=aligno, ...} } = o
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {align=aligno, ...} } = o
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1612,14 +1672,20 @@ struct
                     freen(); freeo()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n); updateo(x ++ offseto, o))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen, ctypeo]}
     end
@@ -1630,22 +1696,22 @@ struct
                   m: 'm conversion, n: 'n conversion, o: 'o conversion, p: 'p conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, update=updateo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, update=updatep, ctype = ctypep as {align=alignp, ...} } = p
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {align=alignp, ...} } = p
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1685,14 +1751,20 @@ struct
                     freem(); freen(); freeo(); freep()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n); updateo(x ++ offseto, o); updatep(x ++ offsetp, p))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep]}
     end
@@ -1704,23 +1776,23 @@ struct
                   q: 'q conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, update=updateo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, update=updatep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, update=updateq, ctype = ctypeq as {align=alignq, ...} } = q
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {align=alignq, ...} } = q
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1762,15 +1834,22 @@ struct
                     freen(); freeo(); freep(); freeq()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n); updateo(x ++ offseto, o); updatep(x ++ offsetp, p);
-             updateq(x ++ offsetq, q))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq]}
     end
@@ -1782,24 +1861,24 @@ struct
                   q: 'q conversion, r: 'r conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, update=updateo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, update=updatep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, update=updateq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
-        and {load=loadr, store=storer, update=updater, ctype = ctyper as {align=alignr, ...} } = r
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {align=alignr, ...} } = r
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1842,15 +1921,22 @@ struct
                     freen(); freeo(); freep(); freeq(); freer()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n); updateo(x ++ offseto, o); updatep(x ++ offsetp, p);
-             updateq(x ++ offsetq, q); updater(x ++ offsetr, r))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q); updateMLr(x ++ offsetr, r))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper]}
     end
@@ -1862,25 +1948,25 @@ struct
                   q: 'q conversion, r: 'r conversion, s: 's conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, update=updateo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, update=updatep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, update=updateq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
-        and {load=loadr, store=storer, update=updater, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
-        and {load=loads, store=stores, update=updates, ctype = ctypes as {align=aligns, ...} } = s
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
+        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = ctypes as {align=aligns, ...} } = s
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -1925,15 +2011,22 @@ struct
                     freen(); freeo(); freep(); freeq(); freer(); frees()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n); updateo(x ++ offseto, o); updatep(x ++ offsetp, p);
-             updateq(x ++ offsetq, q); updater(x ++ offsetr, r); updates(x ++ offsets, s))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q); updateMLr(x ++ offsetr, r); updateMLs(x ++ offsets, s))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r); updateCs(x ++ offsets, s))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes]}
     end
@@ -1945,26 +2038,26 @@ struct
                   q: 'q conversion, r: 'r conversion, s: 's conversion, t: 't conversion):
                   ('a*'b*'c*'d*'e*'f*'g*'h*'i*'j*'k*'l*'m*'n*'o*'p*'q*'r*'s*'t)conversion =
     let
-        val {load=loada, store=storea, update=updatea, ctype = ctypea as {size=sizea, ...} } = a
-        and {load=loadb, store=storeb, update=updateb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
-        and {load=loadc, store=storec, update=updatec, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
-        and {load=loadd, store=stored, update=updated, ctype = ctyped as {size=sized, align=alignd, ...} } = d
-        and {load=loade, store=storee, update=updatee, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
-        and {load=loadf, store=storef, update=updatef, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
-        and {load=loadg, store=storeg, update=updateg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
-        and {load=loadh, store=storeh, update=updateh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
-        and {load=loadi, store=storei, update=updatei, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
-        and {load=loadj, store=storej, update=updatej, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
-        and {load=loadk, store=storek, update=updatek, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
-        and {load=loadl, store=storel, update=updatel, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
-        and {load=loadm, store=storem, update=updatem, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
-        and {load=loadn, store=storen, update=updaten, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
-        and {load=loado, store=storeo, update=updateo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
-        and {load=loadp, store=storep, update=updatep, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
-        and {load=loadq, store=storeq, update=updateq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
-        and {load=loadr, store=storer, update=updater, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
-        and {load=loads, store=stores, update=updates, ctype = ctypes as {size=sizes, align=aligns, ...} } = s
-        and {load=loadt, store=storet, update=updatet, ctype = ctypet as {align=alignt, ...} } = t
+        val {load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype = ctypea as {size=sizea, ...} } = a
+        and {load=loadb, store=storeb, updateML=updateMLb, updateC=updateCb, ctype = ctypeb as {size=sizeb, align=alignb, ...} } = b
+        and {load=loadc, store=storec, updateML=updateMLc, updateC=updateCc, ctype = ctypec as {size=sizec, align=alignc, ...} } = c
+        and {load=loadd, store=stored, updateML=updateMLd, updateC=updateCd, ctype = ctyped as {size=sized, align=alignd, ...} } = d
+        and {load=loade, store=storee, updateML=updateMLe, updateC=updateCe, ctype = ctypee as {size=sizee, align=aligne, ...} } = e
+        and {load=loadf, store=storef, updateML=updateMLf, updateC=updateCf, ctype = ctypef as {size=sizef, align=alignf, ...} } = f
+        and {load=loadg, store=storeg, updateML=updateMLg, updateC=updateCg, ctype = ctypeg as {size=sizeg, align=aligng, ...} } = g
+        and {load=loadh, store=storeh, updateML=updateMLh, updateC=updateCh, ctype = ctypeh as {size=sizeh, align=alignh, ...} } = h
+        and {load=loadi, store=storei, updateML=updateMLi, updateC=updateCi, ctype = ctypei as {size=sizei, align=aligni, ...} } = i
+        and {load=loadj, store=storej, updateML=updateMLj, updateC=updateCj, ctype = ctypej as {size=sizej, align=alignj, ...} } = j
+        and {load=loadk, store=storek, updateML=updateMLk, updateC=updateCk, ctype = ctypek as {size=sizek, align=alignk, ...} } = k
+        and {load=loadl, store=storel, updateML=updateMLl, updateC=updateCl, ctype = ctypel as {size=sizel, align=alignl, ...} } = l
+        and {load=loadm, store=storem, updateML=updateMLm, updateC=updateCm, ctype = ctypem as {size=sizem, align=alignm, ...} } = m
+        and {load=loadn, store=storen, updateML=updateMLn, updateC=updateCn, ctype = ctypen as {size=sizen, align=alignn, ...} } = n
+        and {load=loado, store=storeo, updateML=updateMLo, updateC=updateCo, ctype = ctypeo as {size=sizeo, align=aligno, ...} } = o
+        and {load=loadp, store=storep, updateML=updateMLp, updateC=updateCp, ctype = ctypep as {size=sizep, align=alignp, ...} } = p
+        and {load=loadq, store=storeq, updateML=updateMLq, updateC=updateCq, ctype = ctypeq as {size=sizeq, align=alignq, ...} } = q
+        and {load=loadr, store=storer, updateML=updateMLr, updateC=updateCr, ctype = ctyper as {size=sizer, align=alignr, ...} } = r
+        and {load=loads, store=stores, updateML=updateMLs, updateC=updateCs, ctype = ctypes as {size=sizes, align=aligns, ...} } = s
+        and {load=loadt, store=storet, updateML=updateMLt, updateC=updateCt, ctype = ctypet as {align=alignt, ...} } = t
 
         val offsetb = alignUp(sizea, alignb)
         val offsetc = alignUp(offsetb + sizeb, alignc)
@@ -2010,15 +2103,22 @@ struct
                     freen(); freeo(); freep(); freeq(); freer(); frees(); freet()
                 )
         end
-        and update(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
-            (updatea(x, a); updateb(x ++ offsetb, b); updatec(x ++ offsetc, c); updated(x ++ offsetd, d);
-             updatee(x ++ offsete, e); updatef(x ++ offsetf, f); updateg(x ++ offsetg, g);
-             updateh(x ++ offseth, h); updatei(x ++ offseti, i); updatej(x ++ offsetj, j);
-             updatek(x ++ offsetk, k); updatel(x ++ offsetl, l); updatem(x ++ offsetm, m);
-             updaten(x ++ offsetn, n); updateo(x ++ offseto, o); updatep(x ++ offsetp, p);
-             updateq(x ++ offsetq, q); updater(x ++ offsetr, r); updates(x ++ offsets, s); updatet(x ++ offsett, t))
+        and updateML(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+            (updateMLa(x, a); updateMLb(x ++ offsetb, b); updateMLc(x ++ offsetc, c); updateMLd(x ++ offsetd, d);
+             updateMLe(x ++ offsete, e); updateMLf(x ++ offsetf, f); updateMLg(x ++ offsetg, g);
+             updateMLh(x ++ offseth, h); updateMLi(x ++ offseti, i); updateMLj(x ++ offsetj, j);
+             updateMLk(x ++ offsetk, k); updateMLl(x ++ offsetl, l); updateMLm(x ++ offsetm, m);
+             updateMLn(x ++ offsetn, n); updateMLo(x ++ offseto, o); updateMLp(x ++ offsetp, p);
+             updateMLq(x ++ offsetq, q); updateMLr(x ++ offsetr, r); updateMLs(x ++ offsets, s); updateMLt(x ++ offsett, t))
+        and updateC(x, (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t)) =
+            (updateCa(x, a); updateCb(x ++ offsetb, b); updateCc(x ++ offsetc, c); updateCd(x ++ offsetd, d);
+             updateCe(x ++ offsete, e); updateCf(x ++ offsetf, f); updateCg(x ++ offsetg, g);
+             updateCh(x ++ offseth, h); updateCi(x ++ offseti, i); updateCj(x ++ offsetj, j);
+             updateCk(x ++ offsetk, k); updateCl(x ++ offsetl, l); updateCm(x ++ offsetm, m);
+             updateCn(x ++ offsetn, n); updateCo(x ++ offseto, o); updateCp(x ++ offsetp, p);
+             updateCq(x ++ offsetq, q); updateCr(x ++ offsetr, r); updateCs(x ++ offsets, s); updateCt(x ++ offsett, t))
     in
-        {load=load, store=store, update=update,
+        {load=load, store=store, updateML=updateML, updateC=updateC,
          ctype = LowLevel.cStruct[ctypea, ctypeb, ctypec, ctyped, ctypee, ctypef, ctypeg, ctypeh, ctypei, ctypej,
                                   ctypek, ctypel, ctypem, ctypen, ctypeo, ctypep, ctypeq, ctyper, ctypes, ctypet]}
     end
@@ -2027,11 +2127,8 @@ struct
     local
         open Memory LowLevel
     in
-        fun cStar({load=loada, store=storea, update=updatea, ctype=ctypea}: 'a conversion): 'a ref conversion =
+        fun cStar({load=loada, store=storea, ctype=ctypea, ...}: 'a conversion): 'a ref conversion =
         let
-            (* This would only be used if we returned a cStar. *)
-            fun load s = ref(loada(getAddress(s, 0w0)))
-            
             fun store(m, ref s) =
             let
                 (* When we pass a ref X into a cStar cX function we need to
@@ -2045,22 +2142,21 @@ struct
                 fn () => (free mem; freea())
             end
             
-            (* I'm not sure about whether we should do anything with the
-               inherited update here. *)
-            fun update(m, s) =
-            let
-                val mem = getAddress(m, 0w0) (* The address of our cell. *)
-                val olds = !s
-            in
-                s := loada mem; (* Update the ref from the value in the cell. *)
-                updatea(mem, olds)
-            end
+            (* Called to update the ML value when the C . *)
+            fun updateML(m, s) = s := loada(getAddress(m, 0w0))
+
+            (* Used when an ML callback receives a cStar argument. *)
+            fun load s = ref(loada(getAddress(s, 0w0)))
+            
+            (* Used when a callback has returned to update the C value.
+               If storea allocates then there's nothing we can do. *)
+            fun updateC(m, ref s) = ignore(storea(getAddress(m, 0w0), s))
         in
-            {load=load, store=store, update=update, ctype = cTypePointer}
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
         end
 
         (* Similar to cStar but without the need to update the result. *)
-        fun cConstStar({load=loada, store=storea, update=updatea, ctype=ctypea}: 'a conversion): 'a conversion =
+        fun cConstStar({load=loada, store=storea, updateML=updateMLa, updateC=updateCa, ctype=ctypea}: 'a conversion): 'a conversion =
         let
             fun load s = loada(getAddress(s, 0w0))
             
@@ -2075,14 +2171,96 @@ struct
             
             (* Do we have to do anything here?  Could we pass a const pointer
                to a structure with variable fields? *)
-            fun update(m, s) =
-            let
-                val mem = getAddress(m, 0w0) (* The address of our cell. *)
-            in
-                updatea(mem, s)
-            end
+            fun updateML(m, s) = updateMLa(getAddress(m, 0w0), s)
+            and updateC(m, s) = updateCa(getAddress(m, 0w0), s)
         in
-            {load=load, store=store, update=update, ctype = cTypePointer}
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
+        end
+
+        (* Fixed size vector.  It is treated as a struct and passed by value or embedded in a structure. *)
+        fun cVectorFixedSize(n,
+            {load=loadEl, store=storeEl, updateML=updateMLel, updateC=updateCel,
+             ctype={size=sizeEl, align=alignEl, ffiType=ffiTypeEl}, ...}: 'a conversion)
+                : 'a vector conversion =
+        let
+            val arraySize = sizeEl * Word.fromInt n
+            fun ffiTypeArray () =
+                LibFFI.createFFItype {
+                    size = arraySize, align = alignEl, typeCode=LibFFI.ffiTypeCodeStruct,
+                    elements = List.tabulate (n, fn _ => ffiTypeEl()) }
+            val arrayType = { size = arraySize, align = alignEl, ffiType = ffiTypeArray }
+
+            fun load(v: voidStar): 'a vector =
+                Vector.tabulate(n, fn i => loadEl(v ++ Word.fromInt i))
+
+            fun store(v: voidStar, s: 'a vector) =
+            let
+                val sLen = Vector.length s
+                val _ = sLen <= n orelse raise Foreign "vector too long"
+                (* Store the values.  Make a list of the free fns in case they allocate *)
+                val frees = Vector.foldli(fn(i, el, l) => storeEl(v ++ Word.fromInt i, el) :: l) [] s;
+            in
+                fn () => List.app (fn f => f()) frees
+            end
+            
+            (* If we have a ref in here we need to update *)
+            fun updateML(v, s) = Vector.appi(fn (i, el) => updateMLel(v ++ Word.fromInt i, el)) s
+            and updateC(v, s) = Vector.appi(fn (i, el) => updateCel(v ++ Word.fromInt i, el)) s
+        in
+            { load = load, store = store, updateML=updateML, updateC=updateC, ctype = arrayType }
+        end
+
+        (* Pass an ML vector as a pointer to a C array. *)
+        fun cVectorPointer
+            ({store=storeEl, updateML=updateMLel, ctype={size=sizeEl, ...}, ...}: 'a conversion)
+                : 'a vector conversion =
+        let
+            (* We can't determine the size so can't construct a suitable ML value. *)
+            fun load _ = raise Foreign "Cannot return a cVectorPointer from C to ML"
+            
+            fun store(m, s) =
+            let
+                val mem = malloc(sizeEl * Word.fromInt(Vector.length s))
+                val () = setAddress(m, 0w0, mem)
+                (* Store the values.  Make a list of the free fns in case they allocate *)
+                val frees = Vector.foldli(fn(i, el, l) => storeEl(mem ++ Word.fromInt i, el) :: l) [] s;
+            in
+                fn () => (List.app (fn f => f()) frees; free mem)
+            end
+            
+            (* This is only appropriate if the elements are refs. *)
+            fun updateML(v, s) = Vector.appi(fn (i, el) => updateMLel(v ++ Word.fromInt i, el)) s
+            (* updateC can't actually be used because we can't load a suitable value *)
+            and updateC _ = raise Foreign "Cannot return a cVectorPointer from C to ML"
+        in
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
+        end
+
+        (* Pass an ML array as a pointer to a C array and, on return, update each element of
+           the ML array from the C array. *)
+        fun cArrayPointer
+            ({load=loadEl, store=storeEl, ctype={size=sizeEl, ...}, ...}: 'a conversion) : 'a array conversion =
+        let
+            (* We can't determine the size so can't construct a suitable ML value. *)
+            fun load _ = raise Foreign "Cannot return a cArrayPointer from C to ML"
+            
+            fun store(m, s) =
+            let
+                val mem = malloc(sizeEl * Word.fromInt(Array.length s))
+                val () = setAddress(m, 0w0, mem)
+                (* Store the values.  Make a list of the free fns in case they allocate *)
+                val frees = Array.foldli(fn(i, el, l) => storeEl(mem ++ Word.fromInt i, el) :: l) [] s;
+            in
+                fn () => (List.app (fn f => f()) frees; free mem)
+            end
+            
+            (* updateML is used after a C function returns.  It needs to update each element. *)
+            fun updateML(v, s) = Array.modifyi(fn (i, _) => loadEl(v ++ Word.fromInt i)) s
+
+            (* updateC can't actually be used because we can't load a suitable value *)
+            and updateC _ = raise Foreign "Cannot return a cArrayPointer from C to ML"
+        in
+            {load=load, store=store, updateML=updateML, updateC=updateC, ctype = cTypePointer}
         end
     end
 
@@ -2121,7 +2299,7 @@ struct
         fun call0 x = call0withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
         fun callInternal1withAbi (abi: abi)
-            ({ ctype = argType, store = argStore, update = argUpdate, ...}: 'a conversion)
+            ({ ctype = argType, store = argStore, updateML = argUpdate, ...}: 'a conversion)
             ({ ctype = resType, load= resLoad, ...}: 'b conversion): symbol -> 'a ->'b =
         let
             val callF = callwithAbi abi [argType] resType
@@ -2157,8 +2335,8 @@ struct
         fun call1 x = call1withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
         fun callInternal2withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion)
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion)
             ({ ctype = resType, load= resLoad, ...}: 'c conversion): symbol -> 'a * 'b -> 'c =
         let
             val callF = callwithAbi abi [arg1Type, arg2Type] resType
@@ -2194,9 +2372,9 @@ struct
         fun call2 x = call2withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
         fun callInternal3withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion)
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion)
             ({ ctype = resType, load= resLoad, ...}: 'd conversion): symbol -> 'a * 'b *'c -> 'd =
         let
             val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type] resType
@@ -2235,10 +2413,10 @@ struct
         fun call3 x = call3withAbi abiDefault x (* Have to make it a fun to avoid value restriction *)
 
         fun callInternal4withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'e conversion): symbol -> 'a * 'b *'c * 'd -> 'e =
         let
             val callF = callwithAbi abi [arg1Type, arg2Type, arg3Type, arg4Type] resType
@@ -2281,11 +2459,11 @@ struct
         fun call4 x = call4withAbi abiDefault x
 
         fun callInternal5withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'f conversion): symbol -> 'a * 'b *'c * 'd * 'e -> 'f =
         let
             val callF =
@@ -2333,12 +2511,12 @@ struct
         fun call5 x = call5withAbi abiDefault x
 
         fun callInternal6withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'g conversion): symbol -> 'a * 'b *'c * 'd * 'e * 'f -> 'g =
         let
             val callF =
@@ -2389,13 +2567,13 @@ struct
         fun call6 x = call6withAbi abiDefault x
 
         fun callInternal7withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'h conversion):
                 symbol -> 'a * 'b *'c * 'd * 'e * 'f * 'g -> 'h =
         let
@@ -2451,14 +2629,14 @@ struct
         fun call7 x = call7withAbi abiDefault x
 
         fun callInternal8withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'i conversion):
                 symbol -> 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h -> 'i =
         let
@@ -2519,15 +2697,15 @@ struct
         fun call8 x = call8withAbi abiDefault x
 
         fun callInternal9withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, update = arg9Update, ...}: 'i conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'j conversion):
                 symbol -> 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i -> 'j =
         let
@@ -2592,16 +2770,16 @@ struct
         fun call9 x = call9withAbi abiDefault x
 
         fun callInternal10withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, update = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, update = arg10Update, ...}: 'j conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'k conversion):
                 symbol -> 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j -> 'k =
         let
@@ -2672,17 +2850,17 @@ struct
         fun call10 x = call10withAbi abiDefault x
 
         fun callInternal11withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, update = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, update = arg10Update, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, update = arg11Update, ...}: 'k conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'l conversion):
                 symbol -> 'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k -> 'l =
         let
@@ -2756,18 +2934,18 @@ struct
         fun call11 x = call11withAbi abiDefault x
 
         fun callInternal12withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, update = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, update = arg10Update, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, update = arg11Update, ...}: 'k conversion,             
-             { ctype = arg12Type, store = arg12Store, update = arg12Update, ...}: 'l conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,             
+             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'm conversion):
                 symbol ->
                     'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l -> 'm =
@@ -2845,19 +3023,19 @@ struct
         fun call12 x = call12withAbi abiDefault x
 
         fun callInternal13withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,             
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,             
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,             
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion,             
-             { ctype = arg9Type, store = arg9Store, update = arg9Update, ...}: 'i conversion,             
-             { ctype = arg10Type, store = arg10Store, update = arg10Update, ...}: 'j conversion,             
-             { ctype = arg11Type, store = arg11Store, update = arg11Update, ...}: 'k conversion,             
-             { ctype = arg12Type, store = arg12Store, update = arg12Update, ...}: 'l conversion,             
-             { ctype = arg13Type, store = arg13Store, update = arg13Update, ...}: 'm conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,             
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,             
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,             
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,             
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,             
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,             
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,             
+             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion,             
+             { ctype = arg13Type, store = arg13Store, updateML = arg13Update, ...}: 'm conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'n conversion):
                 symbol ->
                     'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm -> 'n =
@@ -2939,20 +3117,20 @@ struct
         fun call13 x = call13withAbi abiDefault x
 
         fun callInternal14withAbi (abi: abi)
-            ({ ctype = arg1Type, store = arg1Store, update = arg1Update, ...}: 'a conversion,
-             { ctype = arg2Type, store = arg2Store, update = arg2Update, ...}: 'b conversion,
-             { ctype = arg3Type, store = arg3Store, update = arg3Update, ...}: 'c conversion,
-             { ctype = arg4Type, store = arg4Store, update = arg4Update, ...}: 'd conversion,
-             { ctype = arg5Type, store = arg5Store, update = arg5Update, ...}: 'e conversion,
-             { ctype = arg6Type, store = arg6Store, update = arg6Update, ...}: 'f conversion,
-             { ctype = arg7Type, store = arg7Store, update = arg7Update, ...}: 'g conversion,
-             { ctype = arg8Type, store = arg8Store, update = arg8Update, ...}: 'h conversion,
-             { ctype = arg9Type, store = arg9Store, update = arg9Update, ...}: 'i conversion,
-             { ctype = arg10Type, store = arg10Store, update = arg10Update, ...}: 'j conversion,
-             { ctype = arg11Type, store = arg11Store, update = arg11Update, ...}: 'k conversion,
-             { ctype = arg12Type, store = arg12Store, update = arg12Update, ...}: 'l conversion,
-             { ctype = arg13Type, store = arg13Store, update = arg13Update, ...}: 'm conversion,           
-             { ctype = arg14Type, store = arg14Store, update = arg14Update, ...}: 'n conversion)             
+            ({ ctype = arg1Type, store = arg1Store, updateML = arg1Update, ...}: 'a conversion,
+             { ctype = arg2Type, store = arg2Store, updateML = arg2Update, ...}: 'b conversion,
+             { ctype = arg3Type, store = arg3Store, updateML = arg3Update, ...}: 'c conversion,
+             { ctype = arg4Type, store = arg4Store, updateML = arg4Update, ...}: 'd conversion,
+             { ctype = arg5Type, store = arg5Store, updateML = arg5Update, ...}: 'e conversion,
+             { ctype = arg6Type, store = arg6Store, updateML = arg6Update, ...}: 'f conversion,
+             { ctype = arg7Type, store = arg7Store, updateML = arg7Update, ...}: 'g conversion,
+             { ctype = arg8Type, store = arg8Store, updateML = arg8Update, ...}: 'h conversion,
+             { ctype = arg9Type, store = arg9Store, updateML = arg9Update, ...}: 'i conversion,
+             { ctype = arg10Type, store = arg10Store, updateML = arg10Update, ...}: 'j conversion,
+             { ctype = arg11Type, store = arg11Store, updateML = arg11Update, ...}: 'k conversion,
+             { ctype = arg12Type, store = arg12Store, updateML = arg12Update, ...}: 'l conversion,
+             { ctype = arg13Type, store = arg13Store, updateML = arg13Update, ...}: 'm conversion,           
+             { ctype = arg14Type, store = arg14Store, updateML = arg14Update, ...}: 'n conversion)             
             ({ ctype = resType, load= resLoad, ...}: 'o conversion):
                 symbol ->
                     'a * 'b *'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o =
@@ -3078,7 +3256,10 @@ struct
         let
             fun callback (f: 'a -> 'b) (args: voidStar, res: voidStar): unit =
             let
-                val result = f (#load argConv (getAddress(args, 0w0)))
+                val arg1Addr = getAddress(args, 0w0)
+                val arg1 = #load argConv arg1Addr
+                val result = f arg1
+                val () = #updateC argConv (arg1Addr, arg1)
             in
                 ignore(#store resConv (res, result))
             end
@@ -3116,10 +3297,15 @@ struct
             let
                 fun callback (f: 'a *'b -> 'c) (args: voidStar, res: voidStar): unit =
                 let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)))
+                    val arg1Addr = getAddress(args, 0w0)
+                    and arg2Addr = getAddress(args, 0w1)
+                    val arg1 = #load arg1Conv arg1Addr
+                    and arg2 = #load arg2Conv arg2Addr
+
+                    val result = f (arg1, arg2)
+
+                    val () = #updateC arg1Conv(arg1Addr, arg1)
+                    and () = #updateC arg2Conv(arg2Addr, arg2)
                 in
                     ignore(#store resConv (res, result))
                 end
@@ -3157,11 +3343,18 @@ struct
             let
                 fun callback (f: 'a *'b * 'c -> 'd) (args: voidStar, res: voidStar): unit =
                 let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)))
+                    val arg1Addr = getAddress(args, 0w0)
+                    and arg2Addr = getAddress(args, 0w1)
+                    and arg3Addr = getAddress(args, 0w2)
+                    val arg1 = #load arg1Conv arg1Addr
+                    and arg2 = #load arg2Conv arg2Addr
+                    and arg3 = #load arg3Conv arg3Addr
+
+                    val result = f (arg1, arg2, arg3)
+
+                    val () = #updateC arg1Conv(arg1Addr, arg1)
+                    and () = #updateC arg2Conv(arg2Addr, arg2)
+                    and () = #updateC arg3Conv(arg3Addr, arg3)
                 in
                     ignore(#store resConv (res, result))
                 end
@@ -3201,12 +3394,21 @@ struct
             let
                 fun callback (f: 'a *'b * 'c * 'd -> 'e) (args: voidStar, res: voidStar): unit =
                 let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)),
-                            #load arg4Conv (getAddress(args, 0w3)))
+                    val arg1Addr = getAddress(args, 0w0)
+                    and arg2Addr = getAddress(args, 0w1)
+                    and arg3Addr = getAddress(args, 0w2)
+                    and arg4Addr = getAddress(args, 0w3)
+                    val arg1 = #load arg1Conv arg1Addr
+                    and arg2 = #load arg2Conv arg2Addr
+                    and arg3 = #load arg3Conv arg3Addr
+                    and arg4 = #load arg4Conv arg4Addr
+
+                    val result = f (arg1, arg2, arg3, arg4)
+
+                    val () = #updateC arg1Conv(arg1Addr, arg1)
+                    and () = #updateC arg2Conv(arg2Addr, arg2)
+                    and () = #updateC arg3Conv(arg3Addr, arg3)
+                    and () = #updateC arg4Conv(arg4Addr, arg4)
                 in
                     ignore(#store resConv (res, result))
                 end
@@ -3246,13 +3448,24 @@ struct
             let
                 fun callback (f: 'a *'b * 'c * 'd * 'e -> 'f) (args: voidStar, res: voidStar): unit =
                 let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)),
-                            #load arg4Conv (getAddress(args, 0w3)),
-                            #load arg5Conv (getAddress(args, 0w4)))
+                    val arg1Addr = getAddress(args, 0w0)
+                    and arg2Addr = getAddress(args, 0w1)
+                    and arg3Addr = getAddress(args, 0w2)
+                    and arg4Addr = getAddress(args, 0w3)
+                    and arg5Addr = getAddress(args, 0w4)
+                    val arg1 = #load arg1Conv arg1Addr
+                    and arg2 = #load arg2Conv arg2Addr
+                    and arg3 = #load arg3Conv arg3Addr
+                    and arg4 = #load arg4Conv arg4Addr
+                    and arg5 = #load arg5Conv arg5Addr
+
+                    val result = f (arg1, arg2, arg3, arg4, arg5)
+
+                    val () = #updateC arg1Conv(arg1Addr, arg1)
+                    and () = #updateC arg2Conv(arg2Addr, arg2)
+                    and () = #updateC arg3Conv(arg3Addr, arg3)
+                    and () = #updateC arg4Conv(arg4Addr, arg4)
+                    and () = #updateC arg5Conv(arg5Addr, arg5)
                 in
                     ignore(#store resConv (res, result))
                 end
@@ -3297,14 +3510,27 @@ struct
             let
                 fun callback (f: 'a *'b * 'c * 'd * 'e * 'f -> 'g) (args: voidStar, res: voidStar): unit =
                 let
-                    val result =
-                        f (
-                            #load arg1Conv (getAddress(args, 0w0)),
-                            #load arg2Conv (getAddress(args, 0w1)),
-                            #load arg3Conv (getAddress(args, 0w2)),
-                            #load arg4Conv (getAddress(args, 0w3)),
-                            #load arg5Conv (getAddress(args, 0w4)),
-                            #load arg6Conv (getAddress(args, 0w5)))
+                    val arg1Addr = getAddress(args, 0w0)
+                    and arg2Addr = getAddress(args, 0w1)
+                    and arg3Addr = getAddress(args, 0w2)
+                    and arg4Addr = getAddress(args, 0w3)
+                    and arg5Addr = getAddress(args, 0w4)
+                    and arg6Addr = getAddress(args, 0w5)
+                    val arg1 = #load arg1Conv arg1Addr
+                    and arg2 = #load arg2Conv arg2Addr
+                    and arg3 = #load arg3Conv arg3Addr
+                    and arg4 = #load arg4Conv arg4Addr
+                    and arg5 = #load arg5Conv arg5Addr
+                    and arg6 = #load arg6Conv arg6Addr
+
+                    val result = f (arg1, arg2, arg3, arg4, arg5, arg6)
+
+                    val () = #updateC arg1Conv(arg1Addr, arg1)
+                    and () = #updateC arg2Conv(arg2Addr, arg2)
+                    and () = #updateC arg3Conv(arg3Addr, arg3)
+                    and () = #updateC arg4Conv(arg4Addr, arg4)
+                    and () = #updateC arg5Conv(arg5Addr, arg5)
+                    and () = #updateC arg6Conv(arg6Addr, arg6)
                 in
                     ignore(#store resConv (res, result))
                 end

@@ -1011,51 +1011,57 @@ local
 
     fun longName (directory, file) = OS.Path.joinDirFile{dir=directory, file = file}
     
-    fun fileReadable (fileTuple as (directory, object)) =
-        (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
-        if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
-        then false
-        else
+    local
+        fun fileReadable (fileTuple as (directory, object)) =
+            (* Use OS.FileSys.isDir just to test if the file/directory exists. *)
+            if (OS.FileSys.isDir (longName fileTuple); false) handle OS.SysErr _ => true
+            then false
+            else
+            let
+                (* Check that the object is present in the directory with the name
+                 given and not a case-insensitive version of it.  This avoids
+                 problems with "make" attempting to recursively make Array etc
+                 because they contain signatures ARRAY. *)
+                open OS.FileSys
+                val d = openDir (if directory = "" then "." else directory)
+                fun searchDir () =
+                  case readDir d of
+                     NONE => false
+                  |  SOME f => f = object orelse searchDir ()
+                val present = searchDir()
+            in
+                closeDir d;
+                present
+            end
+    
+        fun findFileTuple _                   [] = NONE
+        |   findFileTuple (directory, object) (suffix :: suffixes) =
         let
-            (* Check that the object is present in the directory with the name
-             given and not a case-insensitive version of it.  This avoids
-             problems with "make" attempting to recursively make Array etc
-             because they contain signatures ARRAY. *)
-            open OS.FileSys
-            val d = openDir (if directory = "" then "." else directory)
-            fun searchDir () =
-              case readDir d of
-                 NONE => false
-              |  SOME f => f = object orelse searchDir ()
-            val present = searchDir()
+            val fileName  = object ^ suffix
+            val fileTuple = (directory, fileName)
         in
-            closeDir d;
-            present
+            if fileReadable fileTuple
+            then SOME fileTuple
+            else findFileTuple (directory, object) suffixes
         end
     
-    fun findFileTuple _                   [] = NONE
-    |   findFileTuple (directory, object) (suffix :: suffixes) =
-    let
-        val fileName  = object ^ suffix
-        val fileTuple = (directory, fileName)
     in
-        if fileReadable fileTuple
-        then SOME fileTuple
-        else findFileTuple (directory, object) suffixes
-    end;
-    
-    fun filePresent (directory : string, object : string) =
-    let
-        (* Construct suffixes with the architecture and version number in so
-           we can compile architecture- and version-specific code. *)
-        val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
-        val versionSuffix = "." ^ Int.toString Bootstrap.compilerVersionNumber
-        val extraSuffixes = [archSuffix, versionSuffix, "" ]
-        val addedSuffixes =
-            List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
-    in
-        (* For each of the suffixes in the list try it. *)
-        findFileTuple (directory, object) addedSuffixes
+        fun filePresent (directory : string, kind: string option, object : string) =
+        let
+            (* Construct suffixes with the architecture and version number in so
+               we can compile architecture- and version-specific code. *)
+            val archSuffix = "." ^ String.map Char.toLower (PolyML.architecture())
+            val versionSuffix = "." ^ Int.toString Bootstrap.compilerVersionNumber
+            val extraSuffixes =
+                case kind of
+                    NONE => [archSuffix, versionSuffix, ""]
+                |   SOME k => ["." ^ k ^ archSuffix, "." ^ k ^ versionSuffix, "." ^ k, archSuffix, versionSuffix, ""]
+            val addedSuffixes =
+                List.foldr(fn (i, l) => (List.map (fn s => s ^ i) extraSuffixes) @ l) [] (!suffixes)
+        in
+            (* For each of the suffixes in the list try it. *)
+            findFileTuple (directory, object) addedSuffixes
+        end
     end
     
     (* See if the corresponding file is there and if it is a directory. *)
@@ -1118,18 +1124,18 @@ local
            directory by compiling the "bind" file. This will only actually be
            executed if it involves some identifier which is newer than the
            result object. *)
-        fun remakeObj (objName: string) (findDirectory: string -> string) =
+        fun remakeObj (objName: string, kind: string option, findDirectory: string option -> string -> string) =
         let
         (* Find a directory that contains this object. An exception will be
              raised if it is not there. *)
-            val directory = findDirectory objName;
+            val directory = findDirectory kind objName
             val fullName  =
                 if directory = "" (* Work around for bug. *)
                 then objName
-                else OS.Path.joinDirFile{dir=directory, file=objName};
+                else OS.Path.joinDirFile{dir=directory, file=objName}
 
-            val objIsDir  = testForDirectory fullName;
-            val here      = fullName;
+            val objIsDir  = testForDirectory fullName
+            val here      = fullName
       
             (* Look to see if the file exists, possibly with an extension,
                and get the extended version. *)
@@ -1141,26 +1147,26 @@ local
                         then (here,"ml_bind")
                         else (directory, objName);
                 in
-                    case filePresent (dir, file) of
+                    case filePresent (dir, kind, file) of
                         SOME res' => res'
                     |   NONE      => raise Fail ("No such file or directory ("^file^","^dir^")")
                 end ;
             
             val fileName = longName fileTuple;
 
-            val newFindDirectory : string -> string =
+            val newFindDirectory : string option -> string -> string =
                 if objIsDir
                 then
                 let
                     (* Look in this directory then in the ones above. *)
-                    fun findDirectoryHere (name: string) : string =
-                        case filePresent (here, name) of
-                          NONE => findDirectory name (* not in this directory *)
+                    fun findDirectoryHere kind (name: string) : string =
+                        case filePresent (here, kind, name) of
+                          NONE => findDirectory kind name (* not in this directory *)
                         | _    => here;
                 in
                     findDirectoryHere
                 end
-                else findDirectory;
+                else findDirectory
     
             (* Compiles a file. *)
             fun remakeCurrentObj () =
@@ -1176,7 +1182,7 @@ local
                         else ();
                     
                     (* Called by the compiler to look-up a global identifier. *)
-                    fun lookupMakeEnv globalLook (name: string) : 'a option =
+                    fun lookupMakeEnv (globalLook, kind: string option) (name: string) : 'a option =
                     let
                         (* Have we re-declared it ? *)
                         val res = lookupStatus name;
@@ -1185,7 +1191,7 @@ local
                             NotProcessed  =>
                             (
                                 (* Compile the dependency. *)
-                                remakeObj name newFindDirectory;
+                                remakeObj (name, kind, newFindDirectory);
                                 (* Add this to the dependencies. *)
                                 addDep name
                             )
@@ -1198,9 +1204,9 @@ local
                         (* There was previously a comment about returning NONE here if
                            we had a problem remaking a dependency. *)
                         globalLook name
-                    end; (* lookupMakeEnv *)
+                    end (* lookupMakeEnv *)
 
-                     (* Enter the declared value in the table. Usually this will be the
+                    (* Enter the declared value in the table. Usually this will be the
                         target we are making. Also set the state to "Checked". The
                         state is set to checked when we finish making the object but
                         setting it now suppresses messages about circular dependencies
@@ -1245,9 +1251,9 @@ local
                             lookupFix    = #lookupFix globalNameSpace,
                             lookupVal    = #lookupVal globalNameSpace,
                             lookupType   = #lookupType globalNameSpace,
-                            lookupSig    = lookupMakeEnv (#lookupSig globalNameSpace),
-                            lookupStruct = lookupMakeEnv (#lookupStruct globalNameSpace),
-                            lookupFunct  = lookupMakeEnv (#lookupFunct globalNameSpace),
+                            lookupSig    = lookupMakeEnv (#lookupSig globalNameSpace, SOME "signature"),
+                            lookupStruct = lookupMakeEnv (#lookupStruct globalNameSpace, SOME "structure"),
+                            lookupFunct  = lookupMakeEnv (#lookupFunct globalNameSpace, SOME "functor"),
                             enterFix     = #enterFix globalNameSpace,
                             enterVal     = #enterVal globalNameSpace,
                             enterType    = #enterType globalNameSpace,
@@ -1321,7 +1327,7 @@ local
                 case lookupStatus s of
                     NotProcessed => (* see if it's a file. *)
                         (* Compile the dependency. *)
-                        remakeObj s newFindDirectory
+                        remakeObj(s, kind, newFindDirectory)
                     
                     | Searching => (* In the process of making it *)
                         print ("Circular dependency: " ^ s ^ " depends on itself\n")
@@ -1372,7 +1378,7 @@ local
                 )
     in (*  body of make *)
         (* Check that the target exists. *)
-        case filePresent (dirName, objectName) of
+        case filePresent (dirName, NONE, objectName) of
             NONE =>
             let
                 val dir =
@@ -1392,13 +1398,13 @@ local
                must be in the directory. If it is a file we allow references
                to other objects in the same directory. Objects not found must
                be pervasive. *)
-            fun findDirectory (s: string) : string =
+            fun findDirectory kind (s: string) : string =
                 if (not targetIsDir orelse s = objectName) andalso
-                    isSome(filePresent(dirName,  s))
+                    isSome(filePresent(dirName, kind, s))
                 then dirName
                 else raise ObjNotFile;
         in
-            remakeObj objectName findDirectory
+            remakeObj (objectName, NONE, findDirectory)
                 handle exn  => 
                 (
                     print (targetName ^ " was not declared\n");
