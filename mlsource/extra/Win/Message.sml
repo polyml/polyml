@@ -1365,7 +1365,7 @@ struct
             let
                 val cTabs = IntVector.length tabs
                 val vec = malloc(Word.fromInt cTabs * sizeInt)
-                fun setVec(tab, addr) = (storeInt(addr, tab); addr ++ sizeInt)
+                fun setVec(tab, addr) = (ignore(storeInt(addr, tab)); addr ++ sizeInt)
                 val _ = IntVector.foldl setVec vec tabs
             in
                 (code, SysWord.fromInt cTabs, fromAddr vec, fn () => free vec)
