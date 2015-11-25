@@ -2223,7 +2223,7 @@ struct
                 val mem = malloc(sizeEl * Word.fromInt(Vector.length s))
                 val () = setAddress(m, 0w0, mem)
                 (* Store the values.  Make a list of the free fns in case they allocate *)
-                val frees = Vector.foldli(fn(i, el, l) => storeEl(mem ++ Word.fromInt i, el) :: l) [] s;
+                val frees = Vector.foldli(fn(i, el, l) => storeEl(mem ++ (sizeEl * Word.fromInt i), el) :: l) [] s;
             in
                 fn () => (List.app (fn f => f()) frees; free mem)
             end
@@ -2249,7 +2249,7 @@ struct
                 val mem = malloc(sizeEl * Word.fromInt(Array.length s))
                 val () = setAddress(m, 0w0, mem)
                 (* Store the values.  Make a list of the free fns in case they allocate *)
-                val frees = Array.foldli(fn(i, el, l) => storeEl(mem ++ Word.fromInt i, el) :: l) [] s;
+                val frees = Array.foldli(fn(i, el, l) => storeEl(mem ++ (sizeEl * Word.fromInt i), el) :: l) [] s;
             in
                 fn () => (List.app (fn f => f()) frees; free mem)
             end
