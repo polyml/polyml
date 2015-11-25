@@ -1557,7 +1557,6 @@
     <ClInclude Include="bitmap.h" />
     <ClInclude Include="check_objects.h" />
     <ClInclude Include="Console.h" />
-    <ClInclude Include="cwd.h" />
     <ClInclude Include="diagnostics.h" />
     <ClInclude Include="errors.h" />
     <ClInclude Include="exporter.h" />
