@@ -97,6 +97,11 @@ sig
 
     datatype MDITileFlags = MDITILE_VERTICAL | MDITILE_HORIZONTAL | MDITILE_SKIPDISABLED
 
+    datatype EMCharFromPos =
+        EMcfpEdit of POINT
+    |   EMcfpRichEdit of POINT
+    |   EMcfpUnknown of SysWord.word
+
     datatype SystemCommand =
         SC_ARRANGE
     |   SC_CLOSE
@@ -133,7 +138,7 @@ sig
     datatype WMSizeOptions =
         SIZE_MAXHIDE | SIZE_MAXIMIZED | SIZE_MAXSHOW | SIZE_MINIMIZED | SIZE_RESTORED
     datatype HelpHandle = MenuHandle of HMENU | WindowHandle of HWND
-    
+     
     (* Passed in the lpParam argument of a WM_NOTIFY message.
        TODO: Many of these have additional information. *)
     datatype Notification =
@@ -698,7 +703,7 @@ sig
 
     |   EM_CANUNDO
 
-    |   EM_CHARFROMPOS of { point: POINT }
+    |   EM_CHARFROMPOS of EMCharFromPos
 
     |   EM_EMPTYUNDOBUFFER
 
@@ -756,7 +761,7 @@ sig
 
     |   EM_SETSEL of {startPos: int, endPos: int}
 
-    |   EM_SETTABSTOPS of {tabs: int list}
+    |   EM_SETTABSTOPS of {tabs: IntVector.vector}
 
     |   EM_UNDO
 
@@ -878,9 +883,9 @@ sig
 
     |   LB_GETSELCOUNT
 
-    |   LB_GETSELITEMS of { itemCount: int, items: int list ref }
+    |   LB_GETSELITEMS of { items: IntArray.array }
 
-    |   LB_SETTABSTOPS of { tabs: int list }
+    |   LB_SETTABSTOPS of { tabs: IntVector.vector }
 
     |   LB_GETHORIZONTALEXTENT
 
@@ -944,11 +949,11 @@ sig
 
     |   SBM_ENABLE_ARROWS of ScrollBase.enableArrows
 
-    |   SBM_SETSCROLLINFO of { info: ScrollBase.SCROLLINFO,
-                             options: ScrollBase.ScrollInfoOption list }
+    |   SBM_SETSCROLLINFO of
+            { info: ScrollBase.SCROLLINFO, options: ScrollBase.ScrollInfoOption list }
 
-    |   SBM_GETSCROLLINFO of { info: ScrollBase.SCROLLINFO ref,
-                             options: ScrollBase.ScrollInfoOption list }
+    |   SBM_GETSCROLLINFO of
+            { info: ScrollBase.SCROLLINFO ref, options: ScrollBase.ScrollInfoOption list }
 
     |   FINDMSGSTRING of
         { flags: findReplaceFlags, findWhat: string, replaceWith: string }
@@ -1091,9 +1096,6 @@ struct
                                                            width=ref width, height=ref height, flags=ref flags}) =
                ignore(toCwindowpos(toAddr lp, (hwnd, front, x, y, width, height, flags)))
         end
-        
-        val MDICREATESTRUCT = cStruct9(cCLASS,cString,cHINSTANCE,cInt,cInt,cInt,cInt,cDWORD,cLPARAM)
-        val {load=fromCmdicreatestruct, store=toCmdicreatestruct, ...} = breakConversion MDICREATESTRUCT
 
         datatype ControlType = ODT_MENU | ODT_LISTBOX | ODT_COMBOBOX | ODT_BUTTON | ODT_STATIC
         local
@@ -1123,6 +1125,14 @@ struct
             end
         in
             (load o toAddr, make)
+        end
+        
+        val (_, makePointStructAddr) = structAsAddr cPoint
+
+        local
+            val MDICREATESTRUCT = cStruct9(cCLASS,cString,cHINSTANCE,cInt,cInt,cInt,cInt,cDWORD,cLPARAM)
+        in
+            val (toMdiCreate, fromMdiCreate) = structAsAddr MDICREATESTRUCT
         end
 
         local (* WM_COMPAREITEM *)
@@ -1265,9 +1275,138 @@ struct
                 (0x0083, 0w0, fromAddr mem, fn () => free mem)
             end    
         end
-        
-        val HELPINFO = cStruct6(cUint, cInt, cInt, cPointer (* HANDLE *), cDWORD, cPoint)
-        (*val (fromChelpinfo, toChelpinfo, helpStruct) = breakConversion HELPINFO *)
+
+        local
+            val HELPINFO = cStruct6(cUint, cInt, cInt, cPointer (* HANDLE *), cDWORD, cPoint)
+            val {ctype={size=sizeHelpInfo, ...}, ...} = breakConversion HELPINFO
+            val (toHelpInfo, fromHelpInfo) = structAsAddr HELPINFO
+        in
+            datatype HelpHandle = MenuHandle of HMENU | WindowHandle of HWND
+
+            fun compileHelpInfo(code, {ctrlId, itemHandle, contextId, mousePos}) =
+            let
+                val (ctype, handl) =
+                    case itemHandle of
+                        MenuHandle m => (2, voidStarOfHandle m)
+                    |   WindowHandle w => (1, voidStarOfHandle w)
+                val (addr, free) =
+                    fromHelpInfo(Word.toInt sizeHelpInfo, ctype, ctrlId, handl, contextId, mousePos)
+            in
+                (code, 0w0, addr, free)
+            end
+            
+            and decompileHelpInfo{wp=_, lp} =
+            let
+                val (_, ctype, ctrlId, itemHandle, contextId, mousePos) = toHelpInfo lp
+                val hndl =
+                    if ctype = 2 then MenuHandle(handleOfVoidStar itemHandle)
+                    else WindowHandle(handleOfVoidStar itemHandle)
+            in
+                { ctrlId = ctrlId, itemHandle = hndl, contextId =  contextId, mousePos = mousePos}
+            end
+        end
+
+        local
+            val {store=storeScrollInfo, ctype = {size=sizeStruct, ...}, ...} =
+                breakConversion ScrollBase.cSCROLLINFOSTRUCT
+            val (toScrollInfoStruct, fromScrollInfoStruct) = structAsAddr ScrollBase.cSCROLLINFOSTRUCT
+        in
+            fun toScrollInfo lp =
+            let
+                val (_, options, minPos, maxPos, pageSize, pos, trackPos) = toScrollInfoStruct lp
+                val info = { minPos = minPos, maxPos = maxPos, pageSize = pageSize, pos = pos, trackPos = trackPos }
+            in
+                (info, options)
+            end
+            and fromScrollInfo({minPos, maxPos, pageSize, pos, trackPos}, options) =
+                fromScrollInfoStruct(Word.toInt sizeStruct, options, minPos, maxPos, pageSize, pos, trackPos)
+            and updateScrollInfo({wp=_, lp=lp}, {info=ref {minPos, maxPos, pageSize, pos, trackPos}, options}) =
+                ignore(storeScrollInfo(toAddr lp, (Word.toInt sizeStruct, options, minPos, maxPos, pageSize, pos, trackPos)))
+        end
+
+        local
+            val {store=storeWord, load=loadWord, ctype={size=sizeWord, ...}, ...} = breakConversion cWORD
+        in
+            (* We have to allocate a buffer big enough to receive the text and
+               set the first word to the length of the buffer. *)
+            fun compileGetLine {lineNo, size, ...} =
+            let
+                open Memory
+                (* Allocate one extra byte so there's space for a null terminator. *)
+                val vec = malloc (Word.max(Word.fromInt(size+1), sizeWord))
+            in
+                ignore(storeWord(vec, size+1));
+                (0x00C5, SysWord.fromInt lineNo, fromAddr vec, fn () => free vec)
+            end
+
+            and decompileGetLine{wp, lp} =
+            let
+                (* The first word is supposed to contain the length *)
+                val size = loadWord(toAddr lp)
+            in
+                { lineNo = SysWord.toInt wp, size = size(*-1 ? *), result = ref "" }
+            end
+        end
+
+        val {load=loadInt, store=storeInt, ctype={size=sizeInt, ...}, ...} = breakConversion cInt
+
+        local (* EM_SETTABSTOPS and LB_SETTABSTOPS *)
+            open Memory
+            infix 6 ++
+        in
+            fun decompileTabStops{wp, lp} =
+            let
+                val v = toAddr lp
+                fun getTab i = loadInt(v ++ Word.fromInt i * sizeInt)
+            in
+                IntVector.tabulate(SysWord.toInt wp, getTab)
+            end
+            and compileTabStops(code, tabs) =
+            let
+                val cTabs = IntVector.length tabs
+                val vec = malloc(Word.fromInt cTabs * sizeInt)
+                fun setVec(tab, addr) = (storeInt(addr, tab); addr ++ sizeInt)
+                val _ = IntVector.foldl setVec vec tabs
+            in
+                (code, SysWord.fromInt cTabs, fromAddr vec, fn () => free vec)
+            end
+        end
+
+        local
+            open Memory IntArray
+            infix 6 ++
+        in
+            fun compileGetSelItems(code, {items}) =
+            (* Allocate a buffer to receive the items.  Set each element of the buffer
+               to ~1 so that the values are defined if not all of them are set. *)
+            let
+                open Memory IntArray
+                val itemCount = length items
+                infix 6 ++
+                val v = malloc(Word.fromInt itemCount * sizeInt)
+            in
+                appi(fn (i, s) => ignore(storeInt(v ++ Word.fromInt i * sizeInt, s))) items;
+                (code, SysWord.fromInt itemCount, fromAddr v, fn () => free v)
+            end
+
+            fun updateGetSelItemsParms({wp=_, lp=lp}, {items}) =
+            let
+                val v = toAddr lp
+            in
+                appi(fn (i, s) => ignore(storeInt(v ++ Word.fromInt i * sizeInt, s))) items
+            end
+            and updateGetSelItemsFromWpLp({items}, {wp=_, lp, reply}) =
+            let
+                (* The return value is the actual number of items copied *)
+                val nItems = SysWord.toIntX reply
+                val b = toAddr lp
+                open Memory
+                infix 6 ++
+                fun newValue (i, old) = if i < nItems then loadInt(b ++ sizeInt * Word.fromInt i) else old
+            in
+                IntArray.modifyi newValue items
+            end
+        end
 
         (* Passed in the lpParam argument of a WM_NOTIFY message.
            TODO: Many of these have additional information. *)
@@ -1640,11 +1779,6 @@ struct
         val toHGDIOBJ: SysWord.word -> HGDIOBJ = handleOfVoidStar o Memory.sysWord2VoidStar
         and fromHGDIOBJ: HGDIOBJ -> SysWord.word = Memory.voidStar2Sysword o voidStarOfHandle
 
-        val {load=loadInt, ctype={size=sizeInt, ...}, ...} = breakConversion cInt
-
-        val {load=fromCscrollinfo, store=toCscrollinfo, ctype = {size=sizeStruct, ...}, ...} =
-            breakConversion ScrollBase.cSCROLLINFOSTRUCT
-
         (* Maybe we should have two different types for horizontal and vertical. *)
         datatype ScrollDirection =
             SB_BOTTOM | SB_ENDSCROLL | SB_LINEDOWN | SB_LINEUP | SB_PAGEDOWN | SB_PAGEUP |
@@ -1851,6 +1985,11 @@ struct
             val (fromSysCommand, toSysCommand) = tableLookup(tab, NONE)
         end
 
+        datatype EMCharFromPos =
+            EMcfpEdit of POINT
+        |   EMcfpRichEdit of POINT
+        |   EMcfpUnknown of SysWord.word
+
         datatype WMPrintOption = datatype WMPrintOption
 
         (* Parameters to EM_SETMARGINS. *)
@@ -1863,10 +2002,8 @@ struct
         (* TODO: Perhaps use a record for this.  It's always possible to use
            functions from Word32 though. *)
         type KeyData = Word32.word
-
-        datatype HelpHandle = MenuHandle of HMENU | WindowHandle of HWND
-
         datatype Notification = datatype Notification
+        datatype HelpHandle = datatype HelpHandle
 
         local
             val tab =
@@ -2372,7 +2509,7 @@ struct
 
         |   EM_CANUNDO
 
-        |   EM_CHARFROMPOS of { point: POINT }
+        |   EM_CHARFROMPOS of EMCharFromPos
 
         |   EM_EMPTYUNDOBUFFER
 
@@ -2430,7 +2567,7 @@ struct
 
         |   EM_SETSEL of {startPos: int, endPos: int}
 
-        |   EM_SETTABSTOPS of {tabs: int list}
+        |   EM_SETTABSTOPS of {tabs: IntVector.vector}
 
         |   EM_UNDO
 
@@ -2552,9 +2689,9 @@ struct
 
         |   LB_GETSELCOUNT
 
-        |   LB_GETSELITEMS of { itemCount: int, items: int list ref }
+        |   LB_GETSELITEMS of { items: IntArray.array }
 
-        |   LB_SETTABSTOPS of { tabs: int list }
+        |   LB_SETTABSTOPS of { tabs: IntVector.vector }
 
         |   LB_GETHORIZONTALEXTENT
 
@@ -2689,29 +2826,22 @@ struct
         local (* EM_GETRECT and CB_GETDROPPEDCONTROLRECT.  LB_GETITEMRECT and WM_NCCALCSIZE are similar *)
             val {load=loadRect, store=storeRect, ctype={size=sizeRect, ...}, ...} = breakConversion cRect
         in
-            fun compileGetRect(code, { rect = ref (r: RECT) }) =
+            fun compileGetRect(code, wp, r) =
             let
                 open Memory
                 val mem = malloc sizeRect
                 val () = ignore(storeRect(mem, r)) (* Can ignore the result *)
             in
-                (code, 0w0, fromAddr mem, fn () => free mem)
+                (code, wp, fromAddr mem, fn () => free mem)
             end
             
-            and compileSetRect(code, {rect}) =
+            and compileSetRect(code, rect) =
             let
                 open Memory
                 val mem = malloc sizeRect
                 val () = ignore(storeRect(mem, rect))
             in
                 (code, 0w0, fromAddr mem, fn () => free mem)
-            end
-
-            and decompileGetRect{wp=_, lp} =
-            let
-                val r = loadRect(toAddr lp)
-            in
-                {rect = ref r}
             end
             
             (* These can be used for updating *)
@@ -2873,18 +3003,8 @@ struct
 
     |   decompileMessage ( 0x004E, wp, lp) = WM_NOTIFY(decompileNotify{wp=wp, lp=lp})
 
-(*
-    |   decompileMessage ( 0x0053, wp, lp) =
-            let
-                val (_, contextType, ctrlId, itemHandle, contextId, mousePos) =
-                    fromChelpinfo(deref lp)
-                val hndl =
-                    if ctrlId = 2 then MenuHandle(handleOfInt itemHandle)
-                    else WindowHandle(handleOfInt itemHandle)
-            in
-                WM_HELP { ctrlId = ctrlId, itemHandle = hndl, contextId =  contextId,
-                          mousePos = mousePos}
-            end
+    |   decompileMessage ( 0x0053, wp, lp) = WM_HELP(decompileHelpInfo{wp=wp, lp=lp})
+
 (*
 WM_INPUTLANGCHANGEREQUEST       0x0050
 WM_INPUTLANGCHANGE              0x0051
@@ -2901,7 +3021,7 @@ WM_CONTEXTMENU                  0x007B
 WM_STYLECHANGING                0x007C
 WM_STYLECHANGED                 0x007D
 *)
-*)
+
     |   decompileMessage ( 0x007B, wp, lp) =
             WM_CONTEXTMENU { hwnd = toHWND wp, xPos = loWord lp, yPos = hiWord lp}
 
@@ -2951,7 +3071,7 @@ WM_STYLECHANGED                 0x007D
 
     |   decompileMessage ( 0x00B1, wp, lp) = EM_SETSEL { startPos = SysWord.toInt wp, endPos = SysWord.toInt lp }
 
-    |   decompileMessage ( 0x00B2, wp, lp) = EM_GETRECT (decompileGetRect{wp=wp, lp=lp})
+    |   decompileMessage ( 0x00B2, _, lp) = EM_GETRECT {rect = ref(fromCrect(toAddr lp))}
 
     |   decompileMessage ( 0x00B3, _, lp) = EM_SETRECT { rect = fromCrect(toAddr lp) }
 
@@ -2979,11 +3099,8 @@ EM_SETHANDLE            0x00BC
 
     |   decompileMessage ( 0x00C2, wp, lp) = EM_REPLACESEL {canUndo = wp <> 0w0, text = fromCstring(toAddr lp)}
 
-            (* All we know at this stage is the number of characters. *)
-(*
-    |   decompileMessage ( 0x00C4, wp, lp) =
-                EM_GETLINE { lineNo = SysWord.toInt wp, size = SysWord.toInt(deref lp), result = ref "" }
-*)
+    |   decompileMessage ( 0x00C4, wp, lp) = EM_GETLINE(decompileGetLine{wp=wp, lp=lp})
+
     |   decompileMessage ( 0x00C5, wp, _) = EM_LIMITTEXT {limit = SysWord.toInt wp}
 
     |   decompileMessage ( 0x00C6, _, _) = EM_CANUNDO
@@ -2993,15 +3110,9 @@ EM_SETHANDLE            0x00BC
     |   decompileMessage ( 0x00C8, wp, _) = EM_FMTLINES{addEOL = wp <> 0w0}
 
     |   decompileMessage ( 0x00C9, wp, _) = EM_LINEFROMCHAR{index = SysWord.toInt wp}
-(*
-    |   decompileMessage ( 0x00CB, wp, lp) =
-            let
-                val v = deref lp
-                fun getTab i = SysWord.toInt(offset i Cint v)
-            in
-                EM_SETTABSTOPS{tabs=List.tabulate((SysWord.toInt wp), getTab)}
-            end
-*)
+
+    |   decompileMessage ( 0x00CB, wp, lp) = EM_SETTABSTOPS{tabs=decompileTabStops{wp=wp, lp=lp}}
+
     |   decompileMessage ( 0x00CC, wp, _) = EM_SETPASSWORDCHAR{ch = chr (SysWord.toInt wp)}
 
     |   decompileMessage ( 0x00CD, _, _) = EM_EMPTYUNDOBUFFER
@@ -3014,39 +3125,35 @@ EM_SETWORDBREAKPROC     0x00D0
 EM_GETWORDBREAKPROC     0x00D1
 *)
 
-   |   decompileMessage (0x00D2, _, _) = EM_GETPASSWORDCHAR
-(*
-    |   decompileMessage (0x00D3 =>
-            if SysWord.toInt wp = 0xffff then EM_SETMARGINS{margins=UseFontInfo}
+    |   decompileMessage (0x00D2, _, _) = EM_GETPASSWORDCHAR
+
+    |   decompileMessage (0x00D3, wp, lp) =
+            if wp = 0wxffff then EM_SETMARGINS{margins=UseFontInfo}
             else
             let
                 val left =
-                    if IntInf.andb((SysWord.toInt wp), 1) <> 0
+                    if SysWord.andb(wp, 0w1) <> 0w0
                     then SOME(loWord lp)
                     else NONE
                 val right =
-                    if IntInf.andb((SysWord.toInt wp), 2) <> 0
+                    if SysWord.andb(wp, 0w2) <> 0w0
                     then SOME(hiWord lp)
                     else NONE
             in
                 EM_SETMARGINS{margins=Margins{left=left, right=right}}
             end
-*)
+
     |   decompileMessage (0x00D4, _, _) = EM_GETMARGINS
 
     |   decompileMessage (0x00D5, _, _) = EM_GETLIMITTEXT
 
     |   decompileMessage (0x00D6, wp, _) = EM_POSFROMCHAR {index = SysWord.toInt wp}
-(*
-    |   decompileMessage (0x00D7, wp, lp_) =
-            let
-                val pt = fromCuint (deref lp)
-            in
-                (* The value of lp depends on whether this is an edit control or a rich edit control.
-                   This looks like it's assuming a rich-edit control. *)
-                EM_CHARFROMPOS { point = {x = LOWORD pt, y = HIWORD pt} }
-           end
- *)
+
+    |   decompileMessage (0x00D7, _, lp) =
+            (* The value in lParam is different depending on whether this is an edit control
+               or a rich edit control.  Since we don't know we just pass the lp value. *)
+            EM_CHARFROMPOS(EMcfpUnknown lp)
+
 (* Scroll bar messages *)
 
     |   decompileMessage (0x00E0, wp, lp) = SBM_SETPOS {pos = SysWord.toInt wp, redraw = lp <> 0w0}
@@ -3056,29 +3163,28 @@ EM_GETWORDBREAKPROC     0x00D1
     |   decompileMessage (0x00E2, wp, lp) = SBM_SETRANGE {minPos = SysWord.toInt wp, maxPos = SysWord.toInt lp}
 
     |   decompileMessage (0x00E6, wp, lp) = SBM_SETRANGEREDRAW {minPos = SysWord.toInt wp, maxPos = SysWord.toInt lp}
-(*
-    |   decompileMessage (0x00E3, wp, lp) = SBM_GETRANGE { minPos = ref(SysWord.toInt(deref wp)),
-                                   maxPos = ref(SysWord.toInt(deref lp)) }
-*)
+
+    |   decompileMessage (0x00E3, wp, lp) =
+            SBM_GETRANGE { minPos = ref(loadInt(toAddr wp)), maxPos = ref(loadInt(toAddr lp)) }
+
     |   decompileMessage (0x00E4, wp, _) = SBM_ENABLE_ARROWS(fromCesbf(SysWord.toInt wp))
-(*
-    |   decompileMessage (0x00E9, wp, lp) =
-            let
-                val (info, options) = fromCscrollinfo(deref lp)
-            in
-                SBM_SETSCROLLINFO{ info = info, options = options }
-            end
 
-     |  decompileMessage (0x00EA, wp, lp) =
-            let
-                (* The values may not be correct at this point but the mask
-                   should have been set. *)
-                val (info, options) = fromCscrollinfo(deref lp)
-            in
-                SBM_GETSCROLLINFO{ info = ref info, options = options }
-            end
+    |   decompileMessage (0x00E9, _, lp) =
+        let
+            val (info, options) = toScrollInfo lp
+        in
+            SBM_SETSCROLLINFO{ info = info, options = options }
+        end
 
-*)
+     |  decompileMessage (0x00EA, _, lp) =
+        let
+            (* The values may not be correct at this point but the mask
+               should have been set. *)
+            val (info, options) = toScrollInfo lp
+        in
+            SBM_GETSCROLLINFO{ info = ref info, options = options }
+        end
+
 (* Button control messages *)
     |   decompileMessage (0x00F0, _, _) = BM_GETCHECK
 
@@ -3200,7 +3306,7 @@ WM_IME_KEYLAST                  0x010F
 
     |   decompileMessage (0x0147, _, _) = CB_GETCURSEL
 
-    |   decompileMessage (0x0148, wp, _) = CB_GETLBTEXT { index = SysWord.toInt wp, length = ~1, text = ref ""  }
+    |   decompileMessage (0x0148, wp, _) = CB_GETLBTEXT { index = SysWord.toInt wp, length = 0, text = ref ""  }
 
     |   decompileMessage (0x0149, wp, _) = CB_GETLBTEXTLEN {index = SysWord.toInt wp}
 
@@ -3220,7 +3326,7 @@ WM_IME_KEYLAST                  0x010F
 
     |   decompileMessage (0x0151, wp, lp) = CB_SETITEMDATA {index = SysWord.toInt wp, data = SysWord.toInt lp}
 
-    |   decompileMessage (0x0152, wp, lp) = CB_GETDROPPEDCONTROLRECT (decompileGetRect{wp=wp, lp=lp})
+    |   decompileMessage (0x0152, _, lp) = CB_GETDROPPEDCONTROLRECT {rect = ref(fromCrect(toAddr lp))}
 
     |   decompileMessage (0x0153, wp, lp) = CB_SETITEMHEIGHT {index = SysWord.toInt wp, height = SysWord.toInt lp}
 
@@ -3280,7 +3386,7 @@ WM_IME_KEYLAST                  0x010F
 
     |   decompileMessage (0x0188, _, _) = LB_GETCURSEL
 
-    |   decompileMessage (0x0189, wp, _) = LB_GETTEXT { index = SysWord.toInt wp, length = ~1, text = ref ""  }
+    |   decompileMessage (0x0189, wp, _) = LB_GETTEXT { index = SysWord.toInt wp, length = 0, text = ref ""  }
 
     |   decompileMessage (0x018A, wp, _) = LB_GETTEXTLEN {index = SysWord.toInt wp}
 
@@ -3296,16 +3402,10 @@ WM_IME_KEYLAST                  0x010F
 
     |   decompileMessage (0x0190, _, _) = LB_GETSELCOUNT
 
-    |   decompileMessage (0x0191, wp, _) = LB_GETSELITEMS { itemCount = SysWord.toInt wp, items = ref [] }
-(*
-    |   decompileMessage (0x0192 =>
-            let
-                val v = deref lp
-                fun getTab i = SysWord.toInt(offset i Cint v)
-            in
-                LB_SETTABSTOPS{tabs=List.tabulate((SysWord.toInt wp), getTab)}
-            end
-*)
+    |   decompileMessage (0x0191, wp, _) = LB_GETSELITEMS { items = IntArray.array(SysWord.toInt wp, ~1) }
+
+    |   decompileMessage (0x0192, wp, lp) = LB_SETTABSTOPS{tabs=decompileTabStops{wp=wp, lp=lp}}
+
     |   decompileMessage (0x0193, _, _) = LB_GETHORIZONTALEXTENT
 
     |   decompileMessage (0x0194, wp, _) = LB_SETHORIZONTALEXTENT {extent = SysWord.toInt wp}
@@ -3315,9 +3415,9 @@ WM_IME_KEYLAST                  0x010F
     |   decompileMessage (0x0196, _, lp) = LB_ADDFILE {fileName = fromCstring(toAddr lp) }
 
     |   decompileMessage (0x0197, wp, _) = LB_SETTOPINDEX {index = SysWord.toInt wp}
-(*
-    |   decompileMessage (0x0198, wp, lp) = LB_GETITEMRECT {index = SysWord.toInt wp, rect = ref(fromCrect(toAddr lp)) }
-*)
+
+    |   decompileMessage (0x0198, wp, lp) = LB_GETITEMRECT {index = SysWord.toInt wp, rect = ref(fromCrect(toAddr lp))}
+
     |   decompileMessage (0x0199, wp, _) = LB_GETITEMDATA {index = SysWord.toInt wp}
 
     |   decompileMessage (0x019A, wp, lp) = LB_SETITEMDATA {index = SysWord.toInt wp, data = SysWord.toInt lp}
@@ -3386,24 +3486,16 @@ WM_MOVING                       0x0216
 WM_POWERBROADCAST               0x0218
 WM_DEVICECHANGE                 0x0219
 *)
-(*
-    |   decompileMessage (0x0220 =>
-            let
-              val (class,title,hinst, x,y,cx,cy, style,lParam) = 
-                 fromCmdicreatestruct (deref lp)
-            in
-                WM_MDICREATE { class = class,
-                            title = title,
-                            instance = hinst,
-                            x = x,
-                            y = y,
-                            cx = cx,
-                            cy = cy,
-                            style = style,
-                            cdata = lParam                                        
-                          }
-            end
-*)
+
+    |   decompileMessage (0x0220, _, lp) =
+        let
+            val (class, title, hinst, x,y,cx,cy, style, lParam) = toMdiCreate lp
+        in
+            WM_MDICREATE
+                { class = class, title = title, instance = hinst, x = x, y = y,
+                  cx = cx, cy = cy, style = style, cdata = lParam }
+        end
+
     |   decompileMessage (0x0221, wp, _) = WM_MDIDESTROY  { child = toHWND wp } (* "0x0221" *)
     
     |   decompileMessage (0x0223, wp, _) = WM_MDIRESTORE { child = toHWND wp } (* "0x0223" *)
@@ -3525,6 +3617,15 @@ WM_IME_KEYUP                    0x0291
         (code, wp, fromAddr s, fn () => Memory.free s)
     end
     
+    (* Requests for strings.  Many of these don't pass the length as an argument. *)
+    fun compileStringRequest(code, wparam, length) =
+    let
+        open Memory
+        val mem = malloc(Word.fromInt length)
+    in
+        (code, wparam, fromAddr mem, fn () => free mem)
+    end
+
     fun strAddrAsLp(code, wp, (addr, free)) = (code, wp, addr, free)
 
     fun noFree () = ()
@@ -3553,14 +3654,7 @@ WM_IME_KEYUP                    0x0291
 
     |   compileMessage (WM_SETTEXT {text}) = compileStringAsLp(0x000C, 0w0, text)
 
-    |   compileMessage (WM_GETTEXT {length, ...}) =
-        let
-            open Memory
-            val mem = malloc (Word.fromInt length + 0w1)
-        in
-            (* We have to allocate a buffer big enough to receive the text. *)
-            (0x000D, SysWord.fromInt length, fromAddr mem, fn () => free mem)
-        end
+    |   compileMessage (WM_GETTEXT {length, ...}) = compileStringRequest(0x000D, SysWord.fromInt length, length)
 
     |   compileMessage WM_GETTEXTLENGTH = (0x000E, 0w0, 0w0, noFree)
 
@@ -3674,19 +3768,9 @@ WM_NOTIFYFORMAT                 0x0055
 WM_STYLECHANGING                0x007C
 WM_STYLECHANGED                 0x007D
 *)
-(*
-    |   compileMessage (WM_HELP {ctrlId, itemHandle, contextId, mousePos}) =
-            let
-                val (ctype, handl) =
-                    case itemHandle of
-                        MenuHandle m => (2, intOfHandle m)
-                    |   WindowHandle w => (1, intOfHandle w)
-            in
-                (0x0053, 0w0,
-                    address(toChelpinfo(sizeof helpStruct, ctype, ctrlId,
-                            handl, contextId, mousePos)), noFree)
-            end
-*)
+
+    |   compileMessage (WM_HELP args) = compileHelpInfo(0x0053, args)
+
     |   compileMessage (WM_CONTEXTMENU { hwnd, xPos, yPos }) =
             (0x007B, fromHWND hwnd, makeLong(xPos, yPos), noFree)
 
@@ -3748,11 +3832,11 @@ WM_STYLECHANGED                 0x007D
     |   compileMessage (EM_SETSEL{startPos, endPos}) =
             (0x00B1, SysWord.fromInt startPos, SysWord.fromInt endPos, noFree)
 
-    |   compileMessage (EM_GETRECT args) = compileGetRect(0x00B2, args)
+    |   compileMessage (EM_GETRECT {rect=ref r}) = compileGetRect(0x00B2, 0w0, r)
 
-    |   compileMessage (EM_SETRECT args) = compileSetRect(0x00B3, args)
+    |   compileMessage (EM_SETRECT {rect}) = compileSetRect(0x00B3, rect)
 
-    |   compileMessage (EM_SETRECTNP args) = compileSetRect(0x00B4, args)
+    |   compileMessage (EM_SETRECTNP {rect}) = compileSetRect(0x00B4, rect)
 
     |   compileMessage (EM_SCROLL{action}) = (0x00B5, Word.toLargeWord(toCsd action), 0w0, noFree)
 
@@ -3777,17 +3861,8 @@ EM_SETHANDLE            0x00BC
 
     |   compileMessage (EM_REPLACESEL{canUndo, text}) = compileStringAsLp(0x00C2, SysWord.fromInt(btoi canUndo), text)
 
-(*
-    |   compileMessage (EM_GETLINE {lineNo, size, result}) =
-            (* We have to allocate a buffer big enough to receive the text and
-               set the first word to the length of the buffer. *)
-            let
-                val vec = alloc (Int.max(size+1, sizeof Cint)) Cchar
-            in
-                assign Cint vec (SysWord.fromInt(size+1));
-                (0x00C5, SysWord.fromInt lineNo, address vec, noFree)
-            end
-*)
+    |   compileMessage (EM_GETLINE args) = compileGetLine args
+
     |   compileMessage (EM_LIMITTEXT{limit}) = (0x00C5, SysWord.fromInt limit, 0w0, noFree)
 
     |   compileMessage EM_CANUNDO = (0x00C6, 0w0, 0w0, noFree)
@@ -3797,17 +3872,9 @@ EM_SETHANDLE            0x00BC
     |   compileMessage (EM_FMTLINES{addEOL}) = (0x00C8, SysWord.fromInt(btoi addEOL), 0w0, noFree)
 
     |   compileMessage (EM_LINEFROMCHAR{index}) = (0x00C9, SysWord.fromInt index, 0w0, noFree)
-(*
-    |   compileMessage (EM_SETTABSTOPS{tabs}) =
-            let
-                val cTabs = List.length tabs
-                val vec = alloc cTabs Cint
-                fun setVec(tab, i) = (assign Cint vec (SysWord.fromInt tab); i+1)
-            in
-                List.foldl setVec 0 tabs;
-                (0x00CB, SysWord.fromInt cTabs, address vec, noFree)
-            end
-*)
+
+    |   compileMessage (EM_SETTABSTOPS{tabs}) = compileTabStops(0x00CB, tabs)
+
     |   compileMessage (EM_SETPASSWORDCHAR{ch}) = (0x00CC, SysWord.fromInt(ord ch), 0w0, noFree)
 
     |   compileMessage EM_EMPTYUNDOBUFFER = (0x00CD, 0w0, 0w0, noFree)
@@ -3820,40 +3887,39 @@ EM_SETWORDBREAKPROC     0x00D0
 EM_GETWORDBREAKPROC     0x00D1
 *)
     |   compileMessage EM_GETPASSWORDCHAR = (0x00D2, 0w0, 0w0, noFree)
-(*
+
     |   compileMessage (EM_SETMARGINS{margins}) =
-            (
+        (
             case margins of
-                UseFontInfo => (0x00D3, SysWord.fromInt 0xffff, 0w0)
+                UseFontInfo => (0x00D3, SysWord.fromInt 0xffff, 0w0, noFree)
             |   Margins{left, right} =>
                 let
-                    val (b0, lo) = case left of SOME l => (1, l) | NONE => (0, 0)
-                    val (b1, hi) = case right of SOME r => (2, r) | NONE => (0, 0)
+                    val (b0, lo) = case left of SOME l => (0w1, l) | NONE => (0w0, 0)
+                    val (b1, hi) = case right of SOME r => (0w2, r) | NONE => (0w0, 0)
                 in
-                    (0x00D3, SysWord.fromInt (IntInf.orb(b0, b1)), toCuint(makeLong(hi,lo)), noFree)
+                    (0x00D3, SysWord.orb(b0, b1), makeLong(hi,lo), noFree)
                 end
-            )
-(*
-#if(WINVER >= 0x0400)
-EM_SETMARGINS           0x00D3
-*)
-*)
-    |   compileMessage EM_GETMARGINS = (0x00D4, 0w0, 0w0, noFree)
+       )
+
+    |   compileMessage EM_GETMARGINS = (0x00D4, 0w0, 0w0, noFree) (* Returns margins in lResult *)
 
     |   compileMessage EM_GETLIMITTEXT = (0x00D5, 0w0, 0w0, noFree)
 
     |   compileMessage (EM_POSFROMCHAR {index}) = (0x00D6, SysWord.fromInt index, 0w0, noFree)
-(*
-    |   compileMessage (EM_CHARFROMPOS{point = {x,y}}) =
-            let
-                val v = alloc 1 Clong
-            in
-                assign Cint v (toCuint(makeLong(x,y)));
-                (0x00D7, 0w0, address v, noFree)
-            end
+
+    |   compileMessage (EM_CHARFROMPOS arg) =
+        let
+            val (lParam, toFree) =
+                case arg of
+                    EMcfpEdit{x,y} => (makeLong(x, y), noFree)
+                |   EMcfpRichEdit pt => makePointStructAddr pt
+                |   EMcfpUnknown lp => (lp, noFree)
+        in
+            (0x00D7, 0w0, lParam, toFree)
+        end
 
 (* Scroll bar messages *)
-*)
+
     |   compileMessage (SBM_SETPOS {pos, redraw}) = (0x00E0, SysWord.fromInt pos, SysWord.fromInt(btoi redraw), noFree)
 
     |   compileMessage SBM_GETPOS = (0x00E1, 0w0, 0w0, noFree)
@@ -3861,21 +3927,28 @@ EM_SETMARGINS           0x00D3
     |   compileMessage (SBM_SETRANGE {minPos, maxPos}) = (0x00E2, SysWord.fromInt minPos, SysWord.fromInt maxPos, noFree)
 
     |   compileMessage (SBM_SETRANGEREDRAW {minPos, maxPos}) = (0x00E6, SysWord.fromInt minPos, SysWord.fromInt maxPos, noFree)
-(*
-    |   compileMessage (SBM_GETRANGE {minPos = ref min, maxPos = ref max}) =
-            (0x00E3, address(SysWord.fromInt min), address(SysWord.fromInt max), noFree)
-*)
+
+    |   compileMessage (SBM_GETRANGE _) =
+        let
+            (* An application should use GetScrollRange rather than sending this.*)
+            open Memory
+            (* We need to allocate two ints and pass their addresses *)
+            val mem = malloc(0w2 * sizeInt)
+            infix 6 ++
+        in
+            (0x00E3, fromAddr mem, fromAddr(mem ++ sizeInt), fn () => free mem)
+        end
+
     |   compileMessage (SBM_ENABLE_ARROWS flags) = (0x00E4, SysWord.fromInt(toCesbf flags), 0w0, noFree)
-(*
+
     |   compileMessage (SBM_SETSCROLLINFO {info, options}) =
-            (0x00E9, 0w0, address(toCscrollinfo(info, options)), noFree)
+            strAddrAsLp(0x00E9, 0w0, fromScrollInfo(info, options))
 
     |   compileMessage (SBM_GETSCROLLINFO {info = ref info, options}) =
-            (0x00EA, 0w0, address(toCscrollinfo(info, options)), noFree)
-
+            strAddrAsLp(0x00EA, 0w0, fromScrollInfo(info, options))
 
 (* Button control messages *)
-*)
+
     |   compileMessage BM_GETCHECK = (0x00F0, 0w0, 0w0, noFree)
 
     |   compileMessage (BM_SETCHECK{state}) = (0x00F1, SysWord.fromInt state, 0w0, noFree)
@@ -3974,7 +4047,6 @@ WM_IME_KEYLAST                  0x010F
 
     |   compileMessage (CB_GETEDITSEL args) = compileGetSel(0x0140, args)
 
-
     |   compileMessage (CB_LIMITTEXT{limit}) = (0x0141, SysWord.fromInt limit, 0w0, noFree)
 
     |   compileMessage (CB_SETEDITSEL{startPos, endPos}) =
@@ -3989,13 +4061,9 @@ WM_IME_KEYLAST                  0x010F
     |   compileMessage CB_GETCOUNT = (0x0146, 0w0, 0w0, noFree)
 
     |   compileMessage CB_GETCURSEL = (0x0147, 0w0, 0w0, noFree)
-(*
-    |   compileMessage (CB_GETLBTEXT {length, index, text}) =
-            (* This is messy.  There's no actual argument that passes the size of
-               the buffer so we have to add an extra argument to the ML message
-               to pass it. *)
-            (0x0148, SysWord.fromInt index, address(alloc(length+1) Cchar), noFree)
-*)
+
+    |   compileMessage (CB_GETLBTEXT {length, index, ...}) = compileStringRequest(0x0148, SysWord.fromInt index, length)
+
     |   compileMessage (CB_GETLBTEXTLEN{index}) = (0x0149, SysWord.fromInt index, 0w0, noFree)
 
     |   compileMessage (CB_INSERTSTRING{text, index}) = compileStringAsLp(0x014A, SysWord.fromInt index, text)
@@ -4014,7 +4082,7 @@ WM_IME_KEYLAST                  0x010F
 
     |   compileMessage (CB_SETITEMDATA{index, data}) = (0x0151, SysWord.fromInt index, SysWord.fromInt data, noFree)
 
-    |   compileMessage (CB_GETDROPPEDCONTROLRECT args) = compileGetRect(0x0152, args)
+    |   compileMessage (CB_GETDROPPEDCONTROLRECT {rect=ref rect}) = compileGetRect(0x0152, 0w0, rect)
 
     |   compileMessage (CB_SETITEMHEIGHT{index, height}) = (0x0153, SysWord.fromInt index, SysWord.fromInt height, noFree)
 
@@ -4075,13 +4143,9 @@ WM_IME_KEYLAST                  0x010F
     |   compileMessage (LB_GETSEL{index}) = (0x0187, SysWord.fromInt index, 0w0, noFree)
 
     |   compileMessage LB_GETCURSEL = (0x0188, 0w0, 0w0, noFree)
-(*
-    |   compileMessage (LB_GETTEXT {length, index, text}) =
-            (* This is messy.  There's no actual argument that passes the size of
-               the buffer so we have to add an extra argument to the ML message
-               to pass it. *)
-            (0x0189, SysWord.fromInt index, address(alloc (length+1) Cchar), noFree)
-*)
+
+    |   compileMessage (LB_GETTEXT {length, index, ...}) = compileStringRequest(0x0189, SysWord.fromInt index, length)
+
     |   compileMessage (LB_GETTEXTLEN{index}) = (0x018A, SysWord.fromInt index, 0w0, noFree)
 
     |   compileMessage LB_GETCOUNT = (0x018B, 0w0, 0w0, noFree)
@@ -4095,29 +4159,11 @@ WM_IME_KEYLAST                  0x010F
     |   compileMessage (LB_FINDSTRING{text, indexStart}) = compileStringAsLp (0x018F, SysWord.fromInt indexStart, text)
 
     |   compileMessage LB_GETSELCOUNT = (0x0190, 0w0, 0w0, noFree)
-(*
-    |   compileMessage (LB_GETSELITEMS{itemCount, ...}) =
-            (* Allocate a buffer to receive the items.  Set each element of the buffer
-               to ~1 so that the values are defined if not all of them are set. *)
-        let
-            val v = alloc itemCount Cint
-            fun fill a 0 = ()
-             |  fill a n = (assign Cint a (SysWord.fromInt ~1); fill (offset 1 Cint a) (n-1))
-        in
-            fill v itemCount;
-            (0x0191, SysWord.fromInt itemCount, address v, noFree)
-        end
 
-    |   compileMessage (LB_SETTABSTOPS{tabs}) =
-            let
-                val cTabs = List.length tabs
-                val vec = alloc cTabs Cint
-                fun setVec(tab, i) = (assign Cint vec (SysWord.fromInt tab); i+1)
-            in
-                List.foldl setVec 0 tabs;
-                (0x0192, SysWord.fromInt cTabs, address vec, noFree)
-            end
-*)
+    |   compileMessage (LB_GETSELITEMS args) = compileGetSelItems(0x0191, args)
+
+    |   compileMessage (LB_SETTABSTOPS{tabs}) = compileTabStops(0x0192, tabs)
+
     |   compileMessage LB_GETHORIZONTALEXTENT = (0x0193, 0w0, 0w0, noFree)
 
     |   compileMessage (LB_SETHORIZONTALEXTENT{extent}) = (0x0194, SysWord.fromInt extent, 0w0, noFree)
@@ -4127,10 +4173,9 @@ WM_IME_KEYLAST                  0x010F
     |   compileMessage (LB_ADDFILE{fileName}) = compileStringAsLp(0x0196, 0w0, fileName)
 
     |   compileMessage (LB_SETTOPINDEX{index}) = (0x0197, SysWord.fromInt index, 0w0, noFree)
-(*
-    |   compileMessage (LB_GETITEMRECT{rect = ref r, index}) =
-            (0x0198, SysWord.fromInt index, address(toCrect r), noFree)
-*)
+
+    |   compileMessage (LB_GETITEMRECT{rect=ref rect, index}) = compileGetRect(0x0198, SysWord.fromInt index, rect)
+
     |   compileMessage (LB_GETITEMDATA{index}) = (0x0199, SysWord.fromInt index, 0w0, noFree)
 
     |   compileMessage (LB_SETITEMDATA{index, data}) = (0x019A, SysWord.fromInt index, SysWord.fromInt data, noFree)
@@ -4205,11 +4250,10 @@ WM_MOVING                       0x0216
 WM_POWERBROADCAST               0x0218
 WM_DEVICECHANGE                 0x0219
 *)
-(*
+
     |   compileMessage (WM_MDICREATE{class, title, instance, x, y, cx, cy, style, cdata}) =
-            (0x0220, 0w0,
-                address(toCmdicreatestruct(class,title,instance,x,y,cx,cy,style,cdata)), noFree)
-*)
+            strAddrAsLp (0x0220, 0w0, fromMdiCreate(class,title,instance,x,y,cx,cy,style,cdata))
+
     |   compileMessage (WM_MDIDESTROY{child}) =
             (0x0221, fromHWND child, 0w0, noFree)
 
@@ -4285,11 +4329,9 @@ WM_IME_KEYUP                    0x0291
             (0x030A, fromHWND viewer, makeLong(code, position), noFree)
 
     |   compileMessage (WM_SIZECLIPBOARD{viewer}) = (0x030B, 0w0, fromHWND viewer, noFree)
-(*
-    |   compileMessage (WM_ASKCBFORMATNAME {length, formatName}) =
-            (* We have to allocate a buffer big enough to receive the text. *)
-            (0x030C, SysWord.fromInt length, address(alloc(length+1) Cchar), noFree)
-*)
+
+    |   compileMessage (WM_ASKCBFORMATNAME {length, ...}) = compileStringRequest(0x030C, SysWord.fromInt length, length)
+
     |   compileMessage (WM_CHANGECBCHAIN{removed, next}) =
             (0x030D, fromHWND removed, fromHWND next, noFree)
 
@@ -4385,10 +4427,11 @@ WM_IME_KEYUP                    0x0291
             |   CB_GETEDITSEL args => updateGetSelParms({wp=wp, lp=lp}, args)
             |   CB_GETLBTEXT {text = ref t, length, ...} => copyString(toAddr lp, t, length)
             |   CB_GETDROPPEDCONTROLRECT {rect = ref r} => toCrect(toAddr lp, r)
-            |   SBM_GETRANGE {minPos, maxPos} => ()
-            |   SBM_GETSCROLLINFO {info, ...} => ()
+            |   SBM_GETRANGE {minPos=ref minPos, maxPos=ref maxPos} =>  
+                    (ignore(storeInt(toAddr wp, minPos)); ignore(storeInt(toAddr lp, maxPos)))
+            |   SBM_GETSCROLLINFO args => updateScrollInfo({wp=wp, lp=lp}, args)
             |   LB_GETTEXT {text = ref t, length, ...} => copyString(toAddr lp, t, length)
-            |   LB_GETSELITEMS{itemCount, items} => ()
+            |   LB_GETSELITEMS args => updateGetSelItemsParms({wp=wp, lp=lp}, args)
             |   LB_GETITEMRECT{rect = ref r, ...} => toCrect(toAddr lp, r)
             |   WM_NCCALCSIZE { newrect = ref r, ...} => toCrect(toAddr lp, r) (* This sets the first rect *)
             |   WM_MEASUREITEM args => updateMeasureItemParms({wp=wp, lp=lp}, args)
@@ -4410,9 +4453,6 @@ WM_IME_KEYUP                    0x0291
     let
         val () =
             (* For certain messages we need to extract the reply from the arguments. *)
-            
-        (* TODO: I think some of these are wrong.  The wp/lp values are usually
-           addresses *)
         case msg of
             WM_GETTEXT{text, ...} =>
                 text := (if reply = 0w0 then "" else fromCstring(toAddr lp))
@@ -4426,12 +4466,11 @@ WM_IME_KEYUP                    0x0291
         |   CB_GETLBTEXT {text, ...} =>
                 text := (if reply = 0w0 then "" else fromCstring(toAddr lp))
         |   CB_GETDROPPEDCONTROLRECT  { rect } => rect := fromCrect(toAddr lp)
-        |   SBM_GETRANGE {minPos, maxPos} =>
-                (minPos := SysWord.toInt wp; maxPos := SysWord.toInt lp)
+        |   SBM_GETRANGE {minPos, maxPos} => (minPos := loadInt(toAddr wp); maxPos := loadInt(toAddr lp))
 
         |   SBM_GETSCROLLINFO {info, ...} =>
             let
-                val (_, _, minPos, maxPos, pageSize, pos, trackPos) = fromCscrollinfo(toAddr lp)
+                val ({minPos, maxPos, pageSize, pos, trackPos}, _) = toScrollInfo lp
             in
                 info := {minPos = minPos, maxPos = maxPos, pageSize = pageSize,
                       pos = pos, trackPos = trackPos}
@@ -4440,16 +4479,7 @@ WM_IME_KEYUP                    0x0291
         |   LB_GETTEXT {text, ...} =>
                 text := (if reply = 0w0 then "" else fromCstring(toAddr lp))
 
-        |   LB_GETSELITEMS{itemCount, items} =>
-            let
-                val b = toAddr lp
-                open Memory
-                infix 6 ++
-                fun getItem i = loadInt(b ++ sizeInt * Word.fromInt i)
-            in
-                items := List.tabulate(itemCount, getItem)
-            end
-
+        |   LB_GETSELITEMS args => updateGetSelItemsFromWpLp(args, {wp=wp, lp=lp, reply=reply})
         |   LB_GETITEMRECT{rect, ...} => rect := fromCrect(toAddr lp) (* This also has an item index *)
         |   WM_NCCALCSIZE { newrect, ...} =>
                (* Whatever the value of "validarea" we just look at the first rectangle. *)
