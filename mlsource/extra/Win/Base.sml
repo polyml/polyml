@@ -1028,14 +1028,14 @@ struct
         fun stringToUnicode(s: string): Word8Vector.vector =
         let
             open Memory
-            val inputLength = size s + 1 (* Include terminating null *)
-            (* Convert the whole string including the terminating null. *)
+            val inputLength = size s (* This does not include a terminating NULL *)
+            (* The lengths returned by MultiByteToWideChar are the number of Unicode chars *)
             val outputLength = MultiByteToWideChar(CP_ACP, 0, s, inputLength, null, 0)
-            val outputBuf = malloc(Word.fromInt outputLength)
+            val outputBuf = malloc(Word.fromInt outputLength * 0w2)
             val conv = MultiByteToWideChar(CP_ACP, 0, s, inputLength, outputBuf, outputLength)
             fun loadByte i = get8(outputBuf, Word.fromInt i)
         in
-            Word8Vector.tabulate(conv, loadByte) before free outputBuf
+            Word8Vector.tabulate(conv*2, loadByte) before free outputBuf
         end
     end
 
