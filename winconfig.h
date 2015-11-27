@@ -155,10 +155,7 @@
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
-#if (defined(_MSC_VER) && (_MSC_VER >= 1800))
-// Defined in VS 2013
-#define HAVE_INTTYPES_H 1
-#endif
+// This was present in VS 2013 but not 2015.
 
 /* Define to 1 if you have the <io.h> header file. */
 #undef HAVE_IO_H
