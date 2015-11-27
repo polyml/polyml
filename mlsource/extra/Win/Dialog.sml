@@ -456,7 +456,7 @@ struct
         (* CreateDialogIndirect: Create a modeless dialogue using a resource. *)
         local
             val sysCreateDialog =
-                winCall5 (user "CreateDialogParamA") (cHINSTANCE, cRESID, cHWND, DLGPROC, cLPARAM) cHWND
+                winCall5 (user "CreateDialogParamA") (cHINSTANCE, cRESID, cHWND, permanent DLGPROC, cLPARAM) cHWND
         in
             fun CreateDialog (hInst, lpTemplate, hWndParent, dialogueProc, init) =
             let
@@ -474,7 +474,7 @@ struct
         (* CreateDialogIndirect: Create a modeless dialogue from a template. *)
         local
             val sysCreateDialogIndirect =
-                winCall5 (user "CreateDialogIndirectParamA") (cHINSTANCE, cPointer, cHWND, DLGPROC, cLPARAM) cHWND
+                winCall5 (user "CreateDialogIndirectParamA") (cHINSTANCE, cPointer, cHWND, permanent DLGPROC, cLPARAM) cHWND
         in
             fun CreateDialogIndirect (hInst, template, hWndParent, dialogueProc, init) =
             let
@@ -500,7 +500,7 @@ struct
         (* DialogBox: create a dialogue using a resource. *)
         local
             val sysDialogBox =
-                winCall5 (user "DialogBoxParamA") (cHINSTANCE, cRESID, cHWND, DLGPROC, cLPARAM) cINT_PTR
+                winCall5 (user "DialogBoxParamA") (cHINSTANCE, cRESID, cHWND, permanent DLGPROC, cLPARAM) cINT_PTR
         in
             fun DialogBox (hInst, lpTemplate, hWndParent, dialogueProc, init) =
             let
@@ -516,7 +516,7 @@ struct
         (* DialogBoxIndirect: create a dialogue using a template. *)
         local
             val sysDialogBoxIndirect =
-                winCall5 (user "DialogBoxIndirectParamA") (cHINSTANCE, cPointer, cHWND, DLGPROC, cLPARAM) cINT_PTR
+                winCall5 (user "DialogBoxIndirectParamA") (cHINSTANCE, cPointer, cHWND, permanent DLGPROC, cLPARAM) cINT_PTR
         in
             fun DialogBoxIndirect (hInst, template, hWndParent, dialogueProc, init) =
             let
