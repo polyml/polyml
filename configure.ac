@@ -118,7 +118,7 @@ AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
 
 # The next two are only used with mingw
-AC_CHECK_LIB(wsock32, main)
+AC_CHECK_LIB(ws2_32, main)
 AC_CHECK_LIB(gdi32, main)
 
 ## External names on Win64.  They have no leading underscores as per
