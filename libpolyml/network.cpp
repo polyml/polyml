@@ -100,17 +100,12 @@
 typedef int socklen_t;
 #endif
 
+#if (defined(_WIN32) && ! defined(__CYGWIN__))
+#include <winsock2.h>
+#endif
+
 #ifdef HAVE_WINDOWS_H
 #include <windows.h>
-#endif
-
-
-#if (defined(_WIN32) && ! defined(__CYGWIN__))
-#ifdef USEWINSOCK2
-#include <winsock2.h>
-#else
-#include <winsock.h>
-#endif
 #endif
 
 #include "globals.h"
@@ -1599,13 +1594,8 @@ static Networking networkingModule;
 void Networking::Init(void)
 {
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
-#ifdef USEWINSOCK2
 #define WINSOCK_MAJOR_VERSION   2
 #define WINSOCK_MINOR_VERSION   2
-#else
-#define WINSOCK_MAJOR_VERSION   1
-#define WINSOCK_MINOR_VERSION   1
-#endif
     WSADATA wsaData;
     WORD wVersion = MAKEWORD(WINSOCK_MINOR_VERSION, WINSOCK_MAJOR_VERSION);
     /* Initialise the system and check that the version it supplied

@@ -25,15 +25,11 @@
 #error "No configuration file"
 #endif
 
+#include <winsock2.h>
+#include <windows.h>
+
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
-#endif
-
-#include <windows.h>
-#ifdef USEWINSOCK2
-#include <winsock2.h>
-#else
-#include <winsock.h>
 #endif
 
 #ifdef HAVE_TCHAR_H
