@@ -3617,7 +3617,8 @@ poly_native_windows=no
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
-# When building native Windows set the flag to build the Unicode version.
+# When building native Windows set the flag to build the Unicode version and
+# the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
 case "${host_os}" in
     darwin*)
@@ -3629,7 +3630,7 @@ case "${host_os}" in
 
         ;;
     *mingw*)
-        OSFLAG="-DUNICODE -D_UNICODE"
+        OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
 
         if test -n "$ac_tool_prefix"; then
   # Extract the first word of "${ac_tool_prefix}windres", so it can be a program name with args.
@@ -3732,7 +3733,7 @@ fi
         poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                OSFLAG="-DUNICODE -D_UNICODE"
+                OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
 
                 poly_native_windows=yes
                 CFLAGS="$CFLAGS -mthreads"
