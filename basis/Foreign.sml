@@ -2229,7 +2229,12 @@ struct
             end
             
             (* This is only appropriate if the elements are refs. *)
-            fun updateML(v, s) = Vector.appi(fn (i, el) => updateMLel(v ++ Word.fromInt i, el)) s
+            fun updateML(v, s) =
+            let
+                val addr = getAddress(v, 0w0)
+            in
+                Vector.appi(fn (i, el) => updateMLel(addr ++ (sizeEl * Word.fromInt i), el)) s
+            end
             (* updateC can't actually be used because we can't load a suitable value *)
             and updateC _ = raise Foreign "Cannot return a cVectorPointer from C to ML"
         in
@@ -2255,7 +2260,12 @@ struct
             end
             
             (* updateML is used after a C function returns.  It needs to update each element. *)
-            fun updateML(v, s) = Array.modifyi(fn (i, _) => loadEl(v ++ Word.fromInt i)) s
+            fun updateML(v, s) =
+            let
+                val addr = getAddress(v, 0w0)
+            in
+                Array.modifyi(fn (i, _) => loadEl(addr ++ (sizeEl * Word.fromInt i))) s
+            end
 
             (* updateC can't actually be used because we can't load a suitable value *)
             and updateC _ = raise Foreign "Cannot return a cArrayPointer from C to ML"
