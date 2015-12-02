@@ -86,7 +86,7 @@ extern int              get_C_int(TaskData *taskData, PolyWord);
 extern double           get_C_real(TaskData *taskData, PolyWord x);
 
 #if defined(_WIN32)
-void getFileTimeFromArb(TaskData *taskData, PolyWord number, PFILETIME ft);
+void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft);
 #endif
 
 #endif

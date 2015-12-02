@@ -888,7 +888,7 @@ static Handle pollDescriptors(TaskData *taskData, Handle args, int blockType)
                     /* The time argument is an absolute time. */
                     FILETIME ftTime, ftNow;
                     /* Get the file time. */
-                    getFileTimeFromArb(taskData, DEREFHANDLE(args)->Get(2), &ftTime);
+                    getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(2)), &ftTime);
                     GetSystemTimeAsFileTime(&ftNow);
                     taskData->saveVec.reset(hSave);
                     /* If the timeout time is earlier than the current time
@@ -1361,7 +1361,7 @@ Handle setTime(TaskData *taskData, Handle fileName, Handle fileTime)
     {
         FILETIME ft;
         /* Get the file time. */
-        getFileTimeFromArb(taskData, DEREFWORDHANDLE(fileTime), &ft);
+        getFileTimeFromArb(taskData, fileTime, &ft);
         /* Open an existing file with write access. We need that
            for SetFileTime. */
         HANDLE hFile = CreateFile(cFileName, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,

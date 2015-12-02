@@ -1536,7 +1536,7 @@ static Handle selectCall(TaskData *taskData, Handle args, int blockType)
             Handle hSave = taskData->saveVec.mark();
             FILETIME ftTime, ftNow;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFHANDLE(args)->Get(3), &ftTime);
+            getFileTimeFromArb(taskData, taskData->saveVec.push(DEREFHANDLE(args)->Get(3)), &ftTime);
             GetSystemTimeAsFileTime(&ftNow);
             taskData->saveVec.reset(hSave);
             /* If the timeout time is earlier than the current time
