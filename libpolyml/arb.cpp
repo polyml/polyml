@@ -1152,11 +1152,10 @@ Handle quot_rem_c(TaskData *taskData, Handle result, Handle y, Handle x)
 #if defined(_WIN32)
 // Return a FILETIME from an arbitrary precision number.  On both 32-bit and 64-bit Windows
 // this is a pair of 32-bit values.
-void getFileTimeFromArb(TaskData *taskData, PolyWord number, PFILETIME ft)
+void getFileTimeFromArb(TaskData *taskData, Handle numHandle, PFILETIME ft)
 {
     Handle twoTo16 = taskData->saveVec.push(TAGGED(65536));
     Handle twoTo32 = mult_longc(taskData, twoTo16, twoTo16);
-    Handle numHandle = taskData->saveVec.push(number);
     Handle highPart, lowPart;
     quotRem(taskData, twoTo32, numHandle, lowPart, highPart);
     ft->dwLowDateTime = get_C_unsigned(taskData, lowPart->Word());

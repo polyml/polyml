@@ -535,7 +535,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftUTC);
+            getFileTimeFromArb(taskData, args, &ftUTC);
             if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
                 raise_syscall(taskData, "FileTimeToLocalFileTime failed",
                         -(int)GetLastError());
@@ -546,7 +546,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftLocal);
+            getFileTimeFromArb(taskData, args, &ftLocal);
             if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
                 raise_syscall(taskData, "LocalFileTimeToFileTime failed",
                         -(int)GetLastError());
