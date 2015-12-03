@@ -28,6 +28,7 @@ polytemp.txt
 poly
 polyc
 polyimport
+!PolyImport/
 
 # Autoconf generated
 Makefile
