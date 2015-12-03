@@ -41,7 +41,7 @@
     <ProjectReference Include="..\libpolyml\PolyLib.vcxproj">
       <Project>{0ba5d5b5-f85b-4c49-8a27-67186fa68922}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\PolyImport\PolyImport.vcxproj">
+    <ProjectReference Include="..\PolyImp\PolyImport.vcxproj">
       <Project>{1ba3e7a2-d64f-4ce3-9fe5-7846b855c19f}</Project>
     </ProjectReference>
   </ItemGroup>
