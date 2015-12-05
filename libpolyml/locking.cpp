@@ -151,7 +151,7 @@ PCondVar::PCondVar()
 #ifdef HAVE_PTHREAD
     pthread_cond_init(&cond, NULL);
 #elif defined(HAVE_WINDOWS_H)
-	InitializeConditionVariable(&cond);
+    InitializeConditionVariable(&cond);
 #endif
 }
 
@@ -168,7 +168,7 @@ void PCondVar::Wait(PLock *pLock)
 #ifdef HAVE_PTHREAD
     pthread_cond_wait(&cond, &pLock->lock);
 #elif defined(HAVE_WINDOWS_H)
-	SleepConditionVariableCS(&cond, &pLock->lock, INFINITE);
+    SleepConditionVariableCS(&cond, &pLock->lock, INFINITE);
 #endif
 }
 
@@ -226,8 +226,8 @@ bool PCondVar::WaitFor(PLock *pLock, unsigned milliseconds)
     }
     return pthread_cond_timedwait(&cond, &pLock->lock, &waitTime) == 0;
 #elif defined(HAVE_WINDOWS_H)
-	// SleepConditionVariableCS returns zero on error or timeout.
-	return SleepConditionVariableCS(&cond, &pLock->lock, milliseconds) != 0;
+    // SleepConditionVariableCS returns zero on error or timeout.
+    return SleepConditionVariableCS(&cond, &pLock->lock, milliseconds) != 0;
 #else
     return true; // Single-threaded.  Return immediately.
 #endif
