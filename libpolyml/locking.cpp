@@ -239,7 +239,7 @@ void PCondVar::Signal(void)
 #ifdef HAVE_PTHREAD
     pthread_cond_broadcast(&cond);
 #elif defined(HAVE_WINDOWS_H)
-	WakeAllConditionVariable(&cond);
+    WakeAllConditionVariable(&cond);
 #endif
 }
 
