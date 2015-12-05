@@ -36,7 +36,8 @@ poly_native_windows=no
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
-# When building native Windows set the flag to build the Unicode version.
+# When building native Windows set the flag to build the Unicode version and
+# the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
 case "${host_os}" in
     darwin*)
@@ -46,7 +47,7 @@ case "${host_os}" in
         AC_SUBST([OSFLAG], [-DSOLARIS])
         ;;
     *mingw*)
-        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE"])
+        AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
         AC_CHECK_TOOL(WINDRES, windres)
         poly_native_windows=yes
         poly_no_undefined=yes
@@ -57,7 +58,7 @@ case "${host_os}" in
         poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE"])
+                AC_SUBST([OSFLAG], ["-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"])
                 poly_native_windows=yes
                 CFLAGS="$CFLAGS -mthreads"
                 CXXFLAGS="$CXXFLAGS -mthreads"
@@ -118,7 +119,7 @@ AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
 
 # The next two are only used with mingw
-AC_CHECK_LIB(wsock32, main)
+AC_CHECK_LIB(ws2_32, main)
 AC_CHECK_LIB(gdi32, main)
 
 ## External names on Win64.  They have no leading underscores as per

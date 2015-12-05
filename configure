@@ -3617,7 +3617,8 @@ poly_native_windows=no
 # build a DLL.
 # On mingw we need the -mthreads flag and this must be included in CFLAGS and
 # CXXFLAGS before the LIBTOOL macros.
-# When building native Windows set the flag to build the Unicode version.
+# When building native Windows set the flag to build the Unicode version and
+# the API version to at least Windows Vista to allow condition variables.
 poly_no_undefined=no
 case "${host_os}" in
     darwin*)
@@ -3629,7 +3630,7 @@ case "${host_os}" in
 
         ;;
     *mingw*)
-        OSFLAG="-DUNICODE -D_UNICODE"
+        OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
 
         if test -n "$ac_tool_prefix"; then
   # Extract the first word of "${ac_tool_prefix}windres", so it can be a program name with args.
@@ -3732,7 +3733,7 @@ fi
         poly_no_undefined=yes
         if test "$ac_cv_c_compiler_gnu" = "yes"; then
             if $CC -dumpmachine | grep -q mingw; then
-                OSFLAG="-DUNICODE -D_UNICODE"
+                OSFLAG="-DUNICODE -D_UNICODE -D_WIN32_WINNT=0x600"
 
                 poly_native_windows=yes
                 CFLAGS="$CFLAGS -mthreads"
@@ -17697,13 +17698,13 @@ fi
 
 
 # The next two are only used with mingw
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lwsock32" >&5
-$as_echo_n "checking for main in -lwsock32... " >&6; }
-if ${ac_cv_lib_wsock32_main+:} false; then :
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for main in -lws2_32" >&5
+$as_echo_n "checking for main in -lws2_32... " >&6; }
+if ${ac_cv_lib_ws2_32_main+:} false; then :
   $as_echo_n "(cached) " >&6
 else
   ac_check_lib_save_LIBS=$LIBS
-LIBS="-lwsock32  $LIBS"
+LIBS="-lws2_32  $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -17717,22 +17718,22 @@ return main ();
 }
 _ACEOF
 if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_wsock32_main=yes
+  ac_cv_lib_ws2_32_main=yes
 else
-  ac_cv_lib_wsock32_main=no
+  ac_cv_lib_ws2_32_main=no
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
 LIBS=$ac_check_lib_save_LIBS
 fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_wsock32_main" >&5
-$as_echo "$ac_cv_lib_wsock32_main" >&6; }
-if test "x$ac_cv_lib_wsock32_main" = xyes; then :
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_ws2_32_main" >&5
+$as_echo "$ac_cv_lib_ws2_32_main" >&6; }
+if test "x$ac_cv_lib_ws2_32_main" = xyes; then :
   cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBWSOCK32 1
+#define HAVE_LIBWS2_32 1
 _ACEOF
 
-  LIBS="-lwsock32 $LIBS"
+  LIBS="-lws2_32 $LIBS"
 
 fi
 

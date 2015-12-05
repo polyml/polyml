@@ -37,11 +37,7 @@
 #define IO_BIT_DEV          256
 #define IO_BIT_GUI_CONSOLE  512
 
-#ifdef USEWINSOCK2
 #include <winsock2.h>
-#else
-#include <winsock.h>
-#endif
 
 #else
 
