@@ -1352,7 +1352,7 @@ int X86TaskData::SwitchToPoly()
         case RETURN_CALLBACK_RETURN:
             // Remove the extra exception handler we created in EnterCallbackFunction
             ASSERT(PSP_HR(this) == PSP_SP(this));
-            PSP_SP(this) += 2;
+            PSP_SP(this) += 1;
             PSP_HR(this) = (*(PSP_SP(this)++)).AsStackAddr(); // Restore the previous handler.
             this->callBackResult = this->saveVec.push(PSP_EAX(this)); // Argument to return is in EAX.
             // Restore the registers
@@ -2401,7 +2401,6 @@ Handle X86TaskData::EnterCallbackFunction(Handle func, Handle args)
     // Set up an exception handler so we will enter callBackException if there is an exception.
     *(--PSP_SP(this)) = PolyWord::FromStackAddr(PSP_HR(this)); // Create a special handler entry
     *(--PSP_SP(this)) = callBackException->Word();
-    *(--PSP_SP(this)) = TAGGED(0);
     PSP_HR(this) = PSP_SP(this);
     // Push the call to callBackReturn onto the stack as the return address.
     *(--PSP_SP(this)) = callBackReturn->Word();
