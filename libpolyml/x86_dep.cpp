@@ -1369,11 +1369,8 @@ int X86TaskData::SwitchToPoly()
 
         case RETURN_CALLBACK_EXCEPTION:
             // An ML callback has raised an exception.
-            SetException((poly_exn *)PSP_EAX(this).AsObjPtr());
-            // Raise a C++ exception.  If the foreign function that called this callback
-            // doesn't handle the exception it will be raised in the calling ML function.
-            // But if it is caught we may have a problem ...
-            throw IOException();
+            // It isn't possible to do anything here except abort.
+            Crash("An ML function called from foreign code raised an exception.  Unable to continue.");
 
         default:
             Crash("Unknown return reason code %u", this->memRegisters.returnReason);
