@@ -340,6 +340,7 @@
   <ItemGroup>
     <ClInclude Include="..\polyexports.h" />
     <ClInclude Include="..\polystatistics.h" />
+    <ClInclude Include="..\winconfig.h" />
     <ClInclude Include="arb.h" />
     <ClInclude Include="basicio.h" />
     <ClInclude Include="bitmap.h" />
