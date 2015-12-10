@@ -25,15 +25,11 @@
 #error "No configuration file"
 #endif
 
+#include <winsock2.h>
+#include <windows.h>
+
 #ifdef HAVE_STDIO_H
 #include <stdio.h>
-#endif
-
-#include <windows.h>
-#ifdef USEWINSOCK2
-#include <winsock2.h>
-#else
-#include <winsock.h>
 #endif
 
 #ifdef HAVE_TCHAR_H
@@ -539,7 +535,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftUTC);
+            getFileTimeFromArb(taskData, args, &ftUTC);
             if (! FileTimeToLocalFileTime(&ftUTC, &ftLocal))
                 raise_syscall(taskData, "FileTimeToLocalFileTime failed",
                         -(int)GetLastError());
@@ -550,7 +546,7 @@ Handle OS_spec_dispatch_c(TaskData *taskData, Handle args, Handle code)
         {
             FILETIME ftUTC, ftLocal;
             /* Get the file time. */
-            getFileTimeFromArb(taskData, DEREFWORDHANDLE(args), &ftLocal);
+            getFileTimeFromArb(taskData, args, &ftLocal);
             if (! LocalFileTimeToFileTime(&ftLocal, &ftUTC))
                 raise_syscall(taskData, "LocalFileTimeToFileTime failed",
                         -(int)GetLastError());

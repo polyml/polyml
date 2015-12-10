@@ -438,16 +438,16 @@ Handle poly_dispatch_c(TaskData *taskData, Handle args, Handle code)
     case 34: // Return the system directory for modules.  This is configured differently
         // in Unix and in Windows.
 #if (defined(MODULEDIR))
-	return SAVE(C_string_to_Poly(taskData, Xstr(MODULEDIR)));
+    return SAVE(C_string_to_Poly(taskData, Xstr(MODULEDIR)));
 #elif (defined(_WIN32) && ! defined(__CYGWIN__))
         {
             // This registry key is configured when Poly/ML is installed using the installer.
             // It gives the path to the Poly/ML installation directory.  We return the
             // Modules subdirectory.
             HKEY hk;
-	        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-			        _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
-			        KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
+            if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                    _T("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PolyML.exe"), 0,
+                    KEY_QUERY_VALUE, &hk) == ERROR_SUCCESS)
             {
                 DWORD valSize;
                 if (RegQueryValueEx(hk, _T("Path"), 0, NULL, NULL, &valSize) == ERROR_SUCCESS)

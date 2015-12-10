@@ -65,8 +65,7 @@
             </File>
 
             <!-- Path registry key so MLShell can find PolyML.exe -->
-            <RegistryKey Id='AppPath' Root='HKLM' Key='SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\PolyML.exe' 
-                        Action='createAndRemoveOnUninstall'>
+            <RegistryKey Root='HKLM' Key='SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\PolyML.exe'>
                 <RegistryValue Id='DefaultValue' Type='string' Value='[#PolyML.exe]' Action='write' />
                 <RegistryValue Id='Path' Name='Path' Type='string' Value='[$PolyML.exe]' Action='write' />
             </RegistryKey>

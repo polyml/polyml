@@ -165,8 +165,8 @@
 /* Define to 1 if you have the `stdc++' library (-lstdc++). */
 #undef HAVE_LIBSTDC__
 
-/* Define to 1 if you have the `wsock32' library (-lwsock32). */
-#undef HAVE_LIBWSOCK32
+/* Define to 1 if you have the `ws2_32' library (-lws2_32). */
+#undef HAVE_LIBWS2_32
 
 /* Define to 1 if you have the `X11' library (-lX11). */
 #undef HAVE_LIBX11

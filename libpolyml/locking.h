@@ -99,7 +99,7 @@ private:
 #if ((!defined(_WIN32) || defined(__CYGWIN__)) && defined(HAVE_PTHREAD_H))
     pthread_cond_t cond;
 #elif defined(HAVE_WINDOWS_H)
-    HANDLE cond;
+    CONDITION_VARIABLE cond;
 #endif
 };
 
