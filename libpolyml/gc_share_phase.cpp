@@ -535,7 +535,7 @@ void GetSharing::SortData()
         }
 
         if (debugOptions & DEBUG_GC)
-            Log("GC: Share: Pass %u: %" POLYUFMT " removed (%1.1f%%) %" POLYUFMT " shared (%1.1f%%) %" POLYUFMT " remain. %"POLYUFMT" entries updated (%1.1f%%).\n",
+            Log("GC: Share: Pass %u: %" POLYUFMT " removed (%1.1f%%) %" POLYUFMT " shared (%1.1f%%) %" POLYUFMT " remain. %" POLYUFMT " entries updated (%1.1f%%).\n",
                 pass, lastCount-postCount, (double)(lastCount-postCount) / (double) lastCount * 100.0,
                 postShared - lastShared, (double)(postShared - lastShared) / (double) (lastCount-postCount) * 100.0,
                 postCount, carryOver, (double)carryOver / (double)(lastCount-postCount) * 100.0);
