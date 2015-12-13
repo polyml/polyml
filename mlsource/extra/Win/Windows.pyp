@@ -1,5 +1,5 @@
 [Files]
-NFiles=52
+NFiles=53
 File0=ROOT.sml
 Root=ROOT.sml
 File1=Base.sml
@@ -53,3 +53,4 @@ File48=Transform.sml
 File49=WinBase.sml
 File50=Window.sml
 File51=WinSystem.sml
+File52=MESSAGE.signature.sml

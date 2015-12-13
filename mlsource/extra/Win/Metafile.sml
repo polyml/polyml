@@ -71,22 +71,22 @@ struct
         type METAFILEPICT = METAFILEPICT
 
         (* TODO: Many of these should check for NULL as a result indicating an error. *)
-        val CloseEnhMetaFile = call1 (gdi "CloseEnhMetaFile") (cHDC) cHENHMETAFILE
-        and CloseMetaFile = call1 (gdi "CloseMetaFile") (cHDC) cHMETAFILE
-        and CopyEnhMetaFile = call2 (gdi "CopyEnhMetaFileA") (cHENHMETAFILE, cString) cHENHMETAFILE
-        and CopyMetaFile = call2 (gdi "CopyMetaFileA") (cHMETAFILE, cString) cHMETAFILE
-        and CreateMetaFile = call1 (gdi "CreateMetaFileA") (STRINGOPT) cHDC
+        val CloseEnhMetaFile = winCall1 (gdi "CloseEnhMetaFile") (cHDC) cHENHMETAFILE
+        and CloseMetaFile = winCall1 (gdi "CloseMetaFile") (cHDC) cHMETAFILE
+        and CopyEnhMetaFile = winCall2 (gdi "CopyEnhMetaFileA") (cHENHMETAFILE, cString) cHENHMETAFILE
+        and CopyMetaFile = winCall2 (gdi "CopyMetaFileA") (cHMETAFILE, cString) cHMETAFILE
+        and CreateMetaFile = winCall1 (gdi "CreateMetaFileA") (STRINGOPT) cHDC
         and DeleteEnhMetaFile =
-            call1 (gdi "DeleteEnhMetaFile") (cHENHMETAFILE) (successState "DeleteEnhMetaFile")
-        and DeleteMetaFile = call1 (gdi "DeleteMetaFile") (cHMETAFILE) (successState "DeleteMetaFile")
-        and GetEnhMetaFile = call1 (gdi "GetEnhMetaFileA") (cString) cHENHMETAFILE
-        and GetMetaFile = call1 (gdi "GetMetaFileA") (cString) cHMETAFILE
-        and PlayEnhMetaFile = call3(gdi "PlayEnhMetaFile") (cHDC, cHENHMETAFILE, cConstStar cRect)
+            winCall1 (gdi "DeleteEnhMetaFile") (cHENHMETAFILE) (successState "DeleteEnhMetaFile")
+        and DeleteMetaFile = winCall1 (gdi "DeleteMetaFile") (cHMETAFILE) (successState "DeleteMetaFile")
+        and GetEnhMetaFile = winCall1 (gdi "GetEnhMetaFileA") (cString) cHENHMETAFILE
+        and GetMetaFile = winCall1 (gdi "GetMetaFileA") (cString) cHMETAFILE
+        and PlayEnhMetaFile = winCall3(gdi "PlayEnhMetaFile") (cHDC, cHENHMETAFILE, cConstStar cRect)
                 (successState "PlayEnhMetaFile")
-        and PlayMetaFile = call2(gdi "PlayMetaFile") (cHDC, cHMETAFILE) (successState "PlayMetaFile")
+        and PlayMetaFile = winCall2(gdi "PlayMetaFile") (cHDC, cHMETAFILE) (successState "PlayMetaFile")
     
         local
-            val cemf = call4 (gdi "CreateEnhMetaFileA") (cHDC, STRINGOPT, cConstStar cRect, cPointer) cHDC
+            val cemf = winCall4 (gdi "CreateEnhMetaFileA") (cHDC, STRINGOPT, cConstStar cRect, cPointer) cHDC
         in
             fun CreateEnhMetaFile(hdc, name, r, NONE) = cemf(hdc, name, r, Memory.null)
              |  CreateEnhMetaFile(hdc, name, r, SOME{applicationName, pictureName}) =
@@ -106,7 +106,7 @@ struct
         end
 
         local
-            val gdiComment = call3 (gdi "GdiComment") (cHDC, cUint, cPointer) (successState "GdiComment")
+            val gdiComment = winCall3 (gdi "GdiComment") (cHDC, cUint, cPointer) (successState "GdiComment")
         in
             fun GdiComment(hdc, v) =
             let
@@ -119,7 +119,7 @@ struct
         end
     
         local
-            val gemfb = call3 (gdi "GetEnhMetaFileBits") (cHENHMETAFILE, cUint, cPointer) 
+            val gemfb = winCall3 (gdi "GetEnhMetaFileBits") (cHENHMETAFILE, cUint, cPointer) 
                             (cPOSINT "GetEnhMetaFileBits")
         in
             fun GetEnhMetaFileBits(hemf: HENHMETAFILE): Word8Vector.vector =
@@ -135,7 +135,7 @@ struct
         end
     
         local
-            val gemfb = call3 (gdi "GetMetaFileBitsEx") (cHMETAFILE, cUint, cPointer) 
+            val gemfb = winCall3 (gdi "GetMetaFileBitsEx") (cHMETAFILE, cUint, cPointer) 
                             (cPOSINT "GetMetaFileBitsEx")
         in
             fun GetMetaFileBitsEx(hemf: HMETAFILE): Word8Vector.vector =
@@ -152,7 +152,7 @@ struct
     
     
         local
-            val gemfd = call3 (gdi "GetEnhMetaFileDescriptionA") (cHENHMETAFILE, cUint, cPointer) cInt
+            val gemfd = winCall3 (gdi "GetEnhMetaFileDescriptionA") (cHENHMETAFILE, cUint, cPointer) cInt
             (* It's supposed to return a uint but GDI_ERROR is -1 *)
         in
             fun GetEnhMetaFileDescription(hemf: HENHMETAFILE) =
@@ -176,7 +176,7 @@ struct
         end
 
         local
-            val setEnhMetaFileBits = call2 (gdi "SetEnhMetaFileBits") (cUint, cPointer) cHENHMETAFILE
+            val setEnhMetaFileBits = winCall2 (gdi "SetEnhMetaFileBits") (cUint, cPointer) cHENHMETAFILE
         in
             fun SetEnhMetaFileBits(v: Word8Vector.vector): HENHMETAFILE =
             let
@@ -188,7 +188,7 @@ struct
         end
     
         local
-            val gwmfb = call5 (gdi "GetWinMetaFileBits") (cHENHMETAFILE, cUint, cPointer, cMAPMODE, cHDC)
+            val gwmfb = winCall5 (gdi "GetWinMetaFileBits") (cHENHMETAFILE, cUint, cPointer, cMAPMODE, cHDC)
                             (cPOSINT "GetWinMetaFileBits")
         in
             fun GetWinMetaFileBits(hemf, mapMode, hdc) =
@@ -205,7 +205,7 @@ struct
         end
 
         local
-            val swmfb = call4 (gdi "SetWinMetaFileBits") (cUint, cPointer, cHDC, cOptionPtr(cConstStar cMETAFILEPICT)) cHENHMETAFILE
+            val swmfb = winCall4 (gdi "SetWinMetaFileBits") (cUint, cPointer, cHDC, cOptionPtr(cConstStar cMETAFILEPICT)) cHENHMETAFILE
         in
             fun SetWinMetaFileBits(v, hdc, opts) =
             let
@@ -231,7 +231,7 @@ struct
             val ENHMETAHEADER = cStruct18(cDWORD, cDWORD, cRect, cRect, cDWORD, cDWORD, cDWORD, cDWORD,
                 cWORD, cWORD, cDWORD, cDWORD, cDWORD, cSize, cSize, cDWORD, cDWORD, cDWORD)
             val {load=toEMH, ...} = breakConversion ENHMETAHEADER
-            val gemf = call3 (gdi "GetEnhMetaFileHeader") (cHENHMETAFILE, cUint, cPointer)
+            val gemf = winCall3 (gdi "GetEnhMetaFileHeader") (cHENHMETAFILE, cUint, cPointer)
                     (cPOSINT "GetEnhMetaFileHeader")
         in
             fun GetEnhMetaFileHeader(h: HENHMETAFILE): ENHMETAHEADER =

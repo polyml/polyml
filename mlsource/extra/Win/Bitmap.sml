@@ -130,41 +130,41 @@ struct
         end
 
         val ExtFloodFill =
-            call5 (gdi "ExtFloodFill") 
+            winCall5 (gdi "ExtFloodFill") 
                    (cHDC,cInt,cInt,cCOLORREF,FLOODFILLMODE) (successState "ExtFloodFill")
 
-        val GetPixel = call3 (gdi "GetPixel") (cHDC,cInt,cInt) cCOLORREF
-        val SetPixel = call4 (gdi "SetPixel") (cHDC,cInt,cInt, cCOLORREF) cCOLORREF
-        val BitBlt = call9 (gdi  "BitBlt") (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cRASTEROPCODE)
+        val GetPixel = winCall3 (gdi "GetPixel") (cHDC,cInt,cInt) cCOLORREF
+        val SetPixel = winCall4 (gdi "SetPixel") (cHDC,cInt,cInt, cCOLORREF) cCOLORREF
+        val BitBlt = winCall9 (gdi  "BitBlt") (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cRASTEROPCODE)
                 (successState "BitBlt")
                                          
 
         val CreateCompatibleBitmap     = 
             checkBitmap o
-                call3 (gdi "CreateCompatibleBitmap") (cHDC,cInt,cInt) cHBITMAP
+                winCall3 (gdi "CreateCompatibleBitmap") (cHDC,cInt,cInt) cHBITMAP
 
 
-        val GetStretchBltMode          = call1 (gdi "GetStretchBltMode") (cHDC) STRETCHMODE
+        val GetStretchBltMode          = winCall1 (gdi "GetStretchBltMode") (cHDC) STRETCHMODE
 
         (* TODO: The raster op is supposed to be a combined operation for the foreground and
            background. *)
-        val MaskBlt = call12(gdi "MaskBlt") (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cHBITMAP,cInt,
+        val MaskBlt = winCall12(gdi "MaskBlt") (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cHBITMAP,cInt,
                                           cInt,cQUATERNARY) (successState "MaskBlt")
 
-        val SetStretchBltMode = call2(gdi "SetStretchBltMode") (cHDC,STRETCHMODE) (successState "SetStretchBltMode")
+        val SetStretchBltMode = winCall2(gdi "SetStretchBltMode") (cHDC,STRETCHMODE) (successState "SetStretchBltMode")
 
         val StretchBlt =
-            call11(gdi "StretchBlt") 
+            winCall11(gdi "StretchBlt") 
                 (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cInt,cInt,cRASTEROPCODE) (successState "StretchBlt")
 
         (* This definitely has the wrong type. *)
-        (*val PlgBlt = call7 (gdi "PlgBlt")(cHDC,RECT,cHDC,RECT,HBITMAP,XCOORD,YCOORD)
+        (*val PlgBlt = winCall7 (gdi "PlgBlt")(cHDC,RECT,cHDC,RECT,HBITMAP,XCOORD,YCOORD)
                  (successState "PlgBlt")*)
                                          
 
         local
             val setBitmapDimensionEx =
-                call4 (gdi "SetBitmapDimensionEx") (cHBITMAP, cInt, cInt, cStar cSize) (successState "SetBitmapDimensionEx")
+                winCall4 (gdi "SetBitmapDimensionEx") (cHBITMAP, cInt, cInt, cStar cSize) (successState "SetBitmapDimensionEx")
         in
             fun SetBitmapDimensionEx(hbm, width, height, s) =
             let
@@ -176,7 +176,7 @@ struct
         end
         local
             val getBitmapDimensionEx =
-                call2 (gdi "GetBitmapDimensionEx") (cHBITMAP, cStar cSize) (successState "SetBitmapDimensionEx")
+                winCall2 (gdi "GetBitmapDimensionEx") (cHBITMAP, cStar cSize) (successState "SetBitmapDimensionEx")
         in
             fun GetBitmapDimensionEx hbm =
             let
@@ -189,11 +189,11 @@ struct
 
         val CreateBitmapIndirect       =
             checkBitmap o
-                call1 (gdi "CreateBitmapIndirect") (cConstStar cBITMAP) cHBITMAP
+                winCall1 (gdi "CreateBitmapIndirect") (cConstStar cBITMAP) cHBITMAP
 
         local
             val cbm = checkBitmap o
-                call5 (gdi "CreateBitmap") (cInt, cInt, cInt, cInt, cPointer) cHBITMAP
+                winCall5 (gdi "CreateBitmap") (cInt, cInt, cInt, cInt, cPointer) cHBITMAP
         in
             fun CreateBitmap{width, height, planes, bitsPerPixel, bits} =
             let
@@ -280,10 +280,10 @@ struct
             val {load=fromR, store=toR, ctype={size=rtypeSize, ...}} =
                 breakConversion BITMAPINFOHEADER
 
-            val getDIBits = call7 (gdi "GetDIBits")
+            val getDIBits = winCall7 (gdi "GetDIBits")
                 (cHDC, cHBITMAP, cUint, cUint, cPointer, cPointer, cUint) cInt
 
-            val setDIBits = call7 (gdi "SetDIBits")
+            val setDIBits = winCall7 (gdi "SetDIBits")
                 (cHDC, cHBITMAP, cUint, cUint, cPointer, cPointer, cUint) cInt
             
             val sizeColourEntry = #size LowLevel.cTypeInt (* Should this RGBQUAD? *)
@@ -394,7 +394,7 @@ struct
            for copying device-dependent bitmaps. *)
         fun GetBitmapBits(hbm, bytes): Word8Vector.vector =
         let
-            val gbb = call3 (gdi "GetBitmapBits") (cHBITMAP, cDWORD, cPointer) cLong
+            val gbb = winCall3 (gdi "GetBitmapBits") (cHBITMAP, cDWORD, cPointer) cLong
             open Memory
             val buff = malloc (Word.fromInt bytes)
             val () =
@@ -406,7 +406,7 @@ struct
 
         fun SetBitmapBits(hbm, w) = 
         let
-            val sbb = call3 (gdi "SetBitmapBits") (cHBITMAP, cDWORD, cPointer) cLong
+            val sbb = winCall3 (gdi "SetBitmapBits") (cHBITMAP, cDWORD, cPointer) cLong
             val buff = toCWord8vec w
             open Memory
             val () =

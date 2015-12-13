@@ -96,22 +96,22 @@ struct
             val R2_WHITE                                     = W (16 (* 1 *))
         end
 
-        val GdiFlush               = call0 (gdi "GdiFlush") () (successState "GdiFlush")
-        val GdiGetBatchLimit       = call0 (gdi "GdiGetBatchLimit") () cDWORD
-        val GdiSetBatchLimit       = call1 (gdi "GdiSetBatchLimit") (cDWORD) cDWORD
-        val GetBkColor             = call1 (gdi "GetBkColor") (cHDC) cCOLORREF
-        val GetROP2                = call1(user "GetROP2") (cHDC) BINARYRASTEROPERATION
-        val GetUpdateRgn           = call3(user "GetUpdateRgn") (cHWND,cHRGN,cBool) RESULTREGION
-        val GetWindowDC            = call1(user "GetWindowDC") (cHWND) cHDC
-        val InvalidateRgn          = call3(user "InvalidateRgn") (cHWND,cHRGN,cBool) (successState "InvalidateRgn")
+        val GdiFlush               = winCall0 (gdi "GdiFlush") () (successState "GdiFlush")
+        val GdiGetBatchLimit       = winCall0 (gdi "GdiGetBatchLimit") () cDWORD
+        val GdiSetBatchLimit       = winCall1 (gdi "GdiSetBatchLimit") (cDWORD) cDWORD
+        val GetBkColor             = winCall1 (gdi "GetBkColor") (cHDC) cCOLORREF
+        val GetROP2                = winCall1(user "GetROP2") (cHDC) BINARYRASTEROPERATION
+        val GetUpdateRgn           = winCall3(user "GetUpdateRgn") (cHWND,cHRGN,cBool) RESULTREGION
+        val GetWindowDC            = winCall1(user "GetWindowDC") (cHWND) cHDC
+        val InvalidateRgn          = winCall3(user "InvalidateRgn") (cHWND,cHRGN,cBool) (successState "InvalidateRgn")
         val InvalidateRect =
-            call3 (user "InvalidateRect") (cHWND, cConstStar cRect, cBool) (successState "InvalidateRect")
-        val SetBkColor             = call2 (gdi "SetBkColor") (cHDC, cCOLORREF) cCOLORREF
-        val WindowFromDC           = call1(user "WindowFromDC") (cHDC) cHWND
-        val SetROP2                = call2(user "SetROP2") (cHDC, BINARYRASTEROPERATION) BINARYRASTEROPERATION
+            winCall3 (user "InvalidateRect") (cHWND, cConstStar cRect, cBool) (successState "InvalidateRect")
+        val SetBkColor             = winCall2 (gdi "SetBkColor") (cHDC, cCOLORREF) cCOLORREF
+        val WindowFromDC           = winCall1(user "WindowFromDC") (cHDC) cHWND
+        val SetROP2                = winCall2(user "SetROP2") (cHDC, BINARYRASTEROPERATION) BINARYRASTEROPERATION
 
         local
-            val getUpdateRect = call3 (user "GetUpdateRect") (cHWND, cStar cRect, cBool) cBool
+            val getUpdateRect = winCall3 (user "GetUpdateRect") (cHWND, cStar cRect, cBool) cBool
         in
             fun GetUpdateRect (hw: HWND, erase: bool): RECT option =
             let
@@ -134,7 +134,7 @@ struct
             val PAINTSTRUCT =
                 absConversion {abs=fromPt, rep=toPt} (cStruct4(cHDC, cBool, cRect, cCHARARRAY 40))
 
-            val beginPaint = call2 (user "BeginPaint") (cHWND, cStar PAINTSTRUCT) cHDC
+            val beginPaint = winCall2 (user "BeginPaint") (cHWND, cStar PAINTSTRUCT) cHDC
         in
             fun BeginPaint(hwnd: HWND): HDC * PAINTSTRUCT =
             let
@@ -144,7 +144,7 @@ struct
                 (hdc, !b)
             end
 
-            val EndPaint = call2 (user "EndPaint") (cHWND, cConstStar PAINTSTRUCT) cVoid
+            val EndPaint = winCall2 (user "EndPaint") (cHWND, cConstStar PAINTSTRUCT) cVoid
         end
         (*
             Other painting and drawing functions:

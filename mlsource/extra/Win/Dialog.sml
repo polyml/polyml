@@ -132,8 +132,6 @@ struct
 
         (* Dialogue procedures never call DefWindowProc. *)
         fun dlgProcRes (lres, state) = (lres, state)
-        
-        val DLGPROC = winFun4 (cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
     in
         type HWND = HWND and HINSTANCE = HINSTANCE
 
@@ -456,13 +454,13 @@ struct
         (* CreateDialogIndirect: Create a modeless dialogue using a resource. *)
         local
             val sysCreateDialog =
-                winCall5 (user "CreateDialogParamA") (cHINSTANCE, cRESID, cHWND, permanent DLGPROC, cLPARAM) cHWND
+                winCall5 (user "CreateDialogParamA") (cHINSTANCE, cRESID, cHWND, cFunction, cLPARAM) cHWND
         in
             fun CreateDialog (hInst, lpTemplate, hWndParent, dialogueProc, init) =
             let
                 val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
                 val res = checkWindow
-                    (sysCreateDialog(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0))
+                    (sysCreateDialog(hInst, lpTemplate, hWndParent, Message.mainWinProc, 0))
             in
                 (* Add this to the modeless dialogue list so that keyboard
                    operations will work. *)
@@ -474,7 +472,7 @@ struct
         (* CreateDialogIndirect: Create a modeless dialogue from a template. *)
         local
             val sysCreateDialogIndirect =
-                winCall5 (user "CreateDialogIndirectParamA") (cHINSTANCE, cPointer, cHWND, permanent DLGPROC, cLPARAM) cHWND
+                winCall5 (user "CreateDialogIndirectParamA") (cHINSTANCE, cPointer, cHWND, cFunction, cLPARAM) cHWND
         in
             fun CreateDialogIndirect (hInst, template, hWndParent, dialogueProc, init) =
             let
@@ -487,7 +485,7 @@ struct
                 fun copyToBuf(i, v) = set8(templ, Word.fromInt i, v)
                 val () = Word8Vector.appi copyToBuf compiled
                 val res = checkWindow
-                    (sysCreateDialogIndirect(hInst, templ, hWndParent, Message.mainCallbackFunction, 0))
+                    (sysCreateDialogIndirect(hInst, templ, hWndParent, Message.mainWinProc, 0))
                 val () = free templ
             in
                 (* Add this to the modeless dialogue list so that keyboard
@@ -500,13 +498,13 @@ struct
         (* DialogBox: create a dialogue using a resource. *)
         local
             val sysDialogBox =
-                winCall5 (user "DialogBoxParamA") (cHINSTANCE, cRESID, cHWND, permanent DLGPROC, cLPARAM) cINT_PTR
+                winCall5 (user "DialogBoxParamA") (cHINSTANCE, cRESID, cHWND, cFunction, cLPARAM) cINT_PTR
         in
             fun DialogBox (hInst, lpTemplate, hWndParent, dialogueProc, init) =
             let
                 (* We can use the normal window procedure as a dialogue proc. *)
                 val _ = Message.setCallback(dlgProcRes o dialogueProc, init);
-                val result = sysDialogBox(hInst, lpTemplate, hWndParent, Message.mainCallbackFunction, 0)
+                val result = sysDialogBox(hInst, lpTemplate, hWndParent, Message.mainWinProc, 0)
             in
                 (* How do we remove the callback?  Look for the last message? *)
                 result
@@ -516,7 +514,7 @@ struct
         (* DialogBoxIndirect: create a dialogue using a template. *)
         local
             val sysDialogBoxIndirect =
-                winCall5 (user "DialogBoxIndirectParamA") (cHINSTANCE, cPointer, cHWND, permanent DLGPROC, cLPARAM) cINT_PTR
+                winCall5 (user "DialogBoxIndirectParamA") (cHINSTANCE, cPointer, cHWND, cFunction, cLPARAM) cINT_PTR
         in
             fun DialogBoxIndirect (hInst, template, hWndParent, dialogueProc, init) =
             let
@@ -529,7 +527,7 @@ struct
                 fun copyToBuf(i, v) = set8(templ, Word.fromInt i, v)
                 val _ = Word8Vector.appi copyToBuf compiled
             in
-                sysDialogBoxIndirect(hInst, templ, hWndParent, Message.mainCallbackFunction, 0)
+                sysDialogBoxIndirect(hInst, templ, hWndParent, Message.mainWinProc, 0)
                     before free templ
             end
         end

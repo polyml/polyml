@@ -55,12 +55,12 @@ struct
         open GdiBase
         type HPEN = HPEN
 
-        val CreatePen = call3 (gdi "CreatePen") (cPENSTYLE,cInt,cCOLORREF) (cHPEN)
-        val CreatePenIndirect = call1 (gdi "CreatePenIndirect") (cConstStar cLOGPEN) (cHPEN)
+        val CreatePen = winCall3 (gdi "CreatePen") (cPENSTYLE,cInt,cCOLORREF) (cHPEN)
+        val CreatePenIndirect = winCall1 (gdi "CreatePenIndirect") (cConstStar cLOGPEN) (cHPEN)
         
         local
             val extCreatePen =
-                call5 (gdi "ExtCreatePen")
+                winCall5 (gdi "ExtCreatePen")
                  (cPENSTYLE,cDWORD,cConstStar cLOGBRUSH,cDWORD,cPointer) (cHPEN)
             val PAIR = absConversion {abs = fn _ => raise Fail "PAIR", rep = MAKELONG} cDWORDw
             val list2v = list2Vector PAIR

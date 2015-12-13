@@ -8,6 +8,7 @@ use "WinBase";
 use "ComboBase";
 use "ScrollBase";
 use "MenuBase";
+use "MESSAGE.signature";
 use "Message";
 use "Class";
 use "FlagPrint";

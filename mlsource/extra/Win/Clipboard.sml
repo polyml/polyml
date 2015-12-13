@@ -122,25 +122,25 @@ struct
             val cCLIPFORMAT = absConversion {abs = fromInt, rep = toInt} cUint
         end
 
-        val ChangeClipboardChain = call2 (user "ChangeClipboardChain") (cHWND, cHWND) cBool
-        and CloseClipboard = call0 (user "CloseClipboard") () (successState "CloseClipboard")
-        and CountClipboardFormats = call0 (user "CountClipboardFormats") () cInt
-        and EmptyClipboard = call0 (user "EmptyClipboard") () (successState "EmptyClipboard")
-        and EnumClipboardFormats = call1 (user "EnumClipboardFormats") (cCLIPFORMAT) cCLIPFORMAT
-        and GetClipboardOwner = call0 (user "GetClipboardOwner") () cHWND
-        and GetClipboardViewer = call0 (user "GetClipboardViewer") () cHWND
-        and GetOpenClipboardWindow = call0 (user "GetOpenClipboardWindow") () cHWND
+        val ChangeClipboardChain = winCall2 (user "ChangeClipboardChain") (cHWND, cHWND) cBool
+        and CloseClipboard = winCall0 (user "CloseClipboard") () (successState "CloseClipboard")
+        and CountClipboardFormats = winCall0 (user "CountClipboardFormats") () cInt
+        and EmptyClipboard = winCall0 (user "EmptyClipboard") () (successState "EmptyClipboard")
+        and EnumClipboardFormats = winCall1 (user "EnumClipboardFormats") (cCLIPFORMAT) cCLIPFORMAT
+        and GetClipboardOwner = winCall0 (user "GetClipboardOwner") () cHWND
+        and GetClipboardViewer = winCall0 (user "GetClipboardViewer") () cHWND
+        and GetOpenClipboardWindow = winCall0 (user "GetOpenClipboardWindow") () cHWND
         and IsClipboardFormatAvailable =
-            call1 (user "IsClipboardFormatAvailable") (cCLIPFORMAT) cBool
-        and OpenClipboard = call1 (user "OpenClipboard") (cHWNDOPT) (successState "OpenClipboard")
+            winCall1 (user "IsClipboardFormatAvailable") (cCLIPFORMAT) cBool
+        and OpenClipboard = winCall1 (user "OpenClipboard") (cHWNDOPT) (successState "OpenClipboard")
         and RegisterClipboardFormat =
-            CF_REGISTERED o call1 (user "RegisterClipboardFormat") (cString) cUint
-        and SetClipboardViewer = call1 (user "SetClipboardViewer") (cHWND) cHWND
+            CF_REGISTERED o winCall1 (user "RegisterClipboardFormat") (cString) cUint
+        and SetClipboardViewer = winCall1 (user "SetClipboardViewer") (cHWND) cHWND
 
         local
             (* The argument and result are actually HANDLE but we haven't got quite the
                right form of subclassing to allow all the various handle types to be combined. *)
-            val setClipboardData = call2(user "SetClipboardData") (cCLIPFORMAT, cHGLOBAL) cHGLOBAL
+            val setClipboardData = winCall2(user "SetClipboardData") (cCLIPFORMAT, cHGLOBAL) cHGLOBAL
 
             (* Most clipboard data is passed in memory allocated using GlobalAlloc. *)
             fun globString (s: string) =
@@ -214,7 +214,7 @@ struct
         end
 
         local
-            val getClipboardData = call1 (user "GetClipboardData") (cCLIPFORMAT) cHGLOBAL
+            val getClipboardData = winCall1 (user "GetClipboardData") (cCLIPFORMAT) cHGLOBAL
             fun getMem hg = fromCWord8vec(GlobalLock hg, GlobalSize hg) before ignore(GlobalUnlock hg)
             and getText hg = fromCstring(GlobalLock hg) before ignore(GlobalUnlock hg)
             fun fromHglobal (h: HGLOBAL): 'a HANDLE = handleOfVoidStar(voidStarOfHandle h)
@@ -258,7 +258,7 @@ struct
         end
 
         local
-            val getformat = call3 (user "GetClipboardFormatNameA") (cCLIPFORMAT, cPointer, cInt) cInt
+            val getformat = winCall3 (user "GetClipboardFormatNameA") (cCLIPFORMAT, cPointer, cInt) cInt
         in
             (* Loop until we have read the whole string.  The result may legitimately be
                a null string. *)
@@ -267,7 +267,7 @@ struct
         end
 
         local
-            val getPriorityClipboardFormat = call2(user "GetPriorityClipboardFormat") (cPointer, cInt) cInt
+            val getPriorityClipboardFormat = winCall2(user "GetPriorityClipboardFormat") (cPointer, cInt) cInt
          in
             fun GetPriorityClipboardFormat(l: ClipboardFormat list): ClipboardFormat option =
             let

@@ -615,33 +615,33 @@ struct
             val CLR_INVALID                                  = W (0xFFFFFFFF)
         end
 
-        val CancelDC                   = call1(gdi "CancelDC") (cHDC) (successState "CancelDC")
-        val CreateCompatibleDC         = call1(gdi "CreateCompatibleDC") (cHDC) cHDC
-        val DeleteDC                   = call1(gdi "DeleteDC") (cHDC) (successState "DeleteDC")
-        val DeleteObject               = call1(gdi "DeleteObject") (cHGDIOBJ) (successState "DeleteObject")
-        val GetCurrentObject           = call2(gdi "GetCurrentObject") (cHDC,ENUMOBJECT) cHGDIOBJ
-        val GetDC                      = checkDC o call1(user "GetDC") (cHWND) cHDC
-        val GetDCEx                    = checkDC o call3(user "GetDCEx") (cHWND,cHRGN,DEVICECONTEXTFLAG) cHDC
+        val CancelDC                   = winCall1(gdi "CancelDC") (cHDC) (successState "CancelDC")
+        val CreateCompatibleDC         = winCall1(gdi "CreateCompatibleDC") (cHDC) cHDC
+        val DeleteDC                   = winCall1(gdi "DeleteDC") (cHDC) (successState "DeleteDC")
+        val DeleteObject               = winCall1(gdi "DeleteObject") (cHGDIOBJ) (successState "DeleteObject")
+        val GetCurrentObject           = winCall2(gdi "GetCurrentObject") (cHDC,ENUMOBJECT) cHGDIOBJ
+        val GetDC                      = checkDC o winCall1(user "GetDC") (cHWND) cHDC
+        val GetDCEx                    = checkDC o winCall3(user "GetDCEx") (cHWND,cHRGN,DEVICECONTEXTFLAG) cHDC
         
         local
-            val getDCOrgEx = call2(gdi "GetDCOrgEx") (cHDC, cStar cPoint) (successState "GetDCOrgEx")
+            val getDCOrgEx = winCall2(gdi "GetDCOrgEx") (cHDC, cStar cPoint) (successState "GetDCOrgEx")
         in
             fun GetDCOrgEx hdc = let val v = ref {x=0, y=0} in getDCOrgEx(hdc, v); !v end
         end
 
-        val GetDeviceCaps              = call2(gdi "GetDeviceCaps") (cHDC,DEVICEITEM) cInt
-        val GetObjectType              = call1(gdi "GetObjectType") (cHGDIOBJ) ENUMOBJECT
-        val GetStockObject             = call1 (gdi "GetStockObject") (STOCKOBJECTTYPE) cHGDIOBJ
-        val ReleaseDC                  = call2(user "ReleaseDC") (cHWND,cHDC) cBool
-        val RestoreDC                  = call2(gdi "RestoreDC") (cHDC,cInt) (successState "RestoreDC")
-        val SaveDC                     = call1(gdi "SaveDC") (cHDC) cInt
-        val ResetDC                    = call2 (gdi "ResetDC") (cHDC, LPDEVMODE) cHDC
+        val GetDeviceCaps              = winCall2(gdi "GetDeviceCaps") (cHDC,DEVICEITEM) cInt
+        val GetObjectType              = winCall1(gdi "GetObjectType") (cHGDIOBJ) ENUMOBJECT
+        val GetStockObject             = winCall1 (gdi "GetStockObject") (STOCKOBJECTTYPE) cHGDIOBJ
+        val ReleaseDC                  = winCall2(user "ReleaseDC") (cHWND,cHDC) cBool
+        val RestoreDC                  = winCall2(gdi "RestoreDC") (cHDC,cInt) (successState "RestoreDC")
+        val SaveDC                     = winCall1(gdi "SaveDC") (cHDC) cInt
+        val ResetDC                    = winCall2 (gdi "ResetDC") (cHDC, LPDEVMODE) cHDC
         (* The result of SelectObject is a bit of a mess.  It is the original object being
            replaced except if the argument is a region when it returns a RESULTREGION.
            Perhaps we need a different function for that. *)
-        val SelectObject               = call2(gdi "SelectObject") (cHDC,cHGDIOBJ) cHGDIOBJ
+        val SelectObject               = winCall2(gdi "SelectObject") (cHDC,cHGDIOBJ) cHGDIOBJ
 
-        val CreateDC = call4 (gdi "CreateDCA") (STRINGOPT, STRINGOPT, STRINGOPT, cOptionPtr LPDEVMODE) cHDC
+        val CreateDC = winCall4 (gdi "CreateDCA") (STRINGOPT, STRINGOPT, STRINGOPT, cOptionPtr LPDEVMODE) cHDC
 
         (* GetObject returns information about different kinds of GDI object.
            It takes a pointer to a structure whose size and format differ according
@@ -656,7 +656,7 @@ struct
         |   GO_Pen of LOGPEN
         |   GO_Palette of int
         local
-            val getObj = call3 (gdi "GetObjectA") (cHGDIOBJ, cInt, cPointer) cInt
+            val getObj = winCall3 (gdi "GetObjectA") (cHGDIOBJ, cInt, cPointer) cInt
             val {load=fromCBM, ...} = breakConversion cBITMAP
             val {load=fromCLF, ...} = breakConversion FontBase.cLOGFONT
             val {load=fromCLB, ...} = breakConversion cLOGBRUSH

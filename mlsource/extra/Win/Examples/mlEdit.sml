@@ -267,8 +267,8 @@ let
                     val printSettings =
                         PrintDlg {owner=SOME hw, devMode=devMode, devNames=devNames,
                                   context=NONE,
-                                  flags=PrintDlgFlags.flags[PrintDlgFlags.PD_RETURNDC],
-                                  fromPage=1, toPage= ~1, minPage=1, maxPage= ~1, copies=1};
+                                  flags=PrintDlgFlags.flags[PrintDlgFlags.PD_RETURNDC, PrintDlgFlags.PD_NOSELECTION],
+                                  fromPage=1, toPage=65535, minPage=1, maxPage=65535, copies=1};
                 in
                     case printSettings of
                         SOME {devMode, devNames, context = SOME hdc, flags, fromPage, toPage, ...} =>

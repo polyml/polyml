@@ -42,7 +42,7 @@ struct
         local
             val DOCINFO = cStruct5(cInt, cString, STRINGOPT, STRINGOPT, cDWORDw)
             val {ctype={size=sizeDI, ...}, ...} = breakConversion DOCINFO
-            val startdoc = call2(gdi "StartDocA")(cHDC, DOCINFO) cInt
+            val startdoc = winCall2(gdi "StartDocA")(cHDC, DOCINFO) cInt
         in
             
             fun StartDoc(hdc: HDC, {docName, output, dType}): int =
@@ -57,10 +57,10 @@ struct
         local
             fun checkSuccess res = checkResult(res > 0)
         in
-            val EndDoc      = checkSuccess o call1(gdi "EndDoc") cHDC cInt
-            val StartPage   = checkSuccess o call1(gdi "StartPage") cHDC cInt
-            val EndPage     = checkSuccess o call1(gdi "EndPage") cHDC cInt
-            val AbortDoc    = checkSuccess o call1(gdi "AbortDoc") cHDC cInt
+            val EndDoc      = checkSuccess o winCall1(gdi "EndDoc") cHDC cInt
+            val StartPage   = checkSuccess o winCall1(gdi "StartPage") cHDC cInt
+            val EndPage     = checkSuccess o winCall1(gdi "EndPage") cHDC cInt
+            val AbortDoc    = checkSuccess o winCall1(gdi "AbortDoc") cHDC cInt
         end
 
         datatype WMPrintOption = datatype Message.WMPrintOption

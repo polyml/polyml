@@ -45,27 +45,27 @@ struct
         datatype PointType = datatype Line.PointType
 
         (* PATHS *)
-        val AbortPath                  = call1(gdi "AbortPath") (cHDC) (successState "AbortPath")
-        val BeginPath                  = call1(gdi "BeginPath") (cHDC) (successState "BeginPath")
-        val CloseFigure                = call1(gdi "CloseFigure") (cHDC) (successState "CloseFigure")
-        val EndPath                    = call1(gdi "EndPath") (cHDC) (successState "EndPath")
-        val FillPath                   = call1(gdi "FillPath") (cHDC) (successState "FillPath")
-        val FlattenPath                = call1(gdi "FlattenPath") (cHDC) (successState "FlattenPath")
-        val PathToRegion               = call1(gdi "PathToRegion") (cHDC) cHRGN
-        val StrokeAndFillPath          = call1(gdi "StrokeAndFillPath") (cHDC) (successState "StrokeAndFillPath")
-        val StrokePath                 = call1(gdi "StrokePath") (cHDC) (successState "StrokePath")
-        val WidenPath                  = call1(gdi "WidenPath") (cHDC) (successState "WidenPath")
+        val AbortPath                  = winCall1(gdi "AbortPath") (cHDC) (successState "AbortPath")
+        val BeginPath                  = winCall1(gdi "BeginPath") (cHDC) (successState "BeginPath")
+        val CloseFigure                = winCall1(gdi "CloseFigure") (cHDC) (successState "CloseFigure")
+        val EndPath                    = winCall1(gdi "EndPath") (cHDC) (successState "EndPath")
+        val FillPath                   = winCall1(gdi "FillPath") (cHDC) (successState "FillPath")
+        val FlattenPath                = winCall1(gdi "FlattenPath") (cHDC) (successState "FlattenPath")
+        val PathToRegion               = winCall1(gdi "PathToRegion") (cHDC) cHRGN
+        val StrokeAndFillPath          = winCall1(gdi "StrokeAndFillPath") (cHDC) (successState "StrokeAndFillPath")
+        val StrokePath                 = winCall1(gdi "StrokePath") (cHDC) (successState "StrokePath")
+        val WidenPath                  = winCall1(gdi "WidenPath") (cHDC) (successState "WidenPath")
         
         local
-            val getMiterLimit = call2(gdi "GetMiterLimit") (cHDC, cStar cFloat) (successState "GetMiterLimit")
-            and setMiterLimit = call3(gdi "SetMiterLimit") (cHDC, cFloat, cStar cFloat) (successState "SetMiterLimit")
+            val getMiterLimit = winCall2(gdi "GetMiterLimit") (cHDC, cStar cFloat) (successState "GetMiterLimit")
+            and setMiterLimit = winCall3(gdi "SetMiterLimit") (cHDC, cFloat, cStar cFloat) (successState "SetMiterLimit")
         in
             fun GetMiterLimit hdc = let val v = ref 0.0 in getMiterLimit(hdc, v); !v end
             and SetMiterLimit(hdc, m) = let val v = ref 0.0 in setMiterLimit(hdc, m, v); !v end
         end
 
         local
-            val getPath = call4 (gdi "GetPath") (cHDC, cPointer, cPointer, cInt) cInt
+            val getPath = winCall4 (gdi "GetPath") (cHDC, cPointer, cPointer, cInt) cInt
             val {load=fromPt, ctype={size=sizePt, ...}, ...} = breakConversion cPoint
             val {load=fromTy, ...} = breakConversion GdiBase.cPOINTTYPE
         in

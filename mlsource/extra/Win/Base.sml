@@ -66,19 +66,8 @@ sig
              'f Foreign.conversion * 'g Foreign.conversion * 'h Foreign.conversion * 'i Foreign.conversion * 'j Foreign.conversion * 'k Foreign.conversion *
              'l Foreign.conversion * 'm Foreign.conversion * 'n Foreign.conversion ->
             'o Foreign.conversion -> 'a * 'b * 'c * 'd * 'e * 'f * 'g * 'h * 'i * 'j * 'k * 'l * 'm * 'n -> 'o
-
-    (* We probably don't need all of these. *)
-    val winFun0: unit -> 'a Foreign.conversion -> (unit -> 'a) Foreign.conversion
-    val winFun1: 'a Foreign.conversion -> 'b Foreign.conversion -> ('a -> 'b) Foreign.conversion
-    val winFun2: 'a Foreign.conversion * 'b Foreign.conversion -> 'c Foreign.conversion -> ('a * 'b -> 'c) Foreign.conversion
-    val winFun3: 'a Foreign.conversion * 'b Foreign.conversion *  'c Foreign.conversion -> 'd Foreign.conversion -> ('a * 'b * 'c -> 'd) Foreign.conversion
-    val winFun4: 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion -> 'e Foreign.conversion ->
-            ('a * 'b * 'c * 'd -> 'e) Foreign.conversion
-    val winFun5: 'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion -> 'f Foreign.conversion ->
-            ('a * 'b * 'c * 'd * 'e -> 'f) Foreign.conversion
-    val winFun6:
-        'a Foreign.conversion * 'b Foreign.conversion * 'c Foreign.conversion * 'd Foreign.conversion * 'e Foreign.conversion * 'f Foreign.conversion ->
-            'g Foreign.conversion -> ('a * 'b * 'c * 'd * 'e * 'f -> 'g) Foreign.conversion
+            
+    val winAbi: Foreign.LibFFI.abi
 
     val kernel: string -> Foreign.symbol
     and user: string -> Foreign.symbol
@@ -367,29 +356,21 @@ struct
         |   NONE => LibFFI.abiDefault
 
     (* As well as setting the abi we can also use the old argument order. *)
-    fun winCall0 args = call0withAbi winAbi args
-    and winCall1 args = call1withAbi winAbi args
-    and winCall2 args = call2withAbi winAbi args
-    and winCall3 args = call3withAbi winAbi args
-    and winCall4 args = call4withAbi winAbi args
-    and winCall5 args = call5withAbi winAbi args
-    and winCall6 args = call6withAbi winAbi args
-    and winCall7 args = call7withAbi winAbi args
-    and winCall8 args = call8withAbi winAbi args
-    and winCall9 args = call9withAbi winAbi args
-    and winCall10 args = call10withAbi winAbi args
-    and winCall11 args = call11withAbi winAbi args
-    and winCall12 args = call12withAbi winAbi args
-    and winCall13 args = call13withAbi winAbi args
-    and winCall14 args = call14withAbi winAbi args
-    
-    fun winFun0 args = cFunction0withAbi winAbi args
-    and winFun1 args = cFunction1withAbi winAbi args
-    and winFun2 args = cFunction2withAbi winAbi args
-    and winFun3 args = cFunction3withAbi winAbi args
-    and winFun4 args = cFunction4withAbi winAbi args
-    and winFun5 args = cFunction5withAbi winAbi args
-    and winFun6 args = cFunction6withAbi winAbi args
+    fun winCall0 sym argConv resConv = buildCall0withAbi(winAbi, sym, argConv, resConv)
+    and winCall1 sym argConv resConv = buildCall1withAbi(winAbi, sym, argConv, resConv)
+    and winCall2 sym argConv resConv = buildCall2withAbi(winAbi, sym, argConv, resConv)
+    and winCall3 sym argConv resConv = buildCall3withAbi(winAbi, sym, argConv, resConv)
+    and winCall4 sym argConv resConv = buildCall4withAbi(winAbi, sym, argConv, resConv)
+    and winCall5 sym argConv resConv = buildCall5withAbi(winAbi, sym, argConv, resConv)
+    and winCall6 sym argConv resConv = buildCall6withAbi(winAbi, sym, argConv, resConv)
+    and winCall7 sym argConv resConv = buildCall7withAbi(winAbi, sym, argConv, resConv)
+    and winCall8 sym argConv resConv = buildCall8withAbi(winAbi, sym, argConv, resConv)
+    and winCall9 sym argConv resConv = buildCall9withAbi(winAbi, sym, argConv, resConv)
+    and winCall10 sym argConv resConv = buildCall10withAbi(winAbi, sym, argConv, resConv)
+    and winCall11 sym argConv resConv = buildCall11withAbi(winAbi, sym, argConv, resConv)
+    and winCall12 sym argConv resConv = buildCall12withAbi(winAbi, sym, argConv, resConv)
+    and winCall13 sym argConv resConv = buildCall13withAbi(winAbi, sym, argConv, resConv)
+    and winCall14 sym argConv resConv = buildCall14withAbi(winAbi, sym, argConv, resConv)
 
     (* Previously we had a specific call to do this.  The error state is
        no longer set by the new FFI. *)

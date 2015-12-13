@@ -149,8 +149,7 @@ struct
              hIconSm: HICON option}
 
         local
-            val cWNDPROC = winFun4 (cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
-            val cWNDCLASSEX = cStruct12(cUint,cUintw,permanent cWNDPROC,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
+            val cWNDCLASSEX = cStruct12(cUint,cUintw, cFunction,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
                                       cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
             val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
             val registerClassEx = winCall1 (user "RegisterClassExA") (cConstStar cWNDCLASSEX) cUint
@@ -167,7 +166,7 @@ struct
             let
                 (* The window procedure we pass to the C call is our dispatch function
                    in the RTS. *)
-                val windowProc = Message.mainCallbackFunction
+                val windowProc = Message.mainWinProc
                 val cWndClass =
                     (Word.toInt sizeWndclassEx,
                         style,

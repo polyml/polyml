@@ -53,32 +53,32 @@ struct
         val zeroRect: RECT = {top=0, bottom=0, left=0, right=0}
 
         (* RECTANGLES. *)
-        val EqualRect = call2 (user "EqualRect") (cConstStar cRect, cConstStar cRect) cBool
+        val EqualRect = winCall2 (user "EqualRect") (cConstStar cRect, cConstStar cRect) cBool
         
         local
-            val inflateRect = call3 (user "InflateRect")  (cStar cRect, cInt, cInt) (successState "InflateRect")
+            val inflateRect = winCall3 (user "InflateRect")  (cStar cRect, cInt, cInt) (successState "InflateRect")
         in
             fun InflateRect(r, x, y) = let val v = ref r in inflateRect(v, x, y); !v end
         end
 
         local
-            val intersectRect = call3 (user "IntersectRect") (cStar cRect, cConstStar cRect, cConstStar cRect) cBool
+            val intersectRect = winCall3 (user "IntersectRect") (cStar cRect, cConstStar cRect, cConstStar cRect) cBool
         in
             fun IntersectRect(r1, r2) =
                 let val r = ref zeroRect in if intersectRect(r, r1, r2) then SOME(!r) else NONE end
         end
 
         local
-            val offsetRect = call3 (user "OffsetRect") (cStar cRect, cInt, cInt) (successState "OffsetRect")
+            val offsetRect = winCall3 (user "OffsetRect") (cStar cRect, cInt, cInt) (successState "OffsetRect")
         in
             fun OffsetRect(r, x, y) = let val v = ref r in offsetRect(v, x, y); !v end
         end
 
-        val IsRectEmpty = call1(user "IsRectEmpty") (cConstStar cRect) cBool
-        val PtInRect = call2(user "PtInRect") (cConstStar cRect, cPoint) cBool
+        val IsRectEmpty = winCall1(user "IsRectEmpty") (cConstStar cRect) cBool
+        val PtInRect = winCall2(user "PtInRect") (cConstStar cRect, cPoint) cBool
 
         local
-            val setRect = call5 (user "SetRect") (cStar cRect, cInt, cInt, cInt, cInt) (successState "SetRect")
+            val setRect = winCall5 (user "SetRect") (cStar cRect, cInt, cInt, cInt, cInt) (successState "SetRect")
         in
             fun SetRect(a,b,c,d) : RECT = let val v = ref zeroRect in setRect(v, a,b,c,d); !v end
         end
@@ -87,9 +87,9 @@ struct
 
         local
             val subtractRect =
-                call3 (user "SubtractRect") (cStar cRect, cConstStar cRect, cConstStar cRect) (successState "SubtractRect")
+                winCall3 (user "SubtractRect") (cStar cRect, cConstStar cRect, cConstStar cRect) (successState "SubtractRect")
             and unionRect =
-                call3 (user "UnionRect") (cStar cRect, cConstStar cRect, cConstStar cRect) (successState "UnionRect")
+                winCall3 (user "UnionRect") (cStar cRect, cConstStar cRect, cConstStar cRect) (successState "UnionRect")
         in
             fun SubtractRect(r1, r2) = let val v = ref zeroRect in subtractRect(v, r1, r2); !v end
             and UnionRect(r1, r2) = let val v = ref zeroRect in unionRect(v, r1, r2); !v end

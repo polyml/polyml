@@ -34,16 +34,16 @@ struct
     in
         type HWND = HWND and POINT = POINT
 
-        val GetCapture = call0 (user "GetCapture") () cHWNDOPT
-        val SetCapture = call1 (user "SetCapture") (cHWND) cHWNDOPT
-        val ReleaseCapture = call0 (user "ReleaseCapture") () (successState "ReleaseCapture")
+        val GetCapture = winCall0 (user "GetCapture") () cHWNDOPT
+        val SetCapture = winCall1 (user "SetCapture") (cHWND) cHWNDOPT
+        val ReleaseCapture = winCall0 (user "ReleaseCapture") () (successState "ReleaseCapture")
         val SetDoubleClickTime =
-            call1 (user "SetDoubleClickTime") (cUint) (successState "SetDoubleClickTime") o
+            winCall1 (user "SetDoubleClickTime") (cUint) (successState "SetDoubleClickTime") o
                 Time.toMilliseconds
         val GetDoubleClickTime =
-            Time.fromMilliseconds o call0 (user "GetDoubleClickTime") () cUint 
-        val SwapMouseButton = call1 (user "SwapMouseButton") (cBool) cBool
-        val DragDetect = call2 (user "DragDetect") (cHWND, cPoint) cBool
+            Time.fromMilliseconds o winCall0 (user "GetDoubleClickTime") () cUint 
+        val SwapMouseButton = winCall1 (user "SwapMouseButton") (cBool) cBool
+        val DragDetect = winCall2 (user "DragDetect") (cHWND, cPoint) cBool
     end
 end;
 

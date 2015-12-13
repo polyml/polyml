@@ -90,7 +90,7 @@ struct
     in
         type HWND = HWND and HINSTANCE = HINSTANCE and HBITMAP = HBITMAP
 
-        val InitCommonControls = call0(comctl "InitCommonControls") () cVoid
+        val InitCommonControls = winCall0(comctl "InitCommonControls") () cVoid
         
         (* Toolbar style is a mess.  The TBBUTTON structure allows only a single
            byte for the style but some of the values exceed that.  Apparently
@@ -187,7 +187,7 @@ struct
                 cStruct6(cInt, cInt, ToolbarState.cToolBarState(*byte*), cUint8w, cDWORD_PTR, cINT_PTR)
             val {ctype={size=sizeTBB, ...}, ...} = breakConversion TBBUTTON
                 
-            val createToolbarEx = call13 (comctl "CreateToolbarEx")
+            val createToolbarEx = winCall13 (comctl "CreateToolbarEx")
                 (cHWND,cDWORDw,cUint,cInt,cHINSTANCE, cPointer ,cPointer,cInt,cInt,cInt,cInt,cInt,cUint) cHWND
             val list2vec = list2Vector TBBUTTON
 
@@ -226,7 +226,7 @@ struct
         end
         
         local
-            val createStatusWindow = call4 (comctl "CreateStatusWindowA") (cLong,cString,cHWND,cUint) cHWND
+            val createStatusWindow = winCall4 (comctl "CreateStatusWindowA") (cLong,cString,cHWND,cUint) cHWND
         in
             fun CreateStatusWindow{ relation: ParentType, style: Window.Style.flags, text: string } =
             let
@@ -270,7 +270,7 @@ struct
                 List.foldl (fn (a, b) => fromWord(SysWord.andb(toWord a, toWord b))) all
         end;
         
-        val sendMsg = call4(user "SendMessageA") (cHWND, cUint, cUINT_PTR, cPointer) cUint
+        val sendMsg = winCall4(user "SendMessageA") (cHWND, cUint, cUINT_PTR, cPointer) cUint
 
         fun StatusBarSetText{hWnd, iPart, uType, text}:int =
         let

@@ -380,7 +380,7 @@ struct
 
 
         local
-            val commDlgExtendedError = call0 (commdlg "CommDlgExtendedError") () cDWORD
+            val commDlgExtendedError = winCall0 (commdlg "CommDlgExtendedError") () cDWORD
         in
             fun CommDlgExtendedError () =
                 case commDlgExtendedError () of
@@ -700,13 +700,13 @@ struct
 
         in
             val GetOpenFileName =
-                getOpenSave (call1 (commdlg "GetOpenFileNameA") cPointer cBool)
+                getOpenSave (winCall1 (commdlg "GetOpenFileNameA") cPointer cBool)
             and GetSaveFileName =
-                getOpenSave (call1 (commdlg "GetSaveFileNameA") cPointer cBool)
+                getOpenSave (winCall1 (commdlg "GetSaveFileNameA") cPointer cBool)
         end (* local *)
 
         local
-            val getFileTitle = call3(commdlg "GetFileTitleA") (cString, cPointer, cWORD) cShort
+            val getFileTitle = winCall3(commdlg "GetFileTitleA") (cString, cPointer, cWORD) cShort
         in
             fun GetFileTitle(file: string): string =
             let
@@ -748,8 +748,8 @@ struct
                           cPointer, cPointer, cWORD, cWORD, cLPARAM, cPointer (* LPFRHOOKPROC *), cPointer)
             val {store=fromOFR, ctype={size=sizeFR, ...}, ...} = breakConversion FINDREPLACE
 
-            val findText = call1 (commdlg "FindTextA") cPointer cHWND
-            and replaceText = call1 (commdlg "ReplaceTextA") cPointer cHWND
+            val findText = winCall1 (commdlg "FindTextA") cPointer cHWND
+            and replaceText = winCall1 (commdlg "ReplaceTextA") cPointer cHWND
 
             fun findReplace doCall (arg: FINDREPLACE): HWND =
             let
@@ -1055,8 +1055,8 @@ struct
             val printDlgSize =
                 if #size LowLevel.cTypePointer = 0w4 then 0w66 else 0w120
 
-            val pageSetupDlg = call1 (commdlg "PageSetupDlgA") cPointer cBool
-            and printDlg = call1 (commdlg "PrintDlgA") cPointer cBool
+            val pageSetupDlg = winCall1 (commdlg "PageSetupDlgA") cPointer cBool
+            and printDlg = winCall1 (commdlg "PrintDlgA") cPointer cBool
         in
             fun PageSetupDlg (arg: PAGESETUPDLG): PAGESETUPDLG option =
             let
@@ -1127,16 +1127,16 @@ struct
             and PrintDlg (arg: PRINTDLG): PRINTDLG option =
             let
                 val {
-                owner: HWND option,
-                devMode: DEVMODE option,
-                devNames: {driver: string, device: string, output: string, default: bool} option,
-                context: HDC option,
-                flags: PrintDlgFlags.flags,
-                fromPage: int,
-                toPage: int,
-                minPage: int,
-                maxPage: int,
-                copies: int} = arg
+                    owner: HWND option,
+                    devMode: DEVMODE option,
+                    devNames: {driver: string, device: string, output: string, default: bool} option,
+                    context: HDC option,
+                    flags: PrintDlgFlags.flags,
+                    fromPage: int,
+                    toPage: int,
+                    minPage: int,
+                    maxPage: int,
+                    copies: int} = arg
                 val devnames = toDevNames devNames
                 val devmode =
                     case devMode of
@@ -1391,7 +1391,7 @@ struct
             let
                 val converted = toCChooseFont arg
                 val result =
-                    call1 (commdlg "ChooseFontA") POINTER BOOL converted
+                    winCall1 (commdlg "ChooseFontA") POINTER BOOL converted
             in
                 if result
                 then SOME(fromCChooseFont converted)
@@ -1491,7 +1491,7 @@ struct
             let
                 val converted = toCChooseColor arg
                 val result =
-                    call1 (commdlg "ChooseColorA") POINTER BOOL converted
+                    winCall1 (commdlg "ChooseColorA") POINTER BOOL converted
             in
                 if result
                 then SOME(fromCChooseColor converted)

@@ -185,7 +185,7 @@ in
         val SM_CYSIZEFRAME          = SM_CYFRAME
 
         local
-            val getSystemMetrics = call1 (user "GetSystemMetrics") (cInt) cInt
+            val getSystemMetrics = winCall1 (user "GetSystemMetrics") (cInt) cInt
         in
             fun GetSystemMetrics(ABS i) = getSystemMetrics i
         end 

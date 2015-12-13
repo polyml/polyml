@@ -117,21 +117,21 @@ struct
 
 
         (* BRUSHES *)
-        val CreateBrushIndirect = call1 (user "CreateBrushIndirect") (cConstStar cLOGBRUSH) cHBRUSH
-        and CreateHatchBrush = call2 (gdi "CreateHatchBrush") (cHATCHSTYLE, cCOLORREF) cHBRUSH
-        and CreateSolidBrush = call1 (gdi "CreateSolidBrush") (cCOLORREF) cHBRUSH
+        val CreateBrushIndirect = winCall1 (user "CreateBrushIndirect") (cConstStar cLOGBRUSH) cHBRUSH
+        and CreateHatchBrush = winCall2 (gdi "CreateHatchBrush") (cHATCHSTYLE, cCOLORREF) cHBRUSH
+        and CreateSolidBrush = winCall1 (gdi "CreateSolidBrush") (cCOLORREF) cHBRUSH
         
         local
             val getBrushOrgEx =
-                call2 (gdi "GetBrushOrgEx") (cHDC, cStar cPoint) (successState "GetBrushOrgEx")
+                winCall2 (gdi "GetBrushOrgEx") (cHDC, cStar cPoint) (successState "GetBrushOrgEx")
             and setBrushOrgEx =
-                call4 (gdi "SetBrushOrgEx")(cHDC, cInt, cInt, cStar cPoint) (successState "SetBrushOrgEx")
+                winCall4 (gdi "SetBrushOrgEx")(cHDC, cInt, cInt, cStar cPoint) (successState "SetBrushOrgEx")
         in
             fun GetBrushOrgEx hdc = let val v = ref{x=0, y=0} in getBrushOrgEx(hdc, v); !v end
             and SetBrushOrgEx(hdc, {x, y}) = let val v = ref{x=0, y=0} in setBrushOrgEx(hdc, x, y, v); !v end
         end
-        val CreatePatternBrush         = call1 (gdi "CreatePatternBrush") (cHBITMAP) cHBRUSH
-        val PatBlt                     = call6(gdi "PatBlt") (cHDC,cInt,cInt,cInt,cInt,cRASTEROPCODE)
+        val CreatePatternBrush         = winCall1 (gdi "CreatePatternBrush") (cHBITMAP) cHBRUSH
+        val PatBlt                     = winCall6(gdi "PatBlt") (cHDC,cInt,cInt,cInt,cInt,cRASTEROPCODE)
                                             (successState "PatBlt")
         datatype ColorType =
             COLOR_SCROLLBAR
@@ -187,7 +187,7 @@ struct
          |  colourTypeToInt COLOR_INFOBK = 24
     
         (* Create a brush from a system colour. *)
-        val GetSysColorBrush = call1 (user "GetSysColorBrush") (cInt) cHBRUSH o colourTypeToInt
+        val GetSysColorBrush = winCall1 (user "GetSysColorBrush") (cInt) cHBRUSH o colourTypeToInt
 
         (*
             Other Brush functions:

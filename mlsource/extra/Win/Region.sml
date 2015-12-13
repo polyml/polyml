@@ -79,20 +79,20 @@ struct
             val WINDING                                      = W (2)
         end
 
-        val CombineRgn                 = call4(gdi "CombineRgn") (cHRGN,cHRGN,cHRGN,REGIONOPERATION) RESULTREGION 
-        val EqualRgn                   = call2(gdi "EqualRgn") (cHRGN,cHRGN) cBool
-        val FillRgn                    = call3(gdi "FillRgn") (cHDC,cHRGN,cHBRUSH) (successState "FillRgn")
-        val FrameRgn                   = call5(gdi "FrameRgn") (cHDC,cHRGN,cHBRUSH,cInt,cInt) (successState "FrameRgn")
-        val GetPolyFillMode            = call1(gdi "GetPolyFillMode") (cHDC) POLYFILLMODE
-        val InvertRgn                  = call2(gdi "InvertRgn") (cHDC,cHRGN) (successState "InvertRgn")
-        val OffsetRgn                  = call3(gdi "OffsetRgn") (cHRGN,cInt,cInt) RESULTREGION
-        val PaintRgn                   = call2(gdi "PaintRgn") (cHDC,cHRGN) (successState "PaintRgn")
-        val PtInRegion                 = call3(gdi "PtInRegion") (cHRGN,cInt,cInt) cBool
-        val RectInRegion               = call2(gdi "RectInRegion") (cHRGN,cRect) cBool
-        val SetPolyFillMode            = call2(gdi "SetPolyFillMode") (cHDC,POLYFILLMODE) POLYFILLMODE
+        val CombineRgn                 = winCall4(gdi "CombineRgn") (cHRGN,cHRGN,cHRGN,REGIONOPERATION) RESULTREGION 
+        val EqualRgn                   = winCall2(gdi "EqualRgn") (cHRGN,cHRGN) cBool
+        val FillRgn                    = winCall3(gdi "FillRgn") (cHDC,cHRGN,cHBRUSH) (successState "FillRgn")
+        val FrameRgn                   = winCall5(gdi "FrameRgn") (cHDC,cHRGN,cHBRUSH,cInt,cInt) (successState "FrameRgn")
+        val GetPolyFillMode            = winCall1(gdi "GetPolyFillMode") (cHDC) POLYFILLMODE
+        val InvertRgn                  = winCall2(gdi "InvertRgn") (cHDC,cHRGN) (successState "InvertRgn")
+        val OffsetRgn                  = winCall3(gdi "OffsetRgn") (cHRGN,cInt,cInt) RESULTREGION
+        val PaintRgn                   = winCall2(gdi "PaintRgn") (cHDC,cHRGN) (successState "PaintRgn")
+        val PtInRegion                 = winCall3(gdi "PtInRegion") (cHRGN,cInt,cInt) cBool
+        val RectInRegion               = winCall2(gdi "RectInRegion") (cHRGN,cRect) cBool
+        val SetPolyFillMode            = winCall2(gdi "SetPolyFillMode") (cHDC,POLYFILLMODE) POLYFILLMODE
 
         local
-            val getRgnBox = call2(gdi "GetRgnBox") (cHRGN, cStar cRect) cInt
+            val getRgnBox = winCall2(gdi "GetRgnBox") (cHRGN, cStar cRect) cInt
             val zeroRect = {top=0, bottom=0, left=0, right=0}
         in
             fun GetRgnBox hr =
@@ -100,32 +100,32 @@ struct
         end
 
         local
-            val setRectRgn = call5 (gdi "SetRectRgn") (cHRGN,cInt,cInt,cInt,cInt)  (successState "SetRectRgn")
+            val setRectRgn = winCall5 (gdi "SetRectRgn") (cHRGN,cInt,cInt,cInt,cInt)  (successState "SetRectRgn")
         in
             fun SetRectRgn (h, { left, top, right, bottom }) = setRectRgn(h,left,top,right,bottom)
         end
         
         local
-            val createEllipticRgn = call4 (gdi "CreateEllipticRgn") (cInt,cInt,cInt,cInt) cHRGN
+            val createEllipticRgn = winCall4 (gdi "CreateEllipticRgn") (cInt,cInt,cInt,cInt) cHRGN
         in
             fun CreateEllipticRgn {left,top,right,bottom} = createEllipticRgn(left,top,right,bottom)
         end
         
         local
-            val createRectRgn = call4 (gdi "CreateRectRgn") (cInt,cInt,cInt,cInt) cHRGN
+            val createRectRgn = winCall4 (gdi "CreateRectRgn") (cInt,cInt,cInt,cInt) cHRGN
         in
             fun CreateRectRgn {left,top,right,bottom} = createRectRgn(left,top,right,bottom)
         end
         
         local
-            val createRoundRectRgn = call6 (gdi "CreateRoundRectRgn") (cInt,cInt,cInt,cInt,cInt,cInt) cHRGN
+            val createRoundRectRgn = winCall6 (gdi "CreateRoundRectRgn") (cInt,cInt,cInt,cInt,cInt,cInt) cHRGN
         in
             fun CreateRoundRectRgn({left,top,right,bottom},w,h) =
                 createRoundRectRgn(left,top,right,bottom,w,h)
         end
 
         local
-            val createPolygonRgn = call3 (gdi "CreatePolygonRgn") (cPointer,cInt,POLYFILLMODE) cHRGN
+            val createPolygonRgn = winCall3 (gdi "CreatePolygonRgn") (cPointer,cInt,POLYFILLMODE) cHRGN
             val ptList = list2Vector cPoint
         in
             fun CreatePolygonRgn (pts: POINT list, fmode) = 
@@ -179,21 +179,21 @@ struct
         
             val struct_size = 64 + 16 * count
         in
-          call3 (gdi "ExtCreateRegion")
+          winCall3 (gdi "ExtCreateRegion")
                  (POINTER,INT,POINTER) (cHRGN)
                  (address xform,struct_size,address rgndata)
         end
 *)      
 (*      fun GetRegionData h =
         let
-          val bufsize = call3 (gdi "GetRegionData")
+          val bufsize = winCall3 (gdi "GetRegionData")
                             (cHRGN,LONG,POINTER) (LONG)
                             (h,0,toCint 0)
         
           val rgndata = alloc 1 (Cstruct [Clong,Clong,Clong,Clong,
                                           Clong,Clong,Clong,Clong,Cvoid])
         
-          val res =  call3 (gdi "GetRegionData")
+          val res =  winCall3 (gdi "GetRegionData")
                             (cHRGN,LONG,POINTER) (LONG)
                             (h,bufsize,address rgndata)
         in

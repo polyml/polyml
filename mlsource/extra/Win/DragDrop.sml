@@ -33,14 +33,14 @@ struct
         type POINT = POINT
 
         (* Call DragAcceptFiles to accept files. *)
-        val DragAcceptFiles = call2 (shell "DragAcceptFiles") (cHWND,cBool) cVoid
+        val DragAcceptFiles = winCall2 (shell "DragAcceptFiles") (cHWND,cBool) cVoid
 
         (* Call DragFinish when finished processing a WM_DROP message. *)
-        and DragFinish = call1 (shell "DragFinish") (cHDROP) cVoid
+        and DragFinish = winCall1 (shell "DragFinish") (cHDROP) cVoid
 
         (* Call DragQueryFile to get the file(s). *)
         local
-            val dragQueryFile = call4 (shell "DragQueryFileA") (cHDROP,cUint,cPointer,cUint) cUint
+            val dragQueryFile = winCall4 (shell "DragQueryFileA") (cHDROP,cUint,cPointer,cUint) cUint
         in
             fun DragQueryFile (hd: HDROP): string list =
             let
@@ -64,7 +64,7 @@ struct
 
         (* Call DragQueryPoint to find out where to drop the file(s). *)
         local
-            val dragQueryPoint = call2 (shell "DragQueryPoint") (cHDROP, cStar cPoint) cBool
+            val dragQueryPoint = winCall2 (shell "DragQueryPoint") (cHDROP, cStar cPoint) cBool
         in
             fun DragQueryPoint (hd: HDROP): POINT * bool =
             let

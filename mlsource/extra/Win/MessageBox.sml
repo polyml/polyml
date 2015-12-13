@@ -152,8 +152,8 @@ struct
         val IDHELP              = 9
 
 
-        val MessageBox = call4 (user "MessageBoxA") (cHWNDOPT, STRINGOPT, STRINGOPT, MessageBoxStyle.cConvert) cInt
-        val MessageBeep = call1 (user "MessageBeep") MessageBoxStyle.cConvert (successState "MessageBeep")
+        val MessageBox = winCall4 (user "MessageBoxA") (cHWNDOPT, STRINGOPT, STRINGOPT, MessageBoxStyle.cConvert) cInt
+        val MessageBeep = winCall1 (user "MessageBeep") MessageBoxStyle.cConvert (successState "MessageBeep")
 
     end
 end;

@@ -50,7 +50,7 @@ struct
         |   CaretBitmap of HBITMAP
 
         local
-            val createCaret = call4 (user "CreateCaret") (cHWND, cHBITMAP, cInt, cInt)
+            val createCaret = winCall4 (user "CreateCaret") (cHWND, cHBITMAP, cInt, cInt)
                 (successState "CreateCaret")
             val intAsHgdi = handleOfVoidStar o Memory.sysWord2VoidStar o SysWord.fromInt
         in
@@ -63,25 +63,25 @@ struct
                     createCaret(hw, hb, 0, 0)
         end
 
-        val DestroyCaret = call0 (user "DestroyCaret") () (successState "DestroyCaret")
+        val DestroyCaret = winCall0 (user "DestroyCaret") () (successState "DestroyCaret")
 
-        val GetCaretBlinkTime = Time.fromMilliseconds o (call0 (user "GetCaretBlinkTime") () cUint)
+        val GetCaretBlinkTime = Time.fromMilliseconds o (winCall0 (user "GetCaretBlinkTime") () cUint)
 
-        val HideCaret = call1 (user "HideCaret") (cHWND) (successState "HideCaret")
+        val HideCaret = winCall1 (user "HideCaret") (cHWND) (successState "HideCaret")
 
         val SetCaretBlinkTime =
-            (call1 (user "SetCaretBlinkTime") cUint (successState "SetCaretBlinkTime")) o
+            (winCall1 (user "SetCaretBlinkTime") cUint (successState "SetCaretBlinkTime")) o
                 Time.toMilliseconds
 
         (* The result of ShowCaret may be false either if there was an error or
            if HideCaret was called more than once. *)
-        val ShowCaret = call1 (user "ShowCaret") (cHWND) (successState "ShowCaret")
+        val ShowCaret = winCall1 (user "ShowCaret") (cHWND) (successState "ShowCaret")
 
         local
             val getCaretPos =
-                call1 (user "GetCaretPos") (cStar cPoint) (successState "GetCaretPos")
+                winCall1 (user "GetCaretPos") (cStar cPoint) (successState "GetCaretPos")
             val setCaretPos =
-                call2 (user "SetCaretPos") (cInt, cInt) (successState "SetCaretPos")
+                winCall2 (user "SetCaretPos") (cInt, cInt) (successState "SetCaretPos")
         in
             fun GetCaretPos() = let val v = ref {x=0, y=0 } in getCaretPos v; !v  end
             and SetCaretPos({x, y}: POINT) = setCaretPos(x, y)

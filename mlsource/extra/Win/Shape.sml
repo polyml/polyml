@@ -41,13 +41,13 @@ struct
         type RECT = RECT and POINT = POINT
         (* FILLED SHAPES *)
         (* Strangely, some of these are in user32 and some in gdi32. *)
-        val FillRect             = call3 (user "FillRect") (cHDC,cConstStar cRect,cHBRUSH) (successState "FillRect")
-        val FrameRect            = call3 (user "FrameRect") (cHDC,cConstStar cRect,cHBRUSH) (successState "FrameRect")
-        val InvertRect           = call2 (user "InvertRect")  (cHDC,cConstStar cRect) (successState "InvertRect")
+        val FillRect             = winCall3 (user "FillRect") (cHDC,cConstStar cRect,cHBRUSH) (successState "FillRect")
+        val FrameRect            = winCall3 (user "FrameRect") (cHDC,cConstStar cRect,cHBRUSH) (successState "FrameRect")
+        val InvertRect           = winCall2 (user "InvertRect")  (cHDC,cConstStar cRect) (successState "InvertRect")
         
         local
             val chord =
-                call9 (gdi "Chord") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "Chord")
+                winCall9 (gdi "Chord") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "Chord")
         in
             fun Chord (h,{left,top,right,bottom}: RECT,{x=x1,y=y1}: POINT,{x=x2,y=y2}: POINT) =
                 chord (h,left,top,right,bottom,x1,y1,x2,y2)
@@ -55,7 +55,7 @@ struct
         
         local
             val ellipse =
-                call5 (gdi "Ellipse") (cHDC,cInt,cInt,cInt,cInt) (successState "Ellipse")
+                winCall5 (gdi "Ellipse") (cHDC,cInt,cInt,cInt,cInt) (successState "Ellipse")
         in
             fun Ellipse (h,{left,top,right,bottom}: RECT) =
                 ellipse(h,left,top,right,bottom)
@@ -63,7 +63,7 @@ struct
         
         local
             val pie =
-                call9 (gdi "Pie")
+                winCall9 (gdi "Pie")
                     (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "Pie")
         in
             fun Pie (h,{left,top,right,bottom}: RECT,{x=x1,y=y1}: POINT,{x=x2,y=y2}: POINT) =
@@ -71,7 +71,7 @@ struct
         end
         
         local
-            val polygon = call3 (gdi "Polygon") (cHDC,cPointer,cInt) (successState "Polygon")
+            val polygon = winCall3 (gdi "Polygon") (cHDC,cPointer,cInt) (successState "Polygon")
             val ptList = list2Vector cPoint
         in
             fun Polygon (h,pts: POINT list) = 
@@ -85,7 +85,7 @@ struct
         
         local
             val rectangle =
-                call5 (gdi "Rectangle") (cHDC,cInt,cInt,cInt,cInt) (successState "Rectangle")
+                winCall5 (gdi "Rectangle") (cHDC,cInt,cInt,cInt,cInt) (successState "Rectangle")
         in
             fun Rectangle(h,{left,top,right,bottom}: RECT) =
                 rectangle(h,left,top,right,bottom)
@@ -93,7 +93,7 @@ struct
         
         local
             val roundRect =
-                call7 (gdi "RoundRect") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt) (successState "RoundRect")
+                winCall7 (gdi "RoundRect") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt) (successState "RoundRect")
         in
             fun RoundRect(h,{left,top,right,bottom}: RECT,w,ht) =
                 roundRect(h,left,top,right,bottom,w,ht)

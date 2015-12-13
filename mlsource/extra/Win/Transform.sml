@@ -130,25 +130,25 @@ struct
         datatype Fraction = Fraction of {num:int, denom:int}
 
         local
-            val clientToScreen              = call2(user "ClientToScreen") (cHWND, cStar cPoint) (successState "ClientToScreen")
-            val combineTransform            = call3(gdi "CombineTransform") (cStar XFORM, cConstStar XFORM, cConstStar XFORM) (successState "CombineTransform")
-            val getCurrentPositionEx        = call2(gdi "GetCurrentPositionEx") (cHDC, cStar cPoint) (successState "GetCurrentPositionEx")
-            val getViewportExtEx            = call2(gdi "GetViewportExtEx") (cHDC, cStar cSize)  (successState "GetViewportExtEx")
-            val getViewportOrgEx            = call2(gdi "GetViewportOrgEx") (cHDC, cStar cPoint) (successState "GetViewportOrgEx")
-            val getWindowExtEx              = call2(gdi "GetWindowExtEx") (cHDC, cStar cSize)  (successState "GetWindowExtEx")
-            val getWindowOrgEx              = call2(gdi "GetWindowOrgEx") (cHDC, cStar cPoint) (successState "GetWindowOrgEx")
-            val getWorldTransform           = call2(gdi "GetWorldTransform") (cHDC, cStar XFORM) (successState "GetWorldTransform")
-            val offsetViewportOrgEx         = call4(gdi "OffsetViewportOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "OffsetViewportOrgEx")
-            val offsetWindowOrgEx           = call4(gdi "OffsetWindowOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "OffsetWindowOrgEx")
-            val screenToClient              = call2(user "ScreenToClient") (cHWND, cStar cPoint) (successState "ScreenToClient")
-            val setViewportExtEx            = call4(gdi "SetViewportExtEx") (cHDC, cInt, cInt, cStar cSize) (successState "SetViewportExtEx")
-            val setViewportOrgEx            = call4(gdi "SetViewportOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "SetViewportOrgEx")
-            val setWindowExtEx              = call4(gdi "SetWindowExtEx") (cHDC, cInt, cInt, cStar cSize) (successState "SetWindowExtEx")
-            val setWindowOrgEx              = call4(gdi "SetWindowOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "SetWindowOrgEx")
+            val clientToScreen              = winCall2(user "ClientToScreen") (cHWND, cStar cPoint) (successState "ClientToScreen")
+            val combineTransform            = winCall3(gdi "CombineTransform") (cStar XFORM, cConstStar XFORM, cConstStar XFORM) (successState "CombineTransform")
+            val getCurrentPositionEx        = winCall2(gdi "GetCurrentPositionEx") (cHDC, cStar cPoint) (successState "GetCurrentPositionEx")
+            val getViewportExtEx            = winCall2(gdi "GetViewportExtEx") (cHDC, cStar cSize)  (successState "GetViewportExtEx")
+            val getViewportOrgEx            = winCall2(gdi "GetViewportOrgEx") (cHDC, cStar cPoint) (successState "GetViewportOrgEx")
+            val getWindowExtEx              = winCall2(gdi "GetWindowExtEx") (cHDC, cStar cSize)  (successState "GetWindowExtEx")
+            val getWindowOrgEx              = winCall2(gdi "GetWindowOrgEx") (cHDC, cStar cPoint) (successState "GetWindowOrgEx")
+            val getWorldTransform           = winCall2(gdi "GetWorldTransform") (cHDC, cStar XFORM) (successState "GetWorldTransform")
+            val offsetViewportOrgEx         = winCall4(gdi "OffsetViewportOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "OffsetViewportOrgEx")
+            val offsetWindowOrgEx           = winCall4(gdi "OffsetWindowOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "OffsetWindowOrgEx")
+            val screenToClient              = winCall2(user "ScreenToClient") (cHWND, cStar cPoint) (successState "ScreenToClient")
+            val setViewportExtEx            = winCall4(gdi "SetViewportExtEx") (cHDC, cInt, cInt, cStar cSize) (successState "SetViewportExtEx")
+            val setViewportOrgEx            = winCall4(gdi "SetViewportOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "SetViewportOrgEx")
+            val setWindowExtEx              = winCall4(gdi "SetWindowExtEx") (cHDC, cInt, cInt, cStar cSize) (successState "SetWindowExtEx")
+            val setWindowOrgEx              = winCall4(gdi "SetWindowOrgEx") (cHDC, cInt, cInt, cStar cPoint) (successState "SetWindowOrgEx")
             val scaleViewportExtEx =
-                call6 (gdi "ScaleViewportExtEx") (cHWND,cInt,cInt,cInt,cInt,cStar cSize) (successState "ScaleViewportExtEx")
+                winCall6 (gdi "ScaleViewportExtEx") (cHWND,cInt,cInt,cInt,cInt,cStar cSize) (successState "ScaleViewportExtEx")
             val scaleWindowExtEx =
-                call6 (gdi "ScaleWindowExtEx") (cHWND,cInt,cInt,cInt,cInt,cStar cSize) (successState "ScaleWindowExtEx")
+                winCall6 (gdi "ScaleWindowExtEx") (cHWND,cInt,cInt,cInt,cInt,cStar cSize) (successState "ScaleWindowExtEx")
 
             val zeroXFORM: XForm = { m11=0.0, m12=0.0, m21=0.0, m22=0.0, dx=0.0, dy=0.0 }
             val zeroPoint: POINT = { x = 0, y = 0 }
@@ -182,23 +182,23 @@ struct
                 let val p = ref zeroSize in scaleWindowExtEx(h,n1,d1,n2,d2,p); !p end
         end
         
-        val ModifyWorldTransform    = call3(gdi "ModifyWorldTransform")  (cHDC, cConstStar XFORM, XFORMTYPE) (successState "ModifyWorldTransform")
-        val SetWorldTransform       = call2(gdi "SetWorldTransform") (cHDC, cConstStar XFORM) (successState "SetWorldTransform")
+        val ModifyWorldTransform    = winCall3(gdi "ModifyWorldTransform")  (cHDC, cConstStar XFORM, XFORMTYPE) (successState "ModifyWorldTransform")
+        val SetWorldTransform       = winCall2(gdi "SetWorldTransform") (cHDC, cConstStar XFORM) (successState "SetWorldTransform")
 
         
-        val GetMapMode                 = call1(gdi "GetMapMode") (cHDC) cMAPMODE
-        val SetMapMode                 = call2(gdi "SetMapMode") (cHDC,cMAPMODE) cMAPMODE
+        val GetMapMode                 = winCall1(gdi "GetMapMode") (cHDC) cMAPMODE
+        val SetMapMode                 = winCall2(gdi "SetMapMode") (cHDC,cMAPMODE) cMAPMODE
         (* Should check the result is non-zero. *)
-        val GetGraphicsMode            = call1 (gdi "GetGraphicsMode") (cHDC) GRAPHICSMODE
-        val SetGraphicsMode            = call2 (gdi "SetGraphicsMode") (cHDC, GRAPHICSMODE) GRAPHICSMODE
+        val GetGraphicsMode            = winCall1 (gdi "GetGraphicsMode") (cHDC) GRAPHICSMODE
+        val SetGraphicsMode            = winCall2 (gdi "SetGraphicsMode") (cHDC, GRAPHICSMODE) GRAPHICSMODE
 
         local
-            val dPtoLP = call3 (gdi "DPtoLP") (cHDC,cPointer,cInt) (successState "DPtoLP")
-            and lPtoDP = call3 (gdi "LPtoDP") (cHDC,cPointer,cInt) (successState "LPtoDP")
+            val dPtoLP = winCall3 (gdi "DPtoLP") (cHDC,cPointer,cInt) (successState "DPtoLP")
+            and lPtoDP = winCall3 (gdi "LPtoDP") (cHDC,cPointer,cInt) (successState "LPtoDP")
             (* The result is the bits added in each direction to make the mapping or is
                zero if there is an error.  The caller is supposed to call SetLastError and
                check GetLastError because the result could legitimately be zero.  *)
-            and mapWindowPoints = call4 (user "MapWindowPoints") (cHWND,cHWND,cPointer,cInt) cInt
+            and mapWindowPoints = winCall4 (user "MapWindowPoints") (cHWND,cHWND,cPointer,cInt) cInt
             
             val {load=fromPt, store=toPt, ctype={size=sizePt, ...}, ...} = breakConversion cPoint
 
