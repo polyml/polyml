@@ -185,7 +185,7 @@ void LogSize(POLYUNSIGNED wordSize)
 {
     POLYUNSIGNED size = wordSize * sizeof(PolyWord);
     if (size < 10*1024)
-        Log("%"POLYUFMT, size);
+        Log("%" POLYUFMT, size);
     else
     {
         double s = (double)size;
