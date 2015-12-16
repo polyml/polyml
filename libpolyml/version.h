@@ -1,7 +1,7 @@
 /*
     Title:  version.h
 
-    Copyright (c) 2000-14
+    Copyright (c) 2000-15
         Cambridge University Technical Services Limited
 
     This library is free software; you can redistribute it and/or
@@ -24,15 +24,15 @@
 #define VERSION_H_INCLUDED
 
 // Poly/ML system interface level
-#define POLY_version_number    552
+#define POLY_version_number    560
 // POLY_version_number is written into all exported files and tested
 // when we start up.  The idea is to ensure that if a file is exported
 // from one version of the library it will run successfully if linked
 // with a different version.
-// We currently export version 5.5.2 but will support versions since 5.1.
-#define FIRST_supported_version 510
-#define LAST_supported_version  552
+// This only supports version 5.6
+#define FIRST_supported_version 560
+#define LAST_supported_version  560
 
-#define TextVersion             "5.5.2"
+#define TextVersion             "5.6"
 
 #endif
