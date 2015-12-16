@@ -393,6 +393,7 @@ Handle poly_ffi(TaskData *taskData, Handle args, Handle code)
             // even if this thread is blocked in the C code.
             processes->ThreadReleaseMLMemory(taskData);
             ffi_call(cif, FFI_FN(f), res, arg);
+            // Do we need to save the value of errno/GetLastError here?
             processes->ThreadUseMLMemory(taskData);
             return taskData->saveVec.push(TAGGED(0));
         }

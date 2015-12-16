@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -37,29 +36,28 @@ structure Icon:
   end =
 struct
     local
-        open CInterface
+        open Foreign
         open Base
         open Resource
     in
         type HICON = HICON and HINSTANCE = HINSTANCE and HDC = HDC
-        val hiconNull = hgdiObjNull
-        and isHiconNull = isHgdiObjNull
+        val isHiconNull = isHgdiObjNull
 
         fun checkIcon c = (checkResult(not(isHiconNull c)); c)
 
         val CopyIcon =
-            checkIcon o call1 (user "CopyIcon") (HICON) HICON
+            checkIcon o winCall1 (user "CopyIcon") (cHICON) cHICON
 
         val DestroyIcon =
-            checkResult o call1 (user "DestroyIcon") (HICON) BOOL
+            checkResult o winCall1 (user "DestroyIcon") (cHICON) cBool
             
         val DrawIcon =
-            checkResult o call4 (user "DrawIcon") (HDC, INT, INT, HICON) BOOL
+            checkResult o winCall4 (user "DrawIcon") (cHDC, cInt, cInt, cHICON) cBool
 
-        val ExtractIcon = call3 (user "ExtractIcon") (HINSTANCE, STRING, INT) HICON
+        val ExtractIcon = winCall3 (user "ExtractIcon") (cHINSTANCE, cString, cUint) cHICON
 
         val LoadIcon =
-            checkIcon o call2 (user "LoadIconA") (HINSTANCE, RESID) HICON
+            checkIcon o winCall2 (user "LoadIconA") (cHINSTANCE, cRESID) cHICON
 
         (* Built-in icons. *)
         val IDI_APPLICATION     = Resource.IdAsInt 32512

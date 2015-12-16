@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -38,7 +37,7 @@ structure Line :
     val Arc : HDC * int * int * int * int * int * int * int * int -> unit
     val ArcTo : HDC * int * int * int * int * int * int * int * int -> unit
     val GetArcDirection : HDC -> ArcDirection
-    val LineTo : HDC * POINT -> bool
+    val LineTo : HDC * POINT -> unit
     val MoveToEx : HDC * POINT -> POINT
     val PolyBezier : HDC * POINT list -> unit
     val PolyBezierTo : HDC * POINT list -> unit
@@ -50,12 +49,9 @@ structure Line :
   end =
 struct
     local
-        open CInterface Base GdiBase
-
-        val (fromPt, toPt, ptStruct) = breakConversion POINT
-
-        val XCOORD = INT : int Conversion
-        val YCOORD = INT: int Conversion
+        open Foreign Base GdiBase
+        
+        val zeroPoint: POINT = {x=0, y=0}
     in
         type HDC = HDC and POINT = POINT and RECT = RECT
 
@@ -66,75 +62,84 @@ struct
             W of int
         in
             type ArcDirection = ArcDirection
-            val ARCDIRECTION = absConversion {abs = W, rep = fn W n => n} INT
+            val ARCDIRECTION = absConversion {abs = W, rep = fn W n => n} cInt
         
             val AD_COUNTERCLOCKWISE                          = W(1)
             val AD_CLOCKWISE                                 = W(2)
         end;
 
-        val AngleArc         = call6(gdi "AngleArc") (HDC,XCOORD,YCOORD,INT,FLOAT,FLOAT) (SUCCESSSTATE "AngleArc")
-        val Arc              = call9(gdi "Arc") (HDC,INT,INT,INT,INT,INT,INT,INT,INT) (SUCCESSSTATE "Arc")
-        val ArcTo            = call9(gdi "ArcTo") (HDC,INT,INT,INT,INT,INT,INT,INT,INT) (SUCCESSSTATE "ArcTo")
-        val GetArcDirection  = call1(gdi "GetArcDirection") (HDC) ARCDIRECTION
-        val SetArcDirection  = call2(gdi "SetArcDirection") (HDC,ARCDIRECTION) ARCDIRECTION
-        fun LineTo (h,({x,y}:POINT)) = call3 (gdi "LineTo") (HDC,INT,INT) (BOOL) (h,x,y)
+        val AngleArc         = winCall6(gdi "AngleArc") (cHDC,cInt,cInt,cDWORD,cFloat,cFloat) (successState "AngleArc")
+        val Arc              = winCall9(gdi "Arc") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "Arc")
+        val ArcTo            = winCall9(gdi "ArcTo") (cHDC,cInt,cInt,cInt,cInt,cInt,cInt,cInt,cInt) (successState "ArcTo")
+        val GetArcDirection  = winCall1(gdi "GetArcDirection") (cHDC) ARCDIRECTION
+        val SetArcDirection  = winCall2(gdi "SetArcDirection") (cHDC,ARCDIRECTION) ARCDIRECTION
 
         local
-            val moveToEx = call4 (gdi "MoveToEx") (HDC, INT, INT, POINTER) (SUCCESSSTATE "MoveToEx")
+            val lineTo = winCall3 (gdi "LineTo") (cHDC,cInt,cInt) (successState "LineTo")
+        in
+            fun LineTo (h,({x,y}:POINT)) = lineTo (h,x,y)
+        end
+
+        local
+            val moveToEx = winCall4 (gdi "MoveToEx") (cHDC, cInt, cInt, cStar cPoint) (successState "MoveToEx")
         in
             fun MoveToEx(h, ({x,y}:POINT)) =
+                let val p = ref zeroPoint in moveToEx(h, x, y, p); !p end
+        end
+
+        local
+            val polyBezier = winCall3 (gdi "PolyBezier") (cHDC,cPointer,cDWORD) (successState "PolyBezier")
+            and polyBezierTo = winCall3 (gdi "PolyBezierTo") (cHDC,cPointer,cDWORD) (successState "PolyBezierTo")
+            and polyDraw = winCall4 (gdi "PolyDraw") (cHDC,cPointer,cPointer, cInt) (successState "PolyDraw")
+            and polyLine = winCall3 (gdi "Polyline") (cHDC,cPointer,cInt) (successState "Polyline")
+            and polyLineTo = winCall3 (gdi "PolylineTo") (cHDC,cPointer,cDWORD) (successState "PolylineTo")
+
+            val ptList = list2Vector cPoint
+            val pTypeList = list2Vector cPOINTTYPE
+        in
+            fun PolyBezier (h, pts) = 
             let
-                val p = alloc 1 ptStruct
-                val _ = moveToEx(h, x, y, address p)
+                val (ptarr, count) = ptList pts
             in
-                fromPt p
+                polyBezier(h, ptarr, count) handle ex => (Memory.free ptarr; raise ex);
+                Memory.free ptarr
+            end
+
+            and PolyBezierTo (h, pts) = 
+            let
+                val (ptarr, count) = ptList pts
+            in
+                polyBezierTo(h, ptarr, count) handle ex => (Memory.free ptarr; raise ex);
+                Memory.free ptarr
+            end
+            
+            and PolyDraw (h, tplist: (PointType * POINT) list) = 
+            let
+                val (typeList, pl) = ListPair.unzip tplist
+                val (ptarr, count) = ptList pl
+                val (farr, _) = pTypeList typeList
+            in
+                polyDraw(h, ptarr, farr,count) handle ex => (Memory.free ptarr; Memory.free farr; raise ex);
+                Memory.free ptarr; Memory.free farr
+            end
+            
+            and Polyline (h, pts: POINT list) =
+            let
+                val (ptarr, count) = ptList pts
+            in
+                polyLine(h, ptarr, count) handle ex => (Memory.free ptarr; raise ex);
+                Memory.free ptarr
+            end
+
+            and PolylineTo (h, pts: POINT list) =
+            let
+                val (ptarr, count) = ptList pts
+            in
+                polyLineTo(h, ptarr, count) handle ex => (Memory.free ptarr; raise ex);
+                Memory.free ptarr
             end
         end
 
-        fun PolyBezier (h,pts: POINT list) = 
-        let val count = List.length pts
-            val ptarr = alloc count ptStruct
-            fun setItem(pt, n) =
-                (assign ptStruct (offset n ptStruct ptarr) (toPt pt); n+1)
-            val _: int = List.foldl setItem 0 pts
-        in
-           call3 (gdi "PolyBezier") (HDC,POINTER,INT) (SUCCESSSTATE "PolyBezier") (h,address ptarr,count)
-        end 
-        
-        fun PolyBezierTo (h,pts: POINT list) = 
-        let val count = List.length pts
-            val ptarr = alloc count ptStruct
-            fun setItem(pt, n) =
-                (assign ptStruct (offset n ptStruct ptarr) (toPt pt); n+1)
-            val _: int = List.foldl setItem 0 pts
-        in
-           call3 (gdi "PolyBezierTo") (HDC,POINTER,INT) (SUCCESSSTATE "PolyBezierTo") (h,address ptarr,count)
-        end 
-
-        fun PolyDraw (h, tplist: (PointType * POINT) list) = 
-        let
-            val (typeList, ptList) = ListPair.unzip tplist
-            val (ptarr, count) = list2Vector POINT ptList
-            val (farr, _) = list2Vector POINTTYPE typeList
-        in
-           call4 (gdi "PolyDraw")
-                 (HDC,POINTER,POINTER,INT) (SUCCESSSTATE "PolyDraw")
-                 (h, ptarr, farr,count)
-        end
-        
-        fun Polyline (h, pts: POINT list) = 
-        let
-            val (ptarr, count) = list2Vector POINT pts
-        in
-            call3 (gdi "Polyline") (HDC,POINTER,INT) (SUCCESSSTATE "Polyline") (h, ptarr, count)
-        end
-        
-        fun PolylineTo (h,pts: POINT list) = 
-        let
-            val (ptarr, count) = list2Vector POINT pts
-        in
-            call3 (gdi "PolylineTo") (HDC,POINTER,INT) (SUCCESSSTATE "PolylineTo") (h, ptarr, count)
-        end
         (*
         Other Line and Curve functions:
             LineDDA  

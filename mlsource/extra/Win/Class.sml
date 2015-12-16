@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -25,7 +24,8 @@ sig
     and HCURSOR (* = Cursor.HCURSOR *)
     and HGDIOBJ
 
-    datatype LRESULT = LRESINT of int | LRESHANDLE of HGDIOBJ
+    datatype LRESULT =
+        LRESINT of int | LRESHANDLE of HGDIOBJ
 
     datatype 'a ATOM =
         Registered of
@@ -75,30 +75,30 @@ sig
     val RegisterClassEx : 'a WNDCLASSEX -> 'a ATOM
 
     val UnregisterClass : string * HINSTANCE -> unit
-    val GetClassName : HWND -> string
     val GetClassInfoEx: HINSTANCE * string -> 'a WNDCLASSEX
   end
  =
 struct
     local
-        open CInterface
+        open Foreign
         open Base
         open Resource
     in
-        type Message = MessageBase.Message
+        type Message = Message.Message
         type HWND = HWND and HINSTANCE = HINSTANCE and HICON = HICON
         and HBRUSH = HBRUSH and HCURSOR = HCURSOR and HGDIOBJ = HGDIOBJ
-        datatype LRESULT = datatype MessageBase.LRESULT
+        datatype LRESULT = datatype Message.LRESULT
 
         structure Style =
         struct
-            type flags = SysWord.word
-            fun toWord f = f
-            fun fromWord f = f
-            val flags = List.foldl (fn (a, b) => SysWord.orb(a,b)) 0w0
-            fun allSet (fl1, fl2) = SysWord.andb(fl1, fl2) = fl1
-            fun anySet (fl1, fl2) = SysWord.andb(fl1, fl2) <> 0w0
-            fun clear (fl1, fl2) = SysWord.andb(SysWord.notb fl1, fl2)
+            open Word32
+            type flags = Word32.word
+            val toWord = SysWord.fromLargeWord o toLargeWord
+            and fromWord = fromLargeWord o SysWord.toLargeWord
+            val flags = List.foldl (fn (a, b) => orb(a,b)) 0w0
+            fun allSet (fl1, fl2) = andb(fl1, fl2) = fl1
+            fun anySet (fl1, fl2) = andb(fl1, fl2) <> 0w0
+            fun clear (fl1, fl2) = andb(notb fl1, fl2)
     
             val CS_VREDRAW: flags          = 0wx0001
             val CS_HREDRAW: flags          = 0wx0002
@@ -118,7 +118,7 @@ struct
                             CS_CLASSDC, CS_NOKEYCVT, CS_NOCLOSE, CS_SAVEBITS,
                             CS_BYTEALIGNCLIENT, CS_BYTEALIGNWINDOW, CS_GLOBALCLASS]
     
-            val intersect = List.foldl (fn (a, b) => SysWord.andb(a,b)) all
+            val intersect = List.foldl (fn (a, b) => andb(a,b)) all
         end
     
         (* Classes are either registered by the user, in which case they have
@@ -149,12 +149,10 @@ struct
              hIconSm: HICON option}
 
         local
-            val WNDPROC = PASCALFUNCTION4 (HWND, INT, POINTER, POINTER) POINTER
-            val WNDCLASSEX = STRUCT12(INT,WORD,WNDPROC,INT,INT,HINSTANCE,HGDIOBJOPT,
-                                      HGDIOBJOPT,HGDIOBJOPT,RESID,STRING,HGDIOBJOPT)
-            val (fromCwndclassex, toCwndclassex, wndclassEx) = breakConversion WNDCLASSEX
-            val CallWindowProc =
-                call5 (user "CallWindowProcA") (WNDPROC, HWND, INT, POINTER, POINTER) POINTER
+            val cWNDCLASSEX = cStruct12(cUint,cUintw, cFunction,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
+                                      cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
+            val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
+            val registerClassEx = winCall1 (user "RegisterClassExA") (cConstStar cWNDCLASSEX) cUint
         in
             fun RegisterClassEx({style: Style.flags, 
                                 wndProc: HWND * Message * 'a -> LRESULT * 'a,
@@ -168,10 +166,10 @@ struct
             let
                 (* The window procedure we pass to the C call is our dispatch function
                    in the RTS. *)
-                val windowProc = Message.mainCallbackFunction
+                val windowProc = Message.mainWinProc
                 val cWndClass =
-                    toCwndclassex(sizeof wndclassEx,
-                        Style.toWord style,
+                    (Word.toInt sizeWndclassEx,
+                        style,
                         windowProc,
                         0, (* Class extra *)
                         0, (* Window extra *)
@@ -183,23 +181,35 @@ struct
                         className,
                         hIconSm)
     
-                val res = call1 (user "RegisterClassExA") (POINTER) INT (address cWndClass)
+                val res = registerClassEx cWndClass
                 (* The result is supposed to be an atom but it doesn't always work to
                    pass this directly to CreateWindow. *)
             in
                 checkResult(res <> 0);
                 Registered{proc = wndProc, className = className}
             end
-
+        end
+       
+        local
+            (* We can't use the same definition of WNDCLASSEX as above because
+               we can't return a callback function as a result, at least at the
+               moment.
+               Also we use CallWindowProc because it does Unicode to ANSI conversion. *)
+            val cWNDCLASSEX = cStruct12(cUint,cUint, cPointer,cInt,cInt,cHINSTANCE,cHGDIOBJOPT,
+                                      cHGDIOBJOPT,cHGDIOBJOPT,cRESID,cString,cHGDIOBJOPT)
+            val { ctype = {size=sizeWndclassEx, ...}, ...} = breakConversion cWNDCLASSEX
+            val CallWindowProc =
+                winCall5 (user "CallWindowProcA") (cPointer, cHWND, cUint, cUINT_PTRw, cUINT_PTRw) cUINT_PTRw
+        in
             fun GetClassInfoEx(hInst, class): 'a WNDCLASSEX =
             let
                 val v =
-                    toCwndclassex(sizeof wndclassEx, 0w0, fn _ => toCint 0, 0, 0, hNull, 
+                    ref(Word.toInt sizeWndclassEx, 0, Memory.null, 0, 0, hNull, 
                                   NONE, NONE, NONE, IdAsInt 0, "", NONE)
-                val res = call3(user "GetClassInfoExA") (HINSTANCE, STRING, POINTER)
-                            (SUCCESSSTATE "GetClassInfoEx") (hInst, class, address v)
+                val () = winCall3(user "GetClassInfoExA") (cHINSTANCE, cString, cStar cWNDCLASSEX)
+                            (successState "GetClassInfoEx") (hInst, class, v)
                 val (_, style, wproc, _, _, hInstance, hIcon, hCursor, hbrBackGround,
-                     menuName, className, hIconSm) = fromCwndclassex v
+                     menuName, className, hIconSm) = !v
                 val mName =
                     case menuName of
                         IdAsInt 0 => NONE
@@ -207,34 +217,29 @@ struct
                     |   m => SOME m
                 fun wndProc(hwnd, msg, state) =
                 let
-                    val (msgId: int, wParam: vol, lParam: vol) = Message.compileMessage msg
-                    val res: vol = CallWindowProc(wproc, hwnd, msgId, wParam, lParam)
+                    val (msgId: int, wParam, lParam, freeMsg) = Message.compileMessage msg
+                    val res = CallWindowProc(wproc, hwnd, msgId, wParam, lParam)
                 in
                     (Message.messageReturnFromParams(msg, wParam, lParam, res), state)
+                        before freeMsg()
                 end
             in
-                {style = Style.fromWord style, wndProc = wndProc, hInstance = hInstance,
+                {style = Style.fromWord(LargeWord.fromInt style), wndProc = wndProc, hInstance = hInstance,
                  hIcon = hIcon, hCursor = hCursor, hbrBackGround = hbrBackGround,
-                 menuName = mName, className = className, hIconSm = hIconSm }
+                 menuName = mName, className = className, hIconSm = hIconSm }: 'a WNDCLASSEX
             end
-        end
 
-        (* The underlying call can take either a string or an atom.  I really don't
-           know which is better here. *)
-        val UnregisterClass =
-            call2 (user "UnregisterClassA") (STRING, HINSTANCE) (SUCCESSSTATE "UnregisterClass")
-    
-        local
-            val getClassName = call3 (user "GetClassNameA") (HWND, POINTER, INT) INT
-        in
-            fun GetClassName hwnd =
-                getStringCall(fn (v, i) => getClassName(hwnd, v, i))
+            (* The underlying call can take either a string or an atom.  I really don't
+               know which is better here. *)
+            (* TODO: We should extract the window proc and call freeCallback on it. *)
+            val UnregisterClass =
+                winCall2 (user "UnregisterClassA") (cString, cHINSTANCE) (successState "UnregisterClass")
         end
 (*
 The following functions are used with window classes. 
 GetClassInfoEx  
-GetClassLong  
-GetWindowLong  
+GetClassLong
+GetWindowLong    - in Window
 SetClassLong  
 SetWindowLong  
 

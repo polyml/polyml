@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001
+    Copyright (c) 2001, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,7 +19,7 @@
 structure ScrollBase =
 struct
     local
-        open CInterface Base
+        open Foreign Base
     in
         type enableArrows = { enableLeftUp: bool, enableRightDown: bool }
         val ESB_ENABLE_BOTH = { enableLeftUp = true, enableRightDown = true }
@@ -39,7 +38,9 @@ struct
                 {enableLeftUp = IntInf.andb(i, 1) = 0,
                  enableRightDown = IntInf.andb(i, 2) = 0} 
         in
-            val ENABLESCROLLBARFLAG = absConversion{rep = toInt, abs = fromInt} INT
+            (* It's easier to use the functions directly for messages *)
+            val ENABLESCROLLBARFLAG = (toInt, fromInt)
+            val cENABLESCROLLBARFLAG = absConversion{rep = toInt, abs = fromInt} cUint
         end
 
         type SCROLLINFO =
@@ -52,27 +53,18 @@ struct
 
         local
             val tab = [
-                (SIF_RANGE,           0x0001),
-                (SIF_PAGE,            0x0002),
-                (SIF_POS,             0x0004),
-                (SIF_DISABLENOSCROLL, 0x0008),
-                (SIF_TRACKPOS,        0x0010)]
+                (SIF_RANGE,           0wx0001),
+                (SIF_PAGE,            0wx0002),
+                (SIF_POS,             0wx0004),
+                (SIF_DISABLENOSCROLL, 0wx0008),
+                (SIF_TRACKPOS,        0wx0010)]
         in
             (*val (fromSIF, toSIF) = tableSetLookup(tab, NONE)*)
-            val SCROLLINFOOPTION = tableSetConversion(tab, NONE)
+            val cSCROLLINFOOPTION = tableSetConversion(tab, NONE)
         end
 
-        local
-            val SCROLLINFOSTRUCT = STRUCT7(INT, SCROLLINFOOPTION, INT, INT, INT, INT, INT)
-            val (_, _, scrollInfoStruct) = breakConversion SCROLLINFOSTRUCT
-
-            fun fromStruct(_, mask, minPos, maxPos, pageSize, pos, trackPos) =
-                ({minPos = minPos, maxPos = maxPos, pageSize = pageSize,
-                 pos = pos, trackPos = trackPos}, mask)
-            and toStruct({ minPos, maxPos, pageSize, pos, trackPos}, options) =
-                (sizeof scrollInfoStruct, options, minPos, maxPos, pageSize, pos, trackPos)
-        in
-            val SCROLLINFO = absConversion{abs=fromStruct, rep=toStruct} SCROLLINFOSTRUCT
-        end
+        (* Needed in Scrollbar and also Messages *)
+        val cSCROLLINFOSTRUCT =
+            cStruct7(cUint, cSCROLLINFOOPTION, cInt, cInt, cUint, cInt, cInt)
     end
 end;

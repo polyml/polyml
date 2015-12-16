@@ -1,11 +1,10 @@
 (*
-    Copyright (c) 2001-7
+    Copyright (c) 2001-7, 2015
         David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 2.1 of the License, or (at your option) any later version.
+    License version 2.1 as published by the Free Software Foundation.
     
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -94,42 +93,7 @@ structure Bitmap:
   end =
 struct
     local
-        open CInterface Base
-
-        fun callgdi name = call_sym (load_sym (load_lib "gdi32.DLL") name)
-
-        fun gdicall_IIIM name CR (C1,C2,C3,C4) (a1,a2,a3,a4) =
-            let val (from1,to1,ctype1) = breakConversion C1
-                val (from2,to2,ctype2) = breakConversion C2
-                val (from3,to3,ctype3) = breakConversion C3
-                val (from4,to4,ctype4) = breakConversion C4
-                val (fromR,toR,ctypeR) = breakConversion CR
-                val va1 = to1 a1
-                val va2 = to2 a2
-                val va3 = to3 a3
-                val va4 = address (to4 a4)
-                val res = callgdi name [(ctype1,va1),(ctype2,va2),(ctype3,va3),(Cpointer ctype4,va4)] ctypeR
-                val _ : unit = fromR res
-            in  from4 (deref va4)
-            end
-
-        fun gdicall_IW name CR (C1,C2) (a1) =
-            let val (from1,to1,ctype1) = breakConversion C1
-                val (from2,to2,ctype2) = breakConversion C2
-                val (fromR,toR,ctypeR) = breakConversion CR
-                val va1 = to1 a1
-                val va2 = address (alloc 1 ctype2)
-                val res = callgdi name [(ctype1,va1),(Cpointer ctype2,va2)] ctypeR
-                val _: unit = fromR res
-            in  (from2 (deref va2))
-            end
-
-        val XCOORD = INT : int Conversion
-        val YCOORD = INT: int Conversion
-        val XOFFSET = INT: int Conversion
-        val YOFFSET = INT: int Conversion
-        val WIDTH = INT: int Conversion
-        val HEIGHT = INT: int Conversion
+        open Foreign Base
 
         fun checkBitmap c = (checkResult(not(isHgdiObjNull c)); c)
     in
@@ -144,7 +108,7 @@ struct
             W of int
         in
             type StretchMode = StretchMode
-            val STRETCHMODE = absConversion {abs = W, rep = fn W n => n} INT
+            val STRETCHMODE = absConversion {abs = W, rep = fn W n => n} cInt
         
             val BLACKONWHITE                                 = W (1)
             val WHITEONBLACK                                 = W (2)
@@ -162,75 +126,96 @@ struct
                 ]
             
         in
-            val FLOODFILLMODE = tableConversion(tab, NONE)
+            val FLOODFILLMODE = tableConversion(tab, NONE) cUint
         end
 
         val ExtFloodFill =
-            call5 (gdi "ExtFloodFill") 
-                   (HDC,XCOORD,YCOORD,COLORREF,FLOODFILLMODE) (SUCCESSSTATE "ExtFloodFill")
+            winCall5 (gdi "ExtFloodFill") 
+                   (cHDC,cInt,cInt,cCOLORREF,FLOODFILLMODE) (successState "ExtFloodFill")
 
-        val GetPixel = call3 (gdi "GetPixel") (HDC,INT,INT) COLORREF
-        val SetPixel = call4 (gdi "SetPixel") (HDC,INT,INT, COLORREF) COLORREF
-        val BitBlt = call9 (gdi  "BitBlt") (HDC,XCOORD,YCOORD,WIDTH,HEIGHT,HDC,XCOORD,YCOORD,RASTEROPCODE)
-                (SUCCESSSTATE "BitBlt")
+        val GetPixel = winCall3 (gdi "GetPixel") (cHDC,cInt,cInt) cCOLORREF
+        val SetPixel = winCall4 (gdi "SetPixel") (cHDC,cInt,cInt, cCOLORREF) cCOLORREF
+        val BitBlt = winCall9 (gdi  "BitBlt") (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cRASTEROPCODE)
+                (successState "BitBlt")
                                          
 
         val CreateCompatibleBitmap     = 
             checkBitmap o
-                call3 (gdi "CreateCompatibleBitmap") (HDC,WIDTH,HEIGHT) HBITMAP
+                winCall3 (gdi "CreateCompatibleBitmap") (cHDC,cInt,cInt) cHBITMAP
 
 
-        val GetStretchBltMode          = call1 (gdi "GetStretchBltMode") (HDC) STRETCHMODE
+        val GetStretchBltMode          = winCall1 (gdi "GetStretchBltMode") (cHDC) STRETCHMODE
 
         (* TODO: The raster op is supposed to be a combined operation for the foreground and
            background. *)
-        val MaskBlt                    = call12(gdi "MaskBlt")
-                                         (HDC,XCOORD,YCOORD,WIDTH,HEIGHT,HDC,XCOORD,YCOORD,HBITMAP,XOFFSET,
-                                          YOFFSET,QUATERNARY)
-                                          (SUCCESSSTATE "MaskBlt")
+        val MaskBlt = winCall12(gdi "MaskBlt") (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cHBITMAP,cInt,
+                                          cInt,cQUATERNARY) (successState "MaskBlt")
 
-        val SetStretchBltMode          = call2(gdi "SetStretchBltMode") (HDC,STRETCHMODE) (SUCCESSSTATE "SetStretchBltMode")
+        val SetStretchBltMode = winCall2(gdi "SetStretchBltMode") (cHDC,STRETCHMODE) (successState "SetStretchBltMode")
 
         val StretchBlt =
-            call11(gdi "StretchBlt") 
-                (HDC,XCOORD,YCOORD,WIDTH,HEIGHT,HDC,XCOORD,YCOORD,WIDTH,HEIGHT,RASTEROPCODE)
-                    (SUCCESSSTATE "StretchBlt")
+            winCall11(gdi "StretchBlt") 
+                (cHDC,cInt,cInt,cInt,cInt,cHDC,cInt,cInt,cInt,cInt,cRASTEROPCODE) (successState "StretchBlt")
 
         (* This definitely has the wrong type. *)
-        (*val PlgBlt = call7 (gdi "PlgBlt")(HDC,RECT,HDC,RECT,HBITMAP,XCOORD,YCOORD)
-                 (SUCCESSSTATE "PlgBlt")*)
+        (*val PlgBlt = winCall7 (gdi "PlgBlt")(cHDC,RECT,cHDC,RECT,HBITMAP,XCOORD,YCOORD)
+                 (successState "PlgBlt")*)
                                          
 
-        val SetBitmapDimensionEx       = gdicall_IIIM "SetBitmapDimensionEx" (SUCCESSSTATE "SetBitmapDimensionEx")
-                                         (HBITMAP,WIDTH,HEIGHT,SIZE)
-
-        val GetBitmapDimensionEx       = gdicall_IW "GetBitmapDimensionEx" (SUCCESSSTATE "GetBitmapDimensionEx")
-                                         (HBITMAP,SIZE)
+        local
+            val setBitmapDimensionEx =
+                winCall4 (gdi "SetBitmapDimensionEx") (cHBITMAP, cInt, cInt, cStar cSize) (successState "SetBitmapDimensionEx")
+        in
+            fun SetBitmapDimensionEx(hbm, width, height, s) =
+            let
+                val r = ref s
+            in
+                setBitmapDimensionEx(hbm, width, height, r);
+                !r
+            end
+        end
+        local
+            val getBitmapDimensionEx =
+                winCall2 (gdi "GetBitmapDimensionEx") (cHBITMAP, cStar cSize) (successState "SetBitmapDimensionEx")
+        in
+            fun GetBitmapDimensionEx hbm =
+            let
+                val r = ref {cx=0, cy=0}
+            in
+                getBitmapDimensionEx(hbm, r);
+                !r
+            end
+        end
 
         val CreateBitmapIndirect       =
             checkBitmap o
-                call1 (gdi "CreateBitmapIndirect") (POINTERTO BITMAP) HBITMAP
+                winCall1 (gdi "CreateBitmapIndirect") (cConstStar cBITMAP) cHBITMAP
 
         local
             val cbm = checkBitmap o
-                call5 (gdi "CreateBitmap") (INT, INT, INT, INT, POINTER) HBITMAP
+                winCall5 (gdi "CreateBitmap") (cInt, cInt, cInt, cInt, cPointer) cHBITMAP
         in
             fun CreateBitmap{width, height, planes, bitsPerPixel, bits} =
-                cbm(width, height, planes, bitsPerPixel,
-                    case bits of NONE => toCint 0
-                    |   SOME v => fromWord8vec v)
+            let
+                val vec = case bits of NONE => Memory.null | SOME v => toCWord8vec v
+                val res = 
+                    cbm(width, height, planes, bitsPerPixel, vec)
+                        handle ex => (Memory.free vec; raise ex)
+            in
+                Memory.free vec;
+                checkBitmap res
+            end
         end
-
+(*
         local
             (* RGBQUAD values are four bytes of blue, green, red and a reserved byte. *)
-            val RGBQUAD = STRUCT4(CHAR, CHAR, CHAR, CHAR)
-            val (fromR, toR, rtype) = breakConversion RGBQUAD
+            val RGBQUAD = cStruct4(cUint8, cUint8, cUint8, cUint8)
             fun from v =
-                let val (b, g, r, _) = fromR v in {red = ord r, blue = ord b, green = ord g} end
-            fun to {red, green, blue} = toR(chr blue, chr green, chr red, #"\000")
+                let val (b, g, r, _) = v in {red = r, blue = b, green = g} end
+            fun to {red, green, blue} = (blue, green, red, 0)
         in
-            val RGBQUAD = mkConversion from to rtype
-        end
+            val RGBQUAD = absConversion {rep=to, abs=from} RGBQUAD
+        end*)
 
         (*TYPE: BitmapCompression *)
         datatype BitmapCompression = BI_RGB | BI_RLE8 | BI_RLE4 | BI_BITFIELDS
@@ -244,7 +229,7 @@ struct
             ]
         in
             val (fromComp, toComp) = tableLookup(tab, NONE)
-            val BITCOMPRESSION = absConversion {abs = toComp, rep = fromComp} INT
+            val BITCOMPRESSION = absConversion {abs = toComp, rep = fromComp} cDWORD
         end
 
         type BITMAPINFOHEADER =
@@ -288,17 +273,21 @@ struct
 
         local
             val DIB_RGB_COLORS =     0
-            val DIB_PAL_COLORS =     1
+            (*val DIB_PAL_COLORS =     1*)
 
-            val BITMAPINFOHEADER = STRUCT11(INT, LONG, LONG, SHORT, SHORT, BITCOMPRESSION,
-                INT, LONG, LONG, INT, INT)
-            val (fromR, toR, rtype) = breakConversion BITMAPINFOHEADER
+            val BITMAPINFOHEADER = cStruct11(cDWORD, cLong, cLong, cWORD, cWORD, BITCOMPRESSION,
+                cDWORD, cLong, cLong, cDWORD, cDWORD)
+            val {load=fromR, store=toR, ctype={size=rtypeSize, ...}} =
+                breakConversion BITMAPINFOHEADER
 
-            val getDIBits = call7 (gdi "GetDIBits")
-                (HDC, HBITMAP, UINT, UINT, POINTER, POINTER, INT) INT
+            val getDIBits = winCall7 (gdi "GetDIBits")
+                (cHDC, cHBITMAP, cUint, cUint, cPointer, cPointer, cUint) cInt
 
-            val setDIBits = call7 (gdi "SetDIBits")
-                (HDC, HBITMAP, UINT, UINT, POINTER, POINTER, INT) INT
+            val setDIBits = winCall7 (gdi "SetDIBits")
+                (cHDC, cHBITMAP, cUint, cUint, cPointer, cPointer, cUint) cInt
+            
+            val sizeColourEntry = #size LowLevel.cTypeInt (* Should this RGBQUAD? *)
+                
         in
             (* This is all a bit messy.  GetDIBits can be used in a number of ways
                to get all or part of the information.  Passing NULL for the "bits"
@@ -316,12 +305,15 @@ struct
                 let
                     (* Allocate a vector for the result and set the length field
                        and bitsPerPixel.  The others don't matter. *)
-                    val v = toR(sizeof rtype, 0, 0, 0, 0, BI_RGB, 0, 0, 0, 0, 0)
-                    val res = getDIBits(hdc, hb, startScan, scanLines, toCint 0,
-                                    address v, DIB_RGB_COLORS)
+                    open Memory
+                    val v = malloc rtypeSize
+                    val _ = toR(v, (Word.toInt rtypeSize, 0, 0, 0, 0, BI_RGB, 0, 0, 0, 0, 0))
+                    val res =
+                        getDIBits(hdc, hb, startScan, scanLines, Memory.null, v, DIB_RGB_COLORS)
+                            handle ex => (free v; raise ex)
                 in
-                    checkResult(res <> 0);
-                    fromCbytes(address v, sizeof rtype)
+                    checkResult(res <> 0) handle ex => (free v; raise ex);
+                    fromCWord8vec(v, Word.toInt rtypeSize) before free v
                 end
 
              |  GetDIBits(hdc: HDC, hb: HBITMAP, startScan, scanLines,
@@ -330,17 +322,23 @@ struct
                 let
                     (* The passed in value for sizeImage may be wrong.  Call
                        GetDIBits to find the correct value. *)
-                    val v = toR(sizeof rtype, width, height, planes, bitsPerPixel,
-                                compression, sizeImage, xPelsPerM, yPelsPerM, clrUsed,
-                                clrImportant)
-                    (* This call will build a colour map so we have to have enough
-                       space for it. The biggest possible is with 8 bits. *)
-                    val w = alloc (sizeof rtype + 256*sizeof Cint) Cchar
-                    val _ = assign rtype w v
-                    val res = getDIBits(hdc, hb, startScan, scanLines, toCint 0,
-                                    address w, DIB_RGB_COLORS)
-                    val _ = checkResult(res <> 0)
-                    val (_, _, _, _, _, _, sizeImage, _, _, _, _) = fromR w
+                    open Memory
+                    infix 6 ++
+                    local
+                        (* This call will build a colour map so we have to have enough
+                           space for it. The biggest possible is with 8 bits. *)
+                        val w = malloc (rtypeSize + 0w256 * sizeColourEntry)
+                        val _ = toR(w, (Word.toInt rtypeSize, width, height, planes, bitsPerPixel,
+                                    compression, sizeImage, xPelsPerM, yPelsPerM, clrUsed,
+                                    clrImportant))
+                        val _ =
+                            checkResult(getDIBits(hdc, hb, startScan, scanLines, null, w, DIB_RGB_COLORS) <> 0)
+                                handle ex => (free w; raise ex)
+                    in
+                        val (_, _, _, _, _, _, sizeImage, _, _, _, _) = fromR w
+                        val () = free w
+                    end
+                    
                     (* Calculate the size of the palette. *)
                     val numColours =
                         if clrUsed <> 0
@@ -350,27 +348,31 @@ struct
                         else if compression = BI_BITFIELDS
                         then 3 (* These are DWORD colour masks not RGBQUADS. *)
                         else 0 (* No colour table. *)
-                    val bitOffset = sizeof rtype + numColours * sizeof Cint
-                    val size = bitOffset + sizeImage
-                    val mem = alloc size Cchar
-                    val _ = assign rtype mem v
-                    val res = getDIBits(hdc, hb, startScan, scanLines,
-                                address(offset bitOffset Cchar mem),
-                                address mem, DIB_RGB_COLORS)
+                    val bitOffset = rtypeSize + Word.fromInt numColours * sizeColourEntry
+                    val size = bitOffset + Word.fromInt sizeImage
+                    val w = malloc size
+                    val _ = toR(w, (Word.toInt rtypeSize, width, height, planes, bitsPerPixel,
+                                compression, sizeImage, xPelsPerM, yPelsPerM, clrUsed,
+                                clrImportant))
+                    val _ =
+                        checkResult(getDIBits(hdc, hb, startScan, scanLines, w ++ bitOffset, w, DIB_RGB_COLORS) <> 0)
+                            handle ex => (free w; raise ex)
                 in
-                    checkResult(res <> 0);
-                    fromCbytes(address mem, size)                   
+                    fromCWord8vec (w, Word.toInt size) before free w
                 end
 
         
             fun SetDIBits(hdc, hb, startScan, scanLines, w) =
             let
-                val v = toCbytes w
+                open Memory
+                infix 6 ++
+                val v = toCWord8vec w
+                (*val v = toCbytes w*)
                 (* We need to work out the offset of the bits.  For this we need
                    the size of the header structure (which may not be a
                    BITMAPINFOHEADER but some other version of it), the number of
                    colours and the compression. *)
-                val hdrSize = LargeWord.toInt(PackWord32Little.subVec(w, 0))
+                val hdrSize = #1 (fromR v)
                 val { clrUsed, compression, bitsPerPixel, ...} = getBitmapInfoHdr w
                 val numColours =
                     if clrUsed <> 0
@@ -380,9 +382,9 @@ struct
                     else if compression = BI_BITFIELDS
                     then 3 (* These are DWORD colour masks not RGBQUADS. *)
                     else 0 (* No colour table. *)
-                val bitOffset = hdrSize + numColours * sizeof Cint
+                val bitOffset = Word.fromInt hdrSize +Word.fromInt numColours * sizeColourEntry
                 val res = setDIBits(hdc, hb, startScan, scanLines,
-                        address(offset bitOffset Cchar (deref v)), v, DIB_RGB_COLORS)
+                        v ++ bitOffset, v, DIB_RGB_COLORS)
             in
                 checkResult(res <> 0)
             end
@@ -392,20 +394,26 @@ struct
            for copying device-dependent bitmaps. *)
         fun GetBitmapBits(hbm, bytes): Word8Vector.vector =
         let
-            val gbb = call3 (gdi "GetBitmapBits") (HBITMAP, INT, POINTER) (POSINT "GetBitmapBits")
-            val buff = alloc bytes Cchar
-            val res = gbb(hbm, bytes, address buff)
+            val gbb = winCall3 (gdi "GetBitmapBits") (cHBITMAP, cDWORD, cPointer) cLong
+            open Memory
+            val buff = malloc (Word.fromInt bytes)
+            val () =
+                checkResult(gbb(hbm, bytes, buff) > 0)
+                    handle ex => (free buff; raise ex)
         in
-            toWord8vec (address buff, bytes)
+            fromCWord8vec (buff, bytes) before free buff
         end
 
         fun SetBitmapBits(hbm, w) = 
         let
-            val sbb = call3 (gdi "SetBitmapBits") (HBITMAP, INT, POINTER) (POSINT "SetBitmapBits")
-            val buff = fromWord8vec w
-            val res = sbb(hbm, Word8Vector.length w, buff)
+            val sbb = winCall3 (gdi "SetBitmapBits") (cHBITMAP, cDWORD, cPointer) cLong
+            val buff = toCWord8vec w
+            open Memory
+            val () =
+                checkResult(sbb(hbm, Word8Vector.length w, buff) > 0)
+                    handle ex => (free buff; raise ex)
         in
-            ()
+            free buff
         end
 
         (*
