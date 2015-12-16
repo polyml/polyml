@@ -10,29 +10,6 @@
   <?define UpgradeCode = "D7A17500-0FF5-4FC3-BC36-DD799D57071A" ?>
 <?endif ?>
 
-<!-- These defines allow the paths to the sources to be given on the command line. -->
-<?ifndef POLYLIBSRC ?>
-  <?if $(var.Platform) = x64 ?>
-      <?define POLYLIBSRC = '..\x64\Release\PolyLib.dll' ?>
-  <?else?>
-      <?define POLYLIBSRC = '..\Release\PolyLib.dll' ?>
-  <?endif?>
-<?endif?>
-<?ifndef POLYEXESRC ?>
-  <?if $(var.Platform) = x64 ?>
-      <?define POLYEXESRC = '..\x64\Release\PolyML.exe' ?>
-  <?else?>
-      <?define POLYEXESRC = '..\Release\PolyML.exe' ?>
-  <?endif?>
-<?endif?>
-<?ifndef POLYPERFSRC ?>
-  <?if $(var.Platform) = x64 ?>
-      <?define POLYPERFSRC = '..\x64\Release\PolyPerf.dll' ?>
-  <?else?>
-    <?define POLYPERFSRC = '..\Release\PolyPerf.dll' ?>
-  <?endif?>
-<?endif?>
-
 <Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'
       xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"> 
   <Product Name="$(var.ProductName)" Id='*' UpgradeCode='$(var.UpgradeCode)'
@@ -56,11 +33,11 @@
         <Directory Id='POLYMLDIR' Name='Poly ML'>
           <!-- Poly/ML -->
           <Component Id='PolyLib.dll' Guid='*'> 
-            <File Id='PolyLibDLL' Name='PolyLib.dll' DiskId='1' Source='$(var.POLYLIBSRC)' />
+            <File Id='PolyLibDLL' Name='$(var.PolyLib.TargetFileName)' DiskId='1' Source='$(var.PolyLib.TargetPath)' />
           </Component>
             
           <Component Id='PolyML.exe' Guid='*'> 
-            <File Id='PolyML.exe' Name='PolyML.exe' DiskId='1' Source='$(var.POLYEXESRC)' KeyPath="yes"> 
+            <File Id='PolyML.exe' Name='$(var.PolyML.TargetFileName)' DiskId='1' Source='$(var.PolyML.TargetPath)' KeyPath="yes"> 
               <Shortcut Id="startmenuPolyML" Directory="ProgramMenuDir" Name="PolyML" 
                         Advertise="yes" WorkingDirectory='POLYMLDIR' Icon="polyicon.exe" />
               <Shortcut Id="desktopPolyML" Directory="DesktopFolder" Name="PolyML"
@@ -76,7 +53,7 @@
 
           <!-- Poly/ML Performance monitor -->
           <Component Id='PolyPerf.dll' Guid='*'>              
-            <File Id='PolyPerf.dll' Name='PolyPerf.dll' DiskId='1' Source='$(var.POLYPERFSRC)' />
+            <File Id='PolyPerf.dll' Name='PolyPerf.dll' DiskId='1' Source='$(var.PolyPerf.TargetPath)' />
 
             <!-- Registry entries for Poly/ML in the services key -->
             <!-- This is used in place of the old form which required an ini file and header -->
@@ -198,7 +175,7 @@
 
     <UIRef Id="WixUI_FeatureTree" />
     <UIRef Id="WixUI_ErrorProgressText" />
-    <Icon Id="polyicon.exe" SourceFile="polyicon\Release\polyicon.exe" />
+    <Icon Id="polyicon.exe" SourceFile="$(var.polyicon.TargetPath)" />
     <Property Id="ARPPRODUCTICON" Value="polyicon.exe" />
     <Property Id="ARPHELPLINK" Value="http://www.polyml.org"/>
       <Property Id="ALLUSERS" Value="2"/>
